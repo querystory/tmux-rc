@@ -126,7 +126,8 @@ class _Meter:
         self.approvals: dict[str, asyncio.Future] = {}  # proposal id -> the user's answer
         self.superseded = False  # the user typed past a card: the rest of its turn is declined
         self.push = None  # the daemon's PushManager: a card left waiting unseen notifies (_nudge)
-        self.viewing = True  # the client's word: chat sheet open on a visible page
+        # When the chat last went out of view (sheet closed or page hidden), None while in view
+        self.unseen_since: float | None = None
         # Pasted images by conversation-wide number, kept for every turn the chat model's next
         # request can still show: the kept history, plus the queued turns and the one being
         # answered, which are numbered here before they enter that history.
@@ -512,12 +513,14 @@ _NUDGE_TICK = 1.0
 
 async def _nudge(meter: _Meter, text: str) -> None:
     """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
-    at the chat (sheet minimized, page hidden, phone locked). Answering the card cancels
-    this, and it returns after one push, so a card notifies at most once."""
-    away = 0.0
-    while away < push.SETTLE_SECONDS:
+    at the chat (sheet minimized, page hidden, phone locked) the whole time. Answering the
+    card cancels this, and it returns after one push, so a card notifies at most once."""
+    shown = time.monotonic()
+    while True:
+        since = meter.unseen_since
+        if since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS:
+            break
         await asyncio.sleep(_NUDGE_TICK)
-        away = 0.0 if meter.viewing else away + _NUDGE_TICK
     await asyncio.to_thread(meter.push.chat, text)
 
 
@@ -1047,7 +1050,8 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
             if answer and not answer.done():
                 answer.set_result(data.get("ok") is True)
         elif action == "viewing":  # whether a card waiting now would be seen (_nudge)
-            meter.viewing = data.get("on") is not False
+            meter.unseen_since = (None if data.get("on") is not False
+                                  else meter.unseen_since or time.monotonic())
         elif action == "stop":
             return
         else:

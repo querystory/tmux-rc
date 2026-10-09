@@ -6,6 +6,7 @@ tool call may touch a real terminal — the context builder and the reject paths
 
 import asyncio
 import logging
+import time
 
 import pytest
 
@@ -337,7 +338,7 @@ def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     you" once it has waited a moment; one in view stays quiet. Either way the push stops
     with the answer, so a card notifies at most once."""
     meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
-    meter.viewing = viewing
+    meter.unseen_since = None if viewing else time.monotonic()
     pushed = []
 
     class Push:
@@ -363,10 +364,17 @@ def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
 
 
 def test_client_reports_whether_the_chat_is_in_view():
+    """Unseen time runs from the moment the chat left view, not from a poll tick, and a
+    repeated "out of view" keeps that moment; coming back into view clears it."""
     meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
-    _run(L._forward_client(_ScriptedWS([{"action": "viewing", "on": False}, {"action": "stop"}]),
-                           None, meter))
-    assert meter.viewing is False
+    off, stop = {"action": "viewing", "on": False}, {"action": "stop"}
+    _run(L._forward_client(_ScriptedWS([off, stop]), None, meter))
+    since = meter.unseen_since
+    assert since is not None
+    _run(L._forward_client(_ScriptedWS([off, stop]), None, meter))
+    assert meter.unseen_since == since
+    _run(L._forward_client(_ScriptedWS([{"action": "viewing", "on": True}, stop]), None, meter))
+    assert meter.unseen_since is None
 
 
 def test_approval_is_refused_when_the_pane_had_no_process_to_bind(monkeypatch):
