@@ -936,11 +936,11 @@ def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
         _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
     try:
-        tmux.kill_window(pane.id, pid)
+        killed = tmux.kill_window(pane.id, pid)
     except Exception as e:
         _audit(request, action, pane_id, detail, outcome=f"error: {type(e).__name__}")
         raise
-    if pid is not None and tmux.pane_pid(pane.id) is not None:
+    if not killed:
         _audit(request, action, pane_id, detail, outcome="rejected: the pane changed")
         raise HTTPException(409, "the pane changed")
 

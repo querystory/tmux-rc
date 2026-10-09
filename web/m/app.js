@@ -1361,13 +1361,18 @@ $("expunge-pane").onclick = async () => {
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
     expunging = true;
+    // The window is gone (or going): leave its page first, so the pane's removal can't
+    // replace this outcome with "no longer available". A 409 left everything as it was.
+    const leave = () => { if (stillOnPane(location.hash, pane)) navigate(null, "summary", { mode: "replace" }); };
     try {
       // No client timeout (setTimeout's largest delay): aborting would not stop the server's
       // run, so the answer must be its own outcome, never a failure while it deletes on.
       const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id }, 2 ** 31 - 1);
+      leave();
       notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
     } catch (error) { // a refusal (pane gone, 404; or 409) touched nothing and clears; a failure stays
       const refused = [404, 409].includes(error.status);
+      if (error.status !== 409) leave();
       notice(`Expunge ${refused ? "refused" : "failed"}: ${error.detail || error.message}`, refused ? 6000 : 0);
     } finally { expunging = false; }
   };

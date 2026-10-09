@@ -224,9 +224,11 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
         return pane
 
     def kill(pane_id, pid=None):  # tmux.kill_window's guard, as the tmux server applies it
-        if panes[pane_id] == pid:
-            order.append("kill")
-            panes.pop(pane_id)
+        if panes[pane_id] != pid:
+            return False
+        order.append("kill")
+        panes.pop(pane_id)
+        return True
     monkeypatch.setattr(tmux, "find_pane", find_pane)
     monkeypatch.setattr(tmux, "pane_pid", panes.get)
     monkeypatch.setattr(tmux, "kill_window", kill)
@@ -250,9 +252,10 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
 
 def test_kill_window_guard_runs_in_one_tmux_command(monkeypatch):
     sent = []
-    monkeypatch.setattr(tmux, "_run", sent.append)
-    tmux.kill_window("%1", "1234")
-    assert sent == [["if-shell", "-F", "-t", "%1", "#{==:#{pane_pid},1234}", "kill-window -t %1"]]
+    monkeypatch.setattr(tmux, "_run", lambda argv: sent.append(argv) or "kept\n")
+    assert not tmux.kill_window("%1", "1234")  # the other branch ran: the pane changed hands
+    assert sent == [["if-shell", "-F", "-t", "%1", "#{==:#{pane_pid},1234}", "kill-window -t %1",
+                     "display-message -p kept"]]
 
 
 def test_an_unreadable_registration_refuses(monkeypatch, tmp_path):
