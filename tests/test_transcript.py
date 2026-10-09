@@ -73,7 +73,8 @@ def test_claude_new_user_message_clears_the_reply(homes):
     assert transcript.last_reply(_pane(str(os.getppid())), "") is None
 
 
-def test_codex_reply_from_the_thread_named_in_the_status_bar(homes):
+def test_codex_reply_from_the_thread_named_in_the_status_bar(homes, monkeypatch):
+    monkeypatch.setattr(transcript, "_runs", lambda pid, name: pid == "7" and name == "codex")
     def item(kind, text=None):
         content = [{"type": "Text", "text": text}] if text else []
         return {"type": "event_msg",
@@ -83,7 +84,9 @@ def test_codex_reply_from_the_thread_named_in_the_status_bar(homes):
            [item("UserMessage"), item("AgentMessage", "old"), item("UserMessage"),
             item("AgentMessage", "new"), item("Reasoning")], junk='{"cut":')
     status = f"› Ask Codex to do anything\n  {SID} · gpt-6-sol medium · ~/src/app · Ready"
-    assert transcript.last_reply(_pane(None), status) == "new"
+    assert transcript.last_reply(_pane("7"), status) == "new"
+    # The same footer printed in a pane not running Codex is just text.
+    assert transcript.last_reply(_pane("8"), status) is None
     # Resumed, the thread continues in a segment file, here in the older flat shapes.
     today = time.strftime("%Y/%m/%d")  # a resume writes its segment in today's folder
     resumed = homes / f"codex/sessions/{today}/rollout-2026-10-10T09-00-00-{SID}_seg.jsonl"
@@ -91,7 +94,7 @@ def test_codex_reply_from_the_thread_named_in_the_status_bar(homes):
             for t, m in (("agent_message", "stale"), ("user_message", "go on"),
                          ("agent_message", "resumed"))]
     _write(resumed, flat)
-    assert transcript.last_reply(_pane(None), status) == "resumed"
+    assert transcript.last_reply(_pane("7"), status) == "resumed"
     _write(resumed, flat[:2])
-    assert transcript.last_reply(_pane(None), status) is None
-    assert transcript.last_reply(_pane(None), "› Ready\n  gpt-6-sol · ~/src/app") is None
+    assert transcript.last_reply(_pane("7"), status) is None
+    assert transcript.last_reply(_pane("7"), "› Ready\n  gpt-6-sol · ~/src/app") is None

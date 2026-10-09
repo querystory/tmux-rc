@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import tmux
-from .classify import _codex_model_segments, _session_chrome
+from .classify import _codex_model_segments, _runs, _session_chrome
 from .tmux import Pane
 
 # The final message sits at the end, but a session's file grows to megabytes (pasted
@@ -87,12 +87,13 @@ def _codex_rollout(home: Path, thread: str, _today: tuple) -> Path | None:
     return max((home / "sessions").glob(f"*/*/*/rollout-*-{thread}*.jsonl"), default=None)
 
 
-def _codex_file(text: str) -> Path | None:
+def _codex_file(pane: Pane, text: str) -> Path | None:
     """Codex's app-server, not the pane's process, holds the rollout, so the thread id
-    comes from the status bar (when configured to show it), as live._codex_pane does."""
+    comes from the status bar (when configured to show it), as live._codex_pane does.
+    A shell can print a captured footer, so Codex must also be running in the pane."""
     ids = {s.strip() for line in _session_chrome(text) if _codex_model_segments(line)
            for s in line.split("·") if _UUID_RE.fullmatch(s.strip())}
-    if len(ids) != 1:
+    if len(ids) != 1 or not (pane.pid and _runs(pane.pid, "codex")):
         return None
     home = _home("CODEX_HOME", ".codex")
     return _codex_rollout(home, ids.pop(), _stamp(home / "sessions" / time.strftime("%Y/%m/%d")))
@@ -114,7 +115,7 @@ def last_reply(pane: Pane, text: str) -> str | None:
     pid, started, sid = _claude_session(claude, pane.pid, registry) or (0, None, None)
     path = ((sid and _started(pid) == started
              and next((claude / "projects").glob(f"*/{sid}.jsonl"), None))
-            or _codex_file(text))
+            or _codex_file(pane, text))
     return path and _reply(path, _stamp(path))
 
 
