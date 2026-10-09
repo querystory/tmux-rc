@@ -1,0 +1,71 @@
+"""transcript.last_reply: the agent's latest message in its current turn, read from a
+Claude or Codex session file located from the pane."""
+
+import json
+import os
+
+import pytest
+
+from openbus import transcript
+from openbus.tmux import Pane
+
+SID = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+
+
+def _write(path, entries, junk=""):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(junk + "".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8")
+
+
+def _pane(pid):
+    return Pane("work", "0", "node", "0", "%0", "node", "t", "/x", pid=pid)
+
+
+@pytest.fixture
+def homes(tmp_path):
+    return tmp_path  # conftest points both agent homes under it
+
+
+def _say(role, content, **extra):
+    return {"type": role, "message": {"role": role, "content": content}, **extra}
+
+
+def test_claude_reply_from_the_session_running_under_the_pane(homes):
+    # This test process stands in for Claude; its parent is the pane's shell.
+    _write(homes / "claude/sessions/1.json", [{"pid": os.getpid(), "sessionId": SID}])
+    _write(homes / f"claude/projects/-x/{SID}.jsonl", [
+        _say("user", "first ask"),
+        _say("assistant", [{"type": "text", "text": "old reply"}]),
+        _say("user", "second ask"),
+        _say("assistant", [{"type": "text", "text": "Run this:"}]),
+        _say("assistant", [{"type": "tool_use", "name": "Bash"}]),
+        _say("user", [{"type": "tool_result", "content": "ok"}]),
+        _say("assistant", [{"type": "text", "text": "sidechain"}], isSidechain=True),
+        _say("assistant", [{"type": "thinking"}, {"type": "text", "text": "Done."}]),
+    ])
+    assert transcript.last_reply(_pane(str(os.getppid())), "") == "Done."
+    # A process under some other pane is not this pane's agent.
+    assert transcript.last_reply(_pane("999999999"), "") is None
+
+
+def test_claude_new_user_message_clears_the_reply(homes):
+    _write(homes / "claude/sessions/1.json", [{"pid": os.getpid(), "sessionId": SID}])
+    _write(homes / f"claude/projects/-x/{SID}.jsonl", [
+        _say("assistant", [{"type": "text", "text": "old reply"}]),
+        _say("user", [{"type": "text", "text": "next"}]),
+    ])
+    assert transcript.last_reply(_pane(str(os.getppid())), "") is None
+
+
+def test_codex_reply_from_the_thread_named_in_the_status_bar(homes):
+    def item(kind, text=None):
+        content = [{"type": "Text", "text": text}] if text else []
+        return {"type": "event_msg",
+                "payload": {"type": "item_completed", "item": {"type": kind, "content": content}}}
+    # A line that isn't JSON (a write cut short) is skipped, not fatal.
+    _write(homes / f"codex/sessions/2026/10/09/rollout-2026-10-09T09-00-00-{SID}.jsonl",
+           [item("UserMessage"), item("AgentMessage", "old"), item("UserMessage"),
+            item("AgentMessage", "new"), item("Reasoning")], junk='{"cut":')
+    status = f"› Ask Codex to do anything\n  {SID} · gpt-6-sol medium · ~/src/app · Ready"
+    assert transcript.last_reply(_pane(None), status) == "new"
+    assert transcript.last_reply(_pane(None), "› Ready\n  gpt-6-sol · ~/src/app") is None

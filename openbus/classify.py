@@ -800,6 +800,23 @@ def bootstrap(
     }
 
 
+_FENCE_RE = re.compile(r"(?ms)^[ \t]*(`{3,}|~{3,})[ \t]*([\w+-]*).*?\n(.*?)^[ \t]*\1[ \t]*$")
+
+
+def _code_blocks(reply: str | None) -> list[dict]:
+    """Fenced blocks of a Markdown reply, newest first, each labelled by the first
+    sentence of the paragraph that introduces it ("Run this on the server."), else by
+    its fence language."""
+    blocks, end = [], 0
+    for m in _FENCE_RE.finditer(reply or ""):
+        lead = " ".join(reply[end:m.start()].strip().rsplit("\n\n", 1)[-1].split())
+        label = re.split(r"(?<=[.:!?])\s", lead, maxsplit=1)[0].rstrip(":")
+        blocks.append({"label": label or m.group(2) or "Code",
+                       "text": textwrap.dedent(m.group(3)).rstrip("\n")})
+        end = m.end()
+    return blocks[::-1]
+
+
 def classify(
     pane: Pane,
     text: str,
@@ -809,13 +826,15 @@ def classify(
     prev_activity: str | None = None,
     repository: str | None = None,
     replies_fn=None,
+    reply: str | None = None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
     is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
     = events already reported (so the model doesn't repeat them). `prev_activity` is the
-    pane's last classified activity, held onto when the parse fails (see below). Returns
-    the model's JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic
-    dict."""
+    pane's last classified activity, held onto when the parse fails (see below). `reply`
+    is the agent's last message from its transcript, whose code blocks become copyables.
+    Returns the model's JSON with pane_id/label merged in; on no/failed LLM a minimal
+    heuristic dict."""
     visible = _visible(text)
     process_tool = _host_tool(pane)
     payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
@@ -1045,9 +1064,21 @@ def classify(
     copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", visible)
     copy_source = copy_source.replace("\\\n", "")
 
-    def _valid(cps):
+    def _shown(text):
+        # Copy whole displayed blocks/inline code, not invented summaries or
+        # fragments cut out of a longer prose paragraph. Permit terminal wraps, and
+        # line continuations kept as shown or joined (both sides drop them alike).
+        text = text.replace("\\\n", "")
+        words = r"\s+".join(re.escape(word) for word in text.split())
+        return f"`{text}`" in copy_source or re.search(
+            r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
+        )
+
+    def _valid(cps, *, transcript=False):
         """Validated entries, lazily — islice below stops us at 3 without validating the
-        rest of a long model response on the hot /api/state path."""
+        rest of a long model response on the hot /api/state path. A transcript block is
+        exact by construction, so only its last line must be on screen: that proves the
+        reply is the one displayed even when its top has scrolled away."""
         for c in cps:
             if not isinstance(c, dict) or not isinstance(c.get("text"), str):
                 continue
@@ -1057,16 +1088,14 @@ def classify(
             if (not stripped or len(c["text"]) > 4000 or stripped in hrefs
                     or " ".join(stripped.split()) in table_text):
                 continue
-            # Copy whole displayed blocks/inline code, not invented summaries or
-            # fragments cut out of a longer prose paragraph. Permit terminal wraps.
-            words = r"\s+".join(re.escape(word) for word in stripped.split())
-            if f"`{stripped}`" not in copy_source and not re.search(
-                r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
-            ):
+            if not _shown(stripped.splitlines()[-1] if transcript else stripped):
                 continue
             yield {"label": str(c.get("label") or "")[:200], "text": c["text"]}
 
-    good = list(islice(_valid(cps), 3)) if isinstance(cps, list) else []
+    # The agent's own code blocks beat the model's re-typing of them (see transcript.py);
+    # the model's picks remain for shells and for replies with no code.
+    good = list(islice(_valid(_code_blocks(reply), transcript=True), 3)) or (
+        list(islice(_valid(cps), 3)) if isinstance(cps, list) else [])
     question = result.get("question")
     if good and isinstance(question, dict) and question.get("answer_style") in ("menu", "cursor"):
         # A held selection expects a key, not a pasted command. Keep the payload as

@@ -910,6 +910,16 @@ def processes(pid: int | str, limit: int = 64):
         todo += proc_read(p, f"task/{p}/children").split()
 
 
+def ancestors(pid: int):
+    """pid, its parent, and so on up, read from /proc; stops at init or a gone process."""
+    while pid > 1:
+        yield pid
+        try:
+            pid = int(proc_read(pid, "stat").rsplit(")", 1)[1].split()[1])
+        except (ValueError, IndexError):
+            return
+
+
 def pane_pid(pane_id: str) -> str | None:
     """The PID of the process in `pane_id`, or None if the pane is gone.
 
