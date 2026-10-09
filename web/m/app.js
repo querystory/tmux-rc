@@ -925,7 +925,11 @@ async function endPane(id, action, label, body, timeout) {
   const pane = statePanes.find((p) => p.pane_id === id); // kill-window takes all its splits too
   const splits = statePanes.filter((p) => pane && p.session === pane.session && p.window_index === pane.window_index);
   const mark = (e) => { for (const p of splits) if (e) ending.set(p.pane_id, { birth: p.birth, pane: p, ...e }); else ending.delete(p.pane_id); showPanes(); render(); };
-  const ended = () => { leavePane(id); mark({ done: true }); }; // leave first: no "no longer available"
+  const ended = () => { // leave first: no "no longer available"; but never a newer pane tmux gave this %N
+    const now = statePanes.find((p) => p.pane_id === id);
+    if (!now || now.birth === pane?.birth) leavePane(id);
+    mark({ done: true });
+  };
   mark({ label });
   try { const done = await post(paneUrl(id, action), body, timeout); ended(); return done; }
   catch (error) { if (error.status >= 400 && error.status < 500 && error.status !== 404) mark(null); else ended(); throw error; }
