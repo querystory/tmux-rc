@@ -910,7 +910,7 @@ function showPanes() {
   panes = statePanes.flatMap((p) => {
     const e = ending.get(p.pane_id);
     if (e?.done && e.birth !== p.birth) ending.delete(p.pane_id);
-    return e?.birth !== p.birth ? [p] : e.done ? [] : [{ ...p, ending: e.label }];
+    return !e || e.birth !== p.birth ? [p] : e.done ? [] : [{ ...p, ending: e.label }];
   });
   // Until the request answers, keep a pane the server already unpublished (drop_window wakes
   // the poll mid-request): only endPane decides it is gone, so the page leaves it cleanly.
