@@ -41,6 +41,9 @@ def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
     # No glyph under the prompt: the ❯ turn above it is history, not the cursor.
     assert highlighted_row("❯ Yes\nProceed?\n  No\n  Yes", "Proceed?") is None
     assert highlighted_row(SCREEN, "Some other prompt?") is None
+    # A picker that has closed: the live input box below it is not its highlight.
+    closed = "Proceed?\n  No\n  Yes\n────────\n❯ Yes\n────────"
+    assert highlighted_row(closed, "Proceed?") is None
 
 
 def test_classify_overrides_a_misread_anchor():
