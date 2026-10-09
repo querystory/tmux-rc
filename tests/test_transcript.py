@@ -36,6 +36,8 @@ def _say(role, content, **extra):
 def test_claude_reply_from_the_session_running_under_the_pane(homes):
     # This test process stands in for Claude; its parent is the pane's shell.
     _write(homes / "claude/sessions/1.json", [{"pid": os.getpid(), "sessionId": SID}])
+    # Registered before its transcript exists: found once it appears.
+    assert transcript.last_reply(_pane(str(os.getppid())), "") is None
     _write(homes / f"claude/projects/-x/{SID}.jsonl", [
         _say("user", "first ask"),
         _say("assistant", [{"type": "text", "text": "old reply"}]),
@@ -50,6 +52,10 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
         _say("user", "malformed", origin="human"),
     ])
     assert transcript.last_reply(_pane(str(os.getppid())), "") == "Done."
+    # The cached registration is rechecked: once its process is gone, so is its reply.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(transcript, "_started", lambda pid: None)
+        assert transcript.last_reply(_pane(str(os.getppid())), "") is None
     # The same pid registered by a process that started at another time is stale.
     _write(homes / "claude/sessions/1.json",
            [{"pid": os.getpid(), "sessionId": SID, "procStart": "1"}])
@@ -67,17 +73,20 @@ def test_claude_new_user_message_clears_the_reply(homes):
     assert transcript.last_reply(_pane(str(os.getppid())), "") is None
 
 
-def test_codex_reply_from_the_thread_named_in_the_status_bar(homes):
-    def item(kind, text=None):
-        content = [{"type": "Text", "text": text}] if text else []
+def test_codex_reply_from_the_thread_named_in_the_status_bar(homes, monkeypatch):
+    monkeypatch.setattr(transcript, "_runs", lambda pid, name: pid == "7" and name == "codex")
+    def item(kind, text=None, tag="Text"):
+        content = [{"type": tag, "text": text}] if text else []
         return {"type": "event_msg",
                 "payload": {"type": "item_completed", "item": {"type": kind, "content": content}}}
     # A line that isn't JSON (a write cut short) is skipped, not fatal.
     _write(homes / f"codex/sessions/2026/10/09/rollout-2026-10-09T09-00-00-{SID}.jsonl",
            [item("UserMessage"), item("AgentMessage", "old"), item("UserMessage"),
-            item("AgentMessage", "new"), item("Reasoning")], junk='{"cut":')
+            item("AgentMessage", "new", tag="text"), item("Reasoning")], junk='{"cut":')
     status = f"› Ask Codex to do anything\n  {SID} · gpt-6-sol medium · ~/src/app · Ready"
-    assert transcript.last_reply(_pane(None), status) == "new"
+    assert transcript.last_reply(_pane("7"), status) == "new"
+    # The same footer printed in a pane not running Codex is just text.
+    assert transcript.last_reply(_pane("8"), status) is None
     # Resumed, the thread continues in a segment file, here in the older flat shapes.
     today = time.strftime("%Y/%m/%d")  # a resume writes its segment in today's folder
     resumed = homes / f"codex/sessions/{today}/rollout-2026-10-10T09-00-00-{SID}_seg.jsonl"
@@ -85,7 +94,7 @@ def test_codex_reply_from_the_thread_named_in_the_status_bar(homes):
             for t, m in (("agent_message", "stale"), ("user_message", "go on"),
                          ("agent_message", "resumed"))]
     _write(resumed, flat)
-    assert transcript.last_reply(_pane(None), status) == "resumed"
+    assert transcript.last_reply(_pane("7"), status) == "resumed"
     _write(resumed, flat[:2])
-    assert transcript.last_reply(_pane(None), status) is None
-    assert transcript.last_reply(_pane(None), "› Ready\n  gpt-6-sol · ~/src/app") is None
+    assert transcript.last_reply(_pane("7"), status) is None
+    assert transcript.last_reply(_pane("7"), "› Ready\n  gpt-6-sol · ~/src/app") is None

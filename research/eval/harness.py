@@ -248,6 +248,12 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         presence["tables"] = valid and any(
             row for table in (tables or []) for row in table["rows"]
         )
+    # Opt-in and exact, for copyables lifted from a transcript rather than re-typed by the
+    # model: that payload is deterministic, so the bytes the phone would copy are pinned.
+    if "copyable_texts" in expected:
+        texts = [c.get("text") for c in candidate.get("copyables") or [] if isinstance(c, dict)]
+        if texts != expected["copyable_texts"]:
+            diffs.append(f"copyable_texts: got {texts!r}")
     for k, got in presence.items():
         c, e = bool(got), bool(expected.get(k))
         if c != e:

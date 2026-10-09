@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import tmux
-from .classify import _codex_model_segments, _session_chrome
+from .classify import _codex_model_segments, _runs, _session_chrome
 from .tmux import Pane
 
 # The final message sits at the end, but a session's file grows to megabytes (pasted
@@ -55,22 +55,28 @@ def _entries(path: Path) -> list[dict]:
     return [e for e in entries if isinstance(e, dict)]
 
 
+def _started(pid: int) -> str | None:
+    """When `pid` started (stat field 22): with the pid, a process's identity."""
+    fields = tmux.proc_read(pid, "stat").rsplit(")", 1)[-1].split()
+    return fields[19] if len(fields) > 19 else None
+
+
 @lru_cache(maxsize=256)
-def _claude_file(home: Path, pane_pid: str | None, _registry: tuple) -> Path | None:
+def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> tuple | None:
     """Claude registers each running process in sessions/<pid>.json; the one running
-    under this pane names the session, whose transcript lives under projects/."""
+    under this pane names the session. Answers (pid, start, session id)."""
     for reg in (home / "sessions").glob("*.json"):
         try:
             data = json.loads(reg.read_text(encoding="utf-8"))
             pid, sid = int(data["pid"]), str(data["sessionId"])
-            # A crashed process leaves its file behind and its pid gets reused, so the
-            # process must also have started when the registration says (stat field 22).
-            started = tmux.proc_read(pid, "stat").rsplit(")", 1)[1].split()[19]
-        except (OSError, ValueError, KeyError, TypeError, IndexError):
+        except (OSError, ValueError, KeyError, TypeError):
             continue
-        if (pane_pid and int(pane_pid) in tmux.ancestors(pid) and _UUID_RE.fullmatch(sid)
-                and str(data.get("procStart", started)) == started):
-            return next((home / "projects").glob(f"*/{sid}.jsonl"), None)
+        # A crashed process leaves its file behind and its pid gets reused, so the
+        # process must also have started when the registration says.
+        started = _started(pid)
+        if (started and pane_pid and int(pane_pid) in tmux.ancestors(pid)
+                and _UUID_RE.fullmatch(sid) and str(data.get("procStart", started)) == started):
+            return pid, started, sid
     return None
 
 
@@ -81,19 +87,21 @@ def _codex_rollout(home: Path, thread: str, _today: tuple) -> Path | None:
     return max((home / "sessions").glob(f"*/*/*/rollout-*-{thread}*.jsonl"), default=None)
 
 
-def _codex_file(text: str) -> Path | None:
+def _codex_file(pane: Pane, text: str) -> Path | None:
     """Codex's app-server, not the pane's process, holds the rollout, so the thread id
-    comes from the status bar (when configured to show it), as live._codex_pane does."""
+    comes from the status bar (when configured to show it), as live._codex_pane does.
+    A shell can print a captured footer, so Codex must also be running in the pane."""
     ids = {s.strip() for line in _session_chrome(text) if _codex_model_segments(line)
            for s in line.split("·") if _UUID_RE.fullmatch(s.strip())}
-    if len(ids) != 1:
+    if len(ids) != 1 or not (pane.pid and _runs(pane.pid, "codex")):
         return None
     home = _home("CODEX_HOME", ".codex")
     return _codex_rollout(home, ids.pop(), _stamp(home / "sessions" / time.strftime("%Y/%m/%d")))
 
 
-def _text(blocks, kind: str) -> str | None:
-    texts = [b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == kind
+def _text(blocks) -> str | None:
+    # Claude tags text blocks "text"; Codex has written both "Text" and "text".
+    texts = [b["text"] for b in blocks if isinstance(b, dict) and b.get("type") in ("text", "Text")
              and isinstance(b.get("text"), str)] if isinstance(blocks, list) else []
     return "\n\n".join(texts) or None
 
@@ -103,7 +111,12 @@ def last_reply(pane: Pane, text: str) -> str | None:
     a reply from an earlier turn is never mistaken for what is on screen now."""
     claude = _home("CLAUDE_CONFIG_DIR", ".claude")
     registry = tuple((p.name, _stamp(p)) for p in sorted((claude / "sessions").glob("*.json")))
-    path = _claude_file(claude, pane.pid, registry) or _codex_file(text)
+    # Checked afresh: the process can exit (and its pid be reused) and the transcript
+    # appear after its registration, all with the registry unchanged.
+    pid, started, sid = _claude_session(claude, pane.pid, registry) or (0, None, None)
+    path = ((sid and _started(pid) == started
+             and next((claude / "projects").glob(f"*/{sid}.jsonl"), None))
+            or _codex_file(pane, text))
     return path and _reply(path, _stamp(path))
 
 
@@ -120,9 +133,9 @@ def _reply(path: Path, _stat: tuple) -> str | None:
         item = event.get("item") if isinstance(event.get("item"), dict) else event
         kind = item.get("type") or e.get("type")
         if kind == "assistant":
-            reply = _text(content, "text") or reply
+            reply = _text(content) or reply
         elif kind == "AgentMessage":
-            reply = _text(item.get("content"), "Text") or reply
+            reply = _text(item.get("content")) or reply
         elif kind == "agent_message" and isinstance(item.get("message"), str):
             reply = item["message"] or reply
         elif kind in ("UserMessage", "user_message") or (kind == "user" and (

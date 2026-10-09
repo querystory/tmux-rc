@@ -72,6 +72,8 @@ strictness is correct:
   is behavior). The prompt body is prose, left to the judge.
 - `question.context` — opt-in exact string: the widget rows classify() reads around a
   menu's prompt (deterministic, so pinned exactly).
+- `copyable_texts` — opt-in exact list of copyable texts, for payloads lifted from the
+  agent's transcript (`reply`), which are deterministic.
 - `question.ask` — opt-in, judged: the plain "The agent wants to … Continue?" restatement
   of an approval prompt must carry the same most consequential effect as the expected
   one, name its destructive steps (and a description/command mismatch), and quote no
