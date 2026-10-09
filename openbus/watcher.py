@@ -356,7 +356,7 @@ class Watcher:
         # version > 0) would never kick in.
         self._state_fp: str | None = None
         self._state_changed = asyncio.Event()
-        self._publish_lock = threading.Lock()  # publishing vs. drop_window (a request thread)
+        self._publish_lock = threading.Lock()  # deck writers vs. drop_window (a request thread)
 
     def state_version(self) -> int:
         """Monotonic version of the deck-relevant view; bumped only when it changes.
@@ -532,12 +532,13 @@ class Watcher:
         # briefly dropping the UI's active selection. The next full tick reconciles.
         if focused is None:
             return
-        cur = next((s.get("pane_id") for s in self.states if s.get("tmux_active")), None)
-        if focused == cur:
-            return
-        for s in self.states:
-            s["tmux_active"] = s.get("pane_id") == focused
-        self._bump_state_if_changed(self.states)
+        with self._publish_lock:  # against drop_window publishing a smaller deck meanwhile
+            cur = next((s.get("pane_id") for s in self.states if s.get("tmux_active")), None)
+            if focused == cur:
+                return
+            for s in self.states:
+                s["tmux_active"] = s.get("pane_id") == focused
+            self._bump_state_if_changed(self.states)
 
     def request_reparse(self, pane_id: str) -> None:
         """Force an LLM re-parse of `pane_id` on the next tick AND wake the loop now, so
