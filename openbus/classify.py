@@ -800,7 +800,7 @@ def bootstrap(
     }
 
 
-_FENCE_RE = re.compile(r"(?ms)^[ \t]*(`{3,}|~{3,})[ \t]*([\w+-]*).*?\n(.*?)^[ \t]*\1[ \t]*$")
+_FENCE_RE = re.compile(r"(?ms)^([ \t]*)(`{3,}|~{3,})[ \t]*([\w+-]*).*?\n(.*?)^[ \t]*\2[ \t]*$")
 
 
 def _code_blocks(reply: str | None) -> list[dict]:
@@ -810,9 +810,12 @@ def _code_blocks(reply: str | None) -> list[dict]:
     blocks, end = [], 0
     for m in _FENCE_RE.finditer(reply or ""):
         lead = " ".join(reply[end:m.start()].strip().rsplit("\n\n", 1)[-1].split())
+        lead = re.sub(r"^(?:[-*+]|\d+[.)])\s+", "", lead)  # a list item's marker
         label = re.split(r"(?<=[.:!?])\s", lead, maxsplit=1)[0].rstrip(":")
-        blocks.append({"label": label or m.group(2) or "Code",
-                       "text": textwrap.dedent(m.group(3)).rstrip("\n")})
+        # Only the fence's own indent (a block inside a list item) is markup; any
+        # indentation within the code is payload.
+        text = re.sub(f"(?m)^{re.escape(m.group(1))}", "", m.group(4)).rstrip("\n")
+        blocks.append({"label": label or m.group(3) or "Code", "text": text})
         end = m.end()
     return blocks[::-1]
 

@@ -1395,6 +1395,10 @@ def test_transcript_code_blocks_beat_the_models_retyping():
         {"label": "Run this on the desktop.",
          "text": "{\n  lpstat -t\n} 2>&1 | tee /tmp/report.txt"},
     ]
+    # A list item's fence indent is markup; indentation inside the code is kept.
+    nested = "1. Add:\n\n   ```\n       return x\n   ```\n"
+    assert classify(_pane(), "       return x", _llm({}), reply=nested)["copyables"] == [
+        {"label": "Add", "text": "    return x"}]
     # A reply whose blocks aren't on screen is stale; the model's picks stand in.
     result = classify(_pane(), "git status", _llm({"copyables": [{"text": "git status"}]}),
                       reply=reply)
