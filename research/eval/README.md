@@ -72,6 +72,8 @@ strictness is correct:
   is behavior). The prompt body is prose, left to the judge.
 - `question.context` — opt-in exact string: the widget rows classify() reads around a
   menu's prompt (deterministic, so pinned exactly).
+- `copyable_texts` — opt-in exact list of copyable texts, for payloads lifted from the
+  agent's transcript (`reply`), which are deterministic.
 - `question.ask` — opt-in, judged: the plain "The agent wants to … Continue?" restatement
   of an approval prompt must carry the same most consequential effect as the expected
   one, name its destructive steps (and a description/command mismatch), and quote no
@@ -126,6 +128,7 @@ loosen the score.
   "repository": "owner/name",         // optional local GitHub repository context
   "capture": "…the pane text…",       // what the model sees
   "prior": ["…an earlier frame…"],    // optional: earlier captures, sent as production does
+  "reply": "…agent message…",         // optional: the agent's last message, from its transcript
   "expected": { "tool": "claude", "activity": "idle", "headline": "…" }
 }
 ```

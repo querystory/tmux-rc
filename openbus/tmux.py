@@ -836,6 +836,16 @@ def proc_read(pid: int | str, name: str) -> str:
         return ""
 
 
+def ancestors(pid: int):
+    """pid, its parent, and so on up, read from /proc; stops at init or a gone process."""
+    while pid > 1:
+        yield pid
+        try:
+            pid = int(proc_read(pid, "stat").rsplit(")", 1)[1].split()[1])
+        except (ValueError, IndexError):
+            return
+
+
 def processes(pid: int | str, limit: int = 64):
     """`pid` and its descendants, at most `limit` of them (bounds a pathological tree)."""
     todo = [str(pid)]
