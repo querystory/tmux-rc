@@ -202,6 +202,8 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/omp/Gemini/Shell | "New window" dialog entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/omp/shell) or an image URL |
 | `TMUXRC_SCRATCH_DIR` | unset (not served) | directory served read-only at `/scratch/` for throwaway previews — see [Previewing work](docs/deploy/previews.md) |
+| `TMUXRC_SCRATCH_ADVERTISE` | unset (off) | `1` exports `TMUXRC_SCRATCH_DIR` and `TMUXRC_SCRATCH_URL` to tmux's global environment at startup, so agents in new panes can find scratch |
+| `TMUXRC_SCRATCH_URL` | unset | public base URL of `/scratch/` (e.g. `https://your-host/scratch`), advertised with the dir |
 | `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | optional operator `mailto:` contact override for VAPID; unrelated to the tunnel URL |
 | `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft push relays | comma-separated exact hosts or dot-prefixed domain suffixes accepted as subscription endpoints; extend only for a trusted browser push service |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |

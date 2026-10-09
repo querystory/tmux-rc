@@ -48,6 +48,12 @@ explicitly disposable. Two places by lifetime keeps the scratch dir free to be w
 `/docs/mocks/` gets the same sandbox: promoting an agent-written page into the repo should
 not be what grants it the daemon's API.
 
+**Agents learn about it from the environment, opt-in.** The daemon cannot edit anyone's
+agent instructions, and should not. What it can do is put the dir and URL in tmux's global
+environment, the one place every new pane, and so every agent, reads from. That is a
+write to a server the user owns, so it is off unless asked for; the instruction to actually
+use scratch stays a line the user adds to their own `CLAUDE.md` or `AGENTS.md`.
+
 ## Alternatives rejected
 
 **A second tunnel per preview.** The status quo. Each one is another credential, process
