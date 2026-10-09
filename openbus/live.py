@@ -415,18 +415,27 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         if known:
             ok, pid = (await _approved(websocket, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
-            result = (await _dispatch(websocket, session, call, watcher, rec, expected_pid=pid,
-                                      meter=meter)
-                      if ok else {"status": "declined", "reason": _DECLINED[rec["consent"]]})
+            result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
-        status, reason = result["status"], result.get("reason")
-        _audit(
-            meter, f"live_{fc.name if known else 'unknown_tool'}",
-            outcome="ok" if status in {"done", "ok", "opened", "button_shown"}
-            else f"{status}: {reason}" if reason else status,
-            latency_ms=round((time.monotonic() - started) * 1000), **rec,
-        )
+        _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
     await session.send_tool_result(fc, result)
+
+
+async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, pid) -> dict:
+    """Run an answered call, or say why not: the answer the model gets."""
+    return (await _dispatch(websocket, session, call, watcher, rec, expected_pid=pid,
+                            meter=meter)
+            if ok else {"status": "declined", "reason": _DECLINED[rec["consent"]]})
+
+
+def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dict) -> None:
+    status, reason = result["status"], result.get("reason")
+    _audit(
+        meter, f"live_{name}",
+        outcome="ok" if status in {"done", "ok", "opened", "button_shown"}
+        else f"{status}: {reason}" if reason else status,
+        latency_ms=round((time.monotonic() - started) * 1000), **rec,
+    )
 
 
 # The tools that change a pane. In a text session each waits for the user to tap Send on
@@ -439,6 +448,40 @@ _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 _DECLINED = {"declined": "the user declined",
              "superseded": "the user sent a new message instead of answering; do not retry "
                            "this, answer their new message (it follows)"}
+# A card whose connection dropped before the user answered (iOS drops the socket on every
+# lock, the tunnel relay every hour) stays up on the phone, so the daemon keeps what Send
+# needs, for the same chat reconnecting: (actor, session, proposal) -> (parked at, call,
+# pid, rec, meter, watcher). Bounded in time, and in memory only: a restart expires them.
+PARKED_SECONDS = 30 * 60
+_parked: dict[tuple, tuple] = {}
+
+
+def _unpark(meter: _Meter, proposal: str | None = None) -> list[tuple[str, tuple]]:
+    """Take this chat's parked cards (just `proposal`'s, if named), dropping stale ones."""
+    stale = time.monotonic() - PARKED_SECONDS
+    for key in [k for k, v in _parked.items() if v[0] < stale]:
+        del _parked[key]
+    return [(k[2], _parked.pop(k)) for k in list(_parked)
+            if k[:2] == (meter.actor, meter.session) and proposal in {None, k[2]}]
+
+
+async def _decide(websocket: WebSocket, proposal: str, ok: bool | None, rec: dict) -> None:
+    rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
+    # The client shows the answer as final only on this, so a reconnect can't leave a
+    # card claiming an action that no longer has anyone waiting on it.
+    await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
+
+
+async def _resume(websocket: WebSocket, session, proposal: str, parked: tuple, ok: bool) -> None:
+    """The user's answer to a parked card, run on the connection it came in on. The model
+    that asked went with the old one, so the outcome reaches only the phone and the audit."""
+    _, call, pid, rec, meter, watcher = parked
+    started, result = time.monotonic(), {"status": "error", "reason": "aborted"}
+    try:
+        await _decide(websocket, proposal, ok, rec)
+        result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
+    finally:
+        _audit_call(meter, call.name, result, started, rec)
 
 
 async def _approved(
@@ -493,10 +536,13 @@ async def _approved(
     try:
         await websocket.send_json({**card, "id": proposal})
         ok = await answer  # True / False on a tap, None when a new message superseded it
-        rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
-        # The client shows the answer as final only on this, so a reconnect can't leave a
-        # card claiming an action that no longer has anyone waiting on it.
-        await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
+        await _decide(websocket, proposal, ok, rec)
+    except asyncio.CancelledError:  # the connection dropped under it (cancelling `answer`)
+        if answer.cancelled() or not answer.done():
+            rec["consent"] = "parked"
+            _parked[meter.actor, meter.session, proposal] = (
+                time.monotonic(), fc, pid, rec, meter, watcher)
+        raise
     finally:
         meter.approvals.pop(proposal, None)
     return rec["consent"] == "approved", pid
@@ -1021,12 +1067,20 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                 for answer in [a for a in meter.approvals.values() if not a.done()]:
                     meter.superseded = True
                     answer.set_result(None)
+                for proposal, _ in _unpark(meter):  # its model is gone: nothing to tell
+                    await websocket.send_json({"type": "decided", "id": proposal, "ok": None})
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
-            answer = meter.approvals.get(str(data.get("id")))
-            if answer and not answer.done():
-                answer.set_result(data.get("ok") is True)
+            proposal, ok = str(data.get("id")), data.get("ok") is True
+            answer = meter.approvals.get(proposal)
+            if answer:
+                if not answer.done():
+                    answer.set_result(ok)
+            elif parked := _unpark(meter, proposal):
+                await _resume(websocket, session, proposal, parked[0][1], ok)
+            else:  # parked too long, or before a restart: nobody is left to act on it
+                await websocket.send_json({"type": "expired", "id": proposal})
         elif action == "stop":
             return
         else:
@@ -1251,6 +1305,8 @@ async def live_mode(websocket: WebSocket) -> None:
                 {"type": "error", "message": str(e) if fatal else "live session failed"}
             )
     finally:
+        if reason == "stop":  # the user ended the chat, and its cards with it
+            _unpark(meter)
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         _audit(
             meter, "live_session", detail=f"end: {reason}", outcome=outcome, turns=meter.turns,

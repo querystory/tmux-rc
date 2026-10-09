@@ -331,6 +331,77 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     assert meter.approvals == {}
 
 
+def _chat(session="chat"):
+    return L._Meter(session, "tester", P._DEFAULT[0], text=True)
+
+
+async def _drop_while_proposed(monkeypatch, session="chat"):
+    """Propose a type_in_pane, then drop the connection (cancel the call) before any answer.
+    Returns the card's id."""
+    shown = asyncio.Event()
+
+    class Shown(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            shown.set()
+
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    ws = Shown()
+    call = asyncio.create_task(L._handle_tool_call(
+        ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), _chat(session)))
+    await shown.wait()
+    call.cancel()
+    await asyncio.gather(call, return_exceptions=True)
+    return ws.sent[0]["id"]
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_a_card_survives_its_connection_dropping(monkeypatch, ok):
+    """A phone drops the socket on every lock: the card stays up, so the same chat
+    reconnecting can still Send it, bound to the pane process it showed, or Cancel it."""
+    L._parked.clear()
+    typed, audits = [], []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append((a, k)))
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
+
+    async def go():
+        proposal = await _drop_while_proposed(monkeypatch)
+        assert audits[-1]["consent"] == "parked"
+        ws = _ScriptedWS([{"action": "approve", "id": proposal, "ok": ok}, {"action": "stop"}])
+        await L._forward_client(ws, _Session(), _chat())
+        return proposal, ws
+
+    proposal, ws = _run(go())
+    assert ws.sent[0] == {"type": "decided", "id": proposal, "ok": ok}
+    assert typed == ([(("%1", "rebase", True, True), {"expected_pid": "4242"})] if ok else [])
+    assert audits[-1]["consent"] == ("approved" if ok else "declined")
+    assert L._parked == {}  # answered once
+
+
+def test_a_parked_card_expires_for_real(monkeypatch):
+    """Another chat's card, one parked past PARKED_SECONDS, or one lost to a restart is
+    answered "expired"; a new message supersedes the chat's parked cards."""
+    L._parked.clear()
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    async def go():
+        other, stale, current = [await _drop_while_proposed(monkeypatch, s)
+                                 for s in ("other", "chat", "chat")]
+        key = next(k for k in L._parked if k[2] == stale)
+        L._parked[key] = (L._parked[key][0] - L.PARKED_SECONDS - 1, *L._parked[key][1:])
+        ws = _ScriptedWS([*({"action": "approve", "id": p, "ok": True}
+                            for p in (other, stale, "restarted")),
+                          {"action": "text", "text": "never mind"}, {"action": "stop"}])
+        await L._forward_client(ws, _TypedSession(), _chat())
+        return ws, other, stale, current
+
+    ws, other, stale, current = _run(go())
+    assert ws.sent[:4] == [*({"type": "expired", "id": p} for p in (other, stale, "restarted")),
+                           {"type": "decided", "id": current, "ok": None}]
+    assert [k[1] for k in L._parked] == ["other"]
+    L._parked.clear()
+
+
 def test_approval_is_refused_when_the_pane_had_no_process_to_bind(monkeypatch):
     """A failed pid lookup must not approve an unguarded send: it binds to "", which no
     live pane matches, so send_keys's identity check refuses it."""
