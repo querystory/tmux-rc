@@ -42,4 +42,6 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
 
 
 def test_scratch_is_off_unless_configured():
-    assert _probe({"TMUXRC_SCRATCH_DIR": None})[:3] == [404, 404, 404]
+    # Empty rather than absent: the daemon loads .env without overriding, so an operator
+    # who enabled scratch there would otherwise switch it back on under this test.
+    assert _probe({"TMUXRC_SCRATCH_DIR": ""})[:3] == [404, 404, 404]
