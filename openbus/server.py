@@ -75,6 +75,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import expunge, telemetry, tmux  # noqa: E402
+from .classify import highlighted_row  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -139,6 +140,7 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+    on_row: str | None = None  # send only while a picker's highlight is on this row
 
 
 class PushKeysBody(BaseModel):
@@ -828,8 +830,17 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise HTTPException(404, "pane not found")
     _invalidate_input_actions(pane.id)
+
+    def on_row() -> None:
+        # A cursor picker's select, checked against the screen under the send lock: the
+        # walk's anchor is a parse, and a stale or misread one must not commit a row.
+        if highlighted_row(tmux.capture_pane(pane.id, lines=0)) != body.on_row:
+            msg = f"The highlight is not on {body.on_row!r}; nothing was sent."
+            raise tmux.PaneChangedError(msg)
+
     try:
-        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
+        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
+                       guard=None if body.on_row is None else on_row)
     except Exception as e:
         # Keys refused at a password prompt are probably the password: never recorded.
         keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys

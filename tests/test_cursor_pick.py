@@ -54,6 +54,14 @@ CASES = [
         {"sent": [], "selected": 2, "notes": 1},
     ),
     (
+        # The parse put the highlight on Yes while the screen shows it on No: the select
+        # carries its row, and the server's re-read refuses it rather than choosing No.
+        "a misread anchor never commits the row the highlight is really on",
+        {"options": ["No", "Yes"], "selected": 0, "misread": 1, "keymap": NO_SEARCH_KM},
+        "Yes", 1,
+        {"sent": [], "selected": 0, "notes": 1},
+    ),
+    (
         "no advertised direction: says so instead of inventing an arrow",
         {"options": ROWS, "selected": 0, "keymap": {"select": "Enter"}},
         "gamma", 2,
@@ -299,13 +307,16 @@ function fake(spec) {{
       if (p.lag && --p.lag.left <= 0) {{ p.selected += p.lag.step; p.lag = null; }}
       return p.open
       ? {{
-        answer_style: p.style, selected: p.selected, keymap: p.keymap,
+        answer_style: p.style, selected: "misread" in spec ? spec.misread : p.selected,
+        keymap: p.keymap,
         options: spec.no_options ? undefined : p.options,
       }}
       : null;
     }},
     parsedAt: () => p.parsed_at,
-    sendKey: async (k) => {{
+    sendKey: async (k, row) => {{
+      // The server's check: a select carrying its row is refused off the real highlight.
+      if (row !== undefined && row !== p.options[p.selected]) return false;
       const moved = deliver(k);
       if (!moved) return false;
       const km = typeof p.keymap === "object" ? p.keymap : {{}};
