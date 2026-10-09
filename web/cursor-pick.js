@@ -196,6 +196,10 @@ export async function pickCursorRow(io, targetText, targetIndex) {
   if (walking) { io.note(BUSY); return false; }
   walking = true;
   try {
+    // Bound to the question that was tapped: a replacement with the same rows is another
+    // ask, and its prompt is what the server's check would read under.
+    const read = io.question, asked = read()?.prompt;
+    io = { ...io, question: () => { const q = read(); return q?.prompt === asked ? q : null; } };
     const done = await pick(io, targetText, targetIndex);
     // Hold the lock PAST the commit, until a frame arrives that has noticed it. The picker
     // does not vanish the instant Enter is delivered — the phone goes on rendering the
