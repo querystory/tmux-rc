@@ -111,17 +111,21 @@ def read_codex(codex_home: Path) -> list[dict]:
 
 
 def claude_samples(data: dict, now: float) -> list[dict]:
-    """The OAuth usage response's windows. A null window is one not yet opened: 0%."""
-    out = []
+    """The OAuth usage response's windows. A null window is one not yet opened: 0%. A
+    per-model weekly limit ("7d Fable") is only in `limits`, as a weekly_scoped entry
+    naming its model; the seven_day_<model> keys beside it stay null on current plans."""
+    windows = []
     for key, (name, seconds) in CLAUDE_WINDOWS.items():
         if key not in data:  # a changed shape reads unavailable, never as 0%
             raise KeyError(key)
         w = data[key] or {}
-        resets = w.get("resets_at")
-        out.append({"window": name, "seconds": seconds, "t": now,
-                    "pct": float(w.get("utilization") or 0),
-                    "resets_at": resets and _epoch(resets)})
-    return out
+        windows.append((name, seconds, w.get("utilization"), w.get("resets_at")))
+    for limit in data.get("limits") or []:
+        model = ((limit.get("scope") or {}).get("model") or {}).get("display_name")
+        if limit.get("kind") == "weekly_scoped" and model:
+            windows.append((f"7d {model}", 7 * 86400, limit.get("percent"), limit.get("resets_at")))
+    return [{"window": name, "seconds": seconds, "t": now, "pct": float(pct or 0),
+             "resets_at": resets and _epoch(resets)} for name, seconds, pct, resets in windows]
 
 
 def claude_account(config: Path, env: dict) -> dict | None:

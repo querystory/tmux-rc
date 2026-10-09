@@ -12,7 +12,7 @@ on the phone's list, the sidebar foot on desktop; the collapsed rail leaves it o
 leaves out every card's text), and on desktop a trend with a dashed projection to
 the reset (colours below).
 
-The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So each meter now says "used", the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. A window a plan does not have, such as Codex's 5h on a weekly-only plan, is left out rather than drawn as a dash.
+The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So each meter now says "used", the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. That case adds a "full in" line, in the meter's colour, above the reset countdown rather than in place of it: the reset is still when the room comes back, and a forecast without it left no way to plan around the stall. Meters flow two to a row per account rather than sitting in fixed 5h and 7d columns, because the windows differ by plan: Claude has 5h, 7d and a per-model weekly limit ("7d Fable"), a weekly-only Codex plan has one. When another account has a window this one lacks, such as Codex's 5h, its place reads a muted "no 5h limit": an empty cell looked like data that failed to load, and the placeholder keeps the 7d meters lined up. A per-model limit is never a gap for a peer, since it belongs to one provider's models.
 
 ## Accounts, not providers
 
@@ -61,7 +61,12 @@ a file. Nothing else on disk holds the numbers. So the daemon calls
 the account's access token from `.credentials.json`. This is undocumented and may change
 shape or disappear; the parser reads only `five_hour` / `seven_day` →
 `utilization` and `resets_at`, treats a null window as 0% (not yet opened), and any
-failure shows as "unavailable" rather than stale numbers.
+failure shows as "unavailable" rather than stale numbers. Per-model weekly limits come
+from the `limits` list: each `weekly_scoped` entry naming a model becomes "7d <model>",
+with its `percent` and `resets_at`. The response also has `seven_day_opus`-style keys,
+but they are null on current plans while `limits` carries the number Claude Code's own
+status line shows, so `limits` is the one read; any model it names appears, none is
+hardcoded.
 
 The token is read in-process per request and never logged, returned, or put in argv;
 failures log only the exception type, since an HTTP error's text could echo request

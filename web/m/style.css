@@ -687,15 +687,15 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .usage-name img { border-radius: 3px; }
 .usage-name > span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; } /* labels are user-chosen; never let one push the cells off-screen */
 .usage-cell { --u: var(--accent); display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
-.usage-cell[data-w="7d"] { grid-column: -2; } /* the last column, so a weekly-only plan's 7d lines up */
+.usage-account > :nth-child(even) { grid-column: -3; } /* every other meter starts a row: column 2 beside the name, column 1 under it wide */
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
 .usage-cell :is(span, em, small), .usage-cell.none { color: var(--muted); }
 .usage-cell em { font-style: normal; font-size: 11px; }
 .usage-cell b { font-variant-numeric: tabular-nums; margin-left: 2px; }
-.usage-cell:is(.warn, .full) :is(b, small) { color: var(--u); }
+.usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast stacks over the reset, which always shows */
 .usage-cell small { grid-column: 1 / -1; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.usage-cell.wide { grid-column: span 2; }
+.usage-cell.wide { grid-column: -3 / -1; }
 .usage-bar, .usage-spark { grid-column: 1 / -1; }
 .usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
