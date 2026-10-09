@@ -13,7 +13,8 @@ def test_advertise_scratch_only_when_opted_in(tmp_path, monkeypatch):
     if not shutil.which("tmux"):
         pytest.skip("tmux is not installed")
     # The server copies its starting environment, so keep the caller's own values out.
-    keep_out = ("TMUX", "TMUXRC_SCRATCH_DIR", "TMUXRC_SCRATCH_URL", "TMUXRC_SCRATCH_ADVERTISE")
+    keep_out = ("TMUX", "TMUXRC_SCRATCH_DIR", "TMUXRC_SCRATCH_URL", "TMUXRC_SCRATCH_LOCAL_URL",
+                "TMUXRC_SCRATCH_ADVERTISE")
     base = ["env", *(f"--unset={name}" for name in keep_out),
             "tmux", "-S", str(tmp_path / "tmux.sock")]
 
