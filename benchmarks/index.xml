@@ -1,0 +1,269 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>tmux-rc – Benchmarks</title><link>https://querystory.github.io/tmux-rc/benchmarks/</link><description>Recent content in Benchmarks on tmux-rc</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><atom:link href="https://querystory.github.io/tmux-rc/benchmarks/index.xml" rel="self" type="application/rss+xml"/><item><title>gemini-3.5-flash-lite vs 3.1-flash-lite</title><link>https://querystory.github.io/tmux-rc/benchmarks/gemini-3.5-flash-lite/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/benchmarks/gemini-3.5-flash-lite/</guid><description>
+&lt;h1&gt;Benchmark: &lt;code&gt;gemini-3.5-flash-lite&lt;/code&gt; vs deployed &lt;code&gt;gemini-3.1-flash-lite&lt;/code&gt; (pane classifier)&lt;/h1&gt;&lt;p&gt;&lt;strong&gt;Question this answers:&lt;/strong&gt; should we switch the pane classifier from the currently
+deployed &lt;code&gt;gemini-3.1-flash-lite&lt;/code&gt; to &lt;code&gt;gemini-3.5-flash-lite&lt;/code&gt;? Both sides are &lt;strong&gt;Flash
+&lt;em&gt;Lite&lt;/em&gt;&lt;/strong&gt;. This is NOT the non-Lite &lt;code&gt;gemini-3.5-flash&lt;/code&gt;, a separate model that was only
+smoke-tested — see the note at the end.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;TL;DR — DON&amp;rsquo;T switch yet. Needs more data / a prompt fix first.&lt;/strong&gt; &lt;code&gt;gemini-3.5-flash-lite&lt;/code&gt;
+is reachable, ~0.2–0.3s faster per parse, and cost-neutral (+$0.011 per 1k calls) under
+current pricing. But on real
+samples it is &lt;strong&gt;less reliable at the one thing this classifier exists to get right: not
+missing a pane that needs the human.&lt;/strong&gt; On 24 diverse real screens it disagreed with 3.1-lite
+on &lt;code&gt;activity&lt;/code&gt; 6 times, and in the ambiguous/hard cases it drifted toward &lt;em&gt;under&lt;/em&gt;-reporting —
+dropping a live user-question, missing an external-wait, and even emitting an
+&lt;strong&gt;out-of-schema &lt;code&gt;activity&lt;/code&gt; value&lt;/strong&gt; (&lt;code&gt;&amp;quot;working&amp;quot;&lt;/code&gt;). Those are exactly the failures the prompt
+tells the model to bias &lt;em&gt;against&lt;/em&gt;. The speed win is real but small; it doesn&amp;rsquo;t buy back the
+loss of an amber &amp;ldquo;tap me, I need you&amp;rdquo; badge.&lt;/p&gt;
+&lt;h2&gt;How this was run (apples-to-apples with production)&lt;span class="hx:absolute hx:-mt-20" id="how-this-was-run-apples-to-apples-with-production"&gt;&lt;/span&gt;
+&lt;a href="#how-this-was-run-apples-to-apples-with-production" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Model call path:&lt;/strong&gt; the daemon&amp;rsquo;s real one. &lt;code&gt;research/probe.py&lt;/code&gt;&amp;rsquo;s &lt;code&gt;_parse()&lt;/code&gt; (which takes
+a &lt;code&gt;model&lt;/code&gt; arg for this comparison) sends the pane text with the &lt;strong&gt;production
+&lt;code&gt;openbus/parser_prompt.txt&lt;/code&gt;&lt;/strong&gt; as &lt;code&gt;system_instruction&lt;/code&gt;, &lt;code&gt;temperature=0.0&lt;/code&gt;,
+&lt;code&gt;response_mime_type=application/json&lt;/code&gt;, via the same Vertex client
+(&lt;code&gt;openbus.llm._client&lt;/code&gt;). No hand-rolled prompt, no raw call that skips our prompting.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Input:&lt;/strong&gt; each sample&amp;rsquo;s &lt;code&gt;pane_text&lt;/code&gt; is the &lt;strong&gt;already-assembled payload&lt;/strong&gt; captured from a
+single production call — it includes the &lt;code&gt;[tmux: foreground process is '…']&lt;/code&gt; prefix and
+whatever prior-frame / already-reported-events context &lt;code&gt;classify()&lt;/code&gt; had embedded &lt;em&gt;at that
+one capture&lt;/em&gt;. So the model sees byte-for-byte what the daemon fed 3.1-lite on that call —
+but these are &lt;strong&gt;single-frame replays&lt;/strong&gt;: they carry only the continuity baked into that one
+payload, not the live multi-frame trajectory the daemon accumulates across ticks (see the
+caveat below). Text-only, matching the shipped hot path (research showed text beats image;
+the image switch is off).&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Auth/env:&lt;/strong&gt; Vertex on the inference project, region &lt;code&gt;global&lt;/code&gt;, the daemon&amp;rsquo;s
+service-account key. Both model ids returned valid JSON on every call —
+&lt;strong&gt;&lt;code&gt;gemini-3.5-flash-lite&lt;/code&gt; IS a valid, reachable model id on this setup&lt;/strong&gt; (this was the
+first thing checked; it is not a substitution).&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Repeats:&lt;/strong&gt; 3 runs/model/sample; latency reported as the per-sample median.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Sample source: real OTel telemetry (not the 3 &lt;code&gt;research/samples/&lt;/code&gt; fixtures)&lt;span class="hx:absolute hx:-mt-20" id="sample-source-real-otel-telemetry-not-the-3-researchsamples-fixtures"&gt;&lt;/span&gt;
+&lt;a href="#sample-source-real-otel-telemetry-not-the-3-researchsamples-fixtures" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Pulled from production OTel telemetry — two days of archived &lt;code&gt;tmux-rc.classify&lt;/code&gt; parse
+records, which under &lt;code&gt;TMUXRC_QSDEBUG=1&lt;/code&gt; carry &lt;code&gt;pane_text&lt;/code&gt; + &lt;code&gt;output_json&lt;/code&gt;.
+&lt;strong&gt;158,703&lt;/strong&gt; parse records → &lt;strong&gt;33,092 distinct screens&lt;/strong&gt;. Production-observed activity mix
+across those distinct screens: idle 15,896 / running 15,266 / waiting 1,710 / compacting 220;
+tools claude 16,569 / shell 15,834 / codex 490 / gemini 199.&lt;/p&gt;
+&lt;p&gt;From that I curated &lt;strong&gt;24 samples&lt;/strong&gt; spanning every state and tool plus the special
+affordances — question, rewind, waiting-on-external, compacting — and a range of input sizes
+(37 chars to 50k). The &lt;code&gt;research/samples/&lt;/code&gt; fixtures were available as a fallback but the OTel
+data is far richer and more varied, so it&amp;rsquo;s the primary source. &lt;code&gt;output_json&lt;/code&gt; on each record
+is 3.1-lite&amp;rsquo;s &lt;strong&gt;live production answer&lt;/strong&gt;, used as a baseline reference (not infallible gold —
+it was produced with real prior-frame continuity these single-frame replays don&amp;rsquo;t have).&lt;/p&gt;
+&lt;h2&gt;Head-to-head numbers&lt;span class="hx:absolute hx:-mt-20" id="head-to-head-numbers"&gt;&lt;/span&gt;
+&lt;a href="#head-to-head-numbers" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;metric&lt;/th&gt;
+&lt;th&gt;&lt;code&gt;gemini-3.1-flash-lite&lt;/code&gt; (deployed)&lt;/th&gt;
+&lt;th&gt;&lt;code&gt;gemini-3.5-flash-lite&lt;/code&gt; (candidate)&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;JSON parses cleanly&lt;/td&gt;
+&lt;td&gt;24/24&lt;/td&gt;
+&lt;td&gt;24/24&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;strong&gt;invalid &lt;code&gt;activity&lt;/code&gt; enum&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;0&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;1&lt;/strong&gt; (&lt;code&gt;&amp;quot;working&amp;quot;&lt;/code&gt;, sample 08)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;median latency (per-sample medians)&lt;/td&gt;
+&lt;td&gt;1.35s&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;1.18s&lt;/strong&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;mean latency&lt;/td&gt;
+&lt;td&gt;1.41s&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;1.23s&lt;/strong&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;latency range&lt;/td&gt;
+&lt;td&gt;0.80–2.45s&lt;/td&gt;
+&lt;td&gt;0.76–2.03s&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;faster on …&lt;/td&gt;
+&lt;td&gt;—&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;17 / 24 samples&lt;/strong&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;median paired Δlatency (3.5 − 3.1)&lt;/td&gt;
+&lt;td&gt;—&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;−0.22s&lt;/strong&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;pane-text in-tokens (identical input/tokenizer)&lt;/td&gt;
+&lt;td&gt;111,050 total&lt;/td&gt;
+&lt;td&gt;111,050 total&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;out-tokens&lt;/td&gt;
+&lt;td&gt;3,800 total (median 133)&lt;/td&gt;
+&lt;td&gt;3,969 total (median 140)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;cost / 1k calls (mean, $0.25/$1.50 per-M)&lt;/td&gt;
+&lt;td&gt;$1.394&lt;/td&gt;
+&lt;td&gt;$1.405&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;Latency edge is consistent across input sizes (small &lt;code&gt;&amp;lt;1500&lt;/code&gt; in-tok: −0.29s; mid: −0.25s;
+large: −0.38s). 3.5-lite writes ~5% more output tokens on average, so cost is a hair higher
+but &lt;strong&gt;effectively identical&lt;/strong&gt; — &lt;strong&gt;+$0.011 / 1k calls&lt;/strong&gt; (+0.8% of the $1.394 pane-text-only
+baseline in this table; +0.4% of the fully-accounted $2.66 — see the corrections below) —
+under the flash-lite pricing
+both models share in &lt;code&gt;openbus/llm.py&lt;/code&gt;. &lt;em&gt;(Assumption: 3.5-lite bills at the same Vertex list
+price as 3.1-lite. Confirm real list price before switching — if 3.5-lite costs more, the
+case gets weaker still, since it&amp;rsquo;s not winning on quality.)&lt;/em&gt;&lt;/p&gt;
+&lt;h3&gt;Two corrections to the originally published figures&lt;span class="hx:absolute hx:-mt-20" id="two-corrections-to-the-originally-published-figures"&gt;&lt;/span&gt;
+&lt;a href="#two-corrections-to-the-originally-published-figures" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;This report first ran on 2026-07-22 and its cost section has been regenerated twice over.
+Both fixes move the absolute numbers and neither moves the conclusion — stated here rather
+than silently restated, since the original figures circulated.&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Stale prices.&lt;/strong&gt; The original quoted &lt;code&gt;$0.526&lt;/code&gt; / &lt;code&gt;$0.529&lt;/code&gt; per 1k calls using
+&lt;strong&gt;$0.10/$0.40&lt;/strong&gt; per M tokens. Those were &lt;code&gt;2.5-flash-lite&lt;/code&gt;&amp;rsquo;s prices, still hardcoded long
+after the move to 3.1. &lt;code&gt;openbus/llm.py&lt;/code&gt; now carries the current
+&lt;strong&gt;$0.25 in / $1.50 out&lt;/strong&gt; (&lt;code&gt;_IN_PER_M&lt;/code&gt; / &lt;code&gt;_OUT_PER_M&lt;/code&gt;, overridable via
+&lt;code&gt;TMUXRC_IN_PER_M&lt;/code&gt; / &lt;code&gt;TMUXRC_OUT_PER_M&lt;/code&gt;) — the source of the prices quoted above, and the
+reason &lt;code&gt;research/probe.py&lt;/code&gt; imports them rather than keeping a copy. Output being 3.75x
+dearer is what widens the paired gap from &lt;code&gt;+$0.003&lt;/code&gt; to &lt;code&gt;+$0.011&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Input was undercounted ~2x.&lt;/strong&gt; The 111,050 figure came from a &lt;code&gt;count_tokens&lt;/code&gt; call over
+the pane text &lt;strong&gt;only&lt;/strong&gt;. Every request also sends the ~20KB production parser prompt as
+&lt;code&gt;system_instruction&lt;/code&gt;, which billing counts and that helper did not — roughly &lt;strong&gt;+5,000
+tokens per call&lt;/strong&gt;, against a mean of 4,627 pane-text tokens. Full production accounting
+(what &lt;code&gt;usage_metadata.prompt_token_count&lt;/code&gt; reports, now what &lt;code&gt;probe.py&lt;/code&gt; records) puts real
+input near &lt;strong&gt;9,700 tokens/call&lt;/strong&gt;, and the true per-1k cost near &lt;strong&gt;$2.66 for both models&lt;/strong&gt;.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;The cost &lt;em&gt;comparison&lt;/em&gt; survives both corrections intact: input tokens are identical between
+the two models, so they cancel out of the difference entirely. The gap is set solely by
+3.5-lite&amp;rsquo;s 169 extra output tokens across 24 calls — &lt;strong&gt;+$0.011 / 1k calls whichever input
+baseline you use.&lt;/strong&gt; Only the &lt;em&gt;absolute&lt;/em&gt; delta is baseline-invariant; expressed as a percent
+it shrinks as the input baseline grows (0.8% of $1.394, 0.4% of $2.66), which is why the
+absolute figure is the one to quote. Cost was never the deciding variable here, and still
+isn&amp;rsquo;t; the quality findings below are.&lt;/p&gt;
+&lt;h2&gt;Quality — where they diverge (the part that decides it)&lt;span class="hx:absolute hx:-mt-20" id="quality--where-they-diverge-the-part-that-decides-it"&gt;&lt;/span&gt;
+&lt;a href="#quality--where-they-diverge-the-part-that-decides-it" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Agreement was high: identical key fields on 18/24. Divergences: &lt;strong&gt;activity 6/24, &lt;code&gt;waiting_on&lt;/code&gt;
+4/24, tool 1/24, question-presence 1/24.&lt;/strong&gt; Adjudicated against the pane text and the prompt&amp;rsquo;s
+own rules (esp. &amp;ldquo;&lt;strong&gt;bias to &lt;code&gt;user&lt;/code&gt;… an under-fired user-wait hides something that actually
+needs the human, which is worse than an over-shown busy pane&lt;/strong&gt;&amp;rdquo;):&lt;/p&gt;
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;#&lt;/th&gt;
+&lt;th&gt;screen&lt;/th&gt;
+&lt;th&gt;3.1-lite&lt;/th&gt;
+&lt;th&gt;3.5-lite&lt;/th&gt;
+&lt;th&gt;verdict&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;06&lt;/td&gt;
+&lt;td&gt;Claude blocked on a preview build, spinner &amp;ldquo;1 shell still running&amp;rdquo;&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;waiting&lt;/code&gt;/&lt;strong&gt;external&lt;/strong&gt; ✓&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;&lt;code&gt;idle&lt;/code&gt;, no wait&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;3.5 WORSE&lt;/strong&gt; — silently drops an active external-wait&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;08&lt;/td&gt;
+&lt;td&gt;Claude &amp;ldquo;Waiting for 1 background agent to finish (9m40s)&amp;rdquo;&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;waiting&lt;/code&gt;/external ✓&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;&lt;code&gt;activity:&amp;quot;working&amp;quot;&lt;/code&gt;&lt;/strong&gt; (invalid enum)&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;3.5 WORSE + broken&lt;/strong&gt; — out-of-schema value; no question/rewind on this screen to trigger &lt;code&gt;classify()&lt;/code&gt;&amp;rsquo;s waiting override, so it stays non-waiting and &lt;code&gt;waiting_on&lt;/code&gt; is stripped&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;02&lt;/td&gt;
+&lt;td&gt;scrolled-back frame, question still pending&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;waiting&lt;/code&gt;/user + &lt;code&gt;question&lt;/code&gt; ✓&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;&lt;code&gt;idle&lt;/code&gt;, question dropped&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;3.5 WORSE&lt;/strong&gt; — loses a live user-question (the amber badge)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;20&lt;/td&gt;
+&lt;td&gt;Gemini CLI auto-updating itself&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;running&lt;/code&gt; + update event ✓&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;&lt;code&gt;idle&lt;/code&gt;, event dropped&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;3.5 WORSE&lt;/strong&gt; — reports a busy pane as idle&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;12&lt;/td&gt;
+&lt;td&gt;50k server-log tail, no shell prompt&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;idle&lt;/code&gt; (matches prod)&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;running&lt;/code&gt;&lt;/td&gt;
+&lt;td&gt;3.5 arguably worse — a log tail with no prompt is idle; borderline&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;00&lt;/td&gt;
+&lt;td&gt;109-char &amp;ldquo;Should I run tests? 1.Yes 2.No ❯&amp;rdquo;&lt;/td&gt;
+&lt;td&gt;tool=&lt;strong&gt;codex&lt;/strong&gt; ✗&lt;/td&gt;
+&lt;td&gt;tool=&lt;strong&gt;claude&lt;/strong&gt; ✓&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;3.5 BETTER&lt;/strong&gt; — the &lt;code&gt;❯&lt;/code&gt; box is Claude&amp;rsquo;s; prod agrees it&amp;rsquo;s claude&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;03&lt;/td&gt;
+&lt;td&gt;Claude session/worktree resume picker&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;idle&lt;/code&gt; + question(menu)&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;waiting&lt;/code&gt;/user + question(menu)&lt;/td&gt;
+&lt;td&gt;3.5 arguably BETTER — a picker awaiting a selection is a genuine user-wait&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;04&lt;/td&gt;
+&lt;td&gt;rewind picker over live &amp;ldquo;converting Parquet&amp;rdquo;&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;waiting&lt;/code&gt;/user&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;waiting&lt;/code&gt;/user&lt;/td&gt;
+&lt;td&gt;tie (both differ from prod&amp;rsquo;s &lt;code&gt;running&lt;/code&gt;; a visible picker justifies a user-wait)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;&lt;strong&gt;Pattern:&lt;/strong&gt; the two models are equally good on the easy, unambiguous screens (all four
+&lt;code&gt;running_claude&lt;/code&gt;, both &lt;code&gt;compacting&lt;/code&gt;, plain idles, the device-auth link case — identical or
+trivially different). They diverge on the &lt;strong&gt;hard&lt;/strong&gt; screens — long scrolled-back frames,
+external-waits, self-housekeeping — and there &lt;strong&gt;3.5-lite&amp;rsquo;s errors cluster on the dangerous
+side: under-reporting.&lt;/strong&gt; It dropped a pending question (02), missed an external-wait (06),
+called a self-updating agent idle (20), and produced an invalid &lt;code&gt;activity&lt;/code&gt; (08). 3.5-lite&amp;rsquo;s
+only clear &lt;em&gt;win&lt;/em&gt; (00, the tool call) is on a 109-char screen genuinely ambiguous between
+claude and codex. It never once caught a wait that 3.1-lite missed.&lt;/p&gt;
+&lt;p&gt;The invalid-enum result (08) is the most concrete red flag: &lt;code&gt;&amp;quot;working&amp;quot;&lt;/code&gt; is not in the schema
+(&lt;code&gt;running|waiting|idle|compacting&lt;/code&gt;). The daemon doesn&amp;rsquo;t validate the enum, so it would pass
+straight through. On this screen — a background-agent wait with no on-screen question or
+rewind picker — nothing rescues it: &lt;code&gt;classify()&lt;/code&gt;&amp;rsquo;s &lt;code&gt;question&lt;/code&gt;/&lt;code&gt;rewind&lt;/code&gt; override only forces
+&lt;code&gt;activity: &amp;quot;waiting&amp;quot;&lt;/code&gt; when the model reports one of those affordances, and here it reported
+neither. The value stays &lt;code&gt;&amp;quot;working&amp;quot;&lt;/code&gt;, &lt;code&gt;waiting_on&lt;/code&gt; is stripped by the cleanup that keeps it
+only on &lt;code&gt;waiting&lt;/code&gt; panes, and the card renders as neither waiting nor a known busy state. A
+model that invents enum values on a temp-0 structured call is a reliability regression
+regardless of the average-quality wash.&lt;/p&gt;
+&lt;h2&gt;Recommendation: DON&amp;rsquo;T switch (needs-more-data + a prompt pass first)&lt;span class="hx:absolute hx:-mt-20" id="recommendation-dont-switch-needs-more-data--a-prompt-pass-first"&gt;&lt;/span&gt;
+&lt;a href="#recommendation-dont-switch-needs-more-data--a-prompt-pass-first" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;The speed win (~0.2s median, ~15%) is real but small on a parse that isn&amp;rsquo;t latency-critical
+(it runs on a heartbeat, not in a user&amp;rsquo;s tight loop), and cost is a wash. Against that,
+3.5-lite is measurably &lt;strong&gt;less trustworthy on the classifier&amp;rsquo;s core job&lt;/strong&gt; — surfacing panes
+that need the human — and it emitted an out-of-schema value. On this evidence the trade is
+speed-for-reliability in the wrong direction for a &amp;ldquo;tap me, I need you&amp;rdquo; dashboard.&lt;/p&gt;
+&lt;p&gt;Concretely:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Do not flip &lt;code&gt;TMUXRC_GEMINI_MODEL&lt;/code&gt; to &lt;code&gt;gemini-3.5-flash-lite&lt;/code&gt; now.&lt;/strong&gt; No quality
+justification; a reliability regression on the cases that matter most.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;If the speed matters enough to pursue it&lt;/strong&gt;, first (a) confirm 3.5-lite&amp;rsquo;s real Vertex
+list price, and (b) re-run at larger N with the &lt;strong&gt;full prior-frame context&lt;/strong&gt; the live
+daemon feeds (these were single-frame replays; several 3.5-lite misses were on
+scrolled-back / continuity-dependent frames where the missing prior frames plausibly hurt
+it). If 3.5-lite closes the under-reporting gap &lt;em&gt;with&lt;/em&gt; real context, revisit. A cheap
+in-daemon A/B — shadow-parse a fraction of live ticks with 3.5-lite and diff &lt;code&gt;activity&lt;/code&gt; /
+&lt;code&gt;waiting_on&lt;/code&gt; against 3.1-lite in QueryStory — would settle it on live traffic without a
+risky global switch.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Independently&lt;/strong&gt;, the invalid-enum case argues for a tiny guard in &lt;code&gt;classify()&lt;/code&gt;: coerce
+an unrecognized &lt;code&gt;activity&lt;/code&gt; to a safe default rather than passing it through — cheap
+insurance against any model (3.1 included, on some unseen screen) inventing a value.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2&gt;Context: the non-Lite finding, separately&lt;span class="hx:absolute hx:-mt-20" id="context-the-non-lite-finding-separately"&gt;&lt;/span&gt;
+&lt;a href="#context-the-non-lite-finding-separately" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;The &lt;strong&gt;non-Lite&lt;/strong&gt; &lt;code&gt;gemini-3.5-flash&lt;/code&gt; was smoke-tested separately and passes a
+basic smoke test at ~identical cost to 3.1-lite. That&amp;rsquo;s a &lt;em&gt;different&lt;/em&gt; model (bigger, not the
+Lite tier) and only a smoke test, not a real-sample head-to-head — noted here so the two
+results aren&amp;rsquo;t conflated. This report is the Lite-vs-Lite, real-sample comparison, and its
+conclusion (don&amp;rsquo;t switch on current evidence) is specific to &lt;code&gt;gemini-3.5-flash-lite&lt;/code&gt;.&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;&lt;em&gt;Harness: &lt;code&gt;research/probe.py --sample &amp;lt;SAMPLE.json&amp;gt; --models a,b --repeat N&lt;/code&gt; (text-only,
+production prompt, matches the daemon call). 24 real OTel samples, 3 repeats each, run
+2026-07-22 on Vertex, region &lt;code&gt;global&lt;/code&gt;. Latency and token counts are from that run; the cost
+figures were recomputed from those token totals at current prices (see the corrections
+above) rather than re-billed against the API.&lt;/em&gt;&lt;/p&gt;</description></item></channel></rss>
