@@ -662,9 +662,12 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   /* New window floats over the list's foot; sticky, so the list's end scrolls clear of it, and
      an auto top margin in a column, so a short list still puts it at the bottom. It steps
      aside while a field has the keyboard up. */
+  body { --fab: 56px; --fab-gap: 16px; }
   #sessions { display: flex; flex-direction: column; }
-  #new-window { position: sticky; bottom: 16px; z-index: 5; display: flex; width: 56px; height: 56px; margin: auto 16px 16px auto; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px rgb(0 0 0 / .3); }
+  #new-window { position: sticky; bottom: var(--fab-gap); z-index: 5; display: flex; width: var(--fab); height: var(--fab); margin: auto var(--fab-gap) var(--fab-gap) auto; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px rgb(0 0 0 / .3); }
   #sessions:has(input:focus, [contenteditable]:focus) #new-window { display: none; }
+  /* Its spot is where the minimized chat sits, so on the list the chat rises a button and a gap. */
+  body:has(#sessions:not([hidden])) .chat-bubble { bottom: calc(var(--chat-bubble-bottom) + var(--fab) + var(--fab-gap)); }
 }
 
 
