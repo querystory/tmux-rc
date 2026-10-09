@@ -103,7 +103,7 @@ def last_reply(pane: Pane, text: str) -> str | None:
         elif kind in ("UserMessage", "user_message") or (kind == "user" and (
                 # Only a person's (or a headless run's) prompt starts a turn, as in
                 # agent-history; reminders and task notifications are user-role too.
-                (e.get("origin") or {}).get("kind") == "human"
+                (isinstance(e.get("origin"), dict) and e["origin"].get("kind") == "human")
                 or e.get("promptSource") == "sdk")):
             reply = None
     return reply

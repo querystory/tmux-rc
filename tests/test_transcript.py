@@ -46,6 +46,7 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
         _say("assistant", [{"type": "thinking"}, {"type": "text", "text": "Done."}]),
         _say("user", "<system-reminder>x</system-reminder>", isMeta=True, origin=None),
         _say("user", "<task-notification>x", origin={"kind": "task-notification"}),
+        _say("user", "malformed", origin="human"),
     ])
     assert transcript.last_reply(_pane(str(os.getppid())), "") == "Done."
     # The same pid registered by a process that started at another time is stale.
