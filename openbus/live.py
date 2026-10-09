@@ -28,7 +28,8 @@ from types import SimpleNamespace
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import agent_history, live_providers, llm, telemetry, tmux
-from .classify import _load_prompt, codex_status_segments
+from .classify import _load_prompt
+from .expunge import codex_status_segments
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
 

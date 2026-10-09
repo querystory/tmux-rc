@@ -18,11 +18,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import tmux
-from .classify import codex_status_segments
+from .classify import _codex_model_segments, _session_chrome
 
 # Claude's session ids are uuid4s and Codex's thread ids uuid7s. Nothing else is accepted,
 # so an id can never carry a path separator or a glob character into the patterns below.
 _ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+_ENTRY = re.compile(r"[A-Za-z0-9_-]{1,128}")  # any agent-history entry id (agent-history validID)
 
 # Per harness: the session's own files and dirs, relative to its config dir, and the
 # shared JSONL logs whose lines name it (file -> the key holding the id).
@@ -34,7 +35,6 @@ _FILES = {
               "archived_sessions/rollout-*-{id}.jsonl", "archived_sessions/rollout-*-{id}_*.jsonl",
               "shell_snapshots/{id}.*"),
 }
-_INDEX = ("{id}.md", "{id}")  # agent-history's entry, and its subagents' entries
 _LINES = {"claude": {"history.jsonl": "sessionId"},
           "codex": {"history.jsonl": "session_id", "session_index.jsonl": "id"}}
 
@@ -42,6 +42,13 @@ _LINES = {"claude": {"history.jsonl": "sessionId"},
 # One expunge at a time: each rewrites shared logs by read, filter and replace, and two at
 # once would each restore the lines the other removed.
 _lock = threading.Lock()
+
+
+def codex_status_segments(text: str) -> set[str]:
+    """The segments of a Codex status line the parser validates as live chrome. One is
+    the thread id when the status line is configured with `session-id`."""
+    return {s.strip() for line in _session_chrome(text) if _codex_model_segments(line)
+            for s in line.split("·")}
 
 
 class Refused(Exception):  # noqa: N818 - a refusal, not an error: nothing was touched
@@ -160,12 +167,20 @@ def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session
 def targets(s: Session) -> tuple[list[Path], list[Path]]:
     """(the session's own files and dirs, the shared files to filter), all checked to
     resolve inside their root. Raises Refused, before anything is deleted, if one doesn't."""
-    # agent-history's copy of what was typed goes last, after the transcript it is rebuilt from.
-    found = [(root, p) for root, globs in ((s.root, _FILES[s.harness]), (s.index, _INDEX))
-             for g in globs for p in root.glob(g.format(id=s.session_id))]
+    found = [(s.root, p) for g in _FILES[s.harness] for p in s.root.glob(g.format(id=s.session_id))]
     reg = s.root / "sessions" / f"{s.pid}.json"  # normally gone once Claude exits
     if s.harness == "claude" and _registration(reg).get("sessionId") == s.session_id:
         found.append((s.root, reg))
+    # agent-history's copy of what was typed goes last, after the transcript it is rebuilt
+    # from: the entry, and the dir of its subagents' entries. A subagent's own subagents sit
+    # in a dir named for it (agent-history/index.go), so the walk follows each one down.
+    found += [(s.index, p) for p in s.index.glob(f"{s.session_id}.md")]
+    todo, seen = [s.session_id], set()
+    while todo:
+        if (sid := todo.pop()) not in seen and (s.index / sid).is_dir():
+            seen.add(sid)
+            found.append((s.index, s.index / sid))
+            todo += [p.stem for p in (s.index / sid).glob("*.md") if _ENTRY.fullmatch(p.stem)]
     shared = [(s.root, s.root / name) for name in _LINES[s.harness]]
     for root, path in found + shared:
         if not os.path.realpath(path).startswith(os.path.realpath(root) + os.sep):
@@ -176,10 +191,16 @@ def targets(s: Session) -> tuple[list[Path], list[Path]]:
     return [p for _, p in found], [p for _, p in shared if p.exists()]
 
 
+def alive(s: Session) -> bool:
+    """Whether the identified agent itself (pid and start time; a zombie is gone) still runs."""
+    st = _stat(s.pid)
+    return st[19:20] == [s.start] and st[0] != "Z"
+
+
 def wait_gone(s: Session, timeout: float = 5.0) -> bool:
-    """Whether the agent exited (a zombie counts) within `timeout` of its window closing."""
+    """Whether the agent exited within `timeout` of its window closing."""
     deadline = time.monotonic() + timeout
-    while (st := _stat(s.pid))[19:20] == [s.start] and st[0] != "Z":
+    while alive(s):
         if time.monotonic() > deadline:
             return False
         time.sleep(0.1)
@@ -187,9 +208,9 @@ def wait_gone(s: Session, timeout: float = 5.0) -> bool:
 
 
 def _drop_lines(path: Path, key: str, sid: str) -> int:
-    """Rewrite a JSONL log without the lines whose `key` is `sid`, atomically, keeping its
-    mode. The harnesses append without a lock, so whatever lands in the old file while the
-    new one is written, or as it is renamed into place, is carried over to it."""
+    """Rewrite a JSONL log without the lines whose `key` is `sid`, streamed and atomic,
+    keeping its mode. The harnesses append without a lock, so whatever lands in the old
+    file while the new one is written, or as it is renamed into place, is carried over."""
     path = Path(os.path.realpath(path))
     def ours(line: bytes) -> bool:
         if sid.encode() not in line:
@@ -200,26 +221,28 @@ def _drop_lines(path: Path, key: str, sid: str) -> int:
             # One a crash cut short goes too if it still shows the id as its own key: it is
             # already corrupt, and keeping it could keep this session's words.
             return re.search(rb'"%b"\s*:\s*"%b"' % (key.encode(), sid.encode()), line) is not None
-    def kept(data: bytes) -> bytes:
-        return b"".join(line for line in data.splitlines(keepends=True) if not ours(line))
+    def copy(src, dst) -> int:  # the lines not ours, src to dst; how many were ours
+        removed = 0
+        for line in src:
+            if ours(line):
+                removed += 1
+            else:
+                dst.write(line)
+        return removed
     with path.open("rb") as old:
-        data = old.read()
-        if (keep := kept(data)) == data:
-            return 0
         # A fresh, exclusive temp file: a fixed name could be a planted symlink.
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".expunge")
         try:
             with os.fdopen(fd, "wb") as f:
-                f.write(keep)
+                removed = copy(old, f)
+            if not removed:
+                return 0
             shutil.copymode(path, tmp)
             os.replace(tmp, path)
         finally:
             Path(tmp).unlink(missing_ok=True)
-        late = old.read()  # appended to the old file since the first read
-        if late:
-            with path.open("ab") as f:
-                f.write(kept(late))
-    return sum(len(d.splitlines()) - len(kept(d).splitlines()) for d in (data, late))
+        with path.open("ab") as new:  # appended to the old file since it was read
+            return removed + copy(old, new)
 
 
 def expunge(s: Session) -> dict:

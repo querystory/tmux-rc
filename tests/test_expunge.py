@@ -35,7 +35,9 @@ def claude(tmp_path):
         for rel in (f"projects/-src-api/{sid}.jsonl", f"projects/-src-api/{sid}/subagents/x.jsonl",
                     f"file-history/{sid}/f@v1", f"session-env/{sid}/hook.sh",
                     f"todos/{sid}-agent-{sid}.json", f"../ah/index/claude/{sid}.md",
-                    f"../ah/index/claude/{sid}/agent.md"):
+                    f"../ah/index/claude/{sid}/agent.md",
+                    f"../ah/index/claude/{sid}/agent-{sid[:4]}.md",  # a subagent with its own:
+                    f"../ah/index/claude/agent-{sid[:4]}/grandchild.md"):
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
             (root / rel).write_text("x")
     jsonl(root / "history.jsonl", [{"display": "a", "sessionId": A},
@@ -49,9 +51,9 @@ def test_claude_expunges_one_session_and_leaves_the_other(claude, tmp_path):
     before = files(tmp_path)
     result = expunge.expunge(session("claude", claude))
     gone = before - files(tmp_path)
-    assert gone and all(A in path for path in gone)
+    assert gone and all(A in path or f"agent-{A[:4]}" in path for path in gone)
     assert sorted(result["files"]) == sorted([f"{A}.jsonl", A, A, A, f"{A}-agent-{A}.json",
-                                              f"{A}.md", A])
+                                              f"{A}.md", A, f"agent-{A[:4]}"])
     assert result["lines"] == 1
     # B's line survives, including one whose text happens to contain A's id.
     assert [json.loads(line)["sessionId"] for line in (claude / "history.jsonl").open()] == [B, B]
@@ -222,17 +224,20 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
         return pane
 
     def kill(pane_id, pid=None):  # tmux.kill_window's guard, as the tmux server applies it
-        if panes[pane_id] == pid:
-            order.append("kill")
-            panes.pop(pane_id)
+        if panes[pane_id] != pid:
+            return False
+        order.append("kill")
+        panes.pop(pane_id)
+        return True
     monkeypatch.setattr(tmux, "find_pane", find_pane)
     monkeypatch.setattr(tmux, "pane_pid", panes.get)
     monkeypatch.setattr(tmux, "kill_window", kill)
     monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
     monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
     monkeypatch.setattr(expunge, "wait_gone", lambda s: order.append("gone") or True)
+    monkeypatch.setattr(expunge, "alive", lambda s: True)
     server.app.state.watcher = SimpleNamespace(
-        checkpoint_key=lambda pane_id, pid: f"boot:1:{pane_id}:{pid}",
+        checkpoint_key=lambda pane_id, pid: f"boot:1:{pane_id}:{pid}", history=object(),
         forget_checkpoint=lambda uid: order.append(uid) or True)
     client = TestClient(server.app)
     # Identified under 1234, but %1 is 999's by the kill: nothing is killed or deleted.
@@ -247,9 +252,10 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
 
 def test_kill_window_guard_runs_in_one_tmux_command(monkeypatch):
     sent = []
-    monkeypatch.setattr(tmux, "_run", sent.append)
-    tmux.kill_window("%1", "1234")
-    assert sent == [["if-shell", "-F", "-t", "%1", "#{==:#{pane_pid},1234}", "kill-window -t %1"]]
+    monkeypatch.setattr(tmux, "_run", lambda argv: sent.append(argv) or "kept\n")
+    assert not tmux.kill_window("%1", "1234")  # the other branch ran: the pane changed hands
+    assert sent == [["if-shell", "-F", "-t", "%1", "#{==:#{pane_pid},1234}", "kill-window -t %1",
+                     "display-message -p kept"]]
 
 
 def test_an_unreadable_registration_refuses(monkeypatch, tmp_path):
@@ -259,3 +265,15 @@ def test_an_unreadable_registration_refuses(monkeypatch, tmp_path):
         (tmp_path / "sessions" / "12.json").write_text(broken)
         with pytest.raises(Refused, match="can't be read"):
             expunge.identify("10", "")
+
+
+def test_route_refuses_when_the_identified_agent_is_gone(monkeypatch, claude):
+    killed = []
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id="%1", pid="1234"))
+    monkeypatch.setattr(tmux, "kill_window", lambda *a: killed.append(a))
+    monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
+    monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
+    monkeypatch.setattr(expunge, "alive", lambda s: False)  # the shell now runs another agent
+    server.app.state.watcher = SimpleNamespace(checkpoint_key=lambda *_a: "uid")
+    r = TestClient(server.app).post("/api/panes/%251/expunge", json={"session_id": A})
+    assert r.status_code == 409 and not killed

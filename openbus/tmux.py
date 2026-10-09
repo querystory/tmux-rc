@@ -454,7 +454,7 @@ def select_pane(pane_id: str) -> None:
     _run(["select-pane", "-t", pane_id])
 
 
-def kill_window(pane_id: str, pid: str | None = None) -> None:
+def kill_window(pane_id: str, pid: str | None = None) -> bool:
     """Close the WINDOW that contains this pane (kill-window targets the pane's window),
     matching the phone's mental model: rows and cards are titled by window, and windows —
     not bare panes — are what "+ New window" creates. Any split panes in the window go with
@@ -462,10 +462,14 @@ def kill_window(pane_id: str, pid: str | None = None) -> None:
     and evicts it (watcher._gc), so no client-side cleanup is needed.
 
     With `pid`, only while that process still owns the pane: tmux reuses pane ids, and the
-    server checks and kills in one command, so a newer pane under the id is never hit."""
+    server checks and kills in one command, so a newer pane under the id is never hit. The
+    command's other branch says when it declined; whether it killed is returned."""
     kill = ["kill-window", "-t", pane_id]
-    _run(kill if pid is None else ["if-shell", "-F", "-t", pane_id,
-                                   f"#{{==:#{{pane_pid}},{int(pid)}}}", shlex.join(kill)])
+    if pid is None:
+        _run(kill)
+        return True
+    return _run(["if-shell", "-F", "-t", pane_id, f"#{{==:#{{pane_pid}},{int(pid)}}}",
+                 shlex.join(kill), "display-message -p kept"]).strip() != "kept"
 
 
 def server_path() -> str | None:

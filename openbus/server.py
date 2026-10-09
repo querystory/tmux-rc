@@ -1087,11 +1087,11 @@ def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
         _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
     try:
-        tmux.kill_window(pane.id, pid)
+        killed = tmux.kill_window(pane.id, pid)
     except Exception as e:
         _audit(request, action, pane_id, detail, outcome=f"error: {type(e).__name__}")
         raise
-    if pid is not None and tmux.pane_pid(pane.id) is not None:
+    if not killed:
         _audit(request, action, pane_id, detail, outcome="rejected: the pane changed")
         raise HTTPException(409, "the pane changed")
 
@@ -1149,10 +1149,20 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
         _audit(request, "expunge", pane_id, detail, outcome="rejected: no tmux server id")
         raise HTTPException(409, "tmux can't name its server, so tmux-rc's own card for the "
                                  "pane couldn't be found: nothing was killed") from e
+    # The kill's guard is the pane's process, usually a shell; the agent it ran is checked
+    # here too, so one that was replaced since the preview never takes its successor down.
+    if not expunge.alive(s):
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: agent exited")
+        raise HTTPException(409, "the agent exited before the window was killed: nothing was "
+                                 "touched")
+    if app.state.watcher.history is None:  # its own card for the pane could not be deleted
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: no history database")
+        raise HTTPException(409, "tmux-rc's history database is unavailable: nothing was "
+                                 "touched")
     _kill_window(request, pane.id, "expunge", detail, pane.pid)
-    if not expunge.wait_gone(s):
+    if not expunge.wait_gone(s):  # the window is gone, so this is a failure, not a refusal
         _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
-        raise HTTPException(409, "the window closed, but the agent is still running: "
+        raise HTTPException(500, "the window closed, but the agent is still running: "
                                  "nothing was deleted")
     try:
         result = expunge.expunge(s)
