@@ -456,11 +456,21 @@ PARKED_SECONDS = 30 * 60
 _parked: dict[tuple, tuple] = {}
 
 
-def _unpark(meter: _Meter, proposal: str | None = None) -> list[tuple[str, tuple]]:
-    """Take this chat's parked cards (just `proposal`'s, if named), dropping stale ones."""
+def _sweep() -> None:
     stale = time.monotonic() - PARKED_SECONDS
     for key in [k for k, v in _parked.items() if v[0] < stale]:
         del _parked[key]
+
+
+def _park(proposal: str, entry: tuple) -> None:
+    _sweep()  # on the way in too, so abandoned chats can't pile up between claims
+    meter = entry[4]
+    _parked[meter.actor, meter.session, proposal] = entry
+
+
+def _unpark(meter: _Meter, proposal: str | None = None) -> list[tuple[str, tuple]]:
+    """Take this chat's parked cards (just `proposal`'s, if named), dropping stale ones."""
+    _sweep()
     return [(k[2], _parked.pop(k)) for k in list(_parked)
             if k[:2] == (meter.actor, meter.session) and proposal in {None, k[2]}]
 
@@ -478,7 +488,11 @@ async def _resume(websocket: WebSocket, session, proposal: str, parked: tuple, o
     _, call, pid, rec, meter, watcher = parked
     started, result = time.monotonic(), {"status": "error", "reason": "aborted"}
     try:
-        await _decide(websocket, proposal, ok, rec)
+        try:
+            await _decide(websocket, proposal, ok, rec)
+        except BaseException:  # this socket dropped too, before anything ran: keep the card
+            _park(proposal, parked)
+            raise
         result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, call.name, result, started, rec)
@@ -537,11 +551,9 @@ async def _approved(
         await websocket.send_json({**card, "id": proposal})
         ok = await answer  # True / False on a tap, None when a new message superseded it
         await _decide(websocket, proposal, ok, rec)
-    except asyncio.CancelledError:  # the connection dropped under it (cancelling `answer`)
-        if answer.cancelled() or not answer.done():
-            rec["consent"] = "parked"
-            _parked[meter.actor, meter.session, proposal] = (
-                time.monotonic(), fc, pid, rec, meter, watcher)
+    except asyncio.CancelledError:  # the connection dropped under it, before anything ran
+        rec["consent"] = "parked"
+        _park(proposal, (time.monotonic(), fc, pid, rec, meter, watcher))
         raise
     finally:
         meter.approvals.pop(proposal, None)

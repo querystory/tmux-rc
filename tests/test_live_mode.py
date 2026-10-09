@@ -335,38 +335,55 @@ def _chat(session="chat"):
     return L._Meter(session, "tester", P._DEFAULT[0], text=True)
 
 
-async def _drop_while_proposed(monkeypatch, session="chat"):
-    """Propose a type_in_pane, then drop the connection (cancel the call) before any answer.
-    Returns the card's id."""
-    shown = asyncio.Event()
+async def _drop_while_proposed(monkeypatch, session="chat", *, answered=False):
+    """Propose a type_in_pane, then drop the connection (cancel the call) before anything
+    ran: before any answer, or with one in hand and its "decided" in flight. Returns the
+    card's id."""
+    shown, meter = asyncio.Event(), _chat(session)
 
     class Shown(_WS):
         async def send_json(self, obj):
             await super().send_json(obj)
+            if answered and obj["type"] == "propose":
+                meter.approvals[obj["id"]].set_result(True)
+                return
             shown.set()
+            if obj["type"] == "decided":
+                await asyncio.Event().wait()  # the socket died under it
 
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
     ws = Shown()
     call = asyncio.create_task(L._handle_tool_call(
-        ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), _chat(session)))
+        ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), meter))
     await shown.wait()
     call.cancel()
     await asyncio.gather(call, return_exceptions=True)
     return ws.sent[0]["id"]
 
 
+@pytest.mark.parametrize("answered", [False, True])
 @pytest.mark.parametrize("ok", [True, False])
-def test_a_card_survives_its_connection_dropping(monkeypatch, ok):
+def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
     """A phone drops the socket on every lock: the card stays up, so the same chat
-    reconnecting can still Send it, bound to the pane process it showed, or Cancel it."""
+    reconnecting can still Send it, bound to the pane process it showed, or Cancel it,
+    even when a tap or its answer was lost in a drop, and over a second drop."""
     L._parked.clear()
     typed, audits = [], []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append((a, k)))
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
 
     async def go():
-        proposal = await _drop_while_proposed(monkeypatch)
+        proposal = await _drop_while_proposed(monkeypatch, answered=answered)
         assert audits[-1]["consent"] == "parked"
+
+        class Drops(_ScriptedWS):
+            async def send_json(self, obj):
+                raise ConnectionError  # this socket died too
+
+        with pytest.raises(ConnectionError):
+            await L._forward_client(Drops([{"action": "approve", "id": proposal, "ok": ok}]),
+                                    _Session(), _chat())
+        assert [k[2] for k in L._parked] == [proposal]
         ws = _ScriptedWS([{"action": "approve", "id": proposal, "ok": ok}, {"action": "stop"}])
         await L._forward_client(ws, _Session(), _chat())
         return proposal, ws
@@ -389,6 +406,8 @@ def test_a_parked_card_expires_for_real(monkeypatch):
                                  for s in ("other", "chat", "chat")]
         key = next(k for k in L._parked if k[2] == stale)
         L._parked[key] = (L._parked[key][0] - L.PARKED_SECONDS - 1, *L._parked[key][1:])
+        await _drop_while_proposed(monkeypatch, "late")  # parking sweeps too
+        assert stale not in {k[2] for k in L._parked}
         ws = _ScriptedWS([*({"action": "approve", "id": p, "ok": True}
                             for p in (other, stale, "restarted")),
                           {"action": "text", "text": "never mind"}, {"action": "stop"}])
@@ -398,7 +417,7 @@ def test_a_parked_card_expires_for_real(monkeypatch):
     ws, other, stale, current = _run(go())
     assert ws.sent[:4] == [*({"type": "expired", "id": p} for p in (other, stale, "restarted")),
                            {"type": "decided", "id": current, "ok": None}]
-    assert [k[1] for k in L._parked] == ["other"]
+    assert sorted(k[1] for k in L._parked) == ["late", "other"]
     L._parked.clear()
 
 
