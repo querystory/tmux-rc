@@ -62,6 +62,14 @@ CASES = [
         {"sent": [], "selected": 0, "notes": 1},
     ),
     (
+        # A different ask with the same rows replaced the tapped one mid-walk: its Enter
+        # would answer a question nobody tapped.
+        "a replacement question with the same rows is never committed",
+        {"options": ["No", "Yes"], "selected": 0, "keymap": NO_SEARCH_KM, "reask_after": 1},
+        "Yes", 1,
+        {"sent": ["Down"], "selected": 1, "notes": 1},
+    ),
+    (
         "no advertised direction: says so instead of inventing an arrow",
         {"options": ROWS, "selected": 0, "keymap": {"select": "Enter"}},
         "gamma", 2,
@@ -309,6 +317,7 @@ function fake(spec) {{
       return p.open
       ? {{
         answer_style: p.style, selected: "misread" in spec ? spec.misread : p.selected,
+        prompt: spec.reask_after !== undefined && p.sends >= spec.reask_after ? "B?" : "A?",
         keymap: p.keymap,
         options: spec.no_options ? undefined : p.options,
       }}
