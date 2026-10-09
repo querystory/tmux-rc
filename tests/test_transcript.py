@@ -27,6 +27,8 @@ def homes(tmp_path):
 
 
 def _say(role, content, **extra):
+    if role == "user" and isinstance(content, str):
+        extra = {"origin": {"kind": "human"}, **extra}  # a person typed it
     return {"type": role, "message": {"role": role, "content": content}, **extra}
 
 
@@ -42,6 +44,8 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
         _say("user", [{"type": "tool_result", "content": "ok"}]),
         _say("assistant", [{"type": "text", "text": "sidechain"}], isSidechain=True),
         _say("assistant", [{"type": "thinking"}, {"type": "text", "text": "Done."}]),
+        _say("user", "<system-reminder>x</system-reminder>", isMeta=True, origin=None),
+        _say("user", "<task-notification>x", origin={"kind": "task-notification"}),
     ])
     assert transcript.last_reply(_pane(str(os.getppid())), "") == "Done."
     # The same pid registered by a process that started at another time is stale.
@@ -56,7 +60,7 @@ def test_claude_new_user_message_clears_the_reply(homes):
     _write(homes / "claude/sessions/1.json", [{"pid": os.getpid(), "sessionId": SID}])
     _write(homes / f"claude/projects/-x/{SID}.jsonl", [
         _say("assistant", [{"type": "text", "text": "old reply"}]),
-        _say("user", [{"type": "text", "text": "next"}]),
+        _say("user", [{"type": "text", "text": "next"}], promptSource="sdk"),
     ])
     assert transcript.last_reply(_pane(str(os.getppid())), "") is None
 

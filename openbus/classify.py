@@ -800,7 +800,7 @@ def bootstrap(
     }
 
 
-_FENCE_RE = re.compile(r"(?ms)^([ \t]*)(`{3,}|~{3,})[ \t]*([\w+-]*).*?\n(.*?)^[ \t]*\2[ \t]*$")
+_FENCE_RE = re.compile(r"(?ms)^([ \t]*)(`{3,}|~{3,})[ \t]*([\w+-]*).*?\n(.*?)^[ \t]*\2[`~]*[ \t]*$")
 
 
 def _code_blocks(reply: str | None) -> list[dict]:
