@@ -1363,8 +1363,9 @@ $("expunge-pane").onclick = async () => {
       // run, so the answer must be its own outcome, never a failure while it deletes on.
       const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id }, 2 ** 31 - 1);
       notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
-    } catch (error) { // a refusal (409) touched nothing and clears; a failure partway stays up
-      notice(`Expunge ${error.status === 409 ? "refused" : "failed"}: ${error.detail || error.message}`, error.status === 409 ? 6000 : 0);
+    } catch (error) { // a refusal (pane gone, 404; or 409) touched nothing and clears; a failure stays
+      const refused = [404, 409].includes(error.status);
+      notice(`Expunge ${refused ? "refused" : "failed"}: ${error.detail || error.message}`, refused ? 6000 : 0);
     }
   };
   $("expunge-dialog").showModal();
