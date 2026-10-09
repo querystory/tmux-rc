@@ -79,21 +79,19 @@ export function setupSidebar(ctx) {
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
 
-  // Group by, the URL's filter (wide has no tab bar to carry it), and the Sub-agents switch.
+  // One slim row of words: State / Session, the URL's filter (wide has no tab bar to carry
+  // it), and the Sub-agents toggle, whose count's colour says whether it is on.
   const bar = document.createElement("div");
   bar.className = "sb-bar";
-  bar.innerHTML = `<span>Group by</span><span class="seg"><button data-by="state">State</button><button data-by="session">Session</button></span>`;
+  bar.innerHTML = '<button data-by="state">State</button><i>/</i><button data-by="session">Session</button>';
   bar.querySelectorAll("[data-by]").forEach((b) => { b.onclick = () => { prefs.by = b.dataset.by; rerender(); }; });
   const pick = Object.assign(document.createElement("select"), { id: "side-filter" });
   pick.setAttribute("aria-label", "Filter panes");
   pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
   pick.onchange = () => ctx.setFilter(pick.value);
-  const subs = Object.assign(document.createElement("button"), { className: "sb-switch", title: "List the running sub-agents of every pane outside Needs you under its row" });
-  subs.setAttribute("role", "switch");
+  const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
-  const show = Object.assign(document.createElement("div"), { className: "sb-show", textContent: "Show" });
-  show.append(subs);
-  bar.append(pick, show);
+  bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·" }), subs);
   const refreshPick = headerPicker(pick);
 
   function head(g) {
@@ -292,8 +290,8 @@ export function setupSidebar(ctx) {
       (node, i) => i.bar ? null : i.p ? updateRow(node, i) : updateHead(node, i.g));
     bar.querySelectorAll("[data-by]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.by === prefs.by)));
     if (pick.value !== filter) { pick.value = filter; refreshPick(); }
-    subs.setAttribute("aria-checked", String(prefs.subagents));
-    ctx.html(subs, `${licon("bot", 14)}Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span><i></i>`);
+    subs.setAttribute("aria-pressed", String(prefs.subagents));
+    ctx.html(subs, `Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span>`);
   }
   render.drafts = drafts; // for the app's unsent-draft guard on reload
   // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
