@@ -1026,14 +1026,6 @@ def classify(
         asked = question.get("answer_style") == "menu" and _question_prompt(question)
         if context := asked and _widget_text(asked, visible):
             question["context"] = context
-            # A checkbox inside the widget is its own (Claude's "☐ <header>" question
-            # tab), never a row of the agent's plan.
-            chips = {_checklist_text(m["text"]) for m in _CHECKLIST_LINE_RE.finditer(context)}
-            if chips and isinstance(tasks := result.get("tasks"), list):
-                result["tasks"] = [t for t in tasks if not (
-                    isinstance(t, dict) and _checklist_text(str(t.get("text"))) in chips)]
-                if not result["tasks"]:
-                    del result["tasks"]
             # Only an approval is restated: a numbered choice such as "Which environment?"
             # keeps its own question.
             if is_approval(question) and (ask := _restate(question, replies_fn)):
