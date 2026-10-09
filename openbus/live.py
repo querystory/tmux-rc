@@ -602,6 +602,16 @@ async def _approved(
 _NUDGE_TICK = 1.0
 
 
+def _connect(meter: _Meter) -> None:
+    """Make `meter` its chat's live connection. A reconnect carries on its parked cards'
+    unseen wait, rather than restarting it, until the client reports its view, which it
+    does on every new connection."""
+    chat = meter.actor, meter.session
+    meter.unseen_since = next(
+        (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat), None)
+    _chats[chat] = meter
+
+
 async def _nudge(meter: _Meter, proposal: str, text: str) -> None:
     """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
     at the chat (sheet minimized, page hidden, phone locked: a dropped socket) the whole
@@ -610,7 +620,8 @@ async def _nudge(meter: _Meter, proposal: str, text: str) -> None:
     shown = time.monotonic()
     while True:
         _sweep()  # a parked card expires on time even if nothing else sweeps meanwhile
-        if proposal not in meter.approvals and _key(meter, proposal) not in _parked:
+        live = meter.approvals.get(proposal)  # done: answered, not yet cleaned up
+        if (live is None or live.done()) and _key(meter, proposal) not in _parked:
             return
         since = _chats.get((meter.actor, meter.session), meter).unseen_since
         if since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS:
@@ -1365,7 +1376,7 @@ async def live_mode(websocket: WebSocket) -> None:
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
     meter.push = getattr(websocket.app.state, "push", None)
-    _chats[meter.actor, meter.session] = meter
+    _connect(meter)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     if websocket.query_params.get("fresh"):  # a new chat: an earlier one ended offline
         _unpark(meter)
