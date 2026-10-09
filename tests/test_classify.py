@@ -1145,13 +1145,16 @@ def test_widget_ask_is_restated_once_per_widget():
     assert "ask" not in ask(capture.replace("4100", "3"), restate({"ask": "Sure, kill them."}))
     off_shape = restate({"ask": "The agent is unable to summarize this?"})
     assert "ask" not in ask(capture.replace("4100", "4"), off_shape)
-    # A numbered choice that is no approval keeps its own question, with no call made.
+    # A numbered choice that is no approval keeps its own question, with no call made,
+    # and its "☐ <header>" question tab is not a task.
     choice = classify(_pane("node"), _sample("77_claude_numbered_choice_not_approval"),
-                      _llm({"tool": "claude", "question": {
+                      _llm({"tool": "claude", "tasks": [{"text": "Deploy target"}], "question": {
                           "prompt": "Which environment should I deploy to?",
                           "answer_style": "menu", "options": ["Staging", "Production"]}}),
-                      replies_fn=good)["question"]
-    assert choice["context"] == "Deploy target" and "ask" not in choice
+                      replies_fn=good)
+    assert "tasks" not in choice
+    choice = choice["question"]
+    assert choice["context"] == "☐ Deploy target" and "ask" not in choice
     assert len(calls) == 5  # unchanged
     bad = classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
         "prompt": "Do you want to proceed?", "answer_style": "menu", "options": 1}}),
