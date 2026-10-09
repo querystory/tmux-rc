@@ -65,8 +65,10 @@ def _codex_file(text: str) -> Path | None:
            for s in line.split("·") if _UUID_RE.fullmatch(s.strip())}
     if len(ids) != 1:
         return None
+    # A resumed thread continues in rollout-<start>-<id>_<segment>.jsonl; names sort by
+    # date then start time, so the greatest is where the thread writes now.
     home = _home("CODEX_HOME", ".codex")
-    return next((home / "sessions").glob(f"*/*/*/rollout-*-{ids.pop()}.jsonl"), None)
+    return max((home / "sessions").glob(f"*/*/*/rollout-*-{ids.pop()}*.jsonl"), default=None)
 
 
 def _text(blocks, kind: str) -> str | None:
@@ -82,13 +84,19 @@ def last_reply(pane: Pane, text: str) -> str | None:
     for e in [*_entries(_claude_file(pane)), *_entries(_codex_file(text))]:
         msg = e.get("message") if not e.get("isSidechain") else None
         content = msg.get("content") if isinstance(msg, dict) else None
-        item = (e.get("payload") or {}).get("item") if e.get("type") == "event_msg" else None
-        kind = item.get("type") if isinstance(item, dict) else e.get("type")
+        # Codex has written both {item_completed, item: {type: AgentMessage, ...}} and
+        # the older flat {type: agent_message, message: "..."} event shapes.
+        event = e.get("payload") if e.get("type") == "event_msg" else None
+        event = event if isinstance(event, dict) else {}
+        item = event.get("item") if isinstance(event.get("item"), dict) else event
+        kind = item.get("type") or e.get("type")
         if kind == "assistant":
             reply = _text(content, "text") or reply
         elif kind == "AgentMessage":
             reply = _text(item.get("content"), "Text") or reply
-        elif kind == "UserMessage" or (
+        elif kind == "agent_message" and isinstance(item.get("message"), str):
+            reply = item["message"] or reply
+        elif kind in ("UserMessage", "user_message") or (
                 kind == "user" and (isinstance(content, str) or _text(content, "text"))):
             reply = None
     return reply
