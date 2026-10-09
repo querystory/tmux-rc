@@ -23,6 +23,7 @@ from .classify import _codex_model_segments, _session_chrome
 # Claude's session ids are uuid4s and Codex's thread ids uuid7s. Nothing else is accepted,
 # so an id can never carry a path separator or a glob character into the patterns below.
 _ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+_ENTRY = re.compile(r"[A-Za-z0-9_-]{1,128}")  # any agent-history entry id (agent-history validID)
 
 # Per harness: the session's own files and dirs, relative to its config dir, and the
 # shared JSONL logs whose lines name it (file -> the key holding the id).
@@ -179,7 +180,7 @@ def targets(s: Session) -> tuple[list[Path], list[Path]]:
         if (sid := todo.pop()) not in seen and (s.index / sid).is_dir():
             seen.add(sid)
             found.append((s.index, s.index / sid))
-            todo += [p.stem for p in (s.index / sid).glob("*.md") if _ID.fullmatch(p.stem)]
+            todo += [p.stem for p in (s.index / sid).glob("*.md") if _ENTRY.fullmatch(p.stem)]
     shared = [(s.root, s.root / name) for name in _LINES[s.harness]]
     for root, path in found + shared:
         if not os.path.realpath(path).startswith(os.path.realpath(root) + os.sep):

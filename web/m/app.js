@@ -1345,6 +1345,8 @@ $("kill-pane").onclick = async () => {
 // Expunge: kill the window AND delete its agent session's local files (docs/design/expunge.md).
 // The server names what it would delete first, and the confirmation is bound to that session id.
 html($("expunge-pane"), `${licon("trash", 18)}<span>Expunge</span>`);
+let expunging = false; // a reload mid-request would hide the outcome of a deletion still running
+const busy = () => sending || launching || expunging;
 const items = (n) => `${n} local file${n === 1 ? " or folder" : "s or folders"}`;
 html($("expunge-confirm"), `${licon("trash", 18)}<span>Expunge permanently</span>`);
 $("close-expunge").onclick = () => $("expunge-dialog").close();
@@ -1358,6 +1360,7 @@ $("expunge-pane").onclick = async () => {
   text($("expunge-what"), `This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
+    expunging = true;
     try {
       // No client timeout (setTimeout's largest delay): aborting would not stop the server's
       // run, so the answer must be its own outcome, never a failure while it deletes on.
@@ -1366,7 +1369,7 @@ $("expunge-pane").onclick = async () => {
     } catch (error) { // a refusal (pane gone, 404; or 409) touched nothing and clears; a failure stays
       const refused = [404, 409].includes(error.status);
       notice(`Expunge ${refused ? "refused" : "failed"}: ${error.detail || error.message}`, refused ? 6000 : 0);
-    }
+    } finally { expunging = false; }
   };
   $("expunge-dialog").showModal();
 };
@@ -1389,12 +1392,12 @@ function observeVersion(version) {
   if (assetVersion === null) assetVersion = version;
   const changed = version !== assetVersion;
   show("update-notice", changed);
-  $("reload-update").disabled = sending || launching;
+  $("reload-update").disabled = busy();
   // A deploy must not eat another pane's draft, an in-flight action, or a voice session.
-  if (changed && !document.hidden && !sending && !launching && !hasDrafts() && !live.isActive() && !document.querySelector("dialog[open]")) location.reload();
+  if (changed && !document.hidden && !busy() && !hasDrafts() && !live.isActive() && !document.querySelector("dialog[open]")) location.reload();
 }
 $("reload-update").onclick = () => {
-  if (sending || launching) return;
+  if (busy()) return;
   if ((hasDrafts() || live.isActive()) && !confirm("Reload now? Unsent drafts will be discarded and Live Mode will end.")) return;
   location.reload();
 };

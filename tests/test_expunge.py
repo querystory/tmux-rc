@@ -36,8 +36,8 @@ def claude(tmp_path):
                     f"file-history/{sid}/f@v1", f"session-env/{sid}/hook.sh",
                     f"todos/{sid}-agent-{sid}.json", f"../ah/index/claude/{sid}.md",
                     f"../ah/index/claude/{sid}/agent.md",
-                    f"../ah/index/claude/{sid}/{sid[:-1]}9.md",  # a subagent with its own:
-                    f"../ah/index/claude/{sid[:-1]}9/grandchild.md"):
+                    f"../ah/index/claude/{sid}/agent-{sid[:4]}.md",  # a subagent with its own:
+                    f"../ah/index/claude/agent-{sid[:4]}/grandchild.md"):
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
             (root / rel).write_text("x")
     jsonl(root / "history.jsonl", [{"display": "a", "sessionId": A},
@@ -51,9 +51,9 @@ def test_claude_expunges_one_session_and_leaves_the_other(claude, tmp_path):
     before = files(tmp_path)
     result = expunge.expunge(session("claude", claude))
     gone = before - files(tmp_path)
-    assert gone and all(A[:-1] in path for path in gone)  # its subagents share its prefix here
+    assert gone and all(A in path or f"agent-{A[:4]}" in path for path in gone)
     assert sorted(result["files"]) == sorted([f"{A}.jsonl", A, A, A, f"{A}-agent-{A}.json",
-                                              f"{A}.md", A, f"{A[:-1]}9"])
+                                              f"{A}.md", A, f"agent-{A[:4]}"])
     assert result["lines"] == 1
     # B's line survives, including one whose text happens to contain A's id.
     assert [json.loads(line)["sessionId"] for line in (claude / "history.jsonl").open()] == [B, B]
@@ -235,7 +235,7 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
     monkeypatch.setattr(expunge, "wait_gone", lambda s: order.append("gone") or True)
     monkeypatch.setattr(expunge, "alive", lambda s: True)
     server.app.state.watcher = SimpleNamespace(
-        checkpoint_key=lambda pane_id, pid: f"boot:1:{pane_id}:{pid}",
+        checkpoint_key=lambda pane_id, pid: f"boot:1:{pane_id}:{pid}", history=object(),
         forget_checkpoint=lambda uid: order.append(uid) or True)
     client = TestClient(server.app)
     # Identified under 1234, but %1 is 999's by the kill: nothing is killed or deleted.

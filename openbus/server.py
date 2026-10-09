@@ -1004,6 +1004,10 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
         _audit(request, "expunge", pane_id, detail, outcome="rejected: agent exited")
         raise HTTPException(409, "the agent exited before the window was killed: nothing was "
                                  "touched")
+    if app.state.watcher.history is None:  # its own card for the pane could not be deleted
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: no history database")
+        raise HTTPException(409, "tmux-rc's history database is unavailable: nothing was "
+                                 "touched")
     _kill_window(request, pane.id, "expunge", detail, pane.pid)
     if not expunge.wait_gone(s):  # the window is gone, so this is a failure, not a refusal
         _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
