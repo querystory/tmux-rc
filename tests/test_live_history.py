@@ -74,6 +74,22 @@ def test_resume_opens_the_indexed_command_in_its_directory(history, argv):
     assert any(m["type"] == "typed" and m["pane_id"] == "%40" for m in ws.sent)
 
 
+@pytest.mark.parametrize("consent", ["approved", None])
+def test_resume_jumps_to_the_window_only_when_the_user_tapped_send(history, monkeypatch, consent):
+    # A tapped Send asked to go there: the client gets open_pane with auto, which also
+    # leaves the button. Voice (no card) gets no jump.
+    sessions, _ = history
+    sessions["live-1"] = LIVE
+    monkeypatch.setattr(tmux, "list_panes", lambda: [
+        Pane("work", "7", "tmuxrc live mode", "0", "%40", "claude", "", cwd="/repo")])
+    ws, rec = _WS(), {"consent": consent} if consent else {}
+    r = _run(L._resume_session(ws, {"session_id": "live-1"}, _Watcher(), rec))
+    assert r.get("shown", False) == bool(consent)  # steers the model off a second button
+    opens = [m for m in ws.sent if m["type"] == "open_pane"]
+    assert opens == ([{"type": "open_pane", "pane_id": "%40", "auto": True,
+                       "label": 'window 7 "tmuxrc live mode"'}] if consent else [])
+
+
 def test_resume_is_idempotent_until_the_session_registers(history):
     # Right after a launch the registry doesn't list it yet; a repeat must not relaunch.
     sessions, opened = history
@@ -306,10 +322,10 @@ def test_tools_offered_only_with_agent_history(monkeypatch):
     monkeypatch.setattr(agent_history, "resolve", lambda q: [])
     assert {"find_sessions", "resume_session"} <= offered()
     monkeypatch.setenv("TMUXRC_TARGET", "%3")  # single-pane mode can't address new windows
-    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane"}
+    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane", "open_pane"}
     monkeypatch.delenv("TMUXRC_TARGET")
     monkeypatch.setattr(agent_history, "binary", lambda: None)
-    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane"}
+    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane", "open_pane"}
 
 
 def test_client_runs_the_binary_with_a_literal_query(monkeypatch, tmp_path):
