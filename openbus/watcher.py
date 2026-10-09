@@ -17,7 +17,7 @@ import threading
 import time
 from functools import partial
 
-from . import tmux
+from . import tmux, transcript
 from .classify import _OMP_CTX_RE, _OPENCODE_RUNNING_RE, bootstrap, classify
 from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
@@ -1253,6 +1253,7 @@ class Watcher:
             text,
             llm_fn=llm_fn,
             replies_fn=llm_fn and partial(llm_fn, kind="replies"),
+            reply=transcript.last_reply(pane, text),
             prior=prior,
             recent_events=recent_texts,
             # What we last knew, so a failed parse holds that instead of guessing.

@@ -18,7 +18,7 @@ from openbus import agent_history, tmux
 from openbus.tmux import Pane
 from tests.test_live_mode import _FC, _METER, _WS, _run, _Session, _Watcher
 
-_REAL_ANCESTORS = L._ancestors  # before the autouse stub replaces it
+_REAL_ANCESTORS = tmux.ancestors  # before the autouse stub replaces it
 
 LIVE = {
     "harness": "claude", "session_id": "live-1", "title": "tmuxrc live mode", "cwd": "/repo",
@@ -31,7 +31,7 @@ def _fresh_resumes(monkeypatch):
     monkeypatch.setattr(L, "_resumed", {})
     monkeypatch.setattr(L, "_resume_lock", asyncio.Lock())  # each test runs its own loop
     # Every registered process runs under the stubbed pane pid (conftest's 1234).
-    monkeypatch.setattr(L, "_ancestors", lambda pid: [pid, 1234])
+    monkeypatch.setattr(tmux, "ancestors", lambda pid: [pid, 1234])
     # The tools are offered (and callable) only with a binary; tests stub its calls.
     monkeypatch.setenv("TMUXRC_AGENT_HISTORY", shutil.which("true"))
     monkeypatch.delenv("TMUXRC_TARGET", raising=False)
@@ -234,10 +234,10 @@ def test_registry_pane_counts_only_if_its_process_runs_there(history, monkeypatc
     # The registry's %N may belong to another tmux server; here it's an unrelated pane.
     sessions, opened = history
     sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}}
-    monkeypatch.setattr(L, "_ancestors", lambda pid: [pid])
+    monkeypatch.setattr(tmux, "ancestors", lambda pid: [pid])
     assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "rejected"
     assert opened == []
-    monkeypatch.setattr(L, "_ancestors", _REAL_ANCESTORS)
+    monkeypatch.setattr(tmux, "ancestors", _REAL_ANCESTORS)
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: str(os.getppid()))
     assert L._pane_of({"pid": os.getpid(), "tmux_pane": "%1"}) == "%1"  # real /proc walk
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "999999999")

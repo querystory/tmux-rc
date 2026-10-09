@@ -12,6 +12,13 @@ def _vertex_project(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_agent_transcripts(monkeypatch, tmp_path):
+    """The watcher reads agent transcripts from these homes; never the dev's real ones."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+
+
+@pytest.fixture(autouse=True)
 def _no_enter_settle(monkeypatch):
     """send_keys waits before the Return so a TUI doesn't read it as a newline
     (tmux._ENTER_SETTLE_S). Real time in every send would tax the whole suite for a

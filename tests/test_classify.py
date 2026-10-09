@@ -1029,6 +1029,13 @@ def test_menu_command_becomes_context_not_paste_action():
     assert result["question"]["options"] == ["Yes", "No"]
 
 
+def test_copyable_keeps_line_continuations_as_shown():
+    shown = "  grep -n caps \\\n    /etc/keyd 2>/dev/null"
+    for text in ("grep -n caps \\\n  /etc/keyd 2>/dev/null", "grep -n caps /etc/keyd 2>/dev/null"):
+        result = classify(_pane(), shown, _llm({"copyables": [{"text": text}]}))
+        assert result["copyables"][0]["text"] == text
+
+
 def test_copyable_cannot_cut_a_summary_out_of_prose():
     result = classify(_pane(), "• Tests reject malformed input. No PR was opened.", _llm({
         "copyables": [{"label": "Summary", "text": "Tests reject malformed input."}],
@@ -1355,3 +1362,21 @@ def test_provider_error_retry_is_deterministic(replies):
     screen = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
     out = classify(_pane("claude"), screen, _llm({}), replies_fn=make({"options": ["a", "b"]}))
     assert out["question"]["options"] == ["try again"] and not calls
+
+
+def test_transcript_code_blocks_beat_the_models_retyping():
+    reply = ("Run this on the desktop. It changes nothing.\n\n```bash\n{\n  lpstat -t\n"
+             "} 2>&1 | tee /tmp/report.txt\n```\n\nThen:\n\n```\ncat /tmp/report.txt\n```\n")
+    retyped = {"copyables": [{"text": "{ lpstat -t; } 2>&1 | tee /tmp/report.txt"}]}
+    shown = "  cat /tmp/report.txt"
+    result = classify(_pane("node"), "  } 2>&1 | tee /tmp/report.txt\n" + shown,
+                      _llm(retyped), reply=reply)
+    assert result["copyables"] == [  # newest first, labelled by its lead-in
+        {"label": "Then", "text": "cat /tmp/report.txt"},
+        {"label": "Run this on the desktop.",
+         "text": "{\n  lpstat -t\n} 2>&1 | tee /tmp/report.txt"},
+    ]
+    # A reply whose blocks aren't on screen is stale; the model's picks stand in.
+    result = classify(_pane(), "git status", _llm({"copyables": [{"text": "git status"}]}),
+                      reply=reply)
+    assert result["copyables"] == [{"label": "", "text": "git status"}]

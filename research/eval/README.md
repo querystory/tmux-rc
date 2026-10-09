@@ -126,6 +126,7 @@ loosen the score.
   "repository": "owner/name",         // optional local GitHub repository context
   "capture": "…the pane text…",       // what the model sees
   "prior": ["…an earlier frame…"],    // optional: earlier captures, sent as production does
+  "reply": "…agent message…",         // optional: the agent's last message, from its transcript
   "expected": { "tool": "claude", "activity": "idle", "headline": "…" }
 }
 ```
