@@ -365,6 +365,7 @@ class Watcher:
         # version > 0) would never kick in.
         self._state_fp: tuple | None = None
         self._state_changed = asyncio.Event()
+        self._publish_lock = threading.Lock()  # publishing vs. drop_window (a request thread)
 
     def state_version(self) -> int:
         """Monotonic version of the deck-relevant view; bumped only when it changes.
@@ -564,12 +565,17 @@ class Watcher:
                 # in _force_parse and a running loop would pick it up on its next tick.
                 pass
 
-    def drop_pane(self, pane_id: str) -> None:
-        """Unpublish a pane whose window the daemon just closed, so the next /api/state omits
-        it rather than serving it until a tick notices; then wake that tick to reconcile.
-        A tick already running read tmux before the kill and may publish the pane once more."""
-        self.states = [s for s in self.states if s.get("pane_id") != pane_id]
-        self._bump_state_if_changed(self.states)
+    def drop_window(self, pane_id: str) -> None:
+        """Unpublish the window the daemon just closed through this pane, every split of it,
+        so the next /api/state omits them rather than serving them until a tick notices; then
+        wake that tick to reconcile. A tick already running read tmux before the kill and may
+        publish them once more (the client hides those, app.js endPane)."""
+        with self._publish_lock:  # a tick publishing meanwhile must not swallow the bump
+            win = next(((s.get("session"), s.get("window_index")) for s in self.states
+                        if s.get("pane_id") == pane_id), None)
+            self.states = [s for s in self.states if s.get("pane_id") != pane_id
+                           and (s.get("session"), s.get("window_index")) != win]
+            self._bump_state_if_changed(self.states)
         self.request_reparse(pane_id)
 
     def invalidate_input_actions(self, pane_id: str) -> None:
@@ -758,9 +764,10 @@ class Watcher:
                         history_server: str | None = None) -> None:
         # Publish a fresh snapshot so replacing/enriching the next startup result does
         # not mutate the deck already visible to HTTP handlers between version bumps.
-        self.states = [dict(s) for s in states]
-        self._booted = True
-        self._bump_state_if_changed(self.states)
+        with self._publish_lock:
+            self.states = [dict(s) for s in states]
+            self._booted = True
+            self._bump_state_if_changed(self.states)
         # Progressive UI publication mixes old and newly parsed pane states. Only
         # the final inventory for a tick belongs in durable history.
         if record_history and self.history is not None:

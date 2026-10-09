@@ -248,7 +248,7 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
     monkeypatch.setattr(expunge, "alive", lambda s: True)
     server.app.state.watcher = SimpleNamespace(
         checkpoint_key=lambda pane_id, pid: f"boot:1:{pane_id}:{pid}", history=object(),
-        forget_checkpoint=lambda uid: order.append(uid) or True, drop_pane=order.append)
+        forget_checkpoint=lambda uid: order.append(uid) or True, drop_window=order.append)
     client = TestClient(server.app)
     # Identified under 1234, but %1 is 999's by the kill: nothing is killed or deleted.
     assert client.post("/api/panes/work:0.0/expunge", json=CONFIRM).status_code == 409
@@ -266,7 +266,10 @@ def test_a_killed_window_leaves_the_next_state_at_once(monkeypatch):
     monkeypatch.setattr(tmux, "kill_window", lambda *_a: True)
     monkeypatch.setattr(tmux, "prefix_key", lambda: "C-b")
     w = watcher.Watcher(None, use_llm=False)
-    w._publish_states([{"pane_id": "%1"}, {"pane_id": "%2"}], record_history=False)
+    w._publish_states([{"pane_id": "%1", "session": "s", "window_index": "0"},
+                       {"pane_id": "%3", "session": "s", "window_index": "0"},  # a split of it
+                       {"pane_id": "%2", "session": "s", "window_index": "1"}],
+                      record_history=False)
     server.app.state.watcher = w
     client = TestClient(server.app)
     version = client.get("/api/state").json()["version"]
