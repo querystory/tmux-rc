@@ -586,7 +586,9 @@ def test_a_card_outlives_a_dropped_connection():
   assert.deepEqual(sockets.map((s) => /fresh=1/.test(s.url)), [true, false]);
   assert.equal(sockets[1].sent.length, 0); // nothing goes until the daemon is listening
   say(sockets[1], {type: 'status', status: 'listening'});
-  assert.deepEqual(sockets[1].sent.map(JSON.parse), [{action: 'approve', id: 'p1', ok: true}]);
+  // The untapped cards are checked too: a new message may have superseded one meanwhile.
+  assert.deepEqual(sockets[1].sent.map(JSON.parse),
+    [{action: 'approve', id: 'p1', ok: true}, {action: 'sync', ids: ['p2', 'p3']}]);
   say(sockets[1], {type: 'decided', id: 'p1', ok: true});
   assert.equal(card('p1').firstChild.textContent, 'Approved');
   // A tap lost with its socket goes again on the next one, until answered.
@@ -594,7 +596,8 @@ def test_a_card_outlives_a_dropped_connection():
   sockets[1].readyState = 3; sockets[1].onclose({code: 1006});
   const backoff = [...timers]; timers.clear(); backoff.forEach((fn) => fn()); // its reconnect
   say(sockets[2], {type: 'status', status: 'listening'});
-  assert.deepEqual(sockets[2].sent.map(JSON.parse), [{action: 'approve', id: 'p2', ok: false}]);
+  assert.deepEqual(sockets[2].sent.map(JSON.parse),
+    [{action: 'approve', id: 'p2', ok: false}, {action: 'sync', ids: ['p3']}]);
   say(sockets[2], {type: 'expired', id: 'p2'}); // parked too long, or a daemon restart
   assert.equal(card('p2').firstChild.textContent, 'Expired');
   assert.equal(card('p3').firstChild.textContent, 'Wants to act');

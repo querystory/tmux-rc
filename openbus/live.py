@@ -466,10 +466,13 @@ def _sweep() -> None:
             del table[key]
 
 
+def _key(meter: _Meter, proposal: str) -> tuple:
+    return meter.actor, meter.session, proposal
+
+
 def _park(proposal: str, entry: tuple) -> None:
     _sweep()  # on the way in too, so abandoned chats can't pile up between claims
-    meter = entry[4]
-    _parked[meter.actor, meter.session, proposal] = entry
+    _parked[_key(entry[4], proposal)] = entry
 
 
 def _unpark(meter: _Meter, proposal: str | None = None) -> list[tuple[str, tuple]]:
@@ -479,15 +482,26 @@ def _unpark(meter: _Meter, proposal: str | None = None) -> list[tuple[str, tuple
             if k[:2] == (meter.actor, meter.session) and proposal in {None, k[2]}]
 
 
+def _answer(meter: _Meter, proposal: str, ok: bool | None, rec: dict) -> None:
+    rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
+    _sweep()  # here too: a steady connection answers cards without parking or claiming any
+    _answered[_key(meter, proposal)] = (time.monotonic(), ok)
+
+
+async def _tell(websocket: WebSocket, meter: _Meter, proposal: str) -> None:
+    """Tell the phone what became of a card nobody is waiting on: its answer, else expired
+    (parked too long, or from before a restart). The client shows an answer as final only
+    on this, so a reconnect can't leave a card claiming an action nobody will take."""
+    done = _answered.get(_key(meter, proposal))
+    await websocket.send_json({"type": "decided", "id": proposal, "ok": done[1]} if done
+                              else {"type": "expired", "id": proposal})
+
+
 async def _decide(
     websocket: WebSocket, meter: _Meter, proposal: str, ok: bool | None, rec: dict
 ) -> None:
-    rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
-    _sweep()  # here too: a steady connection answers cards without parking or claiming any
-    _answered[meter.actor, meter.session, proposal] = (time.monotonic(), ok)
-    # The client shows the answer as final only on this, so a reconnect can't leave a
-    # card claiming an action that no longer has anyone waiting on it.
-    await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
+    _answer(meter, proposal, ok, rec)
+    await _tell(websocket, meter, proposal)
 
 
 async def _resume(websocket: WebSocket, session, proposal: str, parked: tuple, ok: bool) -> None:
@@ -1089,8 +1103,13 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                 for answer in [a for a in meter.approvals.values() if not a.done()]:
                     meter.superseded = True
                     answer.set_result(None)
-                for proposal, parked in _unpark(meter):  # its model is gone: nothing to tell
-                    await _decide(websocket, meter, proposal, None, parked[3])
+                # Parked ones too (their model is gone: nothing to tell it), all recorded
+                # before any is sent, so a socket dying mid-way loses none.
+                claimed = _unpark(meter)
+                for proposal, parked in claimed:
+                    _answer(meter, proposal, None, parked[3])
+                for proposal, _ in claimed:
+                    await _tell(websocket, meter, proposal)
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
@@ -1101,10 +1120,14 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     answer.set_result(ok)
             elif parked := _unpark(meter, proposal):
                 await _resume(websocket, session, proposal, parked[0][1], ok)
-            elif done := _answered.get((meter.actor, meter.session, proposal)):
-                await websocket.send_json({"type": "decided", "id": proposal, "ok": done[1]})
-            else:  # parked too long, or before a restart: nobody is left to act on it
-                await websocket.send_json({"type": "expired", "id": proposal})
+            else:
+                await _tell(websocket, meter, proposal)
+        elif action == "sync":  # a reconnected phone's untapped cards: settled meanwhile?
+            ids = data.get("ids")
+            _sweep()
+            for proposal in map(str, ids if isinstance(ids, list) else []):
+                if proposal not in meter.approvals and _key(meter, proposal) not in _parked:
+                    await _tell(websocket, meter, proposal)
         elif action == "stop":
             return
         else:

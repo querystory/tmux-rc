@@ -180,7 +180,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         actions.querySelectorAll("button").forEach((b) => { b.disabled = true; });
         row.firstChild.textContent = "Sending...";
         const frame = { action: "approve", id, ok };
-        current.sending.set(id, frame); approve(current, [frame]);
+        current.sending.set(id, frame); deliver(current, [frame]);
         if (current.ws?.readyState === WebSocket.CLOSED) { clearTimeout(current.retry); connect(current); }
       };
       actions.append(button);
@@ -221,8 +221,14 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     current.sending.delete(id);
     card.row.firstChild.textContent = label; card.actions.remove(); current.proposals.delete(id); badge();
   }
-  function approve(current, frames) {
+  function deliver(current, frames) {
     if (current.listening && current.ws?.readyState === WebSocket.OPEN) frames.forEach((frame) => current.ws.send(JSON.stringify(frame)));
+  }
+  // On each connection: the taps not yet answered go (again), and the untapped cards are
+  // checked, since a new message may have superseded one with the answer lost in a drop.
+  function resync(current) {
+    const untapped = [...current.proposals.keys()].filter((id) => !current.sending.has(id));
+    deliver(current, [...current.sending.values(), ...(untapped.length ? [{ action: "sync", ids: untapped }] : [])]);
   }
   // A dropped connection takes the daemon's queued turns with it; ending the chat, its cards too.
   function drop(current) { current.turns = 0; badge(); }
@@ -389,7 +395,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
-        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; approve(current, [...current.sending.values()]); }
+        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; resync(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);

@@ -420,6 +420,39 @@ def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch):
     assert typed == [] and L._parked == {}
 
 
+def test_a_reconnected_phone_learns_what_became_of_its_untapped_cards(monkeypatch):
+    """Sync settles the cards answered meanwhile (one a new message superseded, its
+    "decided" lost in a drop) and the ones the daemon no longer has, and leaves the ones
+    still waiting, parked or live, open. Each parked card a new message claims is recorded
+    before any is sent, so a socket dying mid-way loses none."""
+    L._parked.clear()
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    class Drops(_ScriptedWS):
+        async def send_json(self, obj):
+            if obj["type"] == "decided":
+                raise ConnectionError  # this socket died on the first answer
+
+    async def go():
+        first, second, waiting = [await _drop_while_proposed(monkeypatch) for _ in range(3)]
+        with pytest.raises(ConnectionError):
+            await L._forward_client(Drops([{"action": "text", "text": "never mind"}]),
+                                    _TypedSession(), _chat())
+        await _drop_while_proposed(monkeypatch)  # parked after the new message
+        meter = _chat()
+        meter.approvals["live"] = asyncio.get_running_loop().create_future()
+        later = next(k[2] for k in L._parked)
+        ws = _ScriptedWS([{"action": "sync", "ids": [first, second, waiting, later, "live",
+                                                     "restarted"]}, {"action": "stop"}])
+        await L._forward_client(ws, _TypedSession(), meter)
+        return ws, first, second, waiting
+
+    ws, first, second, waiting = _run(go())
+    superseded = [{"type": "decided", "id": p, "ok": None} for p in (first, second, waiting)]
+    assert ws.sent == [*superseded, {"type": "expired", "id": "restarted"}]
+    L._parked.clear()
+
+
 def test_a_parked_card_expires_for_real(monkeypatch):
     """Another chat's card, one parked past PARKED_SECONDS, or one lost to a restart is
     answered "expired"; a new message supersedes the chat's parked cards."""
