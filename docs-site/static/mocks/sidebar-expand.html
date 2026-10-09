@@ -362,15 +362,12 @@ const initial = () => ({
   E8: { all: null, lvl: {}, sel: false },
 });
 let O = initial();
-try { Object.assign(S, JSON.parse(localStorage.getItem("expandmock")) || {}); } catch {}
-if (typeof S.e7on === "boolean") O.E7.on = S.e7on; // the switch is remembered
 const fromHash = () => { const k = location.hash.slice(1).toUpperCase(); if (OPTS[k]) S.opt = k; };
 const params = new URLSearchParams(location.search);
 for (const k of ["opt", "frame", "theme", "zoom"]) if (params.get(k)) S[k] = params.get(k);
 if (params.get("finished")) S.finished = params.get("finished") === "show";
 if (params.get("view")) O.E6.view = params.get("view");
 if (params.get("e7")) O.E7.on = params.get("e7") === "on";
-const persist = () => { try { localStorage.setItem("expandmock", JSON.stringify({ opt: S.opt, frame: S.frame, zoom: S.zoom, theme: S.theme, finished: S.finished, e7on: O.E7.on })); } catch {} };
 
 const subsOf = (p) => p.subs.filter((a) => S.finished || a.state !== "done");
 const cardsOf = (o, g) => o.cards[g.id] ?? o.all ?? g.id === "need";
@@ -532,7 +529,7 @@ function render() {
   $("tabs").innerHTML = Object.entries(OPTS).map(([k, o]) => `<button data-opt="${k}" aria-pressed="${k === S.opt}"><b>${k}</b>${o.tab}</button>`).join("");
   for (const [id, v] of [["set-frame", S.frame], ["set-zoom", S.zoom], ["set-theme", S.theme], ["set-done", S.finished ? "show" : "hide"]])
     $(id).querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
-  renderList(); renderWork(); caption(); layout(); persist();
+  renderList(); renderWork(); caption(); layout();
   if (S.hover) { const p = PANES.find((x) => x.id === S.hover); if (p) fillHover(p); }
 }
 
@@ -578,9 +575,9 @@ const CAP = {
     tryIt: "Switch to Agents, group by Session, filter to Needs you." },
 };
 CAP.E7 = { title: "E7 · Sub-agents switch",
-  only: "the Sub-agents switch, with rows (the default density). On by default, so 0 clicks; your choice is remembered.",
+  only: "the Sub-agents switch, with rows (the default density). On by default, so 0 clicks.",
   model: "Density stays exactly as shipped: rows or cards, which is about the <b>description</b>. Sub-agents get <b>one labelled switch</b> at the top of the list that shows every pane's sub-agents under its row, in whatever density you're in. Rows + switch on = sub-agents only.",
-  controls: ["<b>Sub-agents</b> switch (top of the list): every pane, every group, on or off. Remembered across reloads.", "⇕ and group icons: rows vs cards, as shipped.", "No per-row toggles. A robot count shows while the switch is off."],
+  controls: ["<b>Sub-agents</b> switch (top of the list): every pane, every group, on or off.", "⇕ and group icons: rows vs cards, as shipped.", "No per-row toggles. A robot count shows while the switch is off."],
   trade: [["Discoverable", "High. A labelled switch with a count, first thing in the list."], ["See everything", "0 clicks (on by default), or 1."], ["Vertical cost", "Every running sub-agent is a line: about 2.7 screens at 1440×900 in rows (see Live measure); ⇕ adds descriptions on top."], ["Consistency", "Two controls, two nouns: density = description, switch = sub-agents. Neither changes what the other does. The Group-by row is full at 300px, so the switch gets its own row."]],
   tryIt: "Flip the switch off and on. Then flip ⇕ to cards: sub-agents stay, descriptions join them." };
 CAP.E8 = { title: "E8 · E1 reordered",
@@ -640,7 +637,7 @@ function act(el) {
 document.addEventListener("click", (e) => {
   const t = e.target.closest("[data-act], [data-opt]");
   if (!t || t.matches("select, input")) return;
-  if (t.dataset.opt) { S.opt = t.dataset.opt; history.replaceState(null, "", `${location.search}#${S.opt}`); S.hover = null; unhover(); render(); $("side-list").scrollTop = 0; return; }
+  if (t.dataset.opt) { S.opt = t.dataset.opt; location.hash = S.opt; S.hover = null; unhover(); render(); $("side-list").scrollTop = 0; return; }
   act(t);
 });
 document.addEventListener("change", (e) => {
