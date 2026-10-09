@@ -372,8 +372,9 @@ def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
     even when a tap or its answer was lost in a drop, and over a second drop. It runs
     once: a resent tap is told the answer again."""
     L._parked.clear()
-    typed, audits = [], []
+    typed, audits, refreshes = [], [], []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append((a, k)))
+    monkeypatch.setattr(L, "_background", lambda task: (refreshes.append(task), task.cancel()))
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
 
     async def go():
@@ -399,6 +400,7 @@ def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
     assert typed == ([(("%1", "rebase", True, True), {"expected_pid": "4242"})] if ok else [])
     assert audits[-1]["consent"] == ("approved" if ok else "declined")
     assert L._parked == {}  # answered once
+    assert refreshes == []  # no update tells the new model of an action it never took
 
 
 def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch):
@@ -464,7 +466,7 @@ def test_a_parked_card_expires_for_real(monkeypatch):
                                  for s in ("other", "chat", "chat")]
         key = next(k for k in L._parked if k[2] == stale)
         L._parked[key] = (L._parked[key][0] - L.PARKED_SECONDS - 1, *L._parked[key][1:])
-        await _drop_while_proposed(monkeypatch, "late")  # parking sweeps too
+        L._park(stale, L._parked.pop(key))  # parking sweeps: a card past its time is not kept
         assert stale not in {k[2] for k in L._parked}
         ws = _ScriptedWS([*({"action": "approve", "id": p, "ok": True}
                             for p in (other, stale, "restarted")),
@@ -475,7 +477,7 @@ def test_a_parked_card_expires_for_real(monkeypatch):
     ws, other, stale, current = _run(go())
     assert ws.sent[:4] == [*({"type": "expired", "id": p} for p in (other, stale, "restarted")),
                            {"type": "decided", "id": current, "ok": None}]
-    assert sorted(k[1] for k in L._parked) == ["late", "other"]
+    assert [k[1] for k in L._parked] == ["other"]
     L._parked.clear()
 
 

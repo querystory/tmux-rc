@@ -471,8 +471,11 @@ def _key(meter: _Meter, proposal: str) -> tuple:
 
 
 def _park(proposal: str, entry: tuple) -> None:
-    _sweep()  # on the way in too, so abandoned chats can't pile up between claims
-    _parked[_key(entry[4], proposal)] = entry
+    """Park a card, unanswered: an answer whose "decided" died with it never ran."""
+    key = _key(entry[4], proposal)
+    _answered.pop(key, None)
+    _parked[key] = entry
+    _sweep()  # after, so a card re-parked past its time goes, and abandoned chats can't pile up
 
 
 def _unpark(meter: _Meter, proposal: str | None = None) -> list[tuple[str, tuple]]:
@@ -504,9 +507,10 @@ async def _decide(
     await _tell(websocket, meter, proposal)
 
 
-async def _resume(websocket: WebSocket, session, proposal: str, parked: tuple, ok: bool) -> None:
+async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool) -> None:
     """The user's answer to a parked card, run on the connection it came in on. The model
-    that asked went with the old one, so the outcome reaches only the phone and the audit."""
+    that asked went with the old one, so the outcome reaches only the phone and the audit:
+    no session, so no post-type update tells the new model of an action it never took."""
     _, call, pid, rec, meter, watcher = parked
     started, result = time.monotonic(), {"status": "error", "reason": "aborted"}
     try:
@@ -515,7 +519,7 @@ async def _resume(websocket: WebSocket, session, proposal: str, parked: tuple, o
         except BaseException:  # this socket dropped too, before anything ran: keep the card
             _park(proposal, parked)
             raise
-        result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
+        result = await _act(websocket, None, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, call.name, result, started, rec)
 
@@ -680,7 +684,8 @@ async def _dispatch(
                 session, f"[tmux update] {label} ({pane_id}) after your input:\n{tail}"
             )
 
-    _background(asyncio.create_task(refresh()))
+    if session is not None:  # none for a resumed card (_resume)
+        _background(asyncio.create_task(refresh()))
     return {"status": "done", "pane": label}
 
 
@@ -1119,7 +1124,7 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                 if not answer.done():
                     answer.set_result(ok)
             elif parked := _unpark(meter, proposal):
-                await _resume(websocket, session, proposal, parked[0][1], ok)
+                await _resume(websocket, proposal, parked[0][1], ok)
             else:
                 await _tell(websocket, meter, proposal)
         elif action == "sync":  # a reconnected phone's untapped cards: settled meanwhile?
