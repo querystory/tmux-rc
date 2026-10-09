@@ -35,7 +35,9 @@ def claude(tmp_path):
         for rel in (f"projects/-src-api/{sid}.jsonl", f"projects/-src-api/{sid}/subagents/x.jsonl",
                     f"file-history/{sid}/f@v1", f"session-env/{sid}/hook.sh",
                     f"todos/{sid}-agent-{sid}.json", f"../ah/index/claude/{sid}.md",
-                    f"../ah/index/claude/{sid}/agent.md"):
+                    f"../ah/index/claude/{sid}/agent.md",
+                    f"../ah/index/claude/{sid}/{sid[:-1]}9.md",  # a subagent with its own:
+                    f"../ah/index/claude/{sid[:-1]}9/grandchild.md"):
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
             (root / rel).write_text("x")
     jsonl(root / "history.jsonl", [{"display": "a", "sessionId": A},
@@ -49,9 +51,9 @@ def test_claude_expunges_one_session_and_leaves_the_other(claude, tmp_path):
     before = files(tmp_path)
     result = expunge.expunge(session("claude", claude))
     gone = before - files(tmp_path)
-    assert gone and all(A in path for path in gone)
+    assert gone and all(A[:-1] in path for path in gone)  # its subagents share its prefix here
     assert sorted(result["files"]) == sorted([f"{A}.jsonl", A, A, A, f"{A}-agent-{A}.json",
-                                              f"{A}.md", A])
+                                              f"{A}.md", A, f"{A[:-1]}9"])
     assert result["lines"] == 1
     # B's line survives, including one whose text happens to contain A's id.
     assert [json.loads(line)["sessionId"] for line in (claude / "history.jsonl").open()] == [B, B]

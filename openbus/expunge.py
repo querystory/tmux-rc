@@ -34,7 +34,6 @@ _FILES = {
               "archived_sessions/rollout-*-{id}.jsonl", "archived_sessions/rollout-*-{id}_*.jsonl",
               "shell_snapshots/{id}.*"),
 }
-_INDEX = ("{id}.md", "{id}")  # agent-history's entry, and its subagents' entries
 _LINES = {"claude": {"history.jsonl": "sessionId"},
           "codex": {"history.jsonl": "session_id", "session_index.jsonl": "id"}}
 
@@ -167,12 +166,20 @@ def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session
 def targets(s: Session) -> tuple[list[Path], list[Path]]:
     """(the session's own files and dirs, the shared files to filter), all checked to
     resolve inside their root. Raises Refused, before anything is deleted, if one doesn't."""
-    # agent-history's copy of what was typed goes last, after the transcript it is rebuilt from.
-    found = [(root, p) for root, globs in ((s.root, _FILES[s.harness]), (s.index, _INDEX))
-             for g in globs for p in root.glob(g.format(id=s.session_id))]
+    found = [(s.root, p) for g in _FILES[s.harness] for p in s.root.glob(g.format(id=s.session_id))]
     reg = s.root / "sessions" / f"{s.pid}.json"  # normally gone once Claude exits
     if s.harness == "claude" and _registration(reg).get("sessionId") == s.session_id:
         found.append((s.root, reg))
+    # agent-history's copy of what was typed goes last, after the transcript it is rebuilt
+    # from: the entry, and the dir of its subagents' entries. A subagent's own subagents sit
+    # in a dir named for it (agent-history/index.go), so the walk follows each one down.
+    found += [(s.index, p) for p in s.index.glob(f"{s.session_id}.md")]
+    todo, seen = [s.session_id], set()
+    while todo:
+        if (sid := todo.pop()) not in seen and (s.index / sid).is_dir():
+            seen.add(sid)
+            found.append((s.index, s.index / sid))
+            todo += [p.stem for p in (s.index / sid).glob("*.md") if _ID.fullmatch(p.stem)]
     shared = [(s.root, s.root / name) for name in _LINES[s.harness]]
     for root, path in found + shared:
         if not os.path.realpath(path).startswith(os.path.realpath(root) + os.sep):
