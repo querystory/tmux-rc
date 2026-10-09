@@ -75,6 +75,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import agent_history, expunge, telemetry, tmux  # noqa: E402
+from .classify import highlighted_row  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -170,6 +171,7 @@ class SendBody(BaseModel):
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
     question: str | None = None  # a menu answer's question fingerprint (its `fp`)
+    on_row: str | None = None  # send only while a picker's highlight is on this row
 
 
 class PushKeysBody(BaseModel):
@@ -882,10 +884,18 @@ def send(pane_id: str, body: SendBody, request: Request):
         digest, generation, frame = fp.split(":")  # a malformed token: ValueError, 409
         claim_question(w, pane.id, digest, int(generation), frame)
 
+    def on_row() -> None:
+        # A cursor picker's select, checked against the screen under the send lock: the
+        # walk's anchor is a parse, and a stale or misread one must not commit a row.
+        if highlighted_row(tmux.capture_pane(pane.id, lines=0)) != body.on_row:
+            msg = f"The highlight is not on {body.on_row!r}; nothing was sent."
+            raise tmux.PaneChangedError(msg)
+
     try:
         with _pane_input(pane.id, invalidate=not fp):  # a menu answer's claim bumps it
             tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
-                           expected_pid=birth, guard=claim if fp else None)
+                           expected_pid=birth,
+                           guard=claim if fp else None if body.on_row is None else on_row)
     except Exception as e:
         # Keys refused at a password prompt are probably the password: never recorded.
         keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
