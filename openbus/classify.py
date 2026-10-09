@@ -100,6 +100,11 @@ def highlighted_row(visible: str, prompt: str) -> str | None:
     return row and row[1]
 
 
+# The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
+# at its input box, so every row under it is status/footer chrome (Claude's welcome
+# session list included), never a question. A real picker replaces the box with a ❯ cursor.
+_EMPTY_INPUT_RE = re.compile(_PROMPT_ROW + r"[ \xa0\t│]*$(?![\s\S]*" + _PROMPT_ROW + ")",
+                             re.MULTILINE)
 # omp blocks that are never a live question: a completed Ask receipt, plain or boxed, from
 # its "? Ask" header through its chosen radios (a pending Ask is a "╭─ Ask" dialog with no
 # "?"); the queued outgoing-input bands ("Steering · 1", "After yield · 2"); and the "⎋"
@@ -390,8 +395,10 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
     # agent asking; a live spinner below the text means the agent is working again; and a
     # finished turn's question followed by typed input has been answered.
+    idle_box = _EMPTY_INPUT_RE.search(visible)
     return found is not None and not (
-        _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
+        (idle_box and found.start() > idle_box.start())
+        or _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
@@ -430,7 +437,10 @@ def _ground_visible_fields(
     # viewport; for identity alone, restrict the same model to the status evidence.
     bad_action = bad_question or bad_rewind
     identity_chrome = "\n".join(_session_chrome(identity))
-    evidence = visible if bad_action else identity_chrome
+    # Below an idle input box is only chrome: the re-read never sees it, so a list there
+    # cannot be read as the question again.
+    box = _EMPTY_INPUT_RE.search(visible)
+    evidence = (visible[:box.end()] if box else visible) if bad_action else identity_chrome
     receipt = None
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")

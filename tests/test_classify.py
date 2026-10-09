@@ -1366,23 +1366,6 @@ def test_provider_error_retry_is_deterministic(replies):
     assert out["question"]["options"] == ["try again"] and not calls
 
 
-@pytest.mark.parametrize(("sample", "tool", "style", "kept"), [
-    ("82_shell_answered_npx_prompt_then_output", "shell", "text", False),
-    ("82_shell_answered_npx_prompt_then_output", "shell", "menu", True),  # options follow it
-    ("82_shell_answered_npx_prompt_then_output", "claude", "text", True),  # agent widgets
-    ("83_shell_pending_npx_prompt", "shell", "text", True),  # the cursor is on it
-])
-def test_shell_prompt_with_output_after_it_was_answered(sample, tool, style, kept):
-    seen = []
-    result = classify(_pane("node"), _sample(sample), lambda system, text: seen.append(text) or {
-        "tool": tool, "activity": "waiting",
-        "question": {"prompt": "Ok to proceed? (y)", "answer_style": style},
-    })
-    assert bool(result.get("question")) is kept
-    assert result["activity"] == "waiting"
-    assert ("[Completed prompt" in seen[-1]) is not kept
-
-
 def test_transcript_code_blocks_beat_the_models_retyping():
     reply = ("Run this on the desktop. It changes nothing.\n\n```bash\n{\n  uname -a\n  lpstat -t\n"
              "} 2>&1 | tee /tmp/report.txt\n```\n\nThen:\n\n```\ncat /tmp/report.txt\n````\n")
@@ -1410,3 +1393,51 @@ def test_transcript_code_blocks_beat_the_models_retyping():
     result = classify(_pane(), "git status", _llm({"copyables": [{"text": "git status"}]}),
                       reply=reply)
     assert result["copyables"] == [{"label": "", "text": "git status"}]
+
+
+@pytest.mark.parametrize(("sample", "tool", "style", "kept"), [
+    ("82_shell_answered_npx_prompt_then_output", "shell", "text", False),
+    ("82_shell_answered_npx_prompt_then_output", "shell", "menu", True),  # options follow it
+    ("82_shell_answered_npx_prompt_then_output", "claude", "text", True),  # agent widgets
+    ("83_shell_pending_npx_prompt", "shell", "text", True),  # the cursor is on it
+])
+def test_shell_prompt_with_output_after_it_was_answered(sample, tool, style, kept):
+    seen = []
+    result = classify(_pane("node"), _sample(sample), lambda system, text: seen.append(text) or {
+        "tool": tool, "activity": "waiting",
+        "question": {"prompt": "Ok to proceed? (y)", "answer_style": style},
+    })
+    assert bool(result.get("question")) is kept
+    assert result["activity"] == "waiting"
+    assert ("[Completed prompt" in seen[-1]) is not kept
+
+
+_WELCOME = ("\x1e[visible screen]\x1f\n────\n⟪/dim⟫❯\xa0⟪placeholder⟫Try 'fix'⟪/placeholder⟫"
+            "⟪dim⟫\n────\n  ~/src/app | Sonnet 5.5\n  Welcome back! Recent sessions to resume:\n"
+            "  live  Rename the webhook handler\n  ⏵⏵ auto mode on")
+
+
+def test_list_below_an_empty_input_box_is_chrome_not_a_question():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "claude", "activity": "idle", "question": {
+                "prompt": "Welcome back! Recent sessions to resume:", "answer_style": "cursor"}}
+        assert "Welcome back" not in text and "Rename" not in text
+        return {"tool": "claude", "activity": "idle", "headline": "Ready for a new task"}
+    result = classify(_pane("claude"), _WELCOME, read)
+    assert len(calls) == 2
+    assert "question" not in result and result["activity"] == "idle"
+
+
+@pytest.mark.parametrize(("screen", "prompt"), [
+    ("  Resume session\n  ❯ Mid-file imports cleanup\n    tmuxrc-dev\n  Esc to cancel",
+     "Resume session"),  # the real picker: its ❯ cursor row has text, no empty box
+    ("● Should I open the PR now?\n────\n❯\xa0\n────\n  ~/src/app | Sonnet 5.5",
+     "Should I open the PR now?"),  # asked above the empty box
+])
+def test_question_not_below_an_empty_input_box_stands(screen, prompt):
+    result = classify(_pane("claude"), f"\x1e[visible screen]\x1f\n{screen}", _llm({
+        "tool": "claude", "question": {"prompt": prompt, "answer_style": "cursor"}}))
+    assert result["question"]["prompt"] == prompt
