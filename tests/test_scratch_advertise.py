@@ -13,7 +13,8 @@ def test_advertise_scratch_only_when_opted_in(tmp_path, monkeypatch):
     if not shutil.which("tmux"):
         pytest.skip("tmux is not installed")
     # The server copies its starting environment, so keep the caller's own values out.
-    keep_out = ("TMUX", "TMUXRC_SCRATCH_DIR", "TMUXRC_SCRATCH_URL", "TMUXRC_SCRATCH_ADVERTISE")
+    keep_out = ("TMUX", "TMUXRC_SCRATCH_DIR", "TMUXRC_SCRATCH_URL", "TMUXRC_SCRATCH_LOCAL_URL",
+                "TMUXRC_SCRATCH_ADVERTISE")
     base = ["env", *(f"--unset={name}" for name in keep_out),
             "tmux", "-S", str(tmp_path / "tmux.sock")]
 
@@ -30,12 +31,15 @@ def test_advertise_scratch_only_when_opted_in(tmp_path, monkeypatch):
         monkeypatch.setattr(server, "_scratch_dir", str(tmp_path))
         monkeypatch.setenv("TMUXRC_SCRATCH_URL", "https://host.example/scratch")
         monkeypatch.delenv("TMUXRC_SCRATCH_ADVERTISE", raising=False)
+        monkeypatch.setenv("TMUXRC_HOST", "::")  # a wildcard bind is reached on loopback
+        monkeypatch.setenv("TMUXRC_PORT", "18999")
         server._advertise_scratch()
         assert "TMUXRC_SCRATCH" not in shown()
         monkeypatch.setenv("TMUXRC_SCRATCH_ADVERTISE", "1")
         server._advertise_scratch()
         assert f"TMUXRC_SCRATCH_DIR={tmp_path}\n" in shown()
         assert "TMUXRC_SCRATCH_URL=https://host.example/scratch\n" in shown()
+        assert "TMUXRC_SCRATCH_LOCAL_URL=http://[::1]:18999/scratch\n" in shown()
         # tmux outlives the daemon: a restart with less configured clears what went away.
         monkeypatch.delenv("TMUXRC_SCRATCH_URL")
         server._advertise_scratch()
