@@ -96,6 +96,13 @@ def test_tables_is_scored_only_where_a_sample_names_it():
     assert score_structured({}, {})[0]
 
 
+def test_copyable_texts_pin_the_exact_payload():
+    want = {"copyables": True, "copyable_texts": ["a\n  b"]}
+    assert score_structured({"copyables": [{"text": "a\n  b"}]}, want)[0]
+    assert not score_structured({"copyables": [{"text": "a; b"}]}, want)[0]  # re-typed
+    assert not score_structured({}, want)[0]
+
+
 def test_an_unrenderable_tables_value_does_not_count_as_the_list():
     """Nothing validates the model's `tables` (JSON mime type, no schema), and the phone
     draws only table objects carrying rows. A truthy-but-undrawable value would otherwise

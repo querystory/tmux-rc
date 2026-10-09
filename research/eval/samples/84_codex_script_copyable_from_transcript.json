@@ -6,12 +6,10 @@
  "expected": {
   "tool": "codex",
   "activity": "idle",
-  "copyables": [
-   {
-    "label": "Run this on the office desktop.",
-    "text": "{\n  echo '=== System ==='\n  uname -a\n  printf 'Session: %s\\n' \"$XDG_SESSION_TYPE\"\n\n  echo\n  echo '=== Printer queues ==='\n  lpstat -t 2>&1\n  lpoptions -l 2>&1\n\n  echo\n  echo '=== CUPS service ==='\n  systemctl is-active cups 2>&1\n  journalctl -u cups --since today --no-pager 2>&1 | tail -50\n\n  echo\n  echo '=== USB devices ==='\n  for d in /dev/usb/lp*; do\n    [ -e \"$d\" ] && ls -l \"$d\"\n  done\n  lsusb 2>&1\n\n  echo\n  echo '=== Config files ==='\n  sudo grep -RInsE 'duplex|media|resolution' \\\n    /etc/cups/printers.conf /etc/cups/cupsd.conf \\\n    \"$HOME/.cups\" 2>/dev/null | head -100\n} 2>&1 | tee /tmp/printer-report.txt"
-   }
-  ],
-  "headline": "Waiting for the user to run the printer diagnostic script and share its output"
+  "copyables": true,
+  "headline": "Waiting for the user to run the printer diagnostic script and share its output",
+  "copyable_texts": [
+   "{\n  echo '=== System ==='\n  uname -a\n  printf 'Session: %s\\n' \"$XDG_SESSION_TYPE\"\n\n  echo\n  echo '=== Printer queues ==='\n  lpstat -t 2>&1\n  lpoptions -l 2>&1\n\n  echo\n  echo '=== CUPS service ==='\n  systemctl is-active cups 2>&1\n  journalctl -u cups --since today --no-pager 2>&1 | tail -50\n\n  echo\n  echo '=== USB devices ==='\n  for d in /dev/usb/lp*; do\n    [ -e \"$d\" ] && ls -l \"$d\"\n  done\n  lsusb 2>&1\n\n  echo\n  echo '=== Config files ==='\n  sudo grep -RInsE 'duplex|media|resolution' \\\n    /etc/cups/printers.conf /etc/cups/cupsd.conf \\\n    \"$HOME/.cups\" 2>/dev/null | head -100\n} 2>&1 | tee /tmp/printer-report.txt"
+  ]
  }
 }
