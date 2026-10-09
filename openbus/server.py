@@ -210,6 +210,7 @@ class WheelBody(BaseModel):
 
 class ExpungeBody(BaseModel):
     session_id: str  # the session the confirmation named; refused if the pane's has changed
+    birth: str  # the pane incarnation the menu was drawn for (its `birth` in /api/state)
 
 
 class NewWindowBody(BaseModel):
@@ -1107,10 +1108,11 @@ def close_window(pane_id: str, request: Request):
     return {"ok": True}
 
 
-def _pane_session(pane_id: str, expected: str | None = None):
+def _pane_session(pane_id: str, birth: str, expected: str | None = None):
     """The pane (resolved to its canonical %N), its one agent session and that session's
-    targets (openbus/expunge.py), or the refusal. A path that resolves outside its root
-    refuses here, before anything is killed."""
+    targets (openbus/expunge.py), or the refusal. `birth` is the incarnation the client's
+    menu describes: tmux reuses %N, so a stale menu must not reach a newer pane. A path
+    that resolves outside its root refuses here, before anything is killed."""
     pane = tmux.find_pane(pane_id)
     try:  # read now, not from the watcher: a cached screen may predate a recycled pane id
         screen = tmux.capture_pane(pane.id) if pane and pane.pid else ""
@@ -1118,6 +1120,8 @@ def _pane_session(pane_id: str, expected: str | None = None):
         pane = None
     if not (pane and pane.pid):
         raise HTTPException(404, "pane not found")
+    if pane.pid != birth:
+        raise HTTPException(409, "this is a different window now")
     try:  # a screen from a newer pane under this id fails the pid guard on the kill
         s = expunge.identify(pane.pid, screen, expected)
         return pane, s, expunge.targets(s)
@@ -1126,9 +1130,9 @@ def _pane_session(pane_id: str, expected: str | None = None):
 
 
 @app.get("/api/panes/{pane_id}/expunge")
-def expunge_preview(pane_id: str):
+def expunge_preview(pane_id: str, birth: str):
     """What Expunge would delete, for the confirmation to name."""
-    _, s, (own, shared) = _pane_session(pane_id)
+    _, s, (own, shared) = _pane_session(pane_id, birth)
     return {"harness": s.harness, "session_id": s.session_id,
             "files": [p.name for p in own], "shared": [p.name for p in shared]}
 
@@ -1140,7 +1144,7 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
     line names the pane and session, never what was deleted."""
     detail = f"session={body.session_id[:64]}"
     try:
-        pane, s, _ = _pane_session(pane_id, body.session_id)
+        pane, s, _ = _pane_session(pane_id, body.birth, body.session_id)
         uid = app.state.watcher.checkpoint_key(pane.id, pane.pid)
     except HTTPException as e:
         _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])

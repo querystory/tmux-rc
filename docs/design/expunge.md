@@ -34,10 +34,11 @@ So the hard part is the identity, not the deletion.
 - **Codex** keeps no registry, and its shared app-server, not the terminal client,
   holds the rollout open, so no process proves which thread a pane shows. The one
   reliable signal is the thread id on the status line, which is the same evidence the
-  Live resume path already trusts (`live._codex_pane`). A UUID-shaped segment counts
-  only if a rollout under `CODEX_HOME` is named for it, so another segment that happens
-  to look like an id is never taken for the thread. Unless Codex's `[tui] status_line`
-  config includes `session-id`, Expunge refuses and says to add it.
+  Live resume path already trusts (`live._codex_pane`). The id is the segment at
+  `session-id`'s place in Codex's `[tui] status_line` order, never just any UUID-shaped
+  segment, since a branch can look like one. Codex leaves out empty items, so that place
+  is trusted only when every item shows or `session-id` comes first, and a rollout
+  under `CODEX_HOME` must be named for it. Otherwise Expunge refuses and says why.
 
 The walk stops at the first agent down each branch, so an agent's own subprocesses
 (a headless `claude -p` it ran) are not a second session. Two agents side by side, no
@@ -45,8 +46,15 @@ agent, a Codex screen showing zero or two thread ids, or an id that isn't a UUID
 refuses with the reason. None of them falls back to anything broader. The UUID check
 also means an id can never smuggle a path separator or glob character into a pattern.
 
-The confirmation is bound to the id the preview showed. If the pane is running a
-different session by the time the user confirms, the request is refused.
+The confirmation is bound to the id the preview showed, and both preview and POST
+carry the pane incarnation the menu was drawn for (its `birth`, the pane pid in
+`/api/state`). tmux reuses `%N`, so a stale menu, or a pane now running a different
+session, is refused.
+
+If the connection drops before the answer arrives, the UI says the expunge may have
+completed rather than calling it a failure. There is no operation-status endpoint:
+the window is gone either way, and whether the session still resumes is the check that
+matters.
 
 ## What is deleted
 

@@ -13,6 +13,9 @@ from openbus.expunge import Refused, Session
 
 A, B = "0f0f0f0f-1111-4222-8333-444444444444", "0e0e0e0e-5555-4666-8777-888888888888"
 CODEX_SCREEN = f"› \n  gpt-5.5 high · ~/src/example-org/api · {A}\n"
+CODEX_LINE = '[tui]\nstatus_line = ["model-with-reasoning", "current-dir", "session-id"]\n'
+CONFIRM = {"session_id": A, "birth": "1234"}  # what the dialog posts for pane pid 1234
+BRANCHY = "0d0d0d0d-9999-4aaa-8bbb-cccccccccccc"  # a git branch named like a thread id
 
 
 def files(root: Path) -> set[str]:
@@ -149,7 +152,7 @@ def fake_procs(monkeypatch, tmp_path, procs):
             return comm + "\n"
         env = f"CLAUDE_CONFIG_DIR={tmp_path}\0CODEX_HOME={tmp_path}\0AGENT_HISTORY_DIR={tmp_path}\0"
         return env if name == "environ" else ""
-    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model", "session-id"]\n')
+    (tmp_path / "config.toml").write_text(CODEX_LINE)
     (tmp_path / "sessions/2026/10/08").mkdir(parents=True)
     for sid in (A, B):  # Codex threads that exist here
         (tmp_path / f"sessions/2026/10/08/rollout-2026-10-08T10-00-00-{sid}.jsonl").touch()
@@ -180,7 +183,9 @@ def test_identify_finds_the_one_agent_under_the_pane(monkeypatch, tmp_path):
      "more than one"),
     ({10: ("bash", [], None)}, "", "no Claude Code or Codex"),
     ({10: ("codex", [], None)}, "› \n  gpt-5.5 high · ~/src/example-org/api\n", "status line"),
-    ({10: ("codex", [], None)}, CODEX_SCREEN.replace("api ·", f"api · {B} ·"), "status line"),
+    # An item missing ahead of session-id: its place can't be told, so it refuses.
+    ({10: ("codex", [], None)}, CODEX_SCREEN.replace("~/src/example-org/api · ", ""),
+     "status line"),
     ({10: ("claude", [], "not-a-uuid")}, "", "not one this daemon"),
 ])
 def test_identify_refuses_rather_than_guess(monkeypatch, tmp_path, procs, screen, reason):
@@ -192,9 +197,11 @@ def test_identify_refuses_rather_than_guess(monkeypatch, tmp_path, procs, screen
 def test_codex_thread_comes_from_its_status_line(monkeypatch, tmp_path):
     fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
     assert expunge.identify("10", CODEX_SCREEN).session_id == A
-    # A UUID-shaped segment no rollout is named for (a branch, say) is not a second thread.
-    branch = "0d0d0d0d-9999-4aaa-8bbb-cccccccccccc"
-    assert expunge.identify("10", CODEX_SCREEN.replace("api ·", f"{branch} ·")).session_id == A
+    # A UUID-like branch, even one naming another thread with a rollout here, is not taken:
+    # the thread id is the segment at session-id's configured place.
+    (tmp_path / "config.toml").write_text(CODEX_LINE.replace('"]', '", "git-branch"]'))
+    for branch in (BRANCHY, B):
+        assert expunge.identify("10", CODEX_SCREEN.replace(A, f"{A} · {branch}")).session_id == A
 
 
 def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
@@ -205,10 +212,13 @@ def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
     monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
     server.app.state.watcher = SimpleNamespace()
     client = TestClient(server.app)
-    assert client.get("/api/panes/%251/expunge").json()["session_id"] == A
+    assert client.get("/api/panes/%251/expunge?birth=1234").json()["session_id"] == A
+    # A menu drawn for an earlier pane under the same %N reaches nothing.
+    r = client.get("/api/panes/%251/expunge?birth=999")
+    assert r.status_code == 409 and "different window" in r.json()["detail"]
     monkeypatch.setattr(expunge, "identify", lambda *_a: (_ for _ in ()).throw(
         Refused("this pane is running a different session now")))
-    r = client.post("/api/panes/%251/expunge", json={"session_id": A})
+    r = client.post("/api/panes/%251/expunge", json=CONFIRM)
     assert r.status_code == 409 and "different session" in r.json()["detail"]
     assert not killed and (claude / f"projects/-src-api/{A}.jsonl").exists()
 
@@ -241,10 +251,10 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
         forget_checkpoint=lambda uid: order.append(uid) or True)
     client = TestClient(server.app)
     # Identified under 1234, but %1 is 999's by the kill: nothing is killed or deleted.
-    assert client.post("/api/panes/work:0.0/expunge", json={"session_id": A}).status_code == 409
+    assert client.post("/api/panes/work:0.0/expunge", json=CONFIRM).status_code == 409
     assert not order and panes == {"%1": "999"}
     panes["%1"] = "1234"
-    r = client.post("/api/panes/work:0.0/expunge", json={"session_id": A})
+    r = client.post("/api/panes/work:0.0/expunge", json=CONFIRM)
     assert r.status_code == 200 and r.json()["lines"] == 1
     assert order == ["kill", "gone", "boot:1:%1:1234"]
     assert not (claude / f"projects/-src-api/{A}.jsonl").exists()
@@ -275,5 +285,5 @@ def test_route_refuses_when_the_identified_agent_is_gone(monkeypatch, claude):
     monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
     monkeypatch.setattr(expunge, "alive", lambda s: False)  # the shell now runs another agent
     server.app.state.watcher = SimpleNamespace(checkpoint_key=lambda *_a: "uid")
-    r = TestClient(server.app).post("/api/panes/%251/expunge", json={"session_id": A})
+    r = TestClient(server.app).post("/api/panes/%251/expunge", json=CONFIRM)
     assert r.status_code == 409 and not killed
