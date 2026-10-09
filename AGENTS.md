@@ -35,6 +35,8 @@ before either lands.
 - The live instance is reached through the tunnel client (`tmux-rc-tunnel.service`). A
   momentary "no tunnel connected" is the relay's ~1h connection cap; the client reconnects
   within ~1min.
+- To show the user a preview (mock, build, report), put it in a subfolder of the
+  `/scratch/` dir rather than starting a server or tunnel; see `docs/deploy/previews.md`.
 
 ## Develop in worktrees, off main
 
