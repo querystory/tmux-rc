@@ -476,15 +476,16 @@ def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch, how):
     assert typed == [] and L._parked == {}
 
 
-@pytest.mark.parametrize("back", [False, True, "expired"])
+@pytest.mark.parametrize("back", [None, "shown", "hidden", "expired"])
 def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
     """Locking the phone drops the socket, the moment a push matters most: the parked card
-    counts as out of view and still pushes once, unless the same chat reconnected and
-    shows it again, or the card expired first."""
+    counts as out of view and still pushes once, on the wait it began with, even over a
+    reconnect that stays hidden. A reconnect that shows it again, or expiry, stops it."""
     L._parked.clear()
     pushed = []
+    monkeypatch.setattr(L, "_chats", {})
     monkeypatch.setattr(L, "_NUDGE_TICK", 0.01)
-    monkeypatch.setattr(L.push, "SETTLE_SECONDS", 0.05)
+    monkeypatch.setattr(L.push, "SETTLE_SECONDS", 0.2)
     monkeypatch.setattr(L, "PARKED_SECONDS", 0.02 if back == "expired" else 60)
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
@@ -504,12 +505,16 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
         await shown.wait()
         call.cancel()  # the socket dropped: the card is parked
         await asyncio.gather(call, return_exceptions=True)
-        if back is True:
-            monkeypatch.setitem(L._chats, (meter.actor, meter.session), _chat())
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.15)
+        if back in {"shown", "hidden"}:  # the same chat reconnects and reports its view
+            again = _chat()
+            L._connect(again)
+            view = {"action": "viewing", "on": back == "shown"}
+            await L._forward_client(_ScriptedWS([view, {"action": "stop"}]), None, again)
+        await asyncio.sleep(0.12)  # past the first wait, short of a restarted one
 
     _run(go())
-    assert pushed == ([] if back else ['Send to window 3 "work": ls'])
+    assert pushed == ([] if back in {"shown", "expired"} else ['Send to window 3 "work": ls'])
     assert L._parked == {} if back == "expired" else len(L._parked) == 1
     L._parked.clear()
 

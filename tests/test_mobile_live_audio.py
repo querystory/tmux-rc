@@ -406,7 +406,7 @@ def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
   $('voice-close').onclick();
   assert.equal(dialog.open, false); assert.equal(bubble.hidden, false);
   assert.equal(live.isActive(), true); assert.equal(sockets[0].readyState, 1);
-  assert.deepEqual(sockets[0].viewing, [false]); // a card now would push "Chat needs you"
+  assert.deepEqual(sockets[0].viewing, [true, false]); // a card now would push "Chat needs you"
   sockets[0].onmessage({data: JSON.stringify({type: 'transcript', role: 'model', text: 'hi'})});
   assert.equal(bubble.classList.contains('unread'), true);
   sockets[0].onmessage({data: JSON.stringify({type: 'propose', id: 'p1', text: 'Send to work'})});
@@ -414,7 +414,7 @@ def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
   sockets[0].onmessage({data: JSON.stringify({type: 'decided', id: 'p1', ok: true})});
   assert.equal(badge.textContent, '');
   bubble.onclick(); assert.equal(dialog.open, true); assert.equal(bubble.hidden, true);
-  assert.deepEqual(sockets[0].viewing, [false, true]);
+  assert.deepEqual(sockets[0].viewing, [true, false, true]);
   // A card's Open goes to its pane without answering it: still pending on the bubble,
   // and still pending in the log when the user comes back to approve.
   sockets[0].onmessage({data: JSON.stringify(
