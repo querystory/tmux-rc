@@ -608,7 +608,10 @@ async def _nudge(meter: _Meter, proposal: str, text: str) -> None:
     time. It lasts as long as the card does, live or parked, so it ends with the answer, a
     supersede or expiry, and it pushes at most once."""
     shown = time.monotonic()
-    while proposal in meter.approvals or _key(meter, proposal) in _parked:
+    while True:
+        _sweep()  # a parked card expires on time even if nothing else sweeps meanwhile
+        if proposal not in meter.approvals and _key(meter, proposal) not in _parked:
+            return
         since = _chats.get((meter.actor, meter.session), meter).unseen_since
         if since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS:
             await asyncio.to_thread(meter.push.chat, text)
