@@ -643,7 +643,10 @@ class Watcher:
                 # carried-over card keeps everything the client last saw rather than
                 # appearing to reset its activity log every time some OTHER pane opens.
                 prior = None if p.id in fresh else self._state.get(p.id)
-                s = {"pane_id": p.id, **(dict(prior) if prior else blank)}
+                # A placeholder still has an age: tmux's own last activity, until the
+                # pane's first tick (which can be a minute away at startup) replaces it.
+                s = {"pane_id": p.id, **(dict(prior) if prior else
+                                         {**blank, "last_activity_at": _activity_ts(p)})}
                 s["tmux_active"] = p.id == focused
                 _stamp_identity(s, p)
                 states.append(s)
