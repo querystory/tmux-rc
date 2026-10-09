@@ -398,6 +398,7 @@ async def lifespan(app: FastAPI):
         app.state.history = None
     app.state.watcher = Watcher(target=target, use_llm=use_llm, history=app.state.history)
     app.state.watcher.start()
+    _advertise_scratch()
     app.state.push = PushManager(app.state.watcher)
     app.state.push.start()
     app.state.usage = PlanUsage(app.state.history)
@@ -1379,8 +1380,34 @@ if DOCS_MOUNTED:
 # lands in it is published to everyone the tunnel admits. Mocks worth keeping belong in
 # docs-site/static/mocks/ instead, which ships with the docs at /docs/mocks/.
 _scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
-if _scratch_dir and Path(_scratch_dir).is_dir():
+_scratch_dir = _scratch_dir if _scratch_dir and Path(_scratch_dir).is_dir() else None
+if _scratch_dir:
     _mount_static("/scratch", _scratch_dir)
+
+
+def _bind() -> tuple[str, int]:
+    return os.environ.get("TMUXRC_HOST", "127.0.0.1"), int(os.environ.get("TMUXRC_PORT", "18030"))
+
+
+def _advertise_scratch() -> None:
+    """Opt-in (TMUXRC_SCRATCH_ADVERTISE=1): export the served scratch dir, its public URL
+    when TMUXRC_SCRATCH_URL is set, and a local URL (the public one sits behind the user's
+    login, so an agent checks its page here) to tmux's global environment, which new panes
+    and their agents inherit. Off by default: it writes to the user's own tmux server.
+    tmux outlives the daemon, so whatever is no longer configured is removed, not kept."""
+    if os.environ.get("TMUXRC_SCRATCH_ADVERTISE") != "1":
+        return
+    host, port = _bind()
+    host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)  # a wildcard: loopback
+    host = f"[{host}]" if ":" in host else host
+    env = {"TMUXRC_SCRATCH_DIR": _scratch_dir,
+           "TMUXRC_SCRATCH_URL": os.environ.get("TMUXRC_SCRATCH_URL") or None,  # "" = unset
+           "TMUXRC_SCRATCH_LOCAL_URL": f"http://{host}:{port}/scratch"}
+    try:
+        for name, value in env.items():
+            tmux.set_global_env(name, value if _scratch_dir else None)
+    except (subprocess.CalledProcessError, OSError):  # no server yet, or no tmux binary
+        logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 
 # Bare /m needs its own route; /m/ does not. The "/" mount below (html=True) serves
 # web/m/index.html for /m/, but answers bare /m with a 307 built from the request's own
@@ -1442,12 +1469,13 @@ def main() -> None:
     # is what the trust model needs.
     # log_config=None: don't install uvicorn's own handlers/formatters — its loggers
     # (uvicorn.access etc.) then propagate to root and share the timestamped format above.
+    host, port = _bind()
     uvicorn.run(
         "openbus.server:app" if reload else app,
         proxy_headers=False,
         log_config=None,
-        host=os.environ.get("TMUXRC_HOST", "127.0.0.1"),
-        port=int(os.environ.get("TMUXRC_PORT", "18030")),
+        host=host,
+        port=port,
         reload=reload,
         reload_dirs=[str(_PKG_DIR)] if reload else None,
     )

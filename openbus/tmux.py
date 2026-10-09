@@ -244,6 +244,13 @@ def _run(args: list[str], stdin: str | None = None) -> str:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
 
 
+def set_global_env(name: str, value: str | None) -> None:
+    """Set (or, given None, remove) a variable in the server's global environment, which
+    new panes inherit."""
+    _run(["set-environment", "-gu", name] if value is None else
+         ["set-environment", "-g", name, value])
+
+
 def client_active_within(seconds: float) -> bool:
     """Whether any attached tmux client received input recently.
 
