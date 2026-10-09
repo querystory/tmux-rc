@@ -82,9 +82,9 @@ use a separate tunnel client.
 A mock that explains a PR should outlive the scratch dir. Put it under
 `docs-site/static/mocks/`: the docs build copies `static/` verbatim, so it is served at
 `/docs/mocks/<name>.html` after `make docs`, travels with the PR that it explains, and
-survives every rebuild. (Older studies under `static/design/` work the same way.) Copying
-a file straight into the built docs dir looks like it works, then vanishes on the next
-`make docs`.
+survives every rebuild, under the same sandbox as scratch: a mock written by an agent does
+not gain the daemon's API by being committed. Copying a file straight into the built docs
+dir looks like it works, then vanishes on the next `make docs`.
 
 ## If a preview needs its own hostname
 
