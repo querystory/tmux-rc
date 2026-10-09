@@ -36,6 +36,8 @@ def _say(role, content, **extra):
 def test_claude_reply_from_the_session_running_under_the_pane(homes):
     # This test process stands in for Claude; its parent is the pane's shell.
     _write(homes / "claude/sessions/1.json", [{"pid": os.getpid(), "sessionId": SID}])
+    # Registered before its transcript exists: found once it appears.
+    assert transcript.last_reply(_pane(str(os.getppid())), "") is None
     _write(homes / f"claude/projects/-x/{SID}.jsonl", [
         _say("user", "first ask"),
         _say("assistant", [{"type": "text", "text": "old reply"}]),

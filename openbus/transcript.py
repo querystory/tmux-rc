@@ -56,9 +56,9 @@ def _entries(path: Path) -> list[dict]:
 
 
 @lru_cache(maxsize=256)
-def _claude_file(home: Path, pane_pid: str | None, _registry: tuple) -> Path | None:
+def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> str | None:
     """Claude registers each running process in sessions/<pid>.json; the one running
-    under this pane names the session, whose transcript lives under projects/."""
+    under this pane names the session."""
     for reg in (home / "sessions").glob("*.json"):
         try:
             data = json.loads(reg.read_text(encoding="utf-8"))
@@ -70,7 +70,7 @@ def _claude_file(home: Path, pane_pid: str | None, _registry: tuple) -> Path | N
             continue
         if (pane_pid and int(pane_pid) in tmux.ancestors(pid) and _UUID_RE.fullmatch(sid)
                 and str(data.get("procStart", started)) == started):
-            return next((home / "projects").glob(f"*/{sid}.jsonl"), None)
+            return sid
     return None
 
 
@@ -103,7 +103,10 @@ def last_reply(pane: Pane, text: str) -> str | None:
     a reply from an earlier turn is never mistaken for what is on screen now."""
     claude = _home("CLAUDE_CONFIG_DIR", ".claude")
     registry = tuple((p.name, _stamp(p)) for p in sorted((claude / "sessions").glob("*.json")))
-    path = _claude_file(claude, pane.pid, registry) or _codex_file(text)
+    # Not cached: the transcript can appear after its registration does.
+    sid = _claude_session(claude, pane.pid, registry)
+    path = ((sid and next((claude / "projects").glob(f"*/{sid}.jsonl"), None))
+            or _codex_file(text))
     return path and _reply(path, _stamp(path))
 
 
