@@ -1368,9 +1368,10 @@ $("close-expunge").onclick = () => $("expunge-dialog").close();
 $("expunge-pane").onclick = async () => {
   closePaneMenu();
   const pane = active, title = $("pane-title").textContent;
+  const birth = panes.find((p) => p.pane_id === pane)?.birth; // the incarnation this menu is for
   if (!pane) return;
   let plan;
-  try { plan = await request(paneUrl(pane, "expunge")); } catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
+  try { plan = await request(`${paneUrl(pane, "expunge")}?birth=${encodeURIComponent(birth ?? "")}`); } catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
   const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
   text($("expunge-what"), `This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
   $("expunge-confirm").onclick = async () => {
@@ -1382,13 +1383,15 @@ $("expunge-pane").onclick = async () => {
     try {
       // No client timeout (setTimeout's largest delay): aborting would not stop the server's
       // run, so the answer must be its own outcome, never a failure while it deletes on.
-      const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id }, 2 ** 31 - 1);
+      const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id, birth }, 2 ** 31 - 1);
       leave();
       notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
     } catch (error) { // a refusal (pane gone, 404; or 409) touched nothing and clears; a failure stays
       const refused = [404, 409].includes(error.status);
       if (error.status !== 409) leave();
-      notice(`Expunge ${refused ? "refused" : "failed"}: ${error.detail || error.message}`, refused ? 6000 : 0);
+      // No status means no answer at all: the request may have run to completion.
+      if (error.status === undefined) notice("Connection lost; the expunge may have completed. Check that the session no longer resumes.");
+      else notice(`Expunge ${refused ? "refused" : "failed"}: ${error.detail || error.message}`, refused ? 6000 : 0);
     } finally { expunging = false; }
   };
   $("expunge-dialog").showModal();

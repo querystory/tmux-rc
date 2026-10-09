@@ -44,11 +44,11 @@ _LINES = {"claude": {"history.jsonl": "sessionId"},
 _lock = threading.Lock()
 
 
-def codex_status_segments(text: str) -> set[str]:
-    """The segments of a Codex status line the parser validates as live chrome. One is
-    the thread id when the status line is configured with `session-id`."""
-    return {s.strip() for line in _session_chrome(text) if _codex_model_segments(line)
-            for s in line.split("·")}
+def codex_status_segments(text: str) -> list[str]:
+    """The segments, in order, of the Codex status line the parser validates as live
+    chrome. One is the thread id when the status line is configured with `session-id`."""
+    lines = [line for line in _session_chrome(text) if _codex_model_segments(line)]
+    return [s.strip() for s in lines[-1].split("·")] if lines else []
 
 
 class Refused(Exception):  # noqa: N818 - a refusal, not an error: nothing was touched
@@ -125,21 +125,25 @@ def _agent(pid: int, screen: str) -> Session | None:
         return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the
     # rollout open; the thread id is only on the pane's status line (see live._codex_pane).
-    # A UUID-shaped segment counts only if a rollout here is named for it, so another
-    # segment that happens to look like one (a branch, say) is never taken for the thread.
+    # It is the segment at session-id's place in the configured order: never just any
+    # UUID-shaped one, which a branch can be. Codex leaves out an empty item (no branch
+    # outside a repo), so that place is certain only when every item shows, or when it
+    # comes first; anything else refuses. Its rollout must exist here too.
     home = _home(pid, "CODEX_HOME", ".codex")
     try:
         tui = tomllib.loads((home / "config.toml").read_text()).get("tui", {})
     except (OSError, ValueError):
         tui = {}
-    if "session-id" not in tui.get("status_line", []):
+    shown = tui.get("status_line", [])
+    if "session-id" not in shown:
         raise Refused("Codex's status line does not show the thread id "
                       "(add session-id to [tui] status_line)")
-    ids = {i for i in codex_status_segments(screen)
-           if _ID.fullmatch(i) and any(home.glob(f"sessions/*/*/*/rollout-*-{i}*.jsonl"))}
-    if len(ids) != 1:
-        raise Refused("Codex's status line does not show exactly one thread id")
-    return Session("codex", ids.pop(), home, _index(pid, "codex"), pid, start)
+    segments, at = codex_status_segments(screen), shown.index("session-id")
+    sid = segments[at] if segments and (len(segments) == len(shown) or at == 0) else ""
+    if not (_ID.fullmatch(sid) and any(home.glob(f"sessions/*/*/*/rollout-*-{sid}*.jsonl"))):
+        raise Refused("Codex's status line does not show this thread's id where it is "
+                      "configured")
+    return Session("codex", sid, home, _index(pid, "codex"), pid, start)
 
 
 def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session:
