@@ -580,7 +580,7 @@ async def _approved(
     if meter.superseded:  # a later call in a turn the user already moved on from
         answer.set_result(None)
     if meter.push:  # outlives this call: a parked card still notifies
-        _background(asyncio.create_task(_nudge(meter, proposal, summary)))
+        _background(asyncio.create_task(_nudge(meter, proposal, answer, summary)))
     try:
         await websocket.send_json({**card, "id": proposal})
         ok = await answer  # True / False on a tap, None when a new message superseded it
@@ -623,7 +623,7 @@ def _disconnect(meter: _Meter) -> None:
             parked[4].unseen_since = since
 
 
-async def _nudge(meter: _Meter, proposal: str, text: str) -> None:
+async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str) -> None:
     """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
     at the chat (sheet minimized, page hidden, phone locked: a dropped socket) the whole
     time. It lasts as long as the card does, live or parked, so it ends with the answer, a
@@ -631,8 +631,10 @@ async def _nudge(meter: _Meter, proposal: str, text: str) -> None:
     shown = time.monotonic()
     while True:
         _sweep()  # a parked card expires on time even if nothing else sweeps meanwhile
-        live = meter.approvals.get(proposal)  # done: answered, not yet cleaned up
-        if (live is None or live.done()) and _key(meter, proposal) not in _parked:
+        # Answered (a tap whose "decided" was lost is parked, but the user did answer), or
+        # gone: cancelled by a drop and no longer parked.
+        if ((answer.done() and not answer.cancelled())
+                or (proposal not in meter.approvals and _key(meter, proposal) not in _parked)):
             return
         since = _chats.get((meter.actor, meter.session), meter).unseen_since
         if since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS:
