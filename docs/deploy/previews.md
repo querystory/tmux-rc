@@ -80,7 +80,7 @@ Agents only use scratch if they know it exists. Add to `.env`:
 
 and restart. The daemon then exports three variables to the tmux server's global
 environment: `TMUXRC_SCRATCH_DIR`, `TMUXRC_SCRATCH_URL`, and `TMUXRC_SCRATCH_LOCAL_URL`
-(`http://127.0.0.1:<port>/scratch`). The local one exists because the public URL sits
+(the daemon's own bind address and port, `http://127.0.0.1:18030/scratch` by default). The local one exists because the public URL sits
 behind your login: an agent that requests it gets a login redirect and cannot tell whether
 its page works, so it checks against the daemon directly. **Only panes opened after that
 inherit them**: shells and agents already running keep the environment they started with.
@@ -113,7 +113,8 @@ at it: tools that read a plain markdown file get a symlink, and Claude Code, whi
 `ln -s` refuses to overwrite, so if a tool already has a global file, move its contents
 into the shared one first.
 
-    mkdir -p ~/.config/agents ~/.codex ~/.config/opencode ~/.omp/agent ~/.gemini
+    mkdir -p ~/.config/agents "${CODEX_HOME:-$HOME/.codex}" ~/.config/opencode ~/.omp/agent \
+      ~/.gemini ~/.claude
     $EDITOR ~/.config/agents/AGENTS.md            # paste the snippet
     ln -s ~/.config/agents/AGENTS.md "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"
     ln -s ~/.config/agents/AGENTS.md ~/.config/opencode/AGENTS.md
