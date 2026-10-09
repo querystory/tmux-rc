@@ -4,11 +4,13 @@
 Crawls the on-disk Hugo output (serve/, what the daemon serves) — no server needed.
 Two checks: (1) every internal link resolves to a real built page; (2) no content
 page has an empty <main> (the shadowed-_index.md failure). External links, anchors,
-static assets, and daemon-served paths outside the site prefix are skipped.
+and daemon-served paths outside the site prefix are skipped. Linked assets are
+checked alongside pages, including images, scripts, and stylesheets.
 
 Run via `make docs-check`, which builds first. Exit 1 on any failure.
 """
 
+import argparse
 import html.parser
 import pathlib
 import sys
@@ -16,8 +18,6 @@ import urllib.parse
 
 # The daemon-served build (make docs -> serve/), not Hugo's dev-server public/.
 PUBLIC = pathlib.Path(__file__).parent / "serve"
-ASSET_SUFFIXES = (".js", ".css", ".svg", ".png", ".ico", ".xml", ".json",
-                  ".txt", ".woff", ".woff2", ".webmanifest")
 
 
 class PageParser(html.parser.HTMLParser):
@@ -48,6 +48,10 @@ class PageParser(html.parser.HTMLParser):
             self.hrefs.append(d["href"])
         elif tag == "link" and d.get("rel") == "canonical" and d.get("href"):
             self.canonical = d["href"]
+        elif tag == "link" and d.get("href"):
+            self.hrefs.append(d["href"])
+        elif tag in ("img", "script") and d.get("src"):
+            self.hrefs.append(d["src"])
         if (tag == "main" or self._depth) and tag not in self.VOID:
             self._depth += 1
 
@@ -83,8 +87,12 @@ def file_path_for(url_path: str, prefix: str) -> pathlib.Path | None:
 
 
 def main() -> int:
+    global PUBLIC  # noqa: PLW0603 - shared lookup root selected once by the CLI
+    cli = argparse.ArgumentParser(description=__doc__)
+    cli.add_argument("directory", nargs="?", type=pathlib.Path, default=PUBLIC)
+    PUBLIC = cli.parse_args().directory
     if not PUBLIC.is_dir():
-        print("serve/ not found — run `make docs` first", file=sys.stderr)
+        print(f"{PUBLIC} not found — run `make docs` first", file=sys.stderr)
         return 2
 
     # Hextra auto-generates these list pages with little/no body text — legitimately
@@ -105,26 +113,28 @@ def main() -> int:
         # The canonical link is the page's own served URL, incl. any baseURL prefix.
         # Resolve relative hrefs against it, and derive the prefix to strip on lookup.
         base = parser.canonical or "/"
+        base_url = urllib.parse.urlparse(base)
+        base_path = base_url.path
         rel = index_html.relative_to(PUBLIC).parent.as_posix()
         file_url = "/" if rel == "." else f"/{rel}/"
         # The prefix is what canonical carries beyond the file's own path — canonical
         # /docs/design/x/ minus file_url /design/x/ = /docs. For the root page file_url
         # is "/", so the prefix is the whole canonical minus its trailing slash.
         if file_url == "/":
-            prefix = base.rstrip("/")
-        elif base.endswith(file_url):
-            prefix = base[: -len(file_url)]
+            prefix = base_path.rstrip("/")
+        elif base_path.endswith(file_url):
+            prefix = base_path[: -len(file_url)]
         else:
             prefix = ""
         for href in parser.hrefs:
-            scheme = urllib.parse.urlparse(href).scheme
-            if scheme in ("http", "https", "mailto", "tel"):
+            target = urllib.parse.urlparse(href)
+            if (target.scheme and target.scheme not in ("http", "https")) or (
+                target.netloc and target.netloc != base_url.netloc
+            ):
                 continue
             if href.startswith("#"):
                 continue
             path = urllib.parse.urlparse(urllib.parse.urljoin(base, href)).path
-            if path.endswith(ASSET_SUFFIXES):
-                continue
             # Daemon-served, not part of the Hugo build — not ours to validate. Two
             # cases: an explicit daemon route (matches at any baseURL, incl. a root
             # build where prefix == ""), or, when the site has a prefix (e.g. /docs/),

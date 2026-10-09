@@ -1,12 +1,36 @@
 ---
-title: tmux-rc docs
+title: tmux-rc
 toc: false
 ---
 
-Vendor-agnostic phone control plane for terminal AI agents running in tmux.
+Manage your coding agents from your phone.
 
-The engineering docs — product requirements, architecture and design notes, how to
-reach the daemon safely from outside localhost, and the running progress log.
+tmux-rc watches your existing tmux panes and turns terminal output into a dashboard:
+what each agent is doing, which ones need you, and tappable answers to their questions.
+Use Claude Code, Codex, Gemini CLI, OpenCode, omp, or any other program that prints text.
+Your sessions keep running on your machine when you close the app.
+
+![The tmux-rc dashboard showing a fictional agent fleet](img/hero.png)
+
+Read summaries and activity history, answer prompts, send text or images, and watch the
+live terminal. Voice and text Live Mode let you ask about your agents and direct work
+across panes. The installable web app works on phones and widens into a desktop dashboard.
+
+[Get started](getting-started.md) · [Source on GitHub](https://github.com/querystory/tmux-rc)
+
+## Setup and use
+
+{{< cards >}}
+  {{< card link="getting-started/" title="Get started" subtitle="Run the service against your existing tmux sessions." >}}
+  {{< card link="iphone-setup/" title="iPhone setup" subtitle="Install the web app, enable notifications, and use Live Mode." >}}
+  {{< card link="agent-setup/" title="Configure your agents" subtitle="Settings that make your agents easier to read and cheaper to watch." >}}
+  {{< card link="deploy/" title="Remote access" subtitle="Reach your machine through an authenticating tunnel or private network." >}}
+{{< /cards >}}
+
+## Documentation
+
+The product requirements, architecture, engineering notes, and progress log are built
+directly from the Markdown in the repository. Use the search box to find a topic.
 
 {{< cards >}}
   {{< card link="design/background-and-motivation/" title="Background & motivation" subtitle="New here? What tmux is, and why tmux-rc exists." >}}
@@ -21,5 +45,5 @@ reach the daemon safely from outside localhost, and the running progress log.
   {{< card link="benchmarks/" title="Benchmarks" subtitle="Hot-path classifier latency, cost, and model head-to-heads." >}}
   {{< card link="hint/" title="Telemetry Hints" subtitle="Guidance for querying tmux-rc telemetry." >}}
   {{< card link="progress/" title="Progress Log" subtitle="What changed, newest first." >}}
-  {{< card link="/apidocs" title="API Reference" subtitle="Live Swagger UI for the daemon's HTTP API." >}}
+  {{< card link="api-reference/" title="API Reference" subtitle="HTTP endpoints and the interactive reference on your running daemon." >}}
 {{< /cards >}}
