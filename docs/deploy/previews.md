@@ -78,22 +78,61 @@ Agents only use scratch if they know it exists. Add to `.env`:
     TMUXRC_SCRATCH_ADVERTISE=1
     TMUXRC_SCRATCH_URL=<your base URL>/scratch
 
-and restart. The daemon then exports `TMUXRC_SCRATCH_DIR` and `TMUXRC_SCRATCH_URL` to the
-tmux server's global environment. **Only panes opened after that inherit them**: shells
-and agents already running keep the environment they started with. In a new pane,
-`env | grep SCRATCH` shows both. Each restart re-applies the setting, so a variable that is
+and restart. The daemon then exports three variables to the tmux server's global
+environment: `TMUXRC_SCRATCH_DIR`, `TMUXRC_SCRATCH_URL`, and `TMUXRC_SCRATCH_LOCAL_URL`
+(`http://127.0.0.1:<port>/scratch`). The local one exists because the public URL sits
+behind your login: an agent that requests it gets a login redirect and cannot tell whether
+its page works, so it checks against the daemon directly. **Only panes opened after that
+inherit them**: shells and agents already running keep the environment they started with.
+In a new pane, `env | grep SCRATCH` shows them. Each restart re-applies the setting, so a variable that is
 no longer configured is removed rather than left pointing at nothing. Turning the flag off
 stops the writes but leaves the last values in place until tmux restarts or you run
 `tmux set-environment -gu` on them.
 
 It is off by default because it writes to your tmux server's environment, which you may
-manage yourself. The variables only say where scratch is. To have agents use it, add a line
-like this to your `CLAUDE.md` or `AGENTS.md`:
+manage yourself. The variables only say where scratch is; agents also need to be told what
+to do with it. Paste this into your agent instructions. It is written to be all an agent
+needs, so none has to read tmux-rc's source to work out how scratch behaves:
 
-    If TMUXRC_SCRATCH_DIR is set, put previews for the user in a subfolder there and
-    share $TMUXRC_SCRATCH_URL/<folder>/ (or the folder's path, if that URL is unset).
-    Never put secrets or private data there. Make pages self-contained: their scripts
-    can't fetch data or post forms.
+    If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a built
+    static site, a report, images, a PDF). Write it into a new subfolder, for example
+    $TMUXRC_SCRATCH_DIR/<folder>/index.html, and give the user
+    $TMUXRC_SCRATCH_URL/<folder>/ (or the folder's path if that variable is unset). The
+    public URL sits behind the user's login, so to check the page yourself request
+    $TMUXRC_SCRATCH_LOCAL_URL/<folder>/ instead; a 200 means it is served. Everything in
+    that directory is visible to everyone who can reach tmux-rc: never put secrets or
+    private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or
+    WebSockets, or submit forms, so inline any data a page needs.
+
+### One instruction file for every agent
+
+Each agent CLI reads its own global instructions file, so the snippet would otherwise be
+pasted, and kept in sync, in five places. Keep it in one file instead and point every tool
+at it: tools that read a plain markdown file get a symlink, and Claude Code, which reads
+`CLAUDE.md` rather than `AGENTS.md` but supports `@path` imports, gets one import line.
+`ln -s` refuses to overwrite, so if a tool already has a global file, move its contents
+into the shared one first.
+
+    mkdir -p ~/.config/agents ~/.codex ~/.config/opencode ~/.omp/agent ~/.gemini
+    $EDITOR ~/.config/agents/AGENTS.md            # paste the snippet
+    ln -s ~/.config/agents/AGENTS.md "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"
+    ln -s ~/.config/agents/AGENTS.md ~/.config/opencode/AGENTS.md
+    ln -s ~/.config/agents/AGENTS.md ~/.omp/agent/AGENTS.md
+    ln -s ~/.config/agents/AGENTS.md ~/.gemini/GEMINI.md
+    echo '@~/.config/agents/AGENTS.md' >> ~/.claude/CLAUDE.md
+
+| Tool | Global file it reads | Check |
+| --- | --- | --- |
+| Codex | `$CODEX_HOME/AGENTS.md` (default `~/.codex`) | `readlink -f ~/.codex/AGENTS.md` |
+| opencode | `~/.config/opencode/AGENTS.md` | `readlink -f ~/.config/opencode/AGENTS.md` |
+| omp | `~/.omp/agent/AGENTS.md` (a named profile: `~/.omp/profiles/<name>/agent/`) | `readlink -f ~/.omp/agent/AGENTS.md` |
+| Gemini CLI | `~/.gemini/GEMINI.md` (the name follows the `context.fileName` setting) | `readlink -f ~/.gemini/GEMINI.md` |
+| Claude Code | `~/.claude/CLAUDE.md`, plus what it imports | `/memory` in a session lists the imported file |
+
+These paths come from each tool's source as installed here (Codex 0.162, opencode 1.18,
+omp 18.4, Gemini CLI 0.63) and Claude Code's memory documentation for `@~/` imports; none
+was exercised end to end. opencode also falls back to `~/.claude/CLAUDE.md` when it has no
+global `AGENTS.md`, which the symlink makes moot.
 
 ## What it exposes, and what it won't run
 

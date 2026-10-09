@@ -36,6 +36,7 @@ def test_advertise_scratch_only_when_opted_in(tmp_path, monkeypatch):
         server._advertise_scratch()
         assert f"TMUXRC_SCRATCH_DIR={tmp_path}\n" in shown()
         assert "TMUXRC_SCRATCH_URL=https://host.example/scratch\n" in shown()
+        assert "TMUXRC_SCRATCH_LOCAL_URL=http://127.0.0.1:" in shown()
         # tmux outlives the daemon: a restart with less configured clears what went away.
         monkeypatch.delenv("TMUXRC_SCRATCH_URL")
         server._advertise_scratch()

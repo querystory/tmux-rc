@@ -1385,17 +1385,24 @@ if _scratch_dir:
     _mount_static("/scratch", _scratch_dir)
 
 
+def _port() -> str:
+    return os.environ.get("TMUXRC_PORT", "18030")
+
+
 def _advertise_scratch() -> None:
-    """Opt-in (TMUXRC_SCRATCH_ADVERTISE=1): export the served scratch dir, and its public
-    URL when TMUXRC_SCRATCH_URL is set, to tmux's global environment, which new panes (and
-    the agents in them) inherit. Off by default: it writes to the user's own tmux server.
+    """Opt-in (TMUXRC_SCRATCH_ADVERTISE=1): export the served scratch dir, its public URL
+    when TMUXRC_SCRATCH_URL is set, and a local URL (the public one sits behind the user's
+    login, so an agent checks its page here) to tmux's global environment, which new panes
+    and their agents inherit. Off by default: it writes to the user's own tmux server.
     tmux outlives the daemon, so whatever is no longer configured is removed, not kept."""
     if os.environ.get("TMUXRC_SCRATCH_ADVERTISE") != "1":
         return
-    url = _scratch_dir and os.environ.get("TMUXRC_SCRATCH_URL")
+    env = {"TMUXRC_SCRATCH_DIR": _scratch_dir,
+           "TMUXRC_SCRATCH_URL": os.environ.get("TMUXRC_SCRATCH_URL") or None,  # "" = unset
+           "TMUXRC_SCRATCH_LOCAL_URL": f"http://127.0.0.1:{_port()}/scratch"}
     try:
-        tmux.set_global_env("TMUXRC_SCRATCH_DIR", _scratch_dir)
-        tmux.set_global_env("TMUXRC_SCRATCH_URL", url)
+        for name, value in env.items():
+            tmux.set_global_env(name, value if _scratch_dir else None)
     except (subprocess.CalledProcessError, OSError):  # no server yet, or no tmux binary
         logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 
@@ -1464,7 +1471,7 @@ def main() -> None:
         proxy_headers=False,
         log_config=None,
         host=os.environ.get("TMUXRC_HOST", "127.0.0.1"),
-        port=int(os.environ.get("TMUXRC_PORT", "18030")),
+        port=int(_port()),
         reload=reload,
         reload_dirs=[str(_PKG_DIR)] if reload else None,
     )

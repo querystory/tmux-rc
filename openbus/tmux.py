@@ -247,7 +247,8 @@ def _run(args: list[str], stdin: str | None = None) -> str:
 def set_global_env(name: str, value: str | None) -> None:
     """Set (or, given None, remove) a variable in the server's global environment, which
     new panes inherit."""
-    _run(["set-environment", "-g", name, value] if value else ["set-environment", "-gu", name])
+    _run(["set-environment", "-gu", name] if value is None else
+         ["set-environment", "-g", name, value])
 
 
 def client_active_within(seconds: float) -> bool:
