@@ -445,6 +445,46 @@ control plane's risk-tier idea (agentic-control-plane.md) applied at the smalles
 Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
 X into Y" announcement is voice's confirmation.
 
+**Taking the user to a window.** Asked to "go back to window 20", the assistant could only
+say the window was ready and ask what to do there: it could talk about panes but not show
+one. `open_pane` closes that gap by putting an Open button in the log, which goes where
+tapping the pane's row goes (on a phone it also minimizes the sheet). It changes only the
+view, so it skips the consent card, and it is a button rather than an automatic jump
+because the reply can land while the user is typing their next message, and a view that
+changes under them would lose their place. Voice gets the same tool and button. The one jump is a resume the user just tapped
+Send on: that tap asked to go there, so the daemon sends the same message marked `auto`
+and the client clicks the button it adds, which stays for getting back. The result tells
+the model the user is already there, so it offers no second button.
+
+The model names the window and the daemon finds it. Left to pick a pane id itself, the
+model twice opened the wrong window: "take me to the slack inbox merge" (a voice slip for
+"pane") went to past-session search, whose top hits matched all three words, and opened
+the pane running one of them rather than the window titled "slack inbox"; "the QS linux
+OMP session" read the tool column and chose an idle omp pane. So `open_pane` takes the
+user's words and scores each live pane by the words its title, label, tool and working
+directory's name hold whole (two adjacent words may also match run together, for "qslinux");
+the directory counts because a repo name is how people say "the sales kit session", and
+only one of three windows in that repo happened to carry it in its title; a "window N" first
+narrows to panes with that number, so a 25 in some other title never competes. A pane opens only
+when it alone tops the scores with most of the words; otherwise the closest few each get a
+button and the model is told to say how they differ (left to offer them itself, it named
+two windows in its reply and buttoned neither), or it gets "no match" and a pointer to
+find_sessions. Buttons go inside the reply's bubble, under its text: a separate card read
+as a second message about the same thing. A
+deterministic matcher is testable and cannot be talked out of an exact title; prompt rules
+for the same ranking would be relitigated on every model change. Typing still takes a pane
+id: a wrong Open costs a tap back, a wrong prompt costs work, and the id is checked on a
+card or announced aloud.
+
+A consent card that targets a pane carries the same button, because the card is where a
+wrong target gets caught: asked for "the QS linux OMP session", the model picked an omp
+pane idle for two days over the window titled "qslinux codex installation", and the card
+named it only by its tmux address, so nothing on it said which window that was. The card
+now names the pane as the prompt and list do (window number and title, plus the label when
+it adds something), and Open lets the user look before answering. Opening does not answer
+the card: it stays pending on the chat bubble until Send or Cancel, since looking is the
+point and a card that resolved on navigation would force a choice before the look.
+
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
 starts. Switching mid-conversation, as the history doc asks, now means moving a

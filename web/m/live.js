@@ -16,7 +16,7 @@ const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this coun
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
 
-export function setupLiveMode({ request, session, licon, wide, report = () => {}, onVersion = () => {} }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -150,9 +150,10 @@ export function setupLiveMode({ request, session, licon, wide, report = () => {}
       heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
-    if (role === "model") appendChatMarkdown(row.lastChild, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
-    else row.lastChild.textContent += message || "";
-    row.lastChild.before(...images.map(chatThumb));
+    const body = row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
+    if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
+    else body.textContent += message || "";
+    body.before(...images.map(chatThumb));
     if (!dialog.open && role !== "user") unread = true; // not the user's own echo
     // Oldest first, but never a proposal still waiting on the user: the daemon would wait
     // forever for a Send/Cancel that is no longer on screen.
@@ -166,7 +167,7 @@ export function setupLiveMode({ request, session, licon, wide, report = () => {}
   // instead (superseded: a card never holds the next turn hostage). The card shows a final
   // answer only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
   // side of the proposal with it, so any card still open then is expired, never retried.
-  function propose(current, { id, text, image, session }) {
+  function propose(current, { id, text, image, pane_id, session }) {
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
     if (session) row.lastChild.append(sessionMeta(session));
     actions.className = "voice-actions";
@@ -181,8 +182,27 @@ export function setupLiveMode({ request, session, licon, wide, report = () => {}
       };
       actions.append(button);
     }
+    // Look before approving: opening leaves the card pending, and the bubble brings it back.
+    if (pane_id) actions.append(openButton(pane_id, "Open"));
     row.append(actions); current.proposals.set(id, { row, actions }); badge();
     actions.scrollIntoView?.({ block: "nearest" }); // a card waiting on the user is never left clipped
+  }
+  // A button to a pane, going exactly where its row in the list goes (the caller's
+  // navigate). A phone minimizes the sheet on the way, a docked panel stays put.
+  function openButton(pane_id, label) {
+    const button = document.createElement("button"); button.type = "button"; button.className = "open";
+    button.textContent = label; button.insertAdjacentHTML("beforeend", licon("chevron", 16));
+    const at = Date.now(); // a button offered moments ago may name a window state lacks yet
+    button.onclick = () => { if (!docked()) hide(); open(pane_id, at); };
+    return button;
+  }
+  // open_pane: the button goes under this turn's reply, in the same bubble, whether it lands
+  // before the text (the usual order) or after. `auto` (a resume the user just tapped Send
+  // on) also takes that path at once.
+  function offer({ pane_id, label, auto }) {
+    const button = openButton(pane_id, `Open ${label}`), row = add("model", "");
+    (row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }))).append(button);
+    if (auto) button.click();
   }
   // Which session a resume card means, past a title several can share (live._approved).
   function sessionMeta({ tool, cwd, last_active, id }) {
@@ -376,6 +396,7 @@ export function setupLiveMode({ request, session, licon, wide, report = () => {}
         add("error", message.message);
       }
       else if (message.type === "propose") propose(current, message);
+      else if (message.type === "open_pane") offer(message);
       else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : message.ok === null ? "Cancelled — you sent a new message" : "Declined");
       else if (message.type === "interrupted") silence(current);
       else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }

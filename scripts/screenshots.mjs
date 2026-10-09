@@ -26,7 +26,7 @@ const SHOTS = [
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
-  ["wide-chat", WIDE, "light", "#pane=%259", openChat],
+  ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
@@ -38,8 +38,10 @@ const SHOTS = [
   ["mobile-pane-menu", PHONE, "dark", "#pane=%259", (page) => page.click("#pane-menu-button")],
   ["mobile-expunge", PHONE, "light", "#pane=%259", confirmExpunge],
   ["mobile-shell-menu", PHONE, "dark", "#pane=%256", (page) => page.click("#pane-menu-button")],
-  ["mobile-chat-resume", PHONE, "light", "", (page) => openChat(page, "Resume the checkout session")],
-  ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await openChat(page); await page.click("#voice-close"); }],
+  ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .voice-open button")],
+  ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
+  ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-close"); }],
 ];
 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:
@@ -61,16 +63,19 @@ async function confirmExpunge(page) {
   await page.waitForSelector("#expunge-dialog[open]");
 }
 
-async function openChat(page, ask = "Which panes need me?") {
+function chat(ask, until) { // hoisted: SHOTS above calls it
+  return async (page) => {
   await page.click("#chat");
   await page.waitForFunction(() => document.getElementById("voice-status")?.textContent === "Connected");
   await page.fill("#chat-input", ask);
   await page.press("#chat-input", "Enter");
   await page.waitForFunction(() => document.querySelectorAll("#voice-log .voice-entry").length >= 2);
+  if (until) await page.waitForSelector(until); // a frame after the transcripts, e.g. open_pane
+  };
 }
 
-// A canned Live Mode socket: answers a typed "Resume..." with a consent card, and anything
-// else with the same summary.
+// A canned Live Mode socket: a window named is offered with an Open button (open_pane), a
+// "tell" or a "Resume..." waits on a consent card, anything else gets the same summary.
 function stubChat(socket) {
   socket.send(JSON.stringify({ type: "status", status: "listening" }));
   socket.onMessage((raw) => {
@@ -80,7 +85,12 @@ function stubChat(socket) {
     if (message.text.startsWith("Resume")) return socket.send(JSON.stringify({ type: "propose", id: "p1",
       text: "Resume checkout flake hunt", session: { tool: "codex", cwd: "~/src/example-org/storefront",
         last_active: "2026-06-10T09:12:00Z", id: "5f3a9c1e" } }));
-    socket.send(JSON.stringify({ type: "transcript", role: "model", text:
+    if (/^Tell/.test(message.text)) socket.send(JSON.stringify({ type: "propose", id: "p1", pane_id: "%9",
+      text: 'Send to window 1 "e2e triage": From the user (via text): rerun it headed' }));
+    else if (/window/.test(message.text)) {
+      socket.send(JSON.stringify({ type: "open_pane", pane_id: "%9", label: 'window 1 "e2e triage"' })); // before the text, as live
+      socket.send(JSON.stringify({ type: "transcript", role: "model", text: "Window 1 is **e2e triage**, rerunning checkout.spec with tracing on." }));
+    } else socket.send(JSON.stringify({ type: "transcript", role: "model", text:
       "Four panes need you:\n\n- **api contract diff** asks whether to bump the public API to v3\n" +
       "- **flaky test hunter** wants you to pick a suite to quarantine\n" +
       "- **alert tuning** asks to silence the disk alert on build-02\n" +
