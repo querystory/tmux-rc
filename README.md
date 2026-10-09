@@ -132,6 +132,18 @@ and run `make dev` in a pane as usual; the two modes share the same command and 
 See [docs/design/deployment.md](docs/design/deployment.md) for why user units + linger
 (and not containers, system units, or a supervising parent).
 
+### Previews at `/scratch/`
+
+Set `TMUXRC_SCRATCH_DIR` in `.env` and restart, and the daemon serves that directory
+read-only at `https://<your-host>/scratch/<folder>/`, behind the same tunnel and login as
+the app. Drop in anything static (a mock an agent wrote, another project's built site, a
+report, images, PDFs) and open it on the phone, with no second server or tunnel. Unset
+means nothing is served. Everything there is visible to everyone the tunnel admits, and
+pages are sandboxed so their scripts cannot make requests (no `fetch`, XHR or WebSocket)
+or post forms: self-contained bundles work, anything that calls a backend does not. It
+serves files and is not a proxy. Mocks worth keeping go in `docs-site/static/mocks/`
+instead. Details and the security model: [Previewing work](docs/deploy/previews.md).
+
 ### Run without cloning
 
 `uv` installs straight from the git repo — no manual clone or checkout to

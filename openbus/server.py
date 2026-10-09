@@ -15,6 +15,7 @@ import hashlib
 import io
 import logging
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -479,13 +480,17 @@ async def no_cache(request, call_next):
     # default Permissions-Policy even over HTTPS; explicitly allow it for self so the
     # browser prompts (and the PWA keeps the grant) instead of silently rejecting.
     resp.headers["Permissions-Policy"] = "microphone=(self)"
-    # Scratch previews are arbitrary HTML on the daemon's own origin, where a script could
-    # call /api/* (type into terminals) with the viewer's session. A CSP sandbox without
+    # Scratch previews (and the mocks promoted from them into the docs) are arbitrary HTML
+    # on the daemon's own origin, where a script could call /api/* (type into terminals)
+    # with the viewer's session. A CSP sandbox without
     # allow-same-origin gives them an opaque origin instead: they still run, but the
     # daemon's API is cross-origin to them, exactly as from any other site. That only stops
     # reading responses, so also refuse the blind writes (form posts, no-cors fetches) that
-    # would still carry the front door's cookie.
-    if request.url.path.startswith("/scratch/"):
+    # would still carry the front door's cookie. Resource loads stay open: a bundle needs
+    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin. Match
+    # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
+    path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    if path.startswith(("/scratch/", "/docs/mocks/")):
         resp.headers["Content-Security-Policy"] = (
             "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")
     # StaticFiles redirects a directory without its slash to an absolute URL built from
