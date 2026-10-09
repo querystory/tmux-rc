@@ -32,22 +32,28 @@ function cell(w, provider, wide, now) {
   const projected = Math.min(100, w.projected ?? w.pct), used = Math.min(100, w.pct);
   const level = w.limit_at || w.pct >= 100 ? 'full' : projected >= 90 ? 'warn' : '';
   const when = w.resets_at ? countdown(w.resets_at - now) : '';
-  const note = w.limit_at ? `full in ${countdown(w.limit_at - now)}` : when && `resets ${when}`;
-  const title = `${NAMES[provider]} ${w.window}: ${Math.round(w.pct)}% used${when && `, resets in ${when}`}`
+  const full = w.limit_at ? `full in ${countdown(w.limit_at - now)}` : '';
+  const note = (full && `<small class="out">${full}</small>`) + (when && `<small>resets ${when}</small>`);
+  const title = `${NAMES[provider]} ${w.window}: ${Math.round(w.pct)}% used${full && `, ${full}`}${when && `, resets in ${when}`}`
     + (w.projected != null ? `; at this pace ${Math.round(w.projected)}% by the reset` : '');
   const pace = w.resets_at && Math.min(100, Math.max(0, (now - w.start) / (w.resets_at - w.start) * 100));
   const bar = `<i class="usage-bar"><i style="width:${projected}%" class="ahead"></i><i style="width:${used}%"></i>`
     + (pace ? `<i class="pace" style="left:${pace.toFixed(1)}%"></i>` : '') + '</i>';
-  return `<div class="usage-cell ${level}" data-w="${w.window}" title="${esc(title)}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}"><span>${w.window}</span><b>${Math.round(w.pct)}%</b><em>used</em>`
-    + `${wide && w.resets_at ? spark(w, now) : bar}<small>${esc(note)}</small></div>`;
+  return `<div class="usage-cell ${level}" title="${esc(title)}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}"><span>${esc(w.window)}</span><b>${Math.round(w.pct)}%</b><em>used</em>`
+    + `${wide && w.resets_at ? spark(w, now) : bar}${note}</div>`;
 }
 
+// A plan without a window another account has (Codex's 5h on a weekly-only plan) says so in
+// its place; a per-model limit ("7d Fable") is no peer's gap. The server sorts by name.
 export function renderUsage(el, accounts, wide, now = Date.now()) {
   el.hidden = !accounts.length;
+  const shared = new Set(accounts.flatMap(a => a.windows.map(w => w.window).filter(n => !n.includes(' '))));
   const markup = accounts.map(a => {
-    const name = a.label || NAMES[a.provider];
+    const name = a.label || NAMES[a.provider], has = new Set(a.windows.map(w => w.window));
+    const gaps = [...shared].filter(n => !has.has(n)).map(window => ({ window, none: true }));
     const cells = a.error ? `<div class="usage-cell none wide">${esc(a.error)}</div>`
-      : a.windows.map(w => cell(w, a.provider, wide, now)).join(''); // a plan without a window shows none
+      : [...a.windows, ...gaps].sort((x, y) => x.window < y.window ? -1 : 1)
+        .map(w => w.none ? `<div class="usage-cell none">no ${esc(w.window)} limit</div>` : cell(w, a.provider, wide, now)).join('');
     return `<div class="usage-account"><span class="usage-name"><img src="${LOGOS[a.provider]}" alt="" width="14" height="14"><span>${esc(name)}</span></span>${cells}</div>`;
   }).join('');
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
