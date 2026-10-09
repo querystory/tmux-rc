@@ -925,15 +925,20 @@ const leavePane = (id) => { if (stillOnPane(location.hash, id)) navigate(null, "
 async function endPane(id, action, label, body, timeout) {
   const pane = statePanes.find((p) => p.pane_id === id); // kill-window takes all its splits too
   const splits = statePanes.filter((p) => pane && p.session === pane.session && p.window_index === pane.window_index);
-  const mark = (e) => { for (const p of splits) if (e) ending.set(p.pane_id, { birth: p.birth, pane: p, ...e }); else ending.delete(p.pane_id); showPanes(); render(); };
-  const ended = () => { // leave first: no "no longer available"; but never a newer pane tmux gave this %N
-    const now = statePanes.find((p) => p.pane_id === id);
-    if (!now || now.birth === pane?.birth) leavePane(id);
-    mark({ done: true });
+  const mark = (e, of = splits) => { for (const p of of) if (e) ending.set(p.pane_id, { birth: p.birth, pane: p, ...e }); else ending.delete(p.pane_id); showPanes(); render(); };
+  // Leave whichever of them is on screen first (no "no longer available"), but never a newer
+  // pane tmux gave that %N. A 404 killed nothing: only the target is gone, not its splits.
+  const ended = (of = splits) => {
+    for (const p of of) if ((statePanes.find((q) => q.pane_id === p.pane_id)?.birth ?? p.birth) === p.birth) leavePane(p.pane_id);
+    mark({ done: true }, of);
   };
   mark({ label });
   try { const done = await post(paneUrl(id, action), body, timeout); ended(); return done; }
-  catch (error) { if (error.status >= 400 && error.status < 500 && error.status !== 404) mark(null); else ended(); throw error; }
+  catch (error) {
+    if (error.status === 404) { mark(null); ended(splits.filter((p) => p.pane_id === id)); }
+    else if (error.status >= 400 && error.status < 500) mark(null); else ended();
+    throw error;
+  }
 }
 async function pollState(signal) {
   let version = null;
