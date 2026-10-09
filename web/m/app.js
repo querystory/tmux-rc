@@ -910,6 +910,10 @@ function showPanes() {
     if (e?.birth !== p.birth && e?.done) ending.delete(p.pane_id); // tmux gave the id to a new pane
     return !e || e.birth !== p.birth ? [p] : e.done ? [] : [{ ...p, ending: e.label }];
   });
+  // Until the request answers, keep a pane the server already unpublished (drop_window wakes
+  // the poll mid-request): only endPane decides it is gone, so the page leaves it cleanly.
+  const listed = new Set(statePanes.map((p) => p.pane_id));
+  for (const [id, e] of ending) if (!e.done && !listed.has(id)) panes.push({ ...e.pane, ending: e.label });
 }
 const leavePane = (id) => { if (stillOnPane(location.hash, id)) navigate(null, "summary", { mode: "replace" }); };
 // Kill or expunge a pane's window: greyed while the request runs, gone the moment it succeeds
@@ -917,7 +921,7 @@ const leavePane = (id) => { if (stillOnPane(location.hash, id)) navigate(null, "
 async function endPane(id, action, label, body, timeout) {
   const pane = statePanes.find((p) => p.pane_id === id); // kill-window takes all its splits too
   const splits = statePanes.filter((p) => pane && p.session === pane.session && p.window_index === pane.window_index);
-  const mark = (e) => { for (const p of splits) if (e) ending.set(p.pane_id, { birth: p.birth, ...e }); else ending.delete(p.pane_id); showPanes(); render(); };
+  const mark = (e) => { for (const p of splits) if (e) ending.set(p.pane_id, { birth: p.birth, pane: p, ...e }); else ending.delete(p.pane_id); showPanes(); render(); };
   const ended = () => { leavePane(id); mark({ done: true }); }; // leave first: no "no longer available"
   mark({ label });
   try { const done = await post(paneUrl(id, action), body, timeout); ended(); return done; }
