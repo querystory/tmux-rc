@@ -984,14 +984,15 @@ def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
     if not killed:
         _audit(request, action, pane_id, detail, outcome="rejected: the pane changed")
         raise HTTPException(409, "the pane changed")
+    app.state.watcher.drop_pane(pane.id)
 
 
 @app.post("/api/panes/{pane_id}/close")
 def close_window(pane_id: str, request: Request):
     """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
-    Destructive: any process in the window is killed. The watcher evicts the pane on its next
-    tick (emitting pane_removed), so the card disappears on the client's next poll with no
-    special cleanup — the same path as a window closed on the host."""
+    Destructive: any process in the window is killed. The pane leaves the published deck at
+    once, so the client's next poll no longer has it; the watcher's next tick then evicts it
+    (emitting pane_removed), the same path as a window closed on the host."""
     _kill_window(request, pane_id, "kill_window")
     _audit(request, "kill_window", pane_id)
     return {"ok": True}

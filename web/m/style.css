@@ -794,3 +794,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }
 .atlas-multiples .atlas-panel-heading > .muted { font-size: 12px; }
+/* A window being killed or expunged from here (markEnding): greyed, its label under a spinner. */
+.ending { opacity: .55; }
+.ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
+.ending :is(.badge, .sb-open .a, .m)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: logo-spin .8s linear infinite; }
