@@ -230,7 +230,7 @@ export function setupSidebar(ctx) {
     text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
     text($c(".w"), [p.session, p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
     $c(".badge").className = `badge ${activityClass(p)}`;
-    text($c(".badge"), `${activityLabel(p)} · ${since(p)}`);
+    text($c(".badge"), [activityLabel(p), since(p)].filter(Boolean).join(" · "));
     text($c(".x"), paneHeadline(p) || "No recent activity");
     const asked = needsYou(p) && (p.question?.ask || p.question?.prompt);
     text($c(".q"), asked && asked !== paneHeadline(p) ? asked : "");
