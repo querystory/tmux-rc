@@ -893,22 +893,26 @@ function startState() {
     pollState(stateController.signal);
   }
 }
-// Windows this page is closing, by pane id: { birth, label } while the request runs, then
-// { birth, at } once it succeeded. A closed pane stays hidden for ENDED_MS, not just until a
-// poll omits it, because a watcher tick that read tmux before the kill can publish it once
-// more; the birth keeps a newer pane that tmux gave the same %N visible.
-const ending = new Map(), ENDED_MS = 30000;
+// Panes of windows this page is closing, by pane id: { birth, label } while the request runs,
+// then { birth, done } once it succeeded. A closed pane stays hidden until its %N comes back
+// with another birth, not just until a poll omits it: a watcher tick that read tmux before
+// the kill can publish it again any time later, as slow as its classifications run.
+const ending = new Map();
 function showPanes() {
-  for (const [id, e] of ending) if (Date.now() - e.at > ENDED_MS) ending.delete(id);
-  panes = statePanes.flatMap((p) => { const e = ending.get(p.pane_id); return !e || e.birth !== p.birth ? [p] : e.at ? [] : [{ ...p, ending: e.label }]; });
+  panes = statePanes.flatMap((p) => {
+    const e = ending.get(p.pane_id);
+    if (e?.birth !== p.birth && e?.done) ending.delete(p.pane_id); // tmux gave the id to a new pane
+    return !e || e.birth !== p.birth ? [p] : e.done ? [] : [{ ...p, ending: e.label }];
+  });
 }
 const leavePane = (id) => { if (stillOnPane(location.hash, id)) navigate(null, "summary", { mode: "replace" }); };
 // Kill or expunge a pane's window: greyed while the request runs, gone the moment it succeeds
 // (404 too: already gone), restored on any other failure, which is rethrown for the caller.
 async function endPane(id, action, label, body, timeout) {
-  const birth = statePanes.find((p) => p.pane_id === id)?.birth;
-  const mark = (e) => { if (e) ending.set(id, { birth, ...e }); else ending.delete(id); showPanes(); render(); };
-  const ended = () => { leavePane(id); mark({ at: Date.now() }); }; // leave first: no "no longer available"
+  const pane = statePanes.find((p) => p.pane_id === id); // kill-window takes all its splits too
+  const splits = statePanes.filter((p) => pane && p.session === pane.session && p.window_index === pane.window_index);
+  const mark = (e) => { for (const p of splits) if (e) ending.set(p.pane_id, { birth: p.birth, ...e }); else ending.delete(p.pane_id); showPanes(); render(); };
+  const ended = () => { leavePane(id); mark({ done: true }); }; // leave first: no "no longer available"
   mark({ label });
   try { const done = await post(paneUrl(id, action), body, timeout); ended(); return done; }
   catch (error) { if (error.status === 404) ended(); else mark(null); throw error; }
@@ -1384,7 +1388,7 @@ $("kill-pane").onclick = async () => {
 // The server names what it would delete first, and the confirmation is bound to that session id.
 html($("expunge-pane"), `${licon("trash", 18)}<span>Expunge</span>`);
 // A reload mid-request would hide the outcome of a kill or deletion still running.
-const busy = () => sending || launching || [...ending.values()].some((e) => !e.at);
+const busy = () => sending || launching || [...ending.values()].some((e) => !e.done);
 const items = (n) => `${n} local file${n === 1 ? " or folder" : "s or folders"}`;
 html($("expunge-confirm"), `${licon("trash", 18)}<span>Expunge permanently</span>`);
 $("close-expunge").onclick = () => $("expunge-dialog").close();
