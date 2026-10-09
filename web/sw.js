@@ -19,7 +19,7 @@ self.addEventListener("push", (event) => {
     icon: "/apple-touch-icon.png",
     badge: "/apple-touch-icon.png",
     actions,
-    data: { url: data.url || "/m", nonce: data.nonce || null },
+    data: { url: data.url || "/m", nonce: data.nonce || null, chat: !!data.chat },
   }));
 });
 
@@ -45,7 +45,8 @@ self.addEventListener("notificationclick", (event) => {
     }) || windows[0];
     if (existing) {
       try {
-        await existing.navigate(target);
+        // A chat lives in the open page: navigating would reload it away, so ask it instead.
+        if (data.chat) existing.postMessage("chat"); else await existing.navigate(target);
         return existing.focus();
       } catch {}
     }

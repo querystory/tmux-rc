@@ -400,6 +400,12 @@ class PushManager:
             "p256dh": keys["p256dh"], "auth": keys["auth"],
         }})
 
+    def chat(self, text: str) -> None:
+        """The chat assistant's card waits on a user who isn't looking (live._nudge). The tap
+        brings the chat back in the open page (sw.js); approving stays in the app."""
+        self.sender.send({"title": "Chat needs you", "body": _push_text(text, 400),
+                          "tag": "chat", "url": "/m", "chat": True, "actions": []})
+
     def answer(self, nonce: str, option_index: int) -> tuple[str, str]:
         now = self.clock()
         with self._lock:

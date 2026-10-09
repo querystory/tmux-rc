@@ -331,6 +331,44 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     assert meter.approvals == {}
 
 
+@pytest.mark.parametrize("viewing", [True, False])
+def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
+    """A card the user isn't looking at (sheet minimized, page hidden) pushes "Chat needs
+    you" once it has waited a moment; one in view stays quiet. Either way the push stops
+    with the answer, so a card notifies at most once."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+    meter.viewing = viewing
+    pushed = []
+
+    class Push:
+        def chat(self, text):
+            pushed.append(text)
+
+    meter.push = Push()
+
+    class Answer(_WS):  # taps Cancel well after a push would have gone out
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                asyncio.get_running_loop().call_later(
+                    0.2, meter.approvals[obj["id"]].set_result, False)  # noqa: FBT003 - a Future result
+
+    monkeypatch.setattr(L, "_NUDGE_TICK", 0.01)
+    monkeypatch.setattr(L.push, "SETTLE_SECONDS", 0.03)
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    _run(L._handle_tool_call(Answer(), _Session(), _FC(args={"pane_id": "%1", "text": "ls"}),
+                             _Watcher(), meter))
+    assert pushed == ([] if viewing else ['Send to window 3 "work": ls'])
+
+
+def test_client_reports_whether_the_chat_is_in_view():
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+    _run(L._forward_client(_ScriptedWS([{"action": "viewing", "on": False}, {"action": "stop"}]),
+                           None, meter))
+    assert meter.viewing is False
+
+
 def test_approval_is_refused_when_the_pane_had_no_process_to_bind(monkeypatch):
     """A failed pid lookup must not approve an unguarded send: it binds to "", which no
     live pane matches, so send_keys's identity check refuses it."""

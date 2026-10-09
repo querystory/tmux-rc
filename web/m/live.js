@@ -62,10 +62,18 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function badge() {
     const working = run?.turns > 0 && !run.proposals.size;
     bubble({ shown: !!run && !dialog.open, voice: run && !run.text, unread, pending: run?.proposals.size, working });
+    viewing();
     if (working === typing.isConnected) return;
     const follow = following();
     if (working) log.append(typing); else typing.remove();
     if (follow) log.scrollTop = log.scrollHeight;
+  }
+  // A card left waiting while nobody looks pushes "Chat needs you" (live._nudge), so the
+  // daemon hears each change; a fresh socket starts at its default, looking.
+  function viewing(current = run) {
+    const on = dialog.open && !document.hidden;
+    if (!current?.listening || current.viewing === on) return;
+    current.viewing = on; current.ws.send(JSON.stringify({ action: "viewing", on }));
   }
   const bubble = chatBubble({ licon, open: () => show() });
   const starters = chatStarters($("chat-starters"), sendText);
@@ -370,7 +378,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop(`Could not connect to ${name(current)}.`); return; }
-    current.ws = ws; current.thumbs = []; // an echo lost with the old socket never comes
+    current.ws = ws; current.thumbs = []; current.viewing = true; // an echo lost with the old socket never comes
     clearTimeout(current.deadline);
     current.deadline = setTimeout(() => { if (run === current && !current.listening) stop(`${name(current)} connection timed out. Try again.`); }, CONNECT_DEADLINE_MS);
     ws.onmessage = ({ data }) => {
@@ -380,7 +388,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) expire(current);
-        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
+        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
@@ -505,9 +513,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // socket alive. pagehide still releases capture when leaving this document.
   window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } });
   document.addEventListener("visibilitychange", () => {
-    if (run) { resumeAudio(run); keepAwake(run); }
+    if (run) { resumeAudio(run); keepAwake(run); viewing(); }
     if (!document.hidden) capabilities();
   });
+  navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data === "chat" && run) show(); });
   paint(); capabilities();
   return { isActive: () => !!run, refresh: capabilities };
 }
