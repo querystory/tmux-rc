@@ -33,6 +33,7 @@
   <link rel="modulepreload" href="/m/url-state.js">
   <link rel="modulepreload" href="/m/overscroll.js">
   <link rel="modulepreload" href="/m/sidebar.js">
+  <link rel="modulepreload" href="/m/usage.js">
   <link rel="modulepreload" href="/cursor-pick.js">
 </head>
 <body>
@@ -69,6 +70,8 @@
       <!-- A phone's floating action button, pinned to the list's foot (sticky, so the list's
            end scrolls clear of it). -->
       <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
+      <!-- Plan limits (usage.js): pinned over a phone's list by CSS, above the wide foot. -->
+      <div id="usage" role="region" aria-label="Plan usage" hidden></div>
       <div id="sb-foot" class="sb-only"></div>
     </section>
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
