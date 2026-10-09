@@ -220,9 +220,10 @@ const stayPut = () => navigate(active, active ? view : dashboard && WIDE.matches
 // named one that is gone. Replace, never push: Back would land on the dead deep link and
 // bounce straight out again. `id` is the pane the caller believes is on screen; stillOnPane
 // rejects the call when the user has already moved on and only the queued hashchange is late
-// (see pane-model.js).
+// (see pane-model.js). A pane this page is still closing is endPane's to leave, once its
+// request answers: the live stream 404s on it as soon as the window dies.
 function leaveMissingPane(id) {
-  if (!stillOnPane(location.hash, id)) return;
+  if (!stillOnPane(location.hash, id) || (ending.has(id) && !ending.get(id).done)) return;
   navigate(null, "summary", { mode: "replace" });
   notice("That pane is no longer available.");
 }
