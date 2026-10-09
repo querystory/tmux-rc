@@ -818,6 +818,7 @@ class Watcher:
         parts = [
             repr((
                 s.get("pane_id"), s.get("tmux_active"), s.get("session_active"),
+                s.get("birth"),  # a recycled %N is a new pane even where nothing else differs
                 # The structural identity the phone RENDERS (headers, window numbers):
                 # a renumber/rename with unchanged content must still bump the version.
                 s.get("session"), s.get("window_index"), s.get("window_name"),
