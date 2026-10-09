@@ -590,8 +590,6 @@ async def _approved(
             _answer(meter, proposal, None, rec)  # superseded: replayed, and never undone by a Send
         else:
             rec["consent"] = "parked"
-            # A dead socket shows nothing: out of view until the chat reconnects (_nudge).
-            meter.unseen_since = meter.unseen_since or time.monotonic()
             _park(proposal, (time.monotonic(), fc, pid, rec, meter, watcher))
         raise
     finally:
@@ -610,6 +608,19 @@ def _connect(meter: _Meter) -> None:
     meter.unseen_since = next(
         (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat), None)
     _chats[chat] = meter
+
+
+def _disconnect(meter: _Meter) -> None:
+    """A connection ended. A dead socket shows nothing, so its chat's parked cards are
+    out of view from now (or from whenever it already was) until the chat reconnects."""
+    chat = meter.actor, meter.session
+    if _chats.get(chat) is not meter:  # a reconnect's newer one took over
+        return
+    del _chats[chat]
+    since = meter.unseen_since or time.monotonic()
+    for key, parked in _parked.items():
+        if key[:2] == chat:
+            parked[4].unseen_since = since
 
 
 async def _nudge(meter: _Meter, proposal: str, text: str) -> None:
@@ -1407,8 +1418,7 @@ async def live_mode(websocket: WebSocket) -> None:
     finally:
         if reason == "stop":  # the user ended the chat, and its cards with it
             _unpark(meter)
-        if _chats.get((meter.actor, meter.session)) is meter:  # not a reconnect's newer one
-            del _chats[meter.actor, meter.session]
+        _disconnect(meter)
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         _audit(
             meter, "live_session", detail=f"end: {reason}", outcome=outcome, turns=meter.turns,
