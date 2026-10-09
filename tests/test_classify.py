@@ -1384,21 +1384,28 @@ def test_shell_prompt_with_output_after_it_was_answered(sample, tool, style, kep
 
 
 def test_transcript_code_blocks_beat_the_models_retyping():
-    reply = ("Run this on the desktop. It changes nothing.\n\n```bash\n{\n  lpstat -t\n"
+    reply = ("Run this on the desktop. It changes nothing.\n\n```bash\n{\n  uname -a\n  lpstat -t\n"
              "} 2>&1 | tee /tmp/report.txt\n```\n\nThen:\n\n```\ncat /tmp/report.txt\n````\n")
     retyped = {"copyables": [{"text": "{ lpstat -t; } 2>&1 | tee /tmp/report.txt"}]}
     shown = "  cat /tmp/report.txt"
-    result = classify(_pane("node"), "  } 2>&1 | tee /tmp/report.txt\n" + shown,
-                      _llm(retyped), reply=reply)
+    tail = "    uname -a\n    lpstat -t\n  } 2>&1 | tee /tmp/report.txt\n"  # "{" scrolled off
+    result = classify(_pane("node"), tail + shown, _llm(retyped), reply=reply)
     assert result["copyables"] == [  # newest first, labelled by its lead-in
         {"label": "Then", "text": "cat /tmp/report.txt"},
         {"label": "Run this on the desktop.",
-         "text": "{\n  lpstat -t\n} 2>&1 | tee /tmp/report.txt"},
+         "text": "{\n  uname -a\n  lpstat -t\n} 2>&1 | tee /tmp/report.txt"},
     ]
     # A list item's fence indent is markup; indentation inside the code is kept.
     nested = "1. Add:\n\n   ```\n       return x\n   ```\n"
     assert classify(_pane(), "       return x", _llm({}), reply=nested)["copyables"] == [
         {"label": "Add", "text": "    return x"}]
+    # Continued lines count as one, as the screen side joins them.
+    cont = "```\nsudo grep -n x \\\n  /etc/a \\\n  /etc/b\necho done\n```"
+    assert classify(_pane(), "sudo grep -n x \\\n    /etc/a \\\n    /etc/b\necho done",
+                    _llm({}), reply=cont)["copyables"][0]["text"].endswith("echo done")
+    # A generic closing line alone doesn't ground a block.
+    assert "copyables" not in classify(_pane(), "other\n}", _llm({}),
+                                       reply="```\nf() {\n  g\n}\n```")
     # A reply whose blocks aren't on screen is stale; the model's picks stand in.
     result = classify(_pane(), "git status", _llm({"copyables": [{"text": "git status"}]}),
                       reply=reply)
