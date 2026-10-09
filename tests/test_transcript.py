@@ -18,6 +18,12 @@ def _write(path, entries, junk=""):
     path.write_text(junk + "".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8")
 
 
+def _registration():
+    """The test process, registered as Claude would register it."""
+    pid = os.getpid()
+    return {"pid": pid, "sessionId": SID, "procStart": transcript._started(pid)}
+
+
 def _pane(pid):
     return Pane("work", "0", "node", "0", "%0", "node", "t", "/x", pid=pid)
 
@@ -35,7 +41,7 @@ def _say(role, content, **extra):
 
 def test_claude_reply_from_the_session_running_under_the_pane(homes):
     # This test process stands in for Claude; its parent is the pane's shell.
-    _write(homes / "claude/sessions/1.json", [{"pid": os.getpid(), "sessionId": SID}])
+    _write(homes / "claude/sessions/1.json", [_registration()])
     # Registered before its transcript exists: found once it appears.
     assert transcript.last_reply(_pane(str(os.getppid())), "") is None
     _write(homes / f"claude/projects/-x/{SID}.jsonl", [
@@ -65,7 +71,7 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
 
 
 def test_claude_new_user_message_clears_the_reply(homes):
-    _write(homes / "claude/sessions/1.json", [{"pid": os.getpid(), "sessionId": SID}])
+    _write(homes / "claude/sessions/1.json", [_registration()])
     _write(homes / f"claude/projects/-x/{SID}.jsonl", [
         _say("assistant", [{"type": "text", "text": "old reply"}]),
         _say("user", [{"type": "text", "text": "next"}], promptSource="sdk"),
