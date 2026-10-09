@@ -445,6 +445,24 @@ control plane's risk-tier idea (agentic-control-plane.md) applied at the smalles
 Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
 X into Y" announcement is voice's confirmation.
 
+**A card outlives its connection.** Cards used to expire the moment the socket dropped,
+because the daemon's half of a proposal lived in the coroutine waiting on the tap. On a
+phone that is every lock, every app switch iOS suspends, and the tunnel relay's hourly cap,
+so a card read, considered and then tapped a few minutes later said "Expired" with nothing
+about it having aged. Now a card whose connection drops is parked, keyed by the user and the
+page's chat session id, with what Send needs: the call, the pane process the card named,
+and the session's images. The phone keeps the card open, a tap reconnects at once, and the
+answer runs on the new connection. The model that asked went with the old connection (a
+reconnect starts a fresh one), so the outcome is shown and audited but not told to it, and
+a new message supersedes parked cards as it does live ones. A tap is resent on each new
+connection until answered, since a socket can die with it or its answer in flight, so the
+daemon also remembers each answer for as long and repeats it rather than running the card
+twice or calling it expired. The untapped cards are asked after on each new connection too,
+since a new message may have superseded one with the answer lost the same way. Expiry is real now: thirty minutes parked, a daemon restart, or
+ending the chat (ended while offline, the next chat's first connection clears them). Keeping the whole session (model,
+queue, tool calls) alive across a reconnect would also save the model's history, but it
+would turn a per-socket task tree into a detachable one, far more than the card needs.
+
 **Taking the user to a window.** Asked to "go back to window 20", the assistant could only
 say the window was ready and ask what to do there: it could talk about panes but not show
 one. `open_pane` closes that gap by putting an Open button in the log, which goes where
