@@ -99,8 +99,9 @@ def _codex_file(pane: Pane, text: str) -> Path | None:
     return _codex_rollout(home, ids.pop(), _stamp(home / "sessions" / time.strftime("%Y/%m/%d")))
 
 
-def _text(blocks, kind: str) -> str | None:
-    texts = [b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == kind
+def _text(blocks) -> str | None:
+    # Claude tags text blocks "text"; Codex has written both "Text" and "text".
+    texts = [b["text"] for b in blocks if isinstance(b, dict) and b.get("type") in ("text", "Text")
              and isinstance(b.get("text"), str)] if isinstance(blocks, list) else []
     return "\n\n".join(texts) or None
 
@@ -132,9 +133,9 @@ def _reply(path: Path, _stat: tuple) -> str | None:
         item = event.get("item") if isinstance(event.get("item"), dict) else event
         kind = item.get("type") or e.get("type")
         if kind == "assistant":
-            reply = _text(content, "text") or reply
+            reply = _text(content) or reply
         elif kind == "AgentMessage":
-            reply = _text(item.get("content"), "Text") or reply
+            reply = _text(item.get("content")) or reply
         elif kind == "agent_message" and isinstance(item.get("message"), str):
             reply = item["message"] or reply
         elif kind in ("UserMessage", "user_message") or (kind == "user" and (

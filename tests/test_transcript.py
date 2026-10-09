@@ -75,14 +75,14 @@ def test_claude_new_user_message_clears_the_reply(homes):
 
 def test_codex_reply_from_the_thread_named_in_the_status_bar(homes, monkeypatch):
     monkeypatch.setattr(transcript, "_runs", lambda pid, name: pid == "7" and name == "codex")
-    def item(kind, text=None):
-        content = [{"type": "Text", "text": text}] if text else []
+    def item(kind, text=None, tag="Text"):
+        content = [{"type": tag, "text": text}] if text else []
         return {"type": "event_msg",
                 "payload": {"type": "item_completed", "item": {"type": kind, "content": content}}}
     # A line that isn't JSON (a write cut short) is skipped, not fatal.
     _write(homes / f"codex/sessions/2026/10/09/rollout-2026-10-09T09-00-00-{SID}.jsonl",
            [item("UserMessage"), item("AgentMessage", "old"), item("UserMessage"),
-            item("AgentMessage", "new"), item("Reasoning")], junk='{"cut":')
+            item("AgentMessage", "new", tag="text"), item("Reasoning")], junk='{"cut":')
     status = f"› Ask Codex to do anything\n  {SID} · gpt-6-sol medium · ~/src/app · Ready"
     assert transcript.last_reply(_pane("7"), status) == "new"
     # The same footer printed in a pane not running Codex is just text.
