@@ -910,8 +910,11 @@ function showPanes() {
   for (const [id, e] of ending) if (!e.done && !listed.has(id)) panes.push({ ...e.pane, ending: e.label });
 }
 const leavePane = (id) => { if (stillOnPane(location.hash, id)) navigate(null, "summary", { mode: "replace" }); };
-// Kill or expunge a pane's window: greyed while the request runs, gone the moment it succeeds
-// (404 too: already gone), restored on any other failure, which is rethrown for the caller.
+// Kill or expunge a pane's window: greyed while the request runs, gone the moment it succeeds.
+// Errors are rethrown for the caller. Only a refusal (4xx, but not 404, which means it's
+// already gone) restores the pane, because nothing was killed. A 5xx or a lost connection
+// may come after the kill (expunge's deletion runs after it), so the pane stays hidden
+// rather than letting stale polls revive a dead window; a reload shows it if it survived.
 async function endPane(id, action, label, body, timeout) {
   const pane = statePanes.find((p) => p.pane_id === id); // kill-window takes all its splits too
   const splits = statePanes.filter((p) => pane && p.session === pane.session && p.window_index === pane.window_index);
@@ -919,7 +922,7 @@ async function endPane(id, action, label, body, timeout) {
   const ended = () => { leavePane(id); mark({ done: true }); }; // leave first: no "no longer available"
   mark({ label });
   try { const done = await post(paneUrl(id, action), body, timeout); ended(); return done; }
-  catch (error) { if (error.status === 404) ended(); else mark(null); throw error; }
+  catch (error) { if (error.status >= 400 && error.status < 500 && error.status !== 404) mark(null); else ended(); throw error; }
 }
 async function pollState(signal) {
   let version = null;
@@ -1414,7 +1417,6 @@ $("expunge-pane").onclick = async () => {
       notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
     } catch (error) { // a refusal (pane gone, 404; or 409) touched nothing and clears; a failure stays
       const refused = [404, 409].includes(error.status);
-      if (error.status !== 409) leavePane(pane); // a 409 left everything as it was
       // No status means no answer at all: the request may have run to completion.
       if (error.status === undefined) notice("Connection lost; the expunge may have completed. Check that the session no longer resumes.");
       else notice(`Expunge ${refused ? "refused" : "failed"}: ${error.detail || error.message}`, refused ? 6000 : 0);
