@@ -28,7 +28,8 @@ from types import SimpleNamespace
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import agent_history, live_providers, llm, telemetry, tmux
-from .classify import _codex_model_segments, _load_prompt, _session_chrome
+from .classify import _load_prompt
+from .expunge import codex_status_segments
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
 
@@ -772,9 +773,8 @@ def _codex_pane(watcher, thread_id: str) -> str | None:
     codex = {d["pane_id"] for d in watcher.digest() if d.get("tool") == "codex"}
     # A copy: the watcher thread adds and drops panes while this runs.
     panes = {pane_id for pane_id, hist in list(watcher.snapshots.items())
-             if hist and pane_id in codex for line in _session_chrome(hist[-1]["text"] or "")
-             if _codex_model_segments(line)
-             and thread_id in (s.strip() for s in line.split("·"))}
+             if hist and pane_id in codex
+             and thread_id in codex_status_segments(hist[-1]["text"] or "")}
     return panes.pop() if len(panes) == 1 else None
 
 

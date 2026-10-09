@@ -50,6 +50,7 @@ const LUCIDE = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
   ellipsis: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  power: '<path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.77.04"/>',
   trash: '<path d="M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
@@ -168,7 +169,7 @@ async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
     external?.removeEventListener("abort", abort);
   }
 }
-const post = (url, body) => request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const post = (url, body, timeout) => request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, timeout);
 // Browser failures -> /api/client-error -> OTel (#57): a phone has no devtools, so a swallowed
 // mic denial or uncaught exception is otherwise invisible. Best-effort, deduped and capped, and
 // a failed report is never itself reported (no recursion).
@@ -190,7 +191,13 @@ function pause(ms, signal) {
     else signal?.addEventListener("abort", finish, { once: true });
   });
 }
-function notice(message = "") { text($("notice"), message); show("notice", !!message); }
+// A notice stays until replaced or cleared; with `ms` it also clears itself, for a short
+// result that needs no action.
+let noticeTimer;
+function notice(message = "", ms = 0) {
+  clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
+  if (message && ms) noticeTimer = setTimeout(() => { if ($("notice").textContent === message) notice(); }, ms);
+}
 
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
@@ -627,6 +634,8 @@ function render() {
   const settled = booted && !awaitingLaunch(launched, active);
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
+  // Expunge is offered only where it can work: a Claude Code or Codex pane (the server refuses the rest anyway).
+  for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
   const account = pane && paneAccount(usage, pane.pane_id); // which plan's limits it draws on
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}${account ? ` · ${account}` : ""}` : "Waiting for session state");
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
@@ -1048,7 +1057,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", sort: "arrowUpDown", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", sort: "arrowUpDown", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1341,11 +1350,51 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // and leaveMissingPane does the rest; 404 means it is already gone, the outcome asked for.
 dismissable($("pane-menu"));
 dismissable($("more-menu"));
-html($("kill-pane"), `${licon("trash", 18)}<span>Kill window</span>`);
+const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
+html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
 $("kill-pane").onclick = async () => {
-  $("pane-menu").open = false; $("pane-menu-button").focus(); // the item just hid: keep keyboard focus on a visible control
+  closePaneMenu();
   if (!active || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;
   try { await post(paneUrl(active, "close")); } catch (error) { if (error.status !== 404) notice("Could not kill this window."); }
+};
+// Expunge: kill the window AND delete its agent session's local files (docs/design/expunge.md).
+// The server names what it would delete first, and the confirmation is bound to that session id.
+html($("expunge-pane"), `${licon("trash", 18)}<span>Expunge</span>`);
+let expunging = false; // a reload mid-request would hide the outcome of a deletion still running
+const busy = () => sending || launching || expunging;
+const items = (n) => `${n} local file${n === 1 ? " or folder" : "s or folders"}`;
+html($("expunge-confirm"), `${licon("trash", 18)}<span>Expunge permanently</span>`);
+$("close-expunge").onclick = () => $("expunge-dialog").close();
+$("expunge-pane").onclick = async () => {
+  closePaneMenu();
+  const pane = active, title = $("pane-title").textContent;
+  const birth = panes.find((p) => p.pane_id === pane)?.birth; // the incarnation this menu is for
+  if (!pane) return;
+  let plan;
+  try { plan = await request(`${paneUrl(pane, "expunge")}?birth=${encodeURIComponent(birth ?? "")}`); } catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
+  const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
+  text($("expunge-what"), `This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
+  $("expunge-confirm").onclick = async () => {
+    $("expunge-dialog").close();
+    expunging = true;
+    // The window is gone (or going): leave its page first, so the pane's removal can't
+    // replace this outcome with "no longer available". A 409 left everything as it was.
+    const leave = () => { if (stillOnPane(location.hash, pane)) navigate(null, "summary", { mode: "replace" }); };
+    try {
+      // No client timeout (setTimeout's largest delay): aborting would not stop the server's
+      // run, so the answer must be its own outcome, never a failure while it deletes on.
+      const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id, birth }, 2 ** 31 - 1);
+      leave();
+      notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
+    } catch (error) { // a refusal (pane gone, 404; or 409) touched nothing and clears; a failure stays
+      const refused = [404, 409].includes(error.status);
+      if (error.status !== 409) leave();
+      // No status means no answer at all: the request may have run to completion.
+      if (error.status === undefined) notice("Connection lost; the expunge may have completed. Check that the session no longer resumes.");
+      else notice(`Expunge ${refused ? "refused" : "failed"}: ${error.detail || error.message}`, refused ? 6000 : 0);
+    } finally { expunging = false; }
+  };
+  $("expunge-dialog").showModal();
 };
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
@@ -1370,12 +1419,12 @@ function observeVersion(version) {
   if (assetVersion === null) assetVersion = version;
   const changed = version !== assetVersion;
   show("update-notice", changed);
-  $("reload-update").disabled = sending || launching;
+  $("reload-update").disabled = busy();
   // A deploy must not eat another pane's draft, an in-flight action, or a voice session.
-  if (changed && !document.hidden && !sending && !launching && !hasDrafts() && !live.isActive() && !document.querySelector("dialog[open]")) location.reload();
+  if (changed && !document.hidden && !busy() && !hasDrafts() && !live.isActive() && !document.querySelector("dialog[open]")) location.reload();
 }
 $("reload-update").onclick = () => {
-  if (sending || launching) return;
+  if (busy()) return;
   if ((hasDrafts() || live.isActive()) && !confirm("Reload now? Unsent drafts will be discarded and Live Mode will end.")) return;
   location.reload();
 };

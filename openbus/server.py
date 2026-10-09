@@ -73,7 +73,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import telemetry, tmux  # noqa: E402
+from . import expunge, telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -175,6 +175,11 @@ class ClickBody(BaseModel):
 
 class WheelBody(BaseModel):
     lines: int = Field(ge=-30, le=30)  # wheel notches, positive = up (see tmux.wheel)
+
+
+class ExpungeBody(BaseModel):
+    session_id: str  # the session the confirmation named; refused if the pane's has changed
+    birth: str  # the pane incarnation the menu was drawn for (its `birth` in /api/state)
 
 
 class NewWindowBody(BaseModel):
@@ -943,22 +948,107 @@ def select(pane_id: str, request: Request):
     return {"ok": True}
 
 
+def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
+                 pid: str | None = None) -> None:
+    """Kill the pane's window; with `pid`, only while that process still owns the pane
+    (tmux.kill_window), refusing if it no longer does."""
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
+        _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    try:
+        killed = tmux.kill_window(pane.id, pid)
+    except Exception as e:
+        _audit(request, action, pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise
+    if not killed:
+        _audit(request, action, pane_id, detail, outcome="rejected: the pane changed")
+        raise HTTPException(409, "the pane changed")
+
+
 @app.post("/api/panes/{pane_id}/close")
 def close_window(pane_id: str, request: Request):
     """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
     Destructive: any process in the window is killed. The watcher evicts the pane on its next
     tick (emitting pane_removed), so the card disappears on the client's next poll with no
     special cleanup — the same path as a window closed on the host."""
-    if tmux.find_pane(pane_id) is None:
-        _audit(request, "kill_window", pane_id, outcome="rejected: pane not found")
-        raise HTTPException(404, "pane not found")
-    try:
-        tmux.kill_window(pane_id)
-    except Exception as e:
-        _audit(request, "kill_window", pane_id, outcome=f"error: {e}"[:80])
-        raise
+    _kill_window(request, pane_id, "kill_window")
     _audit(request, "kill_window", pane_id)
     return {"ok": True}
+
+
+def _pane_session(pane_id: str, birth: str, expected: str | None = None):
+    """The pane (resolved to its canonical %N), its one agent session and that session's
+    targets (openbus/expunge.py), or the refusal. `birth` is the incarnation the client's
+    menu describes: tmux reuses %N, so a stale menu must not reach a newer pane. A path
+    that resolves outside its root refuses here, before anything is killed."""
+    pane = tmux.find_pane(pane_id)
+    try:  # read now, not from the watcher: a cached screen may predate a recycled pane id
+        screen = tmux.capture_pane(pane.id) if pane and pane.pid else ""
+    except (OSError, subprocess.CalledProcessError):
+        pane = None
+    if not (pane and pane.pid):
+        raise HTTPException(404, "pane not found")
+    if pane.pid != birth:
+        raise HTTPException(409, "this is a different window now")
+    try:  # a screen from a newer pane under this id fails the pid guard on the kill
+        s = expunge.identify(pane.pid, screen, expected)
+        return pane, s, expunge.targets(s)
+    except expunge.Refused as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@app.get("/api/panes/{pane_id}/expunge")
+def expunge_preview(pane_id: str, birth: str):
+    """What Expunge would delete, for the confirmation to name."""
+    _, s, (own, shared) = _pane_session(pane_id, birth)
+    return {"harness": s.harness, "session_id": s.session_id,
+            "files": [p.name for p in own], "shared": [p.name for p in shared]}
+
+
+@app.post("/api/panes/{pane_id}/expunge")
+def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
+    """Kill the window, then delete its agent session's local files. The window goes first
+    so the agent can't write them again, and files go only once it has exited. The audit
+    line names the pane and session, never what was deleted."""
+    detail = f"session={body.session_id[:64]}"
+    try:
+        pane, s, _ = _pane_session(pane_id, body.birth, body.session_id)
+        uid = app.state.watcher.checkpoint_key(pane.id, pane.pid)
+    except HTTPException as e:
+        _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])
+        raise
+    except (OSError, subprocess.CalledProcessError) as e:
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: no tmux server id")
+        raise HTTPException(409, "tmux can't name its server, so tmux-rc's own card for the "
+                                 "pane couldn't be found: nothing was killed") from e
+    # The kill's guard is the pane's process, usually a shell; the agent it ran is checked
+    # here too, so one that was replaced since the preview never takes its successor down.
+    if not expunge.alive(s):
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: agent exited")
+        raise HTTPException(409, "the agent exited before the window was killed: nothing was "
+                                 "touched")
+    if app.state.watcher.history is None:  # its own card for the pane could not be deleted
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: no history database")
+        raise HTTPException(409, "tmux-rc's history database is unavailable: nothing was "
+                                 "touched")
+    _kill_window(request, pane.id, "expunge", detail, pane.pid)
+    if not expunge.wait_gone(s):  # the window is gone, so this is a failure, not a refusal
+        _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
+        raise HTTPException(500, "the window closed, but the agent is still running: "
+                                 "nothing was deleted")
+    try:
+        result = expunge.expunge(s)
+    except (OSError, expunge.Refused) as e:
+        # Only the error's type: its message can carry a path (a project's name).
+        _audit(request, "expunge", pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise HTTPException(500, f"expunge failed partway: {e}") from e
+    if not app.state.watcher.forget_checkpoint(uid):
+        _audit(request, "expunge", pane_id, detail, outcome="error: checkpoint kept")
+        raise HTTPException(500, "the session's files are deleted, but tmux-rc could not "
+                                 "delete its own stored card for the pane yet")
+    _audit(request, "expunge", pane_id, detail)
+    return {"ok": True, **result}
 
 
 @app.post("/api/client-error")
