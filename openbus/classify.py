@@ -78,16 +78,18 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
-# A picker's highlighted row: its last prompt-glyph row, read past the frame, a radio and
-# a digit. The model reads the highlight too but can misplace it (it took a ❯ user turn
-# above Claude's digitless No/Yes box for the cursor, so a tap on Yes pressed Enter on
-# No), so the screen decides wherever it shows one, and /send checks it before a select.
+# A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
+# the frame, a radio and a digit. The model reads the highlight too but can misplace it
+# (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
+# Yes pressed Enter on No), so the screen decides wherever it shows one, and /send checks
+# it before a select. Below the prompt, so a turn in the scrollback is never the cursor.
 _HIGHLIGHT_RE = re.compile(
     _PROMPT_ROW + r"[ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?(.*?)[\s│┃╎]*$", re.MULTILINE)
 
 
-def highlighted_row(visible: str) -> str | None:
-    *_, row = [None, *_HIGHLIGHT_RE.finditer(visible)]
+def highlighted_row(visible: str, prompt: str) -> str | None:
+    *_, asked = [None, *_occurrences(prompt, visible)]
+    *_, row = [None, *(_HIGHLIGHT_RE.finditer(visible, asked.end()) if asked else ())]
     return row and row[1]
 
 
@@ -996,7 +998,8 @@ def classify(
             r"(?:^|[·│])\s*Type to search(?:\s*[·│]|$)", line, re.IGNORECASE,
         ) for line in footer):
             keymap["search"] = True
-        rows, row = question.get("options"), highlighted_row(visible)
+        rows, asked = question.get("options"), _question_prompt(question)
+        row = asked and highlighted_row(visible, asked)
         if row and isinstance(rows, list) and rows.count(row) == 1:
             question["selected"] = rows.index(row)
     if isinstance(question, dict):  # read off the screen, never passed through from the model

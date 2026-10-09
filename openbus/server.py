@@ -166,12 +166,17 @@ _EXT = {
 }
 
 
+class OnRow(BaseModel):
+    prompt: str = Field(min_length=1)
+    row: str
+
+
 class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
     question: str | None = None  # a menu answer's question fingerprint (its `fp`)
-    on_row: str | None = None  # send only while a picker's highlight is on this row
+    on_row: OnRow | None = None  # send only while the picker's highlight is on this row
 
 
 class PushKeysBody(BaseModel):
@@ -887,8 +892,9 @@ def send(pane_id: str, body: SendBody, request: Request):
     def on_row() -> None:
         # A cursor picker's select, checked against the screen under the send lock: the
         # walk's anchor is a parse, and a stale or misread one must not commit a row.
-        if highlighted_row(tmux.capture_pane(pane.id, lines=0)) != body.on_row:
-            msg = f"The highlight is not on {body.on_row!r}; nothing was sent."
+        at = highlighted_row(tmux.capture_pane(pane.id, lines=0), body.on_row.prompt)
+        if at != body.on_row.row:
+            msg = f"The highlight is not on {body.on_row.row!r}; nothing was sent."
             raise tmux.PaneChangedError(msg)
 
     try:

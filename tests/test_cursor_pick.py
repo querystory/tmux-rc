@@ -101,11 +101,12 @@ CASES = [
     ),
     (
         # Regression, Copilot: indexOf resolves both duplicates to the first one, so
-        # tapping the SECOND "beta" used to select the first.
-        "a duplicate row label follows the tapped index, not the first match",
-        {"options": ["beta", "alpha", "beta"], "selected": 0, "keymap": FULL_KM},
+        # tapping the SECOND "beta" used to select the first. The server confirms a commit
+        # by the row's text, which cannot tell the two apart, so neither is committed.
+        "a duplicate row label is never committed, since its text cannot be confirmed",
+        {"options": ["beta", "alpha", "beta"], "selected": 0, "keymap": NO_SEARCH_KM},
         "beta", 2,
-        {"sent": ["Down", "Down", "Enter"], "selected": 2, "notes": []},
+        {"sent": [], "selected": 0, "notes": 1},
     ),
     (
         # Regression, Copilot: send() used to swallow POST failures, so the walk carried
@@ -206,7 +207,7 @@ CASES = [
         # edge, so index 2 can become a DIFFERENT session wearing the same title. Same text
         # at the same index is not proof; an unchanged list is.
         "a scrolled list gives up the tapped index even with matching text there",
-        {"options": ["beta", "alpha", "beta"], "selected": 0, "keymap": NO_SEARCH_KM,
+        {"options": ["alpha", "gamma", "beta"], "selected": 0, "keymap": NO_SEARCH_KM,
          "scroll_after": 1},
         "beta", 2,
         {"sent": ["Down"], "selected": 1, "notes": 1},
@@ -226,7 +227,7 @@ CASES = [
         # spent, and two rows sharing a title cannot be told apart by text. Refusing is
         # the only honest answer — resuming the wrong session confidently is the failure.
         "an ambiguous duplicate after a renumber refuses rather than guessing",
-        {"options": ["beta", "alpha", "beta"], "selected": 0, "keymap": FULL_KM,
+        {"options": ["alpha", "gamma", "beta"], "selected": 0, "keymap": FULL_KM,
          "renumber_after": 1},
         "beta", 2,
         # Not even the search text: filtering can only remove rows, so a title matching
@@ -314,9 +315,9 @@ function fake(spec) {{
       : null;
     }},
     parsedAt: () => p.parsed_at,
-    sendKey: async (k, row) => {{
+    sendKey: async (k, on) => {{
       // The server's check: a select carrying its row is refused off the real highlight.
-      if (row !== undefined && row !== p.options[p.selected]) return false;
+      if (on !== undefined && on.row !== p.options[p.selected]) return false;
       const moved = deliver(k);
       if (!moved) return false;
       const km = typeof p.keymap === "object" ? p.keymap : {{}};

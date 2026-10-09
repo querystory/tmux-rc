@@ -33,11 +33,14 @@ SCREEN = """❯ Yes, please remove it.
  Esc to cancel · Tab to amend"""
 
 
-def test_highlighted_row_reads_the_last_pointer_row():
-    assert highlighted_row(SCREEN) == "No"
-    assert highlighted_row("│ ❯ ○ Red        │\n│   ○ Green      │") == "Red"
-    assert highlighted_row("› 2. Medium\n  3. High") == "Medium"
-    assert highlighted_row("No pointer here\n  Yes") is None
+def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
+    assert highlighted_row(SCREEN, 'Permanently remove "Demo"?') == "No"
+    box = "│ Which color?   │\n│ ❯ ○ Red        │\n│   ○ Green      │"
+    assert highlighted_row(box, "Which color?") == "Red"
+    assert highlighted_row("Effort?\n› 2. Medium\n  3. High", "Effort?") == "Medium"
+    # No glyph under the prompt: the ❯ turn above it is history, not the cursor.
+    assert highlighted_row("❯ Yes\nProceed?\n  No\n  Yes", "Proceed?") is None
+    assert highlighted_row(SCREEN, "Some other prompt?") is None
 
 
 def test_classify_overrides_a_misread_anchor():
@@ -96,7 +99,8 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
             raise AssertionError(shown)
 
         def send(keys, row=None):
-            body = {"keys": keys, "enter": False, "literal": False, "on_row": row}
+            on = row and {"prompt": "Remove it?", "row": row}
+            body = {"keys": keys, "enter": False, "literal": False, "on_row": on}
             return client.post(f"/api/panes/{pane}/send", json=body)
 
         screen_until(" ❯ No")
