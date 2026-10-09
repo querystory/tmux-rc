@@ -1345,6 +1345,7 @@ $("kill-pane").onclick = async () => {
 // Expunge: kill the window AND delete its agent session's local files (docs/design/expunge.md).
 // The server names what it would delete first, and the confirmation is bound to that session id.
 html($("expunge-pane"), `${licon("trash", 18)}<span>Expunge</span>`);
+const items = (n) => `${n} local file${n === 1 ? " or folder" : "s or folders"}`;
 html($("expunge-confirm"), `${licon("trash", 18)}<span>Expunge permanently</span>`);
 $("close-expunge").onclick = () => $("expunge-dialog").close();
 $("expunge-pane").onclick = async () => {
@@ -1354,14 +1355,14 @@ $("expunge-pane").onclick = async () => {
   let plan;
   try { plan = await request(paneUrl(pane, "expunge")); } catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
   const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
-  text($("expunge-what"), `This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${n} local file${n === 1 ? "" : "s"} or folder${n === 1 ? "" : "s"}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
+  text($("expunge-what"), `This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
     try {
       // No client timeout (setTimeout's largest delay): aborting would not stop the server's
       // run, so the answer must be its own outcome, never a failure while it deletes on.
       const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id }, 2 ** 31 - 1);
-      notice(`Expunged: ${done.files.length} files and ${done.lines} history lines deleted.`, 6000);
+      notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
     } catch (error) { // a refusal (409) touched nothing and clears; a failure partway stays up
       notice(`Expunge ${error.status === 409 ? "refused" : "failed"}: ${error.detail || error.message}`, error.status === 409 ? 6000 : 0);
     }
