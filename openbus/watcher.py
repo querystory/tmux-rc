@@ -564,6 +564,14 @@ class Watcher:
                 # in _force_parse and a running loop would pick it up on its next tick.
                 pass
 
+    def drop_pane(self, pane_id: str) -> None:
+        """Unpublish a pane whose window the daemon just closed, so the next /api/state omits
+        it rather than serving it until a tick notices; then wake that tick to reconcile.
+        A tick already running read tmux before the kill and may publish the pane once more."""
+        self.states = [s for s in self.states if s.get("pane_id") != pane_id]
+        self._bump_state_if_changed(self.states)
+        self.request_reparse(pane_id)
+
     def invalidate_input_actions(self, pane_id: str) -> None:
         """Invalidate actions before a pane-input transaction can take its send lock."""
         with self._input_generation_lock:
