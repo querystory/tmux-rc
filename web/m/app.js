@@ -954,12 +954,11 @@ function updateComposer() {
   $("reply").hidden = secret;
   $("secret").hidden = !secret;
   $("attach").hidden = secret;
-  // Editability depends only on the pane existing: a non-editable div loses focus and
-  // dismisses the phone keyboard on every send, and `sending` already guards re-entry.
-  $("reply").contentEditable = String(available);
-  $("reply").setAttribute("aria-disabled", String(!available));
+  // The editor is never locked: a newly opened pane takes typing before its state lands.
+  // Only delivery waits: Send, and Enter (the submit checks Send), do nothing until the pane
+  // exists, keeping the text; a password prompt arriving with it empties the draft instead.
   $("send").disabled = sending || !available || (secret ? !$("secret").value : !value.segments().length && !value.pendingEnter);
-  $("attach").disabled = sending || !available;
+  $("attach").disabled = sending;
   $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
 }
 // Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
