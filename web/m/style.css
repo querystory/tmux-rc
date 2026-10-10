@@ -412,12 +412,14 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #sb-nav ~ .search .search-clear { width: 36px; height: 36px; min-height: 36px; }
 #side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
-.sb-bar { display: flex; flex-wrap: wrap; row-gap: 8px; align-items: center; gap: 6px; padding: 10px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
-.sb-bar .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--raised); }
-.sb-bar .seg button { min-height: 22px; padding: 1px 8px; border-radius: 5px; font-size: 11.5px; color: var(--muted); }
-.sb-bar .seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
+.sb-bar { display: flex; align-items: center; padding: 8px 6px 2px 10px; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.sb-bar > button { flex: none; min-height: 26px; padding: 0 3px; border-radius: 5px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.sb-bar > i { font-style: normal; opacity: .5; }
+.sb-bar [aria-pressed="true"] { color: var(--fg); }
+.sb-bar [data-by][aria-pressed="true"] { text-decoration: underline 1.5px; text-underline-offset: 4px; }
+.sb-subs[aria-pressed="true"] .n { color: var(--accent); }
 .sb-bar .header-picker { margin-left: auto; }
-.sb-bar .header-picker summary { min-height: 28px; padding: 2px 6px; font-size: 12px; }
+.sb-bar .header-picker summary { min-height: 26px; gap: 5px; padding: 0 3px; font-size: 12px; }
 .sb-group { display: flex; align-items: center; gap: 2px; margin: 4px 6px 0; }
 .sb-fold { flex: 1; min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 8px; text-align: left; font-size: 12.5px; font-weight: 600; }
 .sb-fold > svg { color: var(--muted); }
@@ -435,14 +437,6 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .sb-open .a { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sb-n:not([hidden]) { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: -3px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sb-n svg { color: var(--accent); }
-/* The Sub-agents switch: a labelled pill with a knob, accent while on. */
-.sb-show { flex-basis: 100%; display: flex; align-items: center; gap: 6px; }
-.sb-switch { min-height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 5px 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.sb-switch i { position: relative; width: 24px; height: 14px; border-radius: 7px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); }
-.sb-switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
-.sb-switch[aria-checked="true"] { border-color: var(--accent); color: var(--accent); }
-.sb-switch[aria-checked="true"] i { background: var(--accent); box-shadow: none; }
-.sb-switch[aria-checked="true"] i::after { left: 12px; background: var(--bg); }
 /* The overview's agent lines, compact: in a row (indented under its name) and the hover card. */
 .sb-agents:not([hidden]) { display: grid; padding: 0 8px 4px 41px; }
 .sb-agents .agent { min-width: 0; align-items: center; gap: 6px; padding: 0; min-height: 22px; font-size: 12px; white-space: nowrap; }
@@ -678,24 +672,21 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 }
 
 
-/* Plan limits (usage.js): one row per account, a cell per window. A phone pins it over the
+/* Plan limits (usage.js): one flat grid of meters, two to a row. A phone pins it over the
    list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
-#usage { display: grid; grid-template-columns: max-content 1fr 1fr; gap: 8px 16px; align-items: center; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
+#usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
 #usage[hidden], #app.rail #usage { display: none; }
-.usage-account { display: contents; }
-.usage-name { grid-column: 1; display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; white-space: nowrap; } /* column 1 starts every account on its own row, even one with a single window */
-.usage-name img { border-radius: 3px; }
-.usage-name > span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; } /* labels are user-chosen; never let one push the cells off-screen */
-.usage-cell { --u: var(--accent); display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
-.usage-cell[data-w="7d"] { grid-column: -2; } /* the last column, so a weekly-only plan's 7d lines up */
+.usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
 .usage-cell :is(span, em, small), .usage-cell.none { color: var(--muted); }
 .usage-cell em { font-style: normal; font-size: 11px; }
+@container (max-width: 130px) { .usage-cell em { display: none; } } /* the sidebar's narrowest cells keep the window and %, not the word */
+.usage-cell > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* account names are user-chosen: truncate, never push the % out */
+.usage-cell img { vertical-align: -2px; margin-right: 5px; border-radius: 3px; }
 .usage-cell b { font-variant-numeric: tabular-nums; margin-left: 2px; }
-.usage-cell:is(.warn, .full) :is(b, small) { color: var(--u); }
+.usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast stacks over the reset, which always shows */
 .usage-cell small { grid-column: 1 / -1; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.usage-cell.wide { grid-column: span 2; }
 .usage-bar, .usage-spark { grid-column: 1 / -1; }
 .usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
@@ -706,10 +697,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .usage-spark .proj { stroke-dasharray: 3 3; }
 .usage-spark .limit { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
 @media (max-width: 1099px) { #usage { order: -1; position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); } }
-/* Wide, the name takes its own line so each trend gets half the sidebar. */
 @media (min-width: 1100px) {
-  #usage { grid-template-columns: 1fr 1fr; align-items: start; gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
-  .usage-name { grid-column: 1 / -1; margin-top: 2px; }
+  #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
 }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
@@ -794,3 +783,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }
 .atlas-multiples .atlas-panel-heading > .muted { font-size: 12px; }
+/* A window being killed or expunged from here (markEnding): greyed, its label under a spinner. */
+.ending { opacity: .55; }
+.ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
+.ending :is(.badge, .sb-open .a, .m)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) { .ending :is(.badge, .sb-open .a, .m)::before { animation: logo-spin .8s linear infinite; } }

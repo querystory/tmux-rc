@@ -1,6 +1,6 @@
 import pytest
 
-from openbus import tmux
+from openbus import tmux, transcript
 
 
 @pytest.fixture(autouse=True)
@@ -9,6 +9,12 @@ def _vertex_project(monkeypatch):
     not depend on the checkout's .env (a worktree has none) for what it offers."""
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # likewise: never the dev's key
+
+
+@pytest.fixture(autouse=True)
+def _no_agent_transcripts(monkeypatch, tmp_path):
+    """The watcher reads agent transcripts from these homes; never the dev's real ones."""
+    monkeypatch.setattr(transcript, "_home", lambda pane, tool: tmp_path / tool)
 
 
 @pytest.fixture(autouse=True)

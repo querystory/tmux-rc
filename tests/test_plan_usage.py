@@ -58,6 +58,21 @@ def test_claude_response_windows():
          "resets_at": datetime(2026, 10, 9, 4, 0, 0, 71697, tzinfo=UTC).timestamp()}]
 
 
+def test_per_model_weekly_limits_come_from_the_scoped_limits():
+    resets = "2026-10-09T04:00:00+00:00"
+    model = lambda name: {"model": {"id": None, "display_name": name}}  # noqa: E731
+    data = {"five_hour": None, "seven_day": None, "limits": [
+        {"kind": "weekly_all", "percent": 22, "resets_at": resets, "scope": None},
+        {"kind": "weekly_scoped", "percent": 13, "resets_at": resets, "scope": model("Fable")},
+        {"kind": "weekly_scoped", "percent": None, "resets_at": None, "scope": model("Opus")},
+        {"kind": "weekly_scoped", "percent": 5, "resets_at": resets, "scope": {"model": None}}]}
+    assert [(s["window"], s["seconds"], s["pct"], s["resets_at"])
+            for s in claude_samples(data, NOW)[2:]] == [
+        ("7d Fable", 604800, 13.0, datetime(2026, 10, 9, 4, tzinfo=UTC).timestamp()),
+        ("7d Opus", 604800, 0.0, None)]  # null: not yet opened, like a null window
+    assert len(claude_samples({**data, "limits": None}, NOW)) == 2
+
+
 def test_a_changed_claude_shape_is_an_error_not_zero():
     with pytest.raises(KeyError):
         claude_samples({"seven_day": {"utilization": 5}}, NOW)

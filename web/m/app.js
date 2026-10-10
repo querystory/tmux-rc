@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
@@ -105,7 +105,7 @@ const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
 let dashboard = false;
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
-let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
+let panes = [], statePanes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
 let focusPushComposer = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
@@ -220,9 +220,10 @@ const stayPut = () => navigate(active, active ? view : dashboard && WIDE.matches
 // named one that is gone. Replace, never push: Back would land on the dead deep link and
 // bounce straight out again. `id` is the pane the caller believes is on screen; stillOnPane
 // rejects the call when the user has already moved on and only the queued hashchange is late
-// (see pane-model.js).
+// (see pane-model.js). A pane this page is still closing is endPane's to leave, once its
+// request answers: the live stream 404s on it as soon as the window dies.
 function leaveMissingPane(id) {
-  if (!stillOnPane(location.hash, id)) return;
+  if (!stillOnPane(location.hash, id) || (ending.has(id) && !ending.get(id).done)) return;
   navigate(null, "summary", { mode: "replace" });
   notice("That pane is no longer available.");
 }
@@ -339,6 +340,7 @@ function renderPhoneList(subset) {
   }, (node, p) => {
     if (p.heading) return text(node, p.heading);
     node._p = p;
+    markEnding(node, p);
     updateRow(node.querySelector(".pane-row") || node, p);
     if (node.matches(".pane-card")) renderSidebar.answers.update(node, p);
   });
@@ -356,6 +358,7 @@ function landingRows(id, subset) {
     return b;
   }, (node, p) => {
     node.onclick = () => navigate(p.pane_id);
+    markEnding(node, p);
     text(node.querySelector(".t"), paneName(p));
     text(node.querySelector(".m"), `${activityLabel(p)} · ${p.session} / ${p.window_name || p.pane_id}`);
   });
@@ -637,6 +640,7 @@ function render() {
   // Expunge is offered only where it can work: a Claude Code or Codex pane (the server refuses the rest anyway).
   for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
   const account = pane && paneAccount(usage, pane.pane_id); // which plan's limits it draws on
+  markEnding($("detail"), pane);
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}${account ? ` · ${account}` : ""}` : "Waiting for session state");
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
@@ -890,6 +894,53 @@ function startState() {
     pollState(stateController.signal);
   }
 }
+// Panes of windows this page is closing, by pane id: { birth, pane, label } while the request
+// runs, then { birth, done } for each pane the server says it killed. A killed pane stays
+// hidden until its %N comes back with another birth (tmux gave the id to a new pane), not
+// just until a poll omits it: a watcher tick that read tmux before the kill can publish it
+// again any time later, as slow as its classifications run.
+const ending = new Map();
+function showPanes() {
+  panes = statePanes.flatMap((p) => {
+    const e = ending.get(p.pane_id);
+    if (e?.done && e.birth !== p.birth) ending.delete(p.pane_id);
+    return !e || e.birth !== p.birth ? [p] : e.done ? [] : [{ ...p, ending: e.label }];
+  });
+  // Until the request answers, keep a pane the server already unpublished (drop_window wakes
+  // the poll mid-request): only endPane decides it is gone, so the page leaves it cleanly.
+  const listed = new Set(statePanes.map((p) => p.pane_id));
+  for (const [id, e] of ending) if (!e.done && !listed.has(id)) panes.push({ ...e.pane, ending: e.label });
+}
+const leavePane = (id) => { if (stillOnPane(location.hash, id)) navigate(null, "summary", { mode: "replace" }); };
+// Kill or expunge a pane's window. The window as last seen is greyed while the request runs;
+// what then hides for good is what the server says it killed, since tmux listed those in the
+// kill's own command (a split moved in or out meanwhile is counted right). Errors are rethrown
+// for the caller. Only a refusal (4xx, but not 404, which means it's already gone) restores
+// the window, because nothing was killed. A 5xx or a lost connection may come after the kill
+// (expunge's deletion runs after it), so the target at least stays hidden rather than letting
+// stale polls revive a dead window; a reload shows it if it survived.
+async function endPane(id, action, label, body, timeout) {
+  const pane = statePanes.find((p) => p.pane_id === id);
+  const splits = statePanes.filter((p) => pane && p.session === pane.session && p.window_index === pane.window_index);
+  const mark = (e, of) => { for (const p of of) if (e) ending.set(p.pane_id, { birth: p.birth, pane: p, ...e }); else ending.delete(p.pane_id); showPanes(); render(); };
+  // Forget the greyed splits quietly, leave whichever killed pane is on screen (unless state
+  // already shows a newer pane under its id), and only then render: no "no longer available".
+  const ended = (gone) => {
+    for (const p of splits) ending.delete(p.pane_id);
+    for (const p of gone) if ((statePanes.find((q) => q.pane_id === p.pane_id)?.birth ?? p.birth) === p.birth) leavePane(p.pane_id);
+    mark({ done: true }, gone);
+  };
+  mark({ label }, splits);
+  try {
+    const done = await post(paneUrl(id, action), body, timeout);
+    ended((done.killed || []).map(([paneId, birth]) => ({ pane_id: paneId, birth })));
+    return done;
+  } catch (error) {
+    if (error.status >= 400 && error.status < 500 && error.status !== 404) mark(null, splits);
+    else ended(pane ? [pane] : []);
+    throw error;
+  }
+}
 async function pollState(signal) {
   let version = null;
   while (!signal.aborted) {
@@ -897,7 +948,7 @@ async function pollState(signal) {
       const data = await request(stateUrl(version || null), { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
-      panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
+      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       refreshHistory(); refreshUsage();
       pruneDrafts();
@@ -948,12 +999,11 @@ function updateComposer() {
   $("reply").hidden = secret;
   $("secret").hidden = !secret;
   $("attach").hidden = secret;
-  // Editability depends only on the pane existing: a non-editable div loses focus and
-  // dismisses the phone keyboard on every send, and `sending` already guards re-entry.
-  $("reply").contentEditable = String(available);
-  $("reply").setAttribute("aria-disabled", String(!available));
+  // The editor is never locked: a newly opened pane takes typing before its state lands.
+  // Only delivery waits: Send, and Enter (the submit checks Send), do nothing until the pane
+  // exists, keeping the text; a password prompt arriving with it empties the draft instead.
   $("send").disabled = sending || !available || (secret ? !$("secret").value : !value.segments().length && !value.pendingEnter);
-  $("attach").disabled = sending || !available;
+  $("attach").disabled = sending;
   $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
 }
 // Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
@@ -1346,8 +1396,8 @@ const resizeWorkspace = () => { placeChrome(); paintUsage(); route(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
-// as "close this view", and pressing it should never end a process. The poll drops the pane
-// and leaveMissingPane does the rest; 404 means it is already gone, the outcome asked for.
+// as "close this view", and pressing it should never end a process. 404 means it is already
+// gone, the outcome asked for.
 dismissable($("pane-menu"));
 dismissable($("more-menu"));
 const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
@@ -1355,13 +1405,13 @@ html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
 $("kill-pane").onclick = async () => {
   closePaneMenu();
   if (!active || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;
-  try { await post(paneUrl(active, "close")); } catch (error) { if (error.status !== 404) notice("Could not kill this window."); }
+  try { await endPane(active, "close", "Closing…"); } catch (error) { if (error.status !== 404) notice(`Could not kill this window: ${error.detail || error.message}`, 6000); }
 };
 // Expunge: kill the window AND delete its agent session's local files (docs/design/expunge.md).
 // The server names what it would delete first, and the confirmation is bound to that session id.
 html($("expunge-pane"), `${licon("trash", 18)}<span>Expunge</span>`);
-let expunging = false; // a reload mid-request would hide the outcome of a deletion still running
-const busy = () => sending || launching || expunging;
+// A reload mid-request would hide the outcome of a kill or deletion still running.
+const busy = () => sending || launching || [...ending.values()].some((e) => !e.done);
 const items = (n) => `${n} local file${n === 1 ? " or folder" : "s or folders"}`;
 html($("expunge-confirm"), `${licon("trash", 18)}<span>Expunge permanently</span>`);
 $("close-expunge").onclick = () => $("expunge-dialog").close();
@@ -1376,23 +1426,17 @@ $("expunge-pane").onclick = async () => {
   text($("expunge-what"), `This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
-    expunging = true;
-    // The window is gone (or going): leave its page first, so the pane's removal can't
-    // replace this outcome with "no longer available". A 409 left everything as it was.
-    const leave = () => { if (stillOnPane(location.hash, pane)) navigate(null, "summary", { mode: "replace" }); };
     try {
       // No client timeout (setTimeout's largest delay): aborting would not stop the server's
       // run, so the answer must be its own outcome, never a failure while it deletes on.
-      const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id, birth }, 2 ** 31 - 1);
-      leave();
+      const done = await endPane(pane, "expunge", "Expunging…", { session_id: plan.session_id, birth }, 2 ** 31 - 1);
       notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
     } catch (error) { // a refusal (pane gone, 404; or 409) touched nothing and clears; a failure stays
       const refused = [404, 409].includes(error.status);
-      if (error.status !== 409) leave();
       // No status means no answer at all: the request may have run to completion.
       if (error.status === undefined) notice("Connection lost; the expunge may have completed. Check that the session no longer resumes.");
       else notice(`Expunge ${refused ? "refused" : "failed"}: ${error.detail || error.message}`, refused ? 6000 : 0);
-    } finally { expunging = false; }
+    }
   };
   $("expunge-dialog").showModal();
 };

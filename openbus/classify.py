@@ -78,6 +78,11 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
+# The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
+# at its input box, so every row under it is status/footer chrome (Claude's welcome
+# session list included), never a question. A real picker replaces the box with a ❯ cursor.
+_EMPTY_INPUT_RE = re.compile(_PROMPT_ROW + r"[ \xa0\t│]*$(?![\s\S]*" + _PROMPT_ROW + ")",
+                             re.MULTILINE)
 # omp blocks that are never a live question: a completed Ask receipt, plain or boxed, from
 # its "? Ask" header through its chosen radios (a pending Ask is a "╭─ Ask" dialog with no
 # "?"); the queued outgoing-input bands ("Steering · 1", "After yield · 2"); and the "⎋"
@@ -107,11 +112,11 @@ _PROCESS_TOOLS = {
 _OMP_PROC_LIMIT = 64  # processes walked under one pane, bounding a pathological tree
 
 
-def _runs_omp(pid: str) -> bool:
-    """Is omp among `pid` and its descendants: argv[0] `omp`, or bun/node running omp?"""
+def _runs(pid: str, name: str) -> bool:
+    """Is `name` among `pid` and its descendants: argv[0], or bun/node running it?"""
     for p in processes(pid, _OMP_PROC_LIMIT):
         argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
-        if argv[0] == "omp" or (argv[0] in ("bun", "node") and argv[1:] == ["omp"]):
+        if argv[0] == name or (argv[0] in ("bun", "node") and argv[1:] == [name]):
             return True
     return False
 
@@ -121,7 +126,7 @@ def _host_tool(pane: Pane) -> str | None:
     if tool := _PROCESS_TOOLS.get(pane.current_command):
         return tool
     if OMP_TITLE_RE.match(pane.title) and (
-        pane.current_command in ("bun", "node") or (pane.pid and _runs_omp(pane.pid))
+        pane.current_command in ("bun", "node") or (pane.pid and _runs(pane.pid, "omp"))
     ):
         return "omp"
     return None
@@ -368,8 +373,10 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
     # agent asking; a live spinner below the text means the agent is working again; and a
     # finished turn's question followed by typed input has been answered.
+    idle_box = _EMPTY_INPUT_RE.search(visible)
     return found is not None and not (
-        _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
+        (idle_box and found.start() > idle_box.start())
+        or _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
@@ -408,7 +415,10 @@ def _ground_visible_fields(
     # viewport; for identity alone, restrict the same model to the status evidence.
     bad_action = bad_question or bad_rewind
     identity_chrome = "\n".join(_session_chrome(identity))
-    evidence = visible if bad_action else identity_chrome
+    # Below an idle input box is only chrome: the re-read never sees it, so a list there
+    # cannot be read as the question again.
+    box = _EMPTY_INPUT_RE.search(visible)
+    evidence = (visible[:box.end()] if box else visible) if bad_action else identity_chrome
     receipt = None
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
@@ -780,6 +790,26 @@ def bootstrap(
     }
 
 
+_FENCE_RE = re.compile(r"(?ms)^([ \t]*)(`{3,}|~{3,})[ \t]*([\w+-]*).*?\n(.*?)^[ \t]*\2[`~]*[ \t]*$")
+
+
+def _code_blocks(reply: str | None) -> list[dict]:
+    """Fenced blocks of a Markdown reply, newest first, each labelled by the first
+    sentence of the paragraph that introduces it ("Run this on the server."), else by
+    its fence language."""
+    blocks, end = [], 0
+    for m in _FENCE_RE.finditer(reply or ""):
+        lead = " ".join(reply[end:m.start()].strip().rsplit("\n\n", 1)[-1].split())
+        lead = re.sub(r"^(?:[-*+]|\d+[.)])\s+", "", lead)  # a list item's marker
+        label = re.split(r"(?<=[.:!?])\s", lead, maxsplit=1)[0].rstrip(":")
+        # Only the fence's own indent (a block inside a list item) is markup; any
+        # indentation within the code is payload.
+        text = re.sub(f"(?m)^{re.escape(m.group(1))}", "", m.group(4)).rstrip("\n")
+        blocks.append({"label": label or m.group(3) or "Code", "text": text})
+        end = m.end()
+    return blocks[::-1]
+
+
 def classify(
     pane: Pane,
     text: str,
@@ -789,13 +819,15 @@ def classify(
     prev_activity: str | None = None,
     repository: str | None = None,
     replies_fn=None,
+    reply: str | None = None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
     is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
     = events already reported (so the model doesn't repeat them). `prev_activity` is the
-    pane's last classified activity, held onto when the parse fails (see below). Returns
-    the model's JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic
-    dict."""
+    pane's last classified activity, held onto when the parse fails (see below). `reply`
+    is the agent's last message from its transcript, whose code blocks become copyables.
+    Returns the model's JSON with pane_id/label merged in; on no/failed LLM a minimal
+    heuristic dict."""
     visible = _visible(text)
     process_tool = _host_tool(pane)
     payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
@@ -1025,9 +1057,22 @@ def classify(
     copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", visible)
     copy_source = copy_source.replace("\\\n", "")
 
-    def _valid(cps):
+    def _shown(text):
+        # Copy whole displayed blocks/inline code, not invented summaries or
+        # fragments cut out of a longer prose paragraph. Permit terminal wraps, and
+        # line continuations kept as shown or joined (both sides drop them alike).
+        text = text.replace("\\\n", "")
+        words = r"\s+".join(re.escape(word) for word in text.split())
+        return f"`{text}`" in copy_source or re.search(
+            r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
+        )
+
+    def _valid(cps, *, transcript=False):
         """Validated entries, lazily — islice below stops us at 3 without validating the
-        rest of a long model response on the hot /api/state path."""
+        rest of a long model response on the hot /api/state path. A transcript block is
+        exact by construction, so only its last three lines must be on screen: enough to
+        show the reply is the one displayed (one `}` or `done` could be anything), while
+        its top may have scrolled away."""
         for c in cps:
             if not isinstance(c, dict) or not isinstance(c.get("text"), str):
                 continue
@@ -1037,16 +1082,15 @@ def classify(
             if (not stripped or len(c["text"]) > 4000 or stripped in hrefs
                     or " ".join(stripped.split()) in table_text):
                 continue
-            # Copy whole displayed blocks/inline code, not invented summaries or
-            # fragments cut out of a longer prose paragraph. Permit terminal wraps.
-            words = r"\s+".join(re.escape(word) for word in stripped.split())
-            if f"`{stripped}`" not in copy_source and not re.search(
-                r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
-            ):
+            lines = stripped.replace("\\\n", "").splitlines()  # as copy_source joins them
+            if not _shown("\n".join(lines[-3:]) if transcript else stripped):
                 continue
             yield {"label": str(c.get("label") or "")[:200], "text": c["text"]}
 
-    good = list(islice(_valid(cps), 3)) if isinstance(cps, list) else []
+    # The agent's own code blocks beat the model's re-typing of them (see transcript.py);
+    # the model's picks remain for shells and for replies with no code.
+    good = list(islice(_valid(_code_blocks(reply), transcript=True), 3)) or (
+        list(islice(_valid(cps), 3)) if isinstance(cps, list) else [])
     question = result.get("question")
     if good and isinstance(question, dict) and question.get("answer_style") in ("menu", "cursor"):
         # A held selection expects a key, not a pasted command. Keep the payload as

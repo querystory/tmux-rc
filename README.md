@@ -134,6 +134,19 @@ and run `make dev` in a pane as usual; the two modes share the same command and 
 See [docs/design/deployment.md](docs/design/deployment.md) for why user units + linger
 (and not containers, system units, or a supervising parent).
 
+### Previews at `/scratch/`
+
+Set `TMUXRC_SCRATCH_DIR` in `.env` and restart, and the daemon serves that directory
+read-only at `<your tmux-rc URL>/scratch/<folder>/`, behind whatever already guards the
+app (Tailscale, a tunnel, a proxy, or localhost). Drop in anything static (a mock an agent wrote, another project's built site, a
+report, images, PDFs) and open it on the phone, with no second server or tunnel. Unset
+means nothing is served. Everything there is visible to everyone who can reach tmux-rc, and
+pages are sandboxed so their scripts cannot make requests (no `fetch`, XHR or WebSocket)
+or post forms: self-contained bundles work, anything that calls a backend does not. It
+serves files and is not a proxy. Mocks worth keeping go in `docs-site/static/mocks/`
+instead. Set `TMUXRC_SCRATCH_ADVERTISE=1` to let agents in new panes find it. Setup per
+access method, security and troubleshooting: [Previewing work](docs/deploy/previews.md).
+
 ### Run without cloning
 
 `uv` installs straight from the git repo — no manual clone or checkout to
@@ -191,6 +204,9 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/omp/Gemini/Shell | "New window" dialog entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/omp/shell) or an image URL |
+| `TMUXRC_SCRATCH_DIR` | unset (not served) | directory served read-only at `/scratch/` for throwaway previews — see [Previewing work](docs/deploy/previews.md) |
+| `TMUXRC_SCRATCH_ADVERTISE` | unset (off) | `1` exports `TMUXRC_SCRATCH_DIR` and `TMUXRC_SCRATCH_LOCAL_URL` (when scratch is served) and `TMUXRC_SCRATCH_URL` (when also set) to tmux's global environment at startup, removing any that is no longer configured, so agents in new panes can find scratch and check their pages locally |
+| `TMUXRC_SCRATCH_URL` | unset | the base URL you open tmux-rc at, plus `/scratch` (e.g. `https://<machine>.<tailnet>.ts.net/scratch`), advertised with the dir |
 | `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | optional operator `mailto:` contact override for VAPID; unrelated to the tunnel URL |
 | `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft push relays | comma-separated exact hosts or dot-prefixed domain suffixes accepted as subscription endpoints; extend only for a trusted browser push service |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |

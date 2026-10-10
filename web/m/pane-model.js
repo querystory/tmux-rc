@@ -7,7 +7,10 @@ export const PARKED_IDLE_SECS = 600;
 const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
 const actOf = (pane) => ACTIVITIES.includes(pane.activity) ? pane.activity : "unknown";
 export const needsYou = (pane) => pane.activity === "waiting" && pane.waiting_on !== "external";
-export const activityLabel = (pane) => needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]);
+export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
+// A pane whose window this page is closing (app.js sets pane.ending while the request runs):
+// greyed under a spinner, and inert, so no answer or action on it can be sent meanwhile.
+export const markEnding = (node, pane) => { node.inert = !!pane?.ending; node.classList.toggle("ending", !!pane?.ending); };
 // "waiting" on something external (a tool, a subagent) is shown as running: the pane is
 // busy, it just isn't our turn.
 export const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : actOf(pane);
@@ -38,8 +41,11 @@ export function markWorking(img, pane, logos) {
   if (badge.getAttribute("src") !== provider[1]) Object.assign(badge, { src: provider[1], alt: provider[0] });
 }
 // How long the pane has been in its current state; a row shows "now" while it works.
+// No timestamp at all reads as no age, not as time since the epoch.
 export const since = (p, nowMs = Date.now()) => {
-  const s = Math.max(0, nowMs / 1000 - (Number(p.state_since) || lastActivity(p)));
+  const t = Number(p.state_since) || lastActivity(p);
+  if (!(t > 0)) return "";
+  const s = Math.max(0, nowMs / 1000 - t);
   return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 };
 export const age = (p, nowMs) => isRunning(p) ? "now" : since(p, nowMs);
