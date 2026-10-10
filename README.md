@@ -42,6 +42,9 @@ the summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overv
 > items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
 > scope.
 
+Compare [Conductor, T3 Code, MuxFlow, and other agent managers](docs/comparisons/_index.md)
+for session ownership, remote access, usage tracking, and using tools together.
+
 ## Run
 
 Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and Google Cloud

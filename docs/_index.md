@@ -9,6 +9,7 @@ The engineering docs — product requirements, architecture and design notes, ho
 reach the daemon safely from outside localhost, and the running progress log.
 
 {{< cards >}}
+  {{< card link="comparisons/" title="Agent manager comparisons" subtitle="Conductor, T3 Code, MuxFlow, and the broader landscape — remote access, sessions, and using tools together." >}}
   {{< card link="design/background-and-motivation/" title="Background & motivation" subtitle="New here? What tmux is, and why tmux-rc exists." >}}
   {{< card link="design/architecture/" title="How it all works" subtitle="An end-to-end tour of the running system, with diagrams." >}}
   {{< card link="deploy/" title="Reaching it from outside localhost" subtitle="The daemon has no auth — read this before exposing it to anything." >}}
