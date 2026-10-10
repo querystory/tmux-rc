@@ -12,7 +12,7 @@ const spaced = (c) => (c === " " ? "Space" : c);
 // Returns { keys, literal } or null for a key the browser keeps. Cmd is always the
 // browser's (copy, paste, tabs), as are Ctrl-Shift chords (devtools, reopen tab, and the
 // terminal-emulator paste, which arrives as a paste event), Ctrl-Tab and Ctrl-PgUp/PgDn
-// (tab switching), and Ctrl-Esc (the OS's). Ctrl-C copies instead while text is
+// (tab switching), and Ctrl-Esc and Alt-F4 (the OS's). Ctrl-C copies instead while text is
 // selected, as Windows Terminal does.
 // Plain Ctrl-V is the pane's C-v (literal-next, Claude Code's image paste), like a terminal.
 // IME composition never reaches here: the terminal is not editable, so an input method
@@ -23,7 +23,7 @@ export function tmuxKey(e, selected = false, mac = MAC) {
   if (ctrl && e.shiftKey) return null;
   const name = NAMED[e.key] || (/^F([1-9]|1[0-2])$/.test(e.key) ? e.key : null);
   if (name) {
-    if (ctrl && (e.key === "Tab" || e.key === "Escape" || name.endsWith("Page"))) return null;
+    if ((ctrl && (e.key === "Tab" || e.key === "Escape" || name.endsWith("Page"))) || (alt && name === "F4")) return null;
     // tmux has no name for Ctrl-Backspace (an unknown name is typed out as text); a
     // terminal's means delete-word, which is C-w to a shell and to an agent's prompt.
     if (ctrl && name === "BSpace") return { keys: "C-w", literal: false };
