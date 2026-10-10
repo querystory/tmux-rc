@@ -54,16 +54,17 @@ test("keys go out in order, one at a time, with text typed meanwhile joined", as
   assert.deepEqual(sent.map((op) => op.keys), ["l", "s -a", "Enter", "x"]);
 });
 
-test("text for another pane is not joined, and a failure drops only that pane's input", async () => {
-  const sent = [];
-  let release;
-  const push = inputQueue((op) => { sent.push(op); return new Promise((r) => { release = r; }); });
+test("panes are independent: no joining, no waiting, and a failure drops only its own", async () => {
+  const sent = [], release = {};
+  const push = inputQueue((op) => { sent.push(op.keys); return new Promise((r) => { release[op.keys] = r; }); });
   push({ pane: "%1", keys: "a", literal: true });
   push({ pane: "%1", keys: "b", literal: true });
   push({ pane: "%1", keys: "Enter", literal: false });
-  push({ pane: "%2", keys: "c", literal: true });
-  release(false); await tick();
-  assert.deepEqual(sent.map((op) => op.keys), ["a", "c"]);
+  push({ pane: "%2", keys: "c", literal: true }); // not held behind %1's request
+  assert.deepEqual(sent, ["a", "c"]);
+  release.a(false); release.c(true); await tick();
+  push({ pane: "%2", keys: "d", literal: true });
+  assert.deepEqual(sent, ["a", "c", "d"]);
 });
 
 test("a held key's repeats wait for the queue to drain rather than piling up", async () => {
