@@ -196,11 +196,14 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #scroll-cue { flex: 1; min-width: 0; font-size: 12px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .terminal-toolbar:has(#scroll-cue:not([hidden])) #terminal-status { display: none; }
 #font-size { width: 24px; text-align: center; font-size: 12px; }
-#click-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
+#click-mode, #key-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
 /* Hover/focus helper, not a native title: a title never shows on a phone, and here the
    tap that toggles also hovers, so the new mode explains itself as it switches. */
-#click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
+:is(#click-mode, #key-mode):is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
+/* Key passthrough is wide only (app.js): there the ring shows the terminal has the keys. */
+@media (min-width: 1100px) { #terminal.keys-live #terminal-scroll:focus { outline: 2px solid var(--accent); outline-offset: -2px; } }
+@media (max-width: 1099px) { #key-mode { display: none; } }
 #capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 var(--mono); tab-size: 8; transition: transform .2s ease-out; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
@@ -581,7 +584,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; min-height: var(--bar); padding: 0 18px; border-bottom: 1px solid var(--line); }
   .pane-heading-text { line-height: 1.3; }
   :is(#heading, .terminal-toolbar) :is(.icon-button, #review-layout) { min-height: 32px; height: 32px; }
-  :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode) { width: 32px; }
+  :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode, #key-mode) { width: 32px; }
   #heading > #close-pane { margin: 0 -6px; } /* outranks the base -12px, which is sized for the 44px box */
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
   #detail > #composer { grid-row: 4; min-width: 0; }
