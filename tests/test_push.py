@@ -773,6 +773,13 @@ def test_send_ignores_output_streaming_above_the_menu_s_edge(monkeypatch, _scree
     # The last option's own description is its meaning; the footer below is not.
     claude = f"{'─' * 9}\n❯ 1. Stage\n     Resets\n  2. Prod\n     Waits 20s\n\nEsc to cancel\n"
     assert question_rows({"options": ["Stage", "Prod"]}, claude).endswith("Prod\n     Waits 20s")
+    # A replacement menu with an extra option, or a new menu below the old one's rows,
+    # is a different screen even though the old question's own rows are all still there.
+    yes_no = {"options": ["Yes", "No"]}
+    more = codex + "  3. Always\n"
+    assert question_rows(yes_no, more) != question_rows(yes_no, codex)
+    below = f"  1. A\n  2. B\n  3. C\n{codex}"
+    assert question_rows({"options": ["A", "B", "C"]}, below).endswith("2. No")
 
 
 def test_send_binds_option_rows_and_the_snapshot_s_own_birth(monkeypatch, _screen):
