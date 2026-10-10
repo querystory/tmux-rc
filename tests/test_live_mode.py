@@ -337,7 +337,8 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
 def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     """A card the user isn't looking at (sheet minimized, page hidden) pushes "Chat needs
     you" once it has waited a moment; one in view stays quiet. Either way the push stops
-    with the answer, so a card notifies at most once."""
+    with the answer, so a card notifies at most once, retrying one the push queue was too
+    full to take."""
     meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
     meter.unseen_since = None if viewing else time.monotonic()
     pushed = []
@@ -345,6 +346,7 @@ def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     class Push:
         def chat(self, text):
             pushed.append(text)
+            return len(pushed) > 1  # the first finds the queue full
 
     meter.push = Push()
 
@@ -361,7 +363,7 @@ def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
     _run(L._handle_tool_call(Answer(), _Session(), _FC(args={"pane_id": "%1", "text": "ls"}),
                              _Watcher(), meter))
-    assert pushed == ([] if viewing else ['Send to window 3 "work": ls'])
+    assert pushed == ([] if viewing else ['Send to window 3 "work": ls'] * 2)
 
 
 def test_client_reports_whether_the_chat_is_in_view():
@@ -496,7 +498,8 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
     meter = _chat()
-    meter.push = SimpleNamespace(chat=pushed.append)  # in view when proposed
+    meter.push = SimpleNamespace(chat=lambda text: pushed.append(text) or True)  # queued
+    # in view when proposed
 
     async def go():
         await L._connect(meter, viewing=True)
