@@ -14,6 +14,7 @@ import os
 import subprocess
 import time
 from collections import defaultdict
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,6 +28,11 @@ STALE = 3 * 86400  # an open PR untouched this long has dropped
 IDLE_DIRTY = 86400  # a pane idle this long over uncommitted changes has dropped
 RECENT = 86400  # "Moving" looks back this far until daily snapshots make it a diff
 MAX_REFS = 50  # pane-associated PRs looked up beyond the searches
+CHUNK = 20  # of those per request
+PAGE, MAX_PAGES = 40, 5  # a search's page, and how many pages before the rest are dropped
+PAGED = "pageInfo { hasNextPage endCursor } nodes { ...P }"
+AFTER = "%AFTER%"  # where a page's cursor goes; % cannot occur in a repository name
+MAX_STAT = 200  # uncommitted files whose mtimes date a worktree's last activity
 
 FIELDS = """number title url isDraft state updatedAt mergedAt author { login }
 baseRefName headRefName mergeable reviewDecision
@@ -34,7 +40,8 @@ repository { nameWithOwner defaultBranchRef { name } }
 reviewRequests(first: 10) { nodes { requestedReviewer { __typename } } }
 latestReviews(first: 10) { nodes { author { __typename login } state submittedAt } }
 commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
-baseRef { associatedPullRequests(states: MERGED, first: 1) { totalCount } }"""
+baseRef { associatedPullRequests(states: MERGED, first: 1) { totalCount } }
+labels(first: 20) { nodes { name } }"""
 
 
 def _iso(t: float) -> str:
@@ -43,28 +50,6 @@ def _iso(t: float) -> str:
 
 def _ts(stamp: str | None) -> float:
     return datetime.fromisoformat(stamp).timestamp() if stamp else 0.0
-
-
-def query(refs: list[tuple[str, int]], now: float) -> str:
-    """Your open PRs and review requests touched within HORIZON, what merged within RECENT
-    that involved you, and the PRs panes are associated with: one round trip."""
-    horizon, recent = _iso(now - HORIZON), _iso(now - RECENT)
-    mine, asked = (f"is:pr is:open {who} archived:false" for who in ("author:@me",
-                                                                    "review-requested:@me"))
-    prs = "nodes { ...P }"
-    searches = [("mine", 100, f"{mine} updated:>={horizon}", prs),
-                ("older", 0, f"{mine} updated:<{horizon}", "issueCount"),
-                ("asked", 50, f"{asked} updated:>={horizon}", prs),
-                ("merged", 100, f"is:pr is:merged involves:@me merged:>={recent}", prs)]
-    parts = ["viewer { login }",
-             *(f'{alias}: search(type: ISSUE, first: {n}, query: "{q}") {{ {body} }}'
-               for alias, n, q, body in searches)]
-    for i, (repo, number) in enumerate(refs[:MAX_REFS]):
-        owner, name = repo.split("/", 1)
-        # issueOrPullRequest, not pullRequest: a number that names an issue is just null.
-        parts.append(f"r{i}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)})"
-                     f" {{ issueOrPullRequest(number: {int(number)}) {{ ...P }} }}")
-    return f"fragment P on PullRequest {{ {FIELDS} }} query {{ {' '.join(parts)} }}"
 
 
 def _pr(node: dict) -> dict:
@@ -87,28 +72,68 @@ def _pr(node: dict) -> dict:
                          for r in node["reviewRequests"]["nodes"] if r["requestedReviewer"]),
         "reviews": [{"by": r["author"]["login"], "state": r["state"],
                      "at": _ts(r["submittedAt"])} for r in humans],
+        "labels": [x["name"].removeprefix("workstream:") for x in node["labels"]["nodes"]
+                   if x["name"].startswith("workstream:")],
         # Stacked on a branch that merged (or was deleted): it needs a retarget.
         "base_merged": stacked and (node.get("baseRef") is None or
                                     node["baseRef"]["associatedPullRequests"]["totalCount"] > 0),
     }
 
 
+def _graphql(body: str) -> dict:
+    """One request, retried once: GitHub answers a search that runs long with a 502."""
+    fragment = f"fragment P on PullRequest {{ {FIELDS} }} " if "...P" in body else ""
+    for _ in range(2):
+        with suppress(ValueError):  # a 502 arrives as an HTML page
+            reply = json.loads(run_gh(["api", "graphql", "-f",
+                                       f"query={fragment}query {{ viewer {{ login }} {body} }}"],
+                                      60) or "{}")
+            if (data := reply.get("data")) and data.get("viewer"):
+                return data  # partial errors (a pane's reference that names nothing) are fine
+    raise RuntimeError("GitHub unavailable")
+
+
+def requests(refs: list[tuple[str, int]], now: float):
+    """(tag, body) per request: each search a page at a time, the pane-associated PRs in
+    chunks, and the count of older PRs. Many small requests, because one that asks for
+    everything outlasts GitHub's own timeout on a busy account."""
+    horizon, recent = _iso(now - HORIZON), _iso(now - RECENT)
+    mine, asked = (f"is:pr is:open {who} archived:false" for who in ("author:@me",
+                                                                    "review-requested:@me"))
+    for tag, q in (("mine", f"{mine} updated:>={horizon}"),
+                   ("asked", f"{asked} updated:>={horizon}"),
+                   ("merged", f"is:pr is:merged involves:@me merged:>={recent}")):
+        yield tag, f's: search(type: ISSUE, first: {PAGE}, query: "{q}"{AFTER}) {{ {PAGED} }}'
+    for i in range(0, min(len(refs), MAX_REFS), CHUNK):
+        # issueOrPullRequest, not pullRequest: a number that names an issue is just null.
+        yield "ref", " ".join(
+            f"r{n}: repository(owner: {json.dumps(repo.split('/', 1)[0])}, name: "
+            f"{json.dumps(repo.split('/', 1)[1])}) {{ issueOrPullRequest(number: {int(num)})"
+            " { ...P } }" for n, (repo, num) in enumerate(refs[i:i + CHUNK]))
+    older = f"{mine} updated:<{horizon}"
+    yield "older", f's: search(type: ISSUE, first: 0, query: "{older}") {{ issueCount }}'
+
+
 def fetch_github(refs: list[tuple[str, int]], now: float) -> dict:
-    reply = json.loads(run_gh(["api", "graphql", "-f", f"query={query(refs, now)}"], 60) or "{}")
-    data = reply.get("data")
-    if not data or not data.get("viewer"):
-        raise RuntimeError("GitHub unavailable")
-    prs = {}
-    for alias, value in data.items():
-        nodes = (value.get("nodes") if "nodes" in value else [value.get("issueOrPullRequest")]
-                 ) if isinstance(value, dict) and alias != "viewer" else []
-        for node in nodes:
-            if node and "number" in node:  # an issue matches the fragment as {}
-                pr = prs.setdefault((node["repository"]["nameWithOwner"].lower(),
-                                     node["number"]), _pr(node))
-                pr["asked"] = pr.get("asked") or alias == "asked"
-    return {"viewer": data["viewer"]["login"], "older": data["older"]["issueCount"],
-            "prs": list(prs.values())}
+    prs, older = {}, 0
+    for tag, body in requests(refs, now):
+        after = ""
+        for _ in range(MAX_PAGES):  # only a search has pages; the rest stop after one
+            data = _graphql(body.replace(AFTER, after))
+            result = data.get("s") or {}
+            older = result.get("issueCount", older)
+            nodes = result.get("nodes") or [(v or {}).get("issueOrPullRequest")
+                                            for k, v in data.items() if k.startswith("r")]
+            for node in nodes:
+                if node and "number" in node:  # an issue matches the fragment as {}
+                    pr = prs.setdefault((node["repository"]["nameWithOwner"].lower(),
+                                         node["number"]), _pr(node))
+                    pr["asked"] = pr.get("asked") or tag == "asked"
+            page = result.get("pageInfo") or {}
+            if not page.get("hasNextPage"):
+                break
+            after = f", after: {json.dumps(page['endCursor'])}"
+    return {"viewer": data["viewer"]["login"], "older": older, "prs": list(prs.values())}
 
 
 def _git(*args: str) -> str | None:
@@ -120,30 +145,43 @@ def _git(*args: str) -> str | None:
         return None
 
 
-def _active_at(path: str) -> float:
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _active_at(path: str, changed: list[str]) -> float:
+    """The last commit, checkout or staging (the index and HEAD log), or the last edit to a
+    file that is still uncommitted: an unstaged edit touches neither git file."""
     dotgit = Path(path, ".git")
     try:
         gitdir = dotgit if dotgit.is_dir() else Path(dotgit.read_text().split(":", 1)[1].strip())
     except (OSError, IndexError):
         return 0.0
-    return max((f.stat().st_mtime for f in (gitdir / "index", gitdir / "logs" / "HEAD")
-                if f.exists()), default=0.0)
+    return max(_mtime(f) for f in [gitdir / "index", gitdir / "logs" / "HEAD",
+                                   *(Path(path, name) for name in changed[:MAX_STAT])])
 
 
 def _worktree(path: str, branch: str, repo: str | None) -> dict | None:
-    status = _git("-C", path, "status", "--porcelain=v2", "--branch", "-uno")
+    status = _git("-C", path, "status", "--porcelain", "-z", "--branch")
     if status is None:
         return None
-    lines = status.splitlines()
-    # An upstream that is configured but gone was pushed and then deleted, almost always
-    # on merge: its commits live in main now even though no remote ref holds them. A
-    # detached HEAD is a scratch merge or a bisect, not a branch of work.
-    gone = (any(x.startswith("# branch.upstream") for x in lines)
-            and not any(x.startswith("# branch.ab") for x in lines))
-    unpushed = 0 if gone or not branch else int(
+    header, *fields = status.split("\0")
+    changed, rest = [], iter(fields)
+    for entry in rest:  # "XY name"; a rename or copy is followed by its old name
+        if entry:
+            changed.append(entry[3:])
+            if entry[0] in "RC":
+                next(rest, None)
+    # An upstream that is pushed and then deleted (gone) almost always went on merge: its
+    # commits live in main now even though no remote ref holds them. A detached HEAD is a
+    # scratch merge or a bisect, not a branch of work.
+    unpushed = 0 if "[gone]" in header or not branch else int(
         (_git("-C", path, "rev-list", "--count", "HEAD", "--not", "--remotes") or "0").strip())
     return {"path": path, "repo": repo, "branch": branch, "unpushed": unpushed,
-            "dirty": sum(not x.startswith("#") for x in lines), "active_at": _active_at(path)}
+            "dirty": len(changed), "active_at": _active_at(path, changed)}
 
 
 def scan_worktrees(cwds: list[str]) -> list[dict]:
@@ -173,7 +211,8 @@ def _pane(p: dict) -> dict:
             "activity": p.get("activity"), "since": p.get("state_since")}
 
 
-def build(github: dict, worktrees: list[dict], panes: list[dict], now: float) -> dict:
+def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
+          keywords: dict[str, list[str]] | None = None) -> dict:
     """The three lanes, each a list of workstreams with their rows. Pure: no I/O."""
     prs = {(p["repo"].lower(), p["number"]): p for p in github.get("prs", [])}
     heads = {}
@@ -190,6 +229,20 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float) ->
         up = heads.get((key[0], p["base"])) if p["stacked"] else None
         if up and find(up) != find(key):
             root[find(key)] = find(up)
+    stacks = defaultdict(list)
+    for key, p in prs.items():
+        stacks[find(key)].append(p)
+    named = {}  # stack root -> its workstream: a label, else a keyword, else the stack itself
+    for top, group in stacks.items():
+        text = " ".join(f"{p['title']} {p['head']}" for p in group).lower()
+        name = next((label for p in group for label in p["labels"]), None) or next(
+            (name for name, words in (keywords or {}).items()
+             if any(w and w.lower() in text for w in words)), None)
+        named[top] = ({"id": f"workstream:{name}", "name": name} if name else
+                      {"id": f"{prs[top]['repo']}#{prs[top]['number']}", "name": prs[top]["title"]})
+
+    def ws(key):
+        return key and named[find(key)]["id"]
 
     def tree(cwd):  # the innermost worktree holding cwd
         hits = [w for w in worktrees if cwd and (cwd + "/").startswith(w["path"] + "/")]
@@ -206,19 +259,19 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float) ->
                             head_of(w)] if k in prs]
         for key in dict.fromkeys(keys):
             owners[key].append(_pane(p))
-        pane_ws[p.get("pane_id")] = find(keys[-1]) if keys else None  # the latest work wins
+        pane_ws[p.get("pane_id")] = ws(keys[-1]) if keys else None  # the latest work wins
     covered = set(sitting) | {w["path"] for w in worktrees if head_of(w) in owners}
 
     lanes = {lane: defaultdict(list) for lane in ("waiting", "moving", "dropped")}
     for key, p in prs.items():
-        ws, ref = find(key), {k: p[k] for k in ("repo", "number", "title", "url")}
+        group, ref = ws(key), {k: p[k] for k in ("repo", "number", "title", "url")}
         if p["state"] == "MERGED" and p["merged_at"] >= now - RECENT:
-            lanes["moving"][ws].append({**ref, "kind": "merged", "at": p["merged_at"]})
+            lanes["moving"][group].append({**ref, "kind": "merged", "at": p["merged_at"]})
         if p["state"] != "OPEN" or p["updated_at"] < now - HORIZON:  # a pane's old reference
             continue
         if p["pushed_at"] >= now - RECENT:
-            lanes["moving"][ws].append({**ref, "kind": "pushed", "at": p["pushed_at"]})
-        lanes["moving"][ws] += [{**ref, "kind": "reviewed", "by": r["by"], "state": r["state"],
+            lanes["moving"][group].append({**ref, "kind": "pushed", "at": p["pushed_at"]})
+        lanes["moving"][group] += [{**ref, "kind": "reviewed", "by": r["by"], "state": r["state"],
                                  "at": r["at"]} for r in p["reviews"] if r["at"] >= now - RECENT]
         mine = p["author"] == github.get("viewer")
         green = (not p["draft"] and not p["stacked"] and p["mergeable"] == "MERGEABLE"
@@ -237,7 +290,7 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float) ->
             ("stale", p["updated_at"] < now - STALE),
         ) if hit]
         if waiting or dropped:
-            lanes["waiting" if waiting else "dropped"][ws].append(
+            lanes["waiting" if waiting else "dropped"][group].append(
                 {**ref, "kind": "pr", "reasons": waiting + dropped, "at": p["updated_at"],
                  "draft": p["draft"], "panes": owners[key]})
 
@@ -260,18 +313,26 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float) ->
         if (w["path"] in covered or w["active_at"] < now - HORIZON
                 or not (w["dirty"] or (w["unpushed"] and not landed))):
             continue
-        lanes["dropped"][find(key) if key else None].append(
+        lanes["dropped"][ws(key)].append(
             {"kind": "worktree", "reasons": ["no_pane"], "at": w["active_at"],
              **{k: w[k] for k in ("path", "repo", "branch", "dirty", "unpushed")}})
 
-    def workstream(ws):
-        return ws and {"id": f"{prs[ws]['repo']}#{prs[ws]['number']}", "name": prs[ws]["title"]}
-
-    return {lane: sorted(({"workstream": workstream(ws),
+    info = {w["id"]: w for w in named.values()}
+    return {lane: sorted(({"workstream": info.get(group),
                            "items": sorted(rows, key=lambda r: -(r["at"] or 0))}
-                          for ws, rows in groups.items() if rows),
+                          for group, rows in groups.items() if rows),
                          key=lambda g: -(g["items"][0]["at"] or 0))
             for lane, groups in lanes.items()}
+
+
+def keywords() -> dict[str, list[str]]:
+    """TMUXRC_WORKSTREAMS: {"name": ["word", ...]}, the user's last-resort grouping."""
+    try:
+        value = json.loads(os.environ.get("TMUXRC_WORKSTREAMS") or "{}")
+    except ValueError:
+        return {}
+    return {str(k): [str(w) for w in v] for k, v in value.items() if isinstance(v, list)
+            } if isinstance(value, dict) else {}
 
 
 class OpenLoops:
@@ -306,4 +367,6 @@ class OpenLoops:
         now = time.time() if now is None else now
         return {"generated_at": now, "fetched_at": self.fetched_at, "error": self.error,
                 "scanned_at": self.scanned_at, "older_open_prs": self.github.get("older", 0),
-                "lanes": build(self.github, self.worktrees, panes, now)}
+                "older_worktrees": sum(w["active_at"] < now - HORIZON and bool(
+                    w["dirty"] or w["unpushed"]) for w in self.worktrees),
+                "lanes": build(self.github, self.worktrees, panes, now, keywords())}

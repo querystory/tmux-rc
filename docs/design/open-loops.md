@@ -1,9 +1,8 @@
 # Design: open loops — what has stopped moving, by workstream
 
-Status: **step 1 implemented** (`openbus/open_loops.py`, `GET /api/open-loops`). The
-`/m` view, label and keyword grouping, daily snapshots and the morning push are later
-steps of issue #366, which holds the product case. This note records how the join is
-built and why.
+Status: **steps 1 and 2 implemented** (`openbus/open_loops.py`, `GET /api/open-loops`,
+`web/m/loops.js`). Daily snapshots and the morning push are later steps of issue #366,
+which holds the product case. This note records how the join is built and why.
 
 ## What step 1 is
 
@@ -27,19 +26,24 @@ row with no pane says so by having none.
 
 ## The three sources and how each is read
 
-**GitHub, from one cached query.** Everything comes from a single GraphQL request: your
-open PRs, review requests of you, what merged in the last day that involved you, and the
-PRs the watcher's associations name. It runs every 15 minutes on a background task, the
-same shape as plan usage's poller, and the endpoint only ever reads the cache, so opening
-the view never touches the network and a burst of requests costs GitHub nothing. The
-issue suggests an hourly cadence; a quarter hour was chosen because the cost is one
-request whatever the number of PRs, and the Moving lane is only as fresh as the cache.
-The response states when the cache was filled and whether the last refresh failed, and a
-failed refresh keeps the previous answer rather than blanking the lanes.
+**GitHub, from a few cached GraphQL requests.** Your open PRs, review requests of you,
+what merged in the last day that involved you, and the PRs the watcher's associations
+name. The refresh runs every 15 minutes on a background task, the same shape as plan
+usage's poller, and the endpoint only ever reads the cache, so opening the view never
+touches the network and a burst of requests costs GitHub nothing. The issue suggests an
+hourly cadence; a quarter hour was chosen because the cost does not grow with the number
+of PRs, and the Moving lane is only as fresh as the cache. The response states when the
+cache was filled and whether the last refresh failed, and a failed refresh keeps the
+previous answer rather than blanking the lanes.
 
-Per-PR `gh pr view` calls, as the title lookup makes, were rejected: thirty PRs would be
-thirty processes and thirty rate-limit hits per refresh, and the review, check and stack
-fields the lanes need are all available in the one query.
+The first version asked for everything in one request. On a busy account that request
+ran into GitHub's own timeout (an intermittent 502 after about ten seconds), because
+mergeability and check state are computed per PR. So each search is fetched a page of
+forty at a time, the associated PRs in chunks of twenty, and each request is retried
+once: half a dozen small requests per refresh instead of one that fails whole. Per-PR
+`gh pr view` calls, as the title lookup makes, were rejected for the opposite reason:
+thirty PRs would be thirty processes and thirty rate-limit hits, when the review, check
+and stack fields the lanes need come back with each search page.
 
 **Panes, live.** Pane state comes straight from the watcher on each request, which is
 free, so Needs you rows are as current as the cards. The pane's PR associations from the
@@ -56,8 +60,10 @@ optional locks, so a status check can never take an index lock an agent then tri
 **A horizon, so the lanes hold loops rather than an archive.** A real fleet had several
 times more open PRs than a person can be said to have in flight, most untouched for
 months. Listing them all as "no activity" would bury the dozen that dropped this week.
-Open PRs and worktrees idle past fourteen days are counted (`older_open_prs`), not listed,
-so nothing disappears silently.
+Open PRs and worktrees idle past fourteen days are counted (`older_open_prs`,
+`older_worktrees`), not listed, so nothing disappears silently. A worktree's last activity
+is the later of its last commit or staging and the last edit to a file still uncommitted,
+untracked files included, so an old branch with fresh edits is not mistaken for abandoned.
 
 **"No reviewer requested" only where review is required.** A repository without branch
 protection reports no review decision at all; there the missing reviewer is not a loop,
@@ -80,12 +86,27 @@ commits live in main under other hashes), and a detached HEAD (integration merge
 bisects). A worktree whose branch is the head of a PR that merged is skipped unless it
 still holds uncommitted changes.
 
-**Grouping is the stack only.** A PR whose base is another PR's head joins that PR's
-workstream, transitively, and the group takes its root's title. It needs no input from
-anyone and is right whenever it fires. It cannot join a design doc to its implementation
-or work that spans repositories; that is what step 2's label and keyword signals are for.
-Rows that join no PR (a pane waiting on a question, a branch with no PR) fall into an
-ungrouped bucket rather than being guessed into one.
+**Grouping: the stack, then a label, then the user's keywords.** A PR whose base is
+another PR's head joins that PR's workstream, transitively. It needs no input from anyone
+and is right whenever it fires, so it runs first and the other signals only name or merge
+whole stacks. A `workstream:<name>` label on any PR in a stack names it, and stacks (in
+any repository) with the same label become one workstream: this is how a design doc and
+its implementation, or work across repositories, come together. Last, an optional
+`TMUXRC_WORKSTREAMS` map from a name to words found in titles or branch names catches what
+nobody labelled; it is substring matching and the least reliable, which is why it is last
+and opt-in. Rows that join no PR (a pane waiting on a question, a branch with no PR) fall
+into an ungrouped bucket rather than being guessed into one.
+
+## The view
+
+Open loops sit on the dashboard, below Needs you, rather than as a new screen: the
+dashboard is already where both phone and desktop go to ask "what is the fleet doing",
+and Needs you is the first lane's existing half, so the pane rows of Waiting on you are not
+repeated there. Each lane folds, Moving starts folded because a busy day fills it, and a
+workstream holding a single PR drops its heading, which would only repeat the title. A
+row's pane buttons open the owning window the same way a sidebar row does; a row with no
+owner says "no pane" in the warning colour, because that is the finding. The view polls
+once a minute alongside plan usage, since both are server-side caches.
 
 **Moving is a fixed day until snapshots exist.** The issue defines Moving as the diff
 against the previous brief. Until step 3 stores briefs, "the last 24 hours" stands in.

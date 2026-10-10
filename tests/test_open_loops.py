@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from openbus import open_loops, server
-from openbus.open_loops import OpenLoops, build, fetch_github, query, scan_worktrees
+from openbus.open_loops import OpenLoops, build, fetch_github, requests, scan_worktrees
 
 NOW = datetime(2026, 6, 16, 9, tzinfo=UTC).timestamp()
 H = 3600
@@ -16,7 +16,8 @@ REPO = "example-org/shop-api"
 def node(number, *, base="main", head=None, author="dev", state="OPEN",  # noqa: PLR0913
          updated=H,
          decision="REVIEW_REQUIRED", checks="SUCCESS", requested=(), reviews=(),
-         base_ref="exists", merged=None, draft=False, mergeable="MERGEABLE"):
+         base_ref="exists", merged=None, draft=False, mergeable="MERGEABLE", labels=(),
+         repo=REPO):
     """One PullRequest as the GraphQL fragment returns it, a knob per field a rule reads."""
     stamp = lambda ago: ago is not None and datetime.fromtimestamp(NOW - ago, UTC).isoformat()  # noqa: E731
     return {
@@ -26,7 +27,8 @@ def node(number, *, base="main", head=None, author="dev", state="OPEN",  # noqa:
         "mergedAt": stamp(merged) or None,
         "author": {"login": author}, "baseRefName": base, "headRefName": head or f"feat/{number}",
         "mergeable": mergeable, "reviewDecision": decision,
-        "repository": {"nameWithOwner": REPO, "defaultBranchRef": {"name": "main"}},
+        "repository": {"nameWithOwner": repo, "defaultBranchRef": {"name": "main"}},
+        "labels": {"nodes": [{"name": name} for name in labels]},
         "reviewRequests": {"nodes": [{"requestedReviewer": {"__typename": t}} for t in requested]},
         "latestReviews": {"nodes": [{"author": {"__typename": t, "login": who}, "state": s,
                                      "submittedAt": stamp(ago)} for t, who, s, ago in reviews]},
@@ -60,28 +62,45 @@ def rows(lanes, lane):
             for g in lanes[lane] for i in g["items"]}
 
 
-def test_query_covers_searches_and_pane_references_in_one_round_trip():
-    q = query([("example-org/shop-web", 7), ('evil"org/x', 1)], NOW)
-    assert "author:@me archived:false updated:>=2026-06-02T09:00:00Z" in q
-    assert "review-requested:@me" in q and "merged:>=2026-06-15T09:00:00Z" in q
+def test_requests_are_small_and_cover_everything():
+    reqs = list(requests([("example-org/shop-web", 7), ('evil"org/x', 1)], NOW))
+    assert [tag for tag, _ in reqs] == ["mine", "asked", "merged", "ref", "older"]
+    body = dict(reqs)
+    assert "author:@me archived:false updated:>=2026-06-02T09:00:00Z" in body["mine"]
+    assert "review-requested:@me" in body["asked"]
+    assert "merged:>=2026-06-15T09:00:00Z" in body["merged"]
     assert ('r0: repository(owner: "example-org", name: "shop-web")'
-            " { issueOrPullRequest(number: 7)") in q
-    assert 'owner: "evil\\"org"' in q  # a string from the classifier cannot break out
-    assert "r50:" not in query([(REPO, n) for n in range(1, 80)], NOW)
+            " { issueOrPullRequest(number: 7)") in body["ref"]
+    assert 'owner: "evil\\"org"' in body["ref"]  # a string from the classifier cannot break out
+    many = [tag for tag, _ in requests([(REPO, n) for n in range(1, 80)], NOW)]
+    assert many.count("ref") == 3  # 50 references, 20 to a request
 
 
-def test_fetch_keeps_partial_data_and_merges_duplicates(monkeypatch):
-    reply = {"data": {"viewer": {"login": "dev"}, "older": {"issueCount": 4},
-                      "mine": {"nodes": [node(1), {}]},
-                      "asked": {"nodes": [node(1, author="lee")]},
-                      "merged": {"nodes": []},
-                      "r0": None, "r1": {"issueOrPullRequest": None},
-                      "r2": {"issueOrPullRequest": node(2, author="lee")}},
-             "errors": [{"type": "NOT_FOUND"}]}
-    monkeypatch.setattr(open_loops, "run_gh", lambda *a: json.dumps(reply))
-    got = fetch_github([], NOW)
-    assert got["older"] == 4 and [p["number"] for p in got["prs"]] == [1, 2]
-    assert got["prs"][0]["asked"] and not got["prs"][1]["asked"]
+def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
+    calls = []
+
+    def gh(args, _timeout):
+        q = args[-1]
+        calls.append(q)
+        if "author:@me archived:false updated:>=" in q and len(calls) == 1:
+            return "<html>502 Bad Gateway</html>"  # GitHub's answer to a slow search
+        s = ({"pageInfo": {"hasNextPage": False}, "nodes": [node(3)]} if 'after: "c1"' in q
+             else {"pageInfo": {"hasNextPage": True, "endCursor": "c1"}, "nodes": [node(1), {}]}
+             if "author:@me archived:false updated:>=" in q
+             else {"pageInfo": {}, "nodes": [node(1, author="lee")]} if "review-requested" in q
+             else {"pageInfo": {}, "nodes": []} if "is:merged" in q
+             else {"issueCount": 4} if "updated:<" in q else None)
+        refs = {"r0": None, "r1": {"issueOrPullRequest": None},
+                "r2": {"issueOrPullRequest": node(2, author="lee")}} if s is None else {"s": s}
+        assert ("fragment P" in q) == ("...P" in q)  # an unused fragment is a GraphQL error
+        return json.dumps({"data": {"viewer": {"login": "dev"}, **refs},
+                           "errors": [{"type": "NOT_FOUND"}]})
+
+    monkeypatch.setattr(open_loops, "run_gh", gh)
+    got = fetch_github([(REPO, 9)], NOW)
+    assert got["older"] == 4 and sorted(p["number"] for p in got["prs"]) == [1, 2, 3]
+    assert next(p for p in got["prs"] if p["number"] == 1)["asked"]
+    assert len(calls) == 7  # mine twice (a retry), its second page, asked, merged, refs, older
 
 
 def test_fetch_failure_keeps_the_last_good_answer(monkeypatch):
@@ -150,6 +169,27 @@ def test_lanes():
     assert next(g for g in lanes["dropped"] if g["workstream"] is None)
 
 
+def test_labels_then_keywords_join_what_the_stack_cannot():
+    gh = github(node(30, checks="FAILURE", labels=["workstream:checkout", "bug"]),
+                node(31, base="feat/30", checks="FAILURE"),  # rides its base's label
+                node(40, checks="FAILURE", labels=["workstream:checkout"],
+                     repo="example-org/shop-web"),
+                node(50, checks="FAILURE", head="fix/coupon-rounding"),
+                node(60, checks="FAILURE"))
+    lanes = build(gh, [], [], NOW, {"pricing": ["Coupon"], "never": [""]})
+    groups = {g["workstream"]["id"]: sorted(i["number"] for i in g["items"])
+              for g in lanes["dropped"]}
+    assert groups == {"workstream:checkout": [30, 31, 40], "workstream:pricing": [50],
+                      f"{REPO}#60": [60]}
+
+
+def test_keyword_map_from_the_environment(monkeypatch):
+    monkeypatch.setenv("TMUXRC_WORKSTREAMS", '{"pricing": ["coupon"], "bad": "x"}')
+    assert open_loops.keywords() == {"pricing": ["coupon"]}
+    monkeypatch.setenv("TMUXRC_WORKSTREAMS", "[not json")
+    assert open_loops.keywords() == {}
+
+
 def _git(*args, cwd):
     subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
                    cwd=cwd, check=True, capture_output=True)
@@ -167,13 +207,19 @@ def test_scan_finds_every_worktree_and_what_it_holds(tmp_path):
     _git("worktree", "add", "-b", "spike", str(tmp_path / "spike"), cwd=repo)
     _git("commit", "--allow-empty", "-m", "local", cwd=tmp_path / "spike")
     _git("worktree", "add", "--detach", str(tmp_path / "scratch"), "spike", cwd=repo)
+    (repo / "kept").write_text("x")
+    _git("add", "kept", cwd=repo)
+    _git("commit", "-m", "kept", cwd=repo)
+    _git("mv", "kept", "moved", cwd=repo)  # a rename carries its old name too: one change
     (repo / "f").write_text("x")
     _git("add", "f", cwd=repo)
+    (tmp_path / "spike" / "new").write_text("untracked work is work")
 
     found = {w["path"].rsplit("/", 1)[1]: w for w in scan_worktrees([str(repo), str(repo)])}
     assert set(found) == {"repo", "spike", "scratch"}
-    assert found["repo"]["dirty"] == 1 and found["repo"]["repo"] == "example-org/shop-api"
+    assert found["repo"]["dirty"] == 2 and found["repo"]["repo"] == "example-org/shop-api"
     assert found["spike"]["unpushed"] == 1 and found["spike"]["branch"] == "spike"
+    assert found["spike"]["dirty"] == 1
     assert found["scratch"]["unpushed"] == 0  # detached: not a branch of work
     assert found["spike"]["active_at"] > 0
 
