@@ -57,7 +57,8 @@ export function renderLoops(el, report, open, licon, now = Date.now()) {
     .filter(g => g.items.length);
   const notes = [report.fetched_at ? `GitHub as of ${ago(report.fetched_at, now)}` : "GitHub not read yet",
     report.error && "last refresh failed", report.older_open_prs && `${report.older_open_prs} older open PRs not shown`,
-    report.older_worktrees && `${report.older_worktrees} older worktrees not shown`];
+    report.older_worktrees && `${report.older_worktrees} older worktrees not shown`,
+    report.truncated && "too many PRs to list them all"];
   // A lane the viewer folded stays folded when a minute's tick redraws the ages.
   const open0 = [...el.querySelectorAll(".loop-lane")].map(d => d.open);
   const markup = Object.entries(LANES).map(([lane, title], k) => {
@@ -67,6 +68,13 @@ export function renderLoops(el, report, open, licon, now = Date.now()) {
         + (lane === "moving" ? moved(g.items, now) : g.items.map(i => row(i, licon, now)).join("")) + "</section>").join("")
         || '<p class="m">Nothing here.</p>') + "</details>";
   }).join("") + `<p class="m loop-notes">${esc(notes.filter(Boolean).join(" · "))}</p>`;
-  if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
+  if (el._html !== markup) {
+    // A redraw (an age ticking, a lane folding) must not drop keyboard focus: the controls
+    // keep their order, so the focused one is found again by its position.
+    const controls = () => [...el.querySelectorAll("a, button, summary")];
+    const focused = controls().indexOf(document.activeElement);
+    el.innerHTML = markup; el._html = markup;
+    if (focused >= 0) controls()[focused]?.focus();
+  }
   el.onclick = e => { const b = e.target.closest("[data-pane]"); if (b) open(b.dataset.pane); };
 }

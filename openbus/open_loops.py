@@ -120,7 +120,7 @@ def requests(refs: list[tuple[str, int]], now: float):
 
 
 def fetch_github(refs: list[tuple[str, int]], now: float, stopping: Event | None = None) -> dict:
-    prs, older = {}, 0
+    prs, older, truncated = {}, 0, False
     for tag, body in requests(refs, now):
         after = ""
         for _ in range(MAX_PAGES):  # only a search has pages; the rest stop after one
@@ -138,7 +138,10 @@ def fetch_github(refs: list[tuple[str, int]], now: float, stopping: Event | None
             if not page.get("hasNextPage"):
                 break
             after = f", after: {json.dumps(page['endCursor'])}"
-    return {"viewer": data["viewer"]["login"], "older": older, "prs": list(prs.values())}
+        else:
+            truncated = True  # still more pages: say so rather than look complete
+    return {"viewer": data["viewer"]["login"], "older": older, "truncated": truncated,
+            "prs": list(prs.values())}
 
 
 def _git(*args: str) -> str | None:
@@ -171,7 +174,8 @@ def _active_at(path: str, changed: list[str]) -> float:
 
 
 def _worktree(path: str, branch: str, repo: str | None) -> dict | None:
-    status = _git("-C", path, "status", "--porcelain", "-z", "--branch")
+    # Every untracked file, not its directory: editing a file leaves the directory's mtime.
+    status = _git("-C", path, "status", "--porcelain", "-z", "--branch", "-uall")
     if status is None:
         return None
     header, *fields = status.split("\0")
@@ -388,6 +392,7 @@ class OpenLoops:
         now = time.time() if now is None else now
         return {"generated_at": now, "fetched_at": self.fetched_at, "error": self.error,
                 "scanned_at": self.scanned_at, "older_open_prs": self.github.get("older", 0),
+                "truncated": self.github.get("truncated", False),
                 "older_worktrees": sum(w["active_at"] < now - HORIZON and bool(
                     w["dirty"] or w["unpushed"]) for w in self.worktrees),
                 "lanes": build(self.github, self.worktrees, panes, now, keywords())}
