@@ -577,8 +577,9 @@ def new_session(name: str, cwd: str, command: str | None = None, window: str = "
     already has it."""
     scope = []
     if os.environ.get("INVOCATION_ID"):  # set by systemd for the units it runs
-        if shutil.which("systemd-run"):
-            scope = ["systemd-run", "--user", "--scope", "--quiet", "--collect"]
+        # Absolute: _run resolves argv[0] on the login shell's PATH, which may lack it.
+        if systemd_run := shutil.which("systemd-run"):
+            scope = [systemd_run, "--user", "--scope", "--quiet", "--collect"]
         else:  # still start it: a session that dies on restart beats no session at all
             logger.warning("systemd-run not found: a tmux server started now lives in the "
                            "daemon's cgroup and dies on the next tmux-rc restart")

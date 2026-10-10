@@ -169,4 +169,4 @@ def test_under_systemd_the_server_gets_its_own_scope(monkeypatch, which, scoped)
     calls = []
     monkeypatch.setattr(T, "_run", lambda args, prefix=None, env=None: calls.append(prefix) or "%1")
     assert T.new_session("s", "/tmp", env={}) == "%1"
-    assert calls == [["systemd-run", "--user", "--scope", "--quiet", "--collect"] if scoped else []]
+    assert calls == [[which, "--user", "--scope", "--quiet", "--collect"] if scoped else []]
