@@ -1016,7 +1016,7 @@ async function sendKeys(body, answer = false, id = active) {
   let delivered = false;
   sending = true; notice(); render();
   try {
-    await paneInput.run(() => post(paneUrl(id, "send"), body));
+    await paneInput.run(id, () => post(paneUrl(id, "send"), body));
     delivered = true;
     if (answer) {
       pendingAnswers.set(id, signature);
@@ -1079,7 +1079,7 @@ async function compose(id, value) {
       if (segment.file) form.append("image", segment.file);
       else form.append("text", segment.text);
     }
-    await paneInput.run(() => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
+    await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
     if (secret) value.value = "";
     else { value.replace([]); value.pendingEnter = false; }
     if (active === id) text($("draft-status"), "Sent");
@@ -1328,7 +1328,7 @@ $("capture").onclick = (event) => {
   const body = { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }, id = active;
   // A tap that lands on nothing answers sent:false, not an error; a failure is a gone or
   // replaced pane, and it drops any keys queued behind it, so it has to say so.
-  paneInput.run(() => post(paneUrl(id, "click"), body)).catch(() => notice("The click could not be delivered. Check the terminal before typing on."));
+  paneInput.run(id, () => post(paneUrl(id, "click"), body)).catch(() => notice("The click could not be delivered. Check the terminal before typing on."));
 };
 
 $("new-window").onclick = async () => {

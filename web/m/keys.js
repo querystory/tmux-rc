@@ -51,8 +51,8 @@ export function tmuxKey(e, selected = false) {
 // (`op.repeat`, a held key) is dropped while anything is still queued, so holding
 // Backspace or an arrow stops within a round trip of letting go instead of draining a
 // backlog far past where the user meant to stop. A failure, of a key (`send(op)` resolves
-// false) or of a job (it rejects), drops everything queued behind it, and dropped jobs
-// reject: typing on, or submitting a draft, into a pane whose state is now unknown is
+// false) or of a job (it rejects), drops everything queued behind it for the same pane,
+// and dropped jobs reject: typing on, or submitting a draft, into a pane whose state is now unknown is
 // worse than losing it.
 export function inputQueue(send) {
   const queue = [];
@@ -66,7 +66,11 @@ export function inputQueue(send) {
         const ok = op.run
           ? await op.run().then((value) => { op.resolve(value); return true; }, (error) => { op.reject(error); return false; })
           : await send(op);
-        if (!ok) for (const dropped of queue.splice(0)) dropped.reject?.(new Error("dropped after a failed pane input"));
+        if (!ok) {
+          const [dropped, kept] = [queue.filter((o) => o.pane === op.pane), queue.filter((o) => o.pane !== op.pane)];
+          queue.splice(0, queue.length, ...kept);
+          for (const o of dropped) o.reject?.(new Error("dropped after a failed pane input"));
+        }
       }
     } finally { pumping = false; }
   };
@@ -77,6 +81,6 @@ export function inputQueue(send) {
     else queue.push({ ...op });
     pump();
   };
-  push.run = (job) => new Promise((resolve, reject) => { queue.push({ run: job, resolve, reject }); pump(); });
+  push.run = (pane, job) => new Promise((resolve, reject) => { queue.push({ pane, run: job, resolve, reject }); pump(); });
   return push;
 }

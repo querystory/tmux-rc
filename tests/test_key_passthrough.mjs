@@ -53,16 +53,16 @@ test("keys go out in order, one at a time, with text typed meanwhile joined", as
   assert.deepEqual(sent.map((op) => op.keys), ["l", "s -a", "Enter", "x"]);
 });
 
-test("text for another pane is not joined, and a failure drops the rest", async () => {
+test("text for another pane is not joined, and a failure drops only that pane's input", async () => {
   const sent = [];
   let release;
   const push = inputQueue((op) => { sent.push(op); return new Promise((r) => { release = r; }); });
   push({ pane: "%1", keys: "a", literal: true });
   push({ pane: "%1", keys: "b", literal: true });
+  push({ pane: "%1", keys: "Enter", literal: false });
   push({ pane: "%2", keys: "c", literal: true });
-  release(true); await tick();
   release(false); await tick();
-  assert.deepEqual(sent.map((op) => op.keys), ["a", "b"]);
+  assert.deepEqual(sent.map((op) => op.keys), ["a", "c"]);
 });
 
 test("a held key's repeats wait for the queue to drain rather than piling up", async () => {
@@ -82,7 +82,7 @@ test("jobs take their turn in the same order as keys, both ways", async () => {
   const push = inputQueue((op) => { log.push(op.keys); return new Promise((r) => { release = r; }); });
   push({ pane: "%1", keys: "a", literal: true });
   let finish;
-  const job = push.run(() => { log.push("compose"); return new Promise((r) => { finish = r; }); });
+  const job = push.run("%1", () => { log.push("compose"); return new Promise((r) => { finish = r; }); });
   push({ pane: "%1", keys: "b", literal: true }); // typed after Submit
   release(true); await tick();
   assert.deepEqual(log, ["a", "compose"]);
@@ -95,7 +95,7 @@ test("a failed keystroke drops the jobs queued behind it", async () => {
   const push = inputQueue(() => new Promise((r) => { release = r; }));
   push({ pane: "%1", keys: "a", literal: true });
   let ran = false;
-  const job = push.run(async () => { ran = true; });
+  const job = push.run("%1", async () => { ran = true; });
   release(false);
   await assert.rejects(job);
   assert.equal(ran, false);
@@ -105,7 +105,7 @@ test("a failed job drops the keys queued behind it", async () => {
   const sent = [];
   const push = inputQueue(async (op) => { sent.push(op.keys); return true; });
   let fail;
-  const job = push.run(() => new Promise((_, reject) => { fail = reject; }));
+  const job = push.run("%1", () => new Promise((_, reject) => { fail = reject; }));
   push({ pane: "%1", keys: "a", literal: true });
   fail(new Error("compose failed"));
   await assert.rejects(job); await tick();
