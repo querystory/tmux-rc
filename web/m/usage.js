@@ -57,8 +57,11 @@ const who = a => a.label ? `${NAMES[a.provider]} ${a.label}` : NAMES[a.provider]
 const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NAMES[provider]}" width="14" height="14">${esc(text)}</span>`;
 
 // Wide draws each window's trend instead of its bar; detail (the dashboard's expanded
-// panel) adds the clock times behind each countdown and the pace's forecast.
-export function renderUsage(el, accounts, wide, detail = false, now = Date.now()) {
+// panel) adds the clock times behind each countdown and the pace's forecast. Options are
+// named, not positional: a page holding an older copy of this module once read a
+// positional `detail` flag as `now`, counting every reset from 1970 and drawing each trend
+// back to its window's start.
+export function renderUsage(el, accounts, { wide = false, detail = false, now = Date.now() } = {}) {
   el.hidden = !accounts.length;
   const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, [a.label, a.error].filter(Boolean).join(': '))}</div>`
     : a.windows.map(w => cell(w, a, wide, detail, now)).join('')).join(''); // a plan without a window shows none

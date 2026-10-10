@@ -81,8 +81,9 @@
       <div class="landing-inner">
         <div class="landing-head"><button id="landing-back" class="icon-button" aria-label="Back to the pane" title="Back to the pane" hidden></button><h2 id="landing-title"></h2></div>
         <p id="landing-sub" class="muted"></p>
-        <!-- Plan limits at a readable size (usage.js); the usage strip opens the dashboard here. -->
-        <section id="usage-panel" class="atlas-panel" aria-labelledby="usage-title" hidden><div class="atlas-panel-heading"><h3 id="usage-title">Plan usage</h3><span class="fleet-gap"></span><button id="usage-detail" class="icon-button" aria-expanded="false" aria-controls="usage-board"></button></div><div id="usage-board" role="group" aria-label="Plan usage"></div></section>
+        <!-- Plan limits at a readable size (usage.js), placed under the activity chart by atlas.js;
+             the usage strip opens the dashboard here. -->
+        <section id="usage-panel" class="atlas-panel" aria-labelledby="usage-title" hidden><div class="atlas-panel-heading"><h3 id="usage-title">Plan usage</h3><span class="fleet-gap"></span><button id="usage-detail" data-key="usage-detail" class="icon-button" aria-expanded="false" aria-controls="usage-board"></button></div><div id="usage-board" role="group" aria-label="Plan usage"></div></section>
         <div id="session-atlas" role="region" aria-label="Session atlas"></div>
         <section id="landing-attention" hidden>
           <h3>Needs you</h3>

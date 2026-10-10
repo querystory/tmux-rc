@@ -32,8 +32,10 @@ The desktop sidebar has no "…" menu and room to spare, so it keeps every meter
 ### The dashboard panel
 
 A phone's bar says where a window stands but not how it got there, and the sidebar's trend
-is a thumbnail. So the dashboard leads with a Plan usage panel: every meter, whatever the
-Usage setting, as a trend tall enough to read. Tapping the strip, on the phone or in the
+is a thumbnail. So the dashboard has a Plan usage panel, right under the activity chart:
+every meter, whatever the Usage setting, as a trend tall enough to read. It sits under the
+chart, not above it, because the activity chart is what the dashboard is for; above it, the
+panel pushed the page's main subject below the fold on a phone. Tapping the strip, on the phone or in the
 sidebar, opens the dashboard at that panel rather than a sheet of its own, so there is one
 larger view to maintain and it sits beside the fleet history it is usually read against.
 Tapping the panel opens it up: wider trends (one to a row on a phone, two on desktop), the clock times behind each
