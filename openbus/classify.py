@@ -530,6 +530,26 @@ def _widget_text(prompt: str, visible: str) -> str:
     return textwrap.dedent(text).strip("\n")
 
 
+def question_rows(question: dict, text: str) -> str:
+    """The rows a menu `question` reads off capture `text`, verbatim, so a command or an
+    option that differs only in a duration or a cost still differs: from its widget's top
+    edge (Claude draws ▔▔▔ or ─── from column 0; an indented rule is a command's own row)
+    down to the screen's last numbered row and the rows indented under it (its wrapped
+    label or description), or with no edge the whole viewport down to there. The last
+    numbered row, not the question's own last option: a replacement menu with one more
+    option, or a new one drawn below, must change the rows. Never the rows above an edge,
+    where an agent still working behind its dialog streams output, nor below, where an
+    input box or status line animates."""
+    visible = _visible(text)
+    end = list(re.finditer(r"^([ \t│❯›>]*)\d+[.)]\s.*$", visible, re.MULTILINE))
+    if not question.get("options") or not end:
+        return ""
+    under = re.match(rf"(?:\n[ \t│┃]{{{len(end[-1][1]) + 1},}}\S.*)*", visible[end[-1].end():])
+    rows = visible[:end[-1].end() + under.end()]
+    top = list(re.finditer(r"^(?:[─━▔]{3,}|╭)", rows, re.MULTILINE))
+    return rows[top[-1].start():] if top else rows
+
+
 # The widget's raw rows are evidence, not something to read on a card: one small cached
 # call per distinct ask (prompt + widget) restates it in plain words. Like the reply
 # buttons, it lives beside the parser prompt rather than in it. The agent writes the

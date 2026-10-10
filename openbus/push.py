@@ -21,6 +21,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
@@ -327,6 +328,69 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
     return digest, question
 
 
+def held_question(watcher, pane_id: str, fingerprint: str) -> tuple[dict, str]:
+    """The pane's held question and birth, only while it is still the one `fingerprint`
+    (contract's digest) names: an answer tapped on one ask must never land on the next."""
+    if watcher.is_stale() or not watcher.pane_parse_valid(pane_id):
+        raise ValueError("pane state is temporarily unavailable")
+    pane = next((dict(s) for s in watcher.states if s.get("pane_id") == pane_id), None)
+    birth = watcher.pane_birth(pane_id)
+    if pane is None or contract(pane, birth)[0] != fingerprint:
+        raise ValueError("the pending question has changed")
+    if not birth:
+        raise ValueError("the pane has changed")
+    question = pane.get("question")
+    if not isinstance(question, dict):
+        raise ValueError("the pending question has changed")  # noqa: TRY004
+    return question, birth
+
+
+def claim_question(watcher, pane_id: str, fingerprint: str, generation: int, frame: str) -> None:
+    """Run under the pane's send lock, just before an answer's keys go out: refuse unless
+    the pane still holds the question the answer was offered on (held_question), has taken
+    no input since (the generation) and still shows the frame that question was parsed
+    from (keyboard input never reaches the generation), then consume the generation, so
+    only the first of two answers to one question can pass."""
+    if watcher.pane_input_generation(pane_id) != generation:
+        raise ValueError("the pane received newer input")
+    question, _ = held_question(watcher, pane_id, fingerprint)
+    # The frame hashes the normalized screen plus the question's own rows verbatim, so
+    # neither animation nor "sleep 10s" becoming "sleep 20s" fools it.
+    if watcher.frame_fp(tmux.capture_pane(pane_id, mark_dim=True), question) != frame:
+        raise ValueError("the pending question has changed")
+    watcher.invalidate_input_actions(pane_id)
+
+
+@contextmanager
+def pane_input(watcher, pane_id: str, *, invalidate: bool = True):
+    """Wrap one input attempt on a pane. Before it, invalidate push actions and app menu
+    tokens ahead of competing for the pane's send lock. After it, unless a claim refused
+    it, invalidate them again before that lock is released: a parse that read the
+    generation while the keys were still going out captured the old screen, and no
+    other sender may claim its token in between. Whatever the outcome, force a reparse:
+    input changes the screen, so an answered question clears from its card within a
+    capture, and only a fresh parse reissues a token. Never reparse before delivery:
+    that parse could stamp the new generation on the old screen. `pane_id` must be
+    canonical: the watcher matches its forced set against pane.id, and the send lock is
+    keyed by it."""
+    bump = getattr(watcher, "invalidate_input_actions", None)
+    if invalidate and bump is not None:
+        tmux.before_send(pane_id, lambda: bump(pane_id))
+    try:
+        with tmux._pane_lock(pane_id):  # noqa: SLF001 - reentrant; the delivery retakes it
+            try:
+                yield
+            except ValueError:  # a refused claim (claim_question): no key went out
+                bump = None
+                raise
+            finally:
+                if bump is not None:
+                    bump(pane_id)
+    finally:
+        if watcher is not None:
+            watcher.request_reparse(pane_id)
+
+
 def option_keys(question: dict, index: int) -> str:
     options = question.get("options")
     if not isinstance(options, list) or index < 0 or index >= len(options):
@@ -337,9 +401,10 @@ def option_keys(question: dict, index: int) -> str:
     style = question.get("answer_style", "text")
     if style == "cursor":
         raise ValueError("cursor questions must be answered in the app")
-    if style == "menu":  # mirrors answerBody in web/cursor-pick.js
-        yes_no = len(options) == 2 and option.lower() in {"yes", "no"}
-        return option[0].lower() if yes_no else str(index + 1)
+    if style == "menu":  # mirrors answerBody in web/cursor-pick.js: always the row's digit
+        if index >= 9:  # "10" would commit row 1 on its first key
+            raise ValueError("use the keyboard for menu rows past 9")
+        return str(index + 1)
     return option
 
 
@@ -408,36 +473,19 @@ class PushManager:
             raise ValueError("notification answer expired or was already used")
         if option_index not in issued["indices"]:
             raise ValueError("option was not offered by this notification")
-        if (self.watcher.is_stale()
-                or not self.watcher.pane_parse_valid(issued["pane_id"])):
-            raise ValueError("pane state is temporarily unavailable")
         if (self.watcher.pane_input_generation(issued["pane_id"])
                 != issued["input_generation"]):
             raise ValueError("the pane received newer input")
-        pane = next((dict(s) for s in self.watcher.states
-                     if s.get("pane_id") == issued["pane_id"]), None)
-        birth = self.watcher.pane_birth(issued["pane_id"])
-        if pane is None or contract(pane, birth)[0] != issued["fingerprint"]:
-            raise ValueError("the pending question has changed")
-        if not birth:
-            raise ValueError("the pane has changed")
-        question = pane.get("question")
-        if not isinstance(question, dict):
-            raise ValueError("the pending question has changed")  # noqa: TRY004
+        question, birth = held_question(self.watcher, issued["pane_id"], issued["fingerprint"])
         keys = option_keys(question, option_index)
-        def guard() -> None:
-            if (self.watcher.pane_input_generation(issued["pane_id"])
-                    != issued["input_generation"]):
-                raise ValueError("the pane received newer input")
-            # Reserve the generation while the pane lock is held. Even if two distinct
-            # valid nonces somehow coexist, only the first guard can pass.
-            self.watcher.invalidate_input_actions(issued["pane_id"])
-        # A menu commits on its shortcut; an Enter would confirm the NEXT menu's default.
-        tmux.send_keys(
-            issued["pane_id"], keys, enter=question.get("answer_style") != "menu", literal=True,
-            expected_pid=birth, guard=guard,
-        )
-        self.watcher.request_reparse(issued["pane_id"])
+        with pane_input(self.watcher, issued["pane_id"], invalidate=False):  # claim bumps
+            # A menu commits on its shortcut; an Enter would confirm the NEXT menu's default.
+            tmux.send_keys(
+                issued["pane_id"], keys, enter=question.get("answer_style") != "menu",
+                literal=True, expected_pid=birth, guard=lambda: claim_question(
+                    self.watcher, issued["pane_id"], issued["fingerprint"],
+                    issued["input_generation"], issued["frame"]),
+            )
         return issued["pane_id"], keys
 
     async def _loop(self) -> None:
@@ -464,7 +512,9 @@ class PushManager:
             if (not isinstance(pane_id, str)
                     or not self.watcher.pane_parse_valid(pane_id)):
                 continue
-            fp, question = contract(pane, self.watcher.pane_birth(pane_id))
+            # The snapshot's own birth: held_question checks it against the live one, so
+            # a recycled pane id can never inherit this question.
+            fp, question = contract(pane, pane.get("birth"))
             active.add((pane_id, fp))
             previous = self._stable.get(pane_id)
             if previous is None or previous[0] != fp:
@@ -515,7 +565,11 @@ class PushManager:
                     self._nonces[nonce] = {
                         "pane_id": pane_id, "fingerprint": fp,
                         "indices": {index for index, _ in offered},
-                        "input_generation": self.watcher.pane_input_generation(pane_id),
+                        # Both from the published snapshot the question came from, as
+                        # /api/state takes them: a live generation would vouch for a
+                        # stale frame whose successor's parse has not landed yet.
+                        "input_generation": pane.get("input_generation", 0),
+                        "frame": pane.get("frame", ""),
                         "expires": now + NONCE_SECONDS,
                     }
             deep_link = {"pane": pane_id, "from": "push"}

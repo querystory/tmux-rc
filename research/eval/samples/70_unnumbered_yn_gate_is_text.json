@@ -1,0 +1,14 @@
+{
+  "description": "An UNNUMBERED y/n gate from a CLI waiting on line input ([y/N] then Enter). Must be a user-waiting question with answer_style=text: a menu answer is the row's digit (web/cursor-pick.js), and there is no digit here, while a typed answer plus Enter is exactly what a [y/N] read wants. Synthetic.",
+  "current_command": "bash",
+  "capture": "user@host ~/src/app (main) $ ./scripts/reset-db.sh\nThis drops every table in the local dev database and reloads the seed data.\nTarget: postgres://localhost:5432/app_dev\nContinue? [y/N] ",
+  "expected": {
+    "tool": "shell",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Reset script asking whether to drop and reseed the local dev database"
+  }
+}

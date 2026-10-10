@@ -331,7 +331,7 @@ survey at most as a minor event.
   chosen option's text and press Enter. Use this for Claude Code's normal conversational
   questions.
 - "menu": the screen shows a NUMBERED widget — each option is prefixed with its own
-  digit (1. 2. 3.) or is a y/n confirmation — so ONE keystroke picks it. The digit must
+  digit (1. 2. 3.) — so ONE keystroke picks it. The digit must
   be visible on screen; do not infer numbering from list order.
 - "cursor": the screen shows a HIGHLIGHTED list you move through — a ❯/> marker or an
   inverse/colored row — and the rows carry NO digits. Nothing you can type picks a row

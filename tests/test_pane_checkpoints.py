@@ -3,6 +3,7 @@
 Each "daemon" is a fresh Watcher over the same SQLite file. tmux, the clock, the
 parser and the bootstrap are stubbed; a parse or bootstrap call stands for an LLM call."""
 
+import json
 import os
 import sqlite3
 
@@ -177,6 +178,21 @@ def test_retiring_a_pr_rewrites_the_checkpoint(monkeypatch, tmp_path):
     w._pr_titles._cache[("o/r", 1)] = (float("inf"), {"title": "t", "state": "MERGED"})
     w._tick()
     assert w._prs["%1"] == [] and len(saves) == 1
+
+
+def test_a_card_checkpointed_without_a_frame_is_parsed_again(monkeypatch, tmp_path):
+    """The checkpoint key strips durations, so "sleep 10s" can restore over "sleep 20s":
+    a frame taken off today's screen would let the old question's digit approve it."""
+    db = tmp_path / "h.db"
+    daemon(monkeypatch, db)
+    with sqlite3.connect(db) as conn:
+        (raw,) = conn.execute("SELECT card FROM pane_checkpoints").fetchone()
+        old = json.loads(raw)
+        old["state"].pop("frame")
+        conn.execute("UPDATE pane_checkpoints SET card = ?", (json.dumps(old),))
+    w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
+    assert "parse" in calls
+    assert w.states[0]["frame"]
 
 
 def test_an_expunged_pane_is_never_checkpointed_again(monkeypatch, tmp_path):

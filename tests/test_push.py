@@ -8,9 +8,29 @@ from py_vapid import Vapid
 from pydantic import ValidationError
 
 from openbus import push
+from openbus.classify import _widget_text, question_rows
+from openbus.watcher import Watcher as RealWatcher
+from openbus.watcher import _fingerprint
+
+
+def box(command):
+    """Claude Code's permission box over `command`, as capture_pane returns it."""
+    return f"{'─' * 40}\n Bash command\n\n   {command}\n\n Proceed?\n ❯ 1. Yes\n   2. No\n"
+
+
+@pytest.fixture(autouse=True)
+def _screen(monkeypatch):
+    """What the pane shows when an answer's guard captures it: by default the screen every
+    test state was parsed from. Set `[0]` to advance it from the keyboard."""
+    screen = [box("ls")]
+    monkeypatch.setattr(push.tmux, "capture_pane", lambda _pane, **_kw: screen[0])
+    return screen
 
 
 class Watcher:
+    use_llm = False
+    frame_fp = RealWatcher.frame_fp  # the real frame: normalized screen + question rows
+
     def __init__(self):
         self.states = []
         self.births = {"%1": "123"}
@@ -57,16 +77,19 @@ class Sender:
         pass
 
 
-def held(**fields):
-    """A held approval menu with its widget rows and restatement, as classify sends it."""
-    return {"prompt": "Proceed?", "answer_style": "menu", "context": "ls",
+def held(command="ls", **fields):
+    """A held approval menu with its widget rows (read off box(command), as classify reads
+    them) and restatement."""
+    return {"prompt": "Proceed?", "answer_style": "menu",
+            "context": _widget_text("Proceed?", box(command)),
             "options": ["Yes", "No"], "ask": "List the files?", **fields}
 
 
-def waiting(question=None):
+def waiting(question=None, screen=box("ls")):
     state = {
         "pane_id": "%1", "label": "Build", "activity": "waiting",
-        "waiting_on": "user", "headline": "Approval needed",
+        "waiting_on": "user", "headline": "Approval needed", "birth": "123",
+        "frame": Watcher().frame_fp(screen, question),
     }
     if question is not None:
         state["question"] = question
@@ -194,8 +217,13 @@ def test_sender_vapid_contact_default_and_override(monkeypatch, override):
 
 def test_option_mapping_matches_card_semantics():
     question = {"answer_style": "menu", "options": ["Yes", "No"]}
-    assert push.option_keys(question, 0) == "y"
+    assert push.option_keys(question, 0) == "1"
+    assert push.option_keys(question, 1) == "2"
     assert push.option_keys({"answer_style": "menu", "options": ["Retry", "Abort"]}, 1) == "2"
+    months = {"answer_style": "menu", "options": [f"M{i}" for i in range(12)]}
+    assert push.option_keys(months, 8) == "9"
+    with pytest.raises(ValueError, match="past 9"):
+        push.option_keys(months, 9)
     question = {"answer_style": "menu", "options": ["Alpha", "Other", "Beta"]}
     assert push.renderable_options(question) == [(0, "Alpha"), (2, "Beta")]
     assert push.option_keys(question, 2) == "3"
@@ -342,6 +370,7 @@ def test_input_generation_updates_are_atomic():
     from openbus.watcher import Watcher as RealWatcher
 
     watcher = RealWatcher(None, use_llm=False)
+    start = watcher.pane_input_generation("%1")  # this run's base, not 0
     def increment():
         for _ in range(500):
             watcher.invalidate_input_actions("%1")
@@ -351,7 +380,7 @@ def test_input_generation_updates_are_atomic():
         worker.start()
     for worker in workers:
         worker.join()
-    assert watcher.pane_input_generation("%1") == 4000
+    assert watcher.pane_input_generation("%1") == start + 4000
 
 
 def test_stale_watcher_suppresses_until_live_state_resumes(tmp_path, monkeypatch):
@@ -476,14 +505,55 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
     service.evaluate()
     nonce = sender.payloads[0]["nonce"]
 
-    assert service.answer(nonce, 0) == ("%1", "y")
-    # No Enter: the menu commits on "y", so an Enter would answer whatever comes next.
-    assert sent == [("%1", "y", {
+    assert service.answer(nonce, 0) == ("%1", "1")
+    # No Enter: the menu commits on "1", so an Enter would answer whatever comes next.
+    assert sent == [("%1", "1", {
         "enter": False, "literal": True, "expected_pid": "123",
     })]
     assert watcher.reparsed == ["%1"]
     with pytest.raises(ValueError, match="already used"):
         service.answer(nonce, 0)
+
+
+def test_action_refuses_a_screen_advanced_from_the_keyboard(tmp_path, monkeypatch, _screen):
+    """Keyboard input never reaches the input generation: until the new frame's parse is
+    published, only a fresh capture shows the notification's question is gone."""
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting(held())]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    sent = []
+    def send(_pane, keys, **kwargs):
+        kwargs["guard"]()
+        sent.append(keys)
+
+    monkeypatch.setattr(push.tmux, "send_keys", send)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    _screen[0] = box("rm -rf build")
+    with pytest.raises(ValueError, match="changed"):
+        service.answer(sender.payloads[0]["nonce"], 0)
+    assert sent == []
+    assert watcher.reparsed == ["%1"]  # refused, but the card still gets a fresh read
+
+
+def test_nonce_takes_its_generation_from_the_question_s_snapshot(tmp_path, monkeypatch):
+    """Input landing after the question was parsed but before its reparse is published
+    must not mint a nonce that vouches for the stale question."""
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting(held())]  # parsed at input generation 0
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    monkeypatch.setattr(push.tmux, "send_keys", lambda *_a, **kw: kw["guard"]())
+    watcher.invalidate_input_actions("%1")
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    with pytest.raises(ValueError, match="newer input"):
+        service.answer(sender.payloads[0]["nonce"], 0)
 
 
 def test_action_rejects_stale_watcher_state_and_consumes_nonce(tmp_path, monkeypatch):
@@ -575,8 +645,8 @@ def test_concurrent_valid_nonces_cannot_both_submit(tmp_path, monkeypatch):
         worker.start()
     for worker in workers:
         worker.join()
-    assert sent == ["y"]
-    assert len([result for result in results if result == ("%1", "y")]) == 1
+    assert sent == ["1"]
+    assert len([result for result in results if result == ("%1", "1")]) == 1
     assert any("newer input" in str(result) for result in results)
 
 
@@ -598,3 +668,166 @@ def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkey
         service.answer(nonce, 0)
     with pytest.raises(ValueError, match="already used"):
         service.answer(nonce, 0)
+
+
+def _send_app(monkeypatch, watcher):
+    """/send and /api/state over `watcher`'s pane %1: (tap(token), token(), sent keys)."""
+    from fastapi.testclient import TestClient
+
+    from openbus import server
+    from openbus.tmux import Pane
+
+    watcher.state_version, watcher.booted = lambda: 1, lambda: True
+    watcher.tmux_running = True  # read by /api/state once the start-tmux PR lands
+    monkeypatch.setattr(server.tmux, "list_panes", lambda: [
+        Pane("work", "0", "Build", "0", "%1", "node", "t", "/x")])
+    monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")
+    sent = []
+    def send(_pane, keys, **kwargs):
+        assert kwargs["expected_pid"] == "123"  # bound to the incarnation the token names
+        kwargs["guard"]()
+        sent.append(keys)
+
+    monkeypatch.setattr(server.tmux, "send_keys", send)
+    monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
+    client = TestClient(server.app)
+    def tap(token):
+        body = {"keys": "1", "enter": False, "literal": True, "question": token}
+        return client.post("/api/panes/%1/send", json=body)
+    def token():
+        return client.get("/api/state").json()["panes"][0]["question"]["fp"]
+    return tap, token, sent
+
+
+def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch, _screen):
+    """A digit names a row, not an ask: the "1" tapped on prompt A must not approve the
+    prompt B that replaced it. /send checks the token the card was rendered with."""
+    watcher = Watcher()
+    a = waiting(held("mkdir s1"), box("mkdir s1"))
+    stale = f"{push.contract(a, '123')[0]}:0:{a['frame']}"
+    # B is held now, parsed at input generation 0.
+    watcher.states = [waiting(held("sleep 10s"), box("sleep 10s"))]
+    _screen[0] = box("sleep 10s")
+    tap, token, sent = _send_app(monkeypatch, watcher)
+
+    response = tap(stale)
+    assert response.status_code == 409
+    assert "changed" in response.json()["detail"]
+    assert sent == []
+    # Advanced from the keyboard to C, its parse not yet published, so B's card would
+    # approve C. The normalized screen cannot tell them apart (durations are normalized
+    # out so a timer can't break it); the frame's verbatim widget rows can.
+    _screen[0] = box("sleep 20s")
+    assert _fingerprint(box("sleep 10s")) == _fingerprint(box("sleep 20s"))
+    assert tap(token()).status_code == 409
+    assert sent == []
+    _screen[0] = box("sleep 10s")
+    assert tap(token()).status_code == 200
+    assert sent == ["1"]
+    # Until a reparse reads the pane again the screen still shows the same question, but
+    # the answer consumed its generation: neither a double tap nor a refetched card can
+    # land a second digit on whatever the first one opened.
+    assert tap(token()).status_code == 409
+    assert sent == ["1"]
+
+
+def test_send_compares_a_menu_without_widget_rows_losslessly_too(monkeypatch, _screen):
+    """A menu with no widget edge has no context, so its frame takes the viewport down to
+    its last option verbatim: the command in the conversation above still counts."""
+    def plain(command):
+        return f"● Bash({command})\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n"
+
+    question = {"prompt": "Do you want to proceed?", "answer_style": "menu",
+                "options": ["Yes", "No"]}
+    assert question_rows(question, plain("sleep 10s")).startswith("● Bash(sleep 10s)")
+    watcher = Watcher()
+    watcher.states = [waiting(question, plain("sleep 10s"))]
+    _screen[0] = plain("sleep 20s")  # advanced from the keyboard, not yet reparsed
+    tap, token, sent = _send_app(monkeypatch, watcher)
+    assert _fingerprint(plain("sleep 10s")) == _fingerprint(plain("sleep 20s"))
+    assert tap(token()).status_code == 409
+    assert sent == []
+    _screen[0] = plain("sleep 10s")
+    assert tap(token()).status_code == 200
+    assert sent == ["1"]
+
+
+def test_send_ignores_output_streaming_above_the_menu_s_edge(monkeypatch, _screen):
+    """Claude keeps working behind its own dialog ("Switch model?" mid-turn): new tool rows
+    land above the ▔ edge after the parse, so a frame over the whole screen refused every
+    tap until the turn ended. Only the dialog's own rows identify it."""
+    def screen(above):
+        return (f"● {above}\n✽ Hashing… (18s · ↓ 1.0k tokens)\n{'▔' * 40}\n Switch model?\n\n"
+                " ❯ 1. Yes, switch to Opus 5.5\n   2. No, go back\n")
+
+    question = {"prompt": "Switch model?", "answer_style": "menu",
+                "options": ["Yes, switch to Opus 5.5", "No, go back"]}
+    watcher = Watcher()
+    watcher.states = [waiting(question, screen("Searching related issues"))]
+    _screen[0] = screen("Reading related issue 4640")  # streamed on; reparse not landed
+    tap, token, sent = _send_app(monkeypatch, watcher)
+    assert tap(token()).status_code == 200
+    assert sent == ["1"]
+    codex = "  Run this?\n    cat > R <<EOF\n    ━━━━━━\n    EOF\n\n  1. Yes\n  2. No\n"
+    assert question_rows({"options": ["Yes", "No"]}, codex) == codex.rstrip("\n")
+    # The last option's own description is its meaning; the footer below is not.
+    claude = f"{'─' * 9}\n❯ 1. Stage\n     Resets\n  2. Prod\n     Waits 20s\n\nEsc to cancel\n"
+    assert question_rows({"options": ["Stage", "Prod"]}, claude).endswith("Prod\n     Waits 20s")
+    # A replacement menu with an extra option, or a new menu below the old one's rows,
+    # is a different screen even though the old question's own rows are all still there.
+    yes_no = {"options": ["Yes", "No"]}
+    more = codex + "  3. Always\n"
+    assert question_rows(yes_no, more) != question_rows(yes_no, codex)
+    below = f"  1. A\n  2. B\n  3. C\n{codex}"
+    assert question_rows({"options": ["A", "B", "C"]}, below).endswith("2. No")
+
+
+def test_send_binds_option_rows_and_the_snapshot_s_own_birth(monkeypatch, _screen):
+    """Options that differ only in a duration are a different menu; a snapshot published
+    for a pane id since recycled is a different pane."""
+    def menu(a, b):
+        return f"{'─' * 40}\n Pick a delay\n\n Wait how long?\n ❯ 1. Wait {a}\n   2. Wait {b}\n"
+
+    question = {"prompt": "Wait how long?", "answer_style": "menu", "options": ["Wait 10s",
+                "Wait 20s"], "context": _widget_text("Wait how long?", menu("10s", "20s"))}
+    watcher = Watcher()
+    watcher.states = [waiting(question, menu("10s", "20s"))]
+    _screen[0] = menu("30s", "40s")  # advanced from the keyboard, not yet reparsed
+    tap, token, sent = _send_app(monkeypatch, watcher)
+    assert _fingerprint(menu("10s", "20s")) == _fingerprint(menu("30s", "40s"))
+    assert tap(token()).status_code == 409
+    _screen[0] = menu("10s", "20s")
+    watcher.states = [{**waiting(question, menu("10s", "20s")), "birth": "99"}]  # old pane
+    assert tap(token()).status_code == 409
+    assert sent == []
+    watcher.states = [waiting(question, menu("10s", "20s"))]
+    assert tap(token()).status_code == 200
+    assert sent == ["1"]
+
+
+def test_an_input_attempt_reparses_only_after_its_delivery():
+    """Bump, deliver, reparse, all in one synchronous call: run whole in a worker thread,
+    so cancelling the request cannot reparse while the delivery is still typing."""
+    from types import SimpleNamespace
+
+    from openbus import server
+
+    order = []
+    def bump(_p):  # under the send lock, so no other sender claims in between
+        order.append("bump" if push.tmux._pane_lock("%1")._is_owned() else "unlocked bump")
+    watcher = SimpleNamespace(invalidate_input_actions=bump,
+                              request_reparse=lambda _p: order.append("reparse"))
+    def deliver(error=None):
+        order.append("deliver")
+        if error:
+            raise error
+
+    assert server._input_attempt("%1", deliver, watcher=watcher) is None
+    # Bumped again after delivery, before the lock is released: a parse that read the
+    # generation mid-send saw the old screen, and must not publish it as current for an
+    # identical successor prompt.
+    assert order == ["bump", "deliver", "bump", "reparse"]
+    order.clear()
+    with pytest.raises(RuntimeError):
+        server._input_attempt("%1", deliver, RuntimeError("send-keys failed"), watcher=watcher)
+    assert order == ["bump", "deliver", "bump", "reparse"]  # a failed delivery too

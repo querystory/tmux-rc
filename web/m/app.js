@@ -1032,8 +1032,11 @@ async function sendKeys(body, answer = false, id = active) {
     }
     if (active === id) text($("draft-status"), "Sent");
     startState();
-  } catch { notice("Delivery could not be confirmed. Check the terminal before retrying."); }
-  finally { sending = false; render(); }
+  } catch (error) {
+    // 409 on a menu answer: the pane holds a different question now, and nothing was sent.
+    if (body.question && error.status === 409) { notice("This question changed — check the pane"); startState(); }
+    else notice("Delivery could not be confirmed. Check the terminal before retrying.");
+  } finally { sending = false; render(); }
   return delivered;
 }
 
@@ -1050,7 +1053,12 @@ function answer(id, option, index) {
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
   if (current.question.answer_style === "cursor") { if (active !== id) navigate(id); pickCursorRow(cursorIO(id), option, index); }
-  else sendKeys(answerBody(current.question, option, index), true, id);
+  else {
+    const body = answerBody(current.question, option, index);
+    if (body) sendKeys(body, true, id);
+    // Open the pane first, as the cursor walk does, so the keyboard reaches the right one.
+    else { if (active !== id) navigate(id); notice("Use the keyboard for this option."); }
+  }
 }
 
 // This surface's half of the shared cursor walk. No send here sets `pendingAnswers`:

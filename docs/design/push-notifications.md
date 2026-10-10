@@ -271,7 +271,7 @@ than `/send`: the SW posts `{nonce, option_index}` to a dedicated
   checks it again only after taking that same lock. A delayed action therefore cannot
   race an answer from another surface and submit into the next prompt.
 - **The daemon owns the option→keystroke mapping.** `answer_style` matters:
-  `"menu"` options are on-screen widgets answered with a keystroke (digit, y/n),
+  `"menu"` options are on-screen widgets answered with a keystroke (the row's digit),
   not their label text — typing the label into a numbered menu selects nothing or
   the wrong thing. The card does this mapping in `app.js` today; `/api/push/answer`
   mirrors those exact semantics server-side (a later cleanup can point the card at
