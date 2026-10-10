@@ -23,7 +23,8 @@ html, body { position: fixed; inset: 0; overflow: hidden; }
    plain loading line instead of the half-built chrome. If app.js never runs (a module
    failed to load, or threw), both flip after 10s, so the page is never stuck on the line. */
 html:not(.booted) #app { visibility: hidden; animation: unveil 0s 10s forwards; }
-html:not(.booted) body::after { content: "Loading…"; position: fixed; inset: 0; display: grid; place-items: center; color: var(--muted); animation: veil 0s 10s forwards; }
+#booting { position: fixed; inset: 0; margin: 0; display: grid; place-items: center; color: var(--muted); animation: veil 0s 10s forwards; }
+.booted #booting { display: none; }
 @keyframes unveil { to { visibility: visible; } }
 @keyframes veil { to { visibility: hidden; } }
 button, input, textarea, select { font: inherit; color: inherit; }
