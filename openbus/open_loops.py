@@ -90,10 +90,11 @@ def _graphql(body: str, stopping: Event | None = None) -> dict:
             reply = json.loads(run_gh(["api", "graphql", "-f",
                                        f"query={fragment}query {{ viewer {{ login }} {body} }}"],
                                       60, stopping) or "{}")
-            # Partial errors are fine for a pane's reference that names nothing, not for a
-            # search: an empty one would replace good rows with none.
+            # Partial errors are fine for a pane's reference that names nothing or a count,
+            # not for a search of PRs: an empty one would replace good rows with none.
             data = reply.get("data") or {}
-            if data.get("viewer") and (not body.startswith("s:") or data.get("s")):
+            if data.get("viewer") and (data.get("s") or not body.startswith("s:")
+                                       or "issueCount" in body):
                 return data
     raise RuntimeError("GitHub unavailable")
 
