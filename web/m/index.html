@@ -73,7 +73,7 @@
            end scrolls clear of it). -->
       <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
       <!-- Plan limits (usage.js): pinned over a phone's list by CSS, above the wide foot. -->
-      <div id="usage" role="region" aria-label="Plan usage" hidden></div>
+      <div id="usage" role="link" aria-label="Plan usage" tabindex="0" title="Open plan usage in the dashboard" hidden></div>
       <div id="sb-foot" class="sb-only"></div>
     </section>
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
@@ -82,6 +82,9 @@
         <div class="landing-head"><button id="landing-back" class="icon-button" aria-label="Back to the pane" title="Back to the pane" hidden></button><h2 id="landing-title"></h2></div>
         <p id="landing-sub" class="muted"></p>
         <div id="session-atlas" role="region" aria-label="Session atlas"></div>
+        <!-- Plan limits at a readable size (usage.js), placed under the activity chart by atlas.js;
+             the usage strip opens the dashboard here. -->
+        <section id="usage-panel" class="atlas-panel" aria-labelledby="usage-title" hidden><div class="atlas-panel-heading"><h3 id="usage-title">Plan usage</h3><span class="fleet-gap"></span><button id="usage-detail" data-key="usage-detail" class="icon-button" aria-expanded="false" aria-controls="usage-board"></button></div><div id="usage-board" role="group" aria-label="Plan usage"></div></section>
         <section id="landing-attention" hidden>
           <h3>Needs you</h3>
           <div id="landing-attention-list"></div>

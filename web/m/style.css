@@ -679,6 +679,14 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
    list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
 #usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
 #usage[hidden], #app.rail #usage { display: none; }
+#usage { cursor: pointer; }
+/* The dashboard's panel: the same cells, as many to a row as fit, the trend tall enough to read;
+   opened (aria-expanded), wider cells (one to a row on a phone, two on desktop) with the times spelled out. */
+#usage-panel { cursor: pointer; }
+#usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
+#usage-board .usage-spark { height: 56px; margin-top: 6px; }
+#usage-panel:has([aria-expanded="true"]) #usage-board { grid-template-columns: repeat(auto-fit, minmax(max(280px, 40%), 1fr)); }
+#usage-panel:has([aria-expanded="true"]) .usage-spark { height: 96px; }
 .usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }

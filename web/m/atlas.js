@@ -240,8 +240,12 @@ function goalControl(icon) {
 // data-key gets it back. Callers capture the key before building, since building can move
 // a live node (a chart) out of the page.
 const focusKey = root => root.contains(document.activeElement) ? document.activeElement?.dataset.key : null;
+// Nodes kept across rebuilds (the caller's `after`) stay attached rather than being pulled out
+// and put back: Chrome anchors scrolling on a focused node, and one detached and reinserted
+// scrolled the page away from it.
 function rebuild(root, nodes, focus) {
-  root.replaceChildren(...nodes);
+  [...root.children].forEach(node => nodes.includes(node) || node.remove());
+  nodes.forEach((node, i) => { if (root.children[i] !== node) root.insertBefore(node, root.children[i] || null); });
   if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
 }
 const unchanged = (root, signature) => {
@@ -308,7 +312,8 @@ export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
 
 const STOP = new Set(('the a an and or to of in on for with from is are was were be been being this that it its as at by has have had not no into about after before all can will would should could their they them then than also currently successfully session agent task work working focused completed using updated implementation changes implemented new current which but while other now ready identified verified three two one these those there here more only already still through when where what how our your you we may any each both same').split(' '));
 
-export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon) {
+// `after` is a node of the caller's to place under the big chart (app.js: Plan usage).
+export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after) {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
   const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(isAgent))];
@@ -325,7 +330,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const nodes = [];
   const controls = el('div', 'atlas-controls');
   controls.append(el('span', 'atlas-controls-label muted', 'Sessions'));
-  const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos, searchTopic, icon); };
+  const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos, searchTopic, icon, after); };
   ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].forEach(tool => {
     const count = allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length;
     const button = el('button', 'atlas-filter atlas-tool-filter');
@@ -406,7 +411,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   });
   toggles.append(el('span', 'fleet-gap'), resetZoomButton(main));
   pulse.append(toggles, main.el);
-  nodes.push(pulse);
+  nodes.push(pulse, ...(after ? [after] : []));
 
   // Small multiples: which session or tool carries the running count, all on one scale.
   const by = fleet.by, keys = by === 'session' ? sessions : tools;
