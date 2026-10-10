@@ -4,7 +4,8 @@ weight: 1
 ---
 
 tmux-rc runs on the machine where your tmux sessions live. Open its web app on your
-phone or desktop to see what your agents are doing and answer them.
+desktop or phone to see what your agents are doing and answer them through chat or
+direct dashboard controls.
 
 ## Try it without a model account
 

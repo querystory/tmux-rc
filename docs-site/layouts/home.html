@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>tmux-rc — manage your coding agents remotely</title>
+  <meta name="description" content="{{ .Site.Params.description }}">
+  <meta name="theme-color" content="#171d26">
+  <link rel="canonical" href="{{ .Permalink }}">
+  <meta property="og:title" content="tmux-rc — manage your coding agents remotely">
+  <meta property="og:description" content="{{ .Site.Params.description }}">
+  <meta property="og:image" content="{{ "img/hero.png" | absURL }}">
+  <link rel="icon" href="{{ "favicon.svg" | relURL }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ "landing.css" | relURL }}">
+  <script src="{{ "landing.js" | relURL }}" defer></script>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="nav wrap">
+  <a class="brand" href="{{ .Site.Home.RelPermalink }}" aria-label="tmux-rc home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 6 6 6-6 6m9 0h5"/></svg>tmux-rc</a>
+  <nav aria-label="Main navigation"><a href="{{ "documentation/" | relURL }}">Docs</a><a href="https://github.com/querystory/tmux-rc">GitHub <span aria-hidden="true">↗</span></a><a class="nav-start" href="#get-started">Get started</a></nav>
+</header>
+<main id="content">
+  <section class="hero wrap">
+    <p class="eyebrow"><span class="dot"></span> YOUR AGENTS. YOUR MACHINE. ANYWHERE.</p>
+    <h1>Manage your coding<br class="desktop-break"> agents <span>remotely.</span></h1>
+    <p class="lede">Desktop or phone. Chat, talk, point, or tap.<br>See what your agents are doing and step in when they need you.</p>
+    <div class="hero-actions"><a class="button primary" href="#get-started">Set up tmux-rc <span aria-hidden="true">→</span></a><a class="button" href="{{ "documentation/" | relURL }}">Read the docs</a></div>
+    <p class="agent-line">Claude Code <span>·</span> Codex <span>·</span> Gemini CLI <span>·</span> OpenCode <span>·</span> omp</p>
+  </section>
+
+  <section class="setup wrap" id="get-started">
+    <div class="section-heading"><p class="eyebrow">GET STARTED</p><h2>Run it. Tunnel it. Open it.</h2><p>Run the daemon where your agents live, connect your devices, and open the client.</p></div>
+    <div class="install">
+      <div class="tabs setup-tabs" role="tablist" aria-label="Setup steps" data-tabs>
+        <button id="daemon-tab" role="tab" aria-selected="true" aria-controls="daemon-setup" data-panel="daemon-setup">1 <span>Run the daemon</span></button>
+        <button id="tunnel-tab" role="tab" aria-selected="false" aria-controls="tunnel-setup" data-panel="tunnel-setup" tabindex="-1">2 <span>Connect remotely</span></button>
+        <button id="client-tab" role="tab" aria-selected="false" aria-controls="client-setup" data-panel="client-setup" tabindex="-1">3 <span>Open the client</span></button>
+      </div>
+      <div id="daemon-setup" class="install-panel" role="tabpanel" aria-labelledby="daemon-tab">
+        <div class="panel-heading"><h3>On your agent host</h3><span class="badge">LINUX / macOS</span></div>
+        <p>Keep your tmux sessions running. With <a href="https://docs.astral.sh/uv/getting-started/installation/">uv</a> and tmux installed, start the daemon:</p>
+        <div class="command"><pre><code id="daemon-command">TMUXRC_NO_LLM=1 uvx --from git+https://github.com/querystory/tmux-rc.git tmux-rc</code></pre><button class="copy" data-copy="daemon-command" aria-label="Copy daemon command">Copy</button></div>
+        <p class="panel-note">This quick start uses basic status detection without model credentials. <a href="{{ "getting-started/#enable-summaries" | relURL }}">Enable model summaries</a> for the richer dashboard; <a href="{{ "design/live-mode/" | relURL }}">configure Live Mode</a> for chat and voice.</p>
+        <div class="panel-links"><a href="{{ "getting-started/" | relURL }}">Full setup guide <span aria-hidden="true">→</span></a><a href="{{ "design/deployment/" | relURL }}">Run as a persistent service <span aria-hidden="true">→</span></a></div>
+      </div>
+      <div id="tunnel-setup" class="install-panel" role="tabpanel" aria-labelledby="tunnel-tab" hidden>
+        <div class="panel-heading"><h3>Give your devices a private route</h3><span class="badge">TAILSCALE</span></div>
+        <p>Install and sign in to Tailscale on the host and your devices. On the host, expose the daemon to your tailnet:</p>
+        <div class="command"><pre><code id="tunnel-command">tailscale serve --bg http://127.0.0.1:18030</code></pre><button class="copy" data-copy="tunnel-command" aria-label="Copy Tailscale command">Copy</button></div>
+        <p class="panel-note">Open the HTTPS address printed by Tailscale. Keep the daemon on loopback; Serve limits access to your tailnet. The daemon has no built-in login, so remote access needs this boundary or an authenticated tunnel.</p>
+        <div class="panel-links"><a href="{{ "deploy/other-tunnels/" | relURL }}">Tailscale setup <span aria-hidden="true">→</span></a><a href="{{ "deploy/cloudflare-tunnel/" | relURL }}">Cloudflare Tunnel + Access <span aria-hidden="true">→</span></a></div>
+      </div>
+      <div id="client-setup" class="install-panel" role="tabpanel" aria-labelledby="client-tab" hidden>
+        <div class="panel-heading"><h3>Open your host's address</h3><span class="badge">INSTALL OPTIONAL</span></div>
+        <p>The client comes with the daemon. Visit your remote HTTPS address in a browser on desktop or phone. Locally, open <code>http://127.0.0.1:18030/m</code>.</p>
+        <div class="client-grid">
+          <article><h4>iOS</h4><p>Open your address in Safari. Share → Add to Home Screen → Add. Launch the Home Screen app to enable push notifications.</p><a href="{{ "iphone-setup/" | relURL }}">iPhone instructions <span aria-hidden="true">→</span></a></article>
+          <article><h4>Android</h4><p>Open your address in Chrome. Menu → Install and create shortcut → Install. Launch tmux-rc and allow notifications.</p><a href="{{ "client-setup/#android" | relURL }}">Android instructions <span aria-hidden="true">→</span></a></article>
+          <article><h4>Desktop</h4><p>Use your browser, or install the web app from the browser's address bar or menu. The dashboard adapts to a wide screen.</p><a href="{{ "client-setup/#desktop" | relURL }}">Desktop instructions <span aria-hidden="true">→</span></a></article>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase wrap" aria-label="See tmux-rc on desktop and phone">
+    <div class="showcase-top"><span class="section-label">ONE FLEET. EVERY SCREEN.</span><div class="tabs" role="tablist" aria-label="Dashboard previews" data-tabs>
+      <button id="desktop-tab" role="tab" aria-selected="true" aria-controls="desktop-preview" data-panel="desktop-preview">Desktop</button>
+      <button id="phone-tab" role="tab" aria-selected="false" aria-controls="phone-preview" data-panel="phone-preview" tabindex="-1">Phone</button>
+      <button id="chat-tab" role="tab" aria-selected="false" aria-controls="chat-preview" data-panel="chat-preview" tabindex="-1">Chat</button>
+    </div></div>
+    <figure id="desktop-preview" role="tabpanel" aria-labelledby="desktop-tab">
+      <div class="screen"><img src="{{ "img/hero.png" | relURL }}" width="2880" height="1800" alt="Current desktop dashboard: sidebar with agents needing attention, live terminal, and agent overview" fetchpriority="high"></div>
+      <figcaption>Your fleet in the sidebar. The live terminal and agent overview together.</figcaption>
+    </figure>
+    <figure id="phone-preview" role="tabpanel" aria-labelledby="phone-tab" hidden>
+      <div class="phones"><img src="{{ "img/mobile-list.png" | relURL }}" width="780" height="1688" alt="Phone dashboard showing the agent fleet and questions awaiting answers" loading="lazy"><img src="{{ "img/mobile-pane.png" | relURL }}" width="780" height="1688" alt="Phone view of an agent's summary, activity, and reply composer" loading="lazy"></div>
+      <figcaption>Browse your agents, read updates, and reply from your phone.</figcaption>
+    </figure>
+    <figure id="chat-preview" role="tabpanel" aria-labelledby="chat-tab" hidden>
+      <div class="screen"><img src="{{ "img/desktop-chat.png" | relURL }}" width="2880" height="1800" alt="Text chat asking which agents need attention, alongside the desktop dashboard" loading="lazy"></div>
+      <figcaption>Ask which agents need you. Direct work through text or voice chat.</figcaption>
+    </figure>
+    <p class="demo-note">Current UI, fictional demo fleet. Your sessions stay on your host.</p>
+  </section>
+
+  <section class="capabilities wrap" aria-label="Managing your agents">
+    <article><span class="section-label">01 / UNDERSTAND</span><h2>Know what needs you.</h2><p>Summaries, pending questions, and activity across your fleet. Answer a choice directly instead of hunting through terminal output.</p></article>
+    <article><span class="section-label">02 / DIRECT</span><h2>Chat or take the controls.</h2><p>Ask about your agents in text or voice. Send a message, attach an image, or use the live terminal when you want to act directly.</p></article>
+    <article><span class="section-label">03 / STAY INFORMED</span><h2>Keep work moving.</h2><p>Get notified when an agent is waiting for you. See activity history and subscription usage while your sessions keep running.</p></article>
+  </section>
+
+  <section class="docs-entry wrap"><div><p class="eyebrow">GO DEEPER</p><h2>The docs live here, too.</h2><p>Setup, remote access, architecture, and the decisions behind the project.</p></div><a class="button" href="{{ "documentation/" | relURL }}">Browse documentation <span aria-hidden="true">→</span></a></section>
+</main>
+<footer class="wrap"><a class="brand" href="{{ .Site.Home.RelPermalink }}">tmux-rc</a><p>Open source · MIT · Your existing tmux sessions</p><a href="https://github.com/querystory/tmux-rc">GitHub <span aria-hidden="true">↗</span></a></footer>
+</body>
+</html>

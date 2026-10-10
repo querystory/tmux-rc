@@ -31,7 +31,7 @@ contentDir = "../docs"
     noClasses = false        # emit CSS classes so the theme controls code colors
 
 [params]
-  description = "Manage coding agents from your phone: summaries, actionable questions, live terminals, and voice control for your existing tmux sessions."
+  description = "Manage coding agents remotely from desktop or phone, through text and voice chat or direct dashboard controls, using your existing tmux sessions."
   [params.navbar]
     displayTitle = true
     displayLogo = false      # logo wired in during the styling phase
