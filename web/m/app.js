@@ -1326,7 +1326,9 @@ $("capture").onclick = (event) => {
   const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
   if (row < 0 || row >= captureLines.length || col < 1) return;
   const body = { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }, id = active;
-  paneInput.run(() => post(paneUrl(id, "click"), body)).catch(() => {});
+  // A tap that lands on nothing answers sent:false, not an error; a failure is a gone or
+  // replaced pane, and it drops any keys queued behind it, so it has to say so.
+  paneInput.run(() => post(paneUrl(id, "click"), body)).catch(() => notice("The click could not be delivered. Check the terminal before typing on."));
 };
 
 $("new-window").onclick = async () => {
