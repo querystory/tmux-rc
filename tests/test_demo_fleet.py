@@ -6,7 +6,10 @@ before (home paths, real project names, accounts) and anything shaped like a cre
 import json
 import re
 
+import pytest
+
 from openbus.history import History
+from openbus.open_loops import OpenLoops
 from openbus.plan_usage import PlanUsage
 from scripts import demo_fleet as demo
 
@@ -16,9 +19,19 @@ PRIVATE = re.compile(r"/home/|/Users/|querystory|qs-app|tmux-rc|shapor"
                      r"|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY", re.IGNORECASE)
 
 
+@pytest.fixture(autouse=True)
+def _no_keyword_map(monkeypatch):
+    """A checkout's own TMUXRC_WORKSTREAMS must not rename the demo's workstreams."""
+    monkeypatch.delenv("TMUXRC_WORKSTREAMS", raising=False)
+
+
+def _loops() -> dict:
+    return demo.seed_loops(OpenLoops()).report(demo.fleet(), demo.NOW)
+
+
 def _everything() -> str:
     fleet = demo.fleet()
-    return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet]])
+    return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet], _loops()])
 
 
 def test_fleet_contains_nothing_private():
@@ -60,3 +73,14 @@ def test_plan_usage_reads_like_a_typical_day(tmp_path):
     assert 90 <= by["claude", "7d"]["projected"] < 100  # amber, not out before the reset
     assert by["codex", "7d"]["limit_at"]  # red: out before the reset, which still shows
     assert {a["label"] for a in report} == {None}  # one account each: provider names
+
+
+def test_open_loops_fill_every_lane_and_grouping_signal():
+    lanes = _loops()["lanes"]
+    reasons = {r for groups in lanes.values() for g in groups for i in g["items"]
+               for r in i.get("reasons", [])}
+    assert {"approved", "review_requested", "no_reviewer", "checks_failed", "base_merged",
+            "conflicts", "stale", "no_pane"} <= reasons
+    assert {(g["workstream"] or {}).get("id") for g in lanes["waiting"]} >= {
+        "example-org/shop-api#409", "workstream:build-cache"}  # a stack and a label
+    assert any(i["panes"] for g in lanes["waiting"] for i in g["items"] if i["kind"] == "pr")

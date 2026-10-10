@@ -22,8 +22,9 @@ from pathlib import Path
 
 # Before openbus.server loads .env: an existing variable wins over the file, so an empty
 # one keeps a checkout's real telemetry endpoint from receiving demo traffic and its own
-# launcher menu (labels, icons) out of the shots — empty means the shipped defaults.
-os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="")
+# launcher menu (labels, icons) and keyword map out of the shots — empty means the shipped
+# defaults.
+os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="", TMUXRC_WORKSTREAMS="")
 
 import uvicorn
 from fastapi.responses import JSONResponse
@@ -34,6 +35,10 @@ try:  # absent on a base that predates plan limits: screenshots_diff runs these 
     from openbus.plan_usage import PlanUsage
 except ImportError:
     PlanUsage = None
+try:  # likewise for open loops
+    from openbus.open_loops import OpenLoops
+except ImportError:
+    OpenLoops = None
 
 from . import demo_fleet as demo
 
@@ -104,6 +109,9 @@ async def lifespan(app):
         if PlanUsage:
             app.state.usage = demo.seed_usage(PlanUsage(app.state.history))
             app.state.usage.report = partial(app.state.usage.report, demo.NOW)
+        if OpenLoops:
+            app.state.loops = demo.seed_loops(OpenLoops())
+            app.state.loops.report = partial(app.state.loops.report, now=demo.NOW)
         yield
 
 
