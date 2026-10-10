@@ -478,15 +478,15 @@ def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch, how):
 
 @pytest.mark.parametrize(
     "back", [None, "shown", "hidden", "shown, dropped", "expired", "tapped", "undelivered",
-             "taken over"])
+             "taken over", "shown, taken over"])
 def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
     """Locking the phone drops the socket, the moment a push matters most: the parked card
     counts as out of view and still pushes once, on the wait it began with, even over a
     reconnect that stays hidden, or one that takes over a half-open socket still holding
-    the card. A reconnect that shows it again, or expiry, stops it, and
-    after one that showed it drops in turn, the wait starts over. A card the user tapped,
-    parked only because its "decided" died with the socket, is answered: no push. Nor
-    does one the phone never received."""
+    the card. A reconnect that shows it again, or expiry, stops it, and after one that
+    showed it drops in turn, or is taken over hidden, the wait starts over. A card the
+    user tapped, parked only because its "decided" died with the socket, is answered: no
+    push. Nor does one the phone never received."""
     L._parked.clear()
     pushed = []
     monkeypatch.setattr(L, "_chats", {})
@@ -522,15 +522,18 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
         await asyncio.gather(call, return_exceptions=True)
         L._disconnect(meter)
         await asyncio.sleep(0.15)
-        if back in {"shown", "hidden", "shown, dropped"}:
+        if back in {"shown", "hidden", "shown, dropped", "shown, taken over"}:
             again = _chat()  # the same chat reconnects, its view in the handshake
             await L._connect(again, viewing=back != "hidden")
             if back == "shown, dropped":
                 L._disconnect(again)
+            if back == "shown, taken over":  # hidden, while the shown one is half-open
+                await L._connect(_chat(), viewing=False)
         await asyncio.sleep(0.12)  # past the first wait, short of a restarted one
 
     _run(go())
-    quiet = back in {"shown", "shown, dropped", "expired", "tapped", "undelivered"}
+    quiet = back in {"shown", "shown, dropped", "expired", "tapped", "undelivered",
+                     "shown, taken over"}
     assert pushed == ([] if quiet else ['Send to window 3 "work": ls'])
     assert L._parked == {} if back == "expired" else len(L._parked) == 1
     L._parked.clear()

@@ -479,9 +479,9 @@ async def _connect(meter: _Meter, *, viewing: bool, fresh: bool = False) -> None
     earlier one ended offline, so its cards go, once parked."""
     chat = meter.actor, meter.session
     old = _chats.get(chat)
-    meter.unseen_since = None if viewing else next(
-        (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat),
-        old and old.unseen_since,
+    meter.unseen_since = None if viewing else (  # the live connection's word, else parked
+        old.unseen_since if old else next(
+            (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat), None)
     ) or time.monotonic()
     if old:
         for answer in old.approvals.values():
