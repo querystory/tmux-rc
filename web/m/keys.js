@@ -47,15 +47,19 @@ export function tmuxKey(e, selected = false) {
 // now unknown is worse than losing the burst.
 export function keyStream(send) {
   const queue = [];
-  let busy = false;
-  return async (op) => {
+  let drained = null;
+  const push = (op) => {
     const last = queue.at(-1);
-    if (op.repeat && last) return;
+    if (op.repeat && last) return drained;
     if (op.literal && last?.literal && last.pane === op.pane) last.keys += op.keys;
     else queue.push({ ...op });
-    if (busy) return;
-    busy = true;
-    try { while (queue.length) if (!await send(queue.shift())) queue.length = 0; }
-    finally { busy = false; }
+    return drained ||= (async () => {
+      try { while (queue.length) if (!await send(queue.shift())) queue.length = 0; }
+      finally { drained = null; }
+    })();
   };
+  // Settles once every queued key is out. The pane's other input paths (composer, key
+  // row, clicks) wait on it, so a draft submitted mid-burst cannot land between two keys.
+  push.drained = () => drained || Promise.resolve();
+  return push;
 }

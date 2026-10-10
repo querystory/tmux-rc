@@ -1016,7 +1016,7 @@ async function sendKeys(body, answer = false, id = active) {
   let delivered = false;
   sending = true; notice(); render();
   try {
-    await post(paneUrl(id, "send"), body);
+    await typeKey.drained(); await post(paneUrl(id, "send"), body);
     delivered = true;
     if (answer) {
       pendingAnswers.set(id, signature);
@@ -1079,7 +1079,7 @@ async function compose(id, value) {
       if (segment.file) form.append("image", segment.file);
       else form.append("text", segment.text);
     }
-    await request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000);
+    await typeKey.drained(); await request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000);
     if (secret) value.value = "";
     else { value.replace([]); value.pendingEnter = false; }
     if (active === id) text($("draft-status"), "Sent");
@@ -1325,7 +1325,8 @@ $("capture").onclick = (event) => {
   const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
   const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
   if (row < 0 || row >= captureLines.length || col < 1) return;
-  post(paneUrl(active, "click"), { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }).catch(() => {});
+  const body = { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }, id = active;
+  typeKey.drained().then(() => post(paneUrl(id, "click"), body)).catch(() => {});
 };
 
 $("new-window").onclick = async () => {

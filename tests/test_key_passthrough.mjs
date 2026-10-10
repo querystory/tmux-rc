@@ -73,3 +73,17 @@ test("a held key's repeats wait for the queue to drain rather than piling up", a
   release(true); await first;
   assert.equal(sent.length, 2);
 });
+
+test("drained settles only once every queued key is out", async () => {
+  let release;
+  const push = keyStream(() => new Promise((r) => { release = r; }));
+  let done = false;
+  await push.drained(); // idle: settles at once
+  push({ pane: "%1", keys: "a", literal: true });
+  push({ pane: "%1", keys: "Enter", literal: false });
+  push.drained().then(() => { done = true; });
+  release(true); await new Promise((r) => setImmediate(r));
+  assert.equal(done, false);
+  release(true); await new Promise((r) => setImmediate(r));
+  assert.equal(done, true);
+});
