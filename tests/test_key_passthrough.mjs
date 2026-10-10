@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { tmuxKey, inputQueue } from "../web/m/keys.js";
 
-const key = (k, mods = {}) => tmuxKey({ key: k, code: "", ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, isComposing: false, getModifierState: () => false, ...mods }, mods.selected);
+const key = (k, mods = {}) => tmuxKey({ key: k, code: "", ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, isComposing: false, getModifierState: () => false, ...mods }, mods.selected, mods.mac ?? false);
 const named = (keys) => ({ keys, literal: false });
 const tick = () => new Promise((r) => setImmediate(r));
 
@@ -28,7 +28,8 @@ test("printable keys are literal text, Ctrl and Alt chords are named", () => {
   assert.deepEqual(key("с", { ctrlKey: true, code: "KeyC" }), named("C-c")); // Cyrillic layout
   assert.deepEqual(key("b", { altKey: true }), named("M-b"));
   assert.deepEqual(key(" ", { altKey: true }), named("M-Space"));
-  assert.deepEqual(key("∫", { altKey: true }), { keys: "∫", literal: true }); // Mac Option
+  assert.deepEqual(key("∫", { altKey: true, mac: true }), { keys: "∫", literal: true }); // Mac Option
+  assert.deepEqual(key("@", { altKey: true, code: "KeyL", mac: true }), { keys: "@", literal: true }); // German Mac
   assert.deepEqual(key("@", { ctrlKey: true, altKey: true, getModifierState: (m) => m === "AltGraph" }), { keys: "@", literal: true });
 });
 

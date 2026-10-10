@@ -5,6 +5,7 @@
 // F-keys are the same in both. PPage/NPage are what tmux's list-keys prints.
 const NAMED = { ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", PageUp: "PPage", PageDown: "NPage", Backspace: "BSpace", Delete: "DC", Insert: "IC", Escape: "Escape", Tab: "Tab", Enter: "Enter", Home: "Home", End: "End" };
 
+const MAC = /^Mac/.test(globalThis.navigator?.platform ?? "");
 // A chord on the space bar needs tmux's name for it.
 const spaced = (c) => (c === " " ? "Space" : c);
 
@@ -16,7 +17,7 @@ const spaced = (c) => (c === " " ? "Space" : c);
 // Plain Ctrl-V is the pane's C-v (literal-next, Claude Code's image paste), like a terminal.
 // IME composition never reaches here: the terminal is not editable, so an input method
 // has nothing to compose into, and CJK text goes through the composer, which is.
-export function tmuxKey(e, selected = false) {
+export function tmuxKey(e, selected = false, mac = MAC) {
   if (e.isComposing || e.metaKey) return null;
   const altGr = e.getModifierState?.("AltGraph"), ctrl = e.ctrlKey && !altGr, alt = e.altKey && !altGr;
   if (ctrl && e.shiftKey) return null;
@@ -38,8 +39,9 @@ export function tmuxKey(e, selected = false) {
     if (!letter || alt || "wtn".includes(letter) || (selected && letter === "c")) return null;
     return { keys: `C-${spaced(letter)}`, literal: false };
   }
-  // Option on a Mac types its own characters (å, ∫); only an ASCII one is a Meta chord.
-  if (alt && /^[\x20-\x7e]$/.test(e.key)) return { keys: `M-${spaced(e.key)}`, literal: false };
+  // Option on a Mac is a character key (å, ∫, and @ on a German layout), so what it typed
+  // is text, as in Terminal.app by default. Elsewhere Alt leaves the key alone: a Meta chord.
+  if (alt && !mac && /^[\x20-\x7e]$/.test(e.key)) return { keys: `M-${spaced(e.key)}`, literal: false };
   return { keys: e.key, literal: true };
 }
 
