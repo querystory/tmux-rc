@@ -20,9 +20,12 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple
 html, body { position: fixed; inset: 0; overflow: hidden; }
 /* Until app.js runs, the markup is a skeleton: icon buttons ship empty and both brand rows
    show, since app.js picks the layout. Over a slow tunnel that lasts seconds, so show a
-   plain loading line instead of the half-built chrome. */
-html:not(.booted) #app { visibility: hidden; }
-html:not(.booted) body::after { content: "Loading…"; position: fixed; inset: 0; display: grid; place-items: center; color: var(--muted); }
+   plain loading line instead of the half-built chrome. If app.js never runs (a module
+   failed to load, or threw), both flip after 10s, so the page is never stuck on the line. */
+html:not(.booted) #app { visibility: hidden; animation: unveil 0s 10s forwards; }
+html:not(.booted) body::after { content: "Loading…"; position: fixed; inset: 0; display: grid; place-items: center; color: var(--muted); animation: veil 0s 10s forwards; }
+@keyframes unveil { to { visibility: visible; } }
+@keyframes veil { to { visibility: hidden; } }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, a, input, textarea, select { touch-action: manipulation; }
 button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; min-height: 44px; }
