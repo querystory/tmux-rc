@@ -42,7 +42,7 @@ function row(i, licon, now) {
 function moved(items, now) {
   const count = k => items.filter(i => i.kind === k).length;
   const by = [...new Set(items.filter(i => i.kind === "reviewed").map(i => i.by))];
-  return `<span class="m">${esc([count("merged") && `${count("merged")} merged`, count("pushed") && `${count("pushed")} pushed`,
+  return `<span class="m">${esc([count("merged") && `${count("merged")} merged`, count("committed") && `${count("committed")} with new commits`,
     by.length && `reviewed by ${by.join(", ")}`].filter(Boolean).join(" · "))} · ${ago(items[0].at, now)}</span>`;
 }
 
@@ -63,7 +63,7 @@ export function renderLoops(el, report, open, licon, now = Date.now()) {
   const markup = Object.entries(LANES).map(([lane, title], k) => {
     const list = groups(lane), n = list.reduce((sum, g) => sum + g.items.length, 0);
     return `<details class="loop-lane" ${open0[k] ?? lane !== "moving" ? "open" : ""}><summary><h3>${title}</h3><span class="m">${n}</span></summary>`
-      + (list.map(g => `<section class="loop-ws">${solo(g) ? "" : `<h4>${esc(g.workstream?.name || "Ungrouped")}</h4>`}`
+      + (list.map(g => `<section class="loop-ws">${lane !== "moving" && solo(g) ? "" : `<h4>${esc(g.workstream?.name || "Ungrouped")}</h4>`}`
         + (lane === "moving" ? moved(g.items, now) : g.items.map(i => row(i, licon, now)).join("")) + "</section>").join("")
         || '<p class="m">Nothing here.</p>') + "</details>";
   }).join("") + `<p class="m loop-notes">${esc(notes.filter(Boolean).join(" · "))}</p>`;

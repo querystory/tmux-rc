@@ -1,9 +1,10 @@
 """Open loops: which pieces of work have stopped moving, and what would unstick each.
 
-The join of three sources: GitHub pull requests (one GraphQL query per REFRESH, cached),
-pane state (live from the watcher, including its PR associations) and worktrees (local
-git, cached on the same cadence). Requests render from the cache and never touch the
-network. Grouping is by stack only for now. See docs/design/open-loops.md.
+The join of three sources: GitHub pull requests (a few paged GraphQL requests per REFRESH,
+cached), pane state (live from the watcher, including its PR associations) and worktrees
+(local git, cached on the same cadence). Requests render from the cache and never touch the
+network. Workstreams come from stacks, then labels, then an optional keyword map. See
+docs/design/open-loops.md.
 """
 from __future__ import annotations
 
@@ -66,7 +67,7 @@ def _pr(node: dict) -> dict:
         "base": node["baseRefName"], "head": node["headRefName"], "stacked": stacked,
         "mergeable": node.get("mergeable"), "decision": node.get("reviewDecision"),
         "checks": (commit.get("statusCheckRollup") or {}).get("state"),
-        "pushed_at": _ts(commit.get("committedDate")),
+        "committed_at": _ts(commit.get("committedDate")),  # not the push: GitHub keeps no such date
         # A bot (a Copilot review, say) is not a reviewer a person will answer for.
         "reviewers": sum(r["requestedReviewer"].get("__typename") in ("User", "Team")
                          for r in node["reviewRequests"]["nodes"] if r["requestedReviewer"]),
@@ -110,8 +111,9 @@ def requests(refs: list[tuple[str, int]], now: float):
             f"r{n}: repository(owner: {json.dumps(repo.split('/', 1)[0])}, name: "
             f"{json.dumps(repo.split('/', 1)[1])}) {{ issueOrPullRequest(number: {int(num)})"
             " { ...P } }" for n, (repo, num) in enumerate(refs[i:i + CHUNK]))
-    older = f"{mine} updated:<{horizon}"
-    yield "older", f's: search(type: ISSUE, first: 0, query: "{older}") {{ issueCount }}'
+    for who in (mine, asked):  # disjoint: nobody can be asked to review their own PR
+        q = f"{who} updated:<{horizon}"
+        yield "older", f's: search(type: ISSUE, first: 0, query: "{q}") {{ issueCount }}'
 
 
 def fetch_github(refs: list[tuple[str, int]], now: float) -> dict:
@@ -121,7 +123,7 @@ def fetch_github(refs: list[tuple[str, int]], now: float) -> dict:
         for _ in range(MAX_PAGES):  # only a search has pages; the rest stop after one
             data = _graphql(body.replace(AFTER, after))
             result = data.get("s") or {}
-            older = result.get("issueCount", older)
+            older += result.get("issueCount", 0)
             nodes = result.get("nodes") or [(v or {}).get("issueOrPullRequest")
                                             for k, v in data.items() if k.startswith("r")]
             for node in nodes:
@@ -269,8 +271,8 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
             lanes["moving"][group].append({**ref, "kind": "merged", "at": p["merged_at"]})
         if p["state"] != "OPEN" or p["updated_at"] < now - HORIZON:  # a pane's old reference
             continue
-        if p["pushed_at"] >= now - RECENT:
-            lanes["moving"][group].append({**ref, "kind": "pushed", "at": p["pushed_at"]})
+        if p["committed_at"] >= now - RECENT:
+            lanes["moving"][group].append({**ref, "kind": "committed", "at": p["committed_at"]})
         lanes["moving"][group] += [{**ref, "kind": "reviewed", "by": r["by"], "state": r["state"],
                                  "at": r["at"]} for r in p["reviews"] if r["at"] >= now - RECENT]
         mine = p["author"] == github.get("viewer")

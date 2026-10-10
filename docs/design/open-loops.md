@@ -13,11 +13,15 @@ is the one action that unsticks each", in three lanes:
   is approved, green, mergeable and targets the default branch; your green PR in a
   repository that requires no review (the only step left is your click); a review that
   someone asked of you.
-- **Moving**: what merged, what was pushed and what was reviewed in the last day.
+- **Moving**: what merged, what got new commits and what was reviewed in the last day.
+  "New commits" is the head commit's date, not the push: GitHub keeps no push time on a
+  PR, so an old commit pushed today does not count. Step 3's snapshots replace this with a
+  diff of head commits, which does see it.
 - **Dropped**: your PR that needs a review and has nobody asked; a red head; a stacked PR
   whose base merged or was deleted; a PR that conflicts with its base; a PR untouched for
   three days; a pane idle for a day over uncommitted changes in a worktree only it sits
-  in; a worktree no pane is on, holding uncommitted changes or commits that exist on no
+  in; a worktree no pane sits in or owns (through the PR whose head is its branch), holding
+  uncommitted changes or commits that exist on no
   remote.
 
 Rows carry reason codes rather than prose, so the view can word them and a test can pin
@@ -78,6 +82,12 @@ a click. It still shows up in its workstream when it moves or drops.
 a repository's main checkout while their agents work in worktrees elsewhere. Flagging
 every idle pane there for the checkout's uncommitted files repeated one finding a dozen
 times and blamed sessions that never touched the files.
+
+**A worktree is owned through its PR as well as by a pane sitting in it.** Most panes sit
+in a repository's main checkout and their agents work in worktrees elsewhere, so a cwd
+match alone would call nearly every worktree abandoned. When a pane is associated with the
+PR whose head is the worktree's branch, that session owns the worktree, and the PR row
+already carries it.
 
 **Unpushed work is judged without GitHub.** Commits that exist on no remote branch are
 drift. Two cases are excluded because they are almost never lost work: a branch whose
