@@ -116,6 +116,14 @@ def test_a_failed_search_is_retried_then_fails_whole(monkeypatch):
     assert len(calls) == 2
 
 
+def test_paging_stops_at_a_cap_and_says_so(monkeypatch):
+    more = {"pageInfo": {"hasNextPage": True, "endCursor": "c"}, "nodes": []}
+    monkeypatch.setattr(open_loops, "run_gh", lambda *a: json.dumps(
+        {"data": {"viewer": {"login": "dev"}, "s": more if "is:pr is:open author" in a[0][-1]
+                  and "updated:>=" in a[0][-1] else {"pageInfo": {}, "nodes": []}}}))
+    assert fetch_github([], NOW)["truncated"]
+
+
 def test_a_failed_git_listing_keeps_the_previous_rows(monkeypatch):
     monkeypatch.setattr(open_loops, "_git", lambda *a: "/c/.git\n" if "rev-parse" in a else None)
     before = [{**wt("/wt/drift", "spike", unpushed=1), "common": "/c/.git"},
