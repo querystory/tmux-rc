@@ -480,15 +480,15 @@ def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch, how):
 
 @pytest.mark.parametrize(
     "back", [None, "shown", "hidden", "shown, dropped", "expired", "tapped", "undelivered",
-             "taken over", "shown, taken over"])
+             "taken over", "shown, taken over", "tapped, parked"])
 def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
     """Locking the phone drops the socket, the moment a push matters most: the parked card
     counts as out of view and still pushes once, on the wait it began with, even over a
     reconnect that stays hidden, or one that takes over a half-open socket still holding
     the card. A reconnect that shows it again, or expiry, stops it, and after one that
     showed it drops in turn, or is taken over hidden, the wait starts over. A card the
-    user tapped, parked only because its "decided" died with the socket, is answered: no
-    push. Nor does one the phone never received."""
+    user tapped, parked only because its "decided" died with the socket (on its own
+    connection or a reconnect), is answered: no push. Nor does one the phone never received."""
     L._parked.clear()
     pushed = []
     monkeypatch.setattr(L, "_chats", {})
@@ -523,6 +523,15 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
             call.cancel()  # the socket dropped: the card is parked
         await asyncio.gather(call, return_exceptions=True)
         L._disconnect(meter)
+        if back == "tapped, parked":  # Send on a reconnect whose socket died before "decided"
+            tap = {"action": "approve", "id": ws.sent[0]["id"], "ok": True}
+
+            class Dead(_ScriptedWS):
+                async def send_json(self, obj):
+                    raise ConnectionError  # this socket died too
+
+            with pytest.raises(ConnectionError):
+                await L._forward_client(Dead([tap]), _Session(), _chat())
         await asyncio.sleep(0.15)
         if back in {"shown", "hidden", "shown, dropped", "shown, taken over"}:
             again = _chat()  # the same chat reconnects, its view in the handshake
@@ -535,7 +544,7 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
 
     _run(go())
     quiet = back in {"shown", "shown, dropped", "expired", "tapped", "undelivered",
-                     "shown, taken over"}
+                     "shown, taken over", "tapped, parked"}
     assert pushed == ([] if quiet else ['Send to window 3 "work": ls'])
     assert L._parked == {} if back == "expired" else len(L._parked) == 1
     L._parked.clear()
