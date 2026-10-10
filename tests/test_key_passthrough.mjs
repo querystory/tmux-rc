@@ -99,3 +99,14 @@ test("a failed keystroke drops the jobs queued behind it", async () => {
   await assert.rejects(job);
   assert.equal(ran, false);
 });
+
+test("a failed job drops the keys queued behind it", async () => {
+  const sent = [];
+  const push = inputQueue(async (op) => { sent.push(op.keys); return true; });
+  let fail;
+  const job = push.run(() => new Promise((_, reject) => { fail = reject; }));
+  push({ pane: "%1", keys: "a", literal: true });
+  fail(new Error("compose failed"));
+  await assert.rejects(job); await tick();
+  assert.deepEqual(sent, []);
+});

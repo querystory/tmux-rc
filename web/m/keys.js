@@ -45,9 +45,10 @@ export function tmuxKey(e, selected = false) {
 // fast typing costs a round trip per burst rather than per key. An auto-repeat
 // (`op.repeat`, a held key) is dropped while anything is still queued, so holding
 // Backspace or an arrow stops within a round trip of letting go instead of draining a
-// backlog far past where the user meant to stop. `send(op)` resolves false on a failure,
-// which drops everything queued behind it, jobs included (their promises reject): typing
-// on, or submitting a draft, into a pane whose state is now unknown is worse than losing it.
+// backlog far past where the user meant to stop. A failure, of a key (`send(op)` resolves
+// false) or of a job (it rejects), drops everything queued behind it, and dropped jobs
+// reject: typing on, or submitting a draft, into a pane whose state is now unknown is
+// worse than losing it.
 export function inputQueue(send) {
   const queue = [];
   let pumping = false;
@@ -57,8 +58,10 @@ export function inputQueue(send) {
     try {
       while (queue.length) {
         const op = queue.shift();
-        if (op.run) await op.run().then(op.resolve, op.reject);
-        else if (!await send(op)) for (const dropped of queue.splice(0)) dropped.reject?.(new Error("dropped after a failed keystroke"));
+        const ok = op.run
+          ? await op.run().then((value) => { op.resolve(value); return true; }, (error) => { op.reject(error); return false; })
+          : await send(op);
+        if (!ok) for (const dropped of queue.splice(0)) dropped.reject?.(new Error("dropped after a failed pane input"));
       }
     } finally { pumping = false; }
   };
