@@ -8,9 +8,9 @@
 //
 //   io.question()   → the pane's current question object, or null if it is gone
 //   io.parsedAt()   → parsed_at of the frame that question() came from (seconds, float)
-//   io.sendKey(k, on) → send ONE tmux key-name, no Enter; with `on` ({prompt, row}), only
-//                     while the highlight under that prompt is on that row. Resolves true
-//                     only if DELIVERED.
+//   io.sendKey(k, on) → send ONE tmux key-name, no Enter; with `on` ({prompt, row, options}),
+//                     only while the highlight under that prompt is on that row (and on no
+//                     other of the options). Resolves true only if DELIVERED.
 //   io.sendText(t)  → type literal text, NO Enter appended. Same delivery contract.
 //   io.note(msg)    → say something to the user
 //
@@ -176,7 +176,7 @@ async function walk(io, targetText, targetIndex) {
     if (want < 0 || soleIndex(q.options, targetText) !== want) return false;
     if (at === null) return false; // no trustworthy anchor — walking blind picks a row
     // The row's text and prompt ride along: the server re-reads the highlight before select.
-    if (at === want) return km.select ? io.sendKey(km.select, { prompt: q.prompt, row: targetText }) : false;
+    if (at === want) return km.select ? io.sendKey(km.select, { prompt: q.prompt, row: targetText, options: q.options }) : false;
     if (moves === CURSOR_MAX_STEPS) return false; // budget spent; this pass only looked
     const key = at < want ? km.next : km.prev;
     if (!key) return false; // the widget never advertised this direction — don't invent one

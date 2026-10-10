@@ -140,7 +140,7 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
             raise AssertionError(shown)
 
         def send(keys, row=None):
-            on = row and {"prompt": "Remove it?", "row": row}
+            on = row and {"prompt": "Remove it?", "row": row, "options": ["No", "Yes"]}
             body = {"keys": keys, "enter": False, "literal": False, "on_row": on}
             return client.post(f"/api/panes/{pane}/send", json=body)
 
