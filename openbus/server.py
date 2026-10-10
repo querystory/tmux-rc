@@ -970,9 +970,10 @@ def select(pane_id: str, request: Request):
 
 
 def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
-                 pid: str | None = None) -> None:
+                 pid: str | None = None) -> list[tuple[str, str]]:
     """Kill the pane's window; with `pid`, only while that process still owns the pane
-    (tmux.kill_window), refusing if it no longer does."""
+    (tmux.kill_window), refusing if it no longer does. Returns the panes killed, (id, pid),
+    which also leave the published deck at once."""
     pane = tmux.find_pane(pane_id)
     if pane is None:
         _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
@@ -985,17 +986,19 @@ def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
     if not killed:
         _audit(request, action, pane_id, detail, outcome="rejected: the pane changed")
         raise HTTPException(409, "the pane changed")
+    app.state.watcher.drop_panes({pane_id for pane_id, _ in killed})
+    return killed
 
 
 @app.post("/api/panes/{pane_id}/close")
 def close_window(pane_id: str, request: Request):
     """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
-    Destructive: any process in the window is killed. The watcher evicts the pane on its next
-    tick (emitting pane_removed), so the card disappears on the client's next poll with no
-    special cleanup — the same path as a window closed on the host."""
-    _kill_window(request, pane_id, "kill_window")
+    Destructive: any process in the window is killed. Its panes leave the published deck at
+    once, so the client's next poll no longer has it; the watcher's next tick then evicts it
+    (emitting pane_removed), the same path as a window closed on the host."""
+    killed = _kill_window(request, pane_id, "kill_window")
     _audit(request, "kill_window", pane_id)
-    return {"ok": True}
+    return {"ok": True, "killed": killed}
 
 
 def _pane_session(pane_id: str, birth: str, expected: str | None = None):
@@ -1053,7 +1056,7 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
         _audit(request, "expunge", pane_id, detail, outcome="rejected: no history database")
         raise HTTPException(409, "tmux-rc's history database is unavailable: nothing was "
                                  "touched")
-    _kill_window(request, pane.id, "expunge", detail, pane.pid)
+    killed = _kill_window(request, pane.id, "expunge", detail, pane.pid)
     if not expunge.wait_gone(s):  # the window is gone, so this is a failure, not a refusal
         _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
         raise HTTPException(500, "the window closed, but the agent is still running: "
@@ -1069,7 +1072,7 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
         raise HTTPException(500, "the session's files are deleted, but tmux-rc could not "
                                  "delete its own stored card for the pane yet")
     _audit(request, "expunge", pane_id, detail)
-    return {"ok": True, **result}
+    return {"ok": True, **result, "killed": killed}
 
 
 @app.post("/api/client-error")

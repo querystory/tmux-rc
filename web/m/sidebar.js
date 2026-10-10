@@ -10,7 +10,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age, records, liveSubagents, subagentCount } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -142,6 +142,7 @@ export function setupSidebar(ctx) {
   }
   function updateRow(node, { p, g, card }) {
     node._p = p;
+    markEnding(node, p);
     node.classList.toggle("need", needsYou(p));
     // On the card for its styling and on its button, which is what assistive tech lands on.
     for (const el of [node, node.firstChild]) {
@@ -153,7 +154,7 @@ export function setupSidebar(ctx) {
     // By state the session is context; by session it is the group heading already.
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
-    text(node.querySelector(".a"), age(p));
+    text(node.querySelector(".a"), p.ending || age(p));
     // Needs you is about the question and its answers, so its cards only count sub-agents.
     const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents"), lines = prefs.subagents && g.id !== "need";
     badge.hidden = !agents.length || lines; list.hidden = !agents.length || !lines;
@@ -205,6 +206,7 @@ export function setupSidebar(ctx) {
     }, (b, p) => {
       if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
+      markEnding(b, p);
       const agents = subagentCount(p);
       b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
       b.classList.toggle("need", needsYou(p));

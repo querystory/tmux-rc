@@ -357,6 +357,7 @@ class Watcher:
         # version > 0) would never kick in.
         self._state_fp: str | None = None
         self._state_changed = asyncio.Event()
+        self._publish_lock = threading.Lock()  # deck writers vs. drop_panes (a request thread)
 
     def state_version(self) -> int:
         """Monotonic version of the deck-relevant view; bumped only when it changes.
@@ -532,12 +533,13 @@ class Watcher:
         # briefly dropping the UI's active selection. The next full tick reconciles.
         if focused is None:
             return
-        cur = next((s.get("pane_id") for s in self.states if s.get("tmux_active")), None)
-        if focused == cur:
-            return
-        for s in self.states:
-            s["tmux_active"] = s.get("pane_id") == focused
-        self._bump_state_if_changed(self.states)
+        with self._publish_lock:  # against drop_panes publishing a smaller deck meanwhile
+            cur = next((s.get("pane_id") for s in self.states if s.get("tmux_active")), None)
+            if focused == cur:
+                return
+            for s in self.states:
+                s["tmux_active"] = s.get("pane_id") == focused
+            self._bump_state_if_changed(self.states)
 
     def request_reparse(self, pane_id: str) -> None:
         """Force an LLM re-parse of `pane_id` on the next tick AND wake the loop now, so
@@ -555,6 +557,17 @@ class Watcher:
                 # don't fail the request over a wake we no longer need — the pane id stays
                 # in _force_parse and a running loop would pick it up on its next tick.
                 pass
+
+    def drop_panes(self, pane_ids: set[str]) -> None:
+        """Unpublish panes the daemon just killed, so the next /api/state omits them rather
+        than serving them until a tick notices; then wake that tick to reconcile. A tick
+        already running read tmux before the kill and may publish them once more (the client
+        hides those, app.js endPane)."""
+        with self._publish_lock:  # a tick publishing meanwhile must not swallow the bump
+            self.states = [s for s in self.states if s.get("pane_id") not in pane_ids]
+            self._bump_state_if_changed(self.states)
+        for pane_id in pane_ids:
+            self.request_reparse(pane_id)
 
     def invalidate_input_actions(self, pane_id: str) -> None:
         """Invalidate actions before a pane-input transaction can take its send lock."""
@@ -740,9 +753,10 @@ class Watcher:
                         history_server: str | None = None) -> None:
         # Publish a fresh snapshot so replacing/enriching the next startup result does
         # not mutate the deck already visible to HTTP handlers between version bumps.
-        self.states = [dict(s) for s in states]
-        self._booted = True
-        self._bump_state_if_changed(self.states)
+        with self._publish_lock:
+            self.states = [dict(s) for s in states]
+            self._booted = True
+            self._bump_state_if_changed(self.states)
         # Progressive UI publication mixes old and newly parsed pane states. Only
         # the final inventory for a tick belongs in durable history.
         if record_history and self.history is not None:
@@ -792,6 +806,7 @@ class Watcher:
         parts = [
             repr((
                 s.get("pane_id"), s.get("tmux_active"), s.get("session_active"),
+                s.get("birth"),  # a recycled %N is a new pane even where nothing else differs
                 # The structural identity the phone RENDERS (headers, window numbers):
                 # a renumber/rename with unchanged content must still bump the version.
                 s.get("session"), s.get("window_index"), s.get("window_name"),
