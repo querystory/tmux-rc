@@ -72,7 +72,7 @@ export function inputQueue(send) {
     } finally { lanes.delete(pane); }
   };
   const push = (op) => {
-    const queue = lanes.get(op.pane), last = queue?.at(-1);
+    const queue = lanes.get(op.pane), last = queue?.[queue.length - 1]; // not .at(): older iOS Safari, which this UI supports, lacks it
     if (op.repeat && last) return;
     if (op.literal && last?.literal) last.keys += op.keys;
     else if (queue) queue.push({ ...op });
