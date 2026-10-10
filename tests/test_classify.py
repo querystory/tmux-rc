@@ -176,17 +176,23 @@ def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
     assert r["working"] == {"verb": "Delegating", "elapsed": "1m 3s"}
 
 
-@pytest.mark.parametrize(("child", "tool"), [
-    ("bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash` wrapper
-    ("/usr/local/bin/omp\0", "omp"),
-    ("vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+@pytest.mark.parametrize(("command", "title", "child", "tool"), [
+    # omp behind a shell is proven by its title plus a live omp process
+    ("bash", "π ⠧ x", "bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash`
+    ("bash", "π ⠧ x", "/usr/local/bin/omp\0", "omp"),
+    ("bash", "π ⠧ x", "vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+    ("bash", "x", "/usr/local/bin/codex\0", "opencode"),  # no title: a stopped agent proves nothing
+    # an npm-installed agent's foreground is `node`; the script it runs names the agent
+    ("node", "x", "node\0/opt/nvm/bin/codex\0", "codex"),
+    ("node", "x", "node\0/opt/nvm/bin/claude\0--resume\0", "claude"),
+    ("node", "x", "node\0server.js\0", "opencode"),  # not an agent: the model decides
 ])
-def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, tool):
+def test_host_tool_from_the_process_tree(monkeypatch, command, title, child, tool):
     proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
             ("11", "cmdline"): child}
     for module in (classify_mod, tmux):  # the process walk lives in tmux
         monkeypatch.setattr(module, "proc_read", lambda pid, name: proc.get((pid, name), ""))
-    pane = Pane("work", "0", "bash", "0", "%0", "bash", "π ⠧ agent-history-omp", "/x", pid="10")
+    pane = Pane("work", "0", "bash", "0", "%0", command, title, "/x", pid="10")
     r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
     assert r["tool"] == tool
 
