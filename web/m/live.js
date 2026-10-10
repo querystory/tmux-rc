@@ -237,9 +237,12 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const untapped = [...current.proposals.keys()].filter((id) => !current.sending.has(id));
     deliver(current, [...current.sending.values(), ...(untapped.length ? [{ action: "sync", ids: untapped }] : [])]);
   }
-  // Reconnect now rather than at the backoff's end: a tap waits on it, or the phone is back.
+  // Reconnect now rather than at the backoff's end (or a connect begun offline): a tap waits
+  // on it, or the phone is back. An open socket is already on its way to "listening".
   function revive(current = run) {
-    if (current?.ws?.readyState === WebSocket.CLOSED) { clearTimeout(current.retry); connect(current); }
+    if (!current?.ws || current.ws.readyState === WebSocket.OPEN) return;
+    clearTimeout(current.retry); try { current.ws.close(); } catch {}
+    connect(current);
   }
   // A dropped connection takes the daemon's queued turns with it; ending the chat, its cards too.
   function drop(current) { current.turns = 0; badge(); }

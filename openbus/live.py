@@ -472,11 +472,11 @@ async def _connect(meter: _Meter, *, viewing: bool, fresh: bool = False) -> None
 
     One still registered is a socket the phone already left: it saw the drop and
     reconnected, but the daemon hears of a half-open one only at its ping timeout. Its
-    cards go to the new one now, ending its waits as a drop would, so they park before the
-    new connection can read a sync or a Send for them (the old call wakes on the loop's
-    next pass, the new socket's first frame is a round trip away), rather than being
-    answered "expired" while still held by the dead one. A `fresh` one is a new chat: an
-    earlier one ended offline, so its cards go, once parked."""
+    cards go to the new one now, ending its waits as a drop would, so they are parked by
+    the time this returns (the old call wakes on the loop's next pass), before the new
+    connection can read a sync or a Send for them, rather than being answered "expired"
+    while still held by the dead one. A `fresh` one is a new chat: an earlier one ended
+    offline, so its cards go, once parked."""
     chat = meter.actor, meter.session
     old = _chats.get(chat)
     meter.unseen_since = None if viewing else (  # the live connection's word, else parked
@@ -488,8 +488,8 @@ async def _connect(meter: _Meter, *, viewing: bool, fresh: bool = False) -> None
             if not answer.done():
                 answer.set_exception(WebSocketDisconnect(1001))
     _chats[chat] = meter
+    await asyncio.sleep(0)  # the replaced connection's cards park on this pass
     if fresh:
-        await asyncio.sleep(0)  # the replaced connection's cards park on this pass
         _unpark(meter)
 
 

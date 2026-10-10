@@ -628,7 +628,6 @@ def test_a_reconnect_takes_the_cards_of_the_connection_it_replaces(monkeypatch, 
         await shown.wait()
         new = _chat()
         await L._connect(new, viewing=True, fresh=fresh)
-        await asyncio.sleep(0)  # the new socket's first frame is at least a loop pass away
         proposal = ws.sent[0]["id"]
         sync = _ScriptedWS([{"action": "sync", "ids": [proposal]},
                             {"action": "approve", "id": proposal, "ok": True},
