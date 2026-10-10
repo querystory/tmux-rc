@@ -1,5 +1,6 @@
 """Open loops: the GitHub query and its parse, the worktree scan, and the lane join."""
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from threading import Event
@@ -226,6 +227,18 @@ def test_scan_finds_every_worktree_and_what_it_holds(tmp_path):
     assert found["spike"]["dirty"] == 1
     assert found["scratch"]["unpushed"] == 0  # detached: not a branch of work
     assert found["spike"]["active_at"] > 0
+    old = found["repo"]["active_at"] - 30 * 86400
+    for f in (repo / ".git" / "index", repo / ".git" / "logs" / "HEAD", repo / "moved", repo / "f"):
+        os.utime(f, (old, old))
+    (repo / "kept-too").write_text("x")
+    _git("add", "kept-too", cwd=repo)
+    _git("commit", "-m", "kept-too", cwd=repo)
+    os.utime(repo / ".git" / "index", (old, old))
+    os.utime(repo / ".git" / "logs" / "HEAD", (old, old))
+    (repo / "kept-too").unlink()  # an unstaged deletion is the only fresh change
+    os.utime(repo, (old + 60, old + 60))
+    deleted = next(w for w in scan_worktrees([str(repo)]) if w["path"] == str(repo))
+    assert deleted["active_at"] == old + 60  # dated by the directory it left
     stop = Event()
     stop.set()
     assert scan_worktrees([str(repo)], stop) == []  # shutdown: the scan stops at once
