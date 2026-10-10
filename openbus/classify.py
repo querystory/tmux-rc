@@ -84,21 +84,34 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 # Yes pressed Enter on No), so the screen decides wherever it shows one, and /send checks
 # it before a select. Only between the prompt and the widget's bottom edge (a ─── rule or
 # a ╰ corner), so neither a turn in the scrollback nor the input box under a picker that
-# has closed is ever the cursor.
+# has closed is ever the cursor. A box with no highlight in it is the search field above
+# the list (/resume, /config), not its edge, so it is passed over. Returns the one option
+# the row names: itself, or itself ahead of a value column ("Auto-compact      true").
 _HIGHLIGHT_RE = re.compile(
     _PROMPT_ROW + r"[ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?(.*?)[\s│┃╎]*$", re.MULTILINE)
-_WIDGET_END_RE = re.compile(r"^\s*(?:[─━]{3,}|╰)", re.MULTILINE)
+_WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
 
 
-def highlighted_row(visible: str, prompt: str) -> str | None:
+def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
     *_, asked = [None, *_occurrences(prompt, visible)]
     if not asked:
         return None
-    end = _WIDGET_END_RE.search(visible, asked.end())
-    rows = _HIGHLIGHT_RE.finditer(visible, asked.end(), end.start() if end else len(visible))
+    end = next((edge.start() for edge in _WIDGET_END_RE.finditer(visible, asked.end())
+                if edge["rule"] or _HIGHLIGHT_RE.search(visible, asked.end(), edge.start())),
+               len(visible))
+    rows = _HIGHLIGHT_RE.finditer(visible, asked.end(), end)
     *_, row = [None, *rows]
-    return row and row[1]
+    named = row and [option for option in options if isinstance(option, str)
+                     and (row[1] == option or row[1].startswith(f"{option}  "))]
+    return named[0] if named and len(named) == 1 else None
 
+
+# A tab strip under a dialog's top rule ("Settings  Status  Config  Usage  Stats") is a
+# panel the user opened and is browsing (/config, /plugin). The agent is not asking: a row
+# there toggles a setting or opens a page and the panel stays, so it is no question. Only
+# the last rule counts, since it is the dialog still open at the bottom of the screen.
+_TABBED_PANEL_RE = re.compile(r"▔{3,}.*\n[ \t]*\w+(?:[ \t]{2,}\w+){3,}[ \t]*$(?![\s\S]*▔)",
+                              re.MULTILINE)
 
 # The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
 # at its input box, so every row under it is status/footer chrome (Claude's welcome
@@ -1012,6 +1025,10 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
+    if result.get("tool") == "claude" and _TABBED_PANEL_RE.search(visible):
+        result.pop("question", None)
+        if result.get("activity") == "waiting":
+            result["activity"] = "idle"
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
@@ -1022,8 +1039,7 @@ def classify(
         ) for line in footer):
             keymap["search"] = True
         rows, asked = question.get("options"), _question_prompt(question)
-        row = asked and highlighted_row(visible, asked)
-        if row and isinstance(rows, list) and rows.count(row) == 1:
+        if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask"):

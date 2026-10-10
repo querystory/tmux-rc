@@ -32,18 +32,46 @@ SCREEN = """❯ Yes, please remove it.
 
  Esc to cancel · Tab to amend"""
 
+TABS = "Settings  Status   Config   Usage   Stats"
+PANEL = f"""▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ◐ medium · /effort ▔
+   {TABS}
+
+   ╭──────────────────────╮
+   │ ⌕ Search settings…   │
+   ╰──────────────────────╯
+
+   ❯ Auto-compact                true
+     Thinking mode               true
+     Thinking can't be turned off for Opus 5.5
+     Theme                       Auto (match terminal) ›
+
+   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear"""
+
+PANE = Pane("work", "0", "claude", "0", "%0", "claude", "t", "/home/x/proj")
+
 
 def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
-    assert highlighted_row(SCREEN, 'Permanently remove "Demo"?') == "No"
+    no_yes = ["No", "Yes"]
+    assert highlighted_row(SCREEN, 'Permanently remove "Demo"?', no_yes) == "No"
     box = "│ Which color?   │\n│ ❯ ○ Red        │\n│   ○ Green      │"
-    assert highlighted_row(box, "Which color?") == "Red"
-    assert highlighted_row("Effort?\n› 2. Medium\n  3. High", "Effort?") == "Medium"
+    assert highlighted_row(box, "Which color?", ["Red", "Green"]) == "Red"
+    assert highlighted_row("Effort?\n› 2. Medium\n  3. High", "Effort?", ["Medium"]) == "Medium"
     # No glyph under the prompt: the ❯ turn above it is history, not the cursor.
-    assert highlighted_row("❯ Yes\nProceed?\n  No\n  Yes", "Proceed?") is None
-    assert highlighted_row(SCREEN, "Some other prompt?") is None
+    assert highlighted_row("❯ Yes\nProceed?\n  No\n  Yes", "Proceed?", no_yes) is None
+    assert highlighted_row(SCREEN, "Some other prompt?", no_yes) is None
     # A picker that has closed: the live input box below it is not its highlight.
     closed = "Proceed?\n  No\n  Yes\n────────\n❯ Yes\n────────"
-    assert highlighted_row(closed, "Proceed?") is None
+    assert highlighted_row(closed, "Proceed?", no_yes) is None
+    # A search box between the prompt and the list is not the widget's edge, and a row
+    # names its option ahead of a value column (Claude Code's /resume and /config).
+    names = ["Auto-compact", "Thinking mode"]
+    assert highlighted_row(PANEL, "Search settings…", names) == "Auto-compact"
+    resume = PANEL.replace(TABS, "Resume session")
+    assert highlighted_row(resume, "Resume session", names) == "Auto-compact"
+    # A label's own double space is kept: only the whole label, or the label then a gap.
+    title, pick = "Fix  login bug", "Pick?\n❯ Fix  login bug"
+    assert highlighted_row(pick, "Pick?", [title]) == title
+    assert highlighted_row(pick, "Pick?", ["Fix", title]) is None
 
 
 def test_classify_overrides_a_misread_anchor():
@@ -52,9 +80,19 @@ def test_classify_overrides_a_misread_anchor():
         "options": ["No", "Yes"], "selected": 1,
         "keymap": {"next": "Down", "prev": "Up", "select": "Enter"},
     }}
-    pane = Pane("work", "0", "claude", "0", "%0", "claude", "t", "/home/x/proj")
-    result = classify(pane, f"{tmux.VISIBLE_SCREEN}\n{SCREEN}", lambda s, t: misread)
+    result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{SCREEN}", lambda s, t: misread)
     assert result["question"]["selected"] == 0
+
+
+def test_a_tabbed_panel_the_user_opened_is_not_a_question():
+    read = {"tool": "claude", "activity": "waiting", "waiting_on": "user", "question": {
+        "prompt": "Search settings…", "answer_style": "cursor", "selected": 0,
+        "options": ["Auto-compact", "Thinking mode", "Theme"],
+    }}
+    result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{PANEL}", lambda s, t: read)
+    assert "question" not in result
+    assert result["activity"] == "idle"
+    assert "waiting_on" not in result
 
 
 MENU = """
@@ -102,7 +140,7 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
             raise AssertionError(shown)
 
         def send(keys, row=None):
-            on = row and {"prompt": "Remove it?", "row": row}
+            on = row and {"prompt": "Remove it?", "row": row, "options": ["No", "Yes"]}
             body = {"keys": keys, "enter": False, "literal": False, "on_row": on}
             return client.post(f"/api/panes/{pane}/send", json=body)
 

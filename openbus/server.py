@@ -169,6 +169,7 @@ _EXT = {
 class OnRow(BaseModel):
     prompt: str = Field(min_length=1)
     row: str
+    options: list[str]  # the picker's rows, so a row that two of them could name is refused
 
 
 class SendBody(BaseModel):
@@ -892,7 +893,8 @@ def send(pane_id: str, body: SendBody, request: Request):
     def on_row() -> None:
         # A cursor picker's select, checked against the screen under the send lock: the
         # walk's anchor is a parse, and a stale or misread one must not commit a row.
-        at = highlighted_row(tmux.capture_pane(pane.id, lines=0), body.on_row.prompt)
+        screen = tmux.capture_pane(pane.id, lines=0)
+        at = highlighted_row(screen, body.on_row.prompt, body.on_row.options)
         if at != body.on_row.row:
             msg = f"The highlight is not on {body.on_row.row!r}; nothing was sent."
             raise tmux.PaneChangedError(msg)
