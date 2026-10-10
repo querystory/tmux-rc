@@ -583,7 +583,9 @@ def new_session(name: str, cwd: str, command: str | None = None, window: str = "
         else:  # still start it: a session that dies on restart beats no session at all
             logger.warning("systemd-run not found: a tmux server started now lives in the "
                            "daemon's cgroup and dies on the next tmux-rc restart")
-    argv = ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name, "-c", cwd]
+    # -E: on a server already running, the session takes its global environment as is,
+    # rather than update-environment marking every variable env scrubbed (DISPLAY) removed.
+    argv = ["new-session", "-d", "-E", "-P", "-F", "#{pane_id}", "-s", name, "-c", cwd]
     if window:
         argv += ["-n", window]
     return _run([*argv, *([command] if command else [])], prefix=scope,
