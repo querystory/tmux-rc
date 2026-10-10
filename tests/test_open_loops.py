@@ -64,7 +64,7 @@ def rows(lanes, lane):
 
 def test_requests_are_small_and_cover_everything():
     reqs = list(requests([("example-org/shop-web", 7), ('evil"org/x', 1)], NOW))
-    assert [tag for tag, _ in reqs] == ["mine", "asked", "merged", "ref", "older"]
+    assert [tag for tag, _ in reqs] == ["mine", "asked", "merged", "ref", "older", "older"]
     body = dict(reqs)
     assert "author:@me archived:false updated:>=2026-06-02T09:00:00Z" in body["mine"]
     assert "review-requested:@me" in body["asked"]
@@ -84,12 +84,13 @@ def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
         calls.append(q)
         if "author:@me archived:false updated:>=" in q and len(calls) == 1:
             return "<html>502 Bad Gateway</html>"  # GitHub's answer to a slow search
-        s = ({"pageInfo": {"hasNextPage": False}, "nodes": [node(3)]} if 'after: "c1"' in q
+        s = ({"issueCount": 4} if "updated:<" in q
+             else {"pageInfo": {"hasNextPage": False}, "nodes": [node(3)]} if 'after: "c1"' in q
              else {"pageInfo": {"hasNextPage": True, "endCursor": "c1"}, "nodes": [node(1), {}]}
              if "author:@me archived:false updated:>=" in q
              else {"pageInfo": {}, "nodes": [node(1, author="lee")]} if "review-requested" in q
              else {"pageInfo": {}, "nodes": []} if "is:merged" in q
-             else {"issueCount": 4} if "updated:<" in q else None)
+             else None)
         refs = {"r0": None, "r1": {"issueOrPullRequest": None},
                 "r2": {"issueOrPullRequest": node(2, author="lee")}} if s is None else {"s": s}
         assert ("fragment P" in q) == ("...P" in q)  # an unused fragment is a GraphQL error
@@ -98,9 +99,9 @@ def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
 
     monkeypatch.setattr(open_loops, "run_gh", gh)
     got = fetch_github([(REPO, 9)], NOW)
-    assert got["older"] == 4 and sorted(p["number"] for p in got["prs"]) == [1, 2, 3]
+    assert got["older"] == 8 and sorted(p["number"] for p in got["prs"]) == [1, 2, 3]
     assert next(p for p in got["prs"] if p["number"] == 1)["asked"]
-    assert len(calls) == 7  # mine twice (a retry), its second page, asked, merged, refs, older
+    assert len(calls) == 8  # mine twice (a retry), page 2, asked, merged, refs, two counts
 
 
 def test_fetch_failure_keeps_the_last_good_answer(monkeypatch):
@@ -163,7 +164,7 @@ def test_lanes():
     # Stacks group themselves under their root, merged links included.
     by_ws = {g["workstream"]["id"] if g["workstream"] else None: g for g in lanes["moving"]}
     assert [(i["kind"], i["number"]) for i in by_ws[f"{REPO}#18"]["items"]] == [
-        ("pushed", 19), ("merged", 18), ("reviewed", 19)]
+        ("committed", 19), ("merged", 18), ("reviewed", 19)]
     group = next(g for g in lanes["dropped"] if any(i.get("path") == "/wt/a13" for i in g["items"]))
     assert group["workstream"] == {"id": f"{REPO}#13", "name": "Change 13"}
     assert next(g for g in lanes["dropped"] if g["workstream"] is None)

@@ -371,7 +371,7 @@ def seed_loops(loops):
             "head": f"feat/{number}", "stacked": "stacked" in o, "base_merged": "base_merged" in o,
             "mergeable": o.get("mergeable", "MERGEABLE"),
             "decision": o.get("decision", "REVIEW_REQUIRED"), "checks": o.get("checks", "SUCCESS"),
-            "pushed_at": at, "reviewers": int(o.get("reviewers", 1)), "asked": "asked" in o,
+            "committed_at": at, "reviewers": int(o.get("reviewers", 1)), "asked": "asked" in o,
             "reviews": [{"by": who, "state": verdict, "at": NOW - int(ago) * 3600}] if who else [],
             "labels": [o["label"]] if "label" in o else []})
     loops.github, loops.fetched_at = {"viewer": "dev", "older": 6, "prs": prs}, NOW - 7 * 60
