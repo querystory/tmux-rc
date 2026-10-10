@@ -19,7 +19,7 @@ self.addEventListener("push", (event) => {
     icon: "/apple-touch-icon.png",
     badge: "/apple-touch-icon.png",
     actions,
-    data: { url: data.url || "/m", nonce: data.nonce || null },
+    data: { url: data.url || "/m", nonce: data.nonce || null, chat: !!data.chat },
   }));
 });
 
@@ -40,12 +40,13 @@ self.addEventListener("notificationclick", (event) => {
     }
     const target = new URL(data.url || "/m", self.location.origin).href;
     const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
-    const existing = windows.find((client) => {
+    const app = windows.find((client) => {
       try { return new URL(client.url).pathname.startsWith("/m"); } catch { return false; }
-    }) || windows[0];
+    }), existing = app || windows[0];
     if (existing) {
       try {
-        await existing.navigate(target);
+        // A chat lives in the open app: navigating would reload it away, so ask it instead.
+        if (data.chat && app) app.postMessage("chat"); else await existing.navigate(target);
         return existing.focus();
       } catch {}
     }

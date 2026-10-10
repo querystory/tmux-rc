@@ -10,8 +10,8 @@ const PLAYBACK_RATE = 24000; // Rate of the PCM the server streams back.
 const MIN_FRAME_SAMPLES = 4096; // Batch mic samples so each WebSocket frame is worth its JSON overhead.
 const MAX_SOCKET_BACKLOG = 65536; // Drop mic audio once this much is unsent, instead of piling up latency.
 const CHAR_CHUNK = 0x8000; // fromCharCode argument-count bound.
-const CONNECT_DEADLINE_MS = 30000; // Give up if the server never reports "listening".
-const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring the session lost.
+const CONNECT_DEADLINE_MS = 30000; // Give up (retry, while a card waits) if the server never reports "listening".
+const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring the session lost; its cap while a card waits.
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
@@ -62,10 +62,18 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function badge() {
     const working = run?.turns > 0 && !run.proposals.size;
     bubble({ shown: !!run && !dialog.open, voice: run && !run.text, unread, pending: run?.proposals.size, working });
+    viewing();
     if (working === typing.isConnected) return;
     const follow = following();
     if (working) log.append(typing); else typing.remove();
     if (follow) log.scrollTop = log.scrollHeight;
+  }
+  // A card left waiting while nobody looks pushes "Chat needs you" (live._nudge), so the
+  // daemon hears each change, and a fresh socket the view at connect, in its handshake.
+  function viewing(current = run) {
+    const on = dialog.open && !document.hidden;
+    if (!current?.listening || current.viewing === on) return;
+    current.viewing = on; current.ws.send(JSON.stringify({ action: "viewing", on }));
   }
   const bubble = chatBubble({ licon, open: () => show() });
   const starters = chatStarters($("chat-starters"), sendText);
@@ -165,8 +173,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // A pane-changing action in a text session waits for the user: Send runs it, Cancel
   // tells the model the user declined (live._approved), and so does typing a new message
   // instead (superseded: a card never holds the next turn hostage). The card shows a final
-  // answer only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
-  // side of the proposal with it, so any card still open then is expired, never retried.
+  // answer only once the daemon confirms it ("decided"). A dropped connection leaves it open:
+  // the daemon keeps it for this chat a while, so a tap waits out the reconnect, hurried
+  // along, and goes again on each new connection until answered (a socket can die with it
+  // in flight); only a card the daemon no longer has comes back "expired".
   function propose(current, { id, text, image, pane_id, session }) {
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
     if (session) row.lastChild.append(sessionMeta(session));
@@ -175,10 +185,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       const button = document.createElement("button"); button.type = "button"; button.textContent = label;
       if (ok) button.className = "primary";
       button.onclick = () => {
-        if (current.ws?.readyState !== WebSocket.OPEN) return settle(current, id, "Expired");
         actions.querySelectorAll("button").forEach((b) => { b.disabled = true; });
         row.firstChild.textContent = "Sending...";
-        current.ws.send(JSON.stringify({ action: "approve", id, ok }));
+        const frame = { action: "approve", id, ok };
+        current.sending.set(id, frame); deliver(current, [frame]); revive(current);
       };
       actions.append(button);
     }
@@ -215,12 +225,31 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function settle(current, id, label) {
     const card = current.proposals.get(id);
     if (!card) return;
+    current.sending.delete(id);
     card.row.firstChild.textContent = label; card.actions.remove(); current.proposals.delete(id); badge();
   }
-  // The daemon drops a session's open proposals and queued turns with it.
+  function deliver(current, frames) {
+    if (current.listening && current.ws?.readyState === WebSocket.OPEN) frames.forEach((frame) => current.ws.send(JSON.stringify(frame)));
+  }
+  // On each connection: the taps not yet answered go (again), and the untapped cards are
+  // checked, since a new message may have superseded one with the answer lost in a drop.
+  function resync(current) {
+    const untapped = [...current.proposals.keys()].filter((id) => !current.sending.has(id));
+    deliver(current, [...current.sending.values(), ...(untapped.length ? [{ action: "sync", ids: untapped }] : [])]);
+  }
+  // Reconnect now rather than at the backoff's end (or a connect begun offline): a tap waits
+  // on it, or the phone is back. An open socket is kept unless `force`d: woken with a card
+  // waiting, it may be half-open, and the daemon hands a replaced socket's cards over.
+  function revive(current = run, force = false) {
+    if (!current?.ws || (current.ws.readyState === WebSocket.OPEN && !force)) return;
+    clearTimeout(current.retry); try { current.ws.close(); } catch {}
+    connect(current);
+  }
+  // A dropped connection takes the daemon's queued turns with it; ending the chat, its cards too.
+  function drop(current) { current.turns = 0; badge(); }
   function expire(current) {
     [...current.proposals.keys()].forEach((id) => settle(current, id, "Expired"));
-    current.turns = 0; badge();
+    drop(current);
   }
   function silence(current) {
     current.queued.forEach((source) => { try { source.stop(); } catch {} });
@@ -367,20 +396,27 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (session) query.set("session", session);
     if (current.model) query.set("model", current.model);
     if (current.text) query.set("mode", "text");
+    if (!current.up) query.set("fresh", "1"); // a new chat: drop any cards an offline end left parked
+    current.viewing = dialog.open && !document.hidden; query.set("viewing", current.viewing ? "1" : "0");
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop(`Could not connect to ${name(current)}.`); return; }
     current.ws = ws; current.thumbs = []; // an echo lost with the old socket never comes
     clearTimeout(current.deadline);
-    current.deadline = setTimeout(() => { if (run === current && !current.listening) stop(`${name(current)} connection timed out. Try again.`); }, CONNECT_DEADLINE_MS);
+    current.deadline = setTimeout(() => {
+      if (run !== current || current.listening) return;
+      if (!current.proposals.size) return stop(`${name(current)} connection timed out. Try again.`);
+      try { ws.close(); } catch {}
+      connect(current);
+    }, CONNECT_DEADLINE_MS);
     ws.onmessage = ({ data }) => {
       if (run !== current || current.ws !== ws) return;
       let message; try { message = JSON.parse(data); } catch { return; }
       if (message.type === "status") {
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
-        if (!current.listening) expire(current);
-        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
+        if (!current.listening) drop(current);
+        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); resync(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
@@ -397,18 +433,23 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       }
       else if (message.type === "propose") propose(current, message);
       else if (message.type === "open_pane") offer(message);
+      else if (message.type === "expired") settle(current, message.id, "Expired");
       else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : message.ok === null ? "Cancelled — you sent a new message" : "Declined");
       else if (message.type === "interrupted") silence(current);
       else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
     };
     ws.onclose = (event) => {
       if (run !== current || current.ws !== ws) return;
-      clearTimeout(current.deadline); current.listening = false; expire(current);
+      clearTimeout(current.deadline); current.listening = false; drop(current);
       const { retry, refusal } = liveClose(event);
-      if (retry && current.up && current.tries < MAX_RECONNECT_TRIES) {
+      // The daemon keeps a card for half an hour (live.PARKED_SECONDS), and the tunnel takes
+      // a minute to come back from its hourly drop: while one waits, keep trying, capped,
+      // whatever the close (a restart's is clean: the reconnect learns the card expired).
+      const waiting = current.proposals.size && event.code !== 1008;
+      if (current.up && (waiting || (retry && current.tries < MAX_RECONNECT_TRIES))) {
         current.connectionStatus = "Connection lost. Reconnecting...";
         audioStatus(current);
-        current.retry = setTimeout(() => connect(current), 1000 * 2 ** current.tries++);
+        current.retry = setTimeout(() => connect(current), 1000 * 2 ** Math.min(current.tries++, MAX_RECONNECT_TRIES - 1));
       // A refusal says whether to reload the tab or go set a key; "Try again" names the
       // one action that cannot help.
       } else if (refusal) stop(refusal);
@@ -417,7 +458,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; log.replaceChildren(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
@@ -500,14 +541,16 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     paint(); audioStatus(run); resumeAudio(run, true);
   };
   window.addEventListener("pagehide", () => stop());
-  window.addEventListener("online", capabilities);
+  const wake = () => { capabilities(); revive(run, !!run?.proposals.size); };
+  window.addEventListener("online", wake);
   // Switching apps is visibilitychange, not navigation: keep the microphone and
   // socket alive. pagehide still releases capture when leaving this document.
   window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } });
   document.addEventListener("visibilitychange", () => {
-    if (run) { resumeAudio(run); keepAwake(run); }
-    if (!document.hidden) capabilities();
+    if (run) { resumeAudio(run); keepAwake(run); viewing(); }
+    if (!document.hidden) wake();
   });
+  navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data === "chat" && run) show(); });
   paint(); capabilities();
   return { isActive: () => !!run, refresh: capabilities };
 }

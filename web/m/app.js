@@ -122,9 +122,11 @@ const pendingAnswers = new Map();
 let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
 let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
+// CSPRNG-random or omitted, never guessed. getRandomValues, unlike randomUUID, needs no
+// secure context, and a reconnecting chat finds its parked cards by this id.
 const liveSession = (() => {
-  try { return crypto.randomUUID(); }
-  catch { return ""; } // CSPRNG-random or omitted, never guessed.
+  try { return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""); }
+  catch { return ""; }
 })();
 
 function draft(id = active) {

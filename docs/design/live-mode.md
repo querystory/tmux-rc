@@ -445,6 +445,34 @@ control plane's risk-tier idea (agentic-control-plane.md) applied at the smalles
 Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
 X into Y" announcement is voice's confirmation.
 
+**A card outlives its connection.** Cards used to expire the moment the socket dropped,
+because the daemon's half of a proposal lived in the coroutine waiting on the tap. On a
+phone that is every lock, every app switch iOS suspends, and the tunnel relay's hourly cap,
+so a card read, considered and then tapped a few minutes later said "Expired" with nothing
+about it having aged. Now a card whose connection drops is parked, keyed by the user and the
+page's chat session id, with what Send needs: the call, the pane process the card named,
+and the session's images. The phone keeps the card open, a tap reconnects at once, and the
+answer runs on the new connection. The model that asked went with the old connection (a
+reconnect starts a fresh one), so the outcome is shown and audited but not told to it, and
+a new message supersedes parked cards as it does live ones. A tap is resent on each new
+connection until answered, since a socket can die with it or its answer in flight, so the
+daemon also remembers each answer for as long and repeats it rather than running the card
+twice or calling it expired. The untapped cards are asked after on each new connection too,
+since a new message may have superseded one with the answer lost the same way. Expiry is real now: thirty minutes parked, a daemon restart, or
+ending the chat (ended while offline, the next chat's first connection clears them). Keeping the whole session (model,
+queue, tool calls) alive across a reconnect would also save the model's history, but it
+would turn a per-socket task tree into a detachable one, far more than the card needs.
+
+Two things have to hold for that to survive a real outage rather than a lock. The phone
+must not give up first: its usual five reconnect tries are over in about thirty seconds,
+and the tunnel takes a minute to come back from its hourly drop, so while a card waits the
+chat keeps trying at a capped backoff, and tries at once when the phone comes back online
+or into view. And a reconnect must find the card parked: a phone that saw its socket die
+can be back before the daemon notices the old, half-open one at its ping timeout, with the
+card still held there. So a new connection for a chat takes over the one it replaces,
+ending that one's waits exactly as a drop would, and the cards park before the new socket
+can deliver its first frame.
+
 **Taking the user to a window.** Asked to "go back to window 20", the assistant could only
 say the window was ready and ask what to do there: it could talk about panes but not show
 one. `open_pane` closes that gap by putting an Open button in the log, which goes where
@@ -519,6 +547,23 @@ anything said since and a count of consent cards still waiting, because a card n
 sees holds the model's turn open indefinitely. Restoring keeps the draft and the
 transcript's scroll position. Ending the conversation stays an explicit button, so a
 stray tap on the backdrop never throws one away.
+
+**A waiting card notifies.** The bubble only helps someone looking at the page. A card left
+waiting while the sheet is minimized, the app is in the background or the phone is locked
+sends a "Chat needs you" push through the same subscriptions as a pane that needs you. The
+client tells the daemon over the chat socket whenever the sheet goes in or out of view, so
+a card the user is reading stays quiet. A card must wait unseen for the same settle time
+as a pane's push, so minimizing for a moment does not buzz, and it pushes at most once.
+A dropped socket counts as out of view, and the wait belongs to the card rather than to
+the connection that showed it: locking a phone drops the socket and parks the card, and
+that is the moment a push matters most. Whether a parked card is in view again is the
+reconnected chat's word, including a card it took over from a half-open socket: the
+takeover ends the old connection's wait as a drop does, not as an answer, so the push still
+comes.
+The notification has no answer buttons: approving a pane action should happen where the
+card shows exactly what will be typed, not from a lock-screen line. Tapping it brings the
+chat back in the open page instead of navigating there, since a navigation would reload
+the page and end the conversation that holds the card.
 
 **Docked on a wide screen.** At the wide layout's breakpoint (1100px) the same panel opens
 non-modally as a column right of the work area, so nothing is dimmed and the pane stays
