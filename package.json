@@ -6,7 +6,7 @@
     "vendor:check": "node scripts/vendor-assets.mjs --check"
   },
   "devDependencies": {
-    "@oxc-project/runtime": "0.142.0"
+    "@oxc-project/runtime": "0.152.0"
   },
   "dependencies": {
     "echarts": "6.1.0",
