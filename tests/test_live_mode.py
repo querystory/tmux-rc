@@ -337,7 +337,8 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
 def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     """A card the user isn't looking at (sheet minimized, page hidden) pushes "Chat needs
     you" once it has waited a moment; one in view stays quiet. Either way the push stops
-    with the answer, so a card notifies at most once."""
+    with the answer, so a card notifies at most once, retrying one the push queue was too
+    full to take."""
     meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
     meter.unseen_since = None if viewing else time.monotonic()
     pushed = []
@@ -345,6 +346,7 @@ def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     class Push:
         def chat(self, text):
             pushed.append(text)
+            return len(pushed) > 1  # the first finds the queue full
 
     meter.push = Push()
 
@@ -361,7 +363,7 @@ def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
     _run(L._handle_tool_call(Answer(), _Session(), _FC(args={"pane_id": "%1", "text": "ls"}),
                              _Watcher(), meter))
-    assert pushed == ([] if viewing else ['Send to window 3 "work": ls'])
+    assert pushed == ([] if viewing else ['Send to window 3 "work": ls'] * 2)
 
 
 def test_client_reports_whether_the_chat_is_in_view():
@@ -477,14 +479,16 @@ def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch, how):
 
 
 @pytest.mark.parametrize(
-    "back", [None, "shown", "hidden", "shown, dropped", "expired", "tapped", "undelivered"])
+    "back", [None, "shown", "hidden", "shown, dropped", "expired", "tapped", "undelivered",
+             "taken over", "shown, taken over", "tapped, parked"])
 def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
     """Locking the phone drops the socket, the moment a push matters most: the parked card
     counts as out of view and still pushes once, on the wait it began with, even over a
-    reconnect that stays hidden. A reconnect that shows it again, or expiry, stops it, and
-    after one that showed it drops in turn, the wait starts over. A card the user tapped,
-    parked only because its "decided" died with the socket, is answered: no push. Nor
-    does one the phone never received."""
+    reconnect that stays hidden, or one that takes over a half-open socket still holding
+    the card. A reconnect that shows it again, or expiry, stops it, and after one that
+    showed it drops in turn, or is taken over hidden, the wait starts over. A card the
+    user tapped, parked only because its "decided" died with the socket (on its own
+    connection or a reconnect), is answered: no push. Nor does one the phone never received."""
     L._parked.clear()
     pushed = []
     monkeypatch.setattr(L, "_chats", {})
@@ -494,10 +498,10 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
     meter = _chat()
-    meter.push = SimpleNamespace(chat=pushed.append)  # in view when proposed
-    L._connect(meter, viewing=True)
+    meter.push = SimpleNamespace(chat=lambda text: pushed.append(text) or True)  # queued
 
     async def go():
+        await L._connect(meter, viewing=True)  # in view when proposed
         shown = asyncio.Event()
 
         class Shown(_WS):
@@ -513,20 +517,34 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
         await shown.wait()
         if back == "tapped":  # Send, then the socket died before its "decided"
             meter.approvals[ws.sent[0]["id"]].set_result(True)
+        elif back == "taken over":  # back, hidden, before the daemon saw the old socket go
+            await L._connect(_chat(), viewing=False)
         else:
             call.cancel()  # the socket dropped: the card is parked
         await asyncio.gather(call, return_exceptions=True)
         L._disconnect(meter)
+        if back == "tapped, parked":  # Send on a reconnect whose socket died before "decided"
+            tap = {"action": "approve", "id": ws.sent[0]["id"], "ok": True}
+
+            class Dead(_ScriptedWS):
+                async def send_json(self, obj):
+                    raise ConnectionError  # this socket died too
+
+            with pytest.raises(ConnectionError):
+                await L._forward_client(Dead([tap]), _Session(), _chat())
         await asyncio.sleep(0.15)
-        if back in {"shown", "hidden", "shown, dropped"}:
+        if back in {"shown", "hidden", "shown, dropped", "shown, taken over"}:
             again = _chat()  # the same chat reconnects, its view in the handshake
-            L._connect(again, viewing=back != "hidden")
+            await L._connect(again, viewing=back != "hidden")
             if back == "shown, dropped":
                 L._disconnect(again)
+            if back == "shown, taken over":  # hidden, while the shown one is half-open
+                await L._connect(_chat(), viewing=False)
         await asyncio.sleep(0.12)  # past the first wait, short of a restarted one
 
     _run(go())
-    quiet = back in {"shown", "shown, dropped", "expired", "tapped", "undelivered"}
+    quiet = back in {"shown", "shown, dropped", "expired", "tapped", "undelivered",
+                     "shown, taken over", "tapped, parked"}
     assert pushed == ([] if quiet else ['Send to window 3 "work": ls'])
     assert L._parked == {} if back == "expired" else len(L._parked) == 1
     L._parked.clear()
@@ -589,6 +607,55 @@ def test_a_parked_card_expires_for_real(monkeypatch):
                            {"type": "decided", "id": current, "ok": None}]
     assert [k[1] for k in L._parked] == ["other"]
     L._parked.clear()
+
+
+@pytest.mark.parametrize("fresh", [False, True])
+def test_a_reconnect_takes_the_cards_of_the_connection_it_replaces(monkeypatch, fresh):
+    """The phone saw its socket die and reconnected, but the daemon still holds the old,
+    half-open one until its ping timeout: the new connection takes the old one's cards,
+    parked by the time it can read a frame, so its sync leaves them open and a Send runs
+    them, rather than "expired" while the old one parks them for nobody. A new chat (an
+    earlier one ended offline) expires them instead, even the ones still parking."""
+    L._parked.clear()
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    shown = asyncio.Event()
+
+    class Shown(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            shown.set()
+
+    async def go():
+        old, ws = _chat(), Shown()
+        await L._connect(old, viewing=True)
+        call = asyncio.create_task(L._handle_tool_call(
+            ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), old))
+        await shown.wait()
+        new = _chat()
+        await L._connect(new, viewing=True, fresh=fresh)
+        proposal = ws.sent[0]["id"]
+        sync = _ScriptedWS([{"action": "sync", "ids": [proposal]},
+                            {"action": "approve", "id": proposal, "ok": True},
+                            {"action": "stop"}])
+        await L._forward_client(sync, _Session(), new)
+        L._disconnect(old)  # the old one's end, at its ping timeout, leaves the new one
+        assert L._chats == {(new.actor, new.session): new}
+        L._disconnect(new)
+        return proposal, sync, await asyncio.gather(call, return_exceptions=True)
+
+    proposal, ws, (ended,) = _run(go())
+    assert isinstance(ended, L.WebSocketDisconnect)  # the old one ends as a dropped socket
+    if fresh:
+        assert ws.sent == [{"type": "expired", "id": proposal}] * 2
+        assert typed == []
+    else:
+        assert ws.sent[0] == {"type": "decided", "id": proposal, "ok": True}  # no "expired"
+        assert typed == [("%1", "rebase", True, True)]
+    assert L._parked == {} and L._chats == {}
 
 
 def test_approval_is_refused_when_the_pane_had_no_process_to_bind(monkeypatch):

@@ -460,9 +460,56 @@ _DECLINED = {"declined": "the user declined",
 PARKED_SECONDS = 30 * 60
 _parked: dict[tuple, tuple] = {}
 _answered: dict[tuple, tuple] = {}
-# Each chat's live connection, (actor, session) -> its meter: whether a parked card is in
-# view again is the reconnected chat's word, not the dropped connection's (_nudge).
+# Each chat's live connection, (actor, session) -> its meter: a reconnect takes over the one
+# it replaces (_connect), and whether a parked card is in view again is the reconnected
+# chat's word, not the dropped connection's (_nudge).
 _chats: dict[tuple, _Meter] = {}
+
+
+async def _connect(meter: _Meter, *, viewing: bool, fresh: bool = False) -> None:
+    """Make `meter` its chat's live connection, in view or not as its handshake says. A
+    hidden reconnect carries on its cards' unseen wait rather than restarting it.
+
+    One still registered is a socket the phone already left: it saw the drop and
+    reconnected, but the daemon hears of a half-open one only at its ping timeout. Its
+    cards go to the new one now, ending its waits as a drop would, so they are parked by
+    the time this returns (the old call wakes on the loop's next pass), before the new
+    connection can read a sync or a Send for them, rather than being answered "expired"
+    while still held by the dead one. A `fresh` one is a new chat: an earlier one ended
+    offline, so its cards go, once parked."""
+    chat = meter.actor, meter.session
+    old = _chats.get(chat)
+    meter.unseen_since = None if viewing else (  # the live connection's word, else parked
+        old.unseen_since if old else next(
+            (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat), None)
+    ) or time.monotonic()
+    if old:
+        for answer in old.approvals.values():
+            if not answer.done():
+                answer.set_exception(WebSocketDisconnect(1001))
+    _chats[chat] = meter
+    await asyncio.sleep(0)  # the replaced connection's cards park on this pass
+    if fresh:
+        _unpark(meter)
+
+
+def _disconnect(meter: _Meter) -> None:
+    """A connection ended. A dead socket shows nothing, so its chat's parked cards are
+    out of view from now (or from whenever it already was) until the chat reconnects."""
+    chat = meter.actor, meter.session
+    if _chats.get(chat) is not meter:  # a reconnect's newer one took over
+        return
+    del _chats[chat]
+    since = meter.unseen_since or time.monotonic()
+    for key, parked in _parked.items():
+        if key[:2] == chat:
+            parked[4].unseen_since = since
+
+
+def _tapped(answer: asyncio.Future) -> bool:
+    """Whether the user answered a card (a tap, or a new message superseding it), rather
+    than its connection ending under it."""
+    return answer.done() and not answer.cancelled() and answer.exception() is None
 
 
 def _sweep() -> None:
@@ -586,7 +633,7 @@ async def _approved(
         ok = await answer  # True / False on a tap, None when a new message superseded it
         await _decide(websocket, meter, proposal, ok, rec)
     except BaseException:  # the connection failed under it (a cancel or a send): nothing ran
-        if answer.done() and not answer.cancelled() and answer.result() is None:
+        if _tapped(answer) and answer.result() is None:
             _answer(meter, proposal, None, rec)  # superseded: replayed, and never undone by a Send
         else:
             rec["consent"] = "parked"
@@ -600,29 +647,6 @@ async def _approved(
 _NUDGE_TICK = 1.0
 
 
-def _connect(meter: _Meter, *, viewing: bool) -> None:
-    """Make `meter` its chat's live connection, in view or not as its handshake says. A
-    hidden reconnect carries on its parked cards' unseen wait rather than restarting it."""
-    chat = meter.actor, meter.session
-    meter.unseen_since = None if viewing else next(
-        (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat), None
-    ) or time.monotonic()
-    _chats[chat] = meter
-
-
-def _disconnect(meter: _Meter) -> None:
-    """A connection ended. A dead socket shows nothing, so its chat's parked cards are
-    out of view from now (or from whenever it already was) until the chat reconnects."""
-    chat = meter.actor, meter.session
-    if _chats.get(chat) is not meter:  # a reconnect's newer one took over
-        return
-    del _chats[chat]
-    since = meter.unseen_since or time.monotonic()
-    for key, parked in _parked.items():
-        if key[:2] == chat:
-            parked[4].unseen_since = since
-
-
 async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str) -> None:
     """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
     at the chat (sheet minimized, page hidden, phone locked: a dropped socket) the whole
@@ -632,14 +656,18 @@ async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str
     while True:
         _sweep()  # a parked card expires on time even if nothing else sweeps meanwhile
         # Answered (a tap whose "decided" was lost is parked, but the user did answer), or
-        # gone: cancelled by a drop and no longer parked.
-        if ((answer.done() and not answer.cancelled())
-                or (proposal not in meter.approvals and _key(meter, proposal) not in _parked)):
+        # gone: cancelled by a drop and no longer parked, or tapped since it was parked (a
+        # resent tap's "decided" died too: _resume re-parks it with the answer in its rec).
+        held = _parked.get(_key(meter, proposal))
+        if _tapped(answer) or (proposal not in meter.approvals
+                               and (held is None or held[3]["consent"] != "parked")):
             return
         since = _chats.get((meter.actor, meter.session), meter).unseen_since
-        if since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS:
-            await asyncio.to_thread(meter.push.chat, text)
-            return
+        if (since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS
+                # On the loop, not a thread: nothing (a tap, coming into view) can land
+                # between the check above and the queueing. It reads a small JSON file.
+                and meter.push.chat(text)):
+            return  # queued; a full queue falls through and tries again next tick
         await asyncio.sleep(_NUDGE_TICK)
 
 
@@ -1388,12 +1416,11 @@ async def live_mode(websocket: WebSocket) -> None:
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
     meter.push = getattr(websocket.app.state, "push", None)
-    _connect(meter, viewing=websocket.query_params.get("viewing") != "0")
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
-    if websocket.query_params.get("fresh"):  # a new chat: an earlier one ended offline
-        _unpark(meter)
     outcome, reason = "ok", "stop"
     try:
+        await _connect(meter, viewing=websocket.query_params.get("viewing") != "0",  # finally
+                       fresh=bool(websocket.query_params.get("fresh")))
         if use_gpt:
             await gpt_live.run_session(websocket, watcher, meter)
         else:
