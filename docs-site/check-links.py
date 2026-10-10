@@ -4,7 +4,7 @@
 Crawls the on-disk Hugo output (serve/, what the daemon serves) — no server needed.
 Two checks: (1) every internal link resolves to a real built page; (2) no content
 page has an empty <main> (the shadowed-_index.md failure). External links, anchors,
-and daemon-served paths outside the site prefix are skipped. Linked assets are
+and explicitly allowed daemon routes are skipped. Linked assets are
 checked alongside pages, including images, scripts, and stylesheets.
 
 Run via `make docs-check`, which builds first. Exit 1 on any failure.
@@ -135,13 +135,12 @@ def main() -> int:
             if href.startswith("#"):
                 continue
             path = urllib.parse.urlparse(urllib.parse.urljoin(base, href)).path
-            # Daemon-served, not part of the Hugo build — not ours to validate. Two
-            # cases: an explicit daemon route (matches at any baseURL, incl. a root
-            # build where prefix == ""), or, when the site has a prefix (e.g. /docs/),
-            # any absolute path that escapes it.
+            # Only explicitly allowed daemon routes can escape the docs prefix.
+            # A host-root link to a docs page breaks both Pages and daemon hosting.
             if path.rstrip("/") in DAEMON_ROUTES:
                 continue
             if prefix and not path.startswith(prefix + "/") and path != prefix:
+                broken.append((base, href, path))
                 continue
             if file_path_for(path, prefix) is None:
                 broken.append((base, href, path))
