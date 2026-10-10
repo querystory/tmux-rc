@@ -42,11 +42,13 @@ for (const group of document.querySelectorAll('[data-tabs]')) {
 if (matchMedia('(max-width:700px)').matches) document.getElementById('phone-tab').click();
 
 for (const button of document.querySelectorAll('[data-copy]')) {
+  const label = button.getAttribute('aria-label');
   button.addEventListener('click', async () => {
     const code = document.getElementById(button.dataset.copy);
     try {
       await navigator.clipboard.writeText(code.textContent);
       button.textContent = 'Copied';
+      button.setAttribute('aria-label', label.replace(/^Copy /, 'Copied '));
     } catch {
       const selection = window.getSelection();
       const range = document.createRange();
@@ -54,7 +56,8 @@ for (const button of document.querySelectorAll('[data-copy]')) {
       selection.removeAllRanges();
       selection.addRange(range);
       button.textContent = 'Select & copy';
+      button.setAttribute('aria-label', 'Copy failed. Command selected; copy it manually.');
     }
-    setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+    setTimeout(() => { button.textContent = 'Copy'; button.setAttribute('aria-label', label); }, 2000);
   });
 }
