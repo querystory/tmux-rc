@@ -15,6 +15,7 @@ import hashlib
 import io
 import logging
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -25,7 +26,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
@@ -73,10 +74,11 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import telemetry, tmux  # noqa: E402
+from . import expunge, telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
+from .plan_usage import PlanUsage  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
@@ -175,6 +177,11 @@ class ClickBody(BaseModel):
 
 class WheelBody(BaseModel):
     lines: int = Field(ge=-30, le=30)  # wheel notches, positive = up (see tmux.wheel)
+
+
+class ExpungeBody(BaseModel):
+    session_id: str  # the session the confirmation named; refused if the pane's has changed
+    birth: str  # the pane incarnation the menu was drawn for (its `birth` in /api/state)
 
 
 class NewWindowBody(BaseModel):
@@ -392,19 +399,32 @@ async def lifespan(app: FastAPI):
         app.state.history = None
     app.state.watcher = Watcher(target=target, use_llm=use_llm, history=app.state.history)
     app.state.watcher.start()
+    _advertise_scratch()
     app.state.push = PushManager(app.state.watcher)
     app.state.push.start()
+    app.state.usage = PlanUsage(app.state.history)
+    usage_task = asyncio.create_task(app.state.usage.run(app.state.watcher))
     try:
         yield
     finally:
+        usage_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await usage_task
         await app.state.push.stop()
         await app.state.watcher.stop()
 
 
 # Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
 # (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
+# auto_configure off: FastAPI would otherwise attach its own OTLP exporters, from the
+# OTEL_* env the session shares with Claude Code, and ship every request span, metric and
+# log to that receiver. Our export is telemetry.py's scoped records, on its own provider.
 app = FastAPI(
-    title="tmux-rc", lifespan=lifespan, docs_url="/apidocs", redoc_url="/apiredoc"
+    title="tmux-rc",
+    lifespan=lifespan,
+    docs_url="/apidocs",
+    redoc_url="/apiredoc",
+    telemetry={"auto_configure": False},
 )
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
 # The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
@@ -433,6 +453,25 @@ async def no_cache(request, call_next):
     # default Permissions-Policy even over HTTPS; explicitly allow it for self so the
     # browser prompts (and the PWA keeps the grant) instead of silently rejecting.
     resp.headers["Permissions-Policy"] = "microphone=(self)"
+    # Scratch previews (and the mocks promoted from them into the docs) are arbitrary HTML
+    # on the daemon's own origin, where a script could call /api/* (type into terminals)
+    # with the viewer's session. A CSP sandbox without
+    # allow-same-origin gives them an opaque origin instead: they still run, but the
+    # daemon's API is cross-origin to them, exactly as from any other site. That only stops
+    # reading responses, so also refuse the blind writes (form posts, no-cors fetches) that
+    # would still carry the front door's cookie. Resource loads stay open: a bundle needs
+    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin. Match
+    # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
+    path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    if path.startswith(("/scratch/", "/docs/mocks/")):
+        resp.headers["Content-Security-Policy"] = (
+            "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")
+    # StaticFiles redirects a directory without its slash to an absolute URL built from
+    # the request's own scheme — http:// behind the TLS-terminating tunnel, which the
+    # phone can't reach (#174). Make same-host redirects path-only.
+    base = str(request.base_url)
+    if resp.headers.get("location", "").startswith(base):
+        resp.headers["location"] = "/" + resp.headers["location"][len(base):]
     for h in ("etag", "last-modified"):
         if h in resp.headers:
             del resp.headers[h]
@@ -505,6 +544,13 @@ def put_goal(body: GoalBody, request: Request):
     _history().set_goal(body.goal)
     _audit(request, "set_goal", "-", f"goal={body.goal}")
     return {"goal": body.goal}
+
+
+@app.get("/api/usage")
+def get_usage():
+    """Each Claude and Codex account's plan windows, trend and projection."""
+    usage = getattr(app.state, "usage", None)
+    return {"accounts": usage.report() if usage else []}
 
 
 @app.get("/api/state")
@@ -812,9 +858,9 @@ def send(pane_id: str, body: SendBody, request: Request):
             tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
                            expected_pid=birth, guard=claim if fp else None)
     except Exception as e:
-        _audit(
-            request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
-        )
+        # Keys refused at a password prompt are probably the password: never recorded.
+        keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
+        _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
         if isinstance(e, (tmux.PaneChangedError, ValueError)):
             raise HTTPException(409, str(e)) from e
         raise
@@ -940,22 +986,110 @@ def select(pane_id: str, request: Request):
     return {"ok": True}
 
 
+def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
+                 pid: str | None = None) -> list[tuple[str, str]]:
+    """Kill the pane's window; with `pid`, only while that process still owns the pane
+    (tmux.kill_window), refusing if it no longer does. Returns the panes killed, (id, pid),
+    which also leave the published deck at once."""
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
+        _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    try:
+        killed = tmux.kill_window(pane.id, pid)
+    except Exception as e:
+        _audit(request, action, pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise
+    if not killed:
+        _audit(request, action, pane_id, detail, outcome="rejected: the pane changed")
+        raise HTTPException(409, "the pane changed")
+    app.state.watcher.drop_panes({pane_id for pane_id, _ in killed})
+    return killed
+
+
 @app.post("/api/panes/{pane_id}/close")
 def close_window(pane_id: str, request: Request):
     """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
-    Destructive: any process in the window is killed. The watcher evicts the pane on its next
-    tick (emitting pane_removed), so the card disappears on the client's next poll with no
-    special cleanup — the same path as a window closed on the host."""
-    if tmux.find_pane(pane_id) is None:
-        _audit(request, "kill_window", pane_id, outcome="rejected: pane not found")
-        raise HTTPException(404, "pane not found")
-    try:
-        tmux.kill_window(pane_id)
-    except Exception as e:
-        _audit(request, "kill_window", pane_id, outcome=f"error: {e}"[:80])
-        raise
+    Destructive: any process in the window is killed. Its panes leave the published deck at
+    once, so the client's next poll no longer has it; the watcher's next tick then evicts it
+    (emitting pane_removed), the same path as a window closed on the host."""
+    killed = _kill_window(request, pane_id, "kill_window")
     _audit(request, "kill_window", pane_id)
-    return {"ok": True}
+    return {"ok": True, "killed": killed}
+
+
+def _pane_session(pane_id: str, birth: str, expected: str | None = None):
+    """The pane (resolved to its canonical %N), its one agent session and that session's
+    targets (openbus/expunge.py), or the refusal. `birth` is the incarnation the client's
+    menu describes: tmux reuses %N, so a stale menu must not reach a newer pane. A path
+    that resolves outside its root refuses here, before anything is killed."""
+    pane = tmux.find_pane(pane_id)
+    try:  # read now, not from the watcher: a cached screen may predate a recycled pane id
+        screen = tmux.capture_pane(pane.id) if pane and pane.pid else ""
+    except (OSError, subprocess.CalledProcessError):
+        pane = None
+    if not (pane and pane.pid):
+        raise HTTPException(404, "pane not found")
+    if pane.pid != birth:
+        raise HTTPException(409, "this is a different window now")
+    try:  # a screen from a newer pane under this id fails the pid guard on the kill
+        s = expunge.identify(pane.pid, screen, expected)
+        return pane, s, expunge.targets(s)
+    except expunge.Refused as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@app.get("/api/panes/{pane_id}/expunge")
+def expunge_preview(pane_id: str, birth: str):
+    """What Expunge would delete, for the confirmation to name."""
+    _, s, (own, shared) = _pane_session(pane_id, birth)
+    return {"harness": s.harness, "session_id": s.session_id,
+            "files": [p.name for p in own], "shared": [p.name for p in shared]}
+
+
+@app.post("/api/panes/{pane_id}/expunge")
+def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
+    """Kill the window, then delete its agent session's local files. The window goes first
+    so the agent can't write them again, and files go only once it has exited. The audit
+    line names the pane and session, never what was deleted."""
+    detail = f"session={body.session_id[:64]}"
+    try:
+        pane, s, _ = _pane_session(pane_id, body.birth, body.session_id)
+        uid = app.state.watcher.checkpoint_key(pane.id, pane.pid)
+    except HTTPException as e:
+        _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])
+        raise
+    except (OSError, subprocess.CalledProcessError) as e:
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: no tmux server id")
+        raise HTTPException(409, "tmux can't name its server, so tmux-rc's own card for the "
+                                 "pane couldn't be found: nothing was killed") from e
+    # The kill's guard is the pane's process, usually a shell; the agent it ran is checked
+    # here too, so one that was replaced since the preview never takes its successor down.
+    if not expunge.alive(s):
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: agent exited")
+        raise HTTPException(409, "the agent exited before the window was killed: nothing was "
+                                 "touched")
+    if app.state.watcher.history is None:  # its own card for the pane could not be deleted
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: no history database")
+        raise HTTPException(409, "tmux-rc's history database is unavailable: nothing was "
+                                 "touched")
+    killed = _kill_window(request, pane.id, "expunge", detail, pane.pid)
+    if not expunge.wait_gone(s):  # the window is gone, so this is a failure, not a refusal
+        _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
+        raise HTTPException(500, "the window closed, but the agent is still running: "
+                                 "nothing was deleted")
+    try:
+        result = expunge.expunge(s)
+    except (OSError, expunge.Refused) as e:
+        # Only the error's type: its message can carry a path (a project's name).
+        _audit(request, "expunge", pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise HTTPException(500, f"expunge failed partway: {e}") from e
+    if not app.state.watcher.forget_checkpoint(uid):
+        _audit(request, "expunge", pane_id, detail, outcome="error: checkpoint kept")
+        raise HTTPException(500, "the session's files are deleted, but tmux-rc could not "
+                                 "delete its own stored card for the pane yet")
+    _audit(request, "expunge", pane_id, detail)
+    return {"ok": True, **result, "killed": killed}
 
 
 @app.post("/api/client-error")
@@ -1112,7 +1246,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments = []
+    segments, secret = [], None
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
@@ -1131,13 +1265,26 @@ async def _compose(pane_id: str, request: Request):
                 if not data or len(data) > IMG_MAX_BYTES:
                     raise HTTPException(413, "image empty or too large")
                 segments.append((data, _stage_image(data, mime)))
+            elif kind == "secret" and isinstance(value, str) and secret is None:
+                if len(value.encode()) > 4095:  # the tty's line, less its newline
+                    raise HTTPException(413, "password too long")
+                secret = value
             else:
                 raise HTTPException(400, "invalid composer segment")
-    if not segments:
-        raise HTTPException(400, "empty composer")
-    await asyncio.to_thread(
-        _input_attempt, pane.id, _deliver_composer, pane.id, pane.pid, segments)
-    _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
+    # A password answers a no-echo prompt alone, and never reaches an audit or log
+    # line: the record says only that one was sent. See tmux.send_secret. The
+    # converse, refusing plain text at that prompt, is send_keys' own guard.
+    if bool(segments) == bool(secret):
+        raise HTTPException(400, "send a draft or a secret")
+    if not (secret or "").isprintable():  # a newline or ^D would end the read early,
+        raise HTTPException(400, "a password is printable text")  # the rest run as input
+    if secret:
+        await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
+    else:
+        await asyncio.to_thread(
+            _input_attempt, pane.id, _deliver_composer, pane.id, pane.pid, segments)
+    _audit(request, "compose", pane_id,
+           detail="secret" if secret else f"{len(segments)} segments")
     return {"ok": True}
 
 
@@ -1214,11 +1361,28 @@ def _to_png(data: bytes) -> bytes:
     return buf.getvalue()
 
 
-# Docs site (Hugo build) at /docs, before the "/" mount so it wins. The site is built
-# with --baseURL /docs/ (see Makefile), so its assets already reference /docs/... —
-# mounting the tree here serves them verbatim; StaticFiles strips the /docs prefix on
-# lookup. Off by default (no dir = no mount), so dev — which runs Hugo's own hot-reload
-# server — isn't shadowed by stale built files. TMUXRC_DOCS_DIR overrides the location.
+def _mount_static(prefix: str, directory: str) -> None:
+    """Serve a directory read-only at prefix/, before the "/" mount so it wins. StaticFiles
+    confines lookups to the directory (no ../ or symlink escape) and lists nothing.
+    Bare prefix (no trailing slash) 404s under the real ASGI server — the mount only
+    answers prefix/… and the later "/" catch-all doesn't serve it either. (Note:
+    Starlette's TestClient *does* auto-redirect it, so this route looks removable in a
+    unit test but is load-bearing in production — don't delete it.) Redirect to prefix/,
+    keeping the query."""
+
+    def slash(request: Request) -> RedirectResponse:
+        query = request.url.query
+        return RedirectResponse(prefix + "/" + (f"?{query}" if query else ""))
+
+    app.add_api_route(prefix, slash, include_in_schema=False)
+    app.mount(prefix, StaticFiles(directory=directory, html=True), name=prefix.strip("/"))
+
+
+# Docs site (Hugo build) at /docs. The site is built with --baseURL /docs/ (see
+# Makefile), so its assets already reference /docs/... — mounting the tree here serves
+# them verbatim; StaticFiles strips the /docs prefix on lookup. Off by default (no dir =
+# no mount), so dev — which runs Hugo's own hot-reload server — isn't shadowed by stale
+# built files. TMUXRC_DOCS_DIR overrides the location.
 # /api/version reports DOCS_MOUNTED so the client hides its Docs link instead of linking
 # to a 404 when the site was never built. index.html, not just the dir: an empty or
 # half-written build dir would mount yet still 404 at /docs/.
@@ -1227,15 +1391,42 @@ _docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
 )
 DOCS_MOUNTED = (Path(_docs_dir) / "index.html").is_file()
 if DOCS_MOUNTED:
-    # Bare /docs (no trailing slash) 404s under the real ASGI server — the /docs mount
-    # only answers /docs/… and the later "/" catch-all doesn't serve it either. (Note:
-    # Starlette's TestClient *does* auto-redirect it, so this route looks removable in a
-    # unit test but is load-bearing in production — don't delete it.) Redirect to /docs/.
-    @app.get("/docs", include_in_schema=False)
-    def _docs_slash():
-        return RedirectResponse("/docs/")
+    _mount_static("/docs", _docs_dir)
 
-    app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
+# Throwaway previews (mocks, a built site under review) at /scratch/, so showing one on
+# the phone needs no second tunnel: it rides the same authenticated front door as /docs.
+# Only an explicitly configured dir is served — there is no default — because whatever
+# lands in it is published to everyone the tunnel admits. Mocks worth keeping belong in
+# docs-site/static/mocks/ instead, which ships with the docs at /docs/mocks/.
+_scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
+_scratch_dir = _scratch_dir if _scratch_dir and Path(_scratch_dir).is_dir() else None
+if _scratch_dir:
+    _mount_static("/scratch", _scratch_dir)
+
+
+def _bind() -> tuple[str, int]:
+    return os.environ.get("TMUXRC_HOST", "127.0.0.1"), int(os.environ.get("TMUXRC_PORT", "18030"))
+
+
+def _advertise_scratch() -> None:
+    """Opt-in (TMUXRC_SCRATCH_ADVERTISE=1): export the served scratch dir, its public URL
+    when TMUXRC_SCRATCH_URL is set, and a local URL (the public one sits behind the user's
+    login, so an agent checks its page here) to tmux's global environment, which new panes
+    and their agents inherit. Off by default: it writes to the user's own tmux server.
+    tmux outlives the daemon, so whatever is no longer configured is removed, not kept."""
+    if os.environ.get("TMUXRC_SCRATCH_ADVERTISE") != "1":
+        return
+    host, port = _bind()
+    host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)  # a wildcard: loopback
+    host = f"[{host}]" if ":" in host else host
+    env = {"TMUXRC_SCRATCH_DIR": _scratch_dir,
+           "TMUXRC_SCRATCH_URL": os.environ.get("TMUXRC_SCRATCH_URL") or None,  # "" = unset
+           "TMUXRC_SCRATCH_LOCAL_URL": f"http://{host}:{port}/scratch"}
+    try:
+        for name, value in env.items():
+            tmux.set_global_env(name, value if _scratch_dir else None)
+    except (subprocess.CalledProcessError, OSError):  # no server yet, or no tmux binary
+        logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 
 # Bare /m needs its own route; /m/ does not. The "/" mount below (html=True) serves
 # web/m/index.html for /m/, but answers bare /m with a 307 built from the request's own
@@ -1297,12 +1488,13 @@ def main() -> None:
     # is what the trust model needs.
     # log_config=None: don't install uvicorn's own handlers/formatters — its loggers
     # (uvicorn.access etc.) then propagate to root and share the timestamped format above.
+    host, port = _bind()
     uvicorn.run(
         "openbus.server:app" if reload else app,
         proxy_headers=False,
         log_config=None,
-        host=os.environ.get("TMUXRC_HOST", "127.0.0.1"),
-        port=int(os.environ.get("TMUXRC_PORT", "18030")),
+        host=host,
+        port=port,
         reload=reload,
         reload_dirs=[str(_PKG_DIR)] if reload else None,
     )

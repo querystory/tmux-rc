@@ -193,3 +193,19 @@ def test_a_card_checkpointed_without_a_frame_is_parsed_again(monkeypatch, tmp_pa
     w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
     assert "parse" in calls
     assert w.states[0]["frame"]
+
+
+def test_an_expunged_pane_is_never_checkpointed_again(monkeypatch, tmp_path):
+    w, _ = daemon(monkeypatch, tmp_path / "h.db")
+    monkeypatch.setattr(W, "summarize_events", lambda texts: None)
+    assert w.history.load_checkpoints()
+    delete = w.history.delete_checkpoints
+    monkeypatch.setattr(w.history, "delete_checkpoints", lambda uids: (_ for _ in ()).throw(
+        sqlite3.OperationalError("database is locked")))
+    # The database is busy: the deletion is reported as not done, and waits for a tick.
+    assert not w.forget_checkpoint(w.checkpoint_key("%1", "101"))
+    assert w.history.load_checkpoints()
+    monkeypatch.setattr(w.history, "delete_checkpoints", delete)
+    w._checkpointed.clear()  # stands for a tick that captured the pane before it closed
+    w._tick()
+    assert w.history.load_checkpoints() == {}

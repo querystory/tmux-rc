@@ -12,6 +12,7 @@ from openbus.watcher import Watcher
 class _Pane:
     def __init__(self, pid="%1", label="work", current_command="bash"):
         self.id = pid
+        self.pid = None  # no process: no agent transcript to read
         self.current_command = current_command  # real classify() anchors tool on this
         self.label = label
         self.title = self.display_title = label
@@ -27,11 +28,7 @@ def _harness(monkeypatch, frame_holder):
     monkeypatch.setattr(W.tmux, "capture_pane", lambda pid, mark_dim=False: frame_holder[0])
     monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "srv:1:%1")
 
-    def fake_classify(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def fake_classify(pane, text, **_kw):
         calls["n"] += 1  # one call == one LLM parse
         return {"activity": "idle", "events": [], "label": pane.label, "tool": "shell"}
 
@@ -277,6 +274,26 @@ def test_unchanged_screen_parses_once(monkeypatch):
     assert calls["n"] == 1, "an unchanged screen must never re-parse (no heartbeat)"
 
 
+def test_reply_landing_after_the_screen_settled_reparses_once(monkeypatch):
+    w, calls = _harness(monkeypatch, ["• Run this:\n  make check"])
+    reply = [None]  # the transcript write trails the frame the first parse read
+    monkeypatch.setattr(W.transcript, "last_reply", lambda pane, text: reply[0])
+    pane = _Pane()
+    for i in range(6):
+        reply[0] = "Run this:\n```\nmake check\n```" if i >= 2 else None
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 2
+    # A restored card (no parse yet this run) takes the first reply it sees as the one
+    # it was parsed with, so a later one still re-parses.
+    w._parsed_reply.clear()
+    for r in ("first", "first", "second"):
+        reply[0] = r
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 3
+
+
 def test_content_change_reparses(monkeypatch):
     frame = ["$ idle prompt"]
     w, calls = _harness(monkeypatch, frame)
@@ -329,11 +346,7 @@ def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch
     w, calls = _harness(monkeypatch, frame)
     outcomes = [None, None, {"activity": "idle", "events": [], "tool": "claude"}]
 
-    def flaky(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def flaky(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         got = outcomes.pop(0) if outcomes else {"activity": "idle", "events": [], "tool": "claude"}
         if got is None:  # what classify() returns when the model call failed
@@ -365,11 +378,7 @@ def test_repeated_failures_dont_restart_the_pane_clocks(monkeypatch):
     frame = ["agent finished · done 10:28 PM"]  # an agent TUI: no bare shell prompt
     w, calls = _harness(monkeypatch, frame)
 
-    def always_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def always_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         return {"activity": prev_activity or "unknown", "tool": "unknown",
                 "events": [], "parse_ok": False}
@@ -396,11 +405,7 @@ def test_service_backoff_does_not_spend_the_pane_budget(monkeypatch):
     braked = {"on": True}
     monkeypatch.setattr(W, "backing_off", lambda: braked["on"])
 
-    def refused(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def refused(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         if braked["on"]:
             return {"activity": prev_activity or "unknown", "tool": "unknown",
@@ -428,11 +433,7 @@ def test_a_new_screen_clears_the_failure_budget(monkeypatch):
     frame = ["screen one"]
     w, calls = _harness(monkeypatch, frame)
 
-    def always_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def always_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         return {"activity": prev_activity or "unknown", "tool": "unknown",
                 "events": [], "parse_ok": False}
@@ -481,11 +482,7 @@ def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
             "question": {"answer_style": "menu", "prompt": "Proceed?", "options": ["Yes", "No"]}}
     seq = [good]
 
-    def then_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def then_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         if seq:
             return dict(seq.pop(0))
@@ -517,11 +514,7 @@ def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
     seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
             "question": {"prompt": "Proceed?"}}]
 
-    def then_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def then_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         if seq:
             return dict(seq.pop(0))
@@ -549,11 +542,7 @@ def test_failed_forced_reparse_still_retries(monkeypatch):
     seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
             "question": {"prompt": "Proceed?"}}]
 
-    def then_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def then_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         if seq:
             return dict(seq.pop(0))

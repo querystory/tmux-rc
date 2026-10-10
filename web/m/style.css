@@ -103,10 +103,10 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-icon > img:first-child { width: 100%; height: 100%; padding: 6px; box-sizing: border-box; border-radius: 50%; background: var(--raised); }
 .needs-you .pane-icon > img:first-child { background: var(--surface); }
 .pane-icon > .working:first-child { background: var(--accent-bg); }
-.pane-icon > img:first-child:is([src="/claude.png"], [src="/opencode.svg"], [src="/omp.svg"], [src="/omp-working.svg"]) { padding: 0; }
+.pane-icon > img:first-child:is([src="/claude.png"], [src="/opencode.svg"], [src="/omp.svg"], [src$="-working.svg"]) { padding: 0; }
 /* Claude's png carries a ~1px drop shadow on its bottom and right edges, which reads as a dark rim on
-   the disc: crop it off (unless working, where the clip would also cut the ring). */
-.pane-icon > img[src="/claude.png"]:not(.working):first-child { clip-path: circle(48.5% at 48.5% 48.5%); }
+   the disc: crop it off. Working, it is swapped for its own SVG, which has none, so the ring is uncut. */
+.pane-icon > img[src="/claude.png"]:first-child { clip-path: circle(48.5% at 48.5% 48.5%); }
 .pane-icon .model-badge { width: 18px; height: 18px; right: -2px; bottom: -2px; }
 /* Working logo: one treatment for the list row and the dashboard tile (see markWorking). A soft
    glow ring that breathes with the logo; transform only, so it never relayouts or repaints. */
@@ -114,10 +114,16 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 @media (prefers-reduced-motion: no-preference) {
   .working { animation: logo-clench 1.4s ease-in-out infinite; }
   .working[data-tool="codex"] { animation: logo-spin 3s linear infinite; }
-  .working[data-tool="omp"] { animation: none; } /* omp's sweep is its own SVG (markWorking swaps it in) */
+  .working:is([data-tool="omp"], [data-tool="claude"]) { animation: none; } /* their motion is their own SVG (markWorking swaps it in) */
 }
-/* CSS can't pause an <img>'s SMIL, but generated content can cover it with the still logo. */
-@media (prefers-reduced-motion: reduce) { img[src="/omp-working.svg"] { content: url(/omp.svg); } }
+/* CSS can't pause an <img>'s SMIL, but generated content can cover it with the still logo. Claude's
+   keyframes do stop themselves, but Chromium's motion emulation (devtools, the screenshot harness)
+   never reaches into an image's document, so it is covered too: its #still fragment is the same
+   shadowless spark, unmoving, where claude.png would bring back the rim the crop can't cut here. */
+@media (prefers-reduced-motion: reduce) {
+  img[src="/omp-working.svg"] { content: url(/omp.svg); }
+  img[src="/claude-working.svg"] { content: url(/claude-working.svg#still); }
+}
 .working[data-tool="omp"] { border-radius: 19%; } /* omp's tile is a rounded square (rx 12 of 64); a circle would crop it */
 @media (forced-colors: active) { .working { outline: 2px solid Highlight; outline-offset: 1px; } } /* box-shadow is dropped in forced colors */
 @keyframes logo-clench { 0%, 100% { transform: scale(1); } 50% { transform: scale(.78); } }
@@ -190,11 +196,14 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #scroll-cue { flex: 1; min-width: 0; font-size: 12px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .terminal-toolbar:has(#scroll-cue:not([hidden])) #terminal-status { display: none; }
 #font-size { width: 24px; text-align: center; font-size: 12px; }
-#click-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
+#click-mode, #key-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
 /* Hover/focus helper, not a native title: a title never shows on a phone, and here the
    tap that toggles also hovers, so the new mode explains itself as it switches. */
-#click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
+:is(#click-mode, #key-mode):is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
+/* Key passthrough is wide only (app.js): there the ring shows the terminal has the keys. */
+@media (min-width: 1100px) { #terminal.keys-live #terminal-scroll:focus { outline: 2px solid var(--accent); outline-offset: -2px; } }
+@media (max-width: 1099px) { #key-mode { display: none; } }
 #capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 var(--mono); tab-size: 8; transition: transform .2s ease-out; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
@@ -215,7 +224,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .table-scroll th { position: sticky; top: 0; background: var(--surface); font-weight: 600; }
 #composer { flex: none; padding: 10px 12px max(8px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); }
 #reply-form { display: flex; gap: 6px; align-items: flex-end; }
-#reply { flex: 1; min-width: 0; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 16px; line-height: 22px; min-height: 44px; max-height: 132px; }
+#reply, #secret { color: inherit; flex: 1; min-width: 0; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 16px; line-height: 22px; min-height: 44px; max-height: 132px; }
 .primary { background: var(--accent); color: var(--bg); font-weight: 600; }
 .primary:hover:not(:disabled) { background: var(--accent); filter: brightness(.92); }
 #update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; background: var(--accent-bg); color: var(--accent); flex: none; font-size: 13px; }
@@ -238,7 +247,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #keys button { background: var(--raised); padding: 0 12px; flex: none; min-width: 44px; font-size: 13px; }
 #reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
 #reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
-#reply:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#reply:focus-visible, #secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
 dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; width: min(760px, 100%); max-width: 100%; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); max-height: 88dvh; }
 dialog::backdrop { background: #0008; }
@@ -282,8 +291,9 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .voice-entry.propose { align-self: stretch; max-width: none; background: transparent; border: 1px solid var(--accent); border-radius: 8px; font-size: 14px; }
 .voice-entry.propose strong { color: var(--accent); }
 .voice-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
-.voice-actions { display: flex; gap: 8px; margin-top: 10px; }
-.voice-actions button { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
+.voice-actions, .voice-open { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.voice-actions button, .voice-entry button.open { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
+.voice-entry button.open { display: inline-flex; align-items: center; gap: 4px; padding-right: 12px; border-color: var(--accent); color: var(--accent); text-align: left; }
 /* Chat's model switcher: between the title and minimize, as small as a label. */
 #voice-switch { width: auto; min-width: 0; max-width: 55%; min-height: 36px; margin-left: auto; padding: 4px 8px; }
 .voice-compose { display: flex; flex: none; gap: 8px; padding-top: 12px; }
@@ -405,12 +415,14 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #sb-nav ~ .search .search-clear { width: 36px; height: 36px; min-height: 36px; }
 #side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
-.sb-bar { display: flex; flex-wrap: wrap; row-gap: 8px; align-items: center; gap: 6px; padding: 10px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
-.sb-bar .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--raised); }
-.sb-bar .seg button { min-height: 22px; padding: 1px 8px; border-radius: 5px; font-size: 11.5px; color: var(--muted); }
-.sb-bar .seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
+.sb-bar { display: flex; align-items: center; padding: 8px 6px 2px 10px; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.sb-bar > button { flex: none; min-height: 26px; padding: 0 3px; border-radius: 5px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.sb-bar > i { font-style: normal; opacity: .5; }
+.sb-bar [aria-pressed="true"] { color: var(--fg); }
+.sb-bar [data-by][aria-pressed="true"] { text-decoration: underline 1.5px; text-underline-offset: 4px; }
+.sb-subs[aria-pressed="true"] .n { color: var(--accent); }
 .sb-bar .header-picker { margin-left: auto; }
-.sb-bar .header-picker summary { min-height: 28px; padding: 2px 6px; font-size: 12px; }
+.sb-bar .header-picker summary { min-height: 26px; gap: 5px; padding: 0 3px; font-size: 12px; }
 .sb-group { display: flex; align-items: center; gap: 2px; margin: 4px 6px 0; }
 .sb-fold { flex: 1; min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 8px; text-align: left; font-size: 12.5px; font-weight: 600; }
 .sb-fold > svg { color: var(--muted); }
@@ -428,14 +440,6 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .sb-open .a { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sb-n:not([hidden]) { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: -3px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sb-n svg { color: var(--accent); }
-/* The Sub-agents switch: a labelled pill with a knob, accent while on. */
-.sb-show { flex-basis: 100%; display: flex; align-items: center; gap: 6px; }
-.sb-switch { min-height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 5px 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.sb-switch i { position: relative; width: 24px; height: 14px; border-radius: 7px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); }
-.sb-switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
-.sb-switch[aria-checked="true"] { border-color: var(--accent); color: var(--accent); }
-.sb-switch[aria-checked="true"] i { background: var(--accent); box-shadow: none; }
-.sb-switch[aria-checked="true"] i::after { left: 12px; background: var(--bg); }
 /* The overview's agent lines, compact: in a row (indented under its name) and the hover card. */
 .sb-agents:not([hidden]) { display: grid; padding: 0 8px 4px 41px; }
 .sb-agents .agent { min-width: 0; align-items: center; gap: 6px; padding: 0; min-height: 22px; font-size: 12px; white-space: nowrap; }
@@ -578,7 +582,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; min-height: var(--bar); padding: 0 18px; border-bottom: 1px solid var(--line); }
   .pane-heading-text { line-height: 1.3; }
   :is(#heading, .terminal-toolbar) :is(.icon-button, #review-layout) { min-height: 32px; height: 32px; }
-  :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode) { width: 32px; }
+  :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode, #key-mode) { width: 32px; }
   #heading > #close-pane { margin: 0 -6px; } /* outranks the base -12px, which is sized for the 44px box */
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
   #detail > #composer { grid-row: 4; min-width: 0; }
@@ -606,8 +610,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
 .header-picker-menu label, .header-picker-menu button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
-/* The overflow menus: an icon trigger (no picker chevron). The pane's holds the one
-   destructive action; the phone header's holds its settings-like controls, each its icon
+/* The overflow menus: an icon trigger (no picker chevron). The pane's holds its
+   window actions; the phone header's holds its settings-like controls, each its icon
    plus the label it already carries, so the toggles (the bell's state too) read in words. */
 :is(#pane-menu, #more-menu) { flex: none; }
 :is(#pane-menu, #more-menu) summary { padding: 0; justify-content: center; }
@@ -621,7 +625,13 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
    boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
    the visible glyphs come out even and the X's ink lines up with the right gutter. */
 #close-pane { margin: 0 -12px; }
-#kill-pane { width: 100%; color: var(--red); white-space: nowrap; }
+#kill-pane, #expunge-pane { width: 100%; white-space: nowrap; }
+/* Expunge sits last, under a rule, and is the menu's one red item: killing a window ends a
+   process, expunging also deletes the session's files for good. */
+#pane-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+#expunge-pane, #expunge-confirm { color: var(--red); }
+#expunge-caveat { color: var(--muted); font-size: 13px; }
+#expunge-confirm { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
 .header-picker-menu input { accent-color: var(--accent); }
 
 .header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -656,11 +666,43 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   /* New window floats over the list's foot; sticky, so the list's end scrolls clear of it, and
      an auto top margin in a column, so a short list still puts it at the bottom. It steps
      aside while a field has the keyboard up. */
+  body { --fab: 56px; --fab-gap: 16px; }
   #sessions { display: flex; flex-direction: column; }
-  #new-window { position: sticky; bottom: 16px; z-index: 5; display: flex; width: 56px; height: 56px; margin: auto 16px 16px auto; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px rgb(0 0 0 / .3); }
+  #new-window { position: sticky; bottom: var(--fab-gap); z-index: 5; display: flex; width: var(--fab); height: var(--fab); margin: auto var(--fab-gap) var(--fab-gap) auto; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px rgb(0 0 0 / .3); }
   #sessions:has(input:focus, [contenteditable]:focus) #new-window { display: none; }
+  /* Its spot is where the minimized chat sits, so on the list the chat rises a button and a gap. */
+  body:has(#sessions:not([hidden])) .chat-bubble { bottom: calc(var(--chat-bubble-bottom) + var(--fab) + var(--fab-gap)); }
 }
 
+
+/* Plan limits (usage.js): one flat grid of meters, two to a row. A phone pins it over the
+   list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
+#usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
+#usage[hidden], #app.rail #usage { display: none; }
+.usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
+.usage-cell.warn { --u: var(--amber); }
+.usage-cell.full { --u: var(--red); }
+.usage-cell :is(span, em, small), .usage-cell.none { color: var(--muted); }
+.usage-cell em { font-style: normal; font-size: 11px; }
+@container (max-width: 130px) { .usage-cell em { display: none; } } /* the sidebar's narrowest cells keep the window and %, not the word */
+.usage-cell > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* account names are user-chosen: truncate, never push the % out */
+.usage-cell img { vertical-align: -2px; margin-right: 5px; border-radius: 3px; }
+.usage-cell b { font-variant-numeric: tabular-nums; margin-left: 2px; }
+.usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast stacks over the reset, which always shows */
+.usage-cell small { grid-column: 1 / -1; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage-bar, .usage-spark { grid-column: 1 / -1; }
+.usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
+.usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
+.usage-bar > .ahead { opacity: .3; }
+.usage-bar > .pace { width: 2px; inset: -2px auto -2px auto; margin-left: -1px; border-radius: 1px; background: var(--fg); opacity: .55; }
+.usage-spark { display: block; width: 100%; height: 24px; margin-top: 3px; overflow: visible; }
+.usage-spark :is(polyline, line) { fill: none; stroke: var(--u); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.usage-spark .proj { stroke-dasharray: 3 3; }
+.usage-spark .limit { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
+@media (max-width: 1099px) { #usage { order: -1; position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); } }
+@media (min-width: 1100px) {
+  #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
+}
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
 .atlas-tool-filter img { object-fit: contain; }
@@ -668,10 +710,12 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 /* Keep the standalone root in normal flow to avoid WebKit fixed-root clipping.
    Include the top safe area for translucent installs; opaque installs report
    zero. Bare 100vh overflows the opaque case; bare dvh shortens the translucent one.
-   Cap the correction at 100vh: WebKit may expand visualViewport after the root grows. */
-.standalone-fill, .standalone-fill body { position: static; inset: auto; height: min(100vh, var(--app-height, calc(100dvh + env(safe-area-inset-top)))); overflow: visible; }
+   Pure CSS, never a measurement: only an editor measures (fitViewport), so nothing
+   taken with the keyboard up can outlive it. */
+.standalone-fill { --fill: min(100vh, calc(100dvh + env(safe-area-inset-top))); }
+.standalone-fill, .standalone-fill body { position: static; inset: auto; height: var(--fill); overflow: visible; }
 .standalone-fill body { position: relative; }
-.standalone-fill #app { position: absolute; top: var(--app-top, 0px); bottom: auto; height: min(100vh, var(--app-height, calc(100dvh + env(safe-area-inset-top)))); }
+.standalone-fill #app { bottom: auto; height: var(--fill); }
 
 /* Compacting remains busy, but is distinct from running work. */
 .atlas-dot.s4 .atlas-agent-icon { --glow: var(--state-color); }
@@ -742,3 +786,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }
 .atlas-multiples .atlas-panel-heading > .muted { font-size: 12px; }
+/* A window being killed or expunged from here (markEnding): greyed, its label under a spinner. */
+.ending { opacity: .55; }
+.ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
+.ending :is(.badge, .sb-open .a, .m)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) { .ending :is(.badge, .sb-open .a, .m)::before { animation: logo-spin .8s linear infinite; } }

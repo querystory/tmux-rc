@@ -12,7 +12,8 @@ from openbus import watcher as W
 def inventory(monkeypatch):
     panes = [W.tmux.Pane("work", str(i), f"agent-{i}", "0", f"%{i}",
                         "node", f"Task {i}", pid=str(100 + i),
-                        window_active="1", pane_active="1") for i in range(2)]
+                        window_active="1", pane_active="1",
+                        window_activity=str(1_000 + i)) for i in range(2)]
     monkeypatch.setattr(W.tmux, "server_running", lambda: True)
     monkeypatch.setattr(W.tmux, "list_panes", lambda: panes)
     monkeypatch.setattr(W.tmux, "active_pane_id", lambda: "%1")
@@ -58,6 +59,8 @@ def test_presence_and_results_publish_before_slow_work_finishes(inventory, monke
             assert [s["window_index"] for s in w.states] == ["0", "1"]
             assert [s["tmux_active"] for s in w.states] == [False, True]
             assert all(s["activity"] == "unknown" for s in w.states)
+            # Aged from tmux's own activity clock until classified, not from the epoch.
+            assert [s["last_activity_at"] for s in w.states] == [1_000.0, 1_001.0]
             assert not w._state and not w._prev_fp
             presence = w.states
             version = w.state_version()

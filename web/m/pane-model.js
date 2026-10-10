@@ -7,7 +7,10 @@ export const PARKED_IDLE_SECS = 600;
 const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
 const actOf = (pane) => ACTIVITIES.includes(pane.activity) ? pane.activity : "unknown";
 export const needsYou = (pane) => pane.activity === "waiting" && pane.waiting_on !== "external";
-export const activityLabel = (pane) => needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]);
+export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
+// A pane whose window this page is closing (app.js sets pane.ending while the request runs):
+// greyed under a spinner, and inert, so no answer or action on it can be sent meanwhile.
+export const markEnding = (node, pane) => { node.inert = !!pane?.ending; node.classList.toggle("ending", !!pane?.ending); };
 // "waiting" on something external (a tool, a subagent) is shown as running: the pane is
 // busy, it just isn't our turn.
 export const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : actOf(pane);
@@ -15,7 +18,7 @@ export const isRunning = (pane) => ["running", "compacting"].includes(activityCl
 // A tool whose working motion is its own animated image rather than a CSS transform. It is
 // swapped in as the src because SMIL in a CSS content:url() image does not reliably animate;
 // reduced motion is CSS's job (style.css shows the still logo over it, live as the setting flips).
-const WORKING_LOGOS = { omp: "/omp-working.svg" };
+const WORKING_LOGOS = { omp: "/omp-working.svg", claude: "/claude-working.svg" };
 const has = (map, key) => Object.prototype.hasOwnProperty.call(map, key);
 // omp and OpenCode drive any vendor's model, so their own logo can't say whose is running.
 // The families match how the parsers emit pane.model ("GPT-6.1-Sol", "Claude Opus 5.5",
@@ -37,9 +40,16 @@ export function markWorking(img, pane, logos) {
   if (!badge) img.after(badge = Object.assign(document.createElement("img"), { className: "model-badge" }));
   if (badge.getAttribute("src") !== provider[1]) Object.assign(badge, { src: provider[1], alt: provider[0] });
 }
+// The time a row's age label counts from.
+export const shownAt = (p) => Number(p.state_since) || lastActivity(p);
+// List order matches the ages shown: "now" rows first, then the youngest age.
+export const newestFirst = (a, b) => isRunning(b) - isRunning(a) || shownAt(b) - shownAt(a);
 // How long the pane has been in its current state; a row shows "now" while it works.
+// No timestamp at all reads as no age, not as time since the epoch.
 export const since = (p, nowMs = Date.now()) => {
-  const s = Math.max(0, nowMs / 1000 - (Number(p.state_since) || lastActivity(p)));
+  const t = shownAt(p);
+  if (!(t > 0)) return "";
+  const s = Math.max(0, nowMs / 1000 - t);
   return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 };
 export const age = (p, nowMs) => isRunning(p) ? "now" : since(p, nowMs);
@@ -97,7 +107,7 @@ export const LAUNCH_GRACE_MS = 30000;
 export const awaitingLaunch = (launched, id, nowMs = Date.now()) =>
   !!id && launched?.id === id && nowMs - launched.at < LAUNCH_GRACE_MS;
 
-// Sort key for "Sort by updated": the parser's timestamp when it has one, else the moment
+// shownAt's fallback without state_since: the parser's timestamp when it has one, else the moment
 // the pane's state last changed, never later than when an idle pane went idle.
 export function lastActivity(pane) {
   if (Number.isFinite(pane.last_activity_at)) return pane.last_activity_at;
