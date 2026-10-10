@@ -49,7 +49,9 @@ not raw model JSON.
 
 A synthetic `Pane` carries each sample's `current_command` so the `[tmux: foreground
 process is …]` prefix and tool-anchoring behave as in production (this is how the
-"a server logging `gemini-…` lines is NOT the Gemini CLI" trap is exercised).
+"a server logging `gemini-…` lines is NOT the Gemini CLI" trap is exercised). A sample's
+`processes` replays the pane's process tree, so an agent installed through npm, whose
+foreground is only `node`, is pinned by the script node runs exactly as the daemon does.
 
 ## The scoring model
 
@@ -129,6 +131,7 @@ loosen the score.
   "capture": "…the pane text…",       // what the model sees
   "prior": ["…an earlier frame…"],    // optional: earlier captures, sent as production does
   "reply": "…agent message…",         // optional: the agent's last message, from its transcript
+  "processes": ["node …/bin/codex"],  // optional: argv under the pane, for node/bun-hosted agents
   "expected": { "tool": "claude", "activity": "idle", "headline": "…" }
 }
 ```

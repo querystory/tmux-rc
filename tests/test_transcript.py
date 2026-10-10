@@ -80,7 +80,7 @@ def test_claude_new_user_message_clears_the_reply(homes):
 
 
 def test_codex_reply_from_the_thread_named_in_the_status_bar(homes, monkeypatch):
-    monkeypatch.setattr(transcript, "_runs", lambda pid, name: pid == "7" and name == "codex")
+    monkeypatch.setattr(transcript, "_programs", lambda pid: {"codex"} if pid == "7" else set())
     def item(kind, text=None, tag="Text"):
         content = [{"type": tag, "text": text}] if text else []
         return {"type": "event_msg",
