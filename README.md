@@ -42,6 +42,9 @@ the summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overv
 > items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
 > scope.
 
+[Why tmux-rc](docs/comparisons/_index.md): the existing tmux workflow we wanted to
+keep, the requirements other tools left open for us, and the alternatives we researched.
+
 ## Run
 
 Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and Google Cloud
