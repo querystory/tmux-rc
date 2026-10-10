@@ -1,0 +1,417 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>tmux-rc – Agent manager comparisons</title><link>https://querystory.github.io/tmux-rc/comparisons/</link><description>Recent content in Agent manager comparisons on tmux-rc</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><atom:link href="https://querystory.github.io/tmux-rc/comparisons/index.xml" rel="self" type="application/rss+xml"/><item><title>Conductor</title><link>https://querystory.github.io/tmux-rc/comparisons/conductor/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/comparisons/conductor/</guid><description>
+&lt;p&gt;&lt;strong&gt;Checked October 10, 2026.&lt;/strong&gt; This page covers
+&lt;a href="https://www.conductor.build/" target="_blank" rel="noopener"&gt;Conductor by Melty Labs&lt;/a&gt;
+, not unrelated projects
+with the same name. Research uses official docs; we have not run the app for this comparison.&lt;/p&gt;
+&lt;h2&gt;What it manages&lt;span class="hx:absolute hx:-mt-20" id="what-it-manages"&gt;&lt;/span&gt;
+&lt;a href="#what-it-manages" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Conductor organizes tasks into workspaces with chats, terminals, branches, and a
+review path. Its documented agents are Claude Code, Codex, Cursor, and OpenCode.
+Local workspaces use Git worktrees; cloud workspaces run in isolated Linux sandboxes.
+&lt;a href="https://www.conductor.build/docs" target="_blank" rel="noopener"&gt;Introduction&lt;/a&gt;
+,
+&lt;a href="https://www.conductor.build/docs/concepts/git-worktrees" target="_blank" rel="noopener"&gt;worktrees&lt;/a&gt;
+,
+&lt;a href="https://www.conductor.build/docs/cloud" target="_blank" rel="noopener"&gt;cloud model&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Its local model shares the repository&amp;rsquo;s Git backing while giving each workspace
+separate files. This is development isolation, not a security sandbox. Cloud execution
+has a different boundary, and must not be conflated with the local permissions model.
+&lt;a href="https://www.conductor.build/docs/concepts/git-worktrees" target="_blank" rel="noopener"&gt;Worktree boundaries&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Remote access is now a real part of the product&lt;span class="hx:absolute hx:-mt-20" id="remote-access-is-now-a-real-part-of-the-product"&gt;&lt;/span&gt;
+&lt;a href="#remote-access-is-now-a-real-part-of-the-product" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Conductor released iOS on October 2, 2026: chat with agents and merge PRs from a
+phone, &lt;strong&gt;for cloud workspaces&lt;/strong&gt;. That announcement does not establish phone attachment
+to an arbitrary local Mac session. Cloud work continues independently of the Mac,
+subject to the sandbox&amp;rsquo;s lifecycle.
+&lt;a href="https://www.conductor.build/changelog/0.90.0-conductor-for-ios" target="_blank" rel="noopener"&gt;iOS release&lt;/a&gt;
+,
+&lt;a href="https://www.conductor.build/docs/cloud" target="_blank" rel="noopener"&gt;local versus cloud&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Its cloud API can create workspaces, send prompts, and read responses. An MCP interface
+also exposes cloud workspace operations. This makes integration with another agent
+manager plausible; it is not evidence of tmux session discovery.
+&lt;a href="https://www.conductor.build/docs/api" target="_blank" rel="noopener"&gt;API documentation&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Parallel agents and attention&lt;span class="hx:absolute hx:-mt-20" id="parallel-agents-and-attention"&gt;&lt;/span&gt;
+&lt;a href="#parallel-agents-and-attention" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Conductor explicitly supports both independent workspaces and multiple agents sharing
+one workspace. Separate workspaces suit independently landing branches; shared
+workspaces suit implementation and review of the same files. Shared files can still
+receive conflicting edits.
+&lt;a href="https://www.conductor.build/docs/concepts/parallel-agents" target="_blank" rel="noopener"&gt;Parallel-agent workflow&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Controls differ by harness: the documentation distinguishes plan mode, reasoning,
+checkpoints, skills, and Codex goals. Claude&amp;rsquo;s experimental agent teams can also be
+enabled. Multiple chat tabs, harness subagents, and teams are related capabilities,
+but should not be counted as identical fleet views.
+&lt;a href="https://www.conductor.build/docs/concepts/agent-modes" target="_blank" rel="noopener"&gt;Agent modes&lt;/a&gt;
+,
+&lt;a href="https://www.conductor.build/docs/faq" target="_blank" rel="noopener"&gt;agent-team configuration&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Compared with tmux-rc&lt;span class="hx:absolute hx:-mt-20" id="compared-with-tmux-rc"&gt;&lt;/span&gt;
+&lt;a href="#compared-with-tmux-rc" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Decision&lt;/th&gt;
+&lt;th&gt;Conductor&lt;/th&gt;
+&lt;th&gt;tmux-rc&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;Start a task&lt;/td&gt;
+&lt;td&gt;Create or select a managed workspace/chat&lt;/td&gt;
+&lt;td&gt;Use a tmux pane; observe work already running&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Execute remotely&lt;/td&gt;
+&lt;td&gt;Managed cloud workspace&lt;/td&gt;
+&lt;td&gt;Your configured tmux host&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Review and ship&lt;/td&gt;
+&lt;td&gt;Workspace, diff, checks, and PR workflow&lt;/td&gt;
+&lt;td&gt;Keep your existing terminal and Git workflow&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Inspect existing tmux panes&lt;/td&gt;
+&lt;td&gt;Not established in reviewed docs&lt;/td&gt;
+&lt;td&gt;Core operation&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Conversational fleet voice / pooled quota forecasting&lt;/td&gt;
+&lt;td&gt;Not established by this research&lt;/td&gt;
+&lt;td&gt;Text/voice controls and plan-usage projections are implemented&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; Conductor deserves close attention for workspace lifecycle,
+cloud execution, and team collaboration. tmux-rc fits a user who already has a busy
+terminal fleet and wants to supervise it without moving all work into managed chats.
+Remote access itself is no longer a useful exclusive claim against Conductor.&lt;/p&gt;
+&lt;h2&gt;Try alongside tmux-rc&lt;span class="hx:absolute hx:-mt-20" id="try-alongside-tmux-rc"&gt;&lt;/span&gt;
+&lt;a href="#try-alongside-tmux-rc" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Run a new task in a separate Conductor workspace and leave existing tmux agents under
+tmux-rc. Git changes can travel through ordinary branches and PRs; live conversations,
+approvals, and queues should be treated as belonging to their original manager.
+We have not established a supported import or export path for a running tmux agent.&lt;/p&gt;
+&lt;p&gt;Conductor&amp;rsquo;s site reports over 100,000 builders. That is a dated vendor adoption claim,
+not an independently verified active-user ranking. See the
+&lt;a href="https://querystory.github.io/tmux-rc/comparisons/landscape/#popularity-and-coverage"&gt;landscape&lt;/a&gt;
+for how we choose comparison coverage.&lt;/p&gt;</description></item><item><title>T3 Code</title><link>https://querystory.github.io/tmux-rc/comparisons/t3-code/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/comparisons/t3-code/</guid><description>
+&lt;p&gt;&lt;strong&gt;Checked October 10, 2026.&lt;/strong&gt; &lt;a href="https://t3.codes/" target="_blank" rel="noopener"&gt;T3 Code&lt;/a&gt;
+is an open-source agent
+control plane with desktop, web, and mobile clients. This comparison uses its public
+docs and implementation, not a local installation.
+&lt;a href="https://github.com/pingdotgg/t3code" target="_blank" rel="noopener"&gt;Repository&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Session ownership&lt;span class="hx:absolute hx:-mt-20" id="session-ownership"&gt;&lt;/span&gt;
+&lt;a href="#session-ownership" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Environment servers own provider processes, terminals, files, and Git operations.
+Clients control them over authenticated RPC. Structured provider adapters normalize
+harness events into T3 thread state; this differs from observing the screen of an
+existing terminal. The server owns its terminal PTYs. We found no application
+integration that enumerates and controls an existing tmux fleet.
+&lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/internals/overview.md" target="_blank" rel="noopener"&gt;Architecture&lt;/a&gt;
+,
+&lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/internals/terminal-runtime.md" target="_blank" rel="noopener"&gt;terminal runtime&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Where it overlaps with tmux-rc&lt;span class="hx:absolute hx:-mt-20" id="where-it-overlaps-with-tmux-rc"&gt;&lt;/span&gt;
+&lt;a href="#where-it-overlaps-with-tmux-rc" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Capability&lt;/th&gt;
+&lt;th&gt;T3&amp;rsquo;s documented behavior&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;Remote clients&lt;/td&gt;
+&lt;td&gt;Desktop, browser, iOS, Android; T3 Connect, private-network pairing, Tailscale, and SSH&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Parallel tasks&lt;/td&gt;
+&lt;td&gt;Multi-model prompt fanout into separate threads/worktrees&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Subagents&lt;/td&gt;
+&lt;td&gt;Delegated-agent inspection; approvals/questions route through the parent&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Usage&lt;/td&gt;
+&lt;td&gt;Token history, cache savings, API-equivalent cost, quotas pooled across accounts/environments&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Limit recovery&lt;/td&gt;
+&lt;td&gt;Optional continuation when a provider-reported reset arrives&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;External orchestration&lt;/td&gt;
+&lt;td&gt;OAuth-authenticated MCP access to read and operate T3 threads&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;Sources: &lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/remote-access.md" target="_blank" rel="noopener"&gt;remote access&lt;/a&gt;
+,
+&lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/thread-sidebar.md" target="_blank" rel="noopener"&gt;threads and recovery&lt;/a&gt;
+,
+&lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/usage.md" target="_blank" rel="noopener"&gt;usage&lt;/a&gt;
+,
+&lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/outside-agents.md" target="_blank" rel="noopener"&gt;outside agents&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Usage estimates are not subscription bills. Account pooling describes the available
+allowance; it does not by itself establish automatic routing to whichever account has
+quota left. Reset recovery needs a reported reset time and a running environment.
+These distinctions matter when comparing ways to keep agents working.&lt;/p&gt;
+&lt;h2&gt;Voice: dictation versus conversation&lt;span class="hx:absolute hx:-mt-20" id="voice-dictation-versus-conversation"&gt;&lt;/span&gt;
+&lt;a href="#voice-dictation-versus-conversation" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;The documented voice implementation transcribes locally on supported iOS devices,
+inserts text into a draft, and waits for normal message submission. That provides
+voice input; it does not establish spoken fleet conversation or proactive spoken updates.
+tmux-rc&amp;rsquo;s voice interface can discuss state and take actions across its managed panes.
+&lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/internals/voice-input.md" target="_blank" rel="noopener"&gt;T3 voice implementation&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Import and switching&lt;span class="hx:absolute hx:-mt-20" id="import-and-switching"&gt;&lt;/span&gt;
+&lt;a href="#import-and-switching" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;T3 onboarding discovers Claude and Codex projects and imports recent conversations
+for continuation. Visible imported history is best effort, retaining up to 200 messages
+and omitting attachments and tool activity. Its importer records native session
+references and resume cursors. This is more than copying a transcript into a new chat,
+but it does not attach to the original running tmux process.
+&lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/welcome-wizard.md" target="_blank" rel="noopener"&gt;Onboarding&lt;/a&gt;
+,
+&lt;a href="https://github.com/pingdotgg/t3code/blob/main/apps/server/src/project/AgentSessionImporter.ts" target="_blank" rel="noopener"&gt;importer&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Switching providers inside T3 transfers a budgeted selection of conversation context.
+It does not transfer outgoing reasoning, tool-call state, or attachments. Omitted saved
+history can be retrieved through T3&amp;rsquo;s thread-reading tool.
+&lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/portable-handoffs.md" target="_blank" rel="noopener"&gt;Portable handoffs&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; T3 is a close comparator for managed conversations, account quotas,
+and remote clients. tmux-rc&amp;rsquo;s distinction is supervising existing terminal work with
+fleet summaries, attention states, spatial views, and conversational control.
+Subagents and quota tracking should be presented as shared capabilities.&lt;/p&gt;
+&lt;p&gt;To try both, give T3 a separate task/worktree first. For an imported conversation,
+hand ownership over between turns and verify continuation before retiring the original
+session. No bidirectional live synchronization with tmux-rc has been established.&lt;/p&gt;</description></item><item><title>MuxFlow</title><link>https://querystory.github.io/tmux-rc/comparisons/muxflow/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/comparisons/muxflow/</guid><description>
+&lt;p&gt;&lt;strong&gt;Checked October 10, 2026.&lt;/strong&gt; &lt;a href="https://gal064.github.io/muxflow/" target="_blank" rel="noopener"&gt;MuxFlow&lt;/a&gt;
+describes
+itself as a remote-first tmux IDE. Its tmux and remote-agent features make it relevant
+even if you do not use its file editor. Research uses public docs and source;
+we have not installed it for this comparison.&lt;/p&gt;
+&lt;h2&gt;It really does introspect tmux&lt;span class="hx:absolute hx:-mt-20" id="it-really-does-introspect-tmux"&gt;&lt;/span&gt;
+&lt;a href="#it-really-does-introspect-tmux" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Sessions and processes remain on the host. The app maps tmux sessions to workspaces
+and windows to tabs; session/window renames flow both ways. This makes it closer to
+tmux-rc&amp;rsquo;s existing-terminal model than a manager that owns provider-backed chats.
+&lt;a href="https://github.com/gal064/muxflow" target="_blank" rel="noopener"&gt;Project overview&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Remote access uses the system OpenSSH client and a managed host helper over a private
+socket, rather than a public TCP listener. OpenSSH retains authentication and
+host-verification responsibility. Restarting the helper does not restart tmux.
+&lt;a href="https://github.com/gal064/muxflow/blob/main/docs/remote-host.md" target="_blank" rel="noopener"&gt;Remote-host architecture&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Agent state and subagents&lt;span class="hx:absolute hx:-mt-20" id="agent-state-and-subagents"&gt;&lt;/span&gt;
+&lt;a href="#agent-state-and-subagents" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Codex and Claude Code have lifecycle adapters. Hooks are the primary state source;
+process detection alone does not establish working, blocked, or idle. An agent can
+appear with unknown state when its hooks are absent. Codex transcript monitoring
+repairs specified missing lifecycle transitions. Its hook implementation also tracks
+child activity, so subagent awareness is not exclusive to tmux-rc.
+&lt;a href="https://github.com/gal064/muxflow/blob/main/docs/agent-hooks.md" target="_blank" rel="noopener"&gt;Agent hooks&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;tmux-rc uses terminal capture/classification alongside available harness history and
+agent detail. This can cover terminal work without an equivalent MuxFlow lifecycle
+adapter, but inferred state can be ambiguous. Hooks and terminal interpretation have
+different failure modes; neither should be described as universally more accurate.
+&lt;a href="https://querystory.github.io/tmux-rc/design/architecture/"&gt;tmux-rc architecture&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Remote and voice workflow&lt;span class="hx:absolute hx:-mt-20" id="remote-and-voice-workflow"&gt;&lt;/span&gt;
+&lt;a href="#remote-and-voice-workflow" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;MuxFlow documents macOS, Linux, and Android clients, with iOS forthcoming. It supports
+remote screenshot/file paste and port forwarding. Android voice is described as
+hold-to-talk with spoken agent replies. tmux-rc instead provides a browser/PWA and
+text/voice fleet controls. Both have voice features; compare interaction style and
+scope rather than simply marking voice present or absent.
+&lt;a href="https://github.com/gal064/muxflow" target="_blank" rel="noopener"&gt;Features and platform availability&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Use both on the same fleet&lt;span class="hx:absolute hx:-mt-20" id="use-both-on-the-same-fleet"&gt;&lt;/span&gt;
+&lt;a href="#use-both-on-the-same-fleet" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; this is the most natural pairing of the three detailed comparisons.
+Both can operate on the same host&amp;rsquo;s tmux sessions. MuxFlow can supply native terminal
+and SSH workspace tools, while tmux-rc supplies its attention overview and fleet controls.
+This is an architectural compatibility assessment, not a tested interoperability promise.&lt;/p&gt;
+&lt;p&gt;There is no required conversation migration if both clients address the same panes.
+Replies, renames, and pane closure affect the underlying shared sessions. Use one client
+to submit a given instruction, then confirm it arrived.&lt;/p&gt;
+&lt;p&gt;Review MuxFlow&amp;rsquo;s hook setup before enabling it on an existing host. Its documented
+Codex compatibility setup can change &lt;code&gt;CODEX_EXEC_SERVER_URL&lt;/code&gt; in the tmux environment
+and a marked daemon setting in Codex configuration; existing panes may need a new
+Codex launch for status tracking. This is an agent-configuration change, not merely
+another terminal view.
+&lt;a href="https://github.com/gal064/muxflow/blob/main/docs/agent-hooks.md" target="_blank" rel="noopener"&gt;Hook setup and Codex compatibility&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Pooled subscription quotas and usage forecasting were not established by the sources
+reviewed here. Keep that question open when refreshing the comparison.&lt;/p&gt;</description></item><item><title>Broader competitor landscape</title><link>https://querystory.github.io/tmux-rc/comparisons/landscape/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/comparisons/landscape/</guid><description>
+&lt;p&gt;&lt;strong&gt;Checked October 10, 2026.&lt;/strong&gt; This shortlist covers agent managers, terminal
+workspaces, and orchestration tools relevant to supervising multiple coding agents.
+It is not a ranking of coding models or editors. Start with the detailed comparisons
+of &lt;a href="https://querystory.github.io/tmux-rc/comparisons/conductor/"&gt;Conductor&lt;/a&gt;
+, &lt;a href="https://querystory.github.io/tmux-rc/comparisons/t3-code/"&gt;T3 Code&lt;/a&gt;
+, and &lt;a href="https://querystory.github.io/tmux-rc/comparisons/muxflow/"&gt;MuxFlow&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Popularity and coverage&lt;span class="hx:absolute hx:-mt-20" id="popularity-and-coverage"&gt;&lt;/span&gt;
+&lt;a href="#popularity-and-coverage" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Public attention helps choose what to research, but does not establish active users
+or market share. Conductor reports &lt;strong&gt;100k+ builders&lt;/strong&gt; on its website; the number is
+vendor-reported and is not directly comparable with GitHub stars.
+&lt;a href="https://www.conductor.build/" target="_blank" rel="noopener"&gt;Conductor site&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;The following GitHub API observations are a dated snapshot, not live counters:&lt;/p&gt;
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Project&lt;/th&gt;
+&lt;th style="text-align: right"&gt;Stars observed October 10, 2026&lt;/th&gt;
+&lt;th&gt;Why include it&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;a href="https://github.com/BloopAI/vibe-kanban" target="_blank" rel="noopener"&gt;Vibe Kanban&lt;/a&gt;
+&lt;/td&gt;
+&lt;td style="text-align: right"&gt;28,312&lt;/td&gt;
+&lt;td&gt;Prominent planning/workspace project; company services are sunsetting&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;a href="https://github.com/manaflow-ai/cmux" target="_blank" rel="noopener"&gt;cmux&lt;/a&gt;
+&lt;/td&gt;
+&lt;td style="text-align: right"&gt;28,076&lt;/td&gt;
+&lt;td&gt;Terminal workspace with beta existing-tmux mirroring&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;a href="https://github.com/pingdotgg/t3code" target="_blank" rel="noopener"&gt;T3 Code&lt;/a&gt;
+&lt;/td&gt;
+&lt;td style="text-align: right"&gt;26,680&lt;/td&gt;
+&lt;td&gt;Managed conversations, remote clients, and account quotas&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;a href="https://github.com/superset-sh/superset" target="_blank" rel="noopener"&gt;Superset&lt;/a&gt;
+&lt;/td&gt;
+&lt;td style="text-align: right"&gt;15,042&lt;/td&gt;
+&lt;td&gt;Parallel CLI-agent workspaces and remote access&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;a href="https://github.com/generalaction/emdash" target="_blank" rel="noopener"&gt;Emdash&lt;/a&gt;
+&lt;/td&gt;
+&lt;td style="text-align: right"&gt;5,948&lt;/td&gt;
+&lt;td&gt;Additional parallel-agent workspace project to watch&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;a href="https://github.com/asheshgoplani/agent-deck" target="_blank" rel="noopener"&gt;agent-deck&lt;/a&gt;
+&lt;/td&gt;
+&lt;td style="text-align: right"&gt;1,051&lt;/td&gt;
+&lt;td&gt;tmux-backed manager with conversational supervision&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;a href="https://github.com/gal064/muxflow" target="_blank" rel="noopener"&gt;MuxFlow&lt;/a&gt;
+&lt;/td&gt;
+&lt;td style="text-align: right"&gt;78&lt;/td&gt;
+&lt;td&gt;Smaller project with direct tmux/SSH overlap&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;Counts were collected during this research session; GitHub stars change continually.
+No common active-user dataset was found that would justify declaring one product
+the most popular. Conductor deserves a detailed page because of its reported reach
+and product overlap. MuxFlow and agent-deck deserve attention despite smaller public
+counts because their terminal-management model is particularly relevant.&lt;/p&gt;
+&lt;h2&gt;Superset&lt;span class="hx:absolute hx:-mt-20" id="superset"&gt;&lt;/span&gt;
+&lt;a href="#superset" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Superset builds a workspace workflow around parallel CLI agents. Its status hooks
+only report agents launched through Superset; outside its terminals, the hooks do
+not establish agent status. That is a concrete distinction from observing arbitrary
+existing tmux panes.
+&lt;a href="https://docs.superset.sh/agent-status" target="_blank" rel="noopener"&gt;Status detection&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Remote access includes a standalone headless host option, so a desktop installation
+is not required on every execution host. The documented iPhone/iPad relay access
+requires Pro. Check current platform requirements when evaluating it.
+&lt;a href="https://docs.superset.sh/remote-access" target="_blank" rel="noopener"&gt;Remote access&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Usage includes Claude/Codex subscription windows, multiple accounts, and analytics.
+The documented Usage page does &lt;strong&gt;not aggregate remote hosts&lt;/strong&gt;; do not equate it with
+T3&amp;rsquo;s cross-environment account pool. The repository uses ELv2: source availability
+does not imply an OSI open-source license.
+&lt;a href="https://docs.superset.sh/usage" target="_blank" rel="noopener"&gt;Usage&lt;/a&gt;
+,
+&lt;a href="https://github.com/superset-sh/superset" target="_blank" rel="noopener"&gt;repository and license&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; evaluate it for worktree lifecycle and managed terminal workflows.
+Try separate tasks first; status tracking does not promise adoption of your old fleet.&lt;/p&gt;
+&lt;h2&gt;cmux&lt;span class="hx:absolute hx:-mt-20" id="cmux"&gt;&lt;/span&gt;
+&lt;a href="#cmux" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;cmux is a native macOS terminal workspace built on Ghostty, with notifications,
+splits, an embedded browser, and automation. Its README describes Claude Teams
+integration. Phone, voice, and cloud features are listed under Founders Edition
+early access; do not count them as generally available capabilities.
+&lt;a href="https://github.com/manaflow-ai/cmux" target="_blank" rel="noopener"&gt;Project and availability&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Its opt-in &lt;strong&gt;beta remote tmux mirroring&lt;/strong&gt; attaches over SSH using &lt;code&gt;tmux -CC&lt;/code&gt; and
+maps existing sessions/windows/panes to native workspaces/tabs/splits. Changes go
+back to the real tmux server, which remains alive after detach. This is actual
+tmux introspection, not merely a terminal in which a user could run tmux.
+&lt;a href="https://cmux.com/docs/remote-tmux" target="_blank" rel="noopener"&gt;Remote tmux mirroring&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; cmux is a plausible companion to tmux-rc for a Mac user who wants
+a native terminal view of the same remote fleet. No conversation migration is needed
+in principle; interoperability has not been tested here. Check beta limitations,
+especially paste behavior and mirror restoration, before relying on it for remote work.&lt;/p&gt;
+&lt;h2&gt;agent-deck&lt;span class="hx:absolute hx:-mt-20" id="agent-deck"&gt;&lt;/span&gt;
+&lt;a href="#agent-deck" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;agent-deck provides a terminal UI and browser command center around tmux sessions.
+Its FAQ says it creates its own &lt;code&gt;agentdeck_*&lt;/code&gt; sessions and leaves existing sessions
+alone. This establishes tmux backing, but not automatic adoption of arbitrary old panes.
+&lt;a href="https://github.com/asheshgoplani/agent-deck#faq" target="_blank" rel="noopener"&gt;Repository and FAQ&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Its persistent supervisor feature, named “conductor,” can monitor sessions,
+answer according to policy, escalate decisions, and communicate through Telegram,
+Slack, or Discord. This feature is unrelated to the Conductor product at conductor.build.
+&lt;a href="https://github.com/asheshgoplani/agent-deck/blob/main/docs/conductor/README.md" target="_blank" rel="noopener"&gt;Supervisor documentation&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Parent-linked child sessions and explicit completion events are documented. Voice
+conversation and pooled quota forecasting were not established in this research.
+&lt;a href="https://github.com/asheshgoplani/agent-deck/blob/main/skills/agent-deck/references/sub-agents.md" target="_blank" rel="noopener"&gt;Child-session management&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; this is a direct comparator for conversational supervision and
+agent-driven orchestration, even though its public star count is smaller.&lt;/p&gt;
+&lt;h2&gt;Vibe Kanban: account for the sunset&lt;span class="hx:absolute hx:-mt-20" id="vibe-kanban-account-for-the-sunset"&gt;&lt;/span&gt;
+&lt;a href="#vibe-kanban-account-for-the-sunset" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Bloop&amp;rsquo;s April 10, 2026 shutdown announcement says Vibe Kanban continues as a
+community-maintained open-source project and local workspaces remain functional.
+Company remote services were scheduled to end after 30 days. Do not recommend the
+former hosted service as currently available without new evidence.
+&lt;a href="https://www.vibekanban.com/blog/shutdown" target="_blank" rel="noopener"&gt;Shutdown announcement&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Its repository remains a useful reference for planning tasks, agent workspaces,
+review, previews, and pull requests. Its README also describes configuring your own
+remote deployment. Self-hosting and the former company service are distinct options.
+&lt;a href="https://github.com/BloopAI/vibe-kanban" target="_blank" rel="noopener"&gt;Repository&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;First-party remote controls&lt;span class="hx:absolute hx:-mt-20" id="first-party-remote-controls"&gt;&lt;/span&gt;
+&lt;a href="#first-party-remote-controls" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Native Claude and Codex clients are also alternatives when your fleet mainly uses
+one harness. They should be evaluated alongside independent managers, rather than
+omitted because they come from the agent vendor.&lt;/p&gt;
+&lt;p&gt;Claude Code Remote Control can connect existing local sessions to browser and phone
+clients, with execution remaining on the host. The current documentation covers
+multiple sessions and worktrees, not only one terminal conversation. It uses outbound
+connections and subscription authentication; it is not a general interface for
+non-Claude agents.
+&lt;a href="https://code.claude.com/docs/en/remote-control" target="_blank" rel="noopener"&gt;Claude Remote Control&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;Current OpenAI documentation describes Codex through ChatGPT desktop/mobile, with
+parallel chats, worktrees, and connected-host control. Mobile controls include
+starting or steering work, handling approvals, and reviewing results. Worktree
+handoff is documented, but adoption of arbitrary tmux panes was not established.
+&lt;a href="https://learn.chatgpt.com/docs/app" target="_blank" rel="noopener"&gt;Desktop app&lt;/a&gt;
+,
+&lt;a href="https://learn.chatgpt.com/docs/environments/git-worktrees" target="_blank" rel="noopener"&gt;worktrees&lt;/a&gt;
+,
+&lt;a href="https://developers.openai.com/blog/mastering-codex-remote-for-engineering" target="_blank" rel="noopener"&gt;remote engineering workflow&lt;/a&gt;
+.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; these are worth trying for deep native interaction with their
+respective harnesses. tmux-rc remains useful when the overview must include agents
+from several vendors and ordinary terminal work on the same tmux server.&lt;/p&gt;
+&lt;h2&gt;What to investigate next&lt;span class="hx:absolute hx:-mt-20" id="what-to-investigate-next"&gt;&lt;/span&gt;
+&lt;a href="#what-to-investigate-next" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Emdash is a workspace-manager watchlist entry, not a completed feature comparison.
+For any additional product, first establish whether it controls existing terminal
+sessions, starts its own agent processes, or runs managed cloud tasks. Then check
+remote intervention, subagent detail, voice actions, account limits, lifecycle, and
+session handoff. These questions reveal workflow differences more reliably than a
+long list of editors, file viewers, or model names.&lt;/p&gt;</description></item></channel></rss>
