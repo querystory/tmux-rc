@@ -245,7 +245,7 @@ CASES = [
         ],
         0,
     ),
-    # shownAt: what lists sort by, so it must be what the age label counts from.
+    # shownAt: what the age label counts from, so lists sort by it too.
     (
         "shownAt: state_since wins over a later last_activity_at, matching the age shown",
         "shownAt",
@@ -257,6 +257,21 @@ CASES = [
         "shownAt",
         [{"activity": "idle", "last_activity_at": 900}],
         900,
+    ),
+    (
+        "newestFirst: a working row (age 'now') sorts above a younger idle one",
+        "newestFirst",
+        [{"activity": "running", "state_since": 100}, {"activity": "idle", "state_since": 900}],
+        -1,
+    ),
+    (
+        "newestFirst: otherwise the youngest age shown comes first",
+        "newestFirst",
+        [
+            {"activity": "idle", "state_since": 900, "last_activity_at": 100},
+            {"activity": "idle", "state_since": 100, "last_activity_at": 900},
+        ],
+        -800,
     ),
     # Sub-agents: only the backend's busy states count, and its `agents` count wins when larger.
     (

@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, shownAt, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
@@ -327,7 +327,7 @@ function renderList() {
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
 function renderPhoneList(subset) {
-  const rows = sort === "updated" ? subset.sort((a, b) => shownAt(b) - shownAt(a))
+  const rows = sort === "updated" ? subset.sort(newestFirst)
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
     if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
