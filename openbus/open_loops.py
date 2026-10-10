@@ -236,7 +236,8 @@ def _pane(p: dict) -> dict:
 
 def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
           keywords: dict[str, list[str]] | None = None) -> dict:
-    """The three lanes, each a list of workstreams with their rows. Pure: no I/O."""
+    """The three lanes, each a list of workstreams with their rows, and how many dropped
+    worktrees the horizon hid. Pure: no I/O."""
     prs = {(p["repo"].lower(), p["number"]): p for p in github.get("prs", [])}
     heads = {}
     for key, p in sorted(prs.items(), key=lambda kv: kv[1]["state"] == "OPEN"):
@@ -330,22 +331,26 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
             lanes["dropped"][pane_ws[p.get("pane_id")]].append(
                 {**row, "reasons": ["idle_dirty"], "dirty": w["dirty"]})
 
+    older = 0
     for w in worktrees:
         key = head_of(w)
         landed = key and prs[key]["state"] == "MERGED"
-        if (w["path"] in covered or w["active_at"] < now - HORIZON
-                or not (w["dirty"] or (w["unpushed"] and not landed))):
+        if w["path"] in covered or not (w["dirty"] or (w["unpushed"] and not landed)):
+            continue
+        if w["active_at"] < now - HORIZON:
+            older += 1
             continue
         lanes["dropped"][ws(key)].append(
             {"kind": "worktree", "reasons": ["no_pane"], "at": w["active_at"],
              **{k: w[k] for k in ("path", "repo", "branch", "dirty", "unpushed")}})
 
     info = {w["id"]: w for w in named.values()}
-    return {lane: sorted(({"workstream": info.get(group),
-                           "items": sorted(rows, key=lambda r: -(r["at"] or 0))}
-                          for group, rows in groups.items() if rows),
-                         key=lambda g: -(g["items"][0]["at"] or 0))
-            for lane, groups in lanes.items()}
+    return {"older_worktrees": older, "lanes": {
+        lane: sorted(({"workstream": info.get(group),
+                       "items": sorted(rows, key=lambda r: -(r["at"] or 0))}
+                      for group, rows in groups.items() if rows),
+                     key=lambda g: -(g["items"][0]["at"] or 0))
+        for lane, groups in lanes.items()}}
 
 
 def keywords() -> dict[str, list[str]]:
@@ -373,10 +378,10 @@ class OpenLoops:
     def refresh(self, panes: list[dict], now: float | None = None) -> None:
         now = time.time() if now is None else now
         refs = _refs(panes)
-        self.refs = set(refs)
         try:
             self.github, self.fetched_at, self.error = (fetch_github(refs, now, self.stopping),
                                                         now, None)
+            self.refs = set(refs)  # looked up: a failure leaves them due for the next minute
         except Exception as e:  # noqa: BLE001 - keep the last good answer, say it is old
             logger.info("open loops: GitHub fetch failed: %s", type(e).__name__)
             self.error = "unavailable"
@@ -408,6 +413,4 @@ class OpenLoops:
         return {"generated_at": now, "fetched_at": self.fetched_at, "error": self.error,
                 "scanned_at": self.scanned_at, "older_open_prs": self.github.get("older", 0),
                 "truncated": self.github.get("truncated", False),
-                "older_worktrees": sum(w["active_at"] < now - HORIZON and bool(
-                    w["dirty"] or w["unpushed"]) for w in self.worktrees),
-                "lanes": build(self.github, self.worktrees, panes, now, keywords())}
+                **build(self.github, self.worktrees, panes, now, keywords())}

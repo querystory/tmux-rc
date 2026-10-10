@@ -194,11 +194,12 @@ def test_lanes():
     trees = [wt("/src/shop-api", "main", dirty=3),
              wt("/wt/solo", "spike", dirty=1),
              wt("/wt/a13", "feat/13", dirty=2),
-             wt("/wt/landed", "feat/18", unpushed=2),
+             wt("/wt/landed", "feat/18", unpushed=2, active=30 * 86400),
              wt("/wt/drift", "spike-2", unpushed=1),
              wt("/wt/old", "spike-3", dirty=1, active=30 * 86400),
              wt("/wt/a10", "feat/10", dirty=1)]
-    lanes = build(gh, trees, panes, NOW)
+    built = build(gh, trees, panes, NOW)
+    lanes = built["lanes"]
     waiting, dropped = rows(lanes, "waiting"), rows(lanes, "dropped")
 
     assert waiting[10]["reasons"] == ["approved"]
@@ -220,7 +221,7 @@ def test_lanes():
     assert dropped["/wt/drift"]["unpushed"] == 1
     for quiet in ("/wt/landed", "/wt/old", "/wt/a10", "/src/shop-api", "/wt/solo"):
         assert quiet not in dropped
-
+    assert built["older_worktrees"] == 1  # /wt/old; a landed branch is not counted either
     # Stacks group themselves under their root, merged links included.
     by_ws = {g["workstream"]["id"] if g["workstream"] else None: g for g in lanes["moving"]}
     assert [(i["kind"], i["number"]) for i in by_ws[f"{REPO}#18"]["items"]] == [
@@ -237,7 +238,7 @@ def test_labels_then_keywords_join_what_the_stack_cannot():
                      repo="example-org/shop-web"),
                 node(50, checks="FAILURE", head="fix/coupon-rounding"),
                 node(60, checks="FAILURE"))
-    lanes = build(gh, [], [], NOW, {"pricing": ["Coupon"], "never": [""]})
+    lanes = build(gh, [], [], NOW, {"pricing": ["Coupon"], "never": [""]})["lanes"]
     groups = {g["workstream"]["id"]: sorted(i["number"] for i in g["items"])
               for g in lanes["dropped"]}
     assert groups == {"workstream:checkout": [30, 31, 40], "workstream:pricing": [50],
