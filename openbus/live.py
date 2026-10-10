@@ -496,7 +496,7 @@ async def _approved(
     nudge = None
     try:
         await websocket.send_json({**card, "id": proposal})
-        nudge = meter.push and asyncio.create_task(_nudge(meter, summary))  # the phone has it
+        nudge = meter.push and asyncio.create_task(_nudge(meter, answer, summary))  # sent
         ok = await answer  # True / False on a tap, None when a new message superseded it
         rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
         # The client shows the answer as final only on this, so a reconnect can't leave a
@@ -512,12 +512,14 @@ async def _approved(
 _NUDGE_TICK = 1.0
 
 
-async def _nudge(meter: _Meter, text: str) -> None:
+async def _nudge(meter: _Meter, answer: asyncio.Future, text: str) -> None:
     """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
     at the chat (sheet minimized, page hidden, phone locked) the whole time. Answering the
     card cancels this, and it returns after one push, so a card notifies at most once."""
     shown = time.monotonic()
     while True:
+        if answer.done():  # answered: _approved's cancel may not have reached this yet
+            return
         since = meter.unseen_since
         if (since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS
                 # On the loop, not a thread: nothing (a tap, coming into view) can land
