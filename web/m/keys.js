@@ -33,7 +33,9 @@ export function tmuxKey(e, selected = false) {
   if (ctrl) {
     // A non-Latin layout reports its own letter; the chord means the key's Latin one.
     const letter = /^[\x20-\x7e]$/.test(e.key) ? e.key.toLowerCase() : /^Key([A-Z])$/.exec(e.code)?.[1].toLowerCase();
-    if (!letter || alt || (selected && letter === "c")) return null;
+    // Ctrl-W/T/N close and open tabs and windows, and no page can cancel them: forwarding
+    // one would type into the pane as the tab goes. Ctrl-Backspace still gives a C-w.
+    if (!letter || alt || "wtn".includes(letter) || (selected && letter === "c")) return null;
     return { keys: `C-${spaced(letter)}`, literal: false };
   }
   // Option on a Mac types its own characters (å, ∫); only an ASCII one is a Meta chord.
