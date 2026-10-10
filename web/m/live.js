@@ -430,8 +430,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       clearTimeout(current.deadline); current.listening = false; drop(current);
       const { retry, refusal } = liveClose(event);
       // The daemon keeps a card for half an hour (live.PARKED_SECONDS), and the tunnel takes
-      // a minute to come back from its hourly drop: while one waits, keep trying, capped.
-      if (retry && current.up && (current.tries < MAX_RECONNECT_TRIES || current.proposals.size)) {
+      // a minute to come back from its hourly drop: while one waits, keep trying, capped,
+      // whatever the close (a restart's is clean: the reconnect learns the card expired).
+      const waiting = current.proposals.size && event.code !== 1008;
+      if (current.up && (waiting || (retry && current.tries < MAX_RECONNECT_TRIES))) {
         current.connectionStatus = "Connection lost. Reconnecting...";
         audioStatus(current);
         current.retry = setTimeout(() => connect(current), 1000 * 2 ** Math.min(current.tries++, MAX_RECONNECT_TRIES - 1));
