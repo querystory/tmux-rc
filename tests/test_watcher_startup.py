@@ -92,6 +92,16 @@ def test_empty_discovery_publishes_booted_state(inventory, monkeypatch, running)
     assert w.state_version() == 1
 
 
+def test_server_stopping_under_an_empty_deck_bumps_the_version(inventory, monkeypatch):
+    w, panes = inventory
+    panes.clear()
+    monkeypatch.setattr(W.tmux, "server_running", lambda: True)
+    w._tick()
+    monkeypatch.setattr(W.tmux, "server_running", lambda: False)
+    w._tick()
+    assert w.state_version() == 2 and not w.tmux_running
+
+
 def test_failed_discovery_stays_loading_then_recovers(inventory, monkeypatch):
     w, panes = inventory
     with monkeypatch.context() as patch:

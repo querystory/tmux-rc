@@ -262,7 +262,9 @@ dialog::backdrop { background: #0008; }
 #voice-close { margin-left: auto; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 dialog label { display: block; margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
-dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
+dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
+.start-session { display: block; min-height: 44px; padding: 0 20px; border-radius: 6px; margin: 16px 0 0; }
+#list-start { margin: 0 auto; }
 #launch-error { color: var(--red); margin-top: 12px; font-size: 13px; }
 #live-mode.active { color: var(--red); background: var(--raised); box-shadow: inset 0 0 0 1px var(--red); }
 #chat.active { color: var(--accent); background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -553,7 +555,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-state-toggle[aria-pressed="false"]::before { background: transparent; }
 .atlas-state-toggle[aria-pressed="false"] { text-decoration: line-through; }
 .atlas-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 24px; }
-#landing-sub:empty + #session-atlas .atlas-controls { margin-top: 0; }
+#landing-sub:empty ~ #session-atlas .atlas-controls { margin-top: 0; }
 .atlas-controls-label { font-size: 13px; }
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }

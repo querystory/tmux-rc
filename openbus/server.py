@@ -74,7 +74,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import expunge, telemetry, tmux  # noqa: E402
+from . import agent_history, expunge, telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -188,6 +188,12 @@ class NewWindowBody(BaseModel):
     launcher: str  # label of a configured launcher — never a raw command
 
 
+class NewSessionBody(BaseModel):
+    name: str  # checked in new_session, not here, so a refusal is audited
+    cwd: str = "~"
+    launcher: str | None = None  # a configured label as above; None = a plain shell
+
+
 # Agent launchers offered by the dock's "+" menu. Configurable so a fleet can offer
 # model/provider variants ("Claude (Fable)" → `claude --model fable`); the phone sends
 # back only the LABEL and the daemon looks the command up here, so the HTTP surface
@@ -204,7 +210,8 @@ _DEFAULT_LAUNCHERS = [
 ]
 
 
-def _unavailable(command: str, path: str | None = None) -> str | None:
+def _unavailable(command: str, path: str | None = None, *,
+                 daemon_path: bool = True) -> str | None:
     r"""Why nothing here can run `command`, or None if something can — or can't tell.
 
     A launcher is looked up twice, because there are two PATHs and neither is reliably
@@ -236,6 +243,10 @@ def _unavailable(command: str, path: str | None = None) -> str | None:
     prepend more, so a name found in NEITHER can still turn out to exist. That asymmetry
     is deliberate — it costs a window that opens and dies, which is the failure this
     endpoint explains, rather than a refusal to open one that would have worked.
+
+    `daemon_path=False` drops the daemon's own PATH from the lookup, for the one caller
+    that knows `path` is the whole answer: new_session with no server yet, whose server
+    will inherit only that PATH.
 
     Returning the reason rather than the word keeps one wording for both callers: the
     phone says the same thing whether it asked before the tap or after it."""
@@ -287,7 +298,7 @@ def _unavailable(command: str, path: str | None = None) -> str | None:
         return None
     # Either list will do — see the two-PATH note above. A word with a slash is checked as
     # a file by both calls, so passing `path` is harmless there.
-    if shutil.which(word) or (path is not None and shutil.which(word, path=path)):
+    if (daemon_path and shutil.which(word)) or (path is not None and shutil.which(word, path=path)):
         return None
     if os.path.isabs(word):
         # A path answers for itself; neither PATH was ever going to be consulted.
@@ -301,6 +312,10 @@ def _unavailable(command: str, path: str | None = None) -> str | None:
     # the directory to the daemon's unit satisfies the first lookup and silences this
     # message without making the command runnable, because the window inherits the tmux
     # SERVER's environment. The absolute path is the advice that cannot be misapplied.
+    if not daemon_path:  # no server yet: `path` is what the login shell will give it
+        return (f"{words[0]} is not on your login shell's PATH, which is the PATH a new "
+                "tmux server started from here gets. Add it in your shell profile, or "
+                "give TMUXRC_LAUNCHERS an absolute path.")
     return (f"{words[0]} is on neither the daemon's PATH nor the tmux server's. An "
             "absolute path in TMUXRC_LAUNCHERS always works; otherwise put it on the PATH "
             "of the shell you start tmux FROM — the window inherits the server's "
@@ -586,6 +601,7 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
         ],  # transient; UI shows it subtly, not a big banner
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
+        "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
         "panes": panes,
     }
 
@@ -942,16 +958,86 @@ def new_window(body: NewWindowBody, request: Request):
         _audit(request, "new_window", "-", detail, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "new_window", pane_id, detail)
-    # Wake the watcher NOW instead of letting the new pane wait up to a poll interval to
-    # be discovered. The tick that runs publishes the pane's identity before it classifies
-    # it (see watcher._tick), so the card the phone just navigated to appears at once as a
-    # known-but-unclassified pane rather than as a missing pane id. Best-effort: the
-    # window already exists, so a watcher that isn't up must not turn a success into a
-    # 500 — the next ordinary tick finds the pane anyway.
+    return _opened(pane_id)
+
+
+def _opened(pane_id: str) -> dict:
+    """The reply for a request that just created a pane. Wakes the watcher NOW instead of
+    letting the new pane wait up to a poll interval to be discovered. The tick that runs
+    publishes the pane's identity before it classifies it (see watcher._tick), so the card
+    the phone just navigated to appears at once as a known-but-unclassified pane rather
+    than as a missing pane id. Best-effort: the pane already exists, so a watcher that
+    isn't up must not turn a success into a 500 — the next ordinary tick finds it anyway."""
     watcher = getattr(app.state, "watcher", None)
     if watcher is not None:
         watcher.request_reparse(pane_id)
     return {"ok": True, "pane_id": pane_id}
+
+
+@app.get("/api/sessions/dirs")
+def session_dirs():
+    """Directory suggestions for the New session dialog: where panes are open now, then
+    where past agent sessions ran (agent_history.recent_dirs). Suggestions only — the
+    dialog takes any path and new_session validates it — so nothing here browses the
+    filesystem. Home-relative paths come back as ~/…, which new_session expands."""
+    home = os.path.expanduser("~")
+    seen = [s.get("cwd") for s in app.state.watcher.states] + agent_history.recent_dirs()
+    tilde = ("~" + d[len(home):] if d == home or d.startswith(home + "/") else d
+             for d in seen if d)
+    return {"dirs": list(dict.fromkeys(tilde))[:30]}
+
+
+@app.post("/api/sessions")
+def new_session(body: NewSessionBody, request: Request):
+    """Create a tmux session in `cwd`, optionally running a configured launcher — and
+    start the tmux server if none is running, which is the case this exists for: after a
+    reboot nothing else on the phone can bring tmux back. Same label-only rule and
+    preflight as new_window. `cwd` is not confined to $HOME: a client that can type into
+    any shell here can already `cd` anywhere, so a fence would only cost real use."""
+    detail = (f"session={body.name[:80]!r} cwd={body.cwd[:120]!r} "
+              f"launcher={(body.launcher or '')[:80]!r}")
+
+    def refuse(status: int, why: str):
+        _audit(request, "new_session", "-", detail, outcome=f"rejected: {why}"[:80])
+        raise HTTPException(status, why)
+
+    # Single-pane mode publishes only its target, so the new pane could never appear
+    # (the history tools are withheld for the same reason: agent_history.offered).
+    if os.environ.get("TMUXRC_TARGET"):
+        refuse(409, "single-pane mode (TMUXRC_TARGET) cannot show a new session")
+    # tmux silently rewrites ':' and '.' in a session name (they are target syntax), so
+    # the session would not be called what was asked for; refuse rather than surprise.
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body.name):
+        refuse(422, "session names are 1-64 letters, digits, - and _")
+    entry = None
+    if body.launcher is not None:
+        entry = next((e for e in _launchers() if e["label"] == body.launcher), None)
+        if entry is None:
+            refuse(404, "unknown launcher")
+    cwd = os.path.expanduser(body.cwd)
+    if not (os.path.isabs(cwd) and os.path.isdir(cwd)):
+        # 422, not 400: the phone reads a 400 as the launcher preflight's verdict and
+        # greys that launcher out, which a mistyped directory must not do.
+        refuse(422, f"{body.cwd} is not a directory")
+    # With no server yet, the launcher will run under exactly the PATH new_session gives
+    # the server it starts — a known answer, and the only one: the daemon's own PATH
+    # (its virtualenv included) is not inherited, so it must not vouch for the command.
+    # One login-shell probe per request, shared by the preflight and the server start.
+    env, running = tmux.server_env(), tmux.server_running()
+    path = tmux.server_path() if running else env.get("PATH", "")
+    why = entry and _unavailable(entry["command"], path, daemon_path=running)
+    if why:
+        refuse(400, why)
+    try:
+        pane_id = tmux.new_session(body.name, cwd, entry and entry["command"],
+                                   entry["label"] if entry else "", env=env)
+    except subprocess.CalledProcessError as e:
+        if "duplicate session" in (e.stderr or ""):
+            refuse(409, f"a session named {body.name} already exists")
+        _audit(request, "new_session", "-", detail, outcome=f"error: tmux rc {e.returncode}")
+        raise
+    _audit(request, "new_session", pane_id, detail)
+    return _opened(pane_id)
 
 
 @app.post("/api/panes/{pane_id}/select")
