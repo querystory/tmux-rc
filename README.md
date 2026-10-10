@@ -42,8 +42,8 @@ the summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overv
 > items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
 > scope.
 
-Compare [Conductor, T3 Code, MuxFlow, and other agent managers](docs/comparisons/_index.md)
-for session ownership, remote access, usage tracking, and using tools together.
+[Why tmux-rc](docs/comparisons/_index.md): the existing tmux workflow we wanted to
+keep, the requirements other tools left open for us, and the alternatives we researched.
 
 ## Run
 

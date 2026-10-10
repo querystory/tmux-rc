@@ -44,12 +44,13 @@ text/voice fleet controls. Both have voice features; compare interaction style a
 scope rather than simply marking voice present or absent.
 [Features and platform availability](https://github.com/gal064/muxflow).
 
-## Use both on the same fleet
+## Why tmux-rc, and where MuxFlow fits alongside it
 
-**Our assessment:** this is the most natural pairing of the three detailed comparisons.
-Both can operate on the same host's tmux sessions. MuxFlow can supply native terminal
-and SSH workspace tools, while tmux-rc supplies its attention overview and fleet controls.
-This is an architectural compatibility assessment, not a tested interoperability promise.
+MuxFlow comes closest to our existing-terminal starting point. We built tmux-rc
+around the overview we wanted across many sessions: what needs us, what each agent
+is doing, usage projections, and conversational fleet controls. MuxFlow can supply
+a native terminal and SSH workspace surface alongside that overview. Both can
+operate on the same host's tmux sessions in principle; we have not tested this pairing.
 
 There is no required conversation migration if both clients address the same panes.
 Replies, renames, and pane closure affect the underlying shared sessions. Use one client

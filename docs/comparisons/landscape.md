@@ -1,5 +1,5 @@
 ---
-title: Broader competitor landscape
+title: Alternatives we researched
 weight: 40
 ---
 

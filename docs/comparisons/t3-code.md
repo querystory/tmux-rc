@@ -62,10 +62,11 @@ It does not transfer outgoing reasoning, tool-call state, or attachments. Omitte
 history can be retrieved through T3's thread-reading tool.
 [Portable handoffs](https://github.com/pingdotgg/t3code/blob/main/docs/user/portable-handoffs.md).
 
-**Our assessment:** T3 is a close comparator for managed conversations, account quotas,
-and remote clients. tmux-rc's distinction is supervising existing terminal work with
-fleet summaries, attention states, spatial views, and conversational control.
-Subagents and quota tracking should be presented as shared capabilities.
+**Why we built tmux-rc:** T3 covers managed conversations, account quotas, and remote
+clients well. We wanted the manager to discover work already running across our tmux
+sessions and let us supervise it in place. That requirement led to fleet summaries,
+attention states, spatial views, and conversational control built around panes.
+Subagent visibility and quota tracking are capabilities both products offer.
 
 To try both, give T3 a separate task/worktree first. For an imported conversation,
 hand ownership over between turns and verify continuation before retiring the original

@@ -1,80 +1,90 @@
 ---
-title: Agent manager comparisons
+title: Why tmux-rc
 weight: 15
 ---
 
-Choose an agent manager by how it fits your running work: where agents execute,
-which sessions it can see, how you intervene remotely, and how much workflow it owns.
-File editors and diff viewers are useful to some users, but they do not decide whether
-a product is a good fleet manager.
+We built tmux-rc for a workflow we already had: lots of coding agents running in
+multiple tmux sessions, across projects, with work continuing while we stepped away.
+We wanted to drop a small service onto that host and manage the whole fleet remotely.
 
-**Research checked: October 10, 2026.** These comparisons use official documentation
-and public source, rather than hands-on trials of every product. “Not established”
-means the reviewed sources did not answer the question; it does not mean unsupported.
-Features, availability, and subscription requirements can change.
+We looked at other agent managers and terminal tools. Several solve parts of this
+well, but we did not find the combination we wanted: existing-session discovery,
+an overview of what needs us, and text/voice control across a mixed fleet, with little
+change to how we already launch and run agents.
 
-## Start with session ownership
+## The workflow we wanted to keep
 
-| Product | Unit of work | Existing tmux fleet | Remote access |
-| --- | --- | --- | --- |
-| tmux-rc | Running panes and their agent activity | Observes and controls the configured tmux server | Browser/PWA behind an authenticated proxy or identity-controlled tailnet ACLs |
-| [MuxFlow](muxflow.md) | tmux sessions, windows, panes, and agent hooks | Direct tmux integration; attention tracking needs supported hooks | Native clients and SSH hosts |
-| [T3 Code](t3-code.md) | Provider-backed conversations on environment servers | No fleet discovery found; can import Claude/Codex conversation history | Desktop, web, iOS, Android; relay, pairing, Tailscale, SSH |
-| [Conductor](conductor.md) | Local worktrees or cloud workspaces with agent chats | Adoption of running tmux panes not established | Mac app; iOS for cloud workspaces; cloud API |
+Our starting point is a running tmux server. Sessions, windows, and panes already
+contain agents, shells, experiments, and long-running work. Some agents were started
+by hand; others were started by another agent. Projects have their own branches,
+worktrees, scripts, and conventions.
 
-Sources and qualifications are on each product's page. See the
-[broader landscape](landscape.md) for Superset, cmux, agent-deck, and Vibe Kanban.
+The manager should fit around that work:
 
-tmux-rc has no built-in authentication. Network privacy alone is not an access
-boundary: every client allowed to reach the daemon can read and control its terminals.
-Use an authenticated proxy or tailnet identity/ACL rules that restrict access to the
-intended users. See [deployment guidance](../deploy/_index.md).
+- **See what is already running.** Pick up existing panes across multiple tmux
+  sessions without importing each conversation or relaunching every agent.
+- **Keep our launch habits.** An agent started in a terminal should join the overview
+  alongside agents started from the dashboard.
+- **Make a large fleet manageable.** Show what needs an answer, what is working,
+  what just finished, and what delegated subagents are doing.
+- **Let us intervene from anywhere.** Use a desktop or phone to answer, steer, inspect
+  a terminal, or talk to the fleet through text and voice.
+- **Help keep work moving.** Show subscription limits, usage trends, and projected
+  exhaustion so we can decide where to spend the remaining allowance.
+- **Keep a mixed fleet together.** Support agents from different vendors and ordinary
+  terminal work on the same tmux server; use harness-specific detail where available.
 
-## Which workflow fits?
+These are the requirements that shaped tmux-rc. The terminal sessions continue to
+belong to tmux, and our existing Git and agent workflows remain the starting point.
 
-These are our assessments, not vendor claims:
+## What the alternatives showed us
 
-- **Keep a running terminal fleet:** start with tmux-rc, MuxFlow, and agent-deck.
-  Check whether the tool observes existing sessions or expects to launch new ones.
-- **Start tasks in a managed conversation UI:** compare T3 Code, Conductor, and
-  Superset. Worktree setup, structured approvals, queues, and PR lifecycle matter here.
-- **Use a terminal as your main workspace:** compare cmux and MuxFlow alongside
-  tmux-rc. A terminal workspace and a fleet control plane can serve different needs.
-- **Run work while your laptop is off:** distinguish a daemon on your own always-on
-  host from a provider's managed cloud execution. A phone client alone supplies neither.
+The question we asked was how each tool would fit this existing fleet.
 
-tmux-rc's current capabilities include pane summaries and attention states,
-structured replies, subagent activity, a spatial session atlas, usage history and
-subscription-limit projections, and text/voice control. Agent recognition and detail
-vary by harness. tmux remains responsible for the underlying terminal sessions.
+| Alternative | What attracted us | Why we still wanted tmux-rc |
+| --- | --- | --- |
+| [Conductor](conductor.md) | Parallel workspaces, agent chats, cloud execution, and team collaboration | Its workspace lifecycle is a different starting point from our already-running tmux sessions |
+| [T3 Code](t3-code.md) | Remote conversations, provider switching, account quotas, and recovery after limits | It manages provider-backed threads; importing history does not attach to the live terminal fleet |
+| [MuxFlow](muxflow.md) | Direct tmux/SSH integration, native terminals, notifications, and voice replies | A close fit for terminal access; we wanted the fleet overview and conversational supervision that shaped tmux-rc |
+| [cmux](landscape.md#cmux) | Native terminal workspaces and beta remote tmux mirroring | A useful desktop surface for the same fleet; our focus also includes browser access and fleet-level intervention |
+| [Superset and agent-deck](landscape.md) | Parallel agent workspaces and conversational orchestration | Their documented launch/session models differ from automatically observing arbitrary existing panes |
+| [Native Claude/Codex controls](landscape.md#first-party-remote-controls) | Deep integration with their own harnesses | We wanted one overview across vendors and terminal work |
+
+We chose the combination that fits our workflow. Other tools also have subagents,
+remote clients, usage tracking, and voice features.
+MuxFlow and cmux can even provide another view of the same tmux sessions. The
+combination and the starting workflow are what mattered to us.
+
+## Drop it onto the host that already runs the work
+
+Run the daemon on your tmux host, open the browser dashboard, and it observes the
+configured server's panes. Existing sessions stay in place. The dashboard adds
+summaries, attention states, structured replies, subagent activity, a spatial session
+atlas, usage history and limit projections, and text/voice controls. Recognition and
+available detail vary by harness.
+
+The setup is a small service plus a web client; tmux, your agents, and your execution
+host are still prerequisites. Remote access needs an explicit access-control boundary:
+**the daemon has no built-in authentication**. Every client allowed to reach it can
+read and control terminals. Use an authenticated proxy or identity-controlled tailnet
+ACLs that restrict access to the intended users.
+
 See [the architecture](../design/architecture.md),
-[agent configuration](../agent-setup.md), and
-[plan usage](../design/plan-usage.md).
+[agent configuration](../agent-setup.md),
+[remote setup](../deploy/_index.md), and
+[usage-limit tracking](../design/plan-usage.md).
 
-Subagent visibility, remote clients, and usage tracking also exist in competing
-products. Do not describe them as exclusive to tmux-rc. The stronger distinction is
-the combination of existing fleet access, attention management, and conversational
-control without requiring every task to begin inside a new workspace manager.
+## The research behind the decision
 
-## Use two tools or hand work over
+The detailed pages explain session ownership, remote access, voice, quotas, subagents,
+and how to use tools together:
 
-Using separate tools for separate tasks is straightforward. Use separate worktrees
-when agents may edit concurrently. Sharing credentials or a repository does not imply
-that two managers synchronize approvals, queues, or live provider state.
+- [Conductor](conductor.md)
+- [T3 Code](t3-code.md)
+- [MuxFlow](muxflow.md)
+- [Broader landscape](landscape.md)
 
-MuxFlow and tmux-rc can address the same tmux server, so they can provide different
-views of the same panes. Session deletion, renames, and replies affect both views;
-avoid submitting duplicate instructions from both clients.
-
-T3's conversation import is a continuation path, not attachment to the running tmux
-process. Conductor's workspace model likewise does not establish a general tmux
-handoff. For a trial, finish or stop the current turn, keep the original session
-available, and verify which manager owns the next turn before sending it.
-
-## Keep the comparisons current
-
-When updating a page, record the research date and link the exact feature docs or
-implementation. Recheck phone/cloud availability, supported harnesses, session import,
-voice behavior, and subscription limits. Separate announced or early-access features
-from generally available ones. Keep popularity signals in the landscape page:
-GitHub stars, vendor-reported users, downloads, and active users measure different things.
+**Research checked: October 10, 2026.** Sources are official docs and public code,
+not hands-on trials of every product. “Not established” means the reviewed sources
+left a question open. Beta and early-access features are identified separately;
+availability and subscription requirements can change.

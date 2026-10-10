@@ -60,10 +60,11 @@ but should not be counted as identical fleet views.
 | Inspect existing tmux panes | Not established in reviewed docs | Core operation |
 | Conversational fleet voice / pooled quota forecasting | Not established by this research | Text/voice controls and plan-usage projections are implemented |
 
-**Our assessment:** Conductor deserves close attention for workspace lifecycle,
-cloud execution, and team collaboration. tmux-rc fits a user who already has a busy
-terminal fleet and wants to supervise it without moving all work into managed chats.
-Remote access itself is no longer a useful exclusive claim against Conductor.
+**Why we built tmux-rc:** Conductor offers a strong workspace lifecycle, cloud
+execution, and team collaboration. Our starting point was a busy tmux server with
+multiple sessions already running. We wanted to add remote supervision around that
+fleet, while keeping our existing launch and terminal habits. Conductor also has
+remote access; the difference that matters to us is how work enters the manager.
 
 ## Try alongside tmux-rc
 
