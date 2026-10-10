@@ -24,16 +24,21 @@ function spark(w, now) {
     + `<polyline class="proj" points="${at(held)} ${at(end)}"/></svg>`;
 }
 
+// A clock time for the detail view: the weekday as well once it is not today.
+const at = (t, now) => new Date(t).toLocaleString([], { ...(new Date(t).toDateString() !== new Date(now).toDateString() && { weekday: 'short' }), hour: 'numeric', minute: '2-digit' });
+
 // A meter that fills up: the fill is what is used, the faint stretch past it is where the
 // fitted pace ends by the reset, and the tick is the even pace (the share of the window
 // gone), so a fill past the tick is ahead of it. Wide, the trend says the same over time.
 // Both are coloured by the projection's verdict.
-function cell(w, a, wide, now) {
+function cell(w, a, wide, detail, now) {
   const projected = Math.min(100, w.projected ?? w.pct), used = Math.min(100, w.pct);
   const level = w.limit_at || w.pct >= 100 ? 'full' : projected >= 90 ? 'warn' : '';
   const when = w.resets_at ? countdown(w.resets_at - now) : '';
   const full = w.limit_at ? `full in ${countdown(w.limit_at - now)}` : '';
-  const note = (full && `<small class="out">${full}</small>`) + (when && `<small>resets ${when}</small>`);
+  const note = (full && `<small class="out">${full}${detail ? `, ${at(w.limit_at, now)}` : ''}</small>`)
+    + (when && `<small>resets ${when}${detail ? `, ${at(w.resets_at, now)}` : ''}</small>`)
+    + (detail && w.projected != null ? `<small>at this pace ${Math.round(w.projected)}% by the reset</small>` : '');
   const title = `${who(a)} ${w.window}: ${Math.round(w.pct)}% used${full && `, ${full}`}${when && `, resets in ${when}`}`
     + (w.projected != null ? `; at this pace ${Math.round(w.projected)}% by the reset` : '');
   const pace = w.resets_at && Math.min(100, Math.max(0, (now - w.start) / (w.resets_at - w.start) * 100));
@@ -51,10 +56,12 @@ function cell(w, a, wide, now) {
 const who = a => a.label ? `${NAMES[a.provider]} ${a.label}` : NAMES[a.provider];
 const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NAMES[provider]}" width="14" height="14">${esc(text)}</span>`;
 
-export function renderUsage(el, accounts, wide, now = Date.now()) {
+// Wide draws each window's trend instead of its bar; detail (the dashboard's expanded
+// panel) adds the clock times behind each countdown and the pace's forecast.
+export function renderUsage(el, accounts, wide, detail = false, now = Date.now()) {
   el.hidden = !accounts.length;
   const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, [a.label, a.error].filter(Boolean).join(': '))}</div>`
-    : a.windows.map(w => cell(w, a, wide, now)).join('')).join(''); // a plan without a window shows none
+    : a.windows.map(w => cell(w, a, wide, detail, now)).join('')).join(''); // a plan without a window shows none
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
 }
 

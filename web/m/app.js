@@ -585,11 +585,17 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 // Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
 // by default); the wide sidebar has no such menu and keeps them all.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], usageAt = 0, usageMode = "auto";
+let usage = [], usageAt = 0, usageMode = "auto", usageDetail = false;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
   renderUsage($("usage"), shownUsage(usage, WIDE.matches ? "on" : usageMode), WIDE.matches);
+  // The dashboard's panel draws every meter as a trend whatever the mode; tapped, it opens up.
+  show("usage-panel", usage.length > 0);
+  renderUsage($("usage-board"), usage, true, usageDetail);
+  $("usage-detail").ariaExpanded = usageDetail;
+  $("usage-detail").ariaLabel = $("usage-detail").title = usageDetail ? "Hide details" : "Show details";
+  html($("usage-detail"), licon(usageDetail ? "chevronUp" : "chevronDown"));
 };
 async function refreshUsage() {
   if (Date.now() - usageAt < 60000) return;
@@ -1180,6 +1186,17 @@ $("usage-mode").onclick = () => {
   try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
   paintUsage();
 };
+$("usage-board").onclick = $("usage-detail").onclick = () => { usageDetail = !usageDetail; paintUsage(); };
+// The strip is a glance; tapping it opens the dashboard at its panel, where the trend reads.
+const openUsage = () => {
+  openDashboard();
+  const panel = $("usage-panel"), landing = $("landing"); // scrollIntoView would also scroll the clipped #app
+  landing.scrollBy({ top: panel.getBoundingClientRect().top - landing.getBoundingClientRect().top - 16,
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  panel.animate([{ boxShadow: "0 0 0 3px var(--accent)" }, { boxShadow: "0 0 0 3px transparent" }], 1200);
+};
+$("usage").onclick = openUsage;
+$("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
 paintUsage(); // labels the item before the first fetch
 $("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; stayPut(); }; });
 function applyTheme(light) {
