@@ -41,7 +41,9 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
+from openbus import classify as classify_mod
 from openbus.classify import classify
 from openbus.tmux import Pane
 
@@ -69,6 +71,7 @@ class Sample:
     title: str | None = None  # tmux pane title, for agents identified by it (omp)
     prior: tuple[str, ...] = ()  # earlier frames, sent with the capture as in production
     reply: str | None = None  # the agent's last transcript message, as the watcher reads it
+    processes: tuple[str, ...] = ()  # the process tree under the pane, argv space-joined
 
     @classmethod
     def load(cls, path: Path) -> Sample:
@@ -81,6 +84,7 @@ class Sample:
             title=d.get("title"),
             prior=tuple(d.get("prior", ())),
             reply=d.get("reply"),
+            processes=tuple(d.get("processes", ())),
             capture=d["capture"],
             expected=d["expected"],
         )
@@ -101,7 +105,9 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
     """Run ONE sample through the production classify() path. `llm_fn(system, text)`
     is the model call (the harness injects a real-Vertex one; tests can inject a stub).
     A synthetic Pane carries the sample's foreground process so the `[tmux: …]` prefix
-    and tool-anchoring behave exactly as in production."""
+    and tool-anchoring behave exactly as in production; `processes` stands in for the /proc
+    walk under the pane that names an agent hosted by node or bun."""
+    procs = {str(i): argv.replace(" ", "\0") for i, argv in enumerate(sample.processes)}
     pane = Pane(
         session="eval",
         window_index="0",
@@ -110,11 +116,14 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         id="%0",
         current_command=sample.current_command,
         title=sample.title or sample.name,
+        pid="0" if procs else "",
     )
-    return classify(
-        pane, sample.capture, llm_fn=llm_fn, prior=list(sample.prior),
-        repository=sample.repository, replies_fn=llm_fn, reply=sample.reply,
-    )
+    with patch.object(classify_mod, "processes", lambda _pid: list(procs)), \
+         patch.object(classify_mod, "proc_read", lambda p, _name: procs[p]):
+        return classify(
+            pane, sample.capture, llm_fn=llm_fn, prior=list(sample.prior),
+            repository=sample.repository, replies_fn=llm_fn, reply=sample.reply,
+        )
 
 
 # ── scoring ────────────────────────────────────────────────────────────────────────
