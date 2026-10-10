@@ -24,7 +24,8 @@ from .pr_titles import run_gh
 from .repository import github_repository
 
 logger = logging.getLogger(__name__)
-REFRESH = 900  # one query however many PRs, so a quarter hour costs GitHub almost nothing
+REFRESH = 900  # a few requests however many PRs, so a quarter hour costs GitHub little
+POLL = 60  # how often the loop looks for a pane association the cache has not fetched
 HORIZON = 14 * 86400  # older open PRs and idle worktrees are counted, not listed
 STALE = 3 * 86400  # an open PR untouched this long has dropped
 IDLE_DIRTY = 86400  # a pane idle this long over uncommitted changes has dropped
@@ -200,8 +201,12 @@ def scan_worktrees(cwds: list[str], stopping: Event | None = None,
     matter, and each repository's own list finds worktrees wherever they live. Where git
     fails, the previous scan's rows stand in, so a hiccup does not hide drift."""
     old = {w["path"]: w for w in previous}
-    commons = {(_git("-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
-                or "").strip() for cwd in set(cwds) if cwd}
+    commons = set()
+    for cwd in filter(None, set(cwds)):
+        found = _git("-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
+        # Discovery failed: the repository a previous scan placed this cwd in still counts.
+        commons |= {found.strip()} if found else {
+            w["common"] for w in previous if (cwd + "/").startswith(w["path"] + "/")}
     out = []
     for common in sorted(commons - {""}):
         repo, listing = None, _git("--git-dir", common, "worktree", "list", "--porcelain")
@@ -353,18 +358,22 @@ def keywords() -> dict[str, list[str]]:
             } if isinstance(value, dict) else {}
 
 
+def _refs(panes: list[dict]) -> list[tuple[str, int]]:
+    return list(dict.fromkeys((r["repo"], r["number"]) for p in panes for r in p.get("prs") or []))
+
+
 class OpenLoops:
     """Owns the cache. refresh() runs on a worker thread; report() only reads."""
 
     def __init__(self):
-        self.github, self.worktrees = {}, []
+        self.github, self.worktrees, self.refs = {}, [], set()
         self.fetched_at = self.scanned_at = self.error = None
         self.stopping = Event()  # set on shutdown, so a refresh in its thread stops early
 
     def refresh(self, panes: list[dict], now: float | None = None) -> None:
         now = time.time() if now is None else now
-        refs = list(dict.fromkeys((r["repo"], r["number"])
-                                  for p in panes for r in p.get("prs") or []))
+        refs = _refs(panes)
+        self.refs = set(refs)
         try:
             self.github, self.fetched_at, self.error = (fetch_github(refs, now, self.stopping),
                                                         now, None)
@@ -378,13 +387,19 @@ class OpenLoops:
     async def run(self, watcher) -> None:
         while not watcher.booted():  # before the first tick there are no panes to join
             await watcher.wait_for_state_change(watcher.state_version(), 30)
+        due = 0.0
         try:
             while True:
-                try:
-                    await asyncio.to_thread(self.refresh, list(watcher.states))
-                except Exception:  # one bad refresh must not end the loop
-                    logger.warning("open loops refresh failed", exc_info=True)
-                await asyncio.sleep(REFRESH)
+                # Early as well as on the cadence when a pane gains an association the cache
+                # has not looked up: at startup the classifier restores them a tick later.
+                panes = list(watcher.states)
+                if time.monotonic() >= due or not set(_refs(panes)) <= self.refs:
+                    due = time.monotonic() + REFRESH
+                    try:
+                        await asyncio.to_thread(self.refresh, panes)
+                    except Exception:  # one bad refresh must not end the loop
+                        logger.warning("open loops refresh failed", exc_info=True)
+                await asyncio.sleep(POLL)
         finally:  # cancelling the task cannot stop its thread; this lets the thread stop
             self.stopping.set()
 
