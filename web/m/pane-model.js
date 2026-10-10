@@ -42,8 +42,11 @@ export function markWorking(img, pane, logos) {
 }
 // How long the pane has been in its current state; a row shows "now" while it works.
 // No timestamp at all reads as no age, not as time since the epoch.
+// The time a row's age label counts from; lists sort by it too, so their order matches
+// the ages they show.
+export const shownAt = (p) => Number(p.state_since) || lastActivity(p);
 export const since = (p, nowMs = Date.now()) => {
-  const t = Number(p.state_since) || lastActivity(p);
+  const t = shownAt(p);
   if (!(t > 0)) return "";
   const s = Math.max(0, nowMs / 1000 - t);
   return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;

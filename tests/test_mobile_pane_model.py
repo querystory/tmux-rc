@@ -245,6 +245,19 @@ CASES = [
         ],
         0,
     ),
+    # shownAt: what lists sort by, so it must be what the age label counts from.
+    (
+        "shownAt: state_since wins over a later last_activity_at, matching the age shown",
+        "shownAt",
+        [{"activity": "idle", "state_since": 100, "last_activity_at": 900}],
+        100,
+    ),
+    (
+        "shownAt: falls back to lastActivity without state_since",
+        "shownAt",
+        [{"activity": "idle", "last_activity_at": 900}],
+        900,
+    ),
     # Sub-agents: only the backend's busy states count, and its `agents` count wins when larger.
     (
         "liveSubagents: keeps running and compacting, drops done, waiting and junk",
