@@ -9,6 +9,7 @@ import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
+import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar } from "/m/sidebar.js";
 import { renderUsage, paneAccount, shownUsage } from "/m/usage.js";
 
@@ -1023,7 +1024,7 @@ async function sendKeys(body, answer = false, id = active) {
   let delivered = false;
   sending = true; notice(); render();
   try {
-    await post(paneUrl(id, "send"), body);
+    await paneInput.run(id, () => post(paneUrl(id, "send"), body));
     delivered = true;
     if (answer) {
       pendingAnswers.set(id, signature);
@@ -1086,7 +1087,7 @@ async function compose(id, value) {
       if (segment.file) form.append("image", segment.file);
       else form.append("text", segment.text);
     }
-    await request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000);
+    await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
     if (secret) value.value = "";
     else { value.replace([]); value.pendingEnter = false; }
     if (active === id) text($("draft-status"), "Sent");
@@ -1264,22 +1265,69 @@ $("terminal-scroll").addEventListener("touchmove", (e) => {
   if (touchY !== null) overscrollPane(touchY - y);
   touchY = y;
 }, { passive: true });
+// A toolbar mode switch, on by default and persisted per browser as "on"/"off". `apply`
+// paints the button's label and tip and applies the mode; returns whether it is on.
+function modeSwitch(id, storageKey, apply) {
+  let on = true;
+  try { on = localStorage.getItem(storageKey) !== "off"; } catch {}
+  const paint = () => { $(id).setAttribute("aria-pressed", String(on)); $(id).ariaLabel = $(id).dataset.tip = apply(on); };
+  paint();
+  $(id).onclick = () => { on = !on; paint(); try { localStorage.setItem(storageKey, on ? "on" : "off"); } catch {} };
+  return () => on;
+}
 // Click mode: a tap on the terminal is a mouse click in the pane (the daemon drops it
 // unless the pane's app asked for mouse reports). Select mode is the plain text view, for
 // copying. Two explicit modes rather than guessing intent from drag-vs-tap, because a tap
 // that meant "place the selection" would otherwise click whatever is under it.
-function setClickMode(on) {
+modeSwitch("click-mode", "tmuxrc-click-mode", (on) => {
   $("capture").classList.toggle("clicks", on);
-  $("click-mode").setAttribute("aria-pressed", String(on));
   html($("click-mode"), `${licon(on ? "pointer" : "cursor", 16)}${on ? "Click" : "Select"}`);
-  $("click-mode").ariaLabel = $("click-mode").dataset.tip = on
+  return on
     ? "Click mode: taps click inside the app, like menus and agent rows. Tap to switch to Select for copying text."
     : "Select mode: drag to select and copy text. Tap to switch to Click to use the app's menus and rows.";
-}
-let storedClickMode = null;
-try { storedClickMode = localStorage.getItem("tmuxrc-click-mode"); } catch {}
-setClickMode(storedClickMode !== "off");
-$("click-mode").onclick = () => { const on = !$("capture").classList.contains("clicks"); setClickMode(on); try { localStorage.setItem("tmuxrc-click-mode", on ? "on" : "off"); } catch {} };
+});
+// Desktop key passthrough (keys.js): with the terminal focused, keystrokes go to the pane,
+// so Esc, Tab, arrows, Ctrl chords and plain typing work as in a terminal. Focus is the
+// switch: clicking the terminal hands it the keys, clicking the composer takes them back,
+// and the terminal's ring shows which has them. An EMPTY composer (or password field)
+// still hands on Esc and Ctrl-C, the interrupt keys, since there is nothing in it for them to act on. Off restores
+// the browser's own keys (Tab between controls, Ctrl-F find). F6, the browser's own
+// move-focus key, is held back from the pane and moves focus to this switch, so a
+// keyboard user is never trapped in the terminal. Wide only: a phone has the key row, and
+// the CSS hides this switch there.
+const keysOn = modeSwitch("key-mode", "tmuxrc-key-passthrough", (on) => {
+  $("terminal").classList.toggle("keys-live", on);
+  html($("key-mode"), `${licon("keyboard", 16)}${on ? "Keys" : "Keys off"}`);
+  return on
+    ? "Keys on: with the terminal focused, typing, Esc, Tab, arrows and Ctrl keys go to the pane; F6 leaves the terminal. Click to keep them in the browser."
+    : "Keys off: the browser keeps its keys. Click to send keystrokes to the pane while the terminal is focused.";
+});
+$("key-mode").addEventListener("click", () => { if (keysOn()) $("terminal-scroll").focus(); });
+// Not sendKeys: a keystroke must not hold the global `sending` lock (which locks the
+// composer and refuses the next key), nor refresh the whole state on every press.
+const paneInput = inputQueue(({ pane, keys, literal }) => post(paneUrl(pane, "send"), { keys, literal, enter: false })
+  .then(() => true, () => { notice("A keystroke could not be delivered. Check the terminal before typing on."); return false; }));
+const passing = () => keysOn() && WIDE.matches && active && terminalVisible();
+document.addEventListener("keydown", (e) => {
+  if (!passing() || e.defaultPrevented) return;
+  const key = tmuxKey(e, !getSelection().isCollapsed);
+  // Only the open pane's own composer hands keys on. A sidebar card's Reply is about a
+  // pane that may not be on screen, and an interrupt sent there would be sent blind.
+  const empty = $("reply").contains(e.target) ? !draft().segments().length : e.target === $("secret") && !$("secret").value;
+  const handOff = empty && ["Escape", "C-c"].includes(key?.keys);
+  // The scroll box itself, not a link inside it: a focused link keeps Enter and Tab.
+  if (!key || !(e.target === $("terminal-scroll") || handOff)) return;
+  e.preventDefault();
+  if (key.keys === "F6") $("key-mode").focus();
+  else paneInput({ pane: active, repeat: e.repeat, ...key });
+});
+// A paste into the focused terminal types the clipboard's text into the pane.
+$("terminal-scroll").addEventListener("paste", (e) => {
+  const keys = e.clipboardData.getData("text/plain");
+  if (!passing() || !keys) return;
+  e.preventDefault();
+  paneInput({ pane: active, keys, literal: true });
+});
 // The cell comes from monospace geometry, not the tapped node, so blank space right of
 // the text still hits its row. Rows count up from the frame's last line — the edge it
 // shares with the screen (see tmux.click). A tap on a link still follows the link.
@@ -1295,7 +1343,10 @@ $("capture").onclick = (event) => {
   const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
   const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
   if (row < 0 || row >= captureLines.length || col < 1) return;
-  post(paneUrl(active, "click"), { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }).catch(() => {});
+  const body = { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }, id = active;
+  // A tap that lands on nothing answers sent:false, not an error; a failure is a gone or
+  // replaced pane, and it drops any keys queued behind it, so it has to say so.
+  paneInput.run(id, () => post(paneUrl(id, "click"), body)).catch(() => notice("The click could not be delivered. Check the terminal before typing on."));
 };
 
 $("new-window").onclick = async () => {
