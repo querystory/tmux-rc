@@ -6,6 +6,8 @@ before (home paths, real project names, accounts) and anything shaped like a cre
 import json
 import re
 
+import pytest
+
 from openbus.history import History
 from openbus.open_loops import OpenLoops
 from openbus.plan_usage import PlanUsage
@@ -15,6 +17,12 @@ PRIVATE = re.compile(r"/home/|/Users/|querystory|qs-app|tmux-rc|shapor"
                      r"|[\w.+-]+@[\w-]+\.[\w.-]+|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
                      r"|AKIA[0-9A-Z]{8}|AIza[0-9A-Za-z_-]{10}"
                      r"|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY", re.IGNORECASE)
+
+
+@pytest.fixture(autouse=True)
+def _no_keyword_map(monkeypatch):
+    """A checkout's own TMUXRC_WORKSTREAMS must not rename the demo's workstreams."""
+    monkeypatch.delenv("TMUXRC_WORKSTREAMS", raising=False)
 
 
 def _loops() -> dict:
