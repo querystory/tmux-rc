@@ -336,23 +336,6 @@ class ClientErrorBody(BaseModel):
     message: str | None = None  # free-text — to OTel only under TMUXRC_QSDEBUG
 
 
-def _trusted_user(request: Request | None) -> str | None:
-    """The tunnel owner's email, honored ONLY from a loopback peer (the same trust
-    model as _audit): the tunnel-client connects from localhost having validated the
-    identity via IAP and stripped spoofed inbound copies. A LAN client's claim is
-    unverified, so we return None rather than record it — live telemetry's `actor` is a
-    billing-grade attribution key, not a forensic breadcrumb, so an unverifiable claim
-    must simply be absent (the anonymous `session` still carries the usage).
-
-    `request` is Optional: live_frame defaults it to None for unit tests, and no actor
-    can be attributed without one — return None rather than raise."""
-    if request is None:
-        return None
-    peer = request.client.host if request.client else "?"
-    claimed = request.headers.get("x-tunnel-user")
-    return claimed if (claimed and peer in ("127.0.0.1", "::1")) else None
-
-
 def _ua_class(ua: str | None) -> str | None:
     """Coarse platform bucket for a client-error report — the ANSWER to "on what
     platforms does the mic fail" without storing the full (fingerprintable, free-text)
@@ -790,7 +773,7 @@ def _emit_live_round(
             hold_s=hold_s,
             changed=changed,
             raw_bytes=raw_bytes,
-            actor=_trusted_user(request),
+            actor=telemetry.tunnel_user(request) if request else None,
         )
     except Exception:  # live telemetry must never break the stream
         logger.debug("live emit failed", exc_info=True)
@@ -1105,7 +1088,7 @@ async def client_error(request: Request):
             # client-supplied class. Same loopback trust model as the audit actor.
             ua_class=_ua_class(request.headers.get("user-agent")),
             session=body.session,
-            actor=_trusted_user(request),
+            actor=telemetry.tunnel_user(request),
             message=body.message,
         )
     except Exception:  # the report telemetry must never break the request
