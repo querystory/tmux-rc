@@ -240,8 +240,12 @@ function goalControl(icon) {
 // data-key gets it back. Callers capture the key before building, since building can move
 // a live node (a chart) out of the page.
 const focusKey = root => root.contains(document.activeElement) ? document.activeElement?.dataset.key : null;
+// Nodes kept across rebuilds (the caller's `after`) stay attached rather than being pulled out
+// and put back: Chrome anchors scrolling on a focused node, and one detached and reinserted
+// scrolled the page away from it.
 function rebuild(root, nodes, focus) {
-  root.replaceChildren(...nodes);
+  [...root.children].forEach(node => nodes.includes(node) || node.remove());
+  nodes.forEach((node, i) => { if (root.children[i] !== node) root.insertBefore(node, root.children[i] || null); });
   if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
 }
 const unchanged = (root, signature) => {
