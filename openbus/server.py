@@ -79,6 +79,7 @@ from .classify import highlighted_row  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
+from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import PlanUsage  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher  # noqa: E402
@@ -439,13 +440,16 @@ async def lifespan(app: FastAPI):
     app.state.push = PushManager(app.state.watcher)
     app.state.push.start()
     app.state.usage = PlanUsage(app.state.history)
-    usage_task = asyncio.create_task(app.state.usage.run(app.state.watcher))
+    app.state.loops = OpenLoops()
+    tasks = [asyncio.create_task(app.state.usage.run(app.state.watcher)),
+             asyncio.create_task(app.state.loops.run(app.state.watcher))]
     try:
         yield
     finally:
-        usage_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await usage_task
+        for task in tasks:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
         await app.state.push.stop()
         await app.state.watcher.stop()
 
@@ -587,6 +591,13 @@ def get_usage():
     """Each Claude and Codex account's plan windows, trend and projection."""
     usage = getattr(app.state, "usage", None)
     return {"accounts": usage.report() if usage else []}
+
+
+@app.get("/api/open-loops")
+def get_open_loops():
+    """Waiting on you / Moving / Dropped, by workstream, from cached GitHub and git state."""
+    loops = getattr(app.state, "loops", None)
+    return loops.report(list(app.state.watcher.states)) if loops else {"lanes": None}
 
 
 @app.get("/api/state")

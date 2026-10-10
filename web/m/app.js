@@ -12,6 +12,7 @@ import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.j
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar } from "/m/sidebar.js";
 import { renderUsage, paneAccount, shownUsage } from "/m/usage.js";
+import { renderLoops } from "/m/loops.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -391,6 +392,7 @@ function renderLanding() {
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
   }, licon);
   landingRows("landing-attention", waiting);
+  renderLoops($("landing-loops"), loops, navigate, licon);
 }
 
 // Drag the seam between the sidebar and the main column. Width is a CSS variable the
@@ -591,16 +593,19 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 // Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
 // by default); the wide sidebar has no such menu and keeps them all.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], usageAt = 0, usageMode = "auto";
+let usage = [], loops = null, cachedAt = 0, usageMode = "auto";
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
   renderUsage($("usage"), shownUsage(usage, WIDE.matches ? "on" : usageMode), WIDE.matches);
 };
-async function refreshUsage() {
-  if (Date.now() - usageAt < 60000) return;
-  usageAt = Date.now();
-  try { usage = (await request("/api/usage")).accounts || []; } catch { return; }
+// Plan usage and open loops are both cached by the server; a minute is fresh enough.
+async function refreshCached() {
+  if (Date.now() - cachedAt < 60000) return;
+  cachedAt = Date.now();
+  const [u, l] = await Promise.allSettled([request("/api/usage"), request("/api/open-loops")]);
+  if (u.status === "fulfilled") usage = u.value.accounts || [];
+  if (l.status === "fulfilled") loops = l.value;
   paintUsage(); render();
 }
 
@@ -905,7 +910,7 @@ function startState() {
   stateController?.abort();
   stateController = new AbortController();
   if (!document.hidden) {
-    refreshHistory(); refreshUsage();
+    refreshHistory(); refreshCached();
     pollState(stateController.signal);
   }
 }
@@ -965,7 +970,7 @@ async function pollState(signal) {
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory(); refreshUsage();
+      refreshHistory(); refreshCached();
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);

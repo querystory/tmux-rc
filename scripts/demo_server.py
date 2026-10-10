@@ -37,6 +37,10 @@ try:  # absent on a base that predates plan limits: screenshots_diff runs these 
     from openbus.plan_usage import PlanUsage
 except ImportError:
     PlanUsage = None
+try:  # likewise for open loops
+    from openbus.open_loops import OpenLoops
+except ImportError:
+    OpenLoops = None
 
 from . import demo_fleet as demo
 
@@ -109,6 +113,9 @@ async def lifespan(app):
         if PlanUsage:
             app.state.usage = demo.seed_usage(PlanUsage(app.state.history))
             app.state.usage.report = partial(app.state.usage.report, demo.NOW)
+        if OpenLoops:
+            app.state.loops = demo.seed_loops(OpenLoops())
+            app.state.loops.report = partial(app.state.loops.report, now=demo.NOW)
         yield
 
 
