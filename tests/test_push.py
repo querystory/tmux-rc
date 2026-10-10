@@ -598,3 +598,14 @@ def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkey
         service.answer(nonce, 0)
     with pytest.raises(ValueError, match="already used"):
         service.answer(nonce, 0)
+
+
+def test_chat_card_notifies_without_answer_actions(tmp_path: Path):
+    """A chat proposal is approved in the app, never from the notification: no nonce, no
+    actions, and the chat flag tells sw.js to bring the chat back rather than navigate."""
+    value, sender = manager(tmp_path, Watcher(), [0.0])
+    assert value.chat("Send to window 3: " + "x" * 500)
+    (payload,) = sender.payloads
+    assert payload["title"] == "Chat needs you" and payload["chat"] is True
+    assert payload["body"].startswith("Send to window 3: ") and len(payload["body"]) == 400
+    assert payload["actions"] == [] and "nonce" not in payload
