@@ -29,6 +29,22 @@ pace would keep the strip up most of the time, which is what Auto exists to avoi
 account that can't be read drops out under Auto too, because there is nothing to act on.
 The desktop sidebar has no "…" menu and room to spare, so it keeps every meter.
 
+### The dashboard panel
+
+A phone's bar says where a window stands but not how it got there, and the sidebar's trend
+is a thumbnail. So the dashboard leads with a Plan usage panel: every meter, whatever the
+Usage setting, as a trend tall enough to read. Tapping the strip, on the phone or in the
+sidebar, opens the dashboard at that panel rather than a sheet of its own, so there is one
+larger view to maintain and it sits beside the fleet history it is usually read against.
+Tapping the panel opens it up: one wide trend to a row, the clock times behind each
+countdown, and the pace's forecast as a number. Those come from the same response the strip
+draws, so the detail costs no request. A longer range was considered and left out: samples
+are pruned to eight days (see Polling and storage), enough for the current weekly window and
+no more, so a range past the last reset would mean keeping history nothing else reads.
+
+The sidebar strip stays. It is the only place the limits show while a pane is open, and both
+draw from one renderer (`renderUsage`), so the panel is a size and a flag, not a copy.
+
 ## Accounts, not providers
 
 One person often runs several Claude or Codex logins side by side, each with its own plan.
