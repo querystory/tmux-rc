@@ -488,11 +488,13 @@ def test_a_parked_card_expires_for_real(monkeypatch):
     L._parked.clear()
 
 
-def test_a_reconnect_takes_the_cards_of_the_connection_it_replaces(monkeypatch):
+@pytest.mark.parametrize("fresh", [False, True])
+def test_a_reconnect_takes_the_cards_of_the_connection_it_replaces(monkeypatch, fresh):
     """The phone saw its socket die and reconnected, but the daemon still holds the old,
     half-open one until its ping timeout: the new connection takes the old one's cards,
     parked by the time it can read a frame, so its sync leaves them open and a Send runs
-    them, rather than "expired" while the old one parks them for nobody."""
+    them, rather than "expired" while the old one parks them for nobody. A new chat (an
+    earlier one ended offline) expires them instead, even the ones still parking."""
     L._parked.clear()
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
@@ -508,12 +510,12 @@ def test_a_reconnect_takes_the_cards_of_the_connection_it_replaces(monkeypatch):
 
     async def go():
         old, ws = _chat(), Shown()
-        L._connect(old)
+        await L._connect(old)
         call = asyncio.create_task(L._handle_tool_call(
             ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), old))
         await shown.wait()
         new = _chat()
-        L._connect(new)
+        await L._connect(new, fresh=fresh)
         await asyncio.sleep(0)  # the new socket's first frame is at least a loop pass away
         proposal = ws.sent[0]["id"]
         sync = _ScriptedWS([{"action": "sync", "ids": [proposal]},
@@ -527,8 +529,12 @@ def test_a_reconnect_takes_the_cards_of_the_connection_it_replaces(monkeypatch):
 
     proposal, ws, (ended,) = _run(go())
     assert isinstance(ended, L.WebSocketDisconnect)  # the old one ends as a dropped socket
-    assert ws.sent[0] == {"type": "decided", "id": proposal, "ok": True}  # no "expired"
-    assert typed == [("%1", "rebase", True, True)]
+    if fresh:
+        assert ws.sent == [{"type": "expired", "id": proposal}] * 2
+        assert typed == []
+    else:
+        assert ws.sent[0] == {"type": "decided", "id": proposal, "ok": True}  # no "expired"
+        assert typed == [("%1", "rebase", True, True)]
     assert L._parked == {} and L._chats == {}
 
 
