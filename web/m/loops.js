@@ -9,7 +9,7 @@ const LANES = { waiting: "Waiting on you", moving: "Moving", dropped: "Dropped" 
 export const REASONS = {
   review_requested: "your review is requested", approved: "approved and green, not merged",
   mergeable: "green, no review required", no_reviewer: "no reviewer requested",
-  checks_failed: "checks failing", base_merged: "base merged: retarget it",
+  checks_failed: "checks failing", base_merged: "base merged or deleted: retarget it",
   conflicts: "conflicts with its base", stale: "no activity in 3 days",
   idle_dirty: "idle a day over uncommitted changes", no_pane: "no pane",
 };
