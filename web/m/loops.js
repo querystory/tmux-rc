@@ -66,7 +66,7 @@ export function renderLoops(el, report, open, licon, now = Date.now()) {
   const open0 = [...el.querySelectorAll(".loop-lane")].map(d => d.open);
   const markup = Object.entries(LANES).map(([lane, title], k) => {
     const list = groups(lane), n = list.reduce((sum, g) => sum + g.items.length, 0);
-    return `<details class="loop-lane" ${open0[k] ?? lane !== "moving" ? "open" : ""}><summary data-key="${lane}"><h3>${title}</h3><span class="m">${n}</span></summary>`
+    return `<details class="loop-lane" ${open0[k] ?? lane !== "moving" ? "open" : ""}><summary data-key="${lane}">${licon("chevron", 16)}<h3>${title}</h3><span class="m">${n}</span></summary>`
       + (list.map(g => `<section class="loop-ws">${lane !== "moving" && solo(g) ? "" : `<h4>${esc(g.workstream?.name || "Ungrouped")}</h4>`}`
         + (lane === "moving" ? moved(g.items, now) : g.items.map(i => row(i, licon, now, lane)).join("")) + "</section>").join("")
         || '<p class="m">Nothing here.</p>') + "</details>";

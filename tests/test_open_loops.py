@@ -109,6 +109,28 @@ def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
     assert len(calls) == 8  # mine twice (a retry), page 2, asked, merged, refs, two counts
 
 
+def test_a_stack_parent_nobody_searched_for_is_looked_up(monkeypatch):
+    asked = []
+
+    def gh(args, _timeout, _stopping):
+        q = args[-1]
+        if "pullRequests(headRefName" in q:
+            asked.append(q)
+            parent = [node(40, author="lee", base="feat/39")] if '"feat/40"' in q else []
+            return json.dumps({"data": {"viewer": {"login": "dev"},
+                                        "r0": {"pullRequests": {"nodes": parent}}}})
+        mine = [node(41, base="feat/40")] if "author:@me archived:false updated:>=" in q else []
+        return json.dumps({"data": {"viewer": {"login": "dev"},
+                                    "s": {"pageInfo": {}, "nodes": mine, "issueCount": 0}}})
+
+    monkeypatch.setattr(open_loops, "run_gh", gh)
+    got = fetch_github([], NOW)
+    assert sorted(p["number"] for p in got["prs"]) == [40, 41]
+    assert len(asked) == 2  # feat/40 found its PR; feat/39 was asked once and found none
+    lanes = build({**got, "prs": [{**p, "checks": "FAILURE"} for p in got["prs"]]}, [], [], NOW)
+    assert [g["workstream"]["id"] for g in lanes["lanes"]["dropped"]] == [f"{REPO}#40"]
+
+
 def test_a_failed_search_is_retried_then_fails_whole(monkeypatch):
     calls = []
     monkeypatch.setattr(open_loops, "run_gh", lambda *a: calls.append(1) or json.dumps(

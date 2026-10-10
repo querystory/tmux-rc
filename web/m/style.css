@@ -529,8 +529,11 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .landing-row .m { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
 
 /* Open loops: a lane per <details>, a workstream per section, a row per loop. */
-.loop-lane > summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; }
+.loop-lane > summary { display: flex; align-items: center; gap: 8px; margin: 24px 0 8px; cursor: pointer; list-style: none; }
+.landing-inner .loop-lane > summary h3 { margin: 0; }
 .loop-lane > summary::-webkit-details-marker { display: none; }
+.loop-lane > summary svg { flex: none; color: var(--muted); transition: transform 0.15s; }
+.loop-lane[open] > summary svg { transform: rotate(90deg); }
 .loop-ws h4 { margin: 12px 0 2px; font-size: 14px; overflow-wrap: anywhere; }
 .loop-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 2px; border-top: 1px solid var(--line); }
 .loop-row a, .loop-row .t { font-weight: 600; color: inherit; overflow-wrap: anywhere; }
