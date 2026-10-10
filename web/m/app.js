@@ -1216,6 +1216,7 @@ const openUsage = () => {
   const panel = $("usage-panel"), landing = $("landing"); // scrollIntoView would also scroll the clipped #app
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   landing.scrollBy({ top: panel.getBoundingClientRect().top - landing.getBoundingClientRect().top - 16, behavior: still ? "auto" : "smooth" });
+  $("usage-detail").focus({ preventScroll: true }); // the strip it was opened from may be hidden now
   if (!still) panel.animate([{ boxShadow: "0 0 0 3px var(--accent)" }, { boxShadow: "0 0 0 3px transparent" }], 1200);
 };
 $("usage").onclick = openUsage;
