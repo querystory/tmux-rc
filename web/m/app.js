@@ -1274,8 +1274,8 @@ modeSwitch("click-mode", "tmuxrc-click-mode", (on) => {
 // Desktop key passthrough (keys.js): with the terminal focused, keystrokes go to the pane,
 // so Esc, Tab, arrows, Ctrl chords and plain typing work as in a terminal. Focus is the
 // switch: clicking the terminal hands it the keys, clicking the composer takes them back,
-// and the terminal's ring shows which has them. An EMPTY composer still hands on Esc and
-// Ctrl-C, the interrupt keys, since there is nothing in it for them to act on. Off restores
+// and the terminal's ring shows which has them. An EMPTY composer (or password field)
+// still hands on Esc and Ctrl-C, the interrupt keys, since there is nothing in it for them to act on. Off restores
 // the browser's own keys (Tab between controls, Ctrl-F find). F6, the browser's own
 // move-focus key, is held back from the pane and moves focus to this switch, so a
 // keyboard user is never trapped in the terminal. Wide only: a phone has the key row, and
@@ -1296,7 +1296,8 @@ const passing = () => keysOn() && WIDE.matches && active && terminalVisible();
 document.addEventListener("keydown", (e) => {
   if (!passing() || e.defaultPrevented) return;
   const key = tmuxKey(e, !getSelection().isCollapsed);
-  const handOff = $("reply").contains(e.target) && ["Escape", "C-c"].includes(key?.keys) && !draft().segments().length;
+  const empty = $("reply").contains(e.target) ? !draft().segments().length : e.target === $("secret") && !$("secret").value;
+  const handOff = empty && ["Escape", "C-c"].includes(key?.keys);
   // The scroll box itself, not a link inside it: a focused link keeps Enter and Tab.
   if (!key || !(e.target === $("terminal-scroll") || handOff)) return;
   e.preventDefault();
