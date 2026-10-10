@@ -55,6 +55,8 @@ def test_plan_usage_reads_like_a_typical_day(tmp_path):
     report = demo.seed_usage(PlanUsage(History(tmp_path / "h.sqlite3"))).report(demo.NOW)
     assert not PRIVATE.findall(json.dumps(report))
     by = {(a["provider"], w["window"]): w for a in report for w in a["windows"]}
-    assert set(by) == {("claude", "5h"), ("claude", "7d"), ("codex", "7d")}  # weekly-only Codex
+    assert set(by) == {("claude", "5h"), ("claude", "7d"), ("claude", "7d Fable"),
+                       ("codex", "7d")}  # weekly-only Codex
     assert 90 <= by["claude", "7d"]["projected"] < 100  # amber, not out before the reset
+    assert by["codex", "7d"]["limit_at"]  # red: out before the reset, which still shows
     assert {a["label"] for a in report} == {None}  # one account each: provider names

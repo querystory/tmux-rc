@@ -28,28 +28,33 @@ function spark(w, now) {
 // fitted pace ends by the reset, and the tick is the even pace (the share of the window
 // gone), so a fill past the tick is ahead of it. Wide, the trend says the same over time.
 // Both are coloured by the projection's verdict.
-function cell(w, provider, wide, now) {
+function cell(w, a, wide, now) {
   const projected = Math.min(100, w.projected ?? w.pct), used = Math.min(100, w.pct);
   const level = w.limit_at || w.pct >= 100 ? 'full' : projected >= 90 ? 'warn' : '';
   const when = w.resets_at ? countdown(w.resets_at - now) : '';
-  const note = w.limit_at ? `full in ${countdown(w.limit_at - now)}` : when && `resets ${when}`;
-  const title = `${NAMES[provider]} ${w.window}: ${Math.round(w.pct)}% used${when && `, resets in ${when}`}`
+  const full = w.limit_at ? `full in ${countdown(w.limit_at - now)}` : '';
+  const note = (full && `<small class="out">${full}</small>`) + (when && `<small>resets ${when}</small>`);
+  const title = `${who(a)} ${w.window}: ${Math.round(w.pct)}% used${full && `, ${full}`}${when && `, resets in ${when}`}`
     + (w.projected != null ? `; at this pace ${Math.round(w.projected)}% by the reset` : '');
   const pace = w.resets_at && Math.min(100, Math.max(0, (now - w.start) / (w.resets_at - w.start) * 100));
   const bar = `<i class="usage-bar"><i style="width:${projected}%" class="ahead"></i><i style="width:${used}%"></i>`
     + (pace ? `<i class="pace" style="left:${pace.toFixed(1)}%"></i>` : '') + '</i>';
-  return `<div class="usage-cell ${level}" data-w="${w.window}" title="${esc(title)}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}"><span>${w.window}</span><b>${Math.round(w.pct)}%</b><em>used</em>`
-    + `${wide && w.resets_at ? spark(w, now) : bar}<small>${esc(note)}</small></div>`;
+  return `<div class="usage-cell ${level}" title="${esc(title)}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${label(a.provider, [w.window, a.label].filter(Boolean).join(' '))}<b>${Math.round(w.pct)}%</b><em>used</em>`
+    + `${wide && w.resets_at ? spark(w, now) : bar}${note}</div>`;
 }
+
+// One flat grid of meters, two to a row, rather than a block per account: a weekly-only
+// Codex beside Claude's three windows would leave holes. So each label carries its
+// provider's icon, and after the window (so a narrow cell truncates the name, not the
+// window) the account's short name when a provider has several. Accounts come
+// sorted by provider, windows by name (5h, 7d, then per-model "7d Fable").
+const who = a => a.label ? `${NAMES[a.provider]} ${a.label}` : NAMES[a.provider];
+const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NAMES[provider]}" width="14" height="14">${esc(text)}</span>`;
 
 export function renderUsage(el, accounts, wide, now = Date.now()) {
   el.hidden = !accounts.length;
-  const markup = accounts.map(a => {
-    const name = a.label || NAMES[a.provider];
-    const cells = a.error ? `<div class="usage-cell none wide">${esc(a.error)}</div>`
-      : a.windows.map(w => cell(w, a.provider, wide, now)).join(''); // a plan without a window shows none
-    return `<div class="usage-account"><span class="usage-name"><img src="${LOGOS[a.provider]}" alt="" width="14" height="14"><span>${esc(name)}</span></span>${cells}</div>`;
-  }).join('');
+  const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, [a.label, a.error].filter(Boolean).join(': '))}</div>`
+    : a.windows.map(w => cell(w, a, wide, now)).join('')).join(''); // a plan without a window shows none
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
 }
 

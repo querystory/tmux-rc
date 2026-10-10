@@ -672,24 +672,21 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 }
 
 
-/* Plan limits (usage.js): one row per account, a cell per window. A phone pins it over the
+/* Plan limits (usage.js): one flat grid of meters, two to a row. A phone pins it over the
    list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
-#usage { display: grid; grid-template-columns: max-content 1fr 1fr; gap: 8px 16px; align-items: center; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
+#usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
 #usage[hidden], #app.rail #usage { display: none; }
-.usage-account { display: contents; }
-.usage-name { grid-column: 1; display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; white-space: nowrap; } /* column 1 starts every account on its own row, even one with a single window */
-.usage-name img { border-radius: 3px; }
-.usage-name > span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; } /* labels are user-chosen; never let one push the cells off-screen */
-.usage-cell { --u: var(--accent); display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
-.usage-cell[data-w="7d"] { grid-column: -2; } /* the last column, so a weekly-only plan's 7d lines up */
+.usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
 .usage-cell :is(span, em, small), .usage-cell.none { color: var(--muted); }
 .usage-cell em { font-style: normal; font-size: 11px; }
+@container (max-width: 130px) { .usage-cell em { display: none; } } /* the sidebar's narrowest cells keep the window and %, not the word */
+.usage-cell > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* account names are user-chosen: truncate, never push the % out */
+.usage-cell img { vertical-align: -2px; margin-right: 5px; border-radius: 3px; }
 .usage-cell b { font-variant-numeric: tabular-nums; margin-left: 2px; }
-.usage-cell:is(.warn, .full) :is(b, small) { color: var(--u); }
+.usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast stacks over the reset, which always shows */
 .usage-cell small { grid-column: 1 / -1; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.usage-cell.wide { grid-column: span 2; }
 .usage-bar, .usage-spark { grid-column: 1 / -1; }
 .usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
@@ -700,10 +697,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .usage-spark .proj { stroke-dasharray: 3 3; }
 .usage-spark .limit { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
 @media (max-width: 1099px) { #usage { order: -1; position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); } }
-/* Wide, the name takes its own line so each trend gets half the sidebar. */
 @media (min-width: 1100px) {
-  #usage { grid-template-columns: 1fr 1fr; align-items: start; gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
-  .usage-name { grid-column: 1 / -1; margin-top: 2px; }
+  #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
 }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
