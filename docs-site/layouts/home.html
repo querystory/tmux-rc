@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>tmux-rc — manage your coding agents remotely</title>
   <meta name="description" content="{{ .Site.Params.description }}">
-  <meta name="theme-color" content="#101312">
+  <meta name="theme-color" content="#fafcfb">
+  <script>try { if (localStorage.getItem('color-theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch {}</script>
   <link rel="canonical" href="{{ .Permalink }}">
   <meta property="og:title" content="tmux-rc — manage your coding agents remotely">
   <meta property="og:description" content="{{ .Site.Params.description }}">
@@ -19,7 +20,7 @@
 <a class="skip" href="#content">Skip to content</a>
 <header class="nav wrap">
   <a class="brand" href="{{ .Site.Home.RelPermalink }}" aria-label="tmux-rc home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 6 6 6-6 6m9 0h5"/></svg>tmux-rc</a>
-  <nav aria-label="Main navigation"><a href="{{ "documentation/" | relURL }}">Docs</a><a href="https://github.com/querystory/tmux-rc">GitHub <span aria-hidden="true">↗</span></a><a class="nav-start" href="#get-started">Get started</a></nav>
+  <nav aria-label="Main navigation"><a href="{{ "documentation/" | relURL }}">Docs</a><a href="https://github.com/querystory/tmux-rc">GitHub <span aria-hidden="true">↗</span></a><a class="nav-start" href="#get-started">Get started</a><button class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode" aria-pressed="false"><svg class="theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.463.402.807a6.25 6.25 0 0 0 8.268 8.268c.344-.215.829-.004.803.397"/></svg><svg class="theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg></button></nav>
 </header>
 <main id="content">
   <section class="hero wrap">
@@ -54,7 +55,7 @@
       </div>
       <div id="client-setup" class="install-panel" role="tabpanel" aria-labelledby="client-tab" hidden>
         <div class="panel-heading"><h3>Open your host's address</h3><span class="badge">INSTALL OPTIONAL</span></div>
-        <p>The client comes with the daemon. Visit your remote HTTPS address in a browser on desktop or phone. Locally, open <code>http://127.0.0.1:18030/m</code>.</p>
+        <p>The client comes with the daemon. Visit your remote HTTPS address in a browser on desktop or phone. Locally, open <a href="http://127.0.0.1:18030">http://127.0.0.1:18030</a></p>
         <div class="client-grid">
           <article><h4>iOS</h4><p>Open your address in Safari. Share → Add to Home Screen → Add. Launch the Home Screen app to enable push notifications.</p><a href="{{ "iphone-setup/" | relURL }}">iPhone instructions <span aria-hidden="true">→</span></a></article>
           <article><h4>Android</h4><p>Open your address in Chrome. Menu → Install and create shortcut → Install. Launch tmux-rc and allow notifications.</p><a href="{{ "client-setup/#android" | relURL }}">Android instructions <span aria-hidden="true">→</span></a></article>

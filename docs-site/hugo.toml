@@ -32,6 +32,8 @@ contentDir = "../docs"
 
 [params]
   description = "Manage coding agents remotely from desktop or phone, through text and voice chat or direct dashboard controls, using your existing tmux sessions."
+  [params.theme]
+    default = "light"
   [params.navbar]
     displayTitle = true
     displayLogo = false      # logo wired in during the styling phase

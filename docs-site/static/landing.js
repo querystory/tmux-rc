@@ -1,4 +1,19 @@
 // Local tab navigation and clipboard controls; the website never connects to a daemon.
+const themeToggle = document.getElementById('theme-toggle');
+function updateThemeControl() {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  themeToggle.setAttribute('aria-pressed', String(dark));
+  themeToggle.title = themeToggle.ariaLabel = `Switch to ${dark ? 'light' : 'dark'} mode`;
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#101312' : '#fafcfb';
+}
+themeToggle.addEventListener('click', () => {
+  const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem('color-theme', theme); } catch {}
+  updateThemeControl();
+});
+updateThemeControl();
+
 for (const group of document.querySelectorAll('[data-tabs]')) {
   const tabs = [...group.querySelectorAll('[role="tab"]')];
   function select(tab) {
