@@ -917,7 +917,230 @@ round-robin against the systemd unit and produce intermittent 502s. Kill the dup
 &lt;/li&gt;
 &lt;li&gt;&lt;a href="https://www.cloudflare.com/plans/zero-trust-services/" target="_blank" rel="noopener"&gt;Zero Trust plans and pricing&lt;/a&gt;
 &lt;/li&gt;
-&lt;/ul&gt;</description></item><item><title>Project website on GitHub Pages</title><link>https://querystory.github.io/tmux-rc/deploy/github-pages/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/deploy/github-pages/</guid><description>
+&lt;/ul&gt;</description></item><item><title>Previewing work</title><link>https://querystory.github.io/tmux-rc/deploy/previews/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/deploy/previews/</guid><description>
+&lt;h1&gt;Previewing work through tmux-rc&lt;/h1&gt;&lt;p&gt;Mocks, reports and built sites need to be opened on the phone, often while an agent is
+still producing them. The daemon can serve them itself, behind whatever front door you
+already use to reach it (Tailscale, a tunnel, a reverse proxy, or just localhost), so
+nothing new needs to be authenticated, supervised or remembered.&lt;/p&gt;
+&lt;h2&gt;Quick start&lt;span class="hx:absolute hx:-mt-20" id="quick-start"&gt;&lt;/span&gt;
+&lt;a href="#quick-start" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Create a directory, name it in the &lt;code&gt;.env&lt;/code&gt; the daemon loads (the one in the checkout the
+systemd unit runs), and restart:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;mkdir -p ~/.local/share/tmux-rc/scratch
+echo &amp;quot;TMUXRC_SCRATCH_DIR=$HOME/.local/share/tmux-rc/scratch&amp;quot; &amp;gt;&amp;gt; .env
+systemctl --user restart tmux-rc
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Drop a folder in, say &lt;code&gt;report/&lt;/code&gt; with an &lt;code&gt;index.html&lt;/code&gt;, and open
+&lt;code&gt;&amp;lt;your tmux-rc URL&amp;gt;/scratch/report/&lt;/code&gt;. &lt;strong&gt;Your scratch URL is simply the base URL you
+already open tmux-rc at, plus &lt;code&gt;/scratch/&lt;/code&gt;&lt;/strong&gt;: nothing about it depends on how you reach the
+daemon. Files added later appear without a restart; deleting a folder unpublishes it.&lt;/p&gt;
+&lt;p&gt;Keep the directory outside every checkout, so no commit can pick up a preview and no
+worktree cleanup can delete one. It must exist when the daemon starts, because that is the
+one time it is checked.&lt;/p&gt;
+&lt;h2&gt;What &lt;code&gt;/scratch/&lt;/code&gt; is for&lt;span class="hx:absolute hx:-mt-20" id="what-scratch-is-for"&gt;&lt;/span&gt;
+&lt;a href="#what-scratch-is-for" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Anything that is a pile of static files, not just tmux-rc work:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;an HTML mock or design study an agent just wrote;&lt;/li&gt;
+&lt;li&gt;the build output of a static site (a docs site, a landing page, a single-page app&amp;rsquo;s
+&lt;code&gt;dist/&lt;/code&gt;) for another project;&lt;/li&gt;
+&lt;li&gt;a generated report, a chart, a screenshot set, a PDF.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Your scratch URL, by access method&lt;span class="hx:absolute hx:-mt-20" id="your-scratch-url-by-access-method"&gt;&lt;/span&gt;
+&lt;a href="#your-scratch-url-by-access-method" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;&lt;code&gt;TMUXRC_SCRATCH_URL&lt;/code&gt; is only needed to &lt;a href="#telling-agents-about-it"&gt;tell agents&lt;/a&gt;
+where
+scratch lives; the daemon cannot learn the hostname your access method gives it. It is the
+same base as the app, plus &lt;code&gt;/scratch&lt;/code&gt;. Whoever can open that base URL can open every
+preview, so the security of scratch is exactly the security of your access method.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Local only:&lt;/strong&gt; &lt;code&gt;http://localhost:18030/scratch&lt;/code&gt; (or your &lt;code&gt;TMUXRC_PORT&lt;/code&gt;). Only this
+machine sees it.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tailscale&lt;/strong&gt; (the &lt;a href="https://querystory.github.io/tmux-rc/deploy/other-tunnels/"&gt;recommended&lt;/a&gt;
+way): with the daemon left on
+loopback, &lt;code&gt;tailscale serve --bg 18030&lt;/code&gt; publishes it over HTTPS at
+&lt;code&gt;https://&amp;lt;machine&amp;gt;.&amp;lt;tailnet&amp;gt;.ts.net/&lt;/code&gt;, so the scratch URL is
+&lt;code&gt;https://&amp;lt;machine&amp;gt;.&amp;lt;tailnet&amp;gt;.ts.net/scratch&lt;/code&gt;. Everyone on your tailnet who can reach this
+machine can see it: check your tailnet ACLs, especially if you share devices or nodes
+with others. Reaching &lt;code&gt;http://&amp;lt;machine&amp;gt;.&amp;lt;tailnet&amp;gt;.ts.net:18030&lt;/code&gt; directly needs
+&lt;code&gt;TMUXRC_HOST=0.0.0.0&lt;/code&gt;, which also opens the port to your LAN; prefer Serve. Never use
+&lt;code&gt;tailscale funnel&lt;/code&gt;: it publishes to the internet with no login.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Cloudflare Tunnel, or another authenticating tunnel:&lt;/strong&gt;
+&lt;code&gt;https://&amp;lt;your-hostname&amp;gt;/scratch&lt;/code&gt;. The &lt;a href="https://querystory.github.io/tmux-rc/deploy/cloudflare-tunnel/"&gt;Access policy&lt;/a&gt;
+in front of
+the hostname covers &lt;code&gt;/scratch/&lt;/code&gt; with no extra rule, so everyone that policy admits can
+see previews.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;A reverse proxy (nginx, Caddy):&lt;/strong&gt; &lt;code&gt;https://&amp;lt;your-host&amp;gt;/scratch&lt;/code&gt;. The proxy must
+forward &lt;code&gt;/scratch/&lt;/code&gt; to the daemon unchanged, like every other path, and must not remove
+or replace the &lt;code&gt;Content-Security-Policy&lt;/code&gt; header the daemon sets on it (a site-wide
+&lt;code&gt;header Content-Security-Policy ...&lt;/code&gt; in Caddy, or &lt;code&gt;proxy_hide_header&lt;/code&gt; in nginx, would).
+That header is what sandboxes the pages. Whatever login the proxy enforces is the only
+thing guarding scratch.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;LAN&lt;/strong&gt; (&lt;code&gt;TMUXRC_HOST=0.0.0.0&lt;/code&gt;): &lt;code&gt;http://&amp;lt;lan-ip&amp;gt;:18030/scratch&lt;/code&gt;, visible to everyone on
+the network, like the app itself.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Whatever the method, the &lt;a href="#what-it-exposes-and-what-it-wont-run"&gt;sandbox&lt;/a&gt;
+protects the
+daemon&amp;rsquo;s API from preview pages in the same way: it is a header the daemon sends, not a
+property of the network path.&lt;/p&gt;
+&lt;h2&gt;Telling agents about it&lt;span class="hx:absolute hx:-mt-20" id="telling-agents-about-it"&gt;&lt;/span&gt;
+&lt;a href="#telling-agents-about-it" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Agents only use scratch if they know it exists. Add to &lt;code&gt;.env&lt;/code&gt;:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;TMUXRC_SCRATCH_ADVERTISE=1
+TMUXRC_SCRATCH_URL=&amp;lt;your base URL&amp;gt;/scratch
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;and restart. The daemon then exports three variables to the tmux server&amp;rsquo;s global
+environment: &lt;code&gt;TMUXRC_SCRATCH_DIR&lt;/code&gt;, &lt;code&gt;TMUXRC_SCRATCH_URL&lt;/code&gt;, and &lt;code&gt;TMUXRC_SCRATCH_LOCAL_URL&lt;/code&gt;
+(the daemon&amp;rsquo;s own bind address and port, &lt;code&gt;http://127.0.0.1:18030/scratch&lt;/code&gt; by default). The local one exists because the public URL sits
+behind your login: an agent that requests it gets a login redirect and cannot tell whether
+its page works, so it checks against the daemon directly. &lt;strong&gt;Only panes opened after that
+inherit them&lt;/strong&gt;: shells and agents already running keep the environment they started with.
+In a new pane, &lt;code&gt;env | grep SCRATCH&lt;/code&gt; shows them. Each restart re-applies the setting, so a variable that is
+no longer configured is removed rather than left pointing at nothing. Turning the flag off
+stops the writes but leaves the last values in place until tmux restarts or you run
+&lt;code&gt;tmux set-environment -gu&lt;/code&gt; on them.&lt;/p&gt;
+&lt;p&gt;It is off by default because it writes to your tmux server&amp;rsquo;s environment, which you may
+manage yourself. The variables only say where scratch is; agents also need to be told what
+to do with it. Paste this into your agent instructions. It is written to be all an agent
+needs, so none has to read tmux-rc&amp;rsquo;s source to work out how scratch behaves:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a built
+static site, a report, images, a PDF). Write it into a new subfolder, for example
+$TMUXRC_SCRATCH_DIR/&amp;lt;folder&amp;gt;/index.html, and give the user
+$TMUXRC_SCRATCH_URL/&amp;lt;folder&amp;gt;/ (or the folder's path if that variable is unset). The
+public URL sits behind the user's login, so to check the page yourself request
+$TMUXRC_SCRATCH_LOCAL_URL/&amp;lt;folder&amp;gt;/ instead; a 200 means it is served. Everything in
+that directory is visible to everyone who can reach tmux-rc: never put secrets or
+private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or
+WebSockets, or submit forms, so inline any data a page needs.
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;One instruction file for every agent&lt;span class="hx:absolute hx:-mt-20" id="one-instruction-file-for-every-agent"&gt;&lt;/span&gt;
+&lt;a href="#one-instruction-file-for-every-agent" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;Each agent CLI reads its own global instructions file, so the snippet would otherwise be
+pasted, and kept in sync, in five places. Keep it in one file instead and point every tool
+at it: tools that read a plain markdown file get a symlink, and Claude Code, which reads
+&lt;code&gt;CLAUDE.md&lt;/code&gt; rather than &lt;code&gt;AGENTS.md&lt;/code&gt; but supports &lt;code&gt;@path&lt;/code&gt; imports, gets one import line.
+&lt;code&gt;ln -s&lt;/code&gt; refuses to overwrite, so if a tool already has a global file, move its contents
+into the shared one first.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;mkdir -p ~/.config/agents &amp;quot;${CODEX_HOME:-$HOME/.codex}&amp;quot; ~/.config/opencode ~/.omp/agent \
+~/.gemini ~/.claude
+$EDITOR ~/.config/agents/AGENTS.md # paste the snippet
+ln -s ~/.config/agents/AGENTS.md &amp;quot;${CODEX_HOME:-$HOME/.codex}/AGENTS.md&amp;quot;
+ln -s ~/.config/agents/AGENTS.md ~/.config/opencode/AGENTS.md
+ln -s ~/.config/agents/AGENTS.md ~/.omp/agent/AGENTS.md
+ln -s ~/.config/agents/AGENTS.md ~/.gemini/GEMINI.md
+echo '@~/.config/agents/AGENTS.md' &amp;gt;&amp;gt; ~/.claude/CLAUDE.md
+&lt;/code&gt;&lt;/pre&gt;
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Tool&lt;/th&gt;
+&lt;th&gt;Global file it reads&lt;/th&gt;
+&lt;th&gt;Check&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;Codex&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;$CODEX_HOME/AGENTS.md&lt;/code&gt; (default &lt;code&gt;~/.codex&lt;/code&gt;)&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;readlink -f ~/.codex/AGENTS.md&lt;/code&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;opencode&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;~/.config/opencode/AGENTS.md&lt;/code&gt;&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;readlink -f ~/.config/opencode/AGENTS.md&lt;/code&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;omp&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;~/.omp/agent/AGENTS.md&lt;/code&gt; (a named profile: &lt;code&gt;~/.omp/profiles/&amp;lt;name&amp;gt;/agent/&lt;/code&gt;)&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;readlink -f ~/.omp/agent/AGENTS.md&lt;/code&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Gemini CLI&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;~/.gemini/GEMINI.md&lt;/code&gt; (the name follows the &lt;code&gt;context.fileName&lt;/code&gt; setting)&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;readlink -f ~/.gemini/GEMINI.md&lt;/code&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Claude Code&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;~/.claude/CLAUDE.md&lt;/code&gt;, plus what it imports&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;/memory&lt;/code&gt; in a session lists the imported file&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;These paths come from each tool&amp;rsquo;s source as installed here (Codex 0.162, opencode 1.18,
+omp 18.4, Gemini CLI 0.63) and Claude Code&amp;rsquo;s memory documentation for &lt;code&gt;@~/&lt;/code&gt; imports; none
+was exercised end to end. opencode also falls back to &lt;code&gt;~/.claude/CLAUDE.md&lt;/code&gt; when it has no
+global &lt;code&gt;AGENTS.md&lt;/code&gt;, which the symlink makes moot.&lt;/p&gt;
+&lt;h2&gt;What it exposes, and what it won&amp;rsquo;t run&lt;span class="hx:absolute hx:-mt-20" id="what-it-exposes-and-what-it-wont-run"&gt;&lt;/span&gt;
+&lt;a href="#what-it-exposes-and-what-it-wont-run" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;&lt;strong&gt;Everything in the directory is published to everyone who can reach tmux-rc.&lt;/strong&gt; That is the
+whole access model: there is no per-file permission and no listing to hide behind a
+guessable name. Never put secrets, credentials or private data there. For the same reason
+there is no default directory: an unset variable means nothing is served, so nothing gets
+published because someone saved a file in the wrong place.&lt;/p&gt;
+&lt;p&gt;The mount does not list directories, and requests cannot climb out of it through &lt;code&gt;..&lt;/code&gt; or
+symlinks.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Pages are sandboxed.&lt;/strong&gt; A preview lives on the daemon&amp;rsquo;s own hostname, where a script
+could otherwise call the daemon&amp;rsquo;s API, which types into your terminals, using your
+session. So every &lt;code&gt;/scratch/&lt;/code&gt; response carries a Content-Security-Policy that:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;runs the page&amp;rsquo;s scripts in an opaque origin, so the daemon&amp;rsquo;s API is as foreign to them as
+it is to any other website, and the page has no cookies or &lt;code&gt;localStorage&lt;/code&gt;;&lt;/li&gt;
+&lt;li&gt;sets &lt;code&gt;connect-src 'none'&lt;/code&gt;: scripts get no &lt;code&gt;fetch&lt;/code&gt;, XHR, WebSocket or EventSource, to
+anywhere;&lt;/li&gt;
+&lt;li&gt;sets &lt;code&gt;form-action 'none'&lt;/code&gt;: no form submissions. A request whose answer the page cannot
+read would still carry your session, so blind writes are refused too.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Ordinary resource loads are left alone: &lt;code&gt;&amp;lt;img&amp;gt;&lt;/code&gt;, &lt;code&gt;&amp;lt;link&amp;gt;&lt;/code&gt; and &lt;code&gt;&amp;lt;script src&amp;gt;&lt;/code&gt; still fetch,
+from this host or another, because that is how a static bundle loads its own files, and
+the daemon&amp;rsquo;s &lt;code&gt;GET&lt;/code&gt; routes only read. Those reads go out without the page being able to
+see the answer.&lt;/p&gt;
+&lt;p&gt;The consequence is simple: &lt;strong&gt;a self-contained static bundle works; anything that needs to
+call a backend or fetch remote data from script does not.&lt;/strong&gt; Plain HTML, CSS, images, PDFs
+and classic scripts with their data inlined are fine. A page that fetches JSON, calls an
+API, or loads module scripts (which are fetched as CORS requests) will not work. Build those with their data
+baked in, or give them their own hostname (below).&lt;/p&gt;
+&lt;h2&gt;Troubleshooting&lt;span class="hx:absolute hx:-mt-20" id="troubleshooting"&gt;&lt;/span&gt;
+&lt;a href="#troubleshooting" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;404 at &lt;code&gt;/scratch/...&lt;/code&gt;&lt;/strong&gt;: &lt;code&gt;TMUXRC_SCRATCH_DIR&lt;/code&gt; is unset, names a directory that did not
+exist at startup, or was set without restarting the daemon. A folder with no
+&lt;code&gt;index.html&lt;/code&gt; also 404s at its bare URL, since there are no listings; link the file.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;The page loads but its data doesn&amp;rsquo;t&lt;/strong&gt;: a &lt;code&gt;fetch&lt;/code&gt; or XHR failing (look for a CSP error
+in the browser console) is the sandbox doing its job. Inline the data into the page or
+bundle it as a classic script.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;env | grep SCRATCH&lt;/code&gt; is empty in a pane&lt;/strong&gt;: the pane predates the restart that
+advertised it. Open a new pane, or check that &lt;code&gt;TMUXRC_SCRATCH_ADVERTISE=1&lt;/code&gt; is set.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;A redirect to &lt;code&gt;http://&lt;/code&gt; behind HTTPS&lt;/strong&gt;: already handled. The daemon makes its
+trailing-slash redirects path-only, so a TLS-terminating proxy or tunnel keeps its
+scheme.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Why it is not a proxy&lt;span class="hx:absolute hx:-mt-20" id="why-it-is-not-a-proxy"&gt;&lt;/span&gt;
+&lt;a href="#why-it-is-not-a-proxy" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;&lt;code&gt;/scratch/&lt;/code&gt; serves files; it does not forward to a dev server on another port. A proxy
+would put an arbitrary local app, with its own unauthenticated API, on the daemon&amp;rsquo;s origin
+and behind its login, where none of the sandboxing above can apply. Dev servers also tend
+to need WebSockets for hot reload and absolute paths at the site root, so a path-prefixed
+proxy would half-work in confusing ways. Build the site and drop the output in scratch, or
+use a separate tunnel client.&lt;/p&gt;
+&lt;h2&gt;Mocks worth keeping are committed instead&lt;span class="hx:absolute hx:-mt-20" id="mocks-worth-keeping-are-committed-instead"&gt;&lt;/span&gt;
+&lt;a href="#mocks-worth-keeping-are-committed-instead" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;A mock that explains a PR should outlive the scratch dir. Put it under
+&lt;code&gt;docs-site/static/mocks/&lt;/code&gt;: the docs build copies &lt;code&gt;static/&lt;/code&gt; verbatim, so it is served at
+&lt;code&gt;/docs/mocks/&amp;lt;name&amp;gt;.html&lt;/code&gt; after &lt;code&gt;make docs&lt;/code&gt;, travels with the PR that it explains, and
+survives every rebuild, under the same sandbox as scratch: a mock written by an agent does
+not gain the daemon&amp;rsquo;s API by being committed. Copying a file straight into the built docs
+dir looks like it works, then vanishes on the next &lt;code&gt;make docs&lt;/code&gt;.&lt;/p&gt;
+&lt;h2&gt;If a preview needs its own hostname&lt;span class="hx:absolute hx:-mt-20" id="if-a-preview-needs-its-own-hostname"&gt;&lt;/span&gt;
+&lt;a href="#if-a-preview-needs-its-own-hostname" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Sometimes a preview really needs more than scratch allows: a whole site with absolute
+links, one that needs a backend, or one shared without the daemon. Then it needs its own
+tunnel: a separate client instance with &lt;strong&gt;its own configuration&lt;/strong&gt; (its own hostname and
+local port), so it cannot end up starting a second copy of the daemon&amp;rsquo;s tunnel. How you
+give it a name and a port depends on your client; for Cloudflare that is a second named
+tunnel, not a second run of the &lt;a href="https://querystory.github.io/tmux-rc/deploy/cloudflare-tunnel/"&gt;daemon&amp;rsquo;s wrapper&lt;/a&gt;
+. Gate the new
+hostname with the same kind of login as the daemon&amp;rsquo;s: nothing else protects it.&lt;/p&gt;
+&lt;p&gt;Whatever the client, give it &lt;strong&gt;non-interactive credentials&lt;/strong&gt;, the same kind the tunnel
+service uses (a service account, a tunnel token), not your interactive login. A client that
+falls back to developer login credentials works for a day and then dies on the
+organization&amp;rsquo;s reauthentication policy, and an unattended preview has nobody to notice.
+Run it under the user systemd manager so it is restarted and logged:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;systemd-run --user --unit=preview-&amp;lt;name&amp;gt; -p Restart=always \
+-p EnvironmentFile=&amp;lt;that preview's own env file&amp;gt; &amp;lt;the client command for it&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Stop it with &lt;code&gt;systemctl --user stop preview-&amp;lt;name&amp;gt;&lt;/code&gt; when the review is done. The
+&lt;a href="https://querystory.github.io/tmux-rc/design/scratch-previews/"&gt;design note&lt;/a&gt;
+has the reasoning behind these choices.&lt;/p&gt;</description></item><item><title>Project website on GitHub Pages</title><link>https://querystory.github.io/tmux-rc/deploy/github-pages/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/deploy/github-pages/</guid><description>
 &lt;p&gt;The public website is &lt;a href="https://querystory.github.io/tmux-rc/" target="_blank" rel="noopener"&gt;querystory.github.io/tmux-rc&lt;/a&gt;
 .
 It uses the same Markdown in &lt;code&gt;docs/&lt;/code&gt; and the same Hugo/Hextra configuration in &lt;code&gt;docs-site/&lt;/code&gt;

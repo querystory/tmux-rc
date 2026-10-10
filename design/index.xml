@@ -4585,7 +4585,7 @@ or let a pane idle. So the UI shows each window&amp;rsquo;s percentage all the t
 on the phone&amp;rsquo;s list, the sidebar foot on desktop; the collapsed rail leaves it out, as it
 leaves out every card&amp;rsquo;s text), and on desktop a trend with a dashed projection to
 the reset (colours below).&lt;/p&gt;
-&lt;p&gt;The first version showed a bare &amp;ldquo;68%&amp;rdquo; and &amp;ldquo;59m&amp;rdquo;, and that read either way: remaining or used, time left or time gone. So each meter now says &amp;ldquo;used&amp;rdquo;, the time says &amp;ldquo;resets&amp;rdquo;, and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. A window a plan does not have, such as Codex&amp;rsquo;s 5h on a weekly-only plan, is left out rather than drawn as a dash.&lt;/p&gt;
+&lt;p&gt;The first version showed a bare &amp;ldquo;68%&amp;rdquo; and &amp;ldquo;59m&amp;rdquo;, and that read either way: remaining or used, time left or time gone. So each meter now says &amp;ldquo;used&amp;rdquo;, the time says &amp;ldquo;resets&amp;rdquo;, and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. That case adds a &amp;ldquo;full in&amp;rdquo; line, in the meter&amp;rsquo;s colour, above the reset countdown rather than in place of it: the reset is still when the room comes back, and a forecast without it left no way to plan around the stall. All meters share one flat grid, two to a row, instead of a block per account under a header. The windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, &amp;ldquo;7d Fable&amp;rdquo;; a weekly-only Codex plan has one), so per-account rows with fixed 5h and 7d columns left holes and spent a whole row on each header. Packed, Claude&amp;rsquo;s three and Codex&amp;rsquo;s one make a 2×2. Each label carries its provider&amp;rsquo;s icon instead of a header, and the order (provider, then 5h, 7d, per-model) keeps an account&amp;rsquo;s meters together. In the sidebar&amp;rsquo;s narrowest cells the word &amp;ldquo;used&amp;rdquo; drops out so the window name and percentage still fit; the trend line already shows direction there.&lt;/p&gt;
 &lt;h2&gt;Accounts, not providers&lt;span class="hx:absolute hx:-mt-20" id="accounts-not-providers"&gt;&lt;/span&gt;
 &lt;a href="#accounts-not-providers" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;One person often runs several Claude or Codex logins side by side, each with its own plan.
 Claude Code picks its config dir from &lt;code&gt;CLAUDE_CONFIG_DIR&lt;/code&gt; (else &lt;code&gt;~/.claude&lt;/code&gt;), Codex from
@@ -4604,9 +4604,10 @@ local part. Two config dirs logged into one account collapse to one row.&lt;/li&
 account id lives only inside &lt;code&gt;auth.json&lt;/code&gt;&amp;rsquo;s tokens, and keeping the Codex path entirely
 credential-free was worth more than merging the rare case of two homes on one login.&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;A row says just &amp;ldquo;Claude&amp;rdquo; or &amp;ldquo;Codex&amp;rdquo; while there is one account per provider; with several,
-each row and each pane&amp;rsquo;s heading carries the short account name, so you can tell which
-limit a pane is drawing on.&lt;/p&gt;
+&lt;p&gt;A meter shows just its provider&amp;rsquo;s icon while there is one account per provider; with
+several, each meter label and each pane&amp;rsquo;s heading carries the short account name, so you
+can tell which limit a pane is drawing on. The name follows the window, so a narrow cell
+truncates the name rather than the window.&lt;/p&gt;
 &lt;h2&gt;Sources, and why each&lt;span class="hx:absolute hx:-mt-20" id="sources-and-why-each"&gt;&lt;/span&gt;
 &lt;a href="#sources-and-why-each" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;&lt;strong&gt;Codex: its own session logs.&lt;/strong&gt; Every &lt;code&gt;token_count&lt;/code&gt; event in
 &lt;code&gt;&amp;lt;home&amp;gt;/sessions/YYYY/MM/DD/*.jsonl&lt;/code&gt; carries &lt;code&gt;rate_limits&lt;/code&gt; with &lt;code&gt;used_percent&lt;/code&gt;,
@@ -4628,7 +4629,12 @@ a file. Nothing else on disk holds the numbers. So the daemon calls
 the account&amp;rsquo;s access token from &lt;code&gt;.credentials.json&lt;/code&gt;. This is undocumented and may change
 shape or disappear; the parser reads only &lt;code&gt;five_hour&lt;/code&gt; / &lt;code&gt;seven_day&lt;/code&gt; →
 &lt;code&gt;utilization&lt;/code&gt; and &lt;code&gt;resets_at&lt;/code&gt;, treats a null window as 0% (not yet opened), and any
-failure shows as &amp;ldquo;unavailable&amp;rdquo; rather than stale numbers.&lt;/p&gt;
+failure shows as &amp;ldquo;unavailable&amp;rdquo; rather than stale numbers. Per-model weekly limits come
+from the &lt;code&gt;limits&lt;/code&gt; list: each &lt;code&gt;weekly_scoped&lt;/code&gt; entry naming a model becomes &amp;ldquo;7d &lt;model&gt;&amp;rdquo;,
+with its &lt;code&gt;percent&lt;/code&gt; and &lt;code&gt;resets_at&lt;/code&gt;. The response also has &lt;code&gt;seven_day_opus&lt;/code&gt;-style keys,
+but they are null on current plans while &lt;code&gt;limits&lt;/code&gt; carries the number Claude Code&amp;rsquo;s own
+status line shows, so &lt;code&gt;limits&lt;/code&gt; is the one read; any model it names appears, none is
+hardcoded.&lt;/p&gt;
 &lt;p&gt;The token is read in-process per request and never logged, returned, or put in argv;
 failures log only the exception type, since an HTTP error&amp;rsquo;s text could echo request
 details. An expired token is not refreshed — Claude Code owns that file, and a second
@@ -5260,7 +5266,65 @@ step 1 catch it before it ships.&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;Related: #139 (the ask), #65 (&lt;code&gt;waiting_on&lt;/code&gt; — the &amp;ldquo;needs you&amp;rdquo; signal), #64 (Live
 Mode&amp;rsquo;s completion notify — same settle/never-completes traps, different consumer),
-#46 (high-churn panes — the same panes that would spam milestones).&lt;/p&gt;</description></item><item><title/><link>https://querystory.github.io/tmux-rc/design/startup-pane-presence/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/design/startup-pane-presence/</guid><description>
+#46 (high-churn panes — the same panes that would spam milestones).&lt;/p&gt;</description></item><item><title/><link>https://querystory.github.io/tmux-rc/design/scratch-previews/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/design/scratch-previews/</guid><description>
+&lt;h1&gt;Scratch Previews&lt;/h1&gt;&lt;p&gt;Status: implemented (&lt;code&gt;/scratch/&lt;/code&gt; in &lt;code&gt;openbus/server.py&lt;/code&gt;, opt-in via &lt;code&gt;TMUXRC_SCRATCH_DIR&lt;/code&gt;).
+How to use it: &lt;a href="https://querystory.github.io/tmux-rc/deploy/previews/"&gt;Previewing work&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2&gt;Why&lt;span class="hx:absolute hx:-mt-20" id="why"&gt;&lt;/span&gt;
+&lt;a href="#why" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Agents produce things a person has to look at: a mock, a built site, a report. The person
+is often on the phone, where &amp;ldquo;open this file&amp;rdquo; means nothing. The habit that grew up was a
+quick static server plus a second tunnel client per preview. Those clients authenticated
+with the developer&amp;rsquo;s interactive login, which the organization&amp;rsquo;s reauthentication policy
+expires about once a day, so previews died overnight while the main tunnel, running on a
+service-account credential, stayed up. Nobody was watching an unattended preview to notice.&lt;/p&gt;
+&lt;p&gt;The daemon already has a front door that is authenticated, supervised and on the phone.
+Serving previews through it removes a moving part instead of adding one.&lt;/p&gt;
+&lt;h2&gt;Decisions&lt;span class="hx:absolute hx:-mt-20" id="decisions"&gt;&lt;/span&gt;
+&lt;a href="#decisions" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;&lt;strong&gt;Static files only.&lt;/strong&gt; A directory of files covers every case that actually came up:
+mocks, &lt;code&gt;dist/&lt;/code&gt; folders, reports, images, PDFs. Starlette&amp;rsquo;s static mount already refuses
+traversal and serves no listings, so the feature is a few lines on a code path &lt;code&gt;/docs&lt;/code&gt;
+already uses, not new surface.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Opt-in, with no default directory.&lt;/strong&gt; Whatever sits in the directory is published to
+everyone the front door admits. A default path (say under &lt;code&gt;~/.local/share&lt;/code&gt;) would mean a
+file saved there for an unrelated reason gets published by an upgrade nobody read the notes
+for. Making the operator name the directory makes publishing a deliberate act.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Sandboxed by CSP rather than trusted.&lt;/strong&gt; Previews are arbitrary HTML, often written by an
+agent, served from the daemon&amp;rsquo;s own origin, where a script could call the API that types
+into terminals, carrying the viewer&amp;rsquo;s session. A &lt;code&gt;sandbox&lt;/code&gt; directive without
+&lt;code&gt;allow-same-origin&lt;/code&gt; moves the page into an opaque origin, so that API becomes cross-origin
+to it, as it is to any website. Cross-origin only protects responses, though: a form post
+or a no-cors fetch still delivers the request, with the front door&amp;rsquo;s cookie. So
+&lt;code&gt;form-action&lt;/code&gt; and &lt;code&gt;connect-src&lt;/code&gt; are &lt;code&gt;'none'&lt;/code&gt; too. The price is that pages needing a backend
+or fetching remote data do not work. That is the right trade for a review tool; such pages
+have a documented escape hatch.&lt;/p&gt;
+&lt;p&gt;Resource loads (&lt;code&gt;&amp;lt;img&amp;gt;&lt;/code&gt;, &lt;code&gt;&amp;lt;script src&amp;gt;&lt;/code&gt;) are deliberately left open: a bundle loads its own
+files that way, the API&amp;rsquo;s &lt;code&gt;GET&lt;/code&gt; routes only read, and a &lt;code&gt;default-src 'self'&lt;/code&gt; would hinge on
+how each browser resolves &lt;code&gt;'self'&lt;/code&gt; for an opaque-origin document, which is exactly where a
+preview would silently lose its own stylesheet on one phone and not another.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Committed mocks live in the docs site.&lt;/strong&gt; A mock that justifies a PR belongs with the PR,
+so &lt;code&gt;docs-site/static/mocks/&lt;/code&gt; is the home for the ones worth keeping, and scratch stays
+explicitly disposable. Two places by lifetime keeps the scratch dir free to be wiped.
+&lt;code&gt;/docs/mocks/&lt;/code&gt; gets the same sandbox: promoting an agent-written page into the repo should
+not be what grants it the daemon&amp;rsquo;s API.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Agents learn about it from the environment, opt-in.&lt;/strong&gt; The daemon cannot edit anyone&amp;rsquo;s
+agent instructions, and should not. What it can do is put the dir and URL in tmux&amp;rsquo;s global
+environment, the one place every new pane, and so every agent, reads from. That is a
+write to a server the user owns, so it is off unless asked for; the instruction to actually
+use scratch stays a line the user adds to their own &lt;code&gt;CLAUDE.md&lt;/code&gt; or &lt;code&gt;AGENTS.md&lt;/code&gt;.&lt;/p&gt;
+&lt;h2&gt;Alternatives rejected&lt;span class="hx:absolute hx:-mt-20" id="alternatives-rejected"&gt;&lt;/span&gt;
+&lt;a href="#alternatives-rejected" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;&lt;strong&gt;A second tunnel per preview.&lt;/strong&gt; The status quo. Each one is another credential, process
+and hostname to keep alive, and the credential is the part that kept failing. It stays
+documented as the escape hatch for previews that genuinely need their own hostname, with
+the fix applied: its own client configuration, and a non-interactive credential like the
+tunnel service&amp;rsquo;s.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;A reverse proxy to local dev servers.&lt;/strong&gt; It would preview live apps, not just builds, but
+it would put any local app and its unauthenticated API on the daemon&amp;rsquo;s origin and behind
+its login, where the CSP sandbox cannot apply without breaking the app. Dev servers also
+expect to own the site root and need WebSockets for hot reload, so a path-prefixed proxy
+half-works. It turns tmux-rc into a general gateway, a much larger thing to secure than a
+read-only file mount.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;A default scratch directory.&lt;/strong&gt; Rejected above: convenience at the cost of accidental
+publication.&lt;/p&gt;</description></item><item><title/><link>https://querystory.github.io/tmux-rc/design/startup-pane-presence/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/design/startup-pane-presence/</guid><description>
 &lt;h1&gt;Publish Pane Presence Before Classification&lt;/h1&gt;&lt;h2&gt;Why&lt;span class="hx:absolute hx:-mt-20" id="why"&gt;&lt;/span&gt;
 &lt;a href="#why" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Pane existence comes from tmux, not the language model. Previously the first watcher
 tick waited for every capture, classification, and scrollback bootstrap before
