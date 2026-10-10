@@ -1276,13 +1276,15 @@ modeSwitch("click-mode", "tmuxrc-click-mode", (on) => {
 // switch: clicking the terminal hands it the keys, clicking the composer takes them back,
 // and the terminal's ring shows which has them. An EMPTY composer still hands on Esc and
 // Ctrl-C, the interrupt keys, since there is nothing in it for them to act on. Off restores
-// the browser's own keys (Tab between controls, Ctrl-F find). Wide only: a phone has the
-// key row, and the CSS hides this switch there.
+// the browser's own keys (Tab between controls, Ctrl-F find). F6, the browser's own
+// move-focus key, is held back from the pane and moves focus to this switch, so a
+// keyboard user is never trapped in the terminal. Wide only: a phone has the key row, and
+// the CSS hides this switch there.
 const keysOn = modeSwitch("key-mode", "tmuxrc-key-passthrough", (on) => {
   $("terminal").classList.toggle("keys-live", on);
   html($("key-mode"), `${licon("keyboard", 16)}${on ? "Keys" : "Keys off"}`);
   return on
-    ? "Keys on: with the terminal focused, typing, Esc, Tab, arrows and Ctrl keys go to the pane. Click to keep them in the browser."
+    ? "Keys on: with the terminal focused, typing, Esc, Tab, arrows and Ctrl keys go to the pane; F6 leaves the terminal. Click to keep them in the browser."
     : "Keys off: the browser keeps its keys. Click to send keystrokes to the pane while the terminal is focused.";
 });
 $("key-mode").addEventListener("click", () => { if (keysOn()) $("terminal-scroll").focus(); });
@@ -1297,7 +1299,8 @@ document.addEventListener("keydown", (e) => {
   const handOff = $("reply").contains(e.target) && ["Escape", "C-c"].includes(key?.keys) && !draft().segments().length;
   if (!key || !($("terminal-scroll").contains(e.target) || handOff)) return;
   e.preventDefault();
-  typeKey({ pane: active, ...key });
+  if (key.keys === "F6") $("key-mode").focus();
+  else typeKey({ pane: active, repeat: e.repeat, ...key });
 });
 // A paste into the focused terminal types the clipboard's text into the pane.
 $("terminal-scroll").addEventListener("paste", (e) => {

@@ -11,6 +11,8 @@ const NAMED = { ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight:
 // (tab switching), and Ctrl-Esc (the OS's). Ctrl-C copies instead while text is
 // selected, as Windows Terminal does.
 // Plain Ctrl-V is the pane's C-v (literal-next, Claude Code's image paste), like a terminal.
+// IME composition never reaches here: the terminal is not editable, so an input method
+// has nothing to compose into, and CJK text goes through the composer, which is.
 export function tmuxKey(e, selected = false) {
   if (e.isComposing || e.metaKey) return null;
   const altGr = e.getModifierState?.("AltGraph"), ctrl = e.ctrlKey && !altGr, alt = e.altKey && !altGr;
@@ -37,13 +39,17 @@ export function tmuxKey(e, selected = false) {
 
 // Keys go out one request at a time, in order. Text typed while a request is in flight
 // joins the queued literal for the same pane, so fast typing costs a round trip per burst
-// rather than per key. `send(op)` resolves false on a failure, which drops the rest: typing
-// on into a pane whose state is now unknown is worse than losing the burst.
+// rather than per key. An auto-repeat (`op.repeat`, a held key) is dropped while anything
+// is still queued, so holding Backspace or an arrow stops within a round trip of letting
+// go instead of draining a backlog far past where the user meant to stop. `send(op)`
+// resolves false on a failure, which drops the rest: typing on into a pane whose state is
+// now unknown is worse than losing the burst.
 export function keyStream(send) {
   const queue = [];
   let busy = false;
   return async (op) => {
     const last = queue.at(-1);
+    if (op.repeat && last) return;
     if (op.literal && last?.literal && last.pane === op.pane) last.keys += op.keys;
     else queue.push({ ...op });
     if (busy) return;

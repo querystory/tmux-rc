@@ -62,3 +62,14 @@ test("text for another pane is not joined, and a failure drops the rest", async 
   release(false); await first;
   assert.deepEqual(sent.map((op) => op.keys), ["a", "b"]);
 });
+
+test("a held key's repeats wait for the queue to drain rather than piling up", async () => {
+  const sent = [];
+  let release;
+  const push = keyStream((op) => { sent.push(op); return new Promise((r) => { release = r; }); });
+  const first = push({ pane: "%1", keys: "BSpace", literal: false });
+  for (let i = 0; i < 20; i++) push({ pane: "%1", keys: "BSpace", literal: false, repeat: true });
+  release(true); await new Promise((r) => setImmediate(r));
+  release(true); await first;
+  assert.equal(sent.length, 2);
+});
