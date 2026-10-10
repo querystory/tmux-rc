@@ -32,6 +32,23 @@ SCREEN = """❯ Yes, please remove it.
 
  Esc to cancel · Tab to amend"""
 
+TABS = "Settings  Status   Config   Usage   Stats"
+PANEL = f"""▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ◐ medium · /effort ▔
+   {TABS}
+
+   ╭──────────────────────╮
+   │ ⌕ Search settings…   │
+   ╰──────────────────────╯
+
+   ❯ Auto-compact                true
+     Thinking mode               true
+     Thinking can't be turned off for Opus 5.5
+     Theme                       Auto (match terminal) ›
+
+   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear"""
+
+PANE = Pane("work", "0", "claude", "0", "%0", "claude", "t", "/home/x/proj")
+
 
 def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
     assert highlighted_row(SCREEN, 'Permanently remove "Demo"?') == "No"
@@ -44,6 +61,11 @@ def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
     # A picker that has closed: the live input box below it is not its highlight.
     closed = "Proceed?\n  No\n  Yes\n────────\n❯ Yes\n────────"
     assert highlighted_row(closed, "Proceed?") is None
+    # A search box between the prompt and the list is not the widget's edge, and a row
+    # is named up to its value column (Claude Code's /resume and /config).
+    assert highlighted_row(PANEL, "Search settings…") == "Auto-compact"
+    resume = PANEL.replace(TABS, "Resume session")
+    assert highlighted_row(resume, "Resume session") == "Auto-compact"
 
 
 def test_classify_overrides_a_misread_anchor():
@@ -52,9 +74,19 @@ def test_classify_overrides_a_misread_anchor():
         "options": ["No", "Yes"], "selected": 1,
         "keymap": {"next": "Down", "prev": "Up", "select": "Enter"},
     }}
-    pane = Pane("work", "0", "claude", "0", "%0", "claude", "t", "/home/x/proj")
-    result = classify(pane, f"{tmux.VISIBLE_SCREEN}\n{SCREEN}", lambda s, t: misread)
+    result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{SCREEN}", lambda s, t: misread)
     assert result["question"]["selected"] == 0
+
+
+def test_a_tabbed_panel_the_user_opened_is_not_a_question():
+    read = {"tool": "claude", "activity": "waiting", "waiting_on": "user", "question": {
+        "prompt": "Search settings…", "answer_style": "cursor", "selected": 0,
+        "options": ["Auto-compact", "Thinking mode", "Theme"],
+    }}
+    result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{PANEL}", lambda s, t: read)
+    assert "question" not in result
+    assert result["activity"] == "idle"
+    assert "waiting_on" not in result
 
 
 MENU = """
