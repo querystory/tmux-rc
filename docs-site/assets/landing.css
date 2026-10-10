@@ -621,7 +621,7 @@ footer p,footer>a:last-child {
 :root[data-theme=dark] .theme-moon {
   display:none
 }
-/* Preview panels share one grid cell, reserving the largest caption as well as the image. */
+/* The stage and caption reserve space; inactive screenshots stay out of layout. */
 .showcase {
   display:grid
 }
@@ -630,11 +630,6 @@ footer p,footer>a:last-child {
 }
 .showcase>figure {
   grid-area:2/1
-}
-.showcase>figure[hidden] {
-  display:block!important;
-  visibility:hidden;
-  pointer-events:none
 }
 .demo-note {
   grid-area:3/1
@@ -756,3 +751,9 @@ footer p,footer>a:last-child {
     padding-inline:12px
   }
 }
+
+.showcase { --caption-height:3.2em; }
+.showcase figcaption { min-height:var(--caption-height); }
+@media(max-width:900px) { .showcase { --caption-height:4.8em; } }
+@media(max-width:700px) { .showcase { --caption-height:8em; } }
+.feature-detail>img, .feature-image img { height:auto; }
