@@ -58,5 +58,12 @@ export function renderUsage(el, accounts, wide, now = Date.now()) {
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
 }
 
+// The phone's Usage setting: "on" is every meter, "off" none, and "auto" only the meters
+// that call for a decision, those the server's projection has filling before the reset
+// (limit_at) or already past HIGH_PCT; an account with none left, or unreadable, drops out.
+export const HIGH_PCT = 70;
+export const shownUsage = (accounts, mode) => mode === 'on' ? accounts : mode === 'off' ? []
+  : accounts.map(a => ({ ...a, windows: (a.windows || []).filter(w => w.limit_at || w.pct >= HIGH_PCT) })).filter(a => !a.error && a.windows.length);
+
 // The account a pane draws on, named only when its provider has several to tell apart.
 export const paneAccount = (accounts, paneId) => accounts.find(a => a.label && a.panes.includes(paneId))?.label;
