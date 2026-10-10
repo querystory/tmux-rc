@@ -1,4 +1,4 @@
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>tmux-rc – Agent manager comparisons</title><link>https://querystory.github.io/tmux-rc/comparisons/</link><description>Recent content in Agent manager comparisons on tmux-rc</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><atom:link href="https://querystory.github.io/tmux-rc/comparisons/index.xml" rel="self" type="application/rss+xml"/><item><title>Conductor</title><link>https://querystory.github.io/tmux-rc/comparisons/conductor/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/comparisons/conductor/</guid><description>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>tmux-rc – Why tmux-rc</title><link>https://querystory.github.io/tmux-rc/comparisons/</link><description>Recent content in Why tmux-rc on tmux-rc</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><atom:link href="https://querystory.github.io/tmux-rc/comparisons/index.xml" rel="self" type="application/rss+xml"/><item><title>Conductor</title><link>https://querystory.github.io/tmux-rc/comparisons/conductor/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/comparisons/conductor/</guid><description>
 &lt;p&gt;&lt;strong&gt;Checked October 10, 2026.&lt;/strong&gt; This page covers
 &lt;a href="https://www.conductor.build/" target="_blank" rel="noopener"&gt;Conductor by Melty Labs&lt;/a&gt;
 , not unrelated projects
@@ -84,10 +84,11 @@ but should not be counted as identical fleet views.
 &lt;/tr&gt;
 &lt;/tbody&gt;
 &lt;/table&gt;
-&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; Conductor deserves close attention for workspace lifecycle,
-cloud execution, and team collaboration. tmux-rc fits a user who already has a busy
-terminal fleet and wants to supervise it without moving all work into managed chats.
-Remote access itself is no longer a useful exclusive claim against Conductor.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Why we built tmux-rc:&lt;/strong&gt; Conductor offers a strong workspace lifecycle, cloud
+execution, and team collaboration. Our starting point was a busy tmux server with
+multiple sessions already running. We wanted to add remote supervision around that
+fleet, while keeping our existing launch and terminal habits. Conductor also has
+remote access; the difference that matters to us is how work enters the manager.&lt;/p&gt;
 &lt;h2&gt;Try alongside tmux-rc&lt;span class="hx:absolute hx:-mt-20" id="try-alongside-tmux-rc"&gt;&lt;/span&gt;
 &lt;a href="#try-alongside-tmux-rc" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Run a new task in a separate Conductor workspace and leave existing tmux agents under
 tmux-rc. Git changes can travel through ordinary branches and PRs; live conversations,
@@ -182,10 +183,11 @@ It does not transfer outgoing reasoning, tool-call state, or attachments. Omitte
 history can be retrieved through T3&amp;rsquo;s thread-reading tool.
 &lt;a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/portable-handoffs.md" target="_blank" rel="noopener"&gt;Portable handoffs&lt;/a&gt;
 .&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; T3 is a close comparator for managed conversations, account quotas,
-and remote clients. tmux-rc&amp;rsquo;s distinction is supervising existing terminal work with
-fleet summaries, attention states, spatial views, and conversational control.
-Subagents and quota tracking should be presented as shared capabilities.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Why we built tmux-rc:&lt;/strong&gt; T3 covers managed conversations, account quotas, and remote
+clients well. We wanted the manager to discover work already running across our tmux
+sessions and let us supervise it in place. That requirement led to fleet summaries,
+attention states, spatial views, and conversational control built around panes.
+Subagent visibility and quota tracking are capabilities both products offer.&lt;/p&gt;
 &lt;p&gt;To try both, give T3 a separate task/worktree first. For an imported conversation,
 hand ownership over between turns and verify continuation before retiring the original
 session. No bidirectional live synchronization with tmux-rc has been established.&lt;/p&gt;</description></item><item><title>MuxFlow</title><link>https://querystory.github.io/tmux-rc/comparisons/muxflow/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/comparisons/muxflow/</guid><description>
@@ -227,11 +229,12 @@ text/voice fleet controls. Both have voice features; compare interaction style a
 scope rather than simply marking voice present or absent.
 &lt;a href="https://github.com/gal064/muxflow" target="_blank" rel="noopener"&gt;Features and platform availability&lt;/a&gt;
 .&lt;/p&gt;
-&lt;h2&gt;Use both on the same fleet&lt;span class="hx:absolute hx:-mt-20" id="use-both-on-the-same-fleet"&gt;&lt;/span&gt;
-&lt;a href="#use-both-on-the-same-fleet" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;&lt;strong&gt;Our assessment:&lt;/strong&gt; this is the most natural pairing of the three detailed comparisons.
-Both can operate on the same host&amp;rsquo;s tmux sessions. MuxFlow can supply native terminal
-and SSH workspace tools, while tmux-rc supplies its attention overview and fleet controls.
-This is an architectural compatibility assessment, not a tested interoperability promise.&lt;/p&gt;
+&lt;h2&gt;Why tmux-rc, and where MuxFlow fits alongside it&lt;span class="hx:absolute hx:-mt-20" id="why-tmux-rc-and-where-muxflow-fits-alongside-it"&gt;&lt;/span&gt;
+&lt;a href="#why-tmux-rc-and-where-muxflow-fits-alongside-it" class="subheading-anchor" aria-label="Permalink for this section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;MuxFlow comes closest to our existing-terminal starting point. We built tmux-rc
+around the overview we wanted across many sessions: what needs us, what each agent
+is doing, usage projections, and conversational fleet controls. MuxFlow can supply
+a native terminal and SSH workspace surface alongside that overview. Both can
+operate on the same host&amp;rsquo;s tmux sessions in principle; we have not tested this pairing.&lt;/p&gt;
 &lt;p&gt;There is no required conversation migration if both clients address the same panes.
 Replies, renames, and pane closure affect the underlying shared sessions. Use one client
 to submit a given instruction, then confirm it arrived.&lt;/p&gt;
@@ -243,7 +246,7 @@ another terminal view.
 &lt;a href="https://github.com/gal064/muxflow/blob/main/docs/agent-hooks.md" target="_blank" rel="noopener"&gt;Hook setup and Codex compatibility&lt;/a&gt;
 .&lt;/p&gt;
 &lt;p&gt;Pooled subscription quotas and usage forecasting were not established by the sources
-reviewed here. Keep that question open when refreshing the comparison.&lt;/p&gt;</description></item><item><title>Broader competitor landscape</title><link>https://querystory.github.io/tmux-rc/comparisons/landscape/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/comparisons/landscape/</guid><description>
+reviewed here. Keep that question open when refreshing the comparison.&lt;/p&gt;</description></item><item><title>Alternatives we researched</title><link>https://querystory.github.io/tmux-rc/comparisons/landscape/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://querystory.github.io/tmux-rc/comparisons/landscape/</guid><description>
 &lt;p&gt;&lt;strong&gt;Checked October 10, 2026.&lt;/strong&gt; This shortlist covers agent managers, terminal
 workspaces, and orchestration tools relevant to supervising multiple coding agents.
 It is not a ranking of coding models or editors. Start with the detailed comparisons
