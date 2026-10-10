@@ -5,6 +5,9 @@
 // F-keys are the same in both. PPage/NPage are what tmux's list-keys prints.
 const NAMED = { ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", PageUp: "PPage", PageDown: "NPage", Backspace: "BSpace", Delete: "DC", Insert: "IC", Escape: "Escape", Tab: "Tab", Enter: "Enter", Home: "Home", End: "End" };
 
+// A chord on the space bar needs tmux's name for it.
+const spaced = (c) => (c === " " ? "Space" : c);
+
 // Returns { keys, literal } or null for a key the browser keeps. Cmd is always the
 // browser's (copy, paste, tabs), as are Ctrl-Shift chords (devtools, reopen tab, and the
 // terminal-emulator paste, which arrives as a paste event), Ctrl-Tab and Ctrl-PgUp/PgDn
@@ -31,10 +34,10 @@ export function tmuxKey(e, selected = false) {
     // A non-Latin layout reports its own letter; the chord means the key's Latin one.
     const letter = /^[\x20-\x7e]$/.test(e.key) ? e.key.toLowerCase() : /^Key([A-Z])$/.exec(e.code)?.[1].toLowerCase();
     if (!letter || alt || (selected && letter === "c")) return null;
-    return { keys: `C-${letter === " " ? "Space" : letter}`, literal: false };
+    return { keys: `C-${spaced(letter)}`, literal: false };
   }
   // Option on a Mac types its own characters (å, ∫); only an ASCII one is a Meta chord.
-  if (alt && /^[\x21-\x7e]$/.test(e.key)) return { keys: `M-${e.key}`, literal: false };
+  if (alt && /^[\x20-\x7e]$/.test(e.key)) return { keys: `M-${spaced(e.key)}`, literal: false };
   return { keys: e.key, literal: true };
 }
 
