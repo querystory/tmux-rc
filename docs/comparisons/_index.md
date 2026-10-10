@@ -64,7 +64,9 @@ atlas, usage history and limit projections, and text/voice controls. Recognition
 available detail vary by harness.
 
 The setup is a small service plus a web client; tmux, your agents, and your execution
-host are still prerequisites. Remote access needs an explicit access-control boundary:
+host are still prerequisites. Run it on a single-user machine: other local accounts
+can reach the loopback daemon and bypass remote access controls.
+Remote access needs an explicit access-control boundary:
 **the daemon has no built-in authentication**. Every client allowed to reach it can
 read and control terminals. Use an authenticated proxy or identity-controlled tailnet
 ACLs that restrict access to the intended users.
