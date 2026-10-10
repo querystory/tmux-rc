@@ -5,6 +5,7 @@ import subprocess
 from datetime import UTC, datetime
 from threading import Event
 
+import pytest
 from fastapi.testclient import TestClient
 
 from openbus import open_loops, server
@@ -75,7 +76,7 @@ def test_requests_are_small_and_cover_everything():
             " { issueOrPullRequest(number: 7)") in body["ref"]
     assert 'owner: "evil\\"org"' in body["ref"]  # a string from the classifier cannot break out
     many = [tag for tag, _ in requests([(REPO, n) for n in range(1, 80)], NOW)]
-    assert many.count("ref") == 3  # 50 references, 20 to a request
+    assert many.count("ref") == 4  # every reference, 20 to a request
 
 
 def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
@@ -106,11 +107,27 @@ def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
     assert len(calls) == 8  # mine twice (a retry), page 2, asked, merged, refs, two counts
 
 
+def test_a_failed_search_is_retried_then_fails_whole(monkeypatch):
+    calls = []
+    monkeypatch.setattr(open_loops, "run_gh", lambda *a: calls.append(1) or json.dumps(
+        {"data": {"viewer": {"login": "dev"}, "s": None}}))
+    with pytest.raises(RuntimeError):
+        fetch_github([], NOW)
+    assert len(calls) == 2
+
+
+def test_a_failed_git_listing_keeps_the_previous_rows(monkeypatch):
+    monkeypatch.setattr(open_loops, "_git", lambda *a: "/c/.git\n" if "rev-parse" in a else None)
+    before = [{**wt("/wt/drift", "spike", unpushed=1), "common": "/c/.git"},
+              {**wt("/elsewhere", "x"), "common": "/d/.git"}]
+    assert scan_worktrees(["/wt/drift"], previous=before) == before[:1]
+
+
 def test_fetch_failure_keeps_the_last_good_answer(monkeypatch):
     loops = OpenLoops()
     loops.github = {"viewer": "dev", "older": 2, "prs": []}
     monkeypatch.setattr(open_loops, "run_gh", lambda *a: None)
-    monkeypatch.setattr(open_loops, "scan_worktrees", lambda cwds, stopping: [])
+    monkeypatch.setattr(open_loops, "scan_worktrees", lambda *a: [])
     loops.refresh([], NOW)
     assert loops.error == "unavailable" and loops.github["older"] == 2
 

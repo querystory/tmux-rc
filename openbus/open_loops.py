@@ -29,8 +29,7 @@ HORIZON = 14 * 86400  # older open PRs and idle worktrees are counted, not liste
 STALE = 3 * 86400  # an open PR untouched this long has dropped
 IDLE_DIRTY = 86400  # a pane idle this long over uncommitted changes has dropped
 RECENT = 86400  # "Moving" looks back this far until daily snapshots make it a diff
-MAX_REFS = 50  # pane-associated PRs looked up beyond the searches
-CHUNK = 20  # of those per request
+CHUNK = 20  # pane-associated PRs looked up per request, beyond the searches
 PAGE, MAX_PAGES = 40, 5  # a search's page, and how many pages before the rest are dropped
 PAGED = "pageInfo { hasNextPage endCursor } nodes { ...P }"
 AFTER = "%AFTER%"  # where a page's cursor goes; % cannot occur in a repository name
@@ -90,8 +89,11 @@ def _graphql(body: str, stopping: Event | None = None) -> dict:
             reply = json.loads(run_gh(["api", "graphql", "-f",
                                        f"query={fragment}query {{ viewer {{ login }} {body} }}"],
                                       60, stopping) or "{}")
-            if (data := reply.get("data")) and data.get("viewer"):
-                return data  # partial errors (a pane's reference that names nothing) are fine
+            # Partial errors are fine for a pane's reference that names nothing, not for a
+            # search: an empty one would replace good rows with none.
+            data = reply.get("data") or {}
+            if data.get("viewer") and (not body.startswith("s:") or data.get("s")):
+                return data
     raise RuntimeError("GitHub unavailable")
 
 
@@ -106,7 +108,7 @@ def requests(refs: list[tuple[str, int]], now: float):
                    ("asked", f"{asked} updated:>={horizon}"),
                    ("merged", f"is:pr is:merged involves:@me merged:>={recent}")):
         yield tag, f's: search(type: ISSUE, first: {PAGE}, query: "{q}"{AFTER}) {{ {PAGED} }}'
-    for i in range(0, min(len(refs), MAX_REFS), CHUNK):
+    for i in range(0, len(refs), CHUNK):
         # issueOrPullRequest, not pullRequest: a number that names an issue is just null.
         yield "ref", " ".join(
             f"r{n}: repository(owner: {json.dumps(repo.split('/', 1)[0])}, name: "
@@ -188,16 +190,21 @@ def _worktree(path: str, branch: str, repo: str | None) -> dict | None:
             "dirty": len(changed), "active_at": _active_at(path, changed)}
 
 
-def scan_worktrees(cwds: list[str], stopping: Event | None = None) -> list[dict]:
+def scan_worktrees(cwds: list[str], stopping: Event | None = None,
+                   previous: list[dict] = ()) -> list[dict]:
     """Every worktree of every repository a pane sits in: the panes say which repositories
-    matter, and each repository's own list finds worktrees wherever they live."""
+    matter, and each repository's own list finds worktrees wherever they live. Where git
+    fails, the previous scan's rows stand in, so a hiccup does not hide drift."""
+    old = {w["path"]: w for w in previous}
     commons = {(_git("-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
                 or "").strip() for cwd in set(cwds) if cwd}
     out = []
     for common in sorted(commons - {""}):
-        repo = None
-        for block in (_git("--git-dir", common, "worktree", "list", "--porcelain") or ""
-                      ).strip().split("\n\n"):
+        repo, listing = None, _git("--git-dir", common, "worktree", "list", "--porcelain")
+        if listing is None:
+            out += [w for w in previous if w.get("common") == common]
+            continue
+        for block in listing.strip().split("\n\n"):
             fields = dict([*line.split(" ", 1), ""][:2] for line in block.splitlines())
             path = fields.get("worktree")
             if stopping is not None and stopping.is_set():
@@ -206,7 +213,8 @@ def scan_worktrees(cwds: list[str], stopping: Event | None = None) -> list[dict]
                 continue
             repo = repo or github_repository(path)  # one origin per repository
             branch = fields.get("branch", "").removeprefix("refs/heads/")
-            if wt := _worktree(path, branch, repo):
+            wt = _worktree(path, branch, repo)
+            if wt := (wt and {**wt, "common": common}) or old.get(path):
                 out.append(wt)
     return out
 
@@ -359,9 +367,9 @@ class OpenLoops:
         except Exception as e:  # noqa: BLE001 - keep the last good answer, say it is old
             logger.info("open loops: GitHub fetch failed: %s", type(e).__name__)
             self.error = "unavailable"
-        if not self.stopping.is_set():
-            self.worktrees = scan_worktrees([p.get("cwd") for p in panes], self.stopping)
-            self.scanned_at = now
+        worktrees = scan_worktrees([p.get("cwd") for p in panes], self.stopping, self.worktrees)
+        if not self.stopping.is_set():  # a scan cut short by shutdown is partial
+            self.worktrees, self.scanned_at = worktrees, now
 
     async def run(self, watcher) -> None:
         while not watcher.booted():  # before the first tick there are no panes to join
