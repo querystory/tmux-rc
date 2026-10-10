@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>tmux-rc — manage your coding agents remotely</title>
   <meta name="description" content="{{ .Site.Params.description }}">
-  <meta name="theme-color" content="#171d26">
+  <meta name="theme-color" content="#101312">
   <link rel="canonical" href="{{ .Permalink }}">
   <meta property="og:title" content="tmux-rc — manage your coding agents remotely">
   <meta property="og:description" content="{{ .Site.Params.description }}">
   <meta property="og:image" content="{{ "img/hero.png" | absURL }}">
   <link rel="icon" href="{{ "favicon.svg" | relURL }}" type="image/svg+xml">
-  <link rel="stylesheet" href="{{ "landing.css" | relURL }}">
+  {{ $css := resources.Get "landing.css" | fingerprint }}
+  <link rel="stylesheet" href="{{ $css.RelPermalink }}">
   <script src="{{ "landing.js" | relURL }}" defer></script>
 </head>
 <body>
