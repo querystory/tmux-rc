@@ -653,7 +653,7 @@ async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str
         _sweep()  # a parked card expires on time even if nothing else sweeps meanwhile
         # Answered (a tap whose "decided" was lost is parked, but the user did answer), or
         # gone: cancelled by a drop and no longer parked.
-        if ((answer.done() and not answer.cancelled())
+        if (_tapped(answer)
                 or (proposal not in meter.approvals and _key(meter, proposal) not in _parked)):
             return
         since = _chats.get((meter.actor, meter.session), meter).unseen_since

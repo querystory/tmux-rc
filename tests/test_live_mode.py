@@ -477,11 +477,13 @@ def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch, how):
 
 
 @pytest.mark.parametrize(
-    "back", [None, "shown", "hidden", "shown, dropped", "expired", "tapped", "undelivered"])
+    "back", [None, "shown", "hidden", "shown, dropped", "expired", "tapped", "undelivered",
+             "taken over"])
 def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
     """Locking the phone drops the socket, the moment a push matters most: the parked card
     counts as out of view and still pushes once, on the wait it began with, even over a
-    reconnect that stays hidden. A reconnect that shows it again, or expiry, stops it, and
+    reconnect that stays hidden, or one that takes over a half-open socket still holding
+    the card. A reconnect that shows it again, or expiry, stops it, and
     after one that showed it drops in turn, the wait starts over. A card the user tapped,
     parked only because its "decided" died with the socket, is answered: no push. Nor
     does one the phone never received."""
@@ -513,6 +515,8 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
         await shown.wait()
         if back == "tapped":  # Send, then the socket died before its "decided"
             meter.approvals[ws.sent[0]["id"]].set_result(True)
+        elif back == "taken over":  # back, hidden, before the daemon saw the old socket go
+            L._connect(_chat(), viewing=False)
         else:
             call.cancel()  # the socket dropped: the card is parked
         await asyncio.gather(call, return_exceptions=True)

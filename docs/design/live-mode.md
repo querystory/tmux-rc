@@ -557,7 +557,9 @@ as a pane's push, so minimizing for a moment does not buzz, and it pushes at mos
 A dropped socket counts as out of view, and the wait belongs to the card rather than to
 the connection that showed it: locking a phone drops the socket and parks the card, and
 that is the moment a push matters most. Whether a parked card is in view again is the
-reconnected chat's word.
+reconnected chat's word, including a card it took over from a half-open socket: the
+takeover ends the old connection's wait as a drop does, not as an answer, so the push still
+comes.
 The notification has no answer buttons: approving a pane action should happen where the
 card shows exactly what will be typed, not from a lock-screen line. Tapping it brings the
 chat back in the open page instead of navigating there, since a navigation would reload
