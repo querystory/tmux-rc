@@ -663,7 +663,7 @@ async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str
         since = _chats.get((meter.actor, meter.session), meter).unseen_since
         if (since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS
                 and await asyncio.to_thread(meter.push.chat, text)):
-            return  # not queued (a full queue): try again next tick
+            return  # queued; a full queue falls through and tries again next tick
         await asyncio.sleep(_NUDGE_TICK)
 
 
