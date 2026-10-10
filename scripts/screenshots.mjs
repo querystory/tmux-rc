@@ -55,6 +55,7 @@ const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 
 // Open loops arrive after the dashboard draws; wait for them, then bring their top up.
 async function showLoops(page) {
+  if (!await page.locator("#landing-loops").count()) return; // a base that predates them
   await page.locator("#landing-loops summary").first().waitFor();
   await page.locator("#landing-loops").evaluate((el) => {
     const pane = document.getElementById("landing"); // scroll the dashboard, never the page

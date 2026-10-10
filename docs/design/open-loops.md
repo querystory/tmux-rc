@@ -101,7 +101,9 @@ still holds uncommitted changes.
 
 **Grouping: the stack, then a label, then the user's keywords.** A PR whose base is
 another PR's head joins that PR's workstream, transitively. It needs no input from anyone
-and is right whenever it fires, so it runs first and the other signals only name or merge
+and is right whenever it fires, so it runs first; a parent that no search returned (a
+teammate's PR, or one of yours from before the horizon) is looked up by its head branch,
+up to three levels toward the root, so the stack still finds its root's name and the other signals only name or merge
 whole stacks. A `workstream:<name>` label on any PR in a stack names it, and stacks (in
 any repository) with the same label become one workstream: this is how a design doc and
 its implementation, or work across repositories, come together. Last, an optional

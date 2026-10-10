@@ -31,6 +31,7 @@ STALE = 3 * 86400  # an open PR untouched this long has dropped
 IDLE_DIRTY = 86400  # a pane idle this long over uncommitted changes has dropped
 RECENT = 86400  # "Moving" looks back this far until daily snapshots make it a diff
 CHUNK = 20  # pane-associated PRs looked up per request, beyond the searches
+STACK_DEPTH = 3  # levels of unfetched stack parents looked up toward a stack's root
 PAGE, MAX_PAGES = 40, 5  # a search's page, and how many pages before the rest are dropped
 PAGED = "pageInfo { hasNextPage endCursor } nodes { ...P }"
 AFTER = "%AFTER%"  # where a page's cursor goes; % cannot occur in a repository name
@@ -99,6 +100,15 @@ def _graphql(body: str, stopping: Event | None = None) -> dict:
     raise RuntimeError("GitHub unavailable")
 
 
+def _lookups(lookups: list[tuple[str, str]]):
+    """("ref", body) per CHUNK of (repository, selection) lookups."""
+    for i in range(0, len(lookups), CHUNK):
+        yield "ref", " ".join(
+            f"r{n}: repository(owner: {json.dumps(repo.split('/', 1)[0])}, name: "
+            f"{json.dumps(repo.split('/', 1)[1])}) {{ {selection} }}"
+            for n, (repo, selection) in enumerate(lookups[i:i + CHUNK]))
+
+
 def requests(refs: list[tuple[str, int]], now: float):
     """(tag, body) per request: each search a page at a time, the pane-associated PRs in
     chunks, and the count of older PRs. Many small requests, because one that asks for
@@ -110,38 +120,52 @@ def requests(refs: list[tuple[str, int]], now: float):
                    ("asked", f"{asked} updated:>={horizon}"),
                    ("merged", f"is:pr is:merged involves:@me merged:>={recent}")):
         yield tag, f's: search(type: ISSUE, first: {PAGE}, query: "{q}"{AFTER}) {{ {PAGED} }}'
-    for i in range(0, len(refs), CHUNK):
-        # issueOrPullRequest, not pullRequest: a number that names an issue is just null.
-        yield "ref", " ".join(
-            f"r{n}: repository(owner: {json.dumps(repo.split('/', 1)[0])}, name: "
-            f"{json.dumps(repo.split('/', 1)[1])}) {{ issueOrPullRequest(number: {int(num)})"
-            " { ...P } }" for n, (repo, num) in enumerate(refs[i:i + CHUNK]))
+    # issueOrPullRequest, not pullRequest: a number that names an issue is just null.
+    yield from _lookups([(repo, f"issueOrPullRequest(number: {int(num)}) {{ ...P }}")
+                         for repo, num in refs])
     for who in (mine, asked):  # disjoint: nobody can be asked to review their own PR
         q = f"{who} updated:<{horizon}"
         yield "older", f's: search(type: ISSUE, first: 0, query: "{q}") {{ issueCount }}'
 
 
 def fetch_github(refs: list[tuple[str, int]], now: float, stopping: Event | None = None) -> dict:
-    prs, older, truncated = {}, 0, False
-    for tag, body in requests(refs, now):
+    prs, older, truncated, data = {}, 0, False, {}
+
+    def run(tag, body):
+        nonlocal older, truncated, data
         after = ""
         for _ in range(MAX_PAGES):  # only a search has pages; the rest stop after one
             data = _graphql(body.replace(AFTER, after), stopping)
             result = data.get("s") or {}
             older += result.get("issueCount", 0)
-            nodes = result.get("nodes") or [(v or {}).get("issueOrPullRequest")
-                                            for k, v in data.items() if k.startswith("r")]
-            for node in nodes:
+            looked = [v for k, v in data.items() if k.startswith("r") and v]
+            for node in result.get("nodes") or [
+                    n for v in looked for n in [v.get("issueOrPullRequest"),
+                                                *(v.get("pullRequests") or {}).get("nodes", [])]]:
                 if node and "number" in node:  # an issue matches the fragment as {}
                     pr = prs.setdefault((node["repository"]["nameWithOwner"].lower(),
                                          node["number"]), _pr(node))
                     pr["asked"] = pr.get("asked") or tag == "asked"
             page = result.get("pageInfo") or {}
             if not page.get("hasNextPage"):
-                break
+                return
             after = f", after: {json.dumps(page['endCursor'])}"
-        else:
-            truncated = True  # still more pages: say so rather than look complete
+        truncated = True  # still more pages: say so rather than look complete
+
+    for tag, body in requests(refs, now):
+        run(tag, body)
+    # A stack's parent may be nobody's search result (a teammate's PR, or yours from before
+    # the horizon): look up the PR whose head is each unmatched base, a level at a time.
+    tried = set()
+    for _ in range(STACK_DEPTH):
+        heads = {(p["repo"].lower(), p["head"]) for p in prs.values()} | tried
+        bases = list(dict.fromkeys((p["repo"], p["base"]) for p in prs.values()
+                                   if p["stacked"] and (p["repo"].lower(), p["base"]) not in heads))
+        tried |= {(repo.lower(), base) for repo, base in bases}
+        newest = "first: 1, orderBy: {field: UPDATED_AT, direction: DESC}"
+        parent = "pullRequests(headRefName: %s, " + newest + ") { nodes { ...P } }"
+        for tag, body in _lookups([(repo, parent % json.dumps(base)) for repo, base in bases]):
+            run(tag, body)
     return {"viewer": data["viewer"]["login"], "older": older, "truncated": truncated,
             "prs": list(prs.values())}
 
