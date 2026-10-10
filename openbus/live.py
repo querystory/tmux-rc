@@ -518,10 +518,10 @@ async def _nudge(meter: _Meter, text: str) -> None:
     shown = time.monotonic()
     while True:
         since = meter.unseen_since
-        if since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS:
-            break
+        if (since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS
+                and await asyncio.to_thread(meter.push.chat, text)):
+            return  # not queued (a full queue): try again next tick
         await asyncio.sleep(_NUDGE_TICK)
-    await asyncio.to_thread(meter.push.chat, text)
 
 
 async def _dispatch(
