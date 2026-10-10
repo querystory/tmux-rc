@@ -36,8 +36,6 @@ const SHOTS = [
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
-  ["mobile-no-tmux", PHONE, "light", "", noTmux],
-  ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
   ["mobile-pane-menu", PHONE, "dark", "#pane=%259", (page) => page.click("#pane-menu-button")],
   ["mobile-expunge", PHONE, "light", "#pane=%259", confirmExpunge],
@@ -46,6 +44,8 @@ const SHOTS = [
   ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
   ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-close"); }],
+  ["mobile-no-tmux", PHONE, "light", "", noTmux],
+  ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
 ];
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
