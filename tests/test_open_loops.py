@@ -2,6 +2,7 @@
 import json
 import subprocess
 from datetime import UTC, datetime
+from threading import Event
 
 from fastapi.testclient import TestClient
 
@@ -79,7 +80,7 @@ def test_requests_are_small_and_cover_everything():
 def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
     calls = []
 
-    def gh(args, _timeout):
+    def gh(args, _timeout, _stopping):
         q = args[-1]
         calls.append(q)
         if "author:@me archived:false updated:>=" in q and len(calls) == 1:
@@ -108,7 +109,7 @@ def test_fetch_failure_keeps_the_last_good_answer(monkeypatch):
     loops = OpenLoops()
     loops.github = {"viewer": "dev", "older": 2, "prs": []}
     monkeypatch.setattr(open_loops, "run_gh", lambda *a: None)
-    monkeypatch.setattr(open_loops, "scan_worktrees", lambda cwds: [])
+    monkeypatch.setattr(open_loops, "scan_worktrees", lambda cwds, stopping: [])
     loops.refresh([], NOW)
     assert loops.error == "unavailable" and loops.github["older"] == 2
 
@@ -127,6 +128,7 @@ def test_lanes():
         node(19, base="feat/18", requested=["User"],
              reviews=[("User", "lee", "APPROVED", 2 * H)]),             # moving: reviewed
         node(20, author="lee", updated=30 * 86400, checks="FAILURE"),   # a pane's old reference
+        node(21, reviews=[("User", "lee", "COMMENTED", 5 * H)]),        # reviewed, nobody asked now
         asked=[12])
     panes = [pane("%1", prs=[10, 20]),
              pane("%2", activity="waiting", waiting_on="user", question={"prompt": "Ship it?"}),
@@ -150,6 +152,7 @@ def test_lanes():
 
     assert dropped[13]["reasons"] == ["no_reviewer"]
     assert dropped[14]["reasons"] == ["no_reviewer"]
+    assert dropped[21]["reasons"] == ["no_reviewer"]
     assert dropped[15]["reasons"] == ["checks_failed"]
     assert dropped[16]["reasons"] == ["base_merged"]
     assert dropped[17]["reasons"] == ["conflicts", "stale"]
@@ -223,6 +226,9 @@ def test_scan_finds_every_worktree_and_what_it_holds(tmp_path):
     assert found["spike"]["dirty"] == 1
     assert found["scratch"]["unpushed"] == 0  # detached: not a branch of work
     assert found["spike"]["active_at"] > 0
+    stop = Event()
+    stop.set()
+    assert scan_worktrees([str(repo)], stop) == []  # shutdown: the scan stops at once
 
 
 def test_endpoint_renders_from_cache(monkeypatch):

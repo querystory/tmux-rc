@@ -18,6 +18,7 @@ from collections import defaultdict
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 
 from .pr_titles import run_gh
 from .repository import github_repository
@@ -81,14 +82,14 @@ def _pr(node: dict) -> dict:
     }
 
 
-def _graphql(body: str) -> dict:
+def _graphql(body: str, stopping: Event | None = None) -> dict:
     """One request, retried once: GitHub answers a search that runs long with a 502."""
     fragment = f"fragment P on PullRequest {{ {FIELDS} }} " if "...P" in body else ""
     for _ in range(2):
         with suppress(ValueError):  # a 502 arrives as an HTML page
             reply = json.loads(run_gh(["api", "graphql", "-f",
                                        f"query={fragment}query {{ viewer {{ login }} {body} }}"],
-                                      60) or "{}")
+                                      60, stopping) or "{}")
             if (data := reply.get("data")) and data.get("viewer"):
                 return data  # partial errors (a pane's reference that names nothing) are fine
     raise RuntimeError("GitHub unavailable")
@@ -116,12 +117,12 @@ def requests(refs: list[tuple[str, int]], now: float):
         yield "older", f's: search(type: ISSUE, first: 0, query: "{q}") {{ issueCount }}'
 
 
-def fetch_github(refs: list[tuple[str, int]], now: float) -> dict:
+def fetch_github(refs: list[tuple[str, int]], now: float, stopping: Event | None = None) -> dict:
     prs, older = {}, 0
     for tag, body in requests(refs, now):
         after = ""
         for _ in range(MAX_PAGES):  # only a search has pages; the rest stop after one
-            data = _graphql(body.replace(AFTER, after))
+            data = _graphql(body.replace(AFTER, after), stopping)
             result = data.get("s") or {}
             older += result.get("issueCount", 0)
             nodes = result.get("nodes") or [(v or {}).get("issueOrPullRequest")
@@ -175,7 +176,7 @@ def _worktree(path: str, branch: str, repo: str | None) -> dict | None:
     for entry in rest:  # "XY name"; a rename or copy is followed by its old name
         if entry:
             changed.append(entry[3:])
-            if entry[0] in "RC":
+            if {"R", "C"} & set(entry[:2]):
                 next(rest, None)
     # An upstream that is pushed and then deleted (gone) almost always went on merge: its
     # commits live in main now even though no remote ref holds them. A detached HEAD is a
@@ -186,7 +187,7 @@ def _worktree(path: str, branch: str, repo: str | None) -> dict | None:
             "dirty": len(changed), "active_at": _active_at(path, changed)}
 
 
-def scan_worktrees(cwds: list[str]) -> list[dict]:
+def scan_worktrees(cwds: list[str], stopping: Event | None = None) -> list[dict]:
     """Every worktree of every repository a pane sits in: the panes say which repositories
     matter, and each repository's own list finds worktrees wherever they live."""
     commons = {(_git("-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
@@ -198,6 +199,8 @@ def scan_worktrees(cwds: list[str]) -> list[dict]:
                       ).strip().split("\n\n"):
             fields = dict([*line.split(" ", 1), ""][:2] for line in block.splitlines())
             path = fields.get("worktree")
+            if stopping is not None and stopping.is_set():
+                return out
             if not path or "bare" in fields or "prunable" in fields or not os.path.isdir(path):
                 continue
             repo = repo or github_repository(path)  # one origin per repository
@@ -285,7 +288,7 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
         ) if hit]
         dropped = [reason for reason, hit in (
             ("no_reviewer", mine and not p["draft"] and p["decision"] == "REVIEW_REQUIRED"
-             and not p["reviewers"] and not p["reviews"]),
+             and not p["reviewers"]),  # a past review is not someone still asked
             ("checks_failed", p["checks"] in ("FAILURE", "ERROR")),
             ("base_merged", p["base_merged"]),
             ("conflicts", p["mergeable"] == "CONFLICTING" and not p["base_merged"]),
@@ -343,27 +346,34 @@ class OpenLoops:
     def __init__(self):
         self.github, self.worktrees = {}, []
         self.fetched_at = self.scanned_at = self.error = None
+        self.stopping = Event()  # set on shutdown, so a refresh in its thread stops early
 
     def refresh(self, panes: list[dict], now: float | None = None) -> None:
         now = time.time() if now is None else now
         refs = list(dict.fromkeys((r["repo"], r["number"])
                                   for p in panes for r in p.get("prs") or []))
         try:
-            self.github, self.fetched_at, self.error = fetch_github(refs, now), now, None
+            self.github, self.fetched_at, self.error = (fetch_github(refs, now, self.stopping),
+                                                        now, None)
         except Exception as e:  # noqa: BLE001 - keep the last good answer, say it is old
             logger.info("open loops: GitHub fetch failed: %s", type(e).__name__)
             self.error = "unavailable"
-        self.worktrees, self.scanned_at = scan_worktrees([p.get("cwd") for p in panes]), now
+        if not self.stopping.is_set():
+            self.worktrees = scan_worktrees([p.get("cwd") for p in panes], self.stopping)
+            self.scanned_at = now
 
     async def run(self, watcher) -> None:
         while not watcher.booted():  # before the first tick there are no panes to join
             await watcher.wait_for_state_change(watcher.state_version(), 30)
-        while True:
-            try:
-                await asyncio.to_thread(self.refresh, list(watcher.states))
-            except Exception:  # one bad refresh must not end the loop
-                logger.warning("open loops refresh failed", exc_info=True)
-            await asyncio.sleep(REFRESH)
+        try:
+            while True:
+                try:
+                    await asyncio.to_thread(self.refresh, list(watcher.states))
+                except Exception:  # one bad refresh must not end the loop
+                    logger.warning("open loops refresh failed", exc_info=True)
+                await asyncio.sleep(REFRESH)
+        finally:  # cancelling the task cannot stop its thread; this lets the thread stop
+            self.stopping.set()
 
     def report(self, panes: list[dict], now: float | None = None) -> dict:
         now = time.time() if now is None else now
