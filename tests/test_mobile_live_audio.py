@@ -142,6 +142,7 @@ const element = () => {
       toggle: (c, on = !classes.has(c)) => on ? classes.add(c) : classes.delete(c)},
     setAttribute() {}, insertAdjacentHTML() {}, remove() {},
     querySelector: (s) => node.children.find((c) => s === `.${c.className}`), // children only
+    querySelectorAll: () => node.children, // children only, of any kind
     showModal() {node.open = node.modal = true;}, show() {node.open = true; node.modal = false;},
     focus() {},
     close() {node.open = false; node.dispatchEvent(new Event('close'));},
@@ -199,7 +200,7 @@ class Context {
   createGain() { return {gain: {}, connect() {}, disconnect() {}}; }
 }
 class Socket {
-  static OPEN = 1;
+  static OPEN = 1; static CLOSED = 3;
   constructor(url) { this.url = url; this.readyState = 1; this.sent = []; sockets.push(this); }
   send(data) { this.sent.push(data); }
   close() { this.readyState = 3; }
@@ -227,7 +228,8 @@ const sandbox = {document, window, navigator, AudioContext: Context, WebSocket: 
   },
   URLSearchParams, location: {protocol: 'https:', host: 'test'},
   localStorage: {getItem() {}, setItem() {}},
-  setTimeout: (fn) => {timers.add(fn); return fn;}, clearTimeout: (fn) => timers.delete(fn)};
+  setTimeout: (fn, ms) => {timers.add(Object.assign(fn, {ms})); return fn;},
+  clearTimeout: (fn) => timers.delete(fn)};
 const strip = (path) =>
   fs.readFileSync(path, 'utf8').replace(/^import .*\n/gm, '').replace(/^export /gm, '');
 const source = process.argv.slice(1).reverse().map(strip).join('\n');
@@ -558,3 +560,97 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True,
       "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_card_outlives_a_dropped_connection():
+    """A phone drops the socket on every lock: the card stays open, a tap reconnects at once
+    and goes on the new socket, and only the daemon (or ending the chat) expires a card."""
+    _run_live(r"""
+(async () => {
+  const log = document.getElementById('voice-log');
+  await live.refresh();
+  document.getElementById('chat').onclick(); await flush();
+  const say = (socket, message) => socket.onmessage({data: JSON.stringify(message)});
+  const card = (id) => log.children.find((row) => row.dataset.id === id);
+  say(sockets[0], {type: 'status', status: 'listening'});
+  for (const id of ['p1', 'p2', 'p3']) {
+    say(sockets[0], {type: 'propose', id, text: 'Send to work'});
+    log.children.at(-1).dataset.id = id;
+  }
+  sockets[0].readyState = 3; sockets[0].onclose({code: 1006});
+  assert.equal(card('p1').firstChild.textContent, 'Wants to act');
+  card('p1').lastChild.children[0].onclick(); // Send, with the socket down
+  assert.equal(card('p1').firstChild.textContent, 'Sending...');
+  assert.equal(sockets.length, 2); // reconnecting now, not at the backoff's end
+  // Only a chat's first connection is fresh: it drops cards an offline end left parked.
+  assert.deepEqual(sockets.map((s) => /fresh=1/.test(s.url)), [true, false]);
+  assert.equal(sockets[1].sent.length, 0); // nothing goes until the daemon is listening
+  say(sockets[1], {type: 'status', status: 'listening'});
+  // The untapped cards are checked too: a new message may have superseded one meanwhile.
+  assert.deepEqual(sockets[1].sent.map(JSON.parse),
+    [{action: 'approve', id: 'p1', ok: true}, {action: 'sync', ids: ['p2', 'p3']}]);
+  say(sockets[1], {type: 'decided', id: 'p1', ok: true});
+  assert.equal(card('p1').firstChild.textContent, 'Approved');
+  // A tap lost with its socket goes again on the next one, until answered.
+  card('p2').lastChild.children[1].onclick();
+  sockets[1].readyState = 3; sockets[1].onclose({code: 1006});
+  const backoff = [...timers]; timers.clear(); backoff.forEach((fn) => fn()); // its reconnect
+  say(sockets[2], {type: 'status', status: 'listening'});
+  assert.deepEqual(sockets[2].sent.map(JSON.parse),
+    [{action: 'approve', id: 'p2', ok: false}, {action: 'sync', ids: ['p3']}]);
+  say(sockets[2], {type: 'expired', id: 'p2'}); // parked too long, or a daemon restart
+  assert.equal(card('p2').firstChild.textContent, 'Expired');
+  assert.equal(card('p3').firstChild.textContent, 'Wants to act');
+  document.getElementById('voice-end').onclick(); // ending the chat ends its cards
+  assert.equal(card('p3').firstChild.textContent, 'Expired');
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_waiting_card_keeps_the_chat_reconnecting():
+    """The daemon keeps a card half an hour, and the tunnel takes a minute to come back
+    from its hourly drop: while a card waits, the chat keeps retrying past its usual
+    limit and over a clean close, at a capped backoff, at once when the phone comes back
+    online or into view (replacing a socket that may be half-open), and through a connect
+    that never answers. With no card waiting it gives up as before."""
+    _run_live(r"""
+(async () => {
+  const log = document.getElementById('voice-log');
+  await live.refresh();
+  document.getElementById('chat').onclick(); await flush();
+  const say = (socket, message) => socket.onmessage({data: JSON.stringify(message)});
+  const fail = (code = 1006) => { const s = sockets.at(-1); s.readyState = 3; s.onclose({code}); };
+  const due = () => { const fns = [...timers]; timers.clear(); fns.forEach((fn) => fn()); };
+  say(sockets[0], {type: 'status', status: 'listening'});
+  say(sockets[0], {type: 'propose', id: 'p1', text: 'Send to work'});
+  const card = log.children.at(-1);
+  fail();
+  for (let i = 0; i < 8; i++) { due(); fail(i ? 1006 : 1000); } // a minute of refused reconnects
+  assert.equal(sockets.length, 9);
+  assert.deepEqual([...timers].map((fn) => fn.ms), [16000]);
+  assert.equal(card.firstChild.textContent, 'Wants to act');
+  window.dispatchEvent(new Event('online'));
+  assert.equal(sockets.length, 10); // at once, not at the backoff's end
+  due(); // its connect deadline passes with no answer: a fresh one, not the end
+  assert.equal(sockets.length, 11);
+  assert.equal(sockets[9].readyState, 3);
+  sockets[10].readyState = 0; document.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(sockets.length, 12); // back in view: at once too, over a connect begun offline
+  assert.equal(sockets[10].readyState, 3);
+  say(sockets[11], {type: 'status', status: 'listening'});
+  assert.deepEqual(sockets[11].sent.map(JSON.parse), [{action: 'sync', ids: ['p1']}]);
+  window.dispatchEvent(new Event('online')); // woken with a card waiting: an open socket
+  assert.equal(sockets.length, 13);           // may be half-open, so it goes too
+  assert.equal(sockets[11].readyState, 3);
+  say(sockets[12], {type: 'status', status: 'listening'});
+  say(sockets[12], {type: 'decided', id: 'p1', ok: false});
+  window.dispatchEvent(new Event('online'));
+  assert.equal(sockets.length, 13); // with none, it stays
+  fail();
+  for (let i = 0; i < 5; i++) { due(); fail(); }
+  assert.equal(sockets.length, 18); // five tries, then the chat ends
+  assert.match(status(), /disconnected/);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
