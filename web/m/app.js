@@ -1186,7 +1186,7 @@ $("usage-mode").onclick = () => {
   try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
   paintUsage();
 };
-$("usage-board").onclick = $("usage-detail").onclick = () => { usageDetail = !usageDetail; paintUsage(); };
+$("usage-panel").onclick = () => { usageDetail = !usageDetail; paintUsage(); };
 // The strip is a glance; tapping it opens the dashboard at its panel, where the trend reads.
 const openUsage = () => {
   openDashboard();
