@@ -51,21 +51,27 @@ PANE = Pane("work", "0", "claude", "0", "%0", "claude", "t", "/home/x/proj")
 
 
 def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
-    assert highlighted_row(SCREEN, 'Permanently remove "Demo"?') == "No"
+    no_yes = ["No", "Yes"]
+    assert highlighted_row(SCREEN, 'Permanently remove "Demo"?', no_yes) == "No"
     box = "│ Which color?   │\n│ ❯ ○ Red        │\n│   ○ Green      │"
-    assert highlighted_row(box, "Which color?") == "Red"
-    assert highlighted_row("Effort?\n› 2. Medium\n  3. High", "Effort?") == "Medium"
+    assert highlighted_row(box, "Which color?", ["Red", "Green"]) == "Red"
+    assert highlighted_row("Effort?\n› 2. Medium\n  3. High", "Effort?", ["Medium"]) == "Medium"
     # No glyph under the prompt: the ❯ turn above it is history, not the cursor.
-    assert highlighted_row("❯ Yes\nProceed?\n  No\n  Yes", "Proceed?") is None
-    assert highlighted_row(SCREEN, "Some other prompt?") is None
+    assert highlighted_row("❯ Yes\nProceed?\n  No\n  Yes", "Proceed?", no_yes) is None
+    assert highlighted_row(SCREEN, "Some other prompt?", no_yes) is None
     # A picker that has closed: the live input box below it is not its highlight.
     closed = "Proceed?\n  No\n  Yes\n────────\n❯ Yes\n────────"
-    assert highlighted_row(closed, "Proceed?") is None
+    assert highlighted_row(closed, "Proceed?", no_yes) is None
     # A search box between the prompt and the list is not the widget's edge, and a row
-    # is named up to its value column (Claude Code's /resume and /config).
-    assert highlighted_row(PANEL, "Search settings…") == "Auto-compact"
+    # names its option ahead of a value column (Claude Code's /resume and /config).
+    names = ["Auto-compact", "Thinking mode"]
+    assert highlighted_row(PANEL, "Search settings…", names) == "Auto-compact"
     resume = PANEL.replace(TABS, "Resume session")
-    assert highlighted_row(resume, "Resume session") == "Auto-compact"
+    assert highlighted_row(resume, "Resume session", names) == "Auto-compact"
+    # A label's own double space is kept: only the whole label, or the label then a gap.
+    title, pick = "Fix  login bug", "Pick?\n❯ Fix  login bug"
+    assert highlighted_row(pick, "Pick?", [title]) == title
+    assert highlighted_row(pick, "Pick?", ["Fix", title]) is None
 
 
 def test_classify_overrides_a_misread_anchor():

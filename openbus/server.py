@@ -840,8 +840,8 @@ def send(pane_id: str, body: SendBody, request: Request):
     def on_row() -> None:
         # A cursor picker's select, checked against the screen under the send lock: the
         # walk's anchor is a parse, and a stale or misread one must not commit a row.
-        at = highlighted_row(tmux.capture_pane(pane.id, lines=0), body.on_row.prompt)
-        if at != body.on_row.row:
+        screen = tmux.capture_pane(pane.id, lines=0)
+        if highlighted_row(screen, body.on_row.prompt, [body.on_row.row]) is None:
             msg = f"The highlight is not on {body.on_row.row!r}; nothing was sent."
             raise tmux.PaneChangedError(msg)
 

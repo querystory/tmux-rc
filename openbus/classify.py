@@ -85,14 +85,14 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 # it before a select. Only between the prompt and the widget's bottom edge (a ─── rule or
 # a ╰ corner), so neither a turn in the scrollback nor the input box under a picker that
 # has closed is ever the cursor. A box with no highlight in it is the search field above
-# the list (/resume, /config), not its edge, so it is passed over. The row is read up to
-# its first column gap: a settings row's value ("Auto-compact      true") is not its name.
-_HIGHLIGHT_RE = re.compile(_PROMPT_ROW + r"[ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
-                           r"(.*?)(?:[ \t]{2,}.*?)?[\s│┃╎]*$", re.MULTILINE)
+# the list (/resume, /config), not its edge, so it is passed over. Returns the one option
+# the row names: itself, or itself ahead of a value column ("Auto-compact      true").
+_HIGHLIGHT_RE = re.compile(
+    _PROMPT_ROW + r"[ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?(.*?)[\s│┃╎]*$", re.MULTILINE)
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
 
 
-def highlighted_row(visible: str, prompt: str) -> str | None:
+def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
     *_, asked = [None, *_occurrences(prompt, visible)]
     if not asked:
         return None
@@ -101,7 +101,9 @@ def highlighted_row(visible: str, prompt: str) -> str | None:
                len(visible))
     rows = _HIGHLIGHT_RE.finditer(visible, asked.end(), end)
     *_, row = [None, *rows]
-    return row and row[1]
+    named = row and [option for option in options if isinstance(option, str)
+                     and (row[1] == option or row[1].startswith(f"{option}  "))]
+    return named[0] if named and len(named) == 1 else None
 
 
 # A tab strip under a dialog's top rule ("Settings  Status  Config  Usage  Stats") is a
@@ -997,7 +999,7 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    if _TABBED_PANEL_RE.search(visible):
+    if result.get("tool") == "claude" and _TABBED_PANEL_RE.search(visible):
         result.pop("question", None)
         if result.get("activity") == "waiting":
             result["activity"] = "idle"
@@ -1011,8 +1013,7 @@ def classify(
         ) for line in footer):
             keymap["search"] = True
         rows, asked = question.get("options"), _question_prompt(question)
-        row = asked and highlighted_row(visible, asked)
-        if row and isinstance(rows, list) and rows.count(row) == 1:
+        if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask"):
