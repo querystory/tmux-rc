@@ -621,8 +621,8 @@ def test_a_waiting_card_keeps_the_chat_reconnecting():
     """The daemon keeps a card half an hour, and the tunnel takes a minute to come back
     from its hourly drop: while a card waits, the chat keeps retrying past its usual
     limit and over a clean close, at a capped backoff, at once when the phone comes back
-    online or into view (even mid-connect), and through a connect that never answers.
-    With no card waiting it gives up as before."""
+    online or into view (replacing a socket that may be half-open), and through a connect
+    that never answers. With no card waiting it gives up as before."""
     _run_live(r"""
 (async () => {
   const log = document.getElementById('voice-log');
@@ -649,10 +649,16 @@ def test_a_waiting_card_keeps_the_chat_reconnecting():
   assert.equal(sockets[10].readyState, 3);
   say(sockets[11], {type: 'status', status: 'listening'});
   assert.deepEqual(sockets[11].sent.map(JSON.parse), [{action: 'sync', ids: ['p1']}]);
-  say(sockets[11], {type: 'decided', id: 'p1', ok: false});
+  window.dispatchEvent(new Event('online')); // woken with a card waiting: an open socket
+  assert.equal(sockets.length, 13);           // may be half-open, so it goes too
+  assert.equal(sockets[11].readyState, 3);
+  say(sockets[12], {type: 'status', status: 'listening'});
+  say(sockets[12], {type: 'decided', id: 'p1', ok: false});
+  window.dispatchEvent(new Event('online'));
+  assert.equal(sockets.length, 13); // with none, it stays
   fail();
   for (let i = 0; i < 5; i++) { due(); fail(); }
-  assert.equal(sockets.length, 17); // five tries, then the chat ends
+  assert.equal(sockets.length, 18); // five tries, then the chat ends
   assert.match(status(), /disconnected/);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})

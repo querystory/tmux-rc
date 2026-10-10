@@ -238,9 +238,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     deliver(current, [...current.sending.values(), ...(untapped.length ? [{ action: "sync", ids: untapped }] : [])]);
   }
   // Reconnect now rather than at the backoff's end (or a connect begun offline): a tap waits
-  // on it, or the phone is back. An open socket is already on its way to "listening".
-  function revive(current = run) {
-    if (!current?.ws || current.ws.readyState === WebSocket.OPEN) return;
+  // on it, or the phone is back. An open socket is kept unless `force`d: woken with a card
+  // waiting, it may be half-open, and the daemon hands a replaced socket's cards over.
+  function revive(current = run, force = false) {
+    if (!current?.ws || (current.ws.readyState === WebSocket.OPEN && !force)) return;
     clearTimeout(current.retry); try { current.ws.close(); } catch {}
     connect(current);
   }
@@ -540,13 +541,14 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     paint(); audioStatus(run); resumeAudio(run, true);
   };
   window.addEventListener("pagehide", () => stop());
-  window.addEventListener("online", () => { capabilities(); revive(); });
+  const wake = () => { capabilities(); revive(run, !!run?.proposals.size); };
+  window.addEventListener("online", wake);
   // Switching apps is visibilitychange, not navigation: keep the microphone and
   // socket alive. pagehide still releases capture when leaving this document.
   window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } });
   document.addEventListener("visibilitychange", () => {
     if (run) { resumeAudio(run); keepAwake(run); viewing(); }
-    if (!document.hidden) { capabilities(); revive(); }
+    if (!document.hidden) wake();
   });
   navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data === "chat" && run) show(); });
   paint(); capabilities();
