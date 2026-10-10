@@ -9,7 +9,7 @@
   <link rel="canonical" href="{{ .Permalink }}">
   <meta property="og:title" content="tmux-rc — manage your coding agents remotely">
   <meta property="og:description" content="{{ .Site.Params.description }}">
-  <meta property="og:image" content="{{ "img/hero.png" | absURL }}">
+  <meta property="og:image" content="{{ "img/website-desktop.png" | absURL }}">
   <link rel="icon" href="{{ "favicon.svg" | relURL }}" type="image/svg+xml">
   {{ $css := resources.Get "landing.css" | fingerprint }}
   <link rel="stylesheet" href="{{ $css.RelPermalink }}">
@@ -71,7 +71,7 @@
       <button id="chat-tab" role="tab" aria-selected="false" aria-controls="chat-preview" data-panel="chat-preview" tabindex="-1">Chat</button>
     </div></div>
     <figure id="desktop-preview" role="tabpanel" aria-labelledby="desktop-tab">
-      <div class="screen"><img src="{{ "img/hero.png" | relURL }}" width="2880" height="1800" alt="Current desktop dashboard: sidebar with agents needing attention, live terminal, and agent overview" fetchpriority="high"></div>
+      <div class="screen"><img src="{{ "img/website-desktop.png" | relURL }}" width="2880" height="1800" alt="Desktop agent manager: one agent needs attention, with working sessions and subagents below, alongside the live terminal and agent overview" fetchpriority="high"></div>
       <figcaption>Your fleet in the sidebar. The live terminal and agent overview together.</figcaption>
     </figure>
     <figure id="phone-preview" role="tabpanel" aria-labelledby="phone-tab" hidden>

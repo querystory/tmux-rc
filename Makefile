@@ -99,6 +99,7 @@ demo:
 screenshots: $(PLAYWRIGHT)
 	node scripts/screenshots.mjs .screenshots
 	cp $(README_SHOTS:%=.screenshots/%.png) docs/img/
+	cp .screenshots/website-desktop.png docs/img/
 
 screenshots-diff: $(PLAYWRIGHT)
 	uv run python -m scripts.screenshots_diff $(BASE) .screenshots/diff

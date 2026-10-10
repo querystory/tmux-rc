@@ -22,6 +22,7 @@ const WIDE = { width: 1440, height: 900 }, PHONE = { width: 390, height: 844 };
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
   ["hero", WIDE, "light", "#pane=%259"],
+  ["website-desktop", WIDE, "light", "#pane=%259"],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
@@ -139,6 +140,14 @@ try {
     context.setDefaultTimeout(10000);
     const page = await context.newPage();
     await page.routeWebSocket(/\/api\/live-mode/, stubChat);
+    // The landing page shows a quieter fictional fleet so the compact session and
+    // sub-agent rows fit below one actionable card. Other shots keep all states.
+    if (name === "website-desktop") await page.route("**/api/state*", async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "api contract diff");
+      await route.fulfill({ response, json: data });
+    });
     // Wait on the API rather than a selector, so a UI that renames its markup still gets
     // shot and the diff shows the change instead of the run failing.
     const state = page.waitForResponse((r) => r.url().includes("/api/state"));
@@ -159,6 +168,7 @@ try {
     // Never write a frame that did not settle: that is how nondeterminism slips in unseen.
     if (!last?.equals(shot)) throw new Error(`${name}: still changing after 10s`);
     writeFileSync(path.join(out, `${name}.png`), shot);
+    await page.unrouteAll({ behavior: "ignoreErrors" });
     await context.close();
     console.log(`shot ${name}`);
   }
