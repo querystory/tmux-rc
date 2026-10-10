@@ -1060,7 +1060,7 @@ function cursorIO(id) {
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,
-    sendKey: (k) => sendKeys({ keys: k, enter: false, literal: false }, false, id),
+    sendKey: (k, on) => sendKeys({ keys: k, enter: false, literal: false, on_row: on }, false, id),
     sendText: (t) => sendKeys({ keys: t, enter: false, literal: true }, false, id),
     note: notice,
   };
