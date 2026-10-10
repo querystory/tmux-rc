@@ -31,7 +31,7 @@ test("printable keys are literal text, Ctrl and Alt chords are named", () => {
 });
 
 test("the browser keeps its own chords", () => {
-  for (const [k, mods] of [["c", { metaKey: true }], ["v", { metaKey: true }], ["I", { ctrlKey: true, shiftKey: true }], ["V", { ctrlKey: true, shiftKey: true }], ["Tab", { ctrlKey: true }], ["Escape", { ctrlKey: true }], ["PageUp", { ctrlKey: true }], ["c", { ctrlKey: true, selected: true }], ["Shift", { shiftKey: true }], ["Dead"], ["a", { isComposing: true }]]) {
+  for (const [k, mods] of [["c", { metaKey: true }], ["v", { metaKey: true }], ["I", { ctrlKey: true, shiftKey: true }], ["V", { ctrlKey: true, shiftKey: true }], ["Tab", { ctrlKey: true }], ["Escape", { ctrlKey: true }], ["PageUp", { ctrlKey: true }], ["c", { ctrlKey: true, selected: true }], ["с", { ctrlKey: true, code: "KeyC", selected: true }], ["Shift", { shiftKey: true }], ["Dead"], ["a", { isComposing: true }]]) {
     assert.equal(key(k, mods), null, `${k} ${JSON.stringify(mods)}`);
   }
 });

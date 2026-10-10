@@ -1297,7 +1297,8 @@ document.addEventListener("keydown", (e) => {
   if (!passing() || e.defaultPrevented) return;
   const key = tmuxKey(e, !getSelection().isCollapsed);
   const handOff = $("reply").contains(e.target) && ["Escape", "C-c"].includes(key?.keys) && !draft().segments().length;
-  if (!key || !($("terminal-scroll").contains(e.target) || handOff)) return;
+  // The scroll box itself, not a link inside it: a focused link keeps Enter and Tab.
+  if (!key || !(e.target === $("terminal-scroll") || handOff)) return;
   e.preventDefault();
   if (key.keys === "F6") $("key-mode").focus();
   else typeKey({ pane: active, repeat: e.repeat, ...key });

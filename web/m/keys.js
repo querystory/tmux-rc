@@ -27,10 +27,10 @@ export function tmuxKey(e, selected = false) {
   }
   if ([...e.key].length !== 1) return null; // a bare modifier, a dead key, Unidentified
   if (ctrl) {
-    if (e.shiftKey || alt || (selected && e.key.toLowerCase() === "c")) return null;
     // A non-Latin layout reports its own letter; the chord means the key's Latin one.
     const letter = /^[\x20-\x7e]$/.test(e.key) ? e.key.toLowerCase() : /^Key([A-Z])$/.exec(e.code)?.[1].toLowerCase();
-    return letter ? { keys: `C-${letter === " " ? "Space" : letter}`, literal: false } : null;
+    if (!letter || e.shiftKey || alt || (selected && letter === "c")) return null;
+    return { keys: `C-${letter === " " ? "Space" : letter}`, literal: false };
   }
   // Option on a Mac types its own characters (å, ∫); only an ASCII one is a Meta chord.
   if (alt && /^[\x21-\x7e]$/.test(e.key)) return { keys: `M-${e.key}`, literal: false };
