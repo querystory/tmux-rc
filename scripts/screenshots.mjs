@@ -23,6 +23,13 @@ const WIDE = { width: 1440, height: 900 }, PHONE = { width: 390, height: 844 };
 const SHOTS = [
   ["hero", WIDE, "light", "#pane=%259"],
   ["website-desktop", WIDE, "light", "#pane=%259"],
+  ["website-chat", WIDE, "light", "#pane=%259", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["website-chat-phone", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["website-voice", WIDE, "light", "#pane=%259", voice],
+  ["website-voice-phone", PHONE, "light", "", voice],
+  ["website-usage", WIDE, "light", "#pane=%259"],
+  ["website-dashboard", WIDE, "light", "#view=dashboard"],
+  ["website-atlas", WIDE, "light", "#view=dashboard", (page) => page.locator(".atlas-map").scrollIntoViewIfNeeded()],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
@@ -73,6 +80,33 @@ function chat(ask, until) { // hoisted: SHOTS above calls it
   await page.waitForFunction(() => document.querySelectorAll("#voice-log .voice-entry").length >= 2);
   if (until) await page.waitForSelector(until); // a frame after the transcripts, e.g. open_pane
   };
+}
+
+async function voice(page) {
+  await page.click("#live-mode");
+  await page.locator("#voice-models button").click();
+  await page.waitForFunction(() => document.getElementById("voice-status")?.textContent.startsWith("Listening /"));
+  await page.waitForSelector("#voice-log .voice-open button");
+}
+
+// Fictional speech and a follow-up about work the user just directed. The browser's
+// synthetic microphone stays active; no recording, provider, or real pane is involved.
+function stubVoice(socket) {
+  socket.send(JSON.stringify({ type: "status", status: "listening" }));
+  let spoken = false;
+  socket.onMessage((raw) => {
+    if (spoken || JSON.parse(raw).action !== "audio") return;
+    spoken = true;
+    for (const frame of [
+      { type: "transcript", role: "user", text: "Tell e2e triage to rerun the checkout test with tracing.", new_segment: true },
+      { type: "transcript", role: "model", text: "Sent. I'll keep an eye on that rerun.", new_segment: true },
+      { type: "typed", label: "e2e triage", pane_id: "%9", text: "Rerun the checkout test with tracing.", submitted: true },
+      { type: "turn_complete" },
+      { type: "transcript", role: "model", text: "The rerun reproduced the checkout failure. e2e triage is tracing the iframe timing now.", new_segment: true },
+      { type: "open_pane", pane_id: "%9", label: "e2e triage" },
+      { type: "turn_complete" },
+    ]) socket.send(JSON.stringify(frame));
+  });
 }
 
 // A canned Live Mode socket: a window named is offered with an Open button (open_pane), a
@@ -129,7 +163,8 @@ try {
   // one shot came out with three text baselines (and an icon aligned to one) a pixel lower
   // than every other render of the same page. Unhinted metrics and grayscale antialiasing
   // leave nothing for that answer to change.
-  browser = await chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none"] });
+  browser = await chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none",
+    "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
   for (const [name, viewport, colorScheme, hash, step] of SHOTS) {
     const context = await browser.newContext({ viewport, colorScheme, deviceScaleFactor: 2,
       reducedMotion: "reduce", locale: "en-US", timezoneId: "UTC", serviceWorkers: "block",
@@ -139,10 +174,16 @@ try {
     await context.clock.setSystemTime(now * 1000);
     context.setDefaultTimeout(10000);
     const page = await context.newPage();
-    await page.routeWebSocket(/\/api\/live-mode/, stubChat);
+    const speaking = name === "website-voice" || name === "website-voice-phone";
+    await page.routeWebSocket(/\/api\/live-mode/, speaking ? stubVoice : stubChat);
+    if (speaking) await page.route("**/api/version", async (route) => {
+      const response = await route.fetch(), data = await response.json();
+      data.live_models.push({ label: "Demo voice", hint: "Fictional conversation", text: false });
+      await route.fulfill({ response, json: data });
+    });
     // The landing page shows a quieter fictional fleet so the compact session and
     // sub-agent rows fit below one actionable card. Other shots keep all states.
-    if (name === "website-desktop") await page.route("**/api/state*", async (route) => {
+    if (name.startsWith("website-")) await page.route("**/api/state*", async (route) => {
       const response = await route.fetch();
       const data = await response.json();
       data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "api contract diff");
@@ -163,7 +204,7 @@ try {
     for (let i = 0; i < 20 && !(shot && last?.equals(shot)); i++) {
       last = shot;
       await page.waitForTimeout(500);
-      shot = await page.screenshot();
+      shot = await (name === "website-usage" ? page.locator("#usage") : page).screenshot();
     }
     // Never write a frame that did not settle: that is how nondeterminism slips in unseen.
     if (!last?.equals(shot)) throw new Error(`${name}: still changing after 10s`);
