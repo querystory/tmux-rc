@@ -34,9 +34,10 @@ export function tmuxKey(e, selected = false, mac = MAC) {
   if (ctrl) {
     // A non-Latin layout reports its own letter; the chord means the key's Latin one.
     const letter = /^[\x20-\x7e]$/.test(e.key) ? e.key.toLowerCase() : /^Key([A-Z])$/.exec(e.code)?.[1].toLowerCase();
-    // Ctrl-W/T/N close and open tabs and windows, and no page can cancel them: forwarding
-    // one would type into the pane as the tab goes. Ctrl-Backspace still gives a C-w.
-    if (!letter || alt || "wtn".includes(letter) || (selected && letter === "c")) return null;
+    // Off a Mac, Ctrl-W/T/N close and open tabs and windows, and no page can cancel them:
+    // forwarding one would type into the pane as the tab goes. Ctrl-Backspace still gives
+    // a C-w. A Mac's browser uses Cmd for those, so there they are the terminal's.
+    if (!letter || alt || (!mac && "wtn".includes(letter)) || (selected && letter === "c")) return null;
     return { keys: `C-${spaced(letter)}`, literal: false };
   }
   // Option on a Mac is a character key (å, ∫, and @ on a German layout), so what it typed
