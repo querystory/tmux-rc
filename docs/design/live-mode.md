@@ -463,6 +463,16 @@ ending the chat (ended while offline, the next chat's first connection clears th
 queue, tool calls) alive across a reconnect would also save the model's history, but it
 would turn a per-socket task tree into a detachable one, far more than the card needs.
 
+Two things have to hold for that to survive a real outage rather than a lock. The phone
+must not give up first: its usual five reconnect tries are over in about thirty seconds,
+and the tunnel takes a minute to come back from its hourly drop, so while a card waits the
+chat keeps trying at a capped backoff, and tries at once when the phone comes back online
+or into view. And a reconnect must find the card parked: a phone that saw its socket die
+can be back before the daemon notices the old, half-open one at its ping timeout, with the
+card still held there. So a new connection for a chat takes over the one it replaces,
+ending that one's waits exactly as a drop would, and the cards park before the new socket
+can deliver its first frame.
+
 **Taking the user to a window.** Asked to "go back to window 20", the assistant could only
 say the window was ready and ask what to do there: it could talk about panes but not show
 one. `open_pane` closes that gap by putting an Open button in the log, which goes where

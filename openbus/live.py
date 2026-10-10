@@ -457,6 +457,35 @@ _DECLINED = {"declined": "the user declined",
 PARKED_SECONDS = 30 * 60
 _parked: dict[tuple, tuple] = {}
 _answered: dict[tuple, tuple] = {}
+# Each chat's live connection, (actor, session) -> its meter (_connect).
+_chats: dict[tuple, _Meter] = {}
+
+
+def _connect(meter: _Meter) -> None:
+    """Make `meter` its chat's live connection. One still registered is a socket the phone
+    already left: it saw the drop and reconnected, but the daemon hears of a half-open one
+    only at its ping timeout. Its cards go to the new one now, ending its waits as a drop
+    would, so they park before the new connection can read a sync or a Send for them (the
+    old call wakes on the loop's next pass, the new socket's first frame is a round trip
+    away), rather than being answered "expired" while still held by the dead one."""
+    chat = meter.actor, meter.session
+    if old := _chats.get(chat):
+        for answer in old.approvals.values():
+            if not answer.done():
+                answer.set_exception(WebSocketDisconnect(1001))
+    _chats[chat] = meter
+
+
+def _disconnect(meter: _Meter) -> None:
+    chat = meter.actor, meter.session
+    if _chats.get(chat) is meter:  # else a reconnect's newer one took over
+        del _chats[chat]
+
+
+def _tapped(answer: asyncio.Future) -> bool:
+    """Whether the user answered a card (a tap, or a new message superseding it), rather
+    than its connection ending under it."""
+    return answer.done() and not answer.cancelled() and answer.exception() is None
 
 
 def _sweep() -> None:
@@ -578,7 +607,7 @@ async def _approved(
         ok = await answer  # True / False on a tap, None when a new message superseded it
         await _decide(websocket, meter, proposal, ok, rec)
     except BaseException:  # the connection failed under it (a cancel or a send): nothing ran
-        if answer.done() and not answer.cancelled() and answer.result() is None:
+        if _tapped(answer) and answer.result() is None:
             _answer(meter, proposal, None, rec)  # superseded: replayed, and never undone by a Send
         else:
             rec["consent"] = "parked"
@@ -1331,6 +1360,7 @@ async def live_mode(websocket: WebSocket) -> None:
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
+    _connect(meter)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     if websocket.query_params.get("fresh"):  # a new chat: an earlier one ended offline
         _unpark(meter)
@@ -1362,6 +1392,7 @@ async def live_mode(websocket: WebSocket) -> None:
     finally:
         if reason == "stop":  # the user ended the chat, and its cards with it
             _unpark(meter)
+        _disconnect(meter)
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         _audit(
             meter, "live_session", detail=f"end: {reason}", outcome=outcome, turns=meter.turns,

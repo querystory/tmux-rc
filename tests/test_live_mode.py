@@ -488,6 +488,50 @@ def test_a_parked_card_expires_for_real(monkeypatch):
     L._parked.clear()
 
 
+def test_a_reconnect_takes_the_cards_of_the_connection_it_replaces(monkeypatch):
+    """The phone saw its socket die and reconnected, but the daemon still holds the old,
+    half-open one until its ping timeout: the new connection takes the old one's cards,
+    parked by the time it can read a frame, so its sync leaves them open and a Send runs
+    them, rather than "expired" while the old one parks them for nobody."""
+    L._parked.clear()
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    shown = asyncio.Event()
+
+    class Shown(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            shown.set()
+
+    async def go():
+        old, ws = _chat(), Shown()
+        L._connect(old)
+        call = asyncio.create_task(L._handle_tool_call(
+            ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), old))
+        await shown.wait()
+        new = _chat()
+        L._connect(new)
+        await asyncio.sleep(0)  # the new socket's first frame is at least a loop pass away
+        proposal = ws.sent[0]["id"]
+        sync = _ScriptedWS([{"action": "sync", "ids": [proposal]},
+                            {"action": "approve", "id": proposal, "ok": True},
+                            {"action": "stop"}])
+        await L._forward_client(sync, _Session(), new)
+        L._disconnect(old)  # the old one's end, at its ping timeout, leaves the new one
+        assert L._chats == {(new.actor, new.session): new}
+        L._disconnect(new)
+        return proposal, sync, await asyncio.gather(call, return_exceptions=True)
+
+    proposal, ws, (ended,) = _run(go())
+    assert isinstance(ended, L.WebSocketDisconnect)  # the old one ends as a dropped socket
+    assert ws.sent[0] == {"type": "decided", "id": proposal, "ok": True}  # no "expired"
+    assert typed == [("%1", "rebase", True, True)]
+    assert L._parked == {} and L._chats == {}
+
+
 def test_approval_is_refused_when_the_pane_had_no_process_to_bind(monkeypatch):
     """A failed pid lookup must not approve an unguarded send: it binds to "", which no
     live pane matches, so send_keys's identity check refuses it."""
