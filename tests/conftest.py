@@ -1,6 +1,6 @@
 import pytest
 
-from openbus import tmux
+from openbus import tmux, transcript
 
 
 @pytest.fixture(autouse=True)
@@ -12,6 +12,12 @@ def _vertex_project(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_agent_transcripts(monkeypatch, tmp_path):
+    """The watcher reads agent transcripts from these homes; never the dev's real ones."""
+    monkeypatch.setattr(transcript, "_home", lambda pane, tool: tmp_path / tool)
+
+
+@pytest.fixture(autouse=True)
 def _no_enter_settle(monkeypatch):
     """send_keys waits before the Return so a TUI doesn't read it as a newline
     (tmux._ENTER_SETTLE_S). Real time in every send would tax the whole suite for a
@@ -20,4 +26,5 @@ def _no_enter_settle(monkeypatch):
     monkeypatch.setattr(tmux, "_ENTER_SETTLE_S", 0)
     # Unit tests never address a real pane. Identity-specific tests override this.
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "1234")
+    monkeypatch.setattr(tmux, "at_password_prompt", lambda pane_id: False)
     monkeypatch.setattr(tmux, "_last_paste", {})

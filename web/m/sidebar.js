@@ -10,7 +10,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age, records, liveSubagents, subagentCount } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -39,7 +39,7 @@ function groups(subset, query) {
     });
   list.unshift({ id: "need", label: "Needs you", panes: subset.filter(needsYou), alert: true });
   for (const g of list) {
-    g.panes.sort((a, b) => rank(a) - rank(b) || lastActivity(b) - lastActivity(a));
+    g.panes.sort((a, b) => rank(a) - rank(b) || newestFirst(a, b));
     g.cards = prefs.cards[g.id] ?? g.id === "need";
     g.open = !!query || !prefs.fold[g.id]; // open unless the user folded it (only explicit folds are stored)
   }
@@ -79,21 +79,19 @@ export function setupSidebar(ctx) {
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
 
-  // Group by, the URL's filter (wide has no tab bar to carry it), and the Sub-agents switch.
+  // One slim row of words: State / Session, the URL's filter (wide has no tab bar to carry
+  // it), and the Sub-agents toggle, whose count's colour says whether it is on.
   const bar = document.createElement("div");
   bar.className = "sb-bar";
-  bar.innerHTML = `<span>Group by</span><span class="seg"><button data-by="state">State</button><button data-by="session">Session</button></span>`;
+  bar.innerHTML = '<button data-by="state" aria-label="Group by state">State</button><i aria-hidden="true">/</i><button data-by="session" aria-label="Group by session">Session</button>';
   bar.querySelectorAll("[data-by]").forEach((b) => { b.onclick = () => { prefs.by = b.dataset.by; rerender(); }; });
   const pick = Object.assign(document.createElement("select"), { id: "side-filter" });
   pick.setAttribute("aria-label", "Filter panes");
   pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
   pick.onchange = () => ctx.setFilter(pick.value);
-  const subs = Object.assign(document.createElement("button"), { className: "sb-switch", title: "List the running sub-agents of every pane outside Needs you under its row" });
-  subs.setAttribute("role", "switch");
+  const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
-  const show = Object.assign(document.createElement("div"), { className: "sb-show", textContent: "Show" });
-  show.append(subs);
-  bar.append(pick, show);
+  bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·", ariaHidden: "true" }), subs);
   const refreshPick = headerPicker(pick);
 
   function head(g) {
@@ -144,6 +142,7 @@ export function setupSidebar(ctx) {
   }
   function updateRow(node, { p, g, card }) {
     node._p = p;
+    markEnding(node, p);
     node.classList.toggle("need", needsYou(p));
     // On the card for its styling and on its button, which is what assistive tech lands on.
     for (const el of [node, node.firstChild]) {
@@ -155,7 +154,7 @@ export function setupSidebar(ctx) {
     // By state the session is context; by session it is the group heading already.
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
-    text(node.querySelector(".a"), age(p));
+    text(node.querySelector(".a"), p.ending || age(p));
     // Needs you is about the question and its answers, so its cards only count sub-agents.
     const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents"), lines = prefs.subagents && g.id !== "need";
     badge.hidden = !agents.length || lines; list.hidden = !agents.length || !lines;
@@ -176,17 +175,19 @@ export function setupSidebar(ctx) {
     reconcile(node.querySelector(".sb-replies"), items, (o) => o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.reply ? openReply(node._p.pane_id) : ctx.answer(node._p.pane_id, o.option, o.index);
+      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : ctx.answer(node._p.pane_id, o.option, o.index);
       return button;
     }, (button, o) => { text(button, o.reply ? "Reply" : o.option); button.title = o.reply ? "" : o.option; button.disabled = busy; });
-    const form = node.querySelector(".sb-compose");
-    form.hidden = replyTo !== p.pane_id;
+    const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
+    form.hidden = replyTo !== p.pane_id || !!p.secret;
     if (form.hidden) return form.querySelector("#side-reply")?.remove();
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
     form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
   }
-  function openReply(id) {
-    if (id === ctx.active()) { document.getElementById("reply").focus(); return; } // its own composer is on screen
+  // At a password prompt Reply opens the pane, whose own composer is the password field.
+  function openReply(id, secret) {
+    if (secret && id !== ctx.active()) ctx.navigate(id);
+    if (id === ctx.active()) { document.getElementById(secret ? "secret" : "reply").focus(); return; } // its own composer is on screen
     replyTo = id;
     if (!drafts.has(id)) drafts.set(id, new Composer(repaint, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
     repaint();
@@ -205,6 +206,7 @@ export function setupSidebar(ctx) {
     }, (b, p) => {
       if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
+      markEnding(b, p);
       const agents = subagentCount(p);
       b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
       b.classList.toggle("need", needsYou(p));
@@ -230,7 +232,7 @@ export function setupSidebar(ctx) {
     text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
     text($c(".w"), [p.session, p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
     $c(".badge").className = `badge ${activityClass(p)}`;
-    text($c(".badge"), `${activityLabel(p)} · ${since(p)}`);
+    text($c(".badge"), [activityLabel(p), since(p)].filter(Boolean).join(" · "));
     text($c(".x"), paneHeadline(p) || "No recent activity");
     const asked = needsYou(p) && (p.question?.ask || p.question?.prompt);
     text($c(".q"), asked && asked !== paneHeadline(p) ? asked : "");
@@ -290,8 +292,8 @@ export function setupSidebar(ctx) {
       (node, i) => i.bar ? null : i.p ? updateRow(node, i) : updateHead(node, i.g));
     bar.querySelectorAll("[data-by]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.by === prefs.by)));
     if (pick.value !== filter) { pick.value = filter; refreshPick(); }
-    subs.setAttribute("aria-checked", String(prefs.subagents));
-    ctx.html(subs, `${licon("bot", 14)}Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span><i></i>`);
+    subs.setAttribute("aria-pressed", String(prefs.subagents));
+    ctx.html(subs, `Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span>`);
   }
   render.drafts = drafts; // for the app's unsent-draft guard on reload
   // Both layouts' lists call this first: a Reply closes once its pane stops needing you.

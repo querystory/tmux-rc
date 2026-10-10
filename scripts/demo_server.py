@@ -4,8 +4,9 @@
 
 This is openbus.server's own FastAPI app — its routes, static mount, middleware and
 History.query — with three things swapped out: the watcher (a fixed fleet instead of
-tmux), the history database (a seeded temp file instead of ~/.local/state), and every
-mutation (answered {"ok": true} without running a handler). tmux itself is unplugged
+tmux), the history database (a seeded temp file instead of ~/.local/state, plan limits
+included, so no real account is read or polled), and every mutation (answered
+{"ok": true} without running a handler). tmux itself is unplugged
 at the subprocess seam, so nothing served from here can read or touch a real pane.
 """
 from __future__ import annotations
@@ -16,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 
 # Before openbus.server loads .env: an existing variable wins over the file, so an empty
@@ -30,6 +32,11 @@ import uvicorn
 from fastapi.responses import JSONResponse
 
 from openbus import live, live_providers, server, tmux
+
+try:  # absent on a base that predates plan limits: screenshots_diff runs these scripts there
+    from openbus.plan_usage import PlanUsage
+except ImportError:
+    PlanUsage = None
 
 from . import demo_fleet as demo
 
@@ -74,11 +81,33 @@ class DemoHistory(demo.History):
         return super().query(*args, **{**kwargs, "now": demo.NOW})
 
 
+def _expunge_demo(root: Path):
+    """server._pane_session over a fictional Claude session in a temp config dir, so
+    Expunge's confirmation has files to count. The POST itself never runs (read_only)."""
+    from openbus import expunge  # a base tree that predates Expunge has no such module
+
+    sid = "5f3a9c1e-7b2d-4e8a-9c6f-0d1e2f3a4b5c"
+    project = root / "projects" / "-src-example-org-storefront"
+    for path in (project / f"{sid}.jsonl", project / sid / "subagents" / "agent-1.jsonl",
+                 root / "file-history" / sid / "a1b2c3@v1",
+                 root / "session-env" / sid / "hook-0.sh",
+                 root / "history.jsonl"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    session = expunge.Session("claude", sid, root, root.parent / "agent-history", 0, "")
+    return lambda *_a: ("0", session, expunge.targets(session))
+
+
 @asynccontextmanager
 async def lifespan(app):
     with tempfile.TemporaryDirectory(prefix="tmux-rc-demo-") as tmp:
+        if hasattr(server, "_pane_session"):
+            server._pane_session = _expunge_demo(Path(tmp) / "claude")  # noqa: SLF001
         app.state.history = demo.seed_history(DemoHistory(Path(tmp) / "history.sqlite3"))
         app.state.watcher, app.state.push = DemoWatcher(), None
+        if PlanUsage:
+            app.state.usage = demo.seed_usage(PlanUsage(app.state.history))
+            app.state.usage.report = partial(app.state.usage.report, demo.NOW)
         yield
 
 

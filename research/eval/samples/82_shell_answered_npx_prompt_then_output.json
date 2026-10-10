@@ -1,0 +1,12 @@
+{
+  "description": "Shell ran `npx wrangler login`; npx's 'Ok to proceed? (y)' was already answered and wrangler has since printed its banner and opened the browser OAuth link. The cursor rests on the blank row below that output (capture_pane ends the capture in one empty row to say so), waiting on the browser callback. The old y/n line is answered history, not a live question: a 'y' reply chip would type a stray y into the pane. Expected: no question; still a user-wait, since the login is finished in the browser through the shown link.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\ndev@workstation ~/src/example-site $ npx wrangler login\nNeed to install the following packages:\nwrangler@4.149.0\nOk to proceed? (y)\n\n ⛅️ wrangler 4.149.0\n────────────────────\nAttempting to login via OAuth...\nOpening a link in your default browser: https://dash.cloudflare.com/oauth2/auth?client_id=example&state=example\n",
+  "expected": {
+    "tool": "shell",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": null,
+    "headline": "Waiting for the Cloudflare login to finish in the browser"
+  }
+}

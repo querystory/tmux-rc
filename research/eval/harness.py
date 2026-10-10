@@ -41,7 +41,9 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
+from openbus import classify as classify_mod
 from openbus.classify import classify
 from openbus.tmux import Pane
 
@@ -68,6 +70,8 @@ class Sample:
     repository: str | None = None
     title: str | None = None  # tmux pane title, for agents identified by it (omp)
     prior: tuple[str, ...] = ()  # earlier frames, sent with the capture as in production
+    reply: str | None = None  # the agent's last transcript message, as the watcher reads it
+    processes: tuple[str, ...] = ()  # the process tree under the pane, argv space-joined
 
     @classmethod
     def load(cls, path: Path) -> Sample:
@@ -79,6 +83,8 @@ class Sample:
             repository=d.get("repository"),
             title=d.get("title"),
             prior=tuple(d.get("prior", ())),
+            reply=d.get("reply"),
+            processes=tuple(d.get("processes", ())),
             capture=d["capture"],
             expected=d["expected"],
         )
@@ -99,7 +105,9 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
     """Run ONE sample through the production classify() path. `llm_fn(system, text)`
     is the model call (the harness injects a real-Vertex one; tests can inject a stub).
     A synthetic Pane carries the sample's foreground process so the `[tmux: …]` prefix
-    and tool-anchoring behave exactly as in production."""
+    and tool-anchoring behave exactly as in production; `processes` stands in for the /proc
+    walk under the pane that names an agent hosted by node or bun."""
+    procs = {str(i): argv.replace(" ", "\0") for i, argv in enumerate(sample.processes)}
     pane = Pane(
         session="eval",
         window_index="0",
@@ -108,11 +116,14 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         id="%0",
         current_command=sample.current_command,
         title=sample.title or sample.name,
+        pid="0" if procs else "",
     )
-    return classify(
-        pane, sample.capture, llm_fn=llm_fn, prior=list(sample.prior),
-        repository=sample.repository, replies_fn=llm_fn,
-    )
+    with patch.object(classify_mod, "processes", lambda _pid: list(procs)), \
+         patch.object(classify_mod, "proc_read", lambda p, _name: procs[p]):
+        return classify(
+            pane, sample.capture, llm_fn=llm_fn, prior=list(sample.prior),
+            repository=sample.repository, replies_fn=llm_fn, reply=sample.reply,
+        )
 
 
 # ── scoring ────────────────────────────────────────────────────────────────────────
@@ -246,6 +257,12 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         presence["tables"] = valid and any(
             row for table in (tables or []) for row in table["rows"]
         )
+    # Opt-in and exact, for copyables lifted from a transcript rather than re-typed by the
+    # model: that payload is deterministic, so the bytes the phone would copy are pinned.
+    if "copyable_texts" in expected:
+        texts = [c.get("text") for c in candidate.get("copyables") or [] if isinstance(c, dict)]
+        if texts != expected["copyable_texts"]:
+            diffs.append(f"copyable_texts: got {texts!r}")
     for k, got in presence.items():
         c, e = bool(got), bool(expected.get(k))
         if c != e:

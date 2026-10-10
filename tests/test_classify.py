@@ -4,6 +4,7 @@ with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 import pytest
 
 from openbus import classify as classify_mod
+from openbus import tmux
 from openbus.classify import bootstrap, classify
 from openbus.tmux import Pane
 
@@ -175,16 +176,23 @@ def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
     assert r["working"] == {"verb": "Delegating", "elapsed": "1m 3s"}
 
 
-@pytest.mark.parametrize(("child", "tool"), [
-    ("bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash` wrapper
-    ("/usr/local/bin/omp\0", "omp"),
-    ("vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+@pytest.mark.parametrize(("command", "title", "child", "tool"), [
+    # omp behind a shell is proven by its title plus a live omp process
+    ("bash", "π ⠧ x", "bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash`
+    ("bash", "π ⠧ x", "/usr/local/bin/omp\0", "omp"),
+    ("bash", "π ⠧ x", "vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+    ("bash", "x", "/usr/local/bin/codex\0", "opencode"),  # no title: a stopped agent proves nothing
+    # an npm-installed agent's foreground is `node`; the script it runs names the agent
+    ("node", "x", "node\0/opt/nvm/bin/codex\0", "codex"),
+    ("node", "x", "node\0/opt/nvm/bin/claude\0--resume\0", "claude"),
+    ("node", "x", "node\0server.js\0", "opencode"),  # not an agent: the model decides
 ])
-def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, tool):
+def test_host_tool_from_the_process_tree(monkeypatch, command, title, child, tool):
     proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
             ("11", "cmdline"): child}
-    monkeypatch.setattr(classify_mod, "proc_read", lambda pid, name: proc.get((pid, name), ""))
-    pane = Pane("work", "0", "bash", "0", "%0", "bash", "π ⠧ agent-history-omp", "/x", pid="10")
+    for module in (classify_mod, tmux):  # the process walk lives in tmux
+        monkeypatch.setattr(module, "proc_read", lambda pid, name: proc.get((pid, name), ""))
+    pane = Pane("work", "0", "bash", "0", "%0", command, title, "/x", pid="10")
     r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
     assert r["tool"] == tool
 
@@ -1029,6 +1037,13 @@ def test_menu_command_becomes_context_not_paste_action():
     assert result["question"]["options"] == ["Yes", "No"]
 
 
+def test_copyable_keeps_line_continuations_as_shown():
+    shown = "  grep -n caps \\\n    /etc/keyd 2>/dev/null"
+    for text in ("grep -n caps \\\n  /etc/keyd 2>/dev/null", "grep -n caps /etc/keyd 2>/dev/null"):
+        result = classify(_pane(), shown, _llm({"copyables": [{"text": text}]}))
+        assert result["copyables"][0]["text"] == text
+
+
 def test_copyable_cannot_cut_a_summary_out_of_prose():
     result = classify(_pane(), "• Tests reject malformed input. No PR was opened.", _llm({
         "copyables": [{"label": "Summary", "text": "Tests reject malformed input."}],
@@ -1355,3 +1370,80 @@ def test_provider_error_retry_is_deterministic(replies):
     screen = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
     out = classify(_pane("claude"), screen, _llm({}), replies_fn=make({"options": ["a", "b"]}))
     assert out["question"]["options"] == ["try again"] and not calls
+
+
+def test_transcript_code_blocks_beat_the_models_retyping():
+    reply = ("Run this on the desktop. It changes nothing.\n\n```bash\n{\n  uname -a\n  lpstat -t\n"
+             "} 2>&1 | tee /tmp/report.txt\n```\n\nThen:\n\n```\ncat /tmp/report.txt\n````\n")
+    retyped = {"copyables": [{"text": "{ lpstat -t; } 2>&1 | tee /tmp/report.txt"}]}
+    shown = "  cat /tmp/report.txt"
+    tail = "    uname -a\n    lpstat -t\n  } 2>&1 | tee /tmp/report.txt\n"  # "{" scrolled off
+    result = classify(_pane("node"), tail + shown, _llm(retyped), reply=reply)
+    assert result["copyables"] == [  # newest first, labelled by its lead-in
+        {"label": "Then", "text": "cat /tmp/report.txt"},
+        {"label": "Run this on the desktop.",
+         "text": "{\n  uname -a\n  lpstat -t\n} 2>&1 | tee /tmp/report.txt"},
+    ]
+    # A list item's fence indent is markup; indentation inside the code is kept.
+    nested = "1. Add:\n\n   ```\n       return x\n   ```\n"
+    assert classify(_pane(), "       return x", _llm({}), reply=nested)["copyables"] == [
+        {"label": "Add", "text": "    return x"}]
+    # Continued lines count as one, as the screen side joins them.
+    cont = "```\nsudo grep -n x \\\n  /etc/a \\\n  /etc/b\necho done\n```"
+    assert classify(_pane(), "sudo grep -n x \\\n    /etc/a \\\n    /etc/b\necho done",
+                    _llm({}), reply=cont)["copyables"][0]["text"].endswith("echo done")
+    # A generic closing line alone doesn't ground a block.
+    assert "copyables" not in classify(_pane(), "other\n}", _llm({}),
+                                       reply="```\nf() {\n  g\n}\n```")
+    # A reply whose blocks aren't on screen is stale; the model's picks stand in.
+    result = classify(_pane(), "git status", _llm({"copyables": [{"text": "git status"}]}),
+                      reply=reply)
+    assert result["copyables"] == [{"label": "", "text": "git status"}]
+
+
+@pytest.mark.parametrize(("sample", "tool", "style", "kept"), [
+    ("82_shell_answered_npx_prompt_then_output", "shell", "text", False),
+    ("82_shell_answered_npx_prompt_then_output", "shell", "menu", True),  # options follow it
+    ("82_shell_answered_npx_prompt_then_output", "claude", "text", True),  # agent widgets
+    ("83_shell_pending_npx_prompt", "shell", "text", True),  # the cursor is on it
+])
+def test_shell_prompt_with_output_after_it_was_answered(sample, tool, style, kept):
+    seen = []
+    result = classify(_pane("node"), _sample(sample), lambda system, text: seen.append(text) or {
+        "tool": tool, "activity": "waiting",
+        "question": {"prompt": "Ok to proceed? (y)", "answer_style": style},
+    })
+    assert bool(result.get("question")) is kept
+    assert result["activity"] == "waiting"
+    assert ("[Completed prompt" in seen[-1]) is not kept
+
+
+_WELCOME = ("\x1e[visible screen]\x1f\n────\n⟪/dim⟫❯\xa0⟪placeholder⟫Try 'fix'⟪/placeholder⟫"
+            "⟪dim⟫\n────\n  ~/src/app | Sonnet 5.5\n  Welcome back! Recent sessions to resume:\n"
+            "  live  Rename the webhook handler\n  ⏵⏵ auto mode on")
+
+
+def test_list_below_an_empty_input_box_is_chrome_not_a_question():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "claude", "activity": "idle", "question": {
+                "prompt": "Welcome back! Recent sessions to resume:", "answer_style": "cursor"}}
+        assert "Welcome back" not in text and "Rename" not in text
+        return {"tool": "claude", "activity": "idle", "headline": "Ready for a new task"}
+    result = classify(_pane("claude"), _WELCOME, read)
+    assert len(calls) == 2
+    assert "question" not in result and result["activity"] == "idle"
+
+
+@pytest.mark.parametrize(("screen", "prompt"), [
+    ("  Resume session\n  ❯ Mid-file imports cleanup\n    tmuxrc-dev\n  Esc to cancel",
+     "Resume session"),  # the real picker: its ❯ cursor row has text, no empty box
+    ("● Should I open the PR now?\n────\n❯\xa0\n────\n  ~/src/app | Sonnet 5.5",
+     "Should I open the PR now?"),  # asked above the empty box
+])
+def test_question_not_below_an_empty_input_box_stands(screen, prompt):
+    result = classify(_pane("claude"), f"\x1e[visible screen]\x1f\n{screen}", _llm({
+        "tool": "claude", "question": {"prompt": prompt, "answer_style": "cursor"}}))
+    assert result["question"]["prompt"] == prompt

@@ -264,6 +264,25 @@ TOOLS = [
             "required": ["pane_id", "key"],
         },
     },
+    {
+        "name": "open_pane",
+        "description": (
+            "Give the user a button that takes their screen to one window. Call it whenever "
+            "the user wants to go to, open, see, switch to or get back to a window (“go back "
+            "to window 20”, “show me the auth fix”), including one find_sessions or "
+            "resume_session just named (not when its result says shown: the user is already "
+            "there), instead of asking what to do there. It changes only what the user sees, "
+            "never the pane. Give name, just the window as the user named it (auth fix, "
+            "window 20), and the open windows are matched for you: try it before "
+            "find_sessions. Give pane_id instead only for a pane a tool result named."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"pane_id": _PANE_ID, "name": {
+                "type": "string", "description": "The window in the user's words, e.g. auth fix",
+            }},
+        },
+    },
 ]
 
 
@@ -302,8 +321,9 @@ _HISTORY_TOOLS = [
             "on the auth fix”, “was there a session about X”), rather than asking a window. "
             "Returns repos, each with sessions: id, the agent tool (claude, codex, or omp), "
             "title, last active date, the query terms it matched, and the window running it "
-            "if one is. Every returned session matched the query (in its title, branches, PR "
-            "links or transcript); titles are short hints and often don't mention the topic."
+            "if one is (running_in, and its pane_id for open_pane or type_in_pane). Every "
+            "returned session matched the query (in its title, branches, PR links or "
+            "transcript); titles are short hints and often don't mention the topic."
         ),
         "parameters": {
             "type": "object",
@@ -318,9 +338,9 @@ _HISTORY_TOOLS = [
         "description": (
             "Reopen a past session from find_sessions in a new window, in its original "
             "directory. Use after find_sessions, once you know which one the user means; "
-            "if find_sessions says a window already runs it, talk to that window with "
-            "type_in_pane instead. It opens idle: to give it an instruction, type_in_pane "
-            "into the returned pane_id afterwards."
+            "if find_sessions says a window already runs it, open_pane that window instead "
+            "(type_in_pane only to pass on an instruction). It opens idle: to give it an "
+            "instruction, type_in_pane into the returned pane_id afterwards."
         ),
         "parameters": {
             "type": "object",

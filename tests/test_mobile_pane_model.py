@@ -245,6 +245,34 @@ CASES = [
         ],
         0,
     ),
+    # shownAt: what the age label counts from, so lists sort by it too.
+    (
+        "shownAt: state_since wins over a later last_activity_at, matching the age shown",
+        "shownAt",
+        [{"activity": "idle", "state_since": 100, "last_activity_at": 900}],
+        100,
+    ),
+    (
+        "shownAt: falls back to lastActivity without state_since",
+        "shownAt",
+        [{"activity": "idle", "last_activity_at": 900}],
+        900,
+    ),
+    (
+        "newestFirst: a working row (age 'now') sorts above a younger idle one",
+        "newestFirst",
+        [{"activity": "running", "state_since": 100}, {"activity": "idle", "state_since": 900}],
+        -1,
+    ),
+    (
+        "newestFirst: otherwise the youngest age shown comes first",
+        "newestFirst",
+        [
+            {"activity": "idle", "state_since": 900, "last_activity_at": 100},
+            {"activity": "idle", "state_since": 100, "last_activity_at": 900},
+        ],
+        -800,
+    ),
     # Sub-agents: only the backend's busy states count, and its `agents` count wins when larger.
     (
         "liveSubagents: keeps running and compacting, drops done, waiting and junk",
@@ -280,6 +308,9 @@ CASES += [(f"since: {secs}s ago reads {label}", "since", [idle_since(secs), NOW_
 CASES += [
     ("since: without state_since, falls back to lastActivity", "since",
      [{"activity": "idle", "updated_at": NOW_S, "idle_seconds": 120}, NOW_MS], "2m"),
+    # A startup placeholder has no clock yet: no age, never "20735d" since the epoch.
+    ("since: with no timestamp at all, reads no age", "since",
+     [{"activity": "unknown"}, NOW_MS], ""),
     ("age: a running pane reads now", "age",
      [{"activity": "running", "state_since": NOW_S - 600}, NOW_MS], "now"),
     ("age: an idle pane reads its since", "age", [idle_since(600), NOW_MS], "10m"),

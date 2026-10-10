@@ -17,4 +17,5 @@ These pages cover the ways to do that safely.
 {{< cards >}}
   {{< card link="other-tunnels/" title="Other tunnels" subtitle="Tailscale (prefer this) and ngrok — what to know before you pick one." >}}
   {{< card link="cloudflare-tunnel/" title="Cloudflare Tunnel + Access" subtitle="A public hostname with a real login in front of it. Step order is the security control." >}}
+  {{< card link="previews/" title="Previewing work" subtitle="Mocks and throwaway previews through the daemon, without a second tunnel." >}}
 {{< /cards >}}

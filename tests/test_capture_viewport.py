@@ -1,3 +1,5 @@
+import pytest
+
 from openbus import tmux
 
 
@@ -46,6 +48,14 @@ def test_real_tmux_history_boundary(tmp_path, monkeypatch):
             time.sleep(0.02)
         assert "\n[visible screen]\n" in text
         assert text.count(tmux.VISIBLE_SCREEN) == 1
+        assert not text.endswith("\n")  # the cursor is on the shell prompt's row
+        run(["send-keys", "-t", pane, "echo done; sleep 9", "Enter"])
+        for _ in range(50):
+            text = tmux.capture_pane(pane, mark_dim=True)
+            if text.endswith("\ndone\n"):
+                break
+            time.sleep(0.02)
+        assert text.endswith("\ndone\n")  # one empty row: the cursor, below the output
     finally:
         subprocess.run(["tmux", "-S", socket, "kill-server"], check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -56,7 +66,7 @@ def test_classifier_capture_splits_before_wrapping(monkeypatch):
 
     def run(args):
         calls.append(args)
-        return f"old menu\n{args[9]}\n› \x1b[2mAsk a question\x1b[0m\n"
+        return f"old menu\n{args[9]}\n› \x1b[2mAsk a question\x1b[0m\n\n-2\n"
 
     monkeypatch.setattr(tmux, "_run", run)
     text = tmux.capture_pane("%12", mark_dim=True)
@@ -66,6 +76,7 @@ def test_classifier_capture_splits_before_wrapping(monkeypatch):
         "capture-pane -p -J -e -t %12 -S -200 -E -1",
         ";", "display-message", "-p", calls[0][9],
         ";", "capture-pane", "-p", "-J", "-e", "-t", "%12", "-S", "0",
+        ";", "display-message", "-p", "-t", "%12", "#{e|-|:#{cursor_y},#{pane_height}}",
     ]]
     assert text == f"old menu\n{tmux.VISIBLE_SCREEN}\n› ⟪placeholder⟫Ask a question⟪/placeholder⟫"
     assert tmux.strip_dim(text) == "old menu\n› Ask a question"
@@ -80,7 +91,7 @@ def test_phone_capture_does_not_add_boundary(monkeypatch):
 
 def test_bootstrap_capture_uses_its_history_budget(monkeypatch):
     calls = []
-    monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or args[9] + "\n")
+    monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or args[9] + "\n-1\n")
     tmux.capture_pane("%1", lines=800, mark_dim=True)
     assert "-S -800 -E -1" in calls[0][5]
 
@@ -90,3 +101,13 @@ def test_printed_boundary_label_is_preserved():
     assert tmux.strip_dim(text) == "history\n[visible screen]\ncurrent output"
     assert tmux.strip_dim(tmux.VISIBLE_SCREEN) == ""
     assert tmux.strip_dim("history\n" + tmux.VISIBLE_SCREEN) == "history\n"
+
+
+@pytest.mark.parametrize(("screen", "cursor", "want"), [
+    ("Ok? (y) \n\n", -2, "Ok? (y) "),  # the cursor on the prompt's row
+    ("Ok? (y) \nworking\n\n", -1, "Ok? (y) \nworking\n"),  # on a blank row below output
+    ("box\n\n\x1b[2mfooter\x1b[0m\n", -2, "box\n\n⟪dim⟫footer⟪/dim⟫"),  # above a footer
+])
+def test_classifier_capture_ends_on_a_blank_cursor_row(monkeypatch, screen, cursor, want):
+    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n{screen}{cursor}\n")
+    assert tmux.capture_pane("%1", mark_dim=True) == f"{tmux.VISIBLE_SCREEN}\n{want}"
