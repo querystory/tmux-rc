@@ -57,6 +57,16 @@ def test_window_renumber_bumps_version():
     assert w.state_version() == v + 1
 
 
+def test_recycled_pane_id_bumps_version():
+    # tmux reuses %N: a new pane that matches the old one field for field is still a new
+    # incarnation, and the phone keeps a killed pane hidden until it sees the new birth.
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states({**A, "birth": "100"}))
+    v = w.state_version()
+    w._bump_state_if_changed(_states({**A, "birth": "200"}))
+    assert w.state_version() == v + 1
+
+
 def test_live_frame_churn_does_not_bump():
     # Fields not in the deck fingerprint (a frame hash, cost, etc.) must NOT bump the
     # version — that churn is /api/live's concern, not the deck hold's.

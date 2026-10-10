@@ -280,6 +280,9 @@ CASES += [(f"since: {secs}s ago reads {label}", "since", [idle_since(secs), NOW_
 CASES += [
     ("since: without state_since, falls back to lastActivity", "since",
      [{"activity": "idle", "updated_at": NOW_S, "idle_seconds": 120}, NOW_MS], "2m"),
+    # A startup placeholder has no clock yet: no age, never "20735d" since the epoch.
+    ("since: with no timestamp at all, reads no age", "since",
+     [{"activity": "unknown"}, NOW_MS], ""),
     ("age: a running pane reads now", "age",
      [{"activity": "running", "state_since": NOW_S - 600}, NOW_MS], "now"),
     ("age: an idle pane reads its since", "age", [idle_since(600), NOW_MS], "10m"),

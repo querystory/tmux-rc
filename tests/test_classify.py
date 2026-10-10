@@ -1031,6 +1031,13 @@ def test_menu_command_becomes_context_not_paste_action():
     assert result["question"]["options"] == ["Yes", "No"]
 
 
+def test_copyable_keeps_line_continuations_as_shown():
+    shown = "  grep -n caps \\\n    /etc/keyd 2>/dev/null"
+    for text in ("grep -n caps \\\n  /etc/keyd 2>/dev/null", "grep -n caps /etc/keyd 2>/dev/null"):
+        result = classify(_pane(), shown, _llm({"copyables": [{"text": text}]}))
+        assert result["copyables"][0]["text"] == text
+
+
 def test_copyable_cannot_cut_a_summary_out_of_prose():
     result = classify(_pane(), "• Tests reject malformed input. No PR was opened.", _llm({
         "copyables": [{"label": "Summary", "text": "Tests reject malformed input."}],
@@ -1359,6 +1366,35 @@ def test_provider_error_retry_is_deterministic(replies):
     assert out["question"]["options"] == ["try again"] and not calls
 
 
+def test_transcript_code_blocks_beat_the_models_retyping():
+    reply = ("Run this on the desktop. It changes nothing.\n\n```bash\n{\n  uname -a\n  lpstat -t\n"
+             "} 2>&1 | tee /tmp/report.txt\n```\n\nThen:\n\n```\ncat /tmp/report.txt\n````\n")
+    retyped = {"copyables": [{"text": "{ lpstat -t; } 2>&1 | tee /tmp/report.txt"}]}
+    shown = "  cat /tmp/report.txt"
+    tail = "    uname -a\n    lpstat -t\n  } 2>&1 | tee /tmp/report.txt\n"  # "{" scrolled off
+    result = classify(_pane("node"), tail + shown, _llm(retyped), reply=reply)
+    assert result["copyables"] == [  # newest first, labelled by its lead-in
+        {"label": "Then", "text": "cat /tmp/report.txt"},
+        {"label": "Run this on the desktop.",
+         "text": "{\n  uname -a\n  lpstat -t\n} 2>&1 | tee /tmp/report.txt"},
+    ]
+    # A list item's fence indent is markup; indentation inside the code is kept.
+    nested = "1. Add:\n\n   ```\n       return x\n   ```\n"
+    assert classify(_pane(), "       return x", _llm({}), reply=nested)["copyables"] == [
+        {"label": "Add", "text": "    return x"}]
+    # Continued lines count as one, as the screen side joins them.
+    cont = "```\nsudo grep -n x \\\n  /etc/a \\\n  /etc/b\necho done\n```"
+    assert classify(_pane(), "sudo grep -n x \\\n    /etc/a \\\n    /etc/b\necho done",
+                    _llm({}), reply=cont)["copyables"][0]["text"].endswith("echo done")
+    # A generic closing line alone doesn't ground a block.
+    assert "copyables" not in classify(_pane(), "other\n}", _llm({}),
+                                       reply="```\nf() {\n  g\n}\n```")
+    # A reply whose blocks aren't on screen is stale; the model's picks stand in.
+    result = classify(_pane(), "git status", _llm({"copyables": [{"text": "git status"}]}),
+                      reply=reply)
+    assert result["copyables"] == [{"label": "", "text": "git status"}]
+
+
 @pytest.mark.parametrize(("sample", "tool", "style", "kept"), [
     ("82_shell_answered_npx_prompt_then_output", "shell", "text", False),
     ("82_shell_answered_npx_prompt_then_output", "shell", "menu", True),  # options follow it
@@ -1374,3 +1410,34 @@ def test_shell_prompt_with_output_after_it_was_answered(sample, tool, style, kep
     assert bool(result.get("question")) is kept
     assert result["activity"] == "waiting"
     assert ("[Completed prompt" in seen[-1]) is not kept
+
+
+_WELCOME = ("\x1e[visible screen]\x1f\n────\n⟪/dim⟫❯\xa0⟪placeholder⟫Try 'fix'⟪/placeholder⟫"
+            "⟪dim⟫\n────\n  ~/src/app | Sonnet 5.5\n  Welcome back! Recent sessions to resume:\n"
+            "  live  Rename the webhook handler\n  ⏵⏵ auto mode on")
+
+
+def test_list_below_an_empty_input_box_is_chrome_not_a_question():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "claude", "activity": "idle", "question": {
+                "prompt": "Welcome back! Recent sessions to resume:", "answer_style": "cursor"}}
+        assert "Welcome back" not in text and "Rename" not in text
+        return {"tool": "claude", "activity": "idle", "headline": "Ready for a new task"}
+    result = classify(_pane("claude"), _WELCOME, read)
+    assert len(calls) == 2
+    assert "question" not in result and result["activity"] == "idle"
+
+
+@pytest.mark.parametrize(("screen", "prompt"), [
+    ("  Resume session\n  ❯ Mid-file imports cleanup\n    tmuxrc-dev\n  Esc to cancel",
+     "Resume session"),  # the real picker: its ❯ cursor row has text, no empty box
+    ("● Should I open the PR now?\n────\n❯\xa0\n────\n  ~/src/app | Sonnet 5.5",
+     "Should I open the PR now?"),  # asked above the empty box
+])
+def test_question_not_below_an_empty_input_box_stands(screen, prompt):
+    result = classify(_pane("claude"), f"\x1e[visible screen]\x1f\n{screen}", _llm({
+        "tool": "claude", "question": {"prompt": prompt, "answer_style": "cursor"}}))
+    assert result["question"]["prompt"] == prompt
