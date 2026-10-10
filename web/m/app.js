@@ -331,6 +331,8 @@ function renderList() {
   // Not before boot: an empty `panes` then would open the dialog in New session mode.
   $("new-window").disabled = !booted;
   const startable = booted && !panes.length;
+  const launchLabel = startable ? "New session" : "New window"; // what openLaunch will open
+  $("new-window").setAttribute("aria-label", launchLabel); $("new-window").title = launchLabel;
   show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
   show("landing-start", startable);
 }
