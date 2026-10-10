@@ -10,8 +10,8 @@ const PLAYBACK_RATE = 24000; // Rate of the PCM the server streams back.
 const MIN_FRAME_SAMPLES = 4096; // Batch mic samples so each WebSocket frame is worth its JSON overhead.
 const MAX_SOCKET_BACKLOG = 65536; // Drop mic audio once this much is unsent, instead of piling up latency.
 const CHAR_CHUNK = 0x8000; // fromCharCode argument-count bound.
-const CONNECT_DEADLINE_MS = 30000; // Give up if the server never reports "listening".
-const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring the session lost.
+const CONNECT_DEADLINE_MS = 30000; // Give up (retry, while a card waits) if the server never reports "listening".
+const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring the session lost; its cap while a card waits.
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
@@ -188,8 +188,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         actions.querySelectorAll("button").forEach((b) => { b.disabled = true; });
         row.firstChild.textContent = "Sending...";
         const frame = { action: "approve", id, ok };
-        current.sending.set(id, frame); deliver(current, [frame]);
-        if (current.ws?.readyState === WebSocket.CLOSED) { clearTimeout(current.retry); connect(current); }
+        current.sending.set(id, frame); deliver(current, [frame]); revive(current);
       };
       actions.append(button);
     }
@@ -237,6 +236,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function resync(current) {
     const untapped = [...current.proposals.keys()].filter((id) => !current.sending.has(id));
     deliver(current, [...current.sending.values(), ...(untapped.length ? [{ action: "sync", ids: untapped }] : [])]);
+  }
+  // Reconnect now rather than at the backoff's end: a tap waits on it, or the phone is back.
+  function revive(current = run) {
+    if (current?.ws?.readyState === WebSocket.CLOSED) { clearTimeout(current.retry); connect(current); }
   }
   // A dropped connection takes the daemon's queued turns with it; ending the chat, its cards too.
   function drop(current) { current.turns = 0; badge(); }
@@ -396,7 +399,12 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     catch { stop(`Could not connect to ${name(current)}.`); return; }
     current.ws = ws; current.thumbs = []; // an echo lost with the old socket never comes
     clearTimeout(current.deadline);
-    current.deadline = setTimeout(() => { if (run === current && !current.listening) stop(`${name(current)} connection timed out. Try again.`); }, CONNECT_DEADLINE_MS);
+    current.deadline = setTimeout(() => {
+      if (run !== current || current.listening) return;
+      if (!current.proposals.size) return stop(`${name(current)} connection timed out. Try again.`);
+      try { ws.close(); } catch {}
+      connect(current);
+    }, CONNECT_DEADLINE_MS);
     ws.onmessage = ({ data }) => {
       if (run !== current || current.ws !== ws) return;
       let message; try { message = JSON.parse(data); } catch { return; }
@@ -430,10 +438,12 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       if (run !== current || current.ws !== ws) return;
       clearTimeout(current.deadline); current.listening = false; drop(current);
       const { retry, refusal } = liveClose(event);
-      if (retry && current.up && current.tries < MAX_RECONNECT_TRIES) {
+      // The daemon keeps a card for half an hour (live.PARKED_SECONDS), and the tunnel takes
+      // a minute to come back from its hourly drop: while one waits, keep trying, capped.
+      if (retry && current.up && (current.tries < MAX_RECONNECT_TRIES || current.proposals.size)) {
         current.connectionStatus = "Connection lost. Reconnecting...";
         audioStatus(current);
-        current.retry = setTimeout(() => connect(current), 1000 * 2 ** current.tries++);
+        current.retry = setTimeout(() => connect(current), 1000 * 2 ** Math.min(current.tries++, MAX_RECONNECT_TRIES - 1));
       // A refusal says whether to reload the tab or go set a key; "Try again" names the
       // one action that cannot help.
       } else if (refusal) stop(refusal);
@@ -525,13 +535,13 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     paint(); audioStatus(run); resumeAudio(run, true);
   };
   window.addEventListener("pagehide", () => stop());
-  window.addEventListener("online", capabilities);
+  window.addEventListener("online", () => { capabilities(); revive(); });
   // Switching apps is visibilitychange, not navigation: keep the microphone and
   // socket alive. pagehide still releases capture when leaving this document.
   window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } });
   document.addEventListener("visibilitychange", () => {
     if (run) { resumeAudio(run); keepAwake(run); viewing(); }
-    if (!document.hidden) capabilities();
+    if (!document.hidden) { capabilities(); revive(); }
   });
   navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data === "chat" && run) show(); });
   paint(); capabilities();
