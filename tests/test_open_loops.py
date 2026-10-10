@@ -116,6 +116,8 @@ def test_a_failed_search_is_retried_then_fails_whole(monkeypatch):
     with pytest.raises(RuntimeError):
         fetch_github([], NOW)
     assert len(calls) == 2
+    assert open_loops._graphql("s: search(first: 0) { issueCount }") == {  # a count may fail
+        "viewer": {"login": "dev"}, "s": None}
 
 
 def test_paging_stops_at_a_cap_and_says_so(monkeypatch):
