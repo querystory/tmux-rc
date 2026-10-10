@@ -10,7 +10,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, records, liveSubagents, subagentCount, since, age, markEnding } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
