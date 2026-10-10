@@ -149,10 +149,11 @@ def _git(*args: str) -> str | None:
 
 
 def _mtime(path: Path) -> float:
-    try:
-        return path.stat().st_mtime
-    except OSError:
-        return 0.0
+    """A deleted file has no mtime; its deletion touched the nearest directory still there."""
+    for each in (path, *path.parents):
+        with suppress(OSError):
+            return each.stat().st_mtime
+    return 0.0
 
 
 def _active_at(path: str, changed: list[str]) -> float:
