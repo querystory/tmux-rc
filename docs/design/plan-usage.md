@@ -36,7 +36,7 @@ is a thumbnail. So the dashboard leads with a Plan usage panel: every meter, wha
 Usage setting, as a trend tall enough to read. Tapping the strip, on the phone or in the
 sidebar, opens the dashboard at that panel rather than a sheet of its own, so there is one
 larger view to maintain and it sits beside the fleet history it is usually read against.
-Tapping the panel opens it up: one wide trend to a row, the clock times behind each
+Tapping the panel opens it up: wider trends (one to a row on a phone, two on desktop), the clock times behind each
 countdown, and the pace's forecast as a number. Those come from the same response the strip
 draws, so the detail costs no request. A longer range was considered and left out: samples
 are pruned to eight days (see Polling and storage), enough for the current weekly window and

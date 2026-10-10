@@ -681,7 +681,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #usage[hidden], #app.rail #usage { display: none; }
 #usage { cursor: pointer; }
 /* The dashboard's panel: the same cells, as many to a row as fit, the trend tall enough to read;
-   opened (aria-expanded), one wide cell to a row with the times spelled out. */
+   opened (aria-expanded), wider cells (one to a row on a phone, two on desktop) with the times spelled out. */
 #usage-panel { margin: 0 0 16px; cursor: pointer; }
 #usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
 #usage-board .usage-spark { height: 56px; margin-top: 6px; }

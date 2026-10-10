@@ -1191,9 +1191,9 @@ $("usage-panel").onclick = () => { usageDetail = !usageDetail; paintUsage(); };
 const openUsage = () => {
   openDashboard();
   const panel = $("usage-panel"), landing = $("landing"); // scrollIntoView would also scroll the clipped #app
-  landing.scrollBy({ top: panel.getBoundingClientRect().top - landing.getBoundingClientRect().top - 16,
-    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-  panel.animate([{ boxShadow: "0 0 0 3px var(--accent)" }, { boxShadow: "0 0 0 3px transparent" }], 1200);
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  landing.scrollBy({ top: panel.getBoundingClientRect().top - landing.getBoundingClientRect().top - 16, behavior: still ? "auto" : "smooth" });
+  if (!still) panel.animate([{ boxShadow: "0 0 0 3px var(--accent)" }, { boxShadow: "0 0 0 3px transparent" }], 1200);
 };
 $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
