@@ -107,6 +107,31 @@ review, previews, and pull requests. Its README also describes configuring your 
 remote deployment. Self-hosting and the former company service are distinct options.
 [Repository](https://github.com/BloopAI/vibe-kanban).
 
+## First-party remote controls
+
+Native Claude and Codex clients are also alternatives when your fleet mainly uses
+one harness. They should be evaluated alongside independent managers, rather than
+omitted because they come from the agent vendor.
+
+Claude Code Remote Control can connect existing local sessions to browser and phone
+clients, with execution remaining on the host. The current documentation covers
+multiple sessions and worktrees, not only one terminal conversation. It uses outbound
+connections and subscription authentication; it is not a general interface for
+non-Claude agents.
+[Claude Remote Control](https://code.claude.com/docs/en/remote-control).
+
+Current OpenAI documentation describes Codex through ChatGPT desktop/mobile, with
+parallel chats, worktrees, and connected-host control. Mobile controls include
+starting or steering work, handling approvals, and reviewing results. Worktree
+handoff is documented, but adoption of arbitrary tmux panes was not established.
+[Desktop app](https://learn.chatgpt.com/docs/app),
+[worktrees](https://learn.chatgpt.com/docs/environments/git-worktrees),
+[remote engineering workflow](https://developers.openai.com/blog/mastering-codex-remote-for-engineering).
+
+**Our assessment:** these are worth trying for deep native interaction with their
+respective harnesses. tmux-rc remains useful when the overview must include agents
+from several vendors and ordinary terminal work on the same tmux server.
+
 ## What to investigate next
 
 Emdash is a workspace-manager watchlist entry, not a completed feature comparison.
