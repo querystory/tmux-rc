@@ -17,13 +17,18 @@ Features, availability, and subscription requirements can change.
 
 | Product | Unit of work | Existing tmux fleet | Remote access |
 | --- | --- | --- | --- |
-| tmux-rc | Running panes and their agent activity | Observes and controls the configured tmux server | Browser/PWA over your authenticated tunnel or private network |
+| tmux-rc | Running panes and their agent activity | Observes and controls the configured tmux server | Browser/PWA behind an authenticated proxy or identity-controlled tailnet ACLs |
 | [MuxFlow](muxflow.md) | tmux sessions, windows, panes, and agent hooks | Direct tmux integration; attention tracking needs supported hooks | Native clients and SSH hosts |
 | [T3 Code](t3-code.md) | Provider-backed conversations on environment servers | No fleet discovery found; can import Claude/Codex conversation history | Desktop, web, iOS, Android; relay, pairing, Tailscale, SSH |
 | [Conductor](conductor.md) | Local worktrees or cloud workspaces with agent chats | Adoption of running tmux panes not established | Mac app; iOS for cloud workspaces; cloud API |
 
 Sources and qualifications are on each product's page. See the
 [broader landscape](landscape.md) for Superset, cmux, agent-deck, and Vibe Kanban.
+
+tmux-rc has no built-in authentication. Network privacy alone is not an access
+boundary: every client allowed to reach the daemon can read and control its terminals.
+Use an authenticated proxy or tailnet identity/ACL rules that restrict access to the
+intended users. See [deployment guidance](../deploy/_index.md).
 
 ## Which workflow fits?
 
