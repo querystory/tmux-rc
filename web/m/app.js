@@ -1296,6 +1296,8 @@ const passing = () => keysOn() && WIDE.matches && active && terminalVisible();
 document.addEventListener("keydown", (e) => {
   if (!passing() || e.defaultPrevented) return;
   const key = tmuxKey(e, !getSelection().isCollapsed);
+  // Only the open pane's own composer hands keys on. A sidebar card's Reply is about a
+  // pane that may not be on screen, and an interrupt sent there would be sent blind.
   const empty = $("reply").contains(e.target) ? !draft().segments().length : e.target === $("secret") && !$("secret").value;
   const handOff = empty && ["Escape", "C-c"].includes(key?.keys);
   // The scroll box itself, not a link inside it: a focused link keeps Enter and Tab.
