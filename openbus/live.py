@@ -1416,10 +1416,10 @@ async def live_mode(websocket: WebSocket) -> None:
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
     meter.push = getattr(websocket.app.state, "push", None)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
-    await _connect(meter, viewing=websocket.query_params.get("viewing") != "0",
-                   fresh=bool(websocket.query_params.get("fresh")))
     outcome, reason = "ok", "stop"
     try:
+        await _connect(meter, viewing=websocket.query_params.get("viewing") != "0",  # finally
+                       fresh=bool(websocket.query_params.get("fresh")))
         if use_gpt:
             await gpt_live.run_session(websocket, watcher, meter)
         else:
