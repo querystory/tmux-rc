@@ -6,8 +6,11 @@ After=network-online.target
 # so skip the unit cleanly (inactive, not failed) instead of crash-looping. Copy
 # deploy/tunnel.env.example there, then `systemctl --user start tmux-rc-tunnel`.
 ConditionPathExists=%h/.config/tmux-rc/tunnel.env
-# The relay caps a connection at ~1h and the client reconnects itself; systemd is the
-# backstop for the failure the client cannot see — process alive, no longer registered.
+# The client owns reconnection: hourly relay caps, relay deploys, half-open dials and
+# relay outages all end in its own backoff loop. systemd only covers the process exiting.
+# Do NOT add a watchdog that restarts it when "not connected": during a relay outage a
+# restart cannot help, and the restarts burn the start limit below, leaving the tunnel
+# permanently failed after the relay recovers (2026-10-10).
 # Tolerate slow flapping, still fail a real crash-loop. (StartLimit*/Condition* are
 # [Unit] keys — systemd silently ignores them under [Service].)
 StartLimitIntervalSec=1h
