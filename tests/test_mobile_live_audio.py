@@ -620,21 +620,22 @@ def test_a_card_outlives_a_dropped_connection():
 def test_a_waiting_card_keeps_the_chat_reconnecting():
     """The daemon keeps a card half an hour, and the tunnel takes a minute to come back
     from its hourly drop: while a card waits, the chat keeps retrying past its usual
-    limit, at a capped backoff, at once when the phone comes back online or into view, and
-    through a connect that never answers. With no card waiting it gives up as before."""
+    limit and over a clean close, at a capped backoff, at once when the phone comes back
+    online or into view, and through a connect that never answers. With no card waiting
+    it gives up as before."""
     _run_live(r"""
 (async () => {
   const log = document.getElementById('voice-log');
   await live.refresh();
   document.getElementById('chat').onclick(); await flush();
   const say = (socket, message) => socket.onmessage({data: JSON.stringify(message)});
-  const fail = () => { const s = sockets.at(-1); s.readyState = 3; s.onclose({code: 1006}); };
+  const fail = (code = 1006) => { const s = sockets.at(-1); s.readyState = 3; s.onclose({code}); };
   const due = () => { const fns = [...timers]; timers.clear(); fns.forEach((fn) => fn()); };
   say(sockets[0], {type: 'status', status: 'listening'});
   say(sockets[0], {type: 'propose', id: 'p1', text: 'Send to work'});
   const card = log.children.at(-1);
   fail();
-  for (let i = 0; i < 8; i++) { due(); fail(); } // a minute of refused reconnects
+  for (let i = 0; i < 8; i++) { due(); fail(i ? 1006 : 1000); } // a minute of refused reconnects
   assert.equal(sockets.length, 9);
   assert.deepEqual([...timers].map((fn) => fn.ms), [16000]);
   assert.equal(card.firstChild.textContent, 'Wants to act');
