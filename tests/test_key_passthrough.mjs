@@ -25,6 +25,7 @@ test("printable keys are literal text, Ctrl and Alt chords are named", () => {
   assert.deepEqual(key("R", { ctrlKey: true }), named("C-r"));
   assert.deepEqual(key(" ", { ctrlKey: true }), named("C-Space"));
   assert.deepEqual(key("v", { ctrlKey: true }), named("C-v"));
+  assert.deepEqual(key("w", { ctrlKey: true, mac: true }), named("C-w")); // a Mac's browser uses Cmd-W
   assert.deepEqual(key("с", { ctrlKey: true, code: "KeyC" }), named("C-c")); // Cyrillic layout
   assert.deepEqual(key("b", { altKey: true }), named("M-b"));
   assert.deepEqual(key(" ", { altKey: true }), named("M-Space"));
