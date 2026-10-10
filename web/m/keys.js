@@ -38,28 +38,37 @@ export function tmuxKey(e, selected = false) {
   return { keys: e.key, literal: true };
 }
 
-// Keys go out one request at a time, in order. Text typed while a request is in flight
-// joins the queued literal for the same pane, so fast typing costs a round trip per burst
-// rather than per key. An auto-repeat (`op.repeat`, a held key) is dropped while anything
-// is still queued, so holding Backspace or an arrow stops within a round trip of letting
-// go instead of draining a backlog far past where the user meant to stop. `send(op)`
-// resolves false on a failure, which drops the rest: typing on into a pane whose state is
-// now unknown is worse than losing the burst.
-export function keyStream(send) {
+// Every input to a pane goes out through one queue, one request at a time, in order:
+// keystrokes, and as jobs (`run`) the composer, the key row and terminal clicks, so a draft
+// submitted mid-burst cannot land between two keys, nor a key typed after Submit before it.
+// Text typed while a request is in flight joins the queued literal for the same pane, so
+// fast typing costs a round trip per burst rather than per key. An auto-repeat
+// (`op.repeat`, a held key) is dropped while anything is still queued, so holding
+// Backspace or an arrow stops within a round trip of letting go instead of draining a
+// backlog far past where the user meant to stop. `send(op)` resolves false on a failure,
+// which drops everything queued behind it, jobs included (their promises reject): typing
+// on, or submitting a draft, into a pane whose state is now unknown is worse than losing it.
+export function inputQueue(send) {
   const queue = [];
-  let drained = null;
+  let pumping = false;
+  const pump = async () => {
+    if (pumping) return;
+    pumping = true;
+    try {
+      while (queue.length) {
+        const op = queue.shift();
+        if (op.run) await op.run().then(op.resolve, op.reject);
+        else if (!await send(op)) for (const dropped of queue.splice(0)) dropped.reject?.(new Error("dropped after a failed keystroke"));
+      }
+    } finally { pumping = false; }
+  };
   const push = (op) => {
     const last = queue.at(-1);
-    if (op.repeat && last) return drained;
+    if (op.repeat && last) return;
     if (op.literal && last?.literal && last.pane === op.pane) last.keys += op.keys;
     else queue.push({ ...op });
-    return drained ||= (async () => {
-      try { while (queue.length) if (!await send(queue.shift())) queue.length = 0; }
-      finally { drained = null; }
-    })();
+    pump();
   };
-  // Settles once every queued key is out. The pane's other input paths (composer, key
-  // row, clicks) wait on it, so a draft submitted mid-burst cannot land between two keys.
-  push.drained = () => drained || Promise.resolve();
+  push.run = (job) => new Promise((resolve, reject) => { queue.push({ run: job, resolve, reject }); pump(); });
   return push;
 }

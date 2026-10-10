@@ -9,7 +9,7 @@ import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
-import { tmuxKey, keyStream } from "/m/keys.js";
+import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar } from "/m/sidebar.js";
 import { renderUsage, paneAccount } from "/m/usage.js";
 
@@ -1016,7 +1016,7 @@ async function sendKeys(body, answer = false, id = active) {
   let delivered = false;
   sending = true; notice(); render();
   try {
-    await typeKey.drained(); await post(paneUrl(id, "send"), body);
+    await paneInput.run(() => post(paneUrl(id, "send"), body));
     delivered = true;
     if (answer) {
       pendingAnswers.set(id, signature);
@@ -1079,7 +1079,7 @@ async function compose(id, value) {
       if (segment.file) form.append("image", segment.file);
       else form.append("text", segment.text);
     }
-    await typeKey.drained(); await request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000);
+    await paneInput.run(() => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
     if (secret) value.value = "";
     else { value.replace([]); value.pendingEnter = false; }
     if (active === id) text($("draft-status"), "Sent");
@@ -1290,7 +1290,7 @@ const keysOn = modeSwitch("key-mode", "tmuxrc-key-passthrough", (on) => {
 $("key-mode").addEventListener("click", () => { if (keysOn()) $("terminal-scroll").focus(); });
 // Not sendKeys: a keystroke must not hold the global `sending` lock (which locks the
 // composer and refuses the next key), nor refresh the whole state on every press.
-const typeKey = keyStream(({ pane, keys, literal }) => post(paneUrl(pane, "send"), { keys, literal, enter: false })
+const paneInput = inputQueue(({ pane, keys, literal }) => post(paneUrl(pane, "send"), { keys, literal, enter: false })
   .then(() => true, () => { notice("A keystroke could not be delivered. Check the terminal before typing on."); return false; }));
 const passing = () => keysOn() && WIDE.matches && active && terminalVisible();
 document.addEventListener("keydown", (e) => {
@@ -1301,14 +1301,14 @@ document.addEventListener("keydown", (e) => {
   if (!key || !(e.target === $("terminal-scroll") || handOff)) return;
   e.preventDefault();
   if (key.keys === "F6") $("key-mode").focus();
-  else typeKey({ pane: active, repeat: e.repeat, ...key });
+  else paneInput({ pane: active, repeat: e.repeat, ...key });
 });
 // A paste into the focused terminal types the clipboard's text into the pane.
 $("terminal-scroll").addEventListener("paste", (e) => {
   const keys = e.clipboardData.getData("text/plain");
   if (!passing() || !keys) return;
   e.preventDefault();
-  typeKey({ pane: active, keys, literal: true });
+  paneInput({ pane: active, keys, literal: true });
 });
 // The cell comes from monospace geometry, not the tapped node, so blank space right of
 // the text still hits its row. Rows count up from the frame's last line — the edge it
@@ -1326,7 +1326,7 @@ $("capture").onclick = (event) => {
   const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
   if (row < 0 || row >= captureLines.length || col < 1) return;
   const body = { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }, id = active;
-  typeKey.drained().then(() => post(paneUrl(id, "click"), body)).catch(() => {});
+  paneInput.run(() => post(paneUrl(id, "click"), body)).catch(() => {});
 };
 
 $("new-window").onclick = async () => {

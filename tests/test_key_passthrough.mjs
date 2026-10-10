@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { tmuxKey, keyStream } from "../web/m/keys.js";
+import { tmuxKey, inputQueue } from "../web/m/keys.js";
 
 const key = (k, mods = {}) => tmuxKey({ key: k, code: "", ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, isComposing: false, getModifierState: () => false, ...mods }, mods.selected);
 const named = (keys) => ({ keys, literal: false });
+const tick = () => new Promise((r) => setImmediate(r));
 
 test("named keys map to tmux names, modifiers as prefixes", () => {
   assert.deepEqual(key("ArrowUp"), named("Up"));
@@ -39,51 +40,62 @@ test("the browser keeps its own chords", () => {
 test("keys go out in order, one at a time, with text typed meanwhile joined", async () => {
   const sent = [];
   let release;
-  const push = keyStream((op) => { sent.push(op); return new Promise((r) => { release = r; }); });
-  const first = push({ pane: "%1", keys: "l", literal: true });
+  const push = inputQueue((op) => { sent.push(op); return new Promise((r) => { release = r; }); });
+  push({ pane: "%1", keys: "l", literal: true });
   push({ pane: "%1", keys: "s", literal: true });
   push({ pane: "%1", keys: " -a", literal: true });
   push({ pane: "%1", keys: "Enter", literal: false });
   push({ pane: "%1", keys: "x", literal: true });
   assert.equal(sent.length, 1);
-  for (let i = 0; i < 3; i++) { release(true); await new Promise((r) => setImmediate(r)); }
-  release(true); await first;
+  for (let i = 0; i < 3; i++) { release(true); await tick(); }
+  release(true); await tick();
   assert.deepEqual(sent.map((op) => op.keys), ["l", "s -a", "Enter", "x"]);
 });
 
 test("text for another pane is not joined, and a failure drops the rest", async () => {
   const sent = [];
   let release;
-  const push = keyStream((op) => { sent.push(op); return new Promise((r) => { release = r; }); });
-  const first = push({ pane: "%1", keys: "a", literal: true });
+  const push = inputQueue((op) => { sent.push(op); return new Promise((r) => { release = r; }); });
+  push({ pane: "%1", keys: "a", literal: true });
   push({ pane: "%1", keys: "b", literal: true });
   push({ pane: "%2", keys: "c", literal: true });
-  release(true); await new Promise((r) => setImmediate(r));
-  release(false); await first;
+  release(true); await tick();
+  release(false); await tick();
   assert.deepEqual(sent.map((op) => op.keys), ["a", "b"]);
 });
 
 test("a held key's repeats wait for the queue to drain rather than piling up", async () => {
   const sent = [];
   let release;
-  const push = keyStream((op) => { sent.push(op); return new Promise((r) => { release = r; }); });
-  const first = push({ pane: "%1", keys: "BSpace", literal: false });
+  const push = inputQueue((op) => { sent.push(op); return new Promise((r) => { release = r; }); });
+  push({ pane: "%1", keys: "BSpace", literal: false });
   for (let i = 0; i < 20; i++) push({ pane: "%1", keys: "BSpace", literal: false, repeat: true });
-  release(true); await new Promise((r) => setImmediate(r));
-  release(true); await first;
+  release(true); await tick();
+  release(true); await tick();
   assert.equal(sent.length, 2);
 });
 
-test("drained settles only once every queued key is out", async () => {
+test("jobs take their turn in the same order as keys, both ways", async () => {
+  const log = [];
   let release;
-  const push = keyStream(() => new Promise((r) => { release = r; }));
-  let done = false;
-  await push.drained(); // idle: settles at once
+  const push = inputQueue((op) => { log.push(op.keys); return new Promise((r) => { release = r; }); });
   push({ pane: "%1", keys: "a", literal: true });
-  push({ pane: "%1", keys: "Enter", literal: false });
-  push.drained().then(() => { done = true; });
-  release(true); await new Promise((r) => setImmediate(r));
-  assert.equal(done, false);
-  release(true); await new Promise((r) => setImmediate(r));
-  assert.equal(done, true);
+  let finish;
+  const job = push.run(() => { log.push("compose"); return new Promise((r) => { finish = r; }); });
+  push({ pane: "%1", keys: "b", literal: true }); // typed after Submit
+  release(true); await tick();
+  assert.deepEqual(log, ["a", "compose"]);
+  finish("ok"); assert.equal(await job, "ok"); await tick();
+  assert.deepEqual(log, ["a", "compose", "b"]);
+});
+
+test("a failed keystroke drops the jobs queued behind it", async () => {
+  let release;
+  const push = inputQueue(() => new Promise((r) => { release = r; }));
+  push({ pane: "%1", keys: "a", literal: true });
+  let ran = false;
+  const job = push.run(async () => { ran = true; });
+  release(false);
+  await assert.rejects(job);
+  assert.equal(ran, false);
 });
