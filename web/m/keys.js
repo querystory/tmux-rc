@@ -16,6 +16,7 @@ const NAMED = { ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight:
 export function tmuxKey(e, selected = false) {
   if (e.isComposing || e.metaKey) return null;
   const altGr = e.getModifierState?.("AltGraph"), ctrl = e.ctrlKey && !altGr, alt = e.altKey && !altGr;
+  if (ctrl && e.shiftKey) return null;
   const name = NAMED[e.key] || (/^F([1-9]|1[0-2])$/.test(e.key) ? e.key : null);
   if (name) {
     if (ctrl && (e.key === "Tab" || e.key === "Escape" || name.endsWith("Page"))) return null;
@@ -29,7 +30,7 @@ export function tmuxKey(e, selected = false) {
   if (ctrl) {
     // A non-Latin layout reports its own letter; the chord means the key's Latin one.
     const letter = /^[\x20-\x7e]$/.test(e.key) ? e.key.toLowerCase() : /^Key([A-Z])$/.exec(e.code)?.[1].toLowerCase();
-    if (!letter || e.shiftKey || alt || (selected && letter === "c")) return null;
+    if (!letter || alt || (selected && letter === "c")) return null;
     return { keys: `C-${letter === " " ? "Space" : letter}`, literal: false };
   }
   // Option on a Mac types its own characters (å, ∫); only an ASCII one is a Meta chord.
