@@ -30,6 +30,7 @@ const SHOTS = [
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
+  ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],

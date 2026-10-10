@@ -10,7 +10,7 @@ import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecen
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
-import { renderUsage, paneAccount } from "/m/usage.js";
+import { renderUsage, paneAccount, shownUsage } from "/m/usage.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -69,6 +69,7 @@ const LUCIDE = {
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+  gauge: '<path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/>',
   arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
@@ -580,8 +581,15 @@ function renderFleetSplit() {
 }
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
 // Plan limits move on the daemon's minute poll (Claude's every five), so a minute is plenty.
-let usage = [], usageAt = 0;
-const paintUsage = () => renderUsage($("usage"), usage, WIDE.matches);
+// Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
+// by default); the wide sidebar has no such menu and keeps them all.
+const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
+let usage = [], usageAt = 0, usageMode = "auto";
+try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
+const paintUsage = () => {
+  $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
+  renderUsage($("usage"), shownUsage(usage, WIDE.matches ? "on" : usageMode), WIDE.matches);
+};
 async function refreshUsage() {
   if (Date.now() - usageAt < 60000) return;
   usageAt = Date.now();
@@ -606,7 +614,7 @@ function render() {
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
-  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list);
+  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list); show("usage-mode", list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -1107,7 +1115,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", sort: "arrowUpDown", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", sort: "arrowUpDown", "usage-mode": "gauge", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1165,6 +1173,13 @@ $("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
 $("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
 $("sort").onclick = () => { sort = sort === "updated" ? "session" : "updated"; stayPut(); };
+$("usage-mode").onclick = () => {
+  const modes = Object.keys(USAGE_MODES);
+  usageMode = modes[(modes.indexOf(usageMode) + 1) % modes.length];
+  try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
+  paintUsage();
+};
+paintUsage(); // labels the item before the first fetch
 $("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; stayPut(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
