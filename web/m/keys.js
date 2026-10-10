@@ -45,44 +45,38 @@ export function tmuxKey(e, selected = false, mac = MAC) {
   return { keys: e.key, literal: true };
 }
 
-// Every input to a pane goes out through one queue, one request at a time, in order:
-// keystrokes, and as jobs (`run`) the composer, the key row and terminal clicks, so a draft
-// submitted mid-burst cannot land between two keys, nor a key typed after Submit before it.
-// Text typed while a request is in flight joins the queued literal for the same pane, so
-// fast typing costs a round trip per burst rather than per key. An auto-repeat
-// (`op.repeat`, a held key) is dropped while anything is still queued, so holding
-// Backspace or an arrow stops within a round trip of letting go instead of draining a
-// backlog far past where the user meant to stop. A failure, of a key (`send(op)` resolves
-// false) or of a job (it rejects), drops everything queued behind it for the same pane,
-// and dropped jobs reject: typing on, or submitting a draft, into a pane whose state is now unknown is
-// worse than losing it.
+// Every input to a pane goes out through that pane's queue, one request at a time, in
+// order: keystrokes, and as jobs (`run`) the composer, the key row and terminal clicks, so
+// a draft submitted mid-burst cannot land between two keys, nor a key typed after Submit
+// before it. Panes are independent, as the server's per-pane send locks are: a slow
+// compose to one pane never holds up typing into another. Text typed while a request is
+// in flight joins the queued literal, so fast typing costs a round trip per burst rather
+// than per key. An auto-repeat (`op.repeat`, a held key) is dropped while anything is
+// still queued, so holding Backspace or an arrow stops within a round trip of letting go
+// instead of draining a backlog far past where the user meant to stop. A failure, of a
+// key (`send(op)` resolves false) or of a job (it rejects), drops everything queued behind
+// it, and dropped jobs reject: typing on, or submitting a draft, into a pane whose state
+// is now unknown is worse than losing it.
 export function inputQueue(send) {
-  const queue = [];
-  let pumping = false;
-  const pump = async () => {
-    if (pumping) return;
-    pumping = true;
+  const lanes = new Map(); // pane id -> its queue, present while that pane's pump runs
+  const pump = async (pane, queue) => {
     try {
       while (queue.length) {
         const op = queue.shift();
         const ok = op.run
           ? await op.run().then((value) => { op.resolve(value); return true; }, (error) => { op.reject(error); return false; })
           : await send(op);
-        if (!ok) {
-          const [dropped, kept] = [queue.filter((o) => o.pane === op.pane), queue.filter((o) => o.pane !== op.pane)];
-          queue.splice(0, queue.length, ...kept);
-          for (const o of dropped) o.reject?.(new Error("dropped after a failed pane input"));
-        }
+        if (!ok) for (const dropped of queue.splice(0)) dropped.reject?.(new Error("dropped after a failed pane input"));
       }
-    } finally { pumping = false; }
+    } finally { lanes.delete(pane); }
   };
   const push = (op) => {
-    const last = queue.at(-1);
+    const queue = lanes.get(op.pane), last = queue?.at(-1);
     if (op.repeat && last) return;
-    if (op.literal && last?.literal && last.pane === op.pane) last.keys += op.keys;
-    else queue.push({ ...op });
-    pump();
+    if (op.literal && last?.literal) last.keys += op.keys;
+    else if (queue) queue.push({ ...op });
+    else { const fresh = [{ ...op }]; lanes.set(op.pane, fresh); pump(op.pane, fresh); }
   };
-  push.run = (pane, job) => new Promise((resolve, reject) => { queue.push({ pane, run: job, resolve, reject }); pump(); });
+  push.run = (pane, job) => new Promise((resolve, reject) => push({ pane, run: job, resolve, reject }));
   return push;
 }
