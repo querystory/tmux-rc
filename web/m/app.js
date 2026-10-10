@@ -394,7 +394,7 @@ function renderLanding() {
     renderList();
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
-  }, licon);
+  }, licon, $("usage-panel"));
   landingRows("landing-attention", waiting);
   renderLoops($("landing-loops"), loops, navigate, licon);
 }
@@ -601,10 +601,10 @@ let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usageDetail = fa
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
-  renderUsage($("usage"), shownUsage(usage, WIDE.matches ? "on" : usageMode), WIDE.matches);
+  renderUsage($("usage"), shownUsage(usage, WIDE.matches ? "on" : usageMode), { wide: WIDE.matches });
   // The dashboard's panel draws every meter as a trend whatever the mode; tapped, it opens up.
   show("usage-panel", usage.length > 0);
-  renderUsage($("usage-board"), usage, true, usageDetail);
+  renderUsage($("usage-board"), usage, { wide: true, detail: usageDetail });
   $("usage-detail").ariaExpanded = usageDetail;
   $("usage-detail").ariaLabel = $("usage-detail").title = usageDetail ? "Hide details" : "Show details";
   html($("usage-detail"), licon(usageDetail ? "chevronUp" : "chevronDown"));
