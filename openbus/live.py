@@ -493,9 +493,10 @@ async def _approved(
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     if meter.superseded:  # a later call in a turn the user already moved on from
         answer.set_result(None)
-    nudge = meter.push and asyncio.create_task(_nudge(meter, summary))
+    nudge = None
     try:
         await websocket.send_json({**card, "id": proposal})
+        nudge = meter.push and asyncio.create_task(_nudge(meter, summary))  # the phone has it
         ok = await answer  # True / False on a tap, None when a new message superseded it
         rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
         # The client shows the answer as final only on this, so a reconnect can't leave a
@@ -520,7 +521,7 @@ async def _nudge(meter: _Meter, text: str) -> None:
         since = meter.unseen_since
         if (since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS
                 and await asyncio.to_thread(meter.push.chat, text)):
-            return  # not queued (a full queue): try again next tick
+            return  # queued; a full queue falls through and tries again next tick
         await asyncio.sleep(_NUDGE_TICK)
 
 
