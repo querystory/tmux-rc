@@ -466,7 +466,7 @@ _answered: dict[tuple, tuple] = {}
 _chats: dict[tuple, _Meter] = {}
 
 
-def _connect(meter: _Meter, *, viewing: bool) -> None:
+async def _connect(meter: _Meter, *, viewing: bool, fresh: bool = False) -> None:
     """Make `meter` its chat's live connection, in view or not as its handshake says. A
     hidden reconnect carries on its cards' unseen wait rather than restarting it.
 
@@ -475,7 +475,8 @@ def _connect(meter: _Meter, *, viewing: bool) -> None:
     cards go to the new one now, ending its waits as a drop would, so they park before the
     new connection can read a sync or a Send for them (the old call wakes on the loop's
     next pass, the new socket's first frame is a round trip away), rather than being
-    answered "expired" while still held by the dead one."""
+    answered "expired" while still held by the dead one. A `fresh` one is a new chat: an
+    earlier one ended offline, so its cards go, once parked."""
     chat = meter.actor, meter.session
     old = _chats.get(chat)
     meter.unseen_since = None if viewing else next(
@@ -487,6 +488,9 @@ def _connect(meter: _Meter, *, viewing: bool) -> None:
             if not answer.done():
                 answer.set_exception(WebSocketDisconnect(1001))
     _chats[chat] = meter
+    if fresh:
+        await asyncio.sleep(0)  # the replaced connection's cards park on this pass
+        _unpark(meter)
 
 
 def _disconnect(meter: _Meter) -> None:
@@ -1409,10 +1413,9 @@ async def live_mode(websocket: WebSocket) -> None:
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
     meter.push = getattr(websocket.app.state, "push", None)
-    _connect(meter, viewing=websocket.query_params.get("viewing") != "0")
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
-    if websocket.query_params.get("fresh"):  # a new chat: an earlier one ended offline
-        _unpark(meter)
+    await _connect(meter, viewing=websocket.query_params.get("viewing") != "0",
+                   fresh=bool(websocket.query_params.get("fresh")))
     outcome, reason = "ok", "stop"
     try:
         if use_gpt:
