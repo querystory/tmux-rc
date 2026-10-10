@@ -1,4 +1,6 @@
 """Open loops: the GitHub query and its parse, the worktree scan, and the lane join."""
+import asyncio
+import contextlib
 import json
 import os
 import subprocess
@@ -129,6 +131,35 @@ def test_a_failed_git_listing_keeps_the_previous_rows(monkeypatch):
     before = [{**wt("/wt/drift", "spike", unpushed=1), "common": "/c/.git"},
               {**wt("/elsewhere", "x"), "common": "/d/.git"}]
     assert scan_worktrees(["/wt/drift"], previous=before) == before[:1]
+    monkeypatch.setattr(open_loops, "_git", lambda *a: None)  # discovery fails too
+    assert scan_worktrees(["/wt/drift/src"], previous=before) == before[:1]
+
+
+def test_a_new_association_refreshes_early(monkeypatch):
+    monkeypatch.setattr(open_loops, "POLL", 0.01)
+    loops, calls = OpenLoops(), []
+
+    def refresh(panes):
+        calls.append(len(panes))
+        loops.refs = set(open_loops._refs(panes))
+
+    loops.refresh = refresh
+
+    class Watcher:
+        states = [pane("%1")]  # noqa: RUF012 - the test mutates it to add an association
+        def booted(self): return True
+
+    async def go():
+        task = asyncio.create_task(loops.run(Watcher()))
+        await asyncio.sleep(0.1)
+        Watcher.states = [pane("%1", prs=[13])]  # the classifier restored one a tick later
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(go())
+    assert calls == [1, 1] and loops.stopping.is_set()
 
 
 def test_fetch_failure_keeps_the_last_good_answer(monkeypatch):

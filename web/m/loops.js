@@ -16,21 +16,24 @@ export const REASONS = {
 const ref = i => `${i.repo.split("/").pop()}#${i.number}`;
 const ago = (t, now) => t ? `${since({ state_since: t }, now)} ago` : ""; // the list's own age format
 
-function panes(list, licon) {
-  return list.length ? list.map(p => `<button type="button" class="loop-pane" data-pane="${esc(p.pane_id)}">`
+function panes(list, licon, key) {
+  return list.length ? list.map(p => `<button type="button" class="loop-pane" data-pane="${esc(p.pane_id)}" data-key="${esc(`${key} ${p.pane_id}`)}">`
     + `${licon("terminal", 14)}${esc(p.label || `${p.session}:${p.window_index}`)}</button>`).join("")
     : '<span class="loop-orphan">no pane</span>';
 }
 
-function row(i, licon, now) {
+// Every control carries a key naming its lane, row and target, so a redraw can hand
+// keyboard focus back to the same control even when rows come and go around it.
+function row(i, licon, now, lane) {
   const why = esc(i.reasons.map(r => REASONS[r] || r).join(" · "));
+  const key = `${lane} ${i.url || i.pane?.pane_id || i.path}`;
   if (i.kind === "pr") {
-    return `<div class="loop-row"><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>`
+    return `<div class="loop-row"><a href="${esc(i.url)}" target="_blank" rel="noopener" data-key="${esc(key)}">${esc(i.title)}</a>`
       + `<span class="m">${esc(ref(i))}${i.draft ? " · draft" : ""} · ${why} · ${ago(i.at, now)}</span>`
-      + `<span class="loop-panes">${panes(i.panes, licon)}</span></div>`;
+      + `<span class="loop-panes">${panes(i.panes, licon, key)}</span></div>`;
   }
   if (i.kind === "pane") {
-    return `<div class="loop-row"><span class="loop-panes">${panes([i.pane], licon)}</span>`
+    return `<div class="loop-row"><span class="loop-panes">${panes([i.pane], licon, key)}</span>`
       + `<span class="m">${why} · ${i.dirty} changed files · ${ago(i.at, now)}</span></div>`;
   }
   const held = [i.dirty && `${i.dirty} uncommitted`, i.unpushed && `${i.unpushed} unpushed`].filter(Boolean);
@@ -63,18 +66,16 @@ export function renderLoops(el, report, open, licon, now = Date.now()) {
   const open0 = [...el.querySelectorAll(".loop-lane")].map(d => d.open);
   const markup = Object.entries(LANES).map(([lane, title], k) => {
     const list = groups(lane), n = list.reduce((sum, g) => sum + g.items.length, 0);
-    return `<details class="loop-lane" ${open0[k] ?? lane !== "moving" ? "open" : ""}><summary><h3>${title}</h3><span class="m">${n}</span></summary>`
+    return `<details class="loop-lane" ${open0[k] ?? lane !== "moving" ? "open" : ""}><summary data-key="${lane}"><h3>${title}</h3><span class="m">${n}</span></summary>`
       + (list.map(g => `<section class="loop-ws">${lane !== "moving" && solo(g) ? "" : `<h4>${esc(g.workstream?.name || "Ungrouped")}</h4>`}`
-        + (lane === "moving" ? moved(g.items, now) : g.items.map(i => row(i, licon, now)).join("")) + "</section>").join("")
+        + (lane === "moving" ? moved(g.items, now) : g.items.map(i => row(i, licon, now, lane)).join("")) + "</section>").join("")
         || '<p class="m">Nothing here.</p>') + "</details>";
   }).join("") + `<p class="m loop-notes">${esc(notes.filter(Boolean).join(" · "))}</p>`;
   if (el._html !== markup) {
-    // A redraw (an age ticking, a lane folding) must not drop keyboard focus: the controls
-    // keep their order, so the focused one is found again by its position.
-    const controls = () => [...el.querySelectorAll("a, button, summary")];
-    const focused = controls().indexOf(document.activeElement);
+    // A redraw (an age ticking, a lane folding) must not drop keyboard focus.
+    const focused = el.contains(document.activeElement) && document.activeElement.dataset.key;
     el.innerHTML = markup; el._html = markup;
-    if (focused >= 0) controls()[focused]?.focus();
+    if (focused) [...el.querySelectorAll("[data-key]")].find(c => c.dataset.key === focused)?.focus();
   }
   el.onclick = e => { const b = e.target.closest("[data-pane]"); if (b) open(b.dataset.pane); };
 }

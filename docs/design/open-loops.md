@@ -36,7 +36,10 @@ name. The refresh runs every 15 minutes on a background task, the same shape as 
 usage's poller, and the endpoint only ever reads the cache, so opening the view never
 touches the network and a burst of requests costs GitHub nothing. The issue suggests an
 hourly cadence; a quarter hour was chosen because the cost does not grow with the number
-of PRs, and the Moving lane is only as fresh as the cache. The response states when the
+of PRs, and the Moving lane is only as fresh as the cache. A pane that gains an association the cache has
+not looked up triggers a refresh within a minute rather than waiting out the quarter
+hour; at startup that is what picks up the associations the classifier restores a tick
+after the panes appear. The response states when the
 cache was filled and whether the last refresh failed, and a failed refresh keeps the
 previous answer rather than blanking the lanes.
 
