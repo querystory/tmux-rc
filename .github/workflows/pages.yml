@@ -1,0 +1,59 @@
+name: Website & docs
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "docs-site/**", "agent-history/go.mod", "Makefile", ".github/workflows/pages.yml"]
+  pull_request:
+    paths: ["docs/**", "docs-site/**", "agent-history/go.mod", "Makefile", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent-history/go.mod
+          cache-dependency-path: docs-site/go.sum
+      - name: Install Hugo Extended
+        env:
+          HUGO_VERSION: "0.167.0"
+          HUGO_SHA256: "0163f5c3deddac1f494a1629ddc40c65d18de9d5794facd98f7f96ac2c7d8957"
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/hugo.tar.gz" \
+            "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_extended_${HUGO_VERSION}_linux-amd64.tar.gz"
+          printf '%s  %s\n' "$HUGO_SHA256" "$RUNNER_TEMP/hugo.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/hugo.tar.gz" -C "$RUNNER_TEMP" hugo
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Build website
+        run: make docs DOCS_BASE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" DOCS_DESTINATION=public
+      - name: Check links and content
+        run: python3 docs-site/check-links.py docs-site/public
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        if: github.event_name != 'pull_request'
+        with:
+          path: docs-site/public
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+        id: deployment

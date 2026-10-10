@@ -10,8 +10,8 @@
 # asset hrefs baked into the HTML — so that override is load-bearing, not optional).
 
 baseURL = "/"
-title = "tmux-rc docs"
-languageCode = "en-us"
+title = "tmux-rc"
+locale = "en-us"
 
 # Point Hugo at the existing docs/ instead of a content/ dir inside docs-site.
 # NOTE: a top-level docs/DESIGN.md would emit at /design/ and collide with the
@@ -31,6 +31,9 @@ contentDir = "../docs"
     noClasses = false        # emit CSS classes so the theme controls code colors
 
 [params]
+  description = "Manage coding agents remotely from desktop or phone, through text and voice chat or direct dashboard controls, using your existing tmux sessions."
+  [params.theme]
+    default = "light"
   [params.navbar]
     displayTitle = true
     displayLogo = false      # logo wired in during the styling phase

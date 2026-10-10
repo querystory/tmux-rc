@@ -50,8 +50,11 @@ fmt:
 # the daemon mounts them at (see TMUXRC_DOCS_DIR in .env.example). Dedicated output dir
 # so `docs-dev`'s Hugo server — which owns public/ and rewrites it on every edit — can
 # never clobber the build the daemon is serving.
+DOCS_BASE_URL ?= /docs/
+DOCS_DESTINATION ?= serve
+
 docs:
-	cd docs-site && hugo --gc --minify --baseURL /docs/ --destination serve
+	cd docs-site && hugo --gc --minify --baseURL "$(DOCS_BASE_URL)" --destination "$(DOCS_DESTINATION)"
 
 # Docs authoring server with hot reload on http://localhost:18034. Ports here spell R,C
 # (1803X) — "rc" being the half of the name that survives if the project is ever renamed
@@ -63,7 +66,7 @@ docs-dev:
 
 # Build, then fail on broken internal links or blank pages.
 docs-check: docs
-	uv run python docs-site/check-links.py
+	uv run python docs-site/check-links.py "docs-site/$(DOCS_DESTINATION)"
 
 docs-clean:
 	rm -rf docs-site/public docs-site/serve docs-site/resources docs-site/.hugo_build.lock
@@ -96,6 +99,7 @@ demo:
 screenshots: $(PLAYWRIGHT)
 	node scripts/screenshots.mjs .screenshots
 	cp $(README_SHOTS:%=.screenshots/%.png) docs/img/
+	cp .screenshots/website-*.png docs/img/
 
 screenshots-diff: $(PLAYWRIGHT)
 	uv run python -m scripts.screenshots_diff $(BASE) .screenshots/diff
