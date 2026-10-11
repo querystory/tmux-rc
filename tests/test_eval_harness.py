@@ -101,7 +101,8 @@ def test_links_require_each_expected_url_whole():
     whole = {"links": [{"href": "https://example.com/x"}, {"href": want["links"][0]}]}
     assert score_structured(whole, want)[0]
     assert not score_structured({"links": [{"href": want["links"][0][:-3]}]}, want)[0]
-    for malformed in ({"links": [{"href": []}]}, {"links": 3}, {"links": "x"}):
+    hidden = {"links": [{"href": f"https://example.com/{i}"} for i in range(3)] + whole["links"]}
+    for malformed in ({"links": [{"href": []}]}, {"links": 3}, {"links": "x"}, hidden):
         assert not score_structured(malformed, want)[0]
 
 
