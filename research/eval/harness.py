@@ -265,8 +265,9 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
             diffs.append(f"copyable_texts: got {texts!r}")
     # Opt-in: each expected URL must be offered whole, however the screen wrapped it.
     if "links" in expected:
-        links = candidate.get("links") or []
-        hrefs = {link.get("href") for link in links if isinstance(link, dict)}
+        links = candidate.get("links")  # untrusted model JSON: only string hrefs count
+        hrefs = {link.get("href") for link in links if isinstance(link, dict)
+                 and isinstance(link.get("href"), str)} if isinstance(links, list) else set()
         if missing := [href for href in expected["links"] if href not in hrefs]:
             diffs.append(f"links: missing {missing!r}")
     for k, got in presence.items():

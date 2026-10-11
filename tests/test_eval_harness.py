@@ -101,6 +101,8 @@ def test_links_require_each_expected_url_whole():
     whole = {"links": [{"href": "https://example.com/x"}, {"href": want["links"][0]}]}
     assert score_structured(whole, want)[0]
     assert not score_structured({"links": [{"href": want["links"][0][:-3]}]}, want)[0]
+    for malformed in ({"links": [{"href": []}]}, {"links": 3}, {"links": "x"}):
+        assert not score_structured(malformed, want)[0]
 
 
 def test_copyable_texts_pin_the_exact_payload():
