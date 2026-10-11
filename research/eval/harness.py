@@ -263,6 +263,12 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         texts = [c.get("text") for c in candidate.get("copyables") or [] if isinstance(c, dict)]
         if texts != expected["copyable_texts"]:
             diffs.append(f"copyable_texts: got {texts!r}")
+    # Opt-in: each expected URL must be offered whole, however the screen wrapped it.
+    if "links" in expected:
+        links = candidate.get("links") or []
+        hrefs = {link.get("href") for link in links if isinstance(link, dict)}
+        if missing := [href for href in expected["links"] if href not in hrefs]:
+            diffs.append(f"links: missing {missing!r}")
     for k, got in presence.items():
         c, e = bool(got), bool(expected.get(k))
         if c != e:

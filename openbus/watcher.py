@@ -1453,13 +1453,16 @@ class Watcher:
             # is worse than a stale card. We failed to read the screen, so the honest
             # card is the last one we actually read: keep it whole and retry next tick.
             # Identity, timers and the snapshot id are re-stamped below from live tmux.
+            # Links are the exception: a parse fails when its question or rewind is
+            # rejected, yet the URLs it read off the screen still stand, and a login
+            # link printed in that turn would otherwise never reach the card.
             replacement_tool = state.get("identity_tool")
             previous_tool = previous.get("identity_tool", previous.get("tool"))
             known_replacement = (
                 replacement_tool not in (None, "unknown")
                 and replacement_tool != previous_tool
             )
-            state = dict(previous)
+            state = {**previous, "links": state.get("links") or previous.get("links")}
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)

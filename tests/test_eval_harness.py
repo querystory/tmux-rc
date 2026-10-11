@@ -96,6 +96,13 @@ def test_tables_is_scored_only_where_a_sample_names_it():
     assert score_structured({}, {})[0]
 
 
+def test_links_require_each_expected_url_whole():
+    want = {"links": ["https://auth.example.com/login?state=abc"]}
+    whole = {"links": [{"href": "https://example.com/x"}, {"href": want["links"][0]}]}
+    assert score_structured(whole, want)[0]
+    assert not score_structured({"links": [{"href": want["links"][0][:-3]}]}, want)[0]
+
+
 def test_copyable_texts_pin_the_exact_payload():
     want = {"copyables": True, "copyable_texts": ["a\n  b"]}
     assert score_structured({"copyables": [{"text": "a\n  b"}]}, want)[0]
@@ -138,7 +145,10 @@ def test_corpus_loads_and_is_well_formed():
     for s in corpus:
         assert s.capture.strip(), f"{s.name}: empty capture"
         assert s.expected.get("tool") in _VALID_TOOL, f"{s.name}: bad tool"
-        assert s.expected.get("activity") in _VALID_ACTIVITY, f"{s.name}: bad activity"
+        # "unknown" only where the sample pins an unread parse, the one honest use of it.
+        assert s.expected.get("activity") in _VALID_ACTIVITY or (
+            s.expected.get("activity") == "unknown" and s.expected.get("parse_ok") is False
+        ), f"{s.name}: bad activity"
         # waiting_on is meaningful only on a waiting pane.
         if s.expected.get("waiting_on"):
             assert s.expected["activity"] == "waiting", f"{s.name}: waiting_on off a non-wait"
