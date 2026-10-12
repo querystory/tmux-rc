@@ -506,6 +506,26 @@ def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
     assert "parse_ok" not in state
 
 
+def test_failed_parse_still_publishes_the_links_it_read(monkeypatch):
+    """A parse fails when its question is rejected, but the URLs it read are not part of
+    that misread: a login link printed in the failing turn must reach the kept card."""
+    frame = ["Working"]
+    w, _calls = _harness(monkeypatch, frame)
+    link = {"href": "https://auth.example.com/login?state=abc", "text": "Sign in"}
+    seq = [{"activity": "running", "tool": "claude", "events": [], "headline": "Working"},
+           {"activity": "unknown", "tool": "claude", "events": [], "links": [link],
+            "parse_ok": False},
+           {"activity": "unknown", "tool": "claude", "events": [], "parse_ok": False}]
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0)))
+    pane = _Pane(current_command="node")
+    for text in ("Working", "Open this link to sign in", "Open this link to sign in now"):
+        frame[0] = text
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+        assert state["headline"] == "Working", "the rest of the card is kept whole"
+        assert state.get("links") == (None if text == "Working" else [link])
+
+
 def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
     """The phone stops spinning an answered control when `parsed_at` advances. A forced
     reparse that FAILS still has to move it, or the control spins forever."""

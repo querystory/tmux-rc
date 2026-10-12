@@ -140,31 +140,37 @@ _PROCESS_TOOLS = {
     "opencode": "opencode",
     "omp": "omp",
 }
-# omp installed through bun runs as `bun`, so its executable proves nothing; its title
-# (OMP_TITLE_RE) does. Launched behind a wrapper (`omp …; exec bash`, a script, `uv run`)
-# the foreground is a shell, and the title alone can't be trusted there because it
-# outlives omp, but the title plus a live omp process under the pane can.
-_OMP_PROC_LIMIT = 64  # processes walked under one pane, bounding a pathological tree
+# An agent installed through npm or bun runs as `node`/`bun`, so the foreground executable
+# proves nothing; the agent that interpreter runs, found under the pane, does. omp's title
+# (OMP_TITLE_RE) proves it outright under bun. Launched behind a wrapper (`omp …; exec
+# bash`, a script, `uv run`) the foreground is a shell, and the title alone can't be
+# trusted there because it outlives omp, but the title plus a live omp process under the
+# pane can. Other agents get no such shell walk: without a title to corroborate it, a
+# suspended or backgrounded agent under an idle shell would claim the pane.
+_INTERPRETERS = ("bun", "node")
 
 
-def _runs(pid: str, name: str) -> bool:
-    """Is `name` among `pid` and its descendants: argv[0], or bun/node running it?"""
-    for p in processes(pid, _OMP_PROC_LIMIT):
+def _programs(pid: str) -> set[str]:
+    """Programs among `pid` and its descendants: argv[0], or the script bun/node runs."""
+    names = set()
+    for p in processes(pid):
         argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
-        if argv[0] == name or (argv[0] in ("bun", "node") and argv[1:] == [name]):
-            return True
-    return False
+        names.add(argv[-1] if argv[0] in _INTERPRETERS else argv[0])
+    return names
 
 
 def _host_tool(pane: Pane) -> str | None:
     """The agent the pane's process or title proves it is running, else None."""
     if tool := _PROCESS_TOOLS.get(pane.current_command):
         return tool
-    if OMP_TITLE_RE.match(pane.title) and (
-        pane.current_command in ("bun", "node") or (pane.pid and _runs(pane.pid, "omp"))
-    ):
+    omp_title = OMP_TITLE_RE.match(pane.title)
+    hosted = pane.current_command in _INTERPRETERS
+    if hosted and omp_title:
         return "omp"
-    return None
+    if not pane.pid or not (hosted or omp_title):
+        return None
+    found = _programs(pane.pid) & (_PROCESS_TOOLS.keys() if hosted else {"omp"})
+    return _PROCESS_TOOLS[found.pop()] if len(found) == 1 else None
 
 
 # omp's status row is fixed-format chrome (status-line/metrics.ts), read here rather than
@@ -480,6 +486,11 @@ def _ground_visible_fields(
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
     if bad_action:
+        # Only the viewport re-read vouches for a link: the first read also saw history.
+        # Links survive a failed re-read, which the watcher publishes on the kept card.
+        result.pop("links", None)
+        if retry and isinstance(retry.get("links"), list) and retry["links"]:
+            result["links"] = retry["links"]
         state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")

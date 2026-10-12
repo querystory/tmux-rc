@@ -40,10 +40,14 @@ export function markWorking(img, pane, logos) {
   if (!badge) img.after(badge = Object.assign(document.createElement("img"), { className: "model-badge" }));
   if (badge.getAttribute("src") !== provider[1]) Object.assign(badge, { src: provider[1], alt: provider[0] });
 }
+// The time a row's age label counts from.
+export const shownAt = (p) => Number(p.state_since) || lastActivity(p);
+// List order matches the ages shown: "now" rows first, then the youngest age.
+export const newestFirst = (a, b) => isRunning(b) - isRunning(a) || shownAt(b) - shownAt(a);
 // How long the pane has been in its current state; a row shows "now" while it works.
 // No timestamp at all reads as no age, not as time since the epoch.
 export const since = (p, nowMs = Date.now()) => {
-  const t = Number(p.state_since) || lastActivity(p);
+  const t = shownAt(p);
   if (!(t > 0)) return "";
   const s = Math.max(0, nowMs / 1000 - t);
   return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
@@ -103,7 +107,7 @@ export const LAUNCH_GRACE_MS = 30000;
 export const awaitingLaunch = (launched, id, nowMs = Date.now()) =>
   !!id && launched?.id === id && nowMs - launched.at < LAUNCH_GRACE_MS;
 
-// Sort key for "Sort by updated": the parser's timestamp when it has one, else the moment
+// shownAt's fallback without state_since: the parser's timestamp when it has one, else the moment
 // the pane's state last changed, never later than when an idle pane went idle.
 export function lastActivity(pane) {
   if (Number.isFinite(pane.last_activity_at)) return pane.last_activity_at;
