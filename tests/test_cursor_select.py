@@ -77,6 +77,9 @@ def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
     assert highlighted_row("Pick?\n❯ No\n  Pick?", "Pick?", no_yes) == "No"
     old = "Pick?\n❯ Yes\n────────\nPick?\n  No\n  Yes"  # an earlier widget's match is history
     assert highlighted_row(old, "Pick?", no_yes) is None
+    # Only a row that opens with a frame loses a closing bar; a label's own bar is kept.
+    assert highlighted_row("Pick?\n❯ Fix │", "Pick?", ["Fix │"]) == "Fix │"
+    assert highlighted_row("│ Pick?   │\n│ ❯ a │   │", "Pick?", ["a │"]) == "a │"
 
 
 def test_classify_overrides_a_misread_anchor():
@@ -98,6 +101,11 @@ def test_a_tabbed_panel_the_user_opened_is_not_a_question():
     assert "question" not in result
     assert result["activity"] == "idle"
     assert "waiting_on" not in result
+    # A failed parse of the same panel is grounded by it too: idle, and not reparsed.
+    failed = {"tool": "claude", "activity": "unknown", "parse_ok": False}
+    result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{PANEL}", lambda s, t: dict(failed))
+    assert result["activity"] == "idle"
+    assert "parse_ok" not in result
 
 
 MENU = """

@@ -87,8 +87,10 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 # has closed is ever the cursor. A box with no highlight in it is the search field above
 # the list (/resume, /config), not its edge, so it is passed over. Returns the one option
 # the row names: itself, or itself ahead of a value column ("Auto-compact      true").
+# Only a row that opens with a frame loses one closing bar: a label's own bar is content.
 _HIGHLIGHT_RE = re.compile(
-    _PROMPT_ROW + r"[ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?(.*?)[\s│┃╎]*$", re.MULTILINE)
+    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
+    r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
 
 
@@ -108,7 +110,7 @@ def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
     rows = _HIGHLIGHT_RE.finditer(visible, asked.end(), _widget_end(visible, asked.end()))
     *_, row = [None, *rows]
     named = row and [option for option in options if isinstance(option, str)
-                     and (row[1] == option or row[1].startswith(f"{option}  "))]
+                     and (row["label"] == option or row["label"].startswith(f"{option}  "))]
     return named[0] if named and len(named) == 1 else None
 
 
@@ -1017,8 +1019,11 @@ def classify(
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     if result.get("tool") == "claude" and _TABBED_PANEL_RE.search(visible):
+        # Authoritative over the model, a failed parse included: the screen is a settings
+        # panel, so nothing is asked. Only a turn the model saw still running stays running.
         result.pop("question", None)
-        if result.get("activity") == "waiting":
+        result.pop("parse_ok", None)
+        if result.get("activity") != "running":
             result["activity"] = "idle"
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
