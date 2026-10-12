@@ -216,10 +216,13 @@ def _edit(config: str, label: str | None, *, forget: bool) -> None:
         entry["hidden"] = True
         # A session defaulting to it would keep starting panes there, unbadged once the
         # picker goes: such sessions fall back to the provider's default dir.
-        with contextlib.suppress(subprocess.CalledProcessError):
+        try:
             sessions = {p.session for p in tmux.list_panes()}
-            for session, chosen in session_defaults(sessions).items():
-                if chosen[profile["provider"]] == profile["dir"]:
+        except subprocess.CalledProcessError:  # no tmux: no session defaults either
+            sessions = set()
+        for session, chosen in session_defaults(sessions).items():
+            if session and chosen[profile["provider"]] == profile["dir"]:
+                with contextlib.suppress(subprocess.CalledProcessError):  # gone meanwhile
                     tmux.set_env(ENV[profile["provider"]], None, session=session)
     if label is not None:
         entry["label"] = label.strip() or None

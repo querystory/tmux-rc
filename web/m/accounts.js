@@ -68,8 +68,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
       .filter((a) => a.acct && (!on || a.acct === on))
       .map((a) => ({ ...a, label: several(a.provider) ? a.acct.name : null }));
   }
-  // Full soonest first, then the highest pace at the reset; an unreadable one last.
-  const urgency = (w) => !w ? -1 : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
+  // Already full first, then full soonest, then the highest pace at the reset; unreadable last.
+  const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
   const byUrgency = (list) => list.flatMap((a) => a.windows?.length ? a.windows.map((w) => ({ ...a, windows: [w] })) : [a])
     .sort((a, b) => urgency(b.windows?.[0]) - urgency(a.windows?.[0]));
   // One swipeable row: the edge fades only while there is more that way.

@@ -1442,7 +1442,8 @@ async function openLaunch(fresh) {
   // Suggestions only (open panes' and past agent sessions' directories); any path works.
   request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
-    const data = await request("/api/launchers");
+    // The accounts too: the picker below draws from them, and on a first load they may not be in yet.
+    const [data] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
     text($("launch-error"), "");
     $("launch-choices").replaceChildren(...data.launchers.map((launcher) => {
       const button = document.createElement("button");
