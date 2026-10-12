@@ -114,6 +114,7 @@ function boot(M) {
         if (view.wait) await until(() => doc.querySelector(view.wait), view.wait);
         w.eval(inject(cfg, text));
       };
+      store("tmuxrc-theme", s.theme); // same origin as the app: it boots in the harness's theme, icon and all
       iframe.src = `/m/${M.views.find((x) => x.name === s.view).hash || ""}`; // a chat view needs the canned socket: snapshots only
     } else {
       const snap = await loadSnap(`${s.view}/${s.theme}/${width}`);
