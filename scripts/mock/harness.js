@@ -15,9 +15,12 @@ function bridge() {
   const root = document.documentElement, M = window.MOCK;
   root.classList.toggle("light", M.theme === "light");
   root.style.setProperty("--app-height", `${innerHeight}px`);
-  // A snapshot keeps a dialog's `open` but not its modality; reopen it in the top layer.
-  for (const d of document.querySelectorAll("dialog[open]")) {
-    if (!d.matches(":modal")) { d.close(); d.showModal(); }
+  // A snapshot keeps a dialog's `open` but not its modality; reopen the modal ones (marked
+  // by scripts/mock.mjs) in the top layer, and leave a non-modal one, like the desktop chat
+  // column, where it is.
+  for (const d of document.querySelectorAll("dialog[data-mock-modal]")) {
+    d.close();
+    d.showModal();
     d.addEventListener("cancel", (e) => e.preventDefault());
   }
   for (const el of document.querySelectorAll("[data-mock-scroll]")) [el.scrollTop, el.scrollLeft] = el.dataset.mockScroll.split(",").map(Number);
@@ -139,19 +142,20 @@ function boot(M) {
   addEventListener("keydown", (e) => { if (!e.target.closest("select")) onKey(e.key); });
   // The hash carries the whole state, so a link (or a reload, where storage is sandboxed off) reopens it.
   function writeHash() {
-    const hash = new URLSearchParams({ v: s.v[0], b: s.v[1], view: s.view, w: s.width, ab: +s.ab, theme: s.theme, hide: +s.hidden, note: +!$("#note").hidden });
+    const hash = new URLSearchParams({ v: s.v[0], b: s.v[1], view: s.view, w: s.width, ab: +s.ab, theme: s.theme, hide: +s.hidden, note: +$("#note").open });
     try { history.replaceState(null, "", `#${hash}`); } catch { location.replace(`#${hash}`); } // an opaque origin may refuse the first
   }
-  const note = (open) => { $("#note").hidden = !open; $("#note-btn").ariaExpanded = String(open); writeHash(); };
+  // A modal dialog: it takes focus, traps it, closes on Escape and hands focus back to Note.
+  $("#note").onclose = () => { $("#note-btn").ariaExpanded = "false"; writeHash(); };
+  $("#note-btn").onclick = () => { $("#note").showModal(); $("#note-btn").ariaExpanded = "true"; writeHash(); };
   $("#note-body").innerHTML = M.note || "";
   $("#note-btn").hidden = !M.note;
-  $("#note-btn").onclick = () => note($("#note").hidden);
-  $("#note-close").onclick = () => note(false);
+  $("#note-close").onclick = () => $("#note").close();
   $("#ab").onclick = () => set({ ab: !s.ab });
   $("#theme").onclick = () => set({ theme: s.theme === "light" ? "dark" : "light" });
   $("#hide").onclick = $("#pill").onclick = () => set({ hidden: !s.hidden });
   $("#title").textContent = document.title = M.title;
-  note(q.get("note") === "1");
+  if (M.note && q.get("note") === "1") $("#note-btn").click();
   phone.addEventListener("change", render);
   addEventListener("resize", () => { if (sideBySide() !== shown) render(); });
   render();

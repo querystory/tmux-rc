@@ -44,6 +44,7 @@ function snapshot() {
     el.toggleAttribute("checked", !!el.checked);
   }
   for (const o of document.querySelectorAll("option")) o.toggleAttribute("selected", o.selected);
+  for (const d of document.querySelectorAll("dialog:modal")) d.dataset.mockModal = "";
   for (const el of document.querySelectorAll("*")) if (el.scrollTop || el.scrollLeft) el.dataset.mockScroll = `${el.scrollTop},${el.scrollLeft}`;
   for (const c of document.querySelectorAll("canvas")) {
     const img = Object.assign(document.createElement("img"), { src: c.toDataURL("image/webp", 0.9), className: c.className });
