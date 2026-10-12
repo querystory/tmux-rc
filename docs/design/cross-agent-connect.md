@@ -47,6 +47,10 @@ manifest) follows the list.
   record and the proposed Live and pane-input store. Neither is the transcript index.
 - [activity log](activity-log.md): the per-pane event log the daemon keeps of what it
   observed, distinct from both of the above.
+- [viewing and the activity timeline](viewing-and-timeline.md) and the
+  [work-activity tree](work-activity-tree.md): retained agent activity history and the
+  rollup over it, both daemon-side records of what panes showed. Like pane history, they
+  are not the transcript index, and Connect's history scope does not read them.
 - [expunge](expunge.md): deleting a session's transcript and its agent-history entries,
   the one path that writes to the index rather than reading it.
 - [Live Mode](live-mode.md): voice and text front end, pane tools, consent cards, and
@@ -250,8 +254,9 @@ or a fresh card), and the same three checks run again there.
 "Waiting for input" is not enough on its own: the parser counts a pane with an unsent
 draft as idle, and a message typed there would join the draft and be submitted with it.
 So delivery also requires an empty composer, rechecked under the send lock. The parser
-emits no such field today; adding it, with an eval case, is part of Collaborate, and a
-pane with a draft keeps the message queued like any other changed screen. Within
+emits no such field today; adding it, with an eval case, lands in phase 2, which needs
+it first (below), and a pane with a draft keeps the message queued like any other
+changed screen. Within
 one daemon lifetime, and while its grant stands, the sender always gets one result:
 delivered, declined, refused, cancelled, expired or
 unconfirmed. Those six are final, and queued is the only interim answer. One kind of
@@ -398,7 +403,9 @@ Connect is offered only for structured launchers and resume commands. agent-hist
 already stores resume commands as argv.
 
 **On a running agent,** connecting means relaunching onto the same conversation. The
-daemon waits for idle, exits the agent, and runs the session's resume command, which
+daemon waits for idle with an empty composer, rechecked just before it exits the agent,
+since an idle pane can still hold an unsent draft that a relaunch would discard. It then
+runs the session's resume command, which
 agent-history already resolves, with the override added. The conversation survives, but
 terminal state does not. So the card asks "Restart this agent to connect it?", and the
 relaunch never happens mid-turn. A harness with no resume command can only be connected
@@ -530,7 +537,8 @@ injection is settled; OpenCode, Gemini and custom commands cannot.
 
    Nothing in this phase can change a pane.
 2. **Connect running agents.** Relaunch through the resume command, with grants stored
-   by (harness, session id) so restore keeps them.
+   by (harness, session id) so restore keeps them. It brings the parser's empty-composer
+   field and its eval case, since a relaunch must not discard a draft.
 3. **Collaborate.** Confirmed send and peer messaging: the queue, the cards, pair
    approval, hop and rate limits.
 4. **Control.** It takes the act scope, per the routing doc's build order.
