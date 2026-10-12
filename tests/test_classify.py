@@ -1395,10 +1395,12 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
     result = classify(_pane("claude"), screen, _llm({"question": echo, "tables": [table]}))
     assert result["question"]["options"] == ["Option B please"] and result["tables"] is None
     # Numbers and letters keep the prompt's order, and the first named row leads.
-    mixed = classify(_pane("claude"), _auto_screen(
-        message + "\n\n  Steps:\n  1. Ship it now.\n\n  Do A, then step 1?"), _llm({}))["question"]
-    assert mixed["items"] == ["A. Answer first.", "1. Ship it now."]
-    assert mixed["subject"] == "Two ways to fix the timeouts:"
+    for ask, want in (("Do A, then step 1?", "A1"), ("Do A and 1?", "A1"), ("Do 1 and A?", "1A")):
+        mixed = classify(_pane("claude"), _auto_screen(
+            message + f"\n\n  Steps:\n  1. Ship it now.\n\n  {ask}"), _llm({}))["question"]
+        assert "".join(i[0] for i in mixed["items"]) == want
+        assert mixed["subject"] == ("Steps:" if want[0] == "1" else
+                                    "Two ways to fix the timeouts:")
     # The parser's echo of a lettered row as a button goes, as a numbered one does.
     ask = {"prompt": "Go with A or B?", "answer_style": "text",
            "options": ["A. Answer first", "Go with A"]}

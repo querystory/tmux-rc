@@ -715,14 +715,18 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
             item, gap = None, False
         else:
             item, gap = None, True
-    refs, last = [], None  # (position, label): numbers and letters merge in prompt order
+    # (position, label): numbers and letters merge in prompt order. A number chains onto
+    # any reference before it, a letter's too ("Do A and 1?").
+    letters = list(_LETTER_REF_RE.finditer(prompt))
+    refs = [(m.start(), (m[1] or m[2]).upper()) for m in letters]
+    ends = [m.end() for m in letters]
     for m in _ITEM_REF_RE.finditer(prompt):
-        chained = last is not None and _REF_CHAIN_RE.fullmatch(prompt, last, m.start())
+        chained = any(e <= m.start() and _REF_CHAIN_RE.fullmatch(prompt, e, m.start())
+                      for e in ends)
         if (chained or _REF_BEFORE_RE.search(prompt, 0, m.start())) and not (
                 _COUNT_BEFORE_RE.search(prompt, 0, m.start())):
             refs += [(m.start(), str(n)) for n in range(int(m[1]), int(m[2] or m[1]) + 1)]
-            last = m.end()
-    refs += [(m.start(), (m[1] or m[2]).upper()) for m in _LETTER_REF_RE.finditer(prompt)]
+            ends.append(m.end())
     refs.sort(key=lambda ref: ref[0])  # stable: a range keeps its order
     named = [n for n in dict.fromkeys(n for _, n in refs) if n in rows]
     return {n: " ".join(rows[n]) for n in named}, leads[named[0]] if named else ""
