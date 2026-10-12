@@ -58,7 +58,9 @@ self.addEventListener("notificationclick", (event) => {
     const existing = owner || apps[0] || windows[0];
     if (existing) {
       try {
-        if (!(data.chat && apps.length)) await existing.navigate(target);
+        // iOS will not navigate() an open app to a new hash, so the app routes itself (app.js).
+        if (!apps.length) await existing.navigate(target);
+        else if (!data.chat) existing.postMessage({ open: target });
         return existing.focus();
       } catch {}
     }
