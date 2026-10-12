@@ -22,7 +22,7 @@ def node(number, *, base="main", head=None, author="dev", state="OPEN",  # noqa:
          updated=H,
          decision="REVIEW_REQUIRED", checks="SUCCESS", requested=(), reviews=(),
          base_ref="exists", merged=None, draft=False, mergeable="MERGEABLE", labels=(),
-         repo=REPO):
+         repo=REPO, head_repo=None):
     """One PullRequest as the GraphQL fragment returns it, a knob per field a rule reads."""
     stamp = lambda ago: ago is not None and datetime.fromtimestamp(NOW - ago, UTC).isoformat()  # noqa: E731
     return {
@@ -33,6 +33,7 @@ def node(number, *, base="main", head=None, author="dev", state="OPEN",  # noqa:
         "author": {"login": author}, "baseRefName": base, "headRefName": head or f"feat/{number}",
         "mergeable": mergeable, "reviewDecision": decision,
         "repository": {"nameWithOwner": repo, "defaultBranchRef": {"name": "main"}},
+        "headRepository": {"nameWithOwner": head_repo or repo},
         "labels": {"nodes": [{"name": name} for name in labels]},
         "reviewRequests": {"nodes": [{"requestedReviewer": {"__typename": t}} for t in requested]},
         "latestReviews": {"nodes": [{"author": {"__typename": t, "login": who}, "state": s,
@@ -97,14 +98,17 @@ def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
              else {"pageInfo": {}, "nodes": []} if "is:merged" in q
              else None)
         refs = {"r0": None, "r1": {"issueOrPullRequest": None},
-                "r2": {"issueOrPullRequest": node(2, author="lee")}} if s is None else {"s": s}
+                "r2": {"issueOrPullRequest": node(2, author="lee")},
+                "r3": {"issueOrPullRequest": node(5, author="lee", updated=30 * 86400)}
+                } if s is None else {"s": s}
         assert ("fragment P" in q) == ("...P" in q)  # an unused fragment is a GraphQL error
         return json.dumps({"data": {"viewer": {"login": "dev"}, **refs},
                            "errors": [{"type": "NOT_FOUND"}]})
 
     monkeypatch.setattr(open_loops, "run_gh", gh)
     got = fetch_github([(REPO, 9)], NOW)
-    assert got["older"] == 8 and sorted(p["number"] for p in got["prs"]) == [1, 2, 3]
+    # 4 + 4 from the counts, and #5: old, referenced, neither the viewer's nor asked of them.
+    assert got["older"] == 9 and sorted(p["number"] for p in got["prs"]) == [1, 2, 3, 5]
     assert next(p for p in got["prs"] if p["number"] == 1)["asked"]
     assert len(calls) == 8  # mine twice (a retry), page 2, asked, merged, refs, two counts
 
@@ -253,6 +257,18 @@ def test_lanes():
     group = next(g for g in lanes["dropped"] if any(i.get("path") == "/wt/a13" for i in g["items"]))
     assert group["workstream"] == {"id": f"{REPO}#13", "name": "Change 13"}
     assert next(g for g in lanes["dropped"] if g["workstream"] is None)
+
+
+def test_a_fork_head_is_no_local_branch_or_stack_base():
+    gh = github(node(70, checks="FAILURE", head="feat/x"),
+                node(71, checks="FAILURE", head="feat/x", author="lee", head_repo="lee/shop-api"),
+                node(72, checks="FAILURE", base="feat/x"))
+    built = build(gh, [wt("/wt/x", "feat/x", dirty=1)], [pane("%1", cwd="/wt/x")], NOW)
+    groups = {g["workstream"]["id"]: sorted(i["number"] for i in g["items"] if "number" in i)
+              for g in built["lanes"]["dropped"]}
+    assert groups[f"{REPO}#70"] == [70, 72] and groups[f"{REPO}#71"] == [71]
+    assert [p["pane_id"] for p in rows(built["lanes"], "dropped")[70]["panes"]] == ["%1"]
+    assert not rows(built["lanes"], "dropped")[71]["panes"]
 
 
 def test_labels_then_keywords_join_what_the_stack_cannot():

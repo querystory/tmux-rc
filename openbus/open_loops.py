@@ -38,9 +38,9 @@ AFTER = "%AFTER%"  # where a page's cursor goes; % cannot occur in a repository 
 MAX_STAT = 200  # uncommitted files whose mtimes date a worktree's last activity
 
 FIELDS = """number title url isDraft state updatedAt mergedAt author { login }
-baseRefName headRefName mergeable reviewDecision
+baseRefName headRefName mergeable reviewDecision headRepository { nameWithOwner }
 repository { nameWithOwner defaultBranchRef { name } }
-reviewRequests(first: 10) { nodes { requestedReviewer { __typename } } }
+reviewRequests(first: 10) { nodes { requestedReviewer { __typename ... on User { login } } } }
 latestReviews(first: 10) { nodes { author { __typename login } state submittedAt } }
 commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
 baseRef { associatedPullRequests(states: MERGED, first: 1) { totalCount } }
@@ -67,12 +67,18 @@ def _pr(node: dict) -> dict:
         "author": (node.get("author") or {}).get("login"), "draft": node["isDraft"],
         "updated_at": _ts(node["updatedAt"]), "merged_at": _ts(node.get("mergedAt")),
         "base": node["baseRefName"], "head": node["headRefName"], "stacked": stacked,
+        # A fork's head names a branch in another repository (or a deleted one): it can share
+        # a name with a branch here, so it never stands for a local branch or a stack's base.
+        "fork": (node.get("headRepository") or {}).get("nameWithOwner") !=
+                node["repository"]["nameWithOwner"],
         "mergeable": node.get("mergeable"), "decision": node.get("reviewDecision"),
         "checks": (commit.get("statusCheckRollup") or {}).get("state"),
         "committed_at": _ts(commit.get("committedDate")),  # not the push: GitHub keeps no such date
         # A bot (a Copilot review, say) is not a reviewer a person will answer for.
         "reviewers": sum(r["requestedReviewer"].get("__typename") in ("User", "Team")
                          for r in node["reviewRequests"]["nodes"] if r["requestedReviewer"]),
+        "requested": [r["requestedReviewer"].get("login")
+                      for r in node["reviewRequests"]["nodes"] if r["requestedReviewer"]],
         "reviews": [{"by": r["author"]["login"], "state": r["state"],
                      "at": _ts(r["submittedAt"])} for r in humans],
         "labels": [x["name"].removeprefix("workstream:") for x in node["labels"]["nodes"]
@@ -158,7 +164,7 @@ def fetch_github(refs: list[tuple[str, int]], now: float, stopping: Event | None
     # the horizon): look up the PR whose head is each unmatched base, a level at a time.
     tried = set()
     for _ in range(STACK_DEPTH):
-        heads = {(p["repo"].lower(), p["head"]) for p in prs.values()} | tried
+        heads = {(p["repo"].lower(), p["head"]) for p in prs.values() if not p["fork"]} | tried
         bases = list(dict.fromkeys((p["repo"], p["base"]) for p in prs.values()
                                    if p["stacked"] and (p["repo"].lower(), p["base"]) not in heads))
         tried |= {(repo.lower(), base) for repo, base in bases}
@@ -166,7 +172,12 @@ def fetch_github(refs: list[tuple[str, int]], now: float, stopping: Event | None
         parent = "pullRequests(headRefName: %s, " + newest + ") { nodes { ...P } }"
         for tag, body in _lookups([(repo, parent % json.dumps(base)) for repo, base in bases]):
             run(tag, body)
-    return {"viewer": data["viewer"]["login"], "older": older, "truncated": truncated,
+    # The older counts search only the viewer's and the asked: an old PR a pane refers to (or
+    # a stack's parent) is neither, so count it here rather than let it vanish.
+    viewer = data["viewer"]["login"]
+    older += sum(p["state"] == "OPEN" and p["updated_at"] < now - HORIZON and
+                 p["author"] != viewer and viewer not in p["requested"] for p in prs.values())
+    return {"viewer": viewer, "older": older, "truncated": truncated,
             "prs": list(prs.values())}
 
 
@@ -266,7 +277,8 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
     prs = {(p["repo"].lower(), p["number"]): p for p in github.get("prs", [])}
     heads = {}
     for key, p in sorted(prs.items(), key=lambda kv: kv[1]["state"] == "OPEN"):
-        heads[key[0], p["head"]] = key  # an open PR wins a head name over a closed one
+        if not p["fork"]:
+            heads[key[0], p["head"]] = key  # an open PR wins a head name over a closed one
     root = {key: key for key in prs}
 
     def find(key):

@@ -68,7 +68,9 @@ optional locks, so a status check can never take an index lock an agent then tri
 times more open PRs than a person can be said to have in flight, most untouched for
 months. Listing them all as "no activity" would bury the dozen that dropped this week.
 Open PRs and worktrees idle past fourteen days are counted (`older_open_prs`,
-`older_worktrees`), not listed, so nothing disappears silently. A worktree's last activity
+`older_worktrees`), not listed, so nothing disappears silently. The two counting searches
+see only PRs you wrote or were asked to review, so an old PR fetched only because a pane
+names it, or as a stack's parent, is added to the count by hand. A worktree's last activity
 is the later of its last commit or staging and the last edit to a file still uncommitted,
 untracked files included, so an old branch with fresh edits is not mistaken for abandoned.
 
@@ -103,7 +105,9 @@ still holds uncommitted changes.
 another PR's head joins that PR's workstream, transitively. It needs no input from anyone
 and is right whenever it fires, so it runs first; a parent that no search returned (a
 teammate's PR, or one of yours from before the horizon) is looked up by its head branch,
-up to three levels toward the root, so the stack still finds its root's name and the other signals only name or merge
+up to three levels toward the root, so the stack still finds its root's name. A fork PR's
+head is a branch of another repository that may share a name with one here, so it is
+never taken for a stack's base or a local worktree's branch. The other signals only name or merge
 whole stacks. A `workstream:<name>` label on any PR in a stack names it, and stacks (in
 any repository) with the same label become one workstream: this is how a design doc and
 its implementation, or work across repositories, come together. Last, an optional
