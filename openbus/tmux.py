@@ -257,9 +257,10 @@ def _env_scope(session: str | None) -> list[str]:
 
 def set_env(name: str, value: str | None, session: str | None = None) -> None:
     """Set (or, given None, remove) a variable in a session's environment, else the
-    server's global one, which new panes there inherit."""
-    _run(["set-environment", *_env_scope(session), *(["-u", name] if value is None
-                                                      else [name, value])])
+    server's global one, which new panes there inherit. A session's None marks it removed
+    (-r) rather than unset, so a global value can't show through."""
+    unset = ["-r" if session else "-u", name]
+    _run(["set-environment", *_env_scope(session), *(unset if value is None else [name, value])])
 
 
 def show_env(session: str | None = None) -> dict[str, str]:

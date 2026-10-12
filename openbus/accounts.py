@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from pathlib import Path
 
 from . import plan_usage, tmux
@@ -25,6 +26,10 @@ SHARED = {"claude": {"CLAUDE.md": True, "skills": True, "hooks": True, "statusli
                      "settings.json": False},
           "codex": {"AGENTS.md": True, "prompts": True, "config.toml": False}}
 LOGIN = {"claude": ["claude"], "codex": ["codex", "login"]}  # the provider's own sign-in
+MORE = {"claude": ".claude-*", "codex": ".codex?*"}  # each provider's other config dirs in HOME
+# One store transaction at a time: the PlanUsage thread and the API's worker threads all
+# read-modify-write it. Re-entrant, since add() and edit() look profiles up inside theirs.
+_LOCK = threading.RLock()
 
 
 def store_path() -> Path:
@@ -43,7 +48,7 @@ def _load() -> dict:
 def _save(data: dict) -> None:
     path = store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, indent=1))
     tmp.replace(path)
 
@@ -75,8 +80,13 @@ def identity(provider: str, config: Path) -> dict | None:
 def profiles(pane_dirs=()) -> list[dict]:
     """Every account tmux-rc lists: signed in or added here, and not forgotten. A dir seen
     for the first time gets the lowest colour no other has, kept in the store."""
+    with _LOCK:
+        return _profiles(pane_dirs)
+
+
+def _profiles(pane_dirs) -> list[dict]:
     store, home = _load(), Path.home()
-    found = {str(d): t for t in ENV for d in [default_dir(t), *sorted(home.glob(f".{t}-*"))]
+    found = {str(d): t for t in ENV for d in [default_dir(t), *sorted(home.glob(MORE[t]))]
              if d.is_dir()}
     for tool, config in pane_dirs:
         found.setdefault(str(config), tool)
@@ -155,6 +165,11 @@ def report(states: list[dict], birth) -> dict:
 def add(provider: str, config: str, label: str, link: list[str]) -> dict:
     """Create (mode 700) or reuse the dir, symlink the chosen shared files from the
     provider's default dir, and list it. Never deletes or overwrites anything."""
+    with _LOCK:
+        return _add(provider, config, label, link)
+
+
+def _add(provider: str, config: str, label: str, link: list[str]) -> dict:
     path = Path(os.path.expanduser(config))
     if not path.is_absolute():
         raise ValueError("the config dir must be an absolute path")
@@ -180,6 +195,11 @@ def add(provider: str, config: str, label: str, link: list[str]) -> dict:
 def edit(config: str, label: str | None = None, *, forget: bool = False) -> None:
     """Rename (the label only) or forget a profile. Forgetting only drops it from the
     list: the dir, its login and its transcripts stay on disk."""
+    with _LOCK:
+        _edit(config, label, forget=forget)
+
+
+def _edit(config: str, label: str | None, *, forget: bool) -> None:
     profile = find(config)
     if profile is None:
         raise LookupError("unknown account")

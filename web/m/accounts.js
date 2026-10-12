@@ -102,7 +102,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"}</label><div class="acct-pick" role="radiogroup">`
           + mine.map((p) => `<button type="button" role="radio" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-checked="${p === pick}" style="--a:var(--acct-${p.color})">${dot(p)}<span><strong>${esc(p.name)}</strong><small>${esc([p.who !== p.name && p.who, p.tilde].filter(Boolean).join(" · "))}</small></span></button>`).join("")
           + `<button type="button" class="add" data-add>+ Add account</button></div>`
-          + `<p class="acct-hint">${session ? `${esc(session)} defaults to <b style="color:var(--acct-${def.color})">${esc(def.name)}</b> (its tmux session environment sets ${ENV[provider]}).` : `A new session starts on <b>${esc(def.name)}</b>.`}</p>`
+          + `<p class="acct-hint">${!def ? `${esc(session || "A new session")} has no default among these accounts.` : session ? `${esc(session)} defaults to <b style="color:var(--acct-${def.color})">${esc(def.name)}</b> (its tmux session environment sets ${ENV[provider]}).` : `A new session starts on <b>${esc(def.name)}</b>.`}</p>`
           + (pick !== def ? `<label class="acct-check"><input type="checkbox" data-default="${provider}" ${makeDefault[provider] ? "checked" : ""}><span>Make ${esc(pick.name)} this session's default</span></label>` : "");
       }).join("");
       for (const b of choices.querySelectorAll("button[data-icon]")) {

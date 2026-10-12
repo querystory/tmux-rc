@@ -31,6 +31,8 @@ def home(tmp_path, monkeypatch):
     _signed_in(home / ".claude-personal", "u-me", emailAddress="sam@example.net",
                organizationName="sam@example.net's Organization", organizationType="claude_max")
     (home / ".claude-old").mkdir()  # exists, nobody signed in: not an account
+    (home / ".codex2").mkdir()
+    (home / ".codex2" / "auth.json").touch()
     (home / ".codex" / "sessions").mkdir(parents=True)
     (home / ".codex" / "auth.json").touch()  # present, never read
     return home
@@ -42,14 +44,14 @@ def _by_dir(home):
 
 def test_discovery_names_each_account_from_its_non_secret_info(home):
     found = _by_dir(home)
-    assert sorted(found) == ["~/.claude", "~/.claude-personal", "~/.codex"]
+    assert sorted(found) == ["~/.claude", "~/.claude-personal", "~/.codex", "~/.codex2"]
     assert (found["~/.claude"]["name"], found["~/.claude"]["plan"]) == ("Example Org", "Team")
     # A personal plan's organisation is named for its owner: the email alone, not "dev".
     assert found["~/.claude-personal"]["name"] == "sam@example.net"
     assert found["~/.codex"]["name"] == "Codex"
     assert found["~/.claude"]["default"] and not found["~/.claude-personal"]["default"]
     colors = [p["color"] for p in found.values()]
-    assert len(set(colors)) == 3
+    assert len(set(colors)) == 4
     assert [p["color"] for p in accounts.profiles()] == colors  # kept, not recomputed
 
 
@@ -108,10 +110,12 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
               {"pane_id": "%2", "tool": "claude", "session": "work"}]
     report = accounts.report(states, lambda pane_id: pane_id[1:])
     panes = {p["tilde"]: p["panes"] for p in report["profiles"]}
-    assert panes == {"~/.claude": ["%2"], "~/.claude-personal": ["%1"], "~/.codex": []}
+    assert panes == {"~/.claude": ["%2"], "~/.claude-personal": ["%1"], "~/.codex": [],
+                     "~/.codex2": []}
     # The global environment applies where the session sets nothing.
     assert report["sessions"]["work"]["claude"] == str(home / ".claude-personal")
-    accounts.edit(str(home / ".claude-personal"), forget=True)
+    for extra in (".claude-personal", ".codex2"):
+        accounts.edit(str(home / extra), forget=True)
     assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"] == {}
 
 
@@ -120,7 +124,7 @@ def test_plan_usage_meters_the_listed_accounts_not_the_daemons_env(home, monkeyp
     accounts.edit(str(home / ".claude-personal"), forget=True)
     usage = plan_usage.PlanUsage(None, profiles=accounts.metered)
     found = usage.discover([], lambda _: None)
-    assert sorted(k for _, k in found) == [str(home / ".codex"), "u-work"]
+    assert sorted(k for _, k in found) == [str(home / ".codex"), "u-work"]  # .codex2: no logs
 
 
 @pytest.fixture
@@ -155,7 +159,7 @@ def test_the_session_default_and_the_sign_in_window(client, home):
     assert ["set-environment", "-t", "=work", "CLAUDE_CONFIG_DIR",
             str(home / ".claude-personal")] in client.calls
     client.post("/api/accounts/default", json={"session": "work", "dir": str(home / ".claude")})
-    assert ["set-environment", "-t", "=work", "-u", "CLAUDE_CONFIG_DIR"] in client.calls
+    assert ["set-environment", "-t", "=work", "-r", "CLAUDE_CONFIG_DIR"] in client.calls
     added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-work",
                                                "label": "Work"}).json()
     assert client.post("/api/accounts/login",
