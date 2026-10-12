@@ -18,6 +18,7 @@ test("two frames sit side by side only when both fit at full width", () => {
 test("the first look is the widest preset that fits, else the narrowest", () => {
   assert.equal(widest([390, 1280, 1440, 1920], 1500), 1440);
   assert.equal(widest([390, 1280, 1440, 1920], 300), 390);
+  assert.equal(widest([390, 1440, 1280, 1920], 1500), 1440); // a manifest's order is its own
 });
 
 test("a frame's document inlines its stylesheet and images and runs the variant last", () => {

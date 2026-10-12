@@ -35,7 +35,7 @@ function bridge() {
 
 const fits = (width, room) => 2 * width + GAP <= room;
 // The widest preset that fits the screen, so a first look is the real thing with no scroll.
-const widest = (widths, room) => [...widths].reverse().find((w) => w <= room) ?? widths[0];
+const widest = (widths, room) => [...widths].sort((a, b) => b - a).find((w) => w <= room) ?? Math.min(...widths);
 const inject = (cfg, script) => `window.MOCK = ${JSON.stringify(cfg)};\n(${bridge})();\n${script || ""}`;
 
 // A snapshot as a frame's document: its stylesheet and images inlined, the bridge and the
@@ -125,8 +125,7 @@ function boot(M) {
     const frames = await Promise.all((two ? s.v : s.v.slice(0, 1)).map((v, i) => frame(v, i, width)));
     if (mine !== renders) return;
     $("#stage").replaceChildren(...frames);
-    const hash = new URLSearchParams({ v: s.v[0], b: s.v[1], view: s.view, w: s.width, ab: +s.ab, theme: s.theme });
-    try { history.replaceState(null, "", `#${hash}`); } catch { /* an opaque origin may refuse */ }
+    writeHash();
   }
   function set(change) {
     Object.assign(s, change);
@@ -135,10 +134,15 @@ function boot(M) {
     render();
   }
   const step = (d) => set({ v: [names[(names.indexOf(s.v[0]) + d + names.length) % names.length], s.v[1]] });
-  const keys = new Map([["h", () => set({ hidden: !s.hidden })], ["ArrowLeft", () => step(-1)], ["ArrowRight", () => step(1)]]);
-  addEventListener("message", (e) => keys.get(e.data?.mockKey)?.());
-  addEventListener("keydown", (e) => { if (!e.target.closest("select")) keys.get(e.key)?.(); });
-  const note = (open) => { $("#note").hidden = !open; $("#note-btn").ariaExpanded = String(open); };
+  const onKey = (k) => k === "h" ? set({ hidden: !s.hidden }) : k === "ArrowLeft" ? step(-1) : k === "ArrowRight" ? step(1) : null;
+  addEventListener("message", (e) => onKey(e.data?.mockKey));
+  addEventListener("keydown", (e) => { if (!e.target.closest("select")) onKey(e.key); });
+  // The hash carries the whole state, so a link (or a reload, where storage is sandboxed off) reopens it.
+  function writeHash() {
+    const hash = new URLSearchParams({ v: s.v[0], b: s.v[1], view: s.view, w: s.width, ab: +s.ab, theme: s.theme, hide: +s.hidden, note: +!$("#note").hidden });
+    try { history.replaceState(null, "", `#${hash}`); } catch { /* an opaque origin may refuse */ }
+  }
+  const note = (open) => { $("#note").hidden = !open; $("#note-btn").ariaExpanded = String(open); writeHash(); };
   $("#note-body").innerHTML = M.note || "";
   $("#note-btn").hidden = !M.note;
   $("#note-btn").onclick = () => note($("#note").hidden);
