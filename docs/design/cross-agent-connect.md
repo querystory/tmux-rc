@@ -235,8 +235,12 @@ still the idle one it saw, and that a workstream handle still resolves to this p
 is the same guard push answers use. If any of them changed, the message waits for the
 next idle transition rather than steering a turn or landing in someone's draft. Within
 one daemon lifetime, and while its grant stands, the sender always gets one result:
-delivered, declined, refused (including rate-limited), cancelled, expired or
-unconfirmed. Those six are final, and queued is the only interim answer. Unconfirmed
+delivered, declined, refused, cancelled, expired or
+unconfirmed. Those six are final, and queued is the only interim answer. One kind of
+refusal is answered before admission instead: rate, size, character set or the id cap.
+It comes back on the call itself, and it neither stores nor consumes the id, so a retry
+with the same id is judged afresh. That keeps at most once intact, since nothing was
+queued or typed, and it keeps refusals from holding any memory a flood could fill. Unconfirmed
 means typing started but the daemon cannot say it landed: a send failed partway, or the
 confirming re-parse failed. Its id stays used, so a retry cannot type it a second time. A queued message keeps
 its id, and the sender can ask for its final outcome or subscribe to it. Nothing fails
@@ -280,6 +284,12 @@ about an id the daemon no longer knows, treats the message as unconfirmed.
   flooding a sibling. A byte cap per message and a total queued-byte budget are enforced
   before anything is stored, so one call cannot fill the queue, a card or a recipient's
   context.
+- **Text only.** A message is printable text plus newlines and tabs, checked before
+  consent or queueing. Escape, carriage return and every other control character are
+  refused, because the send path types literals verbatim, and a peer that could send
+  them could cancel a menu or submit extra input: the key presses peers are never
+  offered. A newline is typed inside the paste, where harnesses take it as a line break
+  in the same turn rather than Enter (the timing `openbus/tmux.py` already relies on).
 - **Idle-only delivery.** Every exchange happens as a whole, visible turn on screen.
 - **Backstop.** Revoking Connect stops a loop on its next call.
 
