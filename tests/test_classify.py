@@ -1333,7 +1333,7 @@ def test_question_naming_list_items_carries_them():
                 "There are 2 failing tests; should I fix them?", "Shall I fix 2 bugs?",
                 "Want me to fix 2 PRs?", "Should I start at 2 pm?", "Start in 2 minutes?",
                 "Should I upgrade to Python 3?", "Should I fix 1 failing test?",
-                "Python 3 support?", "Do we have 2?"):
+                "Python 3 support?", "Do we have 2?", "Set retries to 2?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert "items" not in classify(_pane("claude"), screen, _llm({}))["question"]
     # The parser's own copy of the rows, as buttons or a table keyed by them, goes; other
@@ -1350,6 +1350,10 @@ def test_question_naming_list_items_carries_them():
     assert result["tables"] == [other, ranking]
     result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": [echo]}))
     assert result["tables"] is None
+    kept = ["2. Check with me before closing them", "2. Yes, but check with me first"]
+    check = {**ask, "options": ["2. Close idle worker sessions", *kept]}
+    result = classify(_pane("claude"), screen, _llm({"question": check}))
+    assert result["question"]["options"] == kept
     menu = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "menu",
             "options": ["Yes", "No"]}
     widget = _auto_screen(message + "\n  ❯ 1. Yes\n    2. No").replace("auto mode", "plan mode")

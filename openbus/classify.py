@@ -617,8 +617,9 @@ def _final_paragraph(message: str) -> str:
 # by punctuation, the end, or a word that cannot be counted ("now", "please", "and", an -ly
 # adverb such as "separately"); any other word is what a count counts ("1 failing test",
 # "2 PRs", "2 pm", "Python 3 support"). A determiner, copula, verb of having, time
-# preposition, name or "version" before it marks a count, time or version too ("there are
-# 2", "the 7", "do we have 2?", "at 2", "upgrade to Python 3?"). Precision beats
+# preposition, assignment ("to", "="), name or "version" before it marks a count, value,
+# time or version too ("there are 2", "the 7", "do we have 2?", "at 2", "set retries to
+# 2?", "upgrade to Python 3?"). Precision beats
 # recall: a missed reference leaves the bare question the card showed before, while a
 # count read as a reference would show an unrelated row as what the question means.
 _NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
@@ -629,17 +630,28 @@ _ITEM_REF_RE = re.compile(
     r"ally|rally|assembly|anomaly|daily|weekly|monthly|yearly)\b)[a-z]+ly)\b))")
 _COUNT_BEFORE_RE = re.compile(
     r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
-    r"had|got|need|needs|want|wants|own|owns|keep|keeps)\s+$"
+    r"had|got|need|needs|want|wants|own|owns|keep|keeps|to|from|equals?)\s+$|=\s*$"
     r"|(?<=\s)(?!(?:Items?|Edits?|Steps?|Options?|Points?|Rows?)\b)[A-Z][\w.+-]*\s+$")
 _WORD_RE = re.compile(r"[^\W\d_]{4,}")
+# Four-letter-plus words too common to tell a copy of a row from a reply to it.
+_FUNCTION_WORDS = frozenset((
+    "with", "before", "after", "from", "that", "this", "then", "them", "they", "their",
+    "there", "into", "onto", "about", "also", "just", "only", "will", "would", "could",
+    "should", "have", "been", "were", "what", "when", "which", "while", "your", "yours",
+    "first", "next", "please"))
+# A reply, whatever row number it carries: "1. Yes, but check with me before sending".
+_REPLY_RE = re.compile(r"(?i)\s*(?:\d{1,2}[.)]\s*)?(?:yes|no|ok|okay|sure|go|skip|hold)\b")
 
 
 def _copies(text: object, row: str) -> bool:
     """Whether text restates a row: quotes it ("2. Merge it" from "Merge it.") or has two
     substantive words in common, so one shared verb ("1. Yes, move it now" beside "1. Move
-    the build cache") is not a copy."""
+    the build cache") is not a copy, and neither is anything phrased as a reply."""
+    if _REPLY_RE.match(str(text)):
+        return False
+
     def words(value: object) -> set[str]:
-        return set(_WORD_RE.findall(str(value).lower()))
+        return set(_WORD_RE.findall(str(value).lower())) - _FUNCTION_WORDS
     quoted = re.sub(r"^\s*\d{1,2}[.)]\s*", "", str(text)).strip(" .").lower()
     return (bool(quoted) and quoted in row.lower()) or len(words(text) & words(row)) >= 2
 
