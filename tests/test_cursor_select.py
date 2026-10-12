@@ -170,9 +170,10 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
         server.app.state.watcher.states = [{"pane_id": PANE.id, "birth": "4242", **parsed}]
         return parsed
 
-    def send(keys, *, enter=False, literal=False, birth="4242"):
-        body = {"keys": keys, "enter": enter, "literal": literal,
-                "on_row": {"prompt": "Resume session", "row": None, "birth": birth}}
+    def send(keys, *, enter=False, literal=False, birth="4242", picker=None):
+        seen = server.app.state.watcher.states[0]["question"]["picker"]
+        body = {"keys": keys, "enter": enter, "literal": literal, "on_row": {
+            "prompt": "Resume session", "birth": birth, "picker": picker or seen}}
         return TestClient(server.app).post(f"/api/panes/{PANE.id}/send", json=body).status_code
 
     assert parse()["question"]["highlight"] == SESSIONS[0]
@@ -182,6 +183,7 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     assert any("Down" in args for args in sent)
     assert send("harbor", literal=True) == 200  # search text
     assert send("Down", birth="4141") == 409  # a recycled %N is another pane
+    assert send("Down", picker="an earlier frame") == 409  # a step read off another frame
     # A rowless send never commits: not the select key, nor Enter typed or appended. Each
     # refusal rereads, so a walk is never left stuck on a card the watcher keeps reusing.
     for keys, enter, literal in (("Enter", False, False), ("C-c", False, False),
@@ -253,7 +255,8 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
             raise AssertionError(shown)
 
         def send(keys, row=None, prompt="Remove it?"):
-            on = {"prompt": prompt, "row": row, "birth": birth}  # its picker and pane
+            on = {"prompt": prompt, "row": row, "birth": birth,  # its picker and pane
+                  "picker": parsed["question"]["picker"]}
             body = {"keys": keys, "enter": False, "literal": False, "on_row": on}
             return client.post(f"/api/panes/{pane}/send", json=body)
 

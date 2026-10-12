@@ -139,6 +139,7 @@ _EXT = {
 class OnRow(BaseModel):
     prompt: str = Field(min_length=1)
     row: str | None = None  # a select's row; none for a walk's move or search text
+    picker: str = Field(min_length=1)  # the parse's picker digest the walk read this step off
     birth: str = Field(min_length=1)  # the pane incarnation the walk started on: ids recycle
 
 
@@ -856,7 +857,8 @@ def send(pane_id: str, body: SendBody, request: Request):
 
     def on_row() -> None:
         # A cursor walk's send, checked under the send lock against the server's latest
-        # parse, never the request's: the request must name that parse's picker, and the
+        # parse, never the request's: the request must name that parse's picker (prompt and
+        # digest, so a step read off an earlier frame of it is refused), and the
         # picker and all below it must be drawn exactly as that parse recorded them (its
         # `picker` digest, captured as the watcher captures). So a picker replaced or
         # changed since takes no key meant for the old one: the walk waits for the reparse.
@@ -870,7 +872,7 @@ def send(pane_id: str, body: SendBody, request: Request):
         seen = question.get("picker")
         screen = tmux.capture_pane(pane.id, mark_dim=True)
         if (question.get("prompt") != prompt or state.get("birth") != body.on_row.birth
-                or not seen or seen != picker_digest(screen, prompt)):
+                or not seen or seen != body.on_row.picker or seen != picker_digest(screen, prompt)):
             msg = f"The picker {prompt!r} changed since it was read; nothing was sent."
             raise tmux.PaneChangedError(msg)
         # A rowless send only moves or types search text, so it can never commit a row:

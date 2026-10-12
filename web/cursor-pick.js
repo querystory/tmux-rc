@@ -9,7 +9,7 @@
 //   io.question()   → the pane's current question object, or null if it is gone
 //   io.parsedAt()   → parsed_at of the frame that question() came from (seconds, float)
 //   io.sendKey(k, on) → send ONE tmux key-name, no Enter, only while the picker headed by
-//                     on.prompt is still the live one; with on.row (a select), only while
+//                     on.prompt, drawn as on.picker, is still the live one; with on.row (a select), only while
 //                     its highlight is on that row (and on no other of the server's current
 //                     options). Resolves true only if DELIVERED.
 //   io.sendText(t, on) → type literal text, NO Enter appended. Same contract, no row.
@@ -133,6 +133,10 @@ function bindings(q) {
   };
 }
 
+// What a send is held to (io.sendKey): the picker as this pass read it, prompt and frame,
+// so a picker the server has since republished under the same prompt takes none of it.
+const held = (q, row) => ({ prompt: q.prompt, picker: q.picker, row });
+
 // Same rows, same order — i.e. the list has not renumbered under us.
 const sameRows = (a, b) => a.length === b.length && a.every((row, i) => row === b[i]);
 
@@ -177,12 +181,12 @@ async function walk(io, targetText, targetIndex) {
     if (want < 0 || soleIndex(q.options, targetText) !== want) return false;
     if (at === null) return false; // no trustworthy anchor — walking blind picks a row
     // The row's text and prompt ride along: the server re-reads the highlight before select.
-    if (at === want) return km.select ? io.sendKey(km.select, { prompt: q.prompt, row: targetText }) : false;
+    if (at === want) return km.select ? io.sendKey(km.select, held(q, targetText)) : false;
     if (moves === CURSOR_MAX_STEPS) return false; // budget spent; this pass only looked
     const key = at < want ? km.next : km.prev;
     if (!key) return false; // the widget never advertised this direction — don't invent one
     const before = io.parsedAt();
-    if (!(await io.sendKey(key, { prompt: q.prompt }))) return false; // undelivered: the anchor is now a lie
+    if (!(await io.sendKey(key, held(q)))) return false; // undelivered: the anchor is now a lie
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
     // binding the widget doesn't really have) — and both mean this walk cannot continue.
@@ -245,7 +249,7 @@ async function pick(io, targetText, targetIndex) {
   // either is proof the filter took. Neither changing means the box did not filter, which
   // is the one thing this fallback assumed and must not commit on.
   const was = q.options, wasAt = q.selected;
-  const filtered = await io.sendText(targetText, { prompt: q.prompt })
+  const filtered = await io.sendText(targetText, held(q))
     && await waitForFrame(io, before, (f) => !sameRows(was, f.options) || f.selected !== wasAt);
   // Re-walk the filtered list rather than trusting the filter to have landed on the row.
   // -1, not 0: the filter renumbered everything, so the tapped index is spent and no index
