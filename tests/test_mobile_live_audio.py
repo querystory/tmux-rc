@@ -144,7 +144,7 @@ const element = () => {
     querySelector: (s) => node.children.find((c) => s === `.${c.className}`), // children only
     querySelectorAll: () => node.children, // children only, of any kind
     showModal() {node.open = node.modal = true;}, show() {node.open = true; node.modal = false;},
-    focus() {},
+    focus() {}, scrollIntoView() {node.scrolled = (node.scrolled || 0) + 1;},
     close() {node.open = false; node.dispatchEvent(new Event('close'));},
     before(...nodes) {thumbs.push(...nodes.map((image) => image.src));},
     remove() {
@@ -212,7 +212,7 @@ class Socket {
   close() { this.readyState = 3; }
 }
 let initiallyEnded = false;
-const navigator = {audioSession, wakeLock: {request: async () => {
+const navigator = {audioSession, serviceWorker: new EventTarget(), wakeLock: {request: async () => {
   const lock = {released: false, async release() {this.released = true;}};
   locks.push(lock); return lock;
 }}, mediaDevices: {getUserMedia: async () => {
@@ -451,6 +451,35 @@ def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True,
       "live_models": [{"label": "Gemini", "hint": "voice"}, {"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_chat_needs_you_tap_restores_the_minimized_chat_holding_its_card():
+    _run_live(r"""
+(async () => {
+  const $ = (id) => document.getElementById(id), dialog = $('voice-dialog');
+  // sw.js's question for one card id: what the page did, and what it answered.
+  const tap = (chat) => {
+    const replies = [];
+    navigator.serviceWorker.dispatchEvent(Object.assign(new Event('message'),
+      {data: {chat}, ports: [{postMessage: (mine) => replies.push(mine)}]}));
+    return replies;
+  };
+  await live.refresh();
+  $('chat').onclick(); await flush();
+  sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'listening'})});
+  $('voice-close').onclick();
+  sockets[0].onmessage({data: JSON.stringify({type: 'propose', id: 'p1', text: 'Send to work'})});
+  const actions = $('voice-log').children.at(-1).lastChild, before = actions.scrolled;
+  assert.equal(dialog.open, false);
+  // Another tab's card: this chat stays minimized and says no.
+  assert.deepEqual(tap('p2'), [false]); assert.equal(dialog.open, false);
+  // Its own card: the minimized chat comes back with the card in view.
+  assert.deepEqual(tap('p1'), [true]);
+  assert.equal(dialog.open, true); assert.equal(actions.scrolled, before + 1);
+  completed = true;
+})().catch((error) => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")

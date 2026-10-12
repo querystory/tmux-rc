@@ -554,9 +554,9 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   });
   navigator.serviceWorker?.addEventListener("message", ({ data, ports }) => {
     if (!data?.chat) return;
-    const mine = !!run?.proposals.has(data.chat); // a "Chat needs you" tap: only its card's chat answers
-    if (mine) show();
-    ports[0]?.postMessage(mine);
+    const card = run?.proposals.get(data.chat); // a "Chat needs you" tap: only its card's chat answers
+    if (card) { show(); card.actions.scrollIntoView?.({ block: "nearest" }); } // even minimized
+    ports[0]?.postMessage(!!card);
   });
   paint(); capabilities();
   return { isActive: () => !!run, refresh: capabilities };
