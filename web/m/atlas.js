@@ -113,9 +113,9 @@ function packSessions(groups, width) {
 }
 
 // One scope of the history: the whole fleet, or one tool's and/or one session's panes.
-function scoped(scope) {
-  if (!scope.tool && !scope.session) return history;
-  return history.map(s => {
+function scoped(scope, samples = history) {
+  if (!scope.tool && !scope.session) return samples;
+  return samples.map(s => {
     if (s.n === null) return s;
     const groups = (s.groups || []).filter(g => (!scope.tool || g.tool === scope.tool) && (!scope.session || g.session === scope.session));
     // A partial log reconstruction cannot prove a filtered fleet was empty. Keep
@@ -127,13 +127,16 @@ function scoped(scope) {
   });
 }
 
+// A sample's (or group's) counts in the chosen metric. Older history has no background
+// counts; under 'all' those buckets are gaps, not panes alone.
+const countsOf = s => fleet.metric === 'panes' ? s.n : s.n && sum([s.n, s.background]);
+
 // Chart rows: one metric's counts over the chosen range, each with the trailing average of
 // its running count. The average covers observed buckets only, and only where its whole
 // window is on record, so a young database draws no line rather than a guess.
 function rows(samples) {
   const span = ms(fleet.average), step = historyData?.step || 60000, first = historyData?.first ?? Infinity;
-  // Older history has no background counts; under 'all' those buckets are gaps, not panes alone.
-  const counts = samples.map(s => fleet.metric === 'panes' ? s.n : s.n && sum([s.n, s.background]));
+  const counts = samples.map(countsOf);
   let oldest = 0, total = 0, seen = 0;
   const out = samples.map((s, i) => {
     if (counts[i]) { total += running(counts[i]); seen++; }
@@ -143,6 +146,80 @@ function rows(samples) {
   const from = (samples.length ? samples[samples.length - 1].t : 0) - ms(fleet.range);
   return out.filter(r => r.t > from);
 }
+// The heatmap's four weeks at 15-minute buckets: a 24h window with a 27d lead gets that from
+// the existing query, where a plain 30d window would bucket by 6 hours. Fetched only while
+// the dashboard draws it, at most once a bucket.
+let heat = null, heatAt = 0;
+function refreshHeat() {
+  if (!request || Date.now() - heatAt < 900000) return;
+  heatAt = Date.now();
+  request('/api/history?window=24h&lead=27d').then(data => { heat = data; }, () => { heat ||= false; }).then(changed);
+}
+const pad = h => String(h).padStart(2, '0');
+const shade = (v, low, top) => v < 0.05 ? 'var(--raised)' : `color-mix(in oklab, var(--chart-s1) ${Math.round(12 + 88 * Math.max(0, Math.min(1, (v - low) / (top - low))))}%, var(--surface))`;
+// Hour of day across, local days down, newest first. A cell is the mean running count over
+// its observed buckets, which is that hour's agent-hours; a row ends in the day's total.
+function heatPanel(scope) {
+  const panel = el('section', 'atlas-panel atlas-heat'), heading = el('div', 'atlas-panel-heading');
+  const unit = fleet.metric === 'panes' ? 'pane-hours' : 'agent-hours';
+  heading.append(el('h3', '', 'Running by hour'), el('span', 'muted', `${unit[0].toUpperCase()}${unit.slice(1)} by hour of day over four weeks, newest first`));
+  panel.append(heading);
+  if (!heat) return panel.append(el('p', 'muted', heat === false ? 'History unavailable. Retrying automatically.' : 'Loading saved history…')), panel;
+  const days = new Map();
+  scoped(scope, heat.samples).forEach(s => {
+    const t = new Date(s.t), day = new Date(s.t).setHours(0, 0, 0, 0), n = countsOf(s);
+    if (!days.has(day)) days.set(day, []);
+    if (!n) return;
+    const cell = days.get(day)[t.getHours()] ||= { sum: 0, seen: 0, tools: {} };
+    cell.sum += running(n); cell.seen++;
+    (s.groups || []).forEach(g => { const c = countsOf(g); if (c) cell.tools[g.tool] = (cell.tools[g.tool] || 0) + running(c); });
+  });
+  const rows = [...days].reverse(), value = c => c.sum / c.seen;
+  const values = rows.flatMap(([, cells]) => cells.filter(Boolean).map(value)).sort((a, b) => a - b);
+  // The ramp spans the 3rd to 97th percentile, so a fleet that never idles still shows its
+  // rhythm and a rare spike does not wash out the rest.
+  const low = values[Math.floor(values.length * 0.03)] || 0, top = Math.max(low + 1, values[Math.floor(values.length * 0.97)] || 0);
+  const totals = rows.map(([, cells]) => cells.reduce((t, c) => t + (c ? value(c) : 0), 0)), most = Math.max(1, ...totals);
+  const grid = el('div', 'heat-grid');
+  grid.setAttribute('role', 'img');
+  grid.setAttribute('aria-label', `Running ${unit} by hour for ${rows.length} days; the busiest day had ${Math.round(most)}.`);
+  grid.append(el('span'), ...Array.from({ length: 24 }, (_, h) => el('span', `heat-hour${h % 6 ? ' heat-minor' : ''}`, h % 3 ? '' : String(h))),
+    el('span', 'heat-hour heat-total', unit === 'agent-hours' ? 'Agent-h' : 'Pane-h'));
+  rows.forEach(([day, cells], i) => {
+    grid.append(el('span', 'heat-day', new Date(day).toLocaleDateString([], { month: 'short', day: 'numeric' })));
+    for (let h = 0; h < 24; h++) {
+      const c = cells[h], cell = el('span', c ? 'heat-cell' : new Date(day).setHours(h) > Date.now() ? 'heat-cell heat-future' : 'heat-cell heat-gap');
+      if (c) cell.style.background = shade(value(c), low, top);
+      cell.hour = [day, h, c];
+      grid.append(cell);
+    }
+    const total = el('span', 'heat-total'), fill = el('i');
+    fill.style.width = `calc((100% - 3em) * ${totals[i] / most})`;
+    total.append(el('b', '', String(Math.round(totals[i]))), fill);
+    grid.append(total);
+  });
+  // One tip, placed under the cell a pointer is on or a tap picked.
+  const tip = el('div', 'heat-tip');
+  tip.hidden = true;
+  const show = cell => {
+    grid.querySelector('.sel')?.classList.remove('sel');
+    if ((tip.hidden = !cell?.hour)) return;
+    const [day, h, c] = cell.hour, tools = c ? Object.entries(c.tools).filter(([, n]) => n / c.seen >= 0.05).sort((a, b) => b[1] - a[1]) : [];
+    cell.classList.add('sel');
+    tip.textContent = [`${new Date(day).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} ${pad(h)}:00–${pad(h + 1)}:00`,
+      c ? `${value(c).toFixed(1)} ${unit}` : 'Not recording', ...(tools.length > 1 ? tools.map(([tool, n]) => `${tool} ${(n / c.seen).toFixed(1)}`) : [])].join('\n');
+    tip.style.top = `${cell.offsetTop + cell.offsetHeight + 4}px`;
+    tip.style.left = `${Math.max(0, Math.min(grid.clientWidth - tip.offsetWidth, cell.offsetLeft - tip.offsetWidth / 2))}px`;
+  };
+  grid.onclick = grid.onpointerover = event => show(event.target);
+  grid.onpointerleave = event => { if (event.pointerType === 'mouse') show(null); };
+  grid.append(tip);
+  const legend = el('div', 'heat-legend muted');
+  legend.append(`${+low.toFixed(1)}`, el('i', 'heat-ramp'), `${+top.toFixed(1)}+ running`, el('i', 'heat-cell heat-gap'), 'not recording');
+  panel.append(grid, legend);
+  return panel;
+}
+
 const chartData = (data, extra) => ({ rows: data, states: STATES, step: historyData?.step || 60000, goal,
   unit: fleet.metric === 'panes' ? 'Panes' : 'Panes + agents',
   average: fleet.average, zoomKey: JSON.stringify([fleet.range, fleet.average]), ...extra });
@@ -321,7 +398,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
   // Preserve focus and pointer targets across unchanged long polls.
   // draft too: the goal editor is shared, so an edit on one surface refreshes the other.
-  if (unchanged(root, [scope.tool, scope.session, history, historyData, historyError, settings, goal, draft, draftInvalid, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
+  refreshHeat();
+  if (unchanged(root, [heat, scope.tool, scope.session, history, historyData, historyError, settings, goal, draft, draftInvalid, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
     p.waiting_on, p.tool, p.model, p.session_summary, p.status_line, p.agents, JSON.stringify(p.subagents)])])) return;
   const focus = focusKey(root);
   const charts = root._charts ||= atlasCharts();
@@ -422,10 +500,9 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const cards = root._cards ||= new Map();
   cards.forEach((chart, key) => { if (!keys.includes(key)) { chart.dispose(); cards.delete(key); } });
   // Slices depend on history and settings, not on pane state, so live updates reuse them.
-  const sliceKey = [history, settings, scope.tool, scope.session, ...keys];
-  if (!root._slices || root._slices.key.some((v, i) => v !== sliceKey[i]) || root._slices.key.length !== sliceKey.length)
-    root._slices = { key: sliceKey, series: keys.map(key => [key, rows(scoped({ ...scope, [by]: key }))]) };
-  const series = root._slices.series;
+  const slices = root._slices ||= {};
+  if (!unchanged(slices, [history, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, rows(scoped({ ...scope, [by]: key }))]);
+  const { series } = slices;
   const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
   // Folded, not spread: a long history across many sessions would pass Math.max too many arguments.
   const max = series.reduce((top, [, r]) => r.reduce((m, x) => Math.max(m, x.n ? stacked(x.n) : 0, x.ma || 0), top), 1);
@@ -508,7 +585,10 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   });
   topics.append(charts.cloud, topicLinks);
   if (!words.size) topics.append(el('p', 'muted', 'Topics appear as panes acquire titles and summaries.'));
-  nodes.push(topics);
+  // The heatmap closes the page; like the slices, it is rebuilt only when its inputs change.
+  const heatmap = root._heat ||= {};
+  if (!unchanged(heatmap, [heat, settings, scope.tool, scope.session])) heatmap.node = heatPanel(scope);
+  nodes.push(topics, heatmap.node);
   rebuild(root, nodes, focus);
   let mapWidth = 0;
   root._mapResize = new ResizeObserver(entries => {

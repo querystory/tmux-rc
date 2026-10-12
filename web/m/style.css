@@ -804,7 +804,28 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   .fleet-strip > .fleet-gap { flex: 1; }
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }
-.atlas-multiples .atlas-panel-heading > .muted { font-size: 12px; }
+:is(.atlas-multiples, .atlas-heat) .atlas-panel-heading > .muted { font-size: 12px; }
+/* The heatmap (atlas.js heatPanel): day labels, 24 hour columns, then each day's total. */
+.heat-grid { position: relative; display: grid; grid-template-columns: max-content repeat(24, minmax(0, 1fr)) minmax(56px, 18%); gap: 2px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.heat-hour, .heat-day { color: var(--muted); white-space: nowrap; }
+.heat-day { padding-right: 6px; text-align: right; }
+.heat-cell { height: 16px; border-radius: 3px; cursor: pointer; }
+.heat-gap { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--raised) 3px 5px); }
+.heat-cell.sel { outline: 2px solid var(--fg); outline-offset: -1px; }
+.heat-total { display: flex; align-items: center; gap: 4px; padding-left: 6px; }
+.heat-total b { width: 2.5em; text-align: right; font-weight: 600; }
+.heat-total i { height: 10px; border-radius: 0 3px 3px 0; background: var(--chart-s1); }
+.heat-tip { position: absolute; z-index: 2; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); white-space: pre-line; pointer-events: none; }
+.heat-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; }
+.heat-legend i { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--line); }
+.heat-legend i.heat-ramp { width: 80px; background: linear-gradient(90deg, color-mix(in oklab, var(--chart-s1) 12%, var(--surface)), var(--chart-s1)); }
+.heat-legend i.heat-gap { margin-left: 10px; }
+@media (max-width: 699px) {
+  .heat-grid { gap: 1px; grid-template-columns: max-content repeat(24, minmax(0, 1fr)) minmax(44px, 16%); }
+  .heat-minor { visibility: hidden; }
+  .heat-cell { height: 12px; border-radius: 2px; }
+  .heat-day, .heat-total { padding: 0 3px; font-size: 10px; }
+}
 /* A window being killed or expunged from here (markEnding): greyed, its label under a spinner. */
 .ending { opacity: .55; }
 .ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }

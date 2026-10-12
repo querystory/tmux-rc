@@ -26,6 +26,7 @@ const SHOTS = [
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
+  ["wide-heatmap", WIDE, "light", "#view=dashboard", heatmap],
   ["wide-usage-detail", WIDE, "dark", "#view=dashboard", (page) => page.click("#usage-detail")],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
@@ -34,6 +35,7 @@ const SHOTS = [
   ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "", async (page) => { await page.click("#usage"); await page.click("#usage-detail"); }],
+  ["mobile-heatmap", PHONE, "dark", "#view=dashboard", heatmap],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
@@ -76,6 +78,12 @@ const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 async function showSubagents(page) {
   await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
+}
+
+// The dashboard's foot: the hour-by-day heatmap, one cell's tip open.
+async function heatmap(page) {
+  await page.locator(".atlas-heat").scrollIntoViewIfNeeded();
+  await page.locator(".heat-cell").nth(24 + 14).click(); // yesterday, 14:00
 }
 
 async function confirmExpunge(page) {
