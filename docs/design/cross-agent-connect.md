@@ -133,9 +133,12 @@ Finding only reads, so it runs at once. Both are recorded by the same audit poin
 
 ## Who should be able to query it, and how
 
-Through tmux-rc, only the human can today, from the phone and Live. An unsandboxed agent
-running as the same user can already read the index files or run the CLI, so Connect
-does not make agent reads possible. It makes them discoverable, scoped and audited.
+Through tmux-rc's supported surfaces, only the human can today, from the phone and Live.
+That is the absence of an agent identity, not of access: an unsandboxed agent running as
+the same user can already read the index files, run the CLI, or call the daemon's
+unauthenticated loopback API (`/api/digest` is documented for agents and scripts). So
+Connect does not make agent reads possible. It gives them a supported, scoped identity,
+and makes them discoverable and audited.
 Agents have concrete reasons to ask:
 - an orchestrator needs the directory;
 - a stuck agent wants to know what a sibling found;
@@ -425,9 +428,11 @@ local process, which is the sandbox's job.
   dock, never an emoji. The icon differs for Observe and Collaborate. Control always
   shows one.
 - **Audit.** Every call is one `telemetry.audit` record with actor
-  `agent:<harness>:<session id>`. It names the scope, the target and the outcome. A read
-  is allowed or refused. A message records one of the six final delivery outcomes, or
-  queued. A queued message gets a second record, with the same message id, when it
+  `agent:<harness>:<session id>`. Before the session id is known (above), the actor is
+  the launch token's pane and process, `agent:<harness>:pane:<pane id>:<pid>`, and the
+  rebinding is itself a record, so early calls join the session's later ones. It names
+  the scope, the target and the outcome. A read is allowed or refused. A message records
+  one of the six final delivery outcomes, a pre-admission refusal, or queued. A queued message gets a second record, with the same message id, when it
   reaches its final outcome. Message text
   follows the existing content rules.
 - **Visible history.** The pane's activity feed lists the messages it sent and received.
