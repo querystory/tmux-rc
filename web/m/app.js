@@ -265,8 +265,9 @@ function route() {
   // aborted at once, so every navigation fetched events twice.
   restartDetail();
   render();
-  if (wasPage && !page && dashboardVisible()) from?.scrollIntoView({ block: "center" }); // back at the card
-  if (page && !wasPage) $("landing").scrollTop = 0;
+  // Focus follows: into the view's Back, then back to the card's Details.
+  if (wasPage && !page && dashboardVisible()) { from?.scrollIntoView({ block: "center" }); from?.querySelector(".atlas-reset-zoom").focus({ preventScroll: true }); }
+  if (page && !wasPage) { $("landing").scrollTop = 0; $("dash-page").querySelector("button")?.focus({ preventScroll: true }); }
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
   }
@@ -617,7 +618,7 @@ detailCard($("loops-card"), "Open loops", "", () => openPage("loops", $("loops-c
 function openLane(lane) {
   openPage("loops", $("loops-card"));
   const at = loopsView.querySelector(`[data-lane="${lane}"]`);
-  if (at) { at.open = true; at.scrollIntoView(); }
+  if (at) { at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true }); }
 }
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
