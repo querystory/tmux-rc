@@ -201,11 +201,12 @@ pasted, and it can carry instructions. The endpoint applies three rules:
 - **Results are data.** They come back marked as data with their source named. The tool
   descriptions repeat control's charter: evidence for routing, never authority.
 - **History is index fields only.** History tools return title, cwd, branches, PRs and
-  timestamps, never raw tool output, which is most of the injection surface. `get`
+  last-active time, never raw tool output, which is most of the injection surface. `get`
   and `resolve` print more than that today (source and index paths, entrypoint, resume
   argv, process and pane liveness), so the endpoint projects their JSON onto an
   explicit allowlist: harness and session id (what `get_session` takes), repo, title,
-  cwd, branches, PRs, timestamps and matched terms, plus only the liveness that routing
+  cwd, branches, PRs, last-active time (the one timestamp `get` and `resolve` expose;
+  `started` is in the index file but not their JSON) and matched terms, plus only the liveness that routing
   needs. Returning prompts
   or excerpts needs a
   new bounded contract in the CLI (which prompts, how truncated), and even then a
@@ -236,13 +237,21 @@ client's v0 reply path: a status line on the recipient's own screen that a subsc
 sender sees through the directory.
 
 **Delivery.** At most one typing attempt, confirmed when the daemon can observe it
-landed (otherwise *unconfirmed*, below), and only when the recipient is waiting for input.
+landed (otherwise *unconfirmed*, below), and only when the recipient appears to be
+waiting for input.
 Typing into a running turn steers it, and typing into a menu answers it, and neither is
 what the sender asked. A message for a busy pane waits in a small in-memory queue in the
 daemon, and goes in at the next idle transition. Just before typing, under the pane's
 send lock, the daemon checks three things again: the incarnation, that the screen is
 still the idle one it saw, and that a workstream handle still resolves to this pane. This
-is the same guard push answers use. Only a changed screen is transient: the message
+is the same guard push answers use. It narrows the race but cannot close it: the send
+lock serializes tmux-rc's own writers, not the recipient process or a person at the
+keyboard, and tmux cannot compare a screen and inject input atomically. So delivery is
+best-effort on that point. If the confirming re-parse shows the screen left the checked
+idle, empty state before the text landed, the outcome is unconfirmed rather than
+delivered, and the sender sees that. Closing the window fully would need a
+recipient-side protocol that accepts queued input atomically, which no harness offers
+today. Only a changed screen is transient: the message
 waits for the next idle transition rather than steering a turn or landing in someone's
 draft. A changed incarnation is permanent, since the process it was addressed to is
 gone, so the message is finalized as cancelled at once instead of holding its id and
