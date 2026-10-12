@@ -795,11 +795,12 @@ class Watcher:
     @staticmethod
     def _pending_key(state: dict) -> tuple:
         """What the waiting clock is keyed on: the activity and the pending question, by
-        prompt AND widget context AND the rows it names (the same "Do you want to proceed?"
-        over a different command, or "Do 1 now?" over a different row 1, is a new ask)."""
+        prompt AND widget context AND the rows it names and what it decides (the same "Do
+        you want to proceed?" over a different command, or "Do 1 now?" over a different row
+        1, is a new ask)."""
         q = state.get("question") if isinstance(state.get("question"), dict) else {}
         return (state.get("activity"), Watcher._question_prompt(state), q.get("context"),
-                tuple(q.get("items") or ()))
+                tuple(q.get("items") or ()), q.get("subject"))
 
     @staticmethod
     def _deck_fp(states: list[dict]) -> str:

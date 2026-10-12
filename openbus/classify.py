@@ -630,9 +630,10 @@ def _final_paragraph(message: str) -> str:
 # capital A-H (or a lowercase one in parentheses) standing alone before what follows a
 # reference is a label wherever it sits, so letters skip the before-checks: "A quick fix?"
 # and "Grade A beef?" fail the after-check, and an article "a" is lowercase.
-_LABELED_ROW_RE = re.compile(
-    r"[ \t│┃╎]*(?:[-*•][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})"
-    r"[.):]?[ \t]*[—–-]?|\(?([A-Ha-h]|\d{1,2})[.)])[ \t]+(\S.*)")
+_ROW_LABEL = (
+    r"(?:[-*•][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})"
+    r"[.):]?[ \t]*[—–-]?|\(?([A-Ha-h]|\d{1,2})[.)])[ \t]+")
+_LABELED_ROW_RE = re.compile(rf"[ \t│┃╎]*{_ROW_LABEL}(\S.*)")
 _REF_AFTER = (
     r"(?=\s*(?:[^\w\s]|$|"
     r"(?i:and|or|now|first|then|next|too|also|only|but|before|after|later|today|tomorrow|"
@@ -669,8 +670,8 @@ _FUNCTION_WORDS = frozenset((
     "should", "have", "been", "were", "what", "when", "which", "while", "your", "yours",
     "first", "next", "please"))
 # A reply, whatever row number it carries: "1. Yes, but check with me before sending".
-# An option written as a list row: "1. Fix the cache", "B) Queue it".
-_OPTION_ROW_RE = re.compile(r"^\s*\(?(\d{1,2}|[A-Ha-h])[.)]\s+")
+# An option written as a list row: "1. Fix the cache", "B) Queue it", "Option A: Redis".
+_OPTION_ROW_RE = re.compile(rf"^\s*{_ROW_LABEL}")
 _REPLY_RE = re.compile(
     rf"(?i)(?:{_OPTION_ROW_RE.pattern})?\s*(?:yes|no|ok|okay|sure|go|skip|hold)\b")
 
@@ -776,7 +777,7 @@ def _final_ask(visible: str, tool: str) -> dict | None:
 def _row_number(option: object) -> str | None:
     """The label of an option written as a list row ("1. Fix the cache"), else None."""
     m = isinstance(option, str) and _OPTION_ROW_RE.match(option)
-    return m[1].upper() if m else None
+    return (m[1] or m[2]).upper() if m else None
 
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:

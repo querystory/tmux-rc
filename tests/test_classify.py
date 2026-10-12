@@ -1388,6 +1388,11 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
                         _llm({}))["question"]
     assert labelled["items"] == ["A. Redis.", "B. SQLite."]
     assert labelled["subject"] == "Session store"
+    echo = {"prompt": "Option A or B?", "answer_style": "text",
+            "options": ["Option A: Redis", "- Option B — SQLite", "Option B please"]}
+    screen = _auto_screen(store + "\n\n  Option A or B?").replace("auto mode", "plan mode")
+    assert classify(_pane("claude"), screen, _llm({"question": echo}))["question"][
+        "options"] == ["Option B please"]
     # The parser's echo of a lettered row as a button goes, as a numbered one does.
     ask = {"prompt": "Go with A or B?", "answer_style": "text",
            "options": ["A. Answer first", "Go with A"]}
