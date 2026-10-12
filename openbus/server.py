@@ -540,10 +540,11 @@ def _history() -> History:
 
 
 @app.get("/api/history")
-def get_history(window: str = "24h", lead: str | None = None):
+def get_history(window: str = "24h", lead: str | None = None, before: float | None = None):
+    """`before` (epoch ms) ends the range there instead of now, so a client can page back."""
     history = _history()
     try:
-        return history.query(window, lead=lead)
+        return history.query(window, lead=lead, now=before / 1000 if before else None)
     except ValueError:
         raise HTTPException(400, "window and lead are all, or a count of hours or days "
                                  "(24h, 7d) up to 90 days") from None

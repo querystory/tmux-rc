@@ -806,25 +806,38 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 }
 :is(.atlas-multiples, .atlas-heat) .atlas-panel-heading > .muted { font-size: 12px; }
 /* The heatmap (atlas.js heatPanel): day labels, 24 hour columns, then each day's total. */
-.heat-grid { position: relative; display: grid; grid-template-columns: max-content repeat(24, minmax(0, 1fr)) minmax(56px, 18%); gap: 2px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.heat-grid { --rh: 16px; position: relative; display: grid; grid-template-columns: 52px repeat(24, minmax(0, 1fr)) minmax(96px, 20%); gap: 2px; align-items: center; font-size: 11px; font-variant-numeric: tabular-nums; }
+.heat-compact { --rh: 14px; }
 .heat-hour, .heat-day { color: var(--muted); white-space: nowrap; }
 .heat-day { padding-right: 6px; text-align: right; }
-.heat-cell { height: 16px; border-radius: 3px; cursor: pointer; }
-.heat-gap { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--raised) 3px 5px); }
-.heat-cell.sel { outline: 2px solid var(--fg); outline-offset: -1px; }
-.heat-total { display: flex; align-items: center; gap: 4px; padding-left: 6px; }
-.heat-total b { width: 2.5em; text-align: right; font-weight: 600; }
-.heat-total i { height: 10px; border-radius: 0 3px 3px 0; background: var(--chart-s1); }
+.heat-day.today { color: var(--fg); font-weight: 700; }
+.heat-cell { height: var(--rh); border-radius: 3px; cursor: pointer; }
+.heat-gap { background: repeating-linear-gradient(135deg, transparent 0 3px, var(--raised) 3px 4.5px); }
+.heat-future { box-shadow: inset 0 0 0 1px var(--raised); }
+.heat-cell.sel, .heat-cell:not(.heat-gap, .heat-future):hover { box-shadow: inset 0 0 0 1.5px var(--fg); }
+.heat-total { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 8px; padding-left: 8px; --u: var(--chart-s1); }
+.heat-total .usage-bar { margin: 0; grid-column: auto; }
+.heat-total b { min-width: 4ch; text-align: right; }
+.atlas-heat-card { cursor: pointer; }
+.atlas-heat-card:hover { border-color: var(--muted); }
+.heat-grid:not(.heat-compact) .heat-hour { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.heat-foot { margin: 12px 0 0; font-size: 12px; text-align: center; }
 .heat-tip { position: absolute; z-index: 2; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); white-space: pre-line; pointer-events: none; }
-.heat-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; }
-.heat-legend i { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--line); }
-.heat-legend i.heat-ramp { width: 80px; background: linear-gradient(90deg, color-mix(in oklab, var(--chart-s1) 12%, var(--surface)), var(--chart-s1)); }
-.heat-legend i.heat-gap { margin-left: 10px; }
+.heat-figs { display: flex; flex-wrap: wrap; gap: 4px 28px; margin-bottom: 12px; }
+.heat-fig { display: flex; flex-direction: column; }
+.heat-fig b { font-size: 22px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.heat-fig span { font-size: 12px; }
+.heat-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; font-size: 12px; }
+.heat-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.heat-legend i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; }
+.heat-legend i.heat-ramp { width: 96px; background: linear-gradient(90deg, color-mix(in oklab, var(--chart-s1) 12%, var(--surface)), var(--chart-s1)); }
 @media (max-width: 699px) {
-  .heat-grid { gap: 1px; grid-template-columns: max-content repeat(24, minmax(0, 1fr)) minmax(44px, 16%); }
-  .heat-minor { visibility: hidden; }
-  .heat-cell { height: 12px; border-radius: 2px; }
-  .heat-day, .heat-total { padding: 0 3px; font-size: 10px; }
+  .heat-grid { --rh: 13px; gap: 1.5px; grid-template-columns: 40px repeat(24, minmax(0, 1fr)) 44px; font-size: 10px; }
+  .heat-compact { --rh: 12px; }
+  .atlas-heat-card .atlas-panel-heading > .muted { display: none; } /* keeps Details on the title's line */
+  .heat-day { padding-right: 4px; }
+  .heat-total { grid-template-columns: 1fr; padding-left: 4px; }
+  .heat-total .usage-bar { display: none; }
 }
 /* A window being killed or expunged from here (markEnding): greyed, its label under a spinner. */
 .ending { opacity: .55; }
