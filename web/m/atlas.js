@@ -214,12 +214,13 @@ const dayName = day => day === today() ? 'Today' : new Date(day).toLocaleDateStr
 function heatGrid(data, days, compact) {
   const unit = heatUnit(), grid = el('div', compact ? 'heat-grid heat-compact' : 'heat-grid');
   grid.setAttribute('role', compact ? 'img' : 'group');
-  grid.setAttribute('aria-label', `Running ${unit} by hour; the busiest day had ${Math.round(data.most)}.${compact ? '' : ' Arrow keys move between hours.'}`);
+  grid.setAttribute('aria-label', heatLabel(data, compact));
   grid.append(el('span'), ...Array.from({ length: 24 }, (_, h) => el('span', 'heat-hour', h % (compact ? 12 : 6) ? '' : `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`)),
     el('span', 'heat-hour heat-total', compact ? '' : unit === 'agent-hours' ? 'Agent-h' : 'Pane-h'));
   heatRows(grid, data, 0, days);
   return grid;
 }
+const heatLabel = ({ most }, compact) => `Running ${heatUnit()} by hour; the busiest day had ${Math.round(most)}.${compact ? '' : ' Arrow keys move between hours.'}`;
 // Rows `from` to `to` of the days, appended: a page of older days adds its rows, not all of them.
 function heatRows(grid, { all, value, low, top, totals, meter }, from, to) {
   all.slice(from, to).forEach(([day, cells], k) => {
@@ -299,6 +300,7 @@ export function renderHeatView(root, scope, icon, back) {
     rebuild(root, [pageHead('Running by hour', icon, back), panel]); // focus returns once the rows are in
   }
   heatRows(view.grid, data, view.rows, data.all.length);
+  view.grid.setAttribute('aria-label', heatLabel(data, false)); // an older page may hold a busier day
   view.grid.querySelectorAll('.heat-cell:not([tabindex])').forEach(cell => cell.hour && labelHeatCell(cell, unit));
   const first = view.grid.querySelector('.heat-cell[tabindex]');
   if (first && !view.grid.querySelector('.heat-cell[tabindex="0"]')) first.tabIndex = 0;
@@ -659,8 +661,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     const head = el('span', 'atlas-multiple-head');
     head.append(el('b', '', key), el('span', 'fleet-gap'), el('b', '', String(running(liveCounts(members)))), el('span', 'muted', ' running'));
     const avg = latestAverage(slice);
-    // A slice with nothing on record draws no chart rather than a tall blank one.
-    card.append(head, ...(slice.some(r => r.n) ? [chart.el] : []), el('span', 'muted', avg == null ? 'No average yet' : `${fleet.average} avg ${avg.toFixed(1)}`));
+    // A slice with nothing running on record draws no chart rather than a tall blank one.
+    card.append(head, ...(slice.some(r => r.n?.some(Boolean)) ? [chart.el] : []), el('span', 'muted', avg == null ? 'No average yet' : `${fleet.average} avg ${avg.toFixed(1)}`));
     card.onclick = () => { scope[by] = scope[by] === key ? '' : key; redraw(); };
     grid.append(card);
     paints.push(() => chart.update(chartData(slice, { goal: null, max })));

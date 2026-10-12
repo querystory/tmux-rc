@@ -266,7 +266,10 @@ function route() {
   // aborted at once, so every navigation fetched events twice.
   restartDetail();
   render();
-  if (wasPage && !page && dashboardVisible()) from?.scrollIntoView({ block: "center" }); // back at the card
+  if (wasPage && !page && dashboardVisible()) { // back at the card, the keyboard on its Details
+    from?.scrollIntoView({ block: "center" });
+    from?.querySelector('[data-key^="details:"]')?.focus({ preventScroll: true });
+  }
   if (page && !wasPage) $("landing").scrollTop = 0;
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
