@@ -146,8 +146,9 @@ function rows(samples) {
   const from = (samples.length ? samples[samples.length - 1].t : 0) - ms(fleet.range);
   return out.filter(r => r.t > from);
 }
-// The heatmap pages back through history two weeks at a time, at 15-minute buckets: a 24h
-// window with a 13d lead gets those from the query, where a long window buckets far coarser.
+// The heatmap pages back through history 15 days at a time, at 15-minute buckets: a 24h
+// window with a 14d lead gets those from the query, where a long window buckets far coarser.
+// The first chunk holds today and 14 whole days (the typical day's median) past a cut one.
 // `before` ends a chunk where the loaded days begin. The newest chunk is refetched at most
 // every 15 minutes, and only while a heatmap is drawn.
 let heat = null, heatAt = 0, heatLoading = false;
@@ -155,7 +156,7 @@ function loadHeat(older) {
   if (!request || heatLoading) return;
   heatLoading = true;
   const before = older && heat.samples[0].t;
-  request(`/api/history?window=24h&lead=13d${older ? `&before=${before}` : ''}`).then(data => {
+  request(`/api/history?window=24h&lead=14d${older ? `&before=${before}` : ''}`).then(data => {
     const fresh = older ? data.samples.filter(s => s.t < before) : data.samples, start = fresh[0]?.t ?? Infinity;
     const kept = heat ? heat.samples.filter(s => older || s.t < start) : [];
     heat = { step: data.step, first: data.first, now: older ? heat.now : data.now, samples: older ? [...fresh, ...kept] : [...kept, ...fresh], done: !fresh.length || start <= data.first || (!older && !!heat?.done) };
