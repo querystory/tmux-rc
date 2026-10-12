@@ -1217,8 +1217,9 @@ $("usage-mode").onclick = () => {
   try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
   paintUsage();
 };
-// The strip is a glance; tapping it opens the usage view, where the trend and times read.
-const openUsage = () => openPage("usage", $("usage-panel"));
+// The strip is a glance; tapping it opens the usage view, where the trend and times read,
+// by way of the dashboard, so its Back lands on the Plan usage card.
+const openUsage = () => { openDashboard(); openPage("usage", $("usage-panel")); };
 $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
 paintUsage(); // labels the item before the first fetch
