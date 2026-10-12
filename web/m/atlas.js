@@ -159,7 +159,11 @@ function loadHeat(older) {
     const fresh = older ? data.samples.filter(s => s.t < before) : data.samples, start = fresh[0]?.t ?? Infinity;
     const kept = heat ? heat.samples.filter(s => older || s.t < start) : [];
     heat = { step: data.step, samples: older ? [...fresh, ...kept] : [...kept, ...fresh], done: !fresh.length || start <= data.first || (!older && !!heat?.done) };
-  }, () => { heat ||= false; }).finally(() => { heatLoading = false; changed(); });
+  }, () => {
+    // A failed older page retries in 10s: a fresh `heat` re-renders the view, whose foot re-arms.
+    if (older) setTimeout(() => { heat = { ...heat }; changed(); }, 10000);
+    else heat ||= false;
+  }).finally(() => { heatLoading = false; changed(); });
 }
 function refreshHeat() {
   if (!request || heatLoading || Date.now() - heatAt < 900000) return;
@@ -225,15 +229,32 @@ function heatGrid({ all, value, low, top, totals, most }, days, compact) {
   return grid;
 }
 
-// The Dashboard's card: the last week, compact. Anywhere on it opens the full view.
-function heatCard(scope, open) {
-  const panel = el('section', 'atlas-panel atlas-heat atlas-heat-card'), heading = el('div', 'atlas-panel-heading');
-  const details = el('button', 'atlas-reset-zoom', 'Details ›');
-  details.dataset.key = 'heat-details';
+// A dashboard card that opens its own view (#view=<page>, app.js): a heading ending in
+// Details ›, and anywhere on the card opens it too. `panel` is the card to head (an
+// existing one, or a new section); the view starts with pageHead.
+export function detailCard(panel, title, sub, open) {
+  const heading = el('div', 'atlas-panel-heading'), details = el('button', 'atlas-reset-zoom', 'Details ›');
+  details.dataset.key = `details:${title}`;
+  panel.classList.add('atlas-panel', 'atlas-detail-card');
   panel.onclick = open;
-  heading.append(el('h3', '', 'Running by hour'), el('span', 'muted', `last 7 days · ${heatUnit()}`), el('span', 'fleet-gap'), details);
-  panel.append(heading, heat ? heatGrid(heatDays(scope), 7, true) : heatWaiting());
+  heading.append(el('h3', '', title), el('span', 'muted', sub), el('span', 'fleet-gap'), details);
+  panel.prepend(heading);
   return panel;
+}
+export function pageHead(title, icon, back) {
+  const head = el('div', 'landing-head'), button = el('button', 'icon-button');
+  button.innerHTML = icon('back', 18);
+  button.setAttribute('aria-label', 'Back to the Dashboard');
+  button.onclick = back;
+  head.append(button, el('h2', '', title));
+  return head;
+}
+
+// The Dashboard's heatmap card: the last week, compact.
+function heatCard(scope, open) {
+  const card = detailCard(el('section', 'atlas-heat-card'), 'Running by hour', `last 7 days · ${heatUnit()}`, open);
+  card.append(heat ? heatGrid(heatDays(scope), 7, true) : heatWaiting());
+  return card;
 }
 
 // The full view (#view=heat): headline figures, then every day loaded, newest first; older
@@ -243,17 +264,13 @@ export function renderHeatView(root, scope, icon, back) {
   if (unchanged(root, [heat, settings, scope.tool, scope.session])) return;
   const focus = focusKey(root); // a page of older days keeps the keyboard on the grid
   root._older?.disconnect();
-  const head = el('div', 'landing-head'), backButton = el('button', 'icon-button');
-  backButton.innerHTML = icon('back', 18);
-  backButton.setAttribute('aria-label', 'Back to the Dashboard');
-  backButton.onclick = back;
-  head.append(backButton, el('h2', '', 'Running by hour'));
-  const panel = el('section', 'atlas-panel atlas-heat');
+  const head = pageHead('Running by hour', icon, back), panel = el('section', 'atlas-panel atlas-heat');
   if (!heat) return rebuild(root, [head, heatWaiting()], focus);
   const data = heatDays(scope), { all, totals, most, low, top } = data, unit = heatUnit();
   const isToday = all[0]?.[0] === today(), done = totals.slice(isToday ? 1 : 0, isToday ? 15 : 14).sort((a, b) => a - b);
+  const half = done.length / 2, median = done.length ? (done[Math.floor(half)] + done[Math.ceil(half) - 1]) / 2 : 0;
   const figs = el('div', 'heat-figs'), legend = el('div', 'heat-legend muted');
-  figs.append(fig(`${Math.round(isToday ? totals[0] : 0)}h`, 'today so far'), fig(`${Math.round(done[Math.floor(done.length / 2)] || 0)}h`, 'typical day (median, 14d)'),
+  figs.append(fig(`${Math.round(isToday ? totals[0] : 0)}h`, 'today so far'), fig(`${Math.round(median)}h`, 'typical day (median, 14d)'),
     fig(`${Math.round(most)}h`, most ? `busiest, ${new Date(all[totals.indexOf(most)][0]).toLocaleDateString([], { month: 'short', day: 'numeric' })}` : 'busiest'));
   const key = (...parts) => { const node = el('span'); node.append(...parts); return node; }; // a swatch never wraps from its label
   legend.append(key(`${unit} an hour: ${+low.toFixed(1)}`, el('i', 'heat-ramp'), `${+top.toFixed(1)}+`),
