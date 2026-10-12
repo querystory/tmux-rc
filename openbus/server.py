@@ -870,6 +870,14 @@ def send(pane_id: str, body: SendBody, request: Request):
         if question.get("prompt") != prompt or not seen or seen != picker_digest(screen, prompt):
             msg = f"The picker {prompt!r} changed since it was read; nothing was sent."
             raise tmux.PaneChangedError(msg)
+        # A rowless send only moves or types search text, so it can never commit a row:
+        # no Enter, and a key only a move (the keymap is model output, so it may misread
+        # Enter as `next`). Committing is a select's, held to its row below.
+        moves = {keymap.get("next"), keymap.get("prev")} - {None, keymap.get("select")}
+        if row is None and (body.enter or (any(c in body.keys for c in "\r\n") if body.literal
+                                           else body.keys not in moves)):
+            msg = f"{body.keys!r} is not a move in {prompt!r}; nothing was sent."
+            raise tmux.PaneChangedError(msg)
         if row is not None and (
                 question.get("highlight") is None or not isinstance(rows, list)
                 or not isinstance(at, int) or not 0 <= at < len(rows) or rows[at] != row
