@@ -428,7 +428,12 @@ is no shell to type into. So the daemon first sets `remain-on-exit` on that pane
 the agent to quit through its own exit command (which lets it flush its transcript),
 waits for the process to end, then `respawn-pane`s the same pane with the session's
 resume argv, which agent-history already resolves, plus the override, in the indexed
-cwd, and finally restores the pane's `remain-on-exit`. The pane id and layout stay; the
+cwd, and finally restores the pane's `remain-on-exit`. The indexed argv names a
+conversation but not which profile holds it, so before the agent exits the daemon reads
+an allowlist of profile variables from its environment (`CLAUDE_CONFIG_DIR`,
+`CODEX_HOME`, `PI_CODING_AGENT_DIR`, as `openbus/plan_usage.py` already does) and passes
+exactly those to the respawn beside the override; nothing else from the environment is
+carried. If they cannot be read, the session is not offered Connect. The pane id and layout stay; the
 token is rebound to the new process incarnation. The conversation survives, but
 terminal state does not. So the card asks "Restart this agent to connect it?", and the
 relaunch never happens mid-turn. A harness with no resume command can only be connected
