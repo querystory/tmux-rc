@@ -75,7 +75,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import agent_history, expunge, telemetry, tmux  # noqa: E402
-from .classify import highlighted_row  # noqa: E402
+from .classify import drawn_row, highlighted_row  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -855,16 +855,18 @@ def send(pane_id: str, body: SendBody, request: Request):
 
     def on_row() -> None:
         # A cursor picker's select, checked against the screen under the send lock: the
-        # walk's anchor is a parse, and a stale or misread one must not commit a row. The
-        # rows a highlight may name are the server's latest parse, never the request's: a
-        # stale list could read a new row ("Fix  login bug") as an old one ("Fix") ahead
-        # of a value column.
+        # walk's anchor is a parse, and a stale or misread one must not commit a row. It is
+        # held to the server's latest parse, never the request's: the same prompt, that
+        # parse's rows, and the highlighted row drawn exactly as that parse read it. A
+        # picker that changed since (a row "Fix" now "Fix  login bug", which its old rows
+        # would read as "Fix" ahead of a value column) fails closed until it is reparsed.
         state = next((s for s in app.state.watcher.states if s.get("pane_id") == pane.id), {})
-        question = state.get("question")
-        options = question.get("options") if isinstance(question, dict) else None
-        at = highlighted_row(tmux.capture_pane(pane.id, lines=0), body.on_row.prompt,
-                             options if isinstance(options, list) else [])
-        if at != body.on_row.row:
+        question = state.get("question") if isinstance(state.get("question"), dict) else {}
+        options, seen = question.get("options"), question.get("highlight")
+        screen = tmux.capture_pane(pane.id, lines=0)
+        if (question.get("prompt") != body.on_row.prompt or not isinstance(options, list)
+                or seen is None or drawn_row(screen, body.on_row.prompt) != seen
+                or highlighted_row(screen, body.on_row.prompt, options) != body.on_row.row):
             msg = f"The highlight is not on {body.on_row.row!r}; nothing was sent."
             raise tmux.PaneChangedError(msg)
 

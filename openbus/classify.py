@@ -100,17 +100,25 @@ def _widget_end(visible: str, start: int) -> int:
                 len(visible))
 
 
-def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
+def drawn_row(visible: str, prompt: str) -> str | None:
+    """The text of the live picker's highlighted row under prompt, as drawn, or None."""
     found = prompt.strip() and _occurrences(prompt, visible)  # "" would match everywhere
     if not found:
         return None
     # The last match's widget is the live one, but the prompt is its first match there: a
     # later one inside the same widget is an option or footer repeating the prompt's words.
     asked = next(m for m in found if _widget_end(visible, m.end()) > found[-1].start())
-    rows = _HIGHLIGHT_RE.finditer(visible, asked.end(), _widget_end(visible, asked.end()))
-    *_, row = [None, *rows]
-    named = row and [option for option in options if isinstance(option, str)
-                     and (row["label"] == option or row["label"].startswith(f"{option}  "))]
+    end = _widget_end(visible, asked.end())
+    if _HIGHLIGHT_RE.search(visible, end):  # a later picker, or the input box, is live:
+        return None                         # this one is history in the scrollback
+    *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, asked.end(), end)]
+    return row and row["label"]
+
+
+def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
+    label = drawn_row(visible, prompt)
+    named = label is not None and [option for option in options if isinstance(option, str)
+                                   and (label == option or label.startswith(f"{option}  "))]
     return named[0] if named and len(named) == 1 else None
 
 
@@ -1035,8 +1043,10 @@ def classify(
         ) for line in footer):
             keymap["search"] = True
         rows, asked = question.get("options"), _question_prompt(question)
+        question.pop("highlight", None)  # read off the screen, never passed through
         if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
+            question["highlight"] = drawn_row(visible, asked)  # what /send re-checks
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask"):
             question.pop(key, None)

@@ -77,6 +77,10 @@ def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
     assert highlighted_row("Pick?\n❯ No\n  Pick?", "Pick?", no_yes) == "No"
     old = "Pick?\n❯ Yes\n────────\nPick?\n  No\n  Yes"  # an earlier widget's match is history
     assert highlighted_row(old, "Pick?", no_yes) is None
+    # A picker above a later one (or above the input box) is history, not the live widget.
+    stacked = "│ Old?   │\n│ ❯ No   │\n╰───────╯\n│ New?   │\n│ ❯ Keep │\n╰───────╯"
+    assert highlighted_row(stacked, "Old?", no_yes) is None
+    assert highlighted_row(stacked, "New?", ["Keep"]) == "Keep"
     # Only a row that opens with a frame loses a closing bar; a label's own bar is kept.
     assert highlighted_row("Pick?\n❯ Fix │", "Pick?", ["Fix │"]) == "Fix │"
     assert highlighted_row("│ Pick?   │\n│ ❯ a │   │", "Pick?", ["a │"]) == "a │"
@@ -85,11 +89,12 @@ def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
 def test_classify_overrides_a_misread_anchor():
     misread = {"tool": "claude", "question": {
         "prompt": 'Permanently remove "Demo"?', "answer_style": "cursor",
-        "options": ["No", "Yes"], "selected": 1,
+        "options": ["No", "Yes"], "selected": 1, "highlight": "Yes",
         "keymap": {"next": "Down", "prev": "Up", "select": "Enter"},
     }}
     result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{SCREEN}", lambda s, t: misread)
     assert result["question"]["selected"] == 0
+    assert result["question"]["highlight"] == "No"  # the row /send re-checks, off the screen
 
 
 def test_a_tabbed_panel_the_user_opened_is_not_a_question():
@@ -142,7 +147,8 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
     try:
         monkeypatch.setattr(tmux, "_run", run)
         monkeypatch.setattr(tmux, "pane_pid", lambda p: tmux.find_pane(p).pid)
-        parsed = {"pane_id": pane, "question": {"options": ["No", "Yes"]}}
+        parsed = {"pane_id": pane, "question": {
+            "prompt": "Remove it?", "options": ["No", "Yes"], "highlight": "No"}}
         server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
                                                    states=[parsed])
         client = TestClient(server.app)
@@ -165,10 +171,16 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
         assert "Yes" in refused.json()["detail"]
         assert send("Down").status_code == 200
         screen_until(" ❯ Yes")
-        # The server's own parse names the rows: one that no longer lists "Yes" refuses it.
+        # Held to the server's own parse: until it has read the highlight on Yes, no select.
+        assert send("Enter", "Yes").status_code == 409
+        parsed["question"]["highlight"] = "Yes"
+        # That parse names the rows: one that no longer lists "Yes" refuses it.
         parsed["question"]["options"] = ["No", "Yes  later"]
         assert send("Enter", "Yes").status_code == 409
         parsed["question"]["options"] = ["No", "Yes"]
+        parsed["question"]["prompt"] = "Remove the other one?"  # a different picker's parse
+        assert send("Enter", "Yes").status_code == 409
+        parsed["question"]["prompt"] = "Remove it?"
         assert send("Enter", "Yes").status_code == 200
         assert "SELECTED Yes" in screen_until("SELECTED")
     finally:
