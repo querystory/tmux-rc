@@ -612,6 +612,114 @@ def _final_paragraph(message: str) -> str:
     return " ".join(r.strip() for r in reversed(rows))
 
 
+# A numbered list row (inside any frame), and a number a prompt names: "do 1 please",
+# "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A reference is preceded
+# by what takes one (_REF_BEFORE_RE, so "Set timeout 2?" and "it returned 2." are not) and
+# followed by punctuation, the end, or a word that cannot be counted: "now", "please", "and", a
+# preposition opening a modifier ("1 and 2 on staging"), an -ly adverb ("separately"). Any
+# other word is what a count counts ("1 failing test", "2 PRs", "2 pm", "Python 3
+# support"). A determiner, copula, verb of having, time preposition, assignment ("to",
+# "="), name or "version" before it marks a count, value, time or version too ("there are
+# 2", "the 7", "do we have 2?", "at 2", "set retries to 2?", "upgrade to Python 3?").
+# Precision beats recall: a missed reference leaves the bare question the card showed
+# before, while a count read as a reference would show an unrelated row as what the
+# question means.
+_NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
+_ITEM_REF_RE = re.compile(
+    # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
+    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)(?=\s*(?:[^\w\s]|$|"
+    r"(?i:and|or|now|first|then|next|too|also|only|but|before|after|later|today|tomorrow|"
+    r"tonight|instead|together|please|right|again|as|asap|soon|yet|on|in|for|with|without|"
+    r"into|onto|via|using|across|against|under|over|here|there|(?!(?:family|supply|reply|"
+    r"ally|rally|assembly|anomaly|daily|weekly|monthly|yearly)\b)[a-z]+ly)\b))")
+# The nouns an agent numbers what it proposes by ("edit 2", "Recommendation 2").
+_ITEM_LABEL = (
+    r"(?i:items?|edits?|steps?|options?|choices?|points?|rows?|tasks?|fix(?:es)?|"
+    r"recommendations?|suggestions?|changes?|ideas?|approach(?:es)?|plans?|proposals?|"
+    r"actions?|issues?|findings?|comments?|bullets?|entry|entries|parts?|phases?|stages?|"
+    r"number|no\.?)")
+_COUNT_BEFORE_RE = re.compile(
+    r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
+    r"had|got|need|needs|want|wants|own|owns|keep|keeps|to|from|equals?)\s+$|=\s*$"
+    rf"|(?<=\s)(?!{_ITEM_LABEL}(?!\w))[A-Z][\w.+-]*\s+$")
+# What a reference takes before it, positively: an item noun or a preposition ("edits 1",
+# "for 2"), a verb in command position ("Do 1", "want me to do 1", "could you handle 2"),
+# or a conjunction after another reference ("1 and 2", "2, then 3").
+_REF_BEFORE_RE = re.compile(
+    rf"\b(?:{_ITEM_LABEL}|(?i:for|with|after|before))\s+$"
+    r"|(?:^|[.?!;:]\s+|\b(?i:to|I|you|we|me|let's|please)\s+)[A-Za-z']+\s+$")
+_REF_CHAIN_RE = re.compile(r"\s*(?:,\s*)?(?:(?i:and|or|then)\s+|&\s*)?|\s*,\s*")
+_WORD_RE = re.compile(r"[^\W\d_]{4,}")
+# Four-letter-plus words too common to tell a copy of a row from a reply to it.
+_FUNCTION_WORDS = frozenset((
+    "with", "before", "after", "from", "that", "this", "then", "them", "they", "their",
+    "there", "into", "onto", "about", "also", "just", "only", "will", "would", "could",
+    "should", "have", "been", "were", "what", "when", "which", "while", "your", "yours",
+    "first", "next", "please"))
+# A reply, whatever row number it carries: "1. Yes, but check with me before sending".
+_REPLY_RE = re.compile(r"(?i)\s*(?:\d{1,2}[.)]\s*)?(?:yes|no|ok|okay|sure|go|skip|hold)\b")
+
+
+def _copies(text: object, row: str) -> bool:
+    """Whether text restates a row: quotes it ("2. Merge it" from "Merge it.") or has two
+    substantive words in common, so one shared verb ("1. Yes, move it now" beside "1. Move
+    the build cache") is not a copy, and neither is anything phrased as a reply."""
+    if _REPLY_RE.match(str(text)):
+        return False
+
+    def words(value: object) -> set[str]:
+        return set(_WORD_RE.findall(str(value).lower())) - _FUNCTION_WORDS
+    quoted = re.sub(r"^\s*\d{1,2}[.)]\s*", "", str(text)).strip(" .").lower()
+    return (bool(quoted) and quoted in row.lower()) or len(words(text) & words(row)) >= 2
+
+
+def _referenced_rows(prompt: str, visible: str) -> dict[str, str]:
+    """The numbered rows above a typed-answer question that its prompt names by number
+    ("Want me to do 1 now and prepare 2?"), whole and in the prompt's order, so the card
+    can say what 1 and 2 are. Read off the screen: the parser, told to carry them, did not
+    reliably. The nearest row wins a number, so an older list above loses to the one the
+    question closes; numbers with no row (a count, a time) name nothing here."""
+    found = _last_occurrence(prompt, visible)
+    rows: dict[str, list[str]] = {}
+    item, indent = None, 0
+    for row in visible[:found.start() if found else 0].splitlines():
+        if m := _NUMBERED_ROW_RE.match(row):
+            item, indent = rows.setdefault(m[1], []), _indent(row)
+            item[:] = [m[2]]
+        elif item is not None and row.strip() and _indent(row) > indent:
+            item.append(row.strip())  # the item's wrapped continuation
+        else:
+            item = None
+    refs, last = [], None
+    for m in _ITEM_REF_RE.finditer(prompt):
+        chained = last is not None and _REF_CHAIN_RE.fullmatch(prompt, last, m.start())
+        if (chained or _REF_BEFORE_RE.search(prompt, 0, m.start())) and not (
+                _COUNT_BEFORE_RE.search(prompt, 0, m.start())):
+            refs += map(str, range(int(m[1]), int(m[2] or m[1]) + 1))
+            last = m.end()
+    return {n: " ".join(rows[n]) for n in dict.fromkeys(refs) if n in rows}
+
+
+def _item(number: str, text: str) -> str:
+    """A referenced row on the card: its number and first sentence, at most 120 characters."""
+    first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0]
+    return textwrap.shorten(f"{number}. {first}", 120, placeholder="…")
+
+
+def _restates(table: object, rows: dict[str, str]) -> bool:
+    """Whether a parser table is its own copy of the referenced rows: every row keyed by a
+    bare referenced number, and most of them copying that row (the parser paraphrases, so
+    not all). A table that is merely numbered 1, 2 (a ranking, an
+    index) or shares one generic verb ("Update ...") with the rows stays."""
+    body = table.get("rows") if isinstance(table, dict) else None
+    keys = [str(r[0]).strip().rstrip(".)") if isinstance(r, list) and r else None
+            for r in body] if isinstance(body, list) else []
+    if not keys or not all(k in rows for k in keys):
+        return False
+    copied = [_copies(" ".join(map(str, r[1:])), rows[k]) for r, k in zip(body, keys, strict=True)]
+    return 2 * sum(copied) > len(copied)
+
+
 def _final_ask(visible: str, tool: str) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
@@ -637,6 +745,12 @@ def _final_ask(visible: str, tool: str) -> dict | None:
     if handoff is None:
         return None
     return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
+
+
+def _row_number(option: object) -> str | None:
+    """The number of an option written as a list row ("1. Fix the cache"), else None."""
+    m = isinstance(option, str) and re.match(r"\s*(\d{1,2})[.)]\s", option)
+    return m[1] if m else None
 
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
@@ -985,11 +1099,25 @@ def classify(
         ) for line in footer):
             keymap["search"] = True
     if isinstance(question, dict):  # read off the screen, never passed through from the model
-        for key in ("context", "ask"):
+        for key in ("context", "ask", "items"):
             question.pop(key, None)
+        # A question with no style is answered as text (models.py), so it may name rows.
+        style, asked = question.get("answer_style", "text"), _question_prompt(question)
+        # A menu's own numbers are its options, so only a typed answer names list items.
+        if rows := style == "text" and asked and _referenced_rows(asked, visible):
+            question["items"] = [_item(n, text) for n, text in rows.items()]
+            # The parser's own copy of those rows would show them twice: as answer buttons
+            # (a row's number and its words: "1. Resolve the merge conflict", not "1. Yes,
+            # move it now"; the reply call fills in when nothing else is left), or as a table.
+            options = question.get("options")
+            kept = [o for o in options if (n := _row_number(o)) not in rows
+                    or not _copies(o, rows[n])] if isinstance(options, list) else options
+            if kept != options:
+                question["options"] = kept or _reply_options(asked, replies_fn)
+            if isinstance(result.get("tables"), list):
+                result["tables"] = [t for t in result["tables"] if not _restates(t, rows)] or None
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
-        asked = question.get("answer_style") == "menu" and _question_prompt(question)
-        if context := asked and _widget_text(asked, visible):
+        if context := style == "menu" and asked and _widget_text(asked, visible):
             question["context"] = context
             # Only an approval is restated: a numbered choice such as "Which environment?"
             # keeps its own question.

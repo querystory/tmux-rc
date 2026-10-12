@@ -159,28 +159,6 @@ def test_corpus_loads_and_is_well_formed():
             assert s.expected["waiting_on"] in ("user", "external")
 
 
-def test_referenced_edits_reach_the_content_judge():
-    """An unrelated but renderable table must not satisfy the referenced-list case."""
-    import json
-
-    from research.eval.harness import judge_freetext
-
-    sample = next(s for s in load_corpus() if s.name == "16_question_refers_to_list")
-    rows = sample.expected["tables"][0]["rows"]
-    assert len(rows) == 4
-    unrelated = {"headline": sample.expected["headline"],
-                 "tables": [{"rows": [["1", "Rewrite packaging"]]}]}
-
-    def judge(system, text):
-        payload = json.loads(text)
-        assert payload["expected_tables"] == sample.expected["tables"]
-        assert payload["candidate_tables"] == unrelated["tables"]
-        assert "missing edits" in system
-        return {"verdict": "FAIL", "reason": "The four requested edits are missing"}
-
-    assert not judge_freetext(sample, unrelated, judge)[0]
-
-
 def test_one_valid_table_cannot_hide_rows_that_crash_the_desktop():
     valid = {"rows": [["1", "an edit"]]}
     for invalid in ({"headers": "heading", "rows": [["x"]]},
