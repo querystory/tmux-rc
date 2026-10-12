@@ -161,9 +161,10 @@ function loadHeat(older) {
     const kept = heat ? heat.samples.filter(s => older || s.t < start) : [];
     heat = { step: data.step, first: data.first, now: older ? heat.now : data.now, at: older ? heat.at : Date.now(), samples: older ? [...fresh, ...kept] : [...kept, ...fresh], done: !fresh.length || start <= data.first || (!older && !!heat?.done) };
   }, () => {
-    // A failed older page retries in 10s: a fresh `heat` re-renders the view, whose foot re-arms.
-    if (older) setTimeout(() => { heat = { ...heat }; changed(); }, 10000);
-    else heat ||= false;
+    // A failure retries in 10s: an older page by a fresh `heat`, which re-renders the view so
+    // its foot re-arms; the newest chunk by lifting its 15-minute hold.
+    if (!older) heat ||= false;
+    setTimeout(() => { if (older) heat = { ...heat }; else heatAt = 0; changed(); }, 10000);
   }).finally(() => { heatLoading = false; changed(); });
 }
 function refreshHeat() {
@@ -336,7 +337,11 @@ function armHeatGrid(grid, unit) {
     tip.style.left = `${Math.max(0, Math.min(grid.clientWidth - tip.offsetWidth, cell.offsetLeft - tip.offsetWidth / 2))}px`;
   };
   grid.onclick = grid.onpointerover = event => show(event.target);
-  grid.addEventListener('focusin', event => show(event.target)); // no onfocusin property
+  grid.addEventListener('focusin', event => { // no onfocusin property
+    const stop = grid.querySelector('.heat-cell[tabindex="0"]');
+    if (stop && event.target.hour) { stop.tabIndex = -1; event.target.tabIndex = 0; } // Tab returns to this hour
+    show(event.target);
+  });
   grid.onpointerleave = event => { if (event.pointerType === 'mouse') show(null); };
   grid.onkeydown = event => {
     const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -24, ArrowDown: 24 }[event.key], cells = [...grid.querySelectorAll('.heat-cell')];
