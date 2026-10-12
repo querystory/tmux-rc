@@ -11,7 +11,7 @@
 // the folder's own scripts. Then it stops the server.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import markdownit from "../web/m/vendor/markdown-it.mjs";
 import { PHONE, chat, launch, newPage, settle, startDemo } from "./demo_browser.mjs";
 
@@ -129,13 +129,13 @@ function live(src) {
   console.log("open http://127.0.0.1:18039/mock/live/");
 }
 
-// The harness as each kind of viewer gets it, from the scratch server when the mock is
-// published there, so the sandbox it runs under is the real one. A frame that is not the
-// width it claims, or a page error, fails the check.
+// The harness as each kind of viewer gets it, served under the policy /scratch/ sends
+// (openbus/server.py), so it runs in the same opaque-origin sandbox as the published page
+// wherever the check runs. A frame that is not the width it claims, or a page error, fails.
+const SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'";
 async function check(out) {
-  const scratch = process.env.TMUXRC_SCRATCH_DIR, rel = scratch && path.relative(scratch, path.resolve(out));
-  const url = rel && !rel.startsWith("..") && process.env.TMUXRC_SCRATCH_LOCAL_URL
-    ? `${process.env.TMUXRC_SCRATCH_LOCAL_URL}/${rel}/` : pathToFileURL(path.join(out, "index.html")).href;
+  const serve = (route) => route.fulfill({ headers: { "Content-Security-Policy": SANDBOX },
+    path: path.join(out, new URL(route.request().url()).pathname.replace(/\/$/, "/index.html")) });
   const second = JSON.parse(readFileSync(path.join(out, "data.js"), "utf8").replace(/^window.MOCK = |;\n$/g, "")).variants[1]?.name;
   const shots = [
     ["desktop", DESKTOP, ""], ["desktop-note", DESKTOP, "note=1"], ["desktop-hidden", DESKTOP, "hide=1"],
@@ -149,7 +149,8 @@ async function check(out) {
       // Blocking service workers reads navigator.serviceWorker, which throws in the sandbox.
       const page = await newPage(browser, viewport, "dark", 0, { serviceWorkers: "allow" });
       page.on("pageerror", (e) => failures.push(`${name}: ${e.message}`));
-      await page.goto(`${url}#${hash}`);
+      await page.route("http://mock.check/**", serve);
+      await page.goto(`http://mock.check/#${hash}`);
       await page.waitForSelector("iframe");
       await page.waitForTimeout(1500); // no settling: the app's spinners keep turning in a snapshot
       writeFileSync(path.join(dir, `${name}.png`), await page.screenshot());

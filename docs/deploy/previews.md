@@ -244,8 +244,8 @@ variant scripts on every reload: that is the loop for writing a variant, on this
   a link opens the same comparison.
 
 **Check every mock the same way.** `make mock-check NAME=<name>` shoots the published
-harness at 1920×1080 and as an iPhone (390×844, mobile, touch), through the scratch server
-so it runs under the real sandbox, into the mock's `shots/` folder. It fails on a page
+harness at 1920×1080 and as an iPhone (390×844, mobile, touch), served with the same
+sandbox policy as `/scratch/`, into the mock's `shots/` folder. It fails on a page
 error or on a frame that is not the width it claims, which is the squeezed-slot bug.
 
 ## Mocks worth keeping are committed instead
