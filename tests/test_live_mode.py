@@ -182,13 +182,14 @@ def test_explicit_pr_target_precedes_conversational_continuity():
     assert "If no association matches, inspect current pane context or ask which window" in prompt
 
 
-def _dispatch(fc, monkeypatch, watcher=None):
+def _dispatch(fc, monkeypatch, watcher=None, meter=_METER, panes=()):
     w = watcher or _Watcher()
     ws, session = _WS(), _Session()
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "list_panes", lambda: list(panes))  # never the real tmux
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
-    _run(L._handle_tool_call(ws, session, fc, w, _METER))
+    _run(L._handle_tool_call(ws, session, fc, w, meter))
     return w, ws, session, typed
 
 
@@ -203,6 +204,93 @@ def test_typing_dispatches_and_logs(monkeypatch):
     assert payload == {"status": "done", "pane": "work"}
     # the tool result never carries screen content (echo-loop guard)
     assert "screen" not in str(payload)
+
+
+@pytest.mark.parametrize("text", [False, True])
+def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text):
+    """open_pane only changes the view: no consent card even in a text session, nothing
+    typed, and the client is told which pane, named the way the model names it."""
+    w, ws, session, typed = _dispatch(
+        _FC(name="open_pane", args={"pane_id": "%1"}), monkeypatch,
+        meter=L._Meter("s1", "tester", P._DEFAULT[0], text=text))
+    assert ws.sent == [
+        {"type": "open_pane", "pane_id": "%1", "label": 'window 3 "work"', "auto": False}]
+    assert session.responses[0][1] == {  # "done" read as "opened" to the model
+        "status": "button_shown", "pane": 'window 3 "work"',
+        "reason": "the user taps it to open; nothing is open yet"}
+    assert typed == [] and w.reparsed == []
+
+
+def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
+    """resume_session returns a pane id the digest may not hold yet; tmux vouches for it,
+    and it is named as the watcher would: the agent's own title over tmux's "claude"."""
+    fresh = L.tmux.Pane("work", "7", "claude", "0", "%40", "claude", "auth fix")
+    _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
+                            panes=[fresh])
+    assert ws.sent == [
+        {"type": "open_pane", "pane_id": "%40", "label": 'window 7 "auth fix"', "auto": False}]
+
+
+@pytest.mark.parametrize(
+    "args", [{"pane_id": "%9"}, {"pane_id": ["%1"]}, {"pane_id": "%1", "x": 1}, "oops",
+             {"name": "work", "pane_id": "%1"}, {"name": 3}])
+def test_open_pane_refuses_an_unknown_pane_or_malformed_call(monkeypatch, args):
+    _, ws, session, _ = _dispatch(_FC(name="open_pane", args=args), monkeypatch)
+    assert ws.sent == [] and session.responses[0][1]["status"] == "rejected"
+
+
+class _Fleet(_Watcher):
+    """The two field misses, fictionalised: an exact title the model passed over for a
+    pane that merely shared a word, and a run-together title lost to the tool column."""
+
+    def digest(self):
+        def pane(pid, win, label, title, tool):
+            return {"pane_id": pid, "window_index": win, "label": label, "title": title,
+                    "tool": tool, "activity": "idle"}
+        return [
+            pane("%11", "9", "app-0:9", "billing write back | billing-capture-inbox", "node"),
+            pane("%12", "3", "❋ acmelinux codex", "acmelinux codex installation", "codex"),
+            pane("%13", "10", "misc:10", "release notifications", "omp"),
+            pane("%14", "13", "omp-history", "Follow review instructions", "omp"),
+            pane("%10", "25", "❋ slack inbox", "✳ slack inbox", "claude"),
+            pane("%15", "6", "misc:6", "Café 認証 修正", "claude"),
+            pane("%16", "25", "other:25", "auth fix", "codex"),  # same number
+            pane("%17", "4", "misc:4", "release 25 notes", "claude"),  # number in title
+            *({**pane(p, w, "x", t, "codex"), "cwd": "~/src/sales-kit/"} for p, w, t in (
+                ("%19", "19", "pipeline fix"), ("%20", "20", "event | sales-kit"),
+                ("%28", "28", "copy tweaks"))),  # one repo: the title alone must not win
+        ]
+
+
+@pytest.mark.parametrize(("name", "pane_id"), [
+    ("slack inbox merge", "%10"),      # a stray word: "inbox" alone must not win
+    ("acme linux OMP session", "%12"),  # "acme linux" is "acmelinux"; one tool word loses
+    ("window 25 slack", "%10"),        # the number filters, the words choose
+    ("window 25 auth", "%16"),
+    ("café 認証", "%15"),             # names are not only ASCII
+    ("cafe\u0301 認証", "%15"),       # nor in one Unicode form
+])
+def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, name, pane_id):
+    _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
+                                  watcher=_Fleet())
+    assert [m["pane_id"] for m in ws.sent] == [pane_id]
+    assert session.responses[0][1]["status"] == "button_shown"
+
+
+@pytest.mark.parametrize(("name", "status", "candidates"), [
+    ("the omp pane", "ambiguous", ["%13", "%14"]),
+    ("window 25", "ambiguous", ["%10", "%16"]),  # never %17, whose title says 25
+    ("deploy dashboard", "no_match", []),
+    ("sales kit open session", "ambiguous", ["%19", "%20", "%28"]),
+])
+def test_open_pane_by_name_offers_candidates_rather_than_guess(
+        monkeypatch, name, status, candidates):
+    _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
+                                  watcher=_Fleet())
+    result = session.responses[0][1]
+    assert result["status"] == status  # and a button for each candidate
+    assert [c["pane_id"] for c in result.get("candidates", [])] == candidates
+    assert [m["pane_id"] for m in ws.sent] == candidates
 
 
 @pytest.mark.parametrize("ok", [True, False])
@@ -228,7 +316,9 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
 
     assert ws.sent[0]["type"] == "propose"
-    assert ws.sent[0]["text"] == "Send to work: rebase onto main"
+    # Named as the list names it, with the id the card's Open button navigates to.
+    assert ws.sent[0]["text"] == 'Send to window 3 "work": rebase onto main'
+    assert ws.sent[0]["pane_id"] == "%1"
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
     assert session.responses[0][1] == (
@@ -272,10 +362,14 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
 
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    class Titled(_Watcher):  # an unnamed window, whose list label is a bare tmux address
+        def digest(self):
+            return [{**super().digest()[0], "title": "Prevent leaks", "label": "misc-1:3"}]
+
     ws = Cancel()
     fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
-    _run(L._handle_tool_call(ws, _Session(), fc, _Watcher(), meter))
-    assert ws.sent[0]["text"] == "Type (no Enter) into work: draft"
+    _run(L._handle_tool_call(ws, _Session(), fc, Titled(), meter))
+    assert ws.sent[0]["text"] == 'Type (no Enter) into window 3 "Prevent leaks" (misc-1:3): draft'
 
 
 def test_text_session_prompt_labels_relays_as_typed():
@@ -714,8 +808,8 @@ def test_audit_line_cannot_be_forged(caplog):
 class _TypedSession:
     """Records what reaches a session's typed-turn verb."""
 
-    def __init__(self):
-        self.turns = []
+    def __init__(self, images=True):
+        self.turns, self.images = [], images
 
     async def send_text(self, text, images=()):
         self.turns.append((text, list(images)))
@@ -736,23 +830,32 @@ def test_a_pasted_image_reaches_the_session_with_its_turn():
     assert [(f["text"], f["images"]) for f in ws.sent] == [("look", 1), ("", 1), ("plain", 0)]
 
 
-@pytest.mark.parametrize(("image", "text"), [
-    ({"mime": "image/svg+xml", "data": "UE5H"}, True),  # not a pane-paste type
-    ({"mime": "image/png", "data": "not base64!"}, True),
-    ({"mime": "image/png", "data": ""}, True),
-    ({"mime": ["image/png"], "data": "UE5H"}, True),  # not even a string
-    ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True),  # too many
-    ({}, True),  # not a list at all
-    ([{"mime": "image/png", "data": "A" * (L.CHAT_IMAGE_BYTES // 3 * 4 + 4)}], True),  # too big
-    ({"mime": "image/png", "data": "UE5H"}, False),  # a voice model cannot see it
+_UNREADABLE = "Could not read that image; not sent"
+_TYPE = "Images go as PNG, JPEG, WebP or GIF; not sent"
+
+
+@pytest.mark.parametrize(("image", "accepts", "reason"), [
+    ({"mime": "image/svg+xml", "data": "UE5H"}, True, _TYPE),  # not a pane-paste type
+    ({"mime": "image/png", "data": "not base64!"}, True, _UNREADABLE),
+    ({"mime": "image/png", "data": ""}, True, _TYPE),
+    ({"mime": ["image/png"], "data": "UE5H"}, True, _TYPE),  # not even a string
+    ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True,
+     f"At most {L.CHAT_IMAGES} images a turn; not sent"),
+    ({}, True, _UNREADABLE),  # not a list at all
+    ([{"mime": "image/png", "data": "A" * (L.CHAT_IMAGE_BYTES // 3 * 4 + 4)}], True,
+     "Images are over 8 MB together; not sent"),
+    # The cause users actually hit: a small screenshot pasted to a voice model that can't
+    # see it must say so, not read as a size or type limit.
+    ({"mime": "image/png", "data": "UE5H"}, False,
+     "This voice model can't take images; switch to Chat to send them"),
 ])
-def test_an_image_the_pane_paste_would_refuse_refuses_the_turn(image, text):
-    session = _TypedSession()
+def test_an_image_the_turn_cannot_carry_refuses_it_and_says_why(image, accepts, reason):
+    session = _TypedSession(images=accepts)
     images = image if isinstance(image, list) or image == {} else [image]
     ws = _ScriptedWS([{"action": "text", "text": "look", "images": images}, {"action": "stop"}])
-    _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0], text=text)))
+    _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0])))
     assert session.turns == []
-    assert ws.sent == [{"type": "error", "message": L._IMAGE_REFUSED, "refused": True}]
+    assert ws.sent == [{"type": "error", "message": reason, "refused": True}]
 
 
 def _forwarding(monkeypatch, *, ok, text=True, images=((("image/png", b"PNG")),)):
@@ -793,7 +896,7 @@ def test_forwarding_an_image_waits_for_send_and_binds_to_the_pane(monkeypatch):
     assert _forward(meter, ws, image_number=1, caption="what is this?") == {
         "status": "done", "pane": "work"}
     card = ws.sent[0]
-    assert card["text"] == "Send image 1 to work: what is this?"
+    assert card["text"] == 'Send image 1 to window 3 "work": what is this?'
     assert card["image"] == "data:image/png;base64,UE5H"  # the thumbnail the user approves
     assert events == [  # delivered once, bound to the pid the card showed, caption in the draft
         ("attach", "%1", "4242", b"PNG", "image/png", "what is this?")]
@@ -821,10 +924,12 @@ def test_forwarding_refuses_when_no_image_was_attached(monkeypatch):
     assert events == []
 
 
-def test_forwarding_is_refused_in_a_voice_session(monkeypatch):
+def test_forwarding_works_from_a_voice_session_too(monkeypatch):
+    """A voice model that takes images can hand one on, without a card like its other
+    actions, and audited like them."""
     meter, ws, events, audits = _forwarding(monkeypatch, ok=True, text=False)
-    assert _forward(meter, ws)["status"] == "rejected"
-    assert events == [] and ws.sent == [] and len(audits) == 1
+    assert _forward(meter, ws)["status"] == "done"
+    assert len(events) == 1 and len(audits) == 1 and "consent" not in audits[0]
 
 
 def test_images_stay_numbered_until_no_request_can_show_their_turn():
@@ -853,3 +958,22 @@ def test_an_omitted_image_number_is_pinned_to_the_image_on_the_card(monkeypatch)
     ws.send_json = paste_meanwhile
     _forward(meter, ws)
     assert events[0][3:5] == (b"PNG", "image/png")
+
+
+def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
+    """send_keys refuses model text at a password prompt; the model is told why, so it can
+    send the user to the app's password field rather than retry. The refused text is
+    probably the password, so its audit record never carries it, even under QSDEBUG."""
+    def refuse(*a, **k):
+        raise L.tmux.PasswordPromptError(L.tmux.AT_PASSWORD)
+
+    audits = []
+    monkeypatch.setattr(L.tmux, "send_keys", refuse)
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    monkeypatch.setattr(L.telemetry, "QSDEBUG", True)
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append((a, k)))
+    fc = _FC(args={"pane_id": "%2", "text": "hunter2"})
+    session = _Session()
+    _run(L._handle_tool_call(_WS(), session, fc, _Watcher(), _METER))
+    assert "password field" in str(session.responses)
+    assert audits and "hunter2" not in str(audits)

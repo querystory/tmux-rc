@@ -147,6 +147,35 @@ def test_a_request_that_lost_to_a_server_response_is_retried_at_its_done():
     assert [m["type"] for m in ws.sent] == ["response.create"]
 
 
+def test_a_typed_turn_carries_its_images_as_data_urls_ahead_of_the_text():
+    ws = _WS()
+    _run(P._OpenAISession(ws).send_text("read it", [("image/jpeg", b"JPG"), ("image/png", b"PNG")]))
+    assert [m["type"] for m in ws.sent] == ["conversation.item.create", "response.create"]
+    assert ws.sent[0]["item"] == {"type": "message", "role": "user", "content": [
+        {"type": "input_image", "image_url": "data:image/jpeg;base64,SlBH"},
+        {"type": "input_image", "image_url": "data:image/png;base64,UE5H"},
+        {"type": "input_text", "text": "read it"}]}
+
+
+def test_gemini_images_land_as_context_before_the_typed_text():
+    """Client content, not realtime video: a video frame races the text (measured on 2.5:
+    the model answered before it saw the frame). Only Vertex sessions take images."""
+    calls = []
+
+    class Live:
+        async def send_client_content(self, **kw):
+            calls.append(("content", kw))
+
+        async def send_realtime_input(self, **kw):
+            calls.append(("realtime", kw))
+
+    _run(P._GeminiSession(Live(), images=True).send_text("read it", [("image/png", b"PNG")]))
+    (kind, content), realtime = calls
+    assert kind == "content" and content["turn_complete"] is False
+    assert content["turns"].parts[0].inline_data.data == b"PNG"
+    assert realtime == ("realtime", {"text": "read it"})
+
+
 def test_a_refused_request_does_not_leave_the_session_waiting():
     """If Realtime refuses our response.create outright, no response is coming: the next
     typed turn must ask again rather than wait for a done that never arrives."""

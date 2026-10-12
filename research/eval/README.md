@@ -49,7 +49,9 @@ not raw model JSON.
 
 A synthetic `Pane` carries each sample's `current_command` so the `[tmux: foreground
 process is …]` prefix and tool-anchoring behave as in production (this is how the
-"a server logging `gemini-…` lines is NOT the Gemini CLI" trap is exercised).
+"a server logging `gemini-…` lines is NOT the Gemini CLI" trap is exercised). A sample's
+`processes` replays the pane's process tree, so an agent installed through npm, whose
+foreground is only `node`, is pinned by the script node runs exactly as the daemon does.
 
 ## The scoring model
 
@@ -70,8 +72,19 @@ strictness is correct:
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
+- `question.context` — opt-in exact string: the widget rows classify() reads around a
+  menu's prompt (deterministic, so pinned exactly).
+- `copyable_texts` — opt-in exact list of copyable texts, for payloads lifted from the
+  agent's transcript (`reply`), which are deterministic.
+- `question.ask` — opt-in, judged: the plain "The agent wants to … Continue?" restatement
+  of an approval prompt must carry the same most consequential effect as the expected
+  one, name its destructive steps (and a description/command mismatch), and quote no
+  command text. Pinned `null`, it asserts the menu is not restated at all (a numbered
+  choice that is not an approval keeps its own question).
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
   ("Yes…") then a decline ("No…"); their wording is not pinned.
+- `links` — opt-in list of URLs, each of which must be offered whole among the candidate's
+  link hrefs (extra links are fine): a URL the terminal wrapped must not arrive as a fragment.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.
 - `tables` — presence too, but **opt-in**: scored only on a sample whose `expected`
   names it. Most screens have no table and take no position, so scoring it everywhere
@@ -119,6 +132,8 @@ loosen the score.
   "repository": "owner/name",         // optional local GitHub repository context
   "capture": "…the pane text…",       // what the model sees
   "prior": ["…an earlier frame…"],    // optional: earlier captures, sent as production does
+  "reply": "…agent message…",         // optional: the agent's last message, from its transcript
+  "processes": ["node …/bin/codex"],  // optional: argv under the pane, for node/bun-hosted agents
   "expected": { "tool": "claude", "activity": "idle", "headline": "…" }
 }
 ```
@@ -169,6 +184,7 @@ actually hit:
 | `66_omp_queued_user_question` | omp's outgoing numbered Steering message → running, no question, even without dim styling |
 | `67_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
 | `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
+| `88_claude_wrapped_login_link_beside_options` | a wrapped OSC 8 login URL beside a prose option list → the whole URL in `links`, even though grounding rejects the misread question |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

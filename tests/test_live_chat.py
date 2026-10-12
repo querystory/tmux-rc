@@ -25,7 +25,7 @@ class _Fake(C._Chat):
 
     def __init__(self, script):
         super().__init__(_FLASH, "system")
-        self.script = list(script)
+        self.script, self.offered = list(script), []
 
     def _user(self, text, images=()):
         self.history.append(("user", text, *images))
@@ -33,7 +33,8 @@ class _Fake(C._Chat):
     def _model(self, text):
         self.history.append(("model", text, []))
 
-    async def _complete(self):
+    async def _complete(self, *, tools=True):
+        self.offered.append(tools)
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -125,6 +126,67 @@ def test_a_pane_change_waits_for_send_or_cancel(monkeypatch, ok):
     assert audits == ["live_type_in_pane"]
 
 
+def test_a_new_message_supersedes_an_unanswered_card(monkeypatch):
+    """Typing instead of tapping Send/Cancel must not leave the turn stuck on the card with
+    the new message queued silently behind it: the card is declined as superseded, the
+    model is told why, and the new message is answered as its own turn."""
+    from tests.test_live_mode import _ScriptedWS
+
+    s = _Fake([("", [("type_in_pane", {"pane_id": "%1", "text": "rebase"}),
+                     ("press_key", {"pane_id": "%1", "key": "Enter"})]),
+               ("Left it.", []), ("Got it.", [])])
+    meter = L._Meter("s", "a", _FLASH, text=True)
+    typed, answers = [], []
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "42")
+    record = s.send_tool_result
+    monkeypatch.setattr(s, "send_tool_result", lambda c, p: (answers.append(p), record(c, p))[1])
+
+    class Browser(_Browser):
+        async def send_json(self, obj):
+            self.sent.append(obj)
+            # The user types past the first card (and only that one).
+            if obj["type"] == "propose" and [f["type"] for f in self.sent].count("propose") == 1:
+                await L._forward_client(_ScriptedWS([{"action": "text", "text": "test"},
+                                                     {"action": "stop"}]), s, meter)
+            if self.sent.count({"type": "turn_complete"}) == 2:
+                self.done.set()
+
+    ws = Browser(meter)
+
+    async def go():
+        rx = asyncio.create_task(L._receiver(ws, s, _Watcher(), meter))
+        await s.send_text("tell work to rebase")
+        await asyncio.wait_for(ws.done.wait(), 5)
+        rx.cancel()
+
+    asyncio.run(go())
+    # Both cards, the one typed past and the next call in that turn, read "Cancelled — you
+    # sent a new message" on the client, and neither holds the new message up.
+    assert [f["ok"] for f in ws.sent if f["type"] == "decided"] == [None, None]
+    assert answers == [{"status": "declined", "reason": L._DECLINED["superseded"]}] * 2
+    assert typed == [] and meter.approvals == {} and not meter.superseded
+    assert ("user", "test") in s.history  # delivered, and answered as its own turn
+    assert _said(ws.sent) == ["Left it.", "Got it."]
+
+
+def test_a_card_already_tapped_is_not_superseded():
+    """A Send tapped just before the message, its turn still unwinding, stands."""
+    from tests.test_live_mode import _ScriptedWS
+
+    meter = L._Meter("s", "a", _FLASH, text=True)
+
+    async def go():
+        meter.approvals["p"] = tapped = asyncio.get_running_loop().create_future()
+        tapped.set_result(True)
+        await L._forward_client(_ScriptedWS([{"action": "text", "text": "test"},
+                                             {"action": "stop"}]), _Fake([]), meter)
+
+    asyncio.run(go())
+    assert not meter.superseded
+
+
 def test_pane_updates_ride_in_front_of_the_next_turn_and_stay_bounded(monkeypatch):
     s = _Fake([("ok", [])])
     for i in range(C.CONTEXT_KEPT + 2):
@@ -174,7 +236,7 @@ def test_gemini_wire_shapes(monkeypatch):
     seen = {}
 
     async def generate_content(model, contents, config):
-        seen.update(model=model, n=len(contents), tools=config.tools)
+        seen.update(model=model, n=len(contents), tools=config.tools, cfg=config)
         return Ns(candidates=[Ns(content=content)], usage_metadata=usage)
 
     client = Ns(aio=Ns(models=Ns(generate_content=generate_content)))
@@ -190,6 +252,8 @@ def test_gemini_wire_shapes(monkeypatch):
     assert seen["model"] == "gemini-3-flash-preview" and s.history[-1] is content
     s._results([(calls[0], {"status": "ok"})])
     (part,) = s.history[-1].parts
+    asyncio.run(s._complete(tools=False))
+    assert seen["cfg"].tool_config.function_calling_config.mode == "NONE"
     assert (part.function_response.id, part.function_response.response) == ("f1", {"status": "ok"})
 
 
@@ -215,20 +279,35 @@ def test_claude_wire_shapes():
     assert (reply, split) == ("Checking.", P.Split(105, 20, 0, 0, 900, 0))
     assert seen["model"] == "claude-sonnet-5-5" and seen["system"] == "sys"
     assert seen["tools"][0].keys() == {"name", "description", "input_schema"}
+    assert seen["tool_choice"] == {"type": "auto"}
     assert s.history[-1] == {"role": "assistant", "content": blocks}
     s._results([(calls[0], {"status": "ok"})])
     assert s.history[-1]["content"] == [
         {"type": "tool_result", "tool_use_id": "tu1", "content": '{"status": "ok"}'}]
+    asyncio.run(s._complete(tools=False))
+    assert seen["tool_choice"] == {"type": "none"}
 
 
-def test_a_model_that_never_stops_calling_tools_is_stopped(monkeypatch):
+def test_a_model_that_never_stops_calling_tools_answers_without_them(monkeypatch):
+    """The last step offers no tools, so the turn ends on an answer, not a dead end."""
+    monkeypatch.setattr(L.agent_history, "offered", lambda: True)
+    monkeypatch.setattr(L.agent_history, "resolve", lambda q: [])
+    s = _Fake([("", [("find_sessions", {"query": "x"})])] * (C.STEPS - 1) + [("None.", [])])
+    frames, audits, _ = _turn(s, "loop", monkeypatch)
+    assert len(audits) == C.STEPS - 1 and not s.script
+    assert s.offered == [True] * (C.STEPS - 1) + [False]
+    assert _said(frames) == ["None."] and frames[-1]["type"] == "turn_complete"
+    assert s.history[-2] == ("user", C._LAST)
+
+
+def test_a_call_after_tools_are_withdrawn_is_refused_not_run(monkeypatch):
     monkeypatch.setattr(L.agent_history, "offered", lambda: True)
     monkeypatch.setattr(L.agent_history, "resolve", lambda q: [])
     s = _Fake([("", [("find_sessions", {"query": "x"})])] * C.STEPS)
     frames, audits, _ = _turn(s, "loop", monkeypatch)
-    assert len(audits) == C.STEPS and not s.script
-    assert _said(frames) == [C._STOPPED] and frames[-1]["type"] == "turn_complete"
-    assert s.history[-1] == ("model", C._STOPPED, [])  # the chain ends before the next turn
+    assert len(audits) == C.STEPS - 1 and not s.script
+    assert s.history[-2:] == [("results", [("find_sessions", "rejected")]), ("model", C._DONE, [])]
+    assert frames[-1]["type"] == "turn_complete"
 
 
 def test_an_empty_response_still_answers_the_turn(monkeypatch):

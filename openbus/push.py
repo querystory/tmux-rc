@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from pywebpush import WebPushException, webpush
 
 from . import tmux
+from .classify import is_approval
 
 logger = logging.getLogger(__name__)
 
@@ -316,6 +317,11 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         "options": question.get("options") if question else [],
         "renderable": renderable_options(question) if question else [],
         "style": question.get("answer_style") if question else None,
+        # The same "Do you want to proceed?" over a different command is a different ask:
+        # a notification describing one must not approve the other.
+        "context": question.get("context") if question else None,
+        # The body is the restatement: one that arrives late (a retried call) re-notifies.
+        "ask": question.get("ask") if question else None,
     }
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question
@@ -494,7 +500,13 @@ class PushManager:
             if len(rate) >= RATE_MAX:
                 continue
             offered = renderable_options(question)[:2] if question else []
-            if ((question and question.get("answer_style") == "cursor")
+            # A menu with no widget rows (one taller than classify reads, or none) can't
+            # tell one "Do you want to proceed?" from the next, so its nonce could approve
+            # a later command; an approval not yet restated (a failed call, retried) would
+            # be approved blind. Either way the notification only opens the app.
+            style = (question or {}).get("answer_style")
+            if (style == "cursor" or (style == "menu" and not question.get("context"))
+                    or (style == "menu" and is_approval(question) and not question.get("ask"))
                     or not self.watcher.pane_birth(pane_id)):
                 offered = []
             nonce = secrets.token_urlsafe(24) if offered else None
@@ -515,8 +527,11 @@ class PushManager:
                 "title": _push_text(
                     pane.get("title") or pane.get("label") or pane_id, 100
                 ),
+                # A widget's plain restatement ("Do you want to proceed?" alone says
+                # nothing; classify._restate), else the prompt itself.
                 "body": _push_text((
-                    (question or {}).get("prompt")
+                    (question or {}).get("ask")
+                    or (question or {}).get("prompt")
                     or pane.get("headline")
                     or "Needs your attention"
                 ), 400),

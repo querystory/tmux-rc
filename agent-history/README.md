@@ -89,6 +89,10 @@ fold into their main repo. Headless runs and subagents are left out unless `-all
 Paraphrase ("the voice thing" for Live Mode) is out of reach by design until real misses
 justify aliases or embeddings.
 
+Each session lists the query terms that hit it (`matched`). A title is the agent's one-line
+summary and often never names a topic the session spent an hour on; without the terms, a
+caller (Live's chat model, in practice) reads a correct hit as a miss and keeps searching.
+
 Each session also says whether it is `running` now, and in which tmux pane, so a caller
 can send to the live agent instead of resuming a second copy onto the same transcript.
 This comes from the registry Claude Code keeps of its live processes

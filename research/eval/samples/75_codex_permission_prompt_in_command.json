@@ -1,0 +1,16 @@
+{
+  "description": "Codex permission prompt whose command quotes the prompt's own words, inline (a printf) and as a whole row of its own (a heredoc). The context must be read from the real prompt row down, so it keeps the whole command (the printf AND the rm), not just what follows the quoted copy: two commands sharing a tail must not share an identity, or a push answer for one could approve the other. Synthetic.",
+  "current_command": "codex",
+  "capture": "\u001e[visible screen]\u001f\n› I'll print a banner and clear the old build.\n\n  Would you like to run the following command?\n\n    printf 'Would you like to run the following command? yes\\n'\n    rm -rf build\n    cat <<EOF\n    Would you like to run the following command?\n    EOF\n\n  1. Yes\n  2. Yes, and don't ask again for commands that start with printf\n  3. No, and tell Codex what to do differently (esc)\n\n[visible screen]\n  gpt-5.5 xhigh fast · ~/src/app",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "context": "printf 'Would you like to run the following command? yes\\n'\nrm -rf build\ncat <<EOF\nWould you like to run the following command?\nEOF"
+    },
+    "headline": "Asking to print a banner and delete the build directory",
+    "session": null
+  }
+}

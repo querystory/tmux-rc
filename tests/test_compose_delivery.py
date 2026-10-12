@@ -11,7 +11,7 @@ from openbus import server, tmux
 
 @pytest.fixture
 def client(monkeypatch, tmp_path):
-    pane = SimpleNamespace(id="%1", pid="1234")
+    pane = SimpleNamespace(id="%1", pid="1234", secret=False)
     monkeypatch.setattr(tmux, "find_pane", lambda target: pane)
     monkeypatch.setattr(server, "_audit", lambda *a, **kw: None)
     monkeypatch.setattr(server, "IMG_DIR", tmp_path)

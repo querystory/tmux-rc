@@ -27,6 +27,7 @@ WEB = Path(__file__).resolve().parent.parent / "web"
         "sw.js",
         "m/app.js",
         "m/overscroll.js",
+        "m/keys.js",
         "m/composer.js",
         "m/live.js",
         "m/pane-model.js",

@@ -1,0 +1,14 @@
+{
+  "description": "Counter-sample to 82: the same npx 'Ok to proceed? (y)' prompt with the cursor on it and nothing printed after. That is a live y/n prompt: the answered-prompt rule must not drop it. Expected: a typed-answer user-wait.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\ndev@workstation ~/src/example-site $ npx wrangler login\nNeed to install the following packages:\nwrangler@4.149.0\nOk to proceed? (y) ",
+  "expected": {
+    "tool": "shell",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Starting a Cloudflare login with wrangler; npx needs a y to install it"
+  }
+}

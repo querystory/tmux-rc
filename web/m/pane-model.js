@@ -7,7 +7,10 @@ export const PARKED_IDLE_SECS = 600;
 const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
 const actOf = (pane) => ACTIVITIES.includes(pane.activity) ? pane.activity : "unknown";
 export const needsYou = (pane) => pane.activity === "waiting" && pane.waiting_on !== "external";
-export const activityLabel = (pane) => needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]);
+export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
+// A pane whose window this page is closing (app.js sets pane.ending while the request runs):
+// greyed under a spinner, and inert, so no answer or action on it can be sent meanwhile.
+export const markEnding = (node, pane) => { node.inert = !!pane?.ending; node.classList.toggle("ending", !!pane?.ending); };
 // "waiting" on something external (a tool, a subagent) is shown as running: the pane is
 // busy, it just isn't our turn.
 export const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : actOf(pane);
@@ -15,7 +18,7 @@ export const isRunning = (pane) => ["running", "compacting"].includes(activityCl
 // A tool whose working motion is its own animated image rather than a CSS transform. It is
 // swapped in as the src because SMIL in a CSS content:url() image does not reliably animate;
 // reduced motion is CSS's job (style.css shows the still logo over it, live as the setting flips).
-const WORKING_LOGOS = { omp: "/omp-working.svg" };
+const WORKING_LOGOS = { omp: "/omp-working.svg", claude: "/claude-working.svg" };
 const has = (map, key) => Object.prototype.hasOwnProperty.call(map, key);
 // omp and OpenCode drive any vendor's model, so their own logo can't say whose is running.
 // The families match how the parsers emit pane.model ("GPT-6.1-Sol", "Claude Opus 5.5",
@@ -37,9 +40,16 @@ export function markWorking(img, pane, logos) {
   if (!badge) img.after(badge = Object.assign(document.createElement("img"), { className: "model-badge" }));
   if (badge.getAttribute("src") !== provider[1]) Object.assign(badge, { src: provider[1], alt: provider[0] });
 }
+// The time a row's age label counts from.
+export const shownAt = (p) => Number(p.state_since) || lastActivity(p);
+// List order matches the ages shown: "now" rows first, then the youngest age.
+export const newestFirst = (a, b) => isRunning(b) - isRunning(a) || shownAt(b) - shownAt(a);
 // How long the pane has been in its current state; a row shows "now" while it works.
+// No timestamp at all reads as no age, not as time since the epoch.
 export const since = (p, nowMs = Date.now()) => {
-  const s = Math.max(0, nowMs / 1000 - (Number(p.state_since) || lastActivity(p)));
+  const t = shownAt(p);
+  if (!(t > 0)) return "";
+  const s = Math.max(0, nowMs / 1000 - t);
   return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 };
 export const age = (p, nowMs) => isRunning(p) ? "now" : since(p, nowMs);
@@ -97,7 +107,7 @@ export const LAUNCH_GRACE_MS = 30000;
 export const awaitingLaunch = (launched, id, nowMs = Date.now()) =>
   !!id && launched?.id === id && nowMs - launched.at < LAUNCH_GRACE_MS;
 
-// Sort key for "Sort by updated": the parser's timestamp when it has one, else the moment
+// shownAt's fallback without state_since: the parser's timestamp when it has one, else the moment
 // the pane's state last changed, never later than when an idle pane went idle.
 export function lastActivity(pane) {
   if (Number.isFinite(pane.last_activity_at)) return pane.last_activity_at;
@@ -118,10 +128,19 @@ export function paneName(pane) {
   return pane.title || pane.label || pane.window_name || pane.pane_id;
 }
 // The line a list shows under the name: the question it is stuck on, else what it is doing.
-export const paneActivity = (pane) => pane.question?.prompt || pane.status_line || pane.session_summary || "";
+// A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare
+// "Do you want to proceed?" says nothing on a card.
+export const paneActivity = (pane) => pane.question?.ask || pane.question?.prompt || pane.status_line || pane.session_summary || "";
 // The pane overview's headline and its stats line (model / context / cost / elapsed); the
 // sidebar's hover card shows the same two, so they are defined once.
 export const paneHeadline = (pane) => pane?.headline || pane?.status_line || pane?.session_summary || "";
+// A list field (tasks, subagents) as its object entries: what the model emits can be junk.
+export const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
+export const itemDone = (item) => !!item.done || item.state === "done";
+// The sub-agents at work (busy as the backend counts it, models.py), listed under a sidebar
+// row. `agents` is the backend's count, which can exceed the roster (omp's own counter).
+export const liveSubagents = (pane) => records(pane?.subagents).filter((a) => ["running", "compacting"].includes(a.state));
+export const subagentCount = (pane) => Math.max(Number(pane?.agents) || 0, liveSubagents(pane).length);
 export const paneMeta = (pane) => [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, pane?.working?.elapsed ?? pane?.elapsed].filter(Boolean).join(" / ");
 
 // Search the accumulated associations, not just this frame's headline. A PR may
@@ -135,8 +154,8 @@ export function matchesSearch(pane, query) {
         `${repo} ${pr.number}`, `${repo} PR ${pr.number}`, `${repo} PR #${pr.number}`])];
   });
   const text = [pane.session, pane.title, pane.label, pane.window_name, pane.pane_id, pane.tool, pane.model,
-    pane.question?.prompt, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
+    pane.question?.prompt, pane.question?.ask, pane.question?.context, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
     pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : "", ...refs]
-    .filter(Boolean).join(" ").toLowerCase();
+    .filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "); // context keeps its rows and runs of spaces
   return text.includes(String(query).trim().toLowerCase().replace(/\s+/g, " "));
 }
