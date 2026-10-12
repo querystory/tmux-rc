@@ -549,13 +549,16 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #loops-card .loop-row:first-of-type { border-top: 0; }
 #loops-card .loop-row a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #loops-card .loop-panes { display: none; }
-/* One grid of cards, as many columns of at least 320px as fit, each row's height shared.
-   Four cards leave no hole at one, two or four columns; at three, Plan usage takes the
-   second row whole. Column counts by width: n fit from 320n + 16(n - 1). */
+/* One grid of cards: columns of at least 320px, never more than three, each row's height
+   shared. At three, Plan usage takes the second row whole, as a short strip of meters; at
+   two, the four cards are 2 + 2; on a phone, one column. Three fit from 3 × 320 + 2 × 16. */
 #landing-main { container: dash / inline-size; }
-#landing-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; margin-top: 16px; }
+#landing-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(min(100%, 320px), calc((100% - 32px) / 3)), 1fr)); gap: 16px; margin-top: 16px; }
 #landing-cards .atlas-panel { height: 100%; margin-top: 0; }
-@container dash (min-width: 992px) and (max-width: 1327.98px) { #usage-panel { grid-column: 1 / -1; } }
+@container dash (min-width: 992px) { #usage-panel { grid-column: 1 / -1; } }
+/* Plan usage follows its own width: wide, its meters sit in one row with short trends. */
+#usage-panel { container-name: usage; }
+@container usage (min-width: 720px) { #usage-board .usage-spark { height: 28px; margin-top: 2px; } #usage-panel > .atlas-panel-heading { margin-bottom: 4px; } }
 /* Without Plan usage, two columns would leave the radar alone: it takes that row. */
 @container dash (min-width: 656px) and (max-width: 991.98px) { #radar-card:has(+ #usage-panel[hidden]) { grid-column: 1 / -1; } }
 /* Activity, last on the page: until its slot scrolls into view, a strip pinned to the bottom
