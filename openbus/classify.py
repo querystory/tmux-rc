@@ -670,6 +670,10 @@ def _final_ask(visible: str, tool: str) -> dict | None:
     return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
 
 
+def _list_row(option: object) -> bool:
+    return isinstance(option, str) and bool(_LIST_ITEM_RE.match(option.strip()))
+
+
 def _clean_options(raw: object, *prompts: str) -> list[str]:
     """Suggested replies as buttons: strings only, short, deduped, printable (an option is
     typed into the agent's input box), none that just repeat a prompt, and no list rows
@@ -679,7 +683,7 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
     picks: dict[str, str] = {}
     for o in raw if isinstance(raw, list) else []:
         if (isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.isprintable()
-                and o.strip().casefold() not in repeats and not _LIST_ITEM_RE.match(o.strip())):
+                and o.strip().casefold() not in repeats and not _list_row(o)):
             picks.setdefault(o.strip().lower(), o.strip())
     return list(picks.values())
 
@@ -1024,6 +1028,16 @@ def classify(
         # A menu's own numbers are its options, so only a typed answer names list items.
         if items := style == "text" and asked and _referenced_items(asked, visible):
             question["items"] = items
+            # The parser's own copy of those rows, as answer buttons or as a table whose
+            # first column is their numbers, would show them twice.
+            if isinstance(question.get("options"), list):
+                question["options"] = [o for o in question["options"] if not _list_row(o)]
+            if isinstance(result.get("tables"), list):
+                numbers = {item.split(".", 1)[0] for item in items}
+                result["tables"] = [t for t in result["tables"] if not (
+                    isinstance(t, dict) and isinstance(t.get("rows"), list) and t["rows"]
+                    and all(isinstance(r, list) and r and re.sub(r"\D", "", str(r[0])) in numbers
+                            for r in t["rows"]))] or None
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         if context := style == "menu" and asked and _widget_text(asked, visible):
             question["context"] = context

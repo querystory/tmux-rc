@@ -190,9 +190,12 @@ actually hit:
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
 Rewording that helped for a while, but the parser kept dropping the list (sample 90 is
-a live case where it returned no table at all), so the list is now read off the screen
-by classify() into `question.items` and the parser is no longer asked for it: which
-rows a prompt names is a fact about the screen, not a judgement.
+a live case where it returned no table at all), so classify() now reads the rows off the
+screen into `question.items`, and drops the parser's own copy of them (a table keyed by
+their numbers, or the rows offered as answer buttons): which rows a prompt names is a
+fact about the screen, not a judgement. Deleting the prompt's table instruction was
+tried and rejected: the parser then filed the list as `tasks`, and the reworded prompt
+flipped the unrelated sample 47.
 
 ### Committed vs local — what's repo-safe
 
