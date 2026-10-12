@@ -31,7 +31,7 @@ body.hidden #bar, body.hidden figcaption { display:none; }
 #note .close { position:sticky; top:12px; float:right; }
 #note code, #note pre { font:12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 #states { display:inline-flex; gap:8px; }
-#note-desc { color:var(--muted); }
+#note-desc { color:var(--muted); margin-right:80px; } /* clear of the floating Close */
 /* A phone shows the app full screen, with one compact row at the foot: no widths, no A/B. */
 body.phone #bar { order:1; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; gap:6px; padding:6px 8px calc(6px + env(safe-area-inset-bottom)); border:0; border-top:1px solid var(--line); }
 body.phone #bar h1, body.phone .desktop, body.phone .gap, body.phone figcaption, body.phone .seg:empty { display:none; }
