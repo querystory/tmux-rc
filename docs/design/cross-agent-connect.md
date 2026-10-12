@@ -436,7 +436,13 @@ daemon first sets `remain-on-exit` on it, asks the agent to quit through its own
 command (which lets it flush its transcript), waits for the process to end, then
 `respawn-pane`s the same pane with the session's resume argv, which agent-history
 already resolves, in the indexed cwd, under that launcher's environment plus the
-override, and finally restores the pane's `remain-on-exit`. The pane id and layout stay;
+override, and finally restores the pane's `remain-on-exit`. A daemon can die anywhere in
+that sequence, so before touching the pane it persists a restart record: the pane and
+its incarnation, the original `remain-on-exit` value, the session and the launcher.
+Startup finishes any open record: a dead pane is respawned as planned, a pane whose
+agent is still running is left alone, and either way the original option is restored
+and the record closed. A timeout or failed step takes the same path, so no pane stays
+dead or keeps the temporary option. The pane id and layout stay;
 the token is rebound to the new process incarnation. The conversation survives, but
 terminal state does not. So the card asks "Restart this agent to connect it?", and the
 relaunch never happens mid-turn. A harness with no resume command can only be connected
