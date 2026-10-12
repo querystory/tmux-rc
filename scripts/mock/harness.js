@@ -76,7 +76,7 @@ function boot(M) {
     const fig = document.createElement("figure"), cap = document.createElement("figcaption");
     const iframe = document.createElement("iframe");
     if (i === 1) { // the second slot picks its own option; the first follows the bar
-      const sel = document.createElement("select");
+      const sel = Object.assign(document.createElement("select"), { ariaLabel: "Second option" });
       sel.innerHTML = M.variants.map((x) => `<option value="${x.name}">${x.label}</option>`).join("");
       sel.value = v.name;
       sel.onchange = () => set({ v: [s.v[0], sel.value] });
@@ -140,7 +140,7 @@ function boot(M) {
   // The hash carries the whole state, so a link (or a reload, where storage is sandboxed off) reopens it.
   function writeHash() {
     const hash = new URLSearchParams({ v: s.v[0], b: s.v[1], view: s.view, w: s.width, ab: +s.ab, theme: s.theme, hide: +s.hidden, note: +!$("#note").hidden });
-    try { history.replaceState(null, "", `#${hash}`); } catch { /* an opaque origin may refuse */ }
+    try { history.replaceState(null, "", `#${hash}`); } catch { location.replace(`#${hash}`); } // an opaque origin may refuse the first
   }
   const note = (open) => { $("#note").hidden = !open; $("#note-btn").ariaExpanded = String(open); writeHash(); };
   $("#note-body").innerHTML = M.note || "";
