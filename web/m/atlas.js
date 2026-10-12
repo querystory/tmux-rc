@@ -284,7 +284,8 @@ export function renderHeatView(root, scope, icon, back) {
   refreshHeat();
   if (unchanged(root, [heat, settings, scope.tool, scope.session])) return;
   root._older?.disconnect();
-  if (!heat) return rebuild(root, [pageHead('Running by hour', icon, back), heatWaiting()], focusKey(root));
+  const focus = focusKey(root);
+  if (!heat) return rebuild(root, [pageHead('Running by hour', icon, back), heatWaiting()], focus);
   const data = heatDays(scope), unit = heatUnit(), key = [settings, scope.tool, scope.session, heat.at];
   let view = root._view;
   if (!view || view.key.some((v, i) => v !== key[i]) || !root.contains(view.grid)) {
@@ -295,12 +296,13 @@ export function renderHeatView(root, scope, icon, back) {
     view = root._view = { key, figs: el('div'), grid: heatGrid(data, 0, false), foot: el('p', 'muted heat-foot'), rows: 0 };
     armHeatGrid(view.grid, unit);
     panel.append(view.figs, legend, view.grid, view.foot);
-    rebuild(root, [pageHead('Running by hour', icon, back), panel], focusKey(root));
+    rebuild(root, [pageHead('Running by hour', icon, back), panel]); // focus returns once the rows are in
   }
   heatRows(view.grid, data, view.rows, data.all.length);
   view.grid.querySelectorAll('.heat-cell:not([tabindex])').forEach(cell => cell.hour && labelHeatCell(cell, unit));
   const first = view.grid.querySelector('.heat-cell[tabindex]');
   if (first && !view.grid.querySelector('.heat-cell[tabindex="0"]')) first.tabIndex = 0;
+  if (focus && !root.contains(document.activeElement)) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
   view.rows = data.all.length;
   const figs = heatFigs(data);
   view.figs.replaceWith(figs);
