@@ -229,15 +229,20 @@ def _labels(watcher) -> dict[str, str]:
     return {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
 
 
-def _pane_name(d: dict) -> str:
+def _pane_name(d: dict, digest: list[dict] = ()) -> str:
     """A pane's user-facing identity as the phone's list row shows it: its name (paneName's
     rungs: the agent's own title, else the window label), its tool and its session chip,
     `qs-app · codex in qs-app`. The prompt lists it and the model names it so, and the card
-    and Open button read the same as the reply above them. Never the window number: the
-    phone doesn't show one. Newlines collapse so a stray title can't split the heading."""
-    name = " ".join(str(d.get("title") or d.get("label") or d.get("pane_id") or "").split())
-    return name + "".join(f"{sep}{d[k]}" for sep, k in ((" · ", "tool"), (" in ", "session"))
-                          if d.get(k))
+    and Open button read the same as the reply above them. The window number (the row's
+    small print) is added only when another pane in `digest` reads the same, so two
+    "tests" panes stay tellable apart. Newlines collapse so a stray title can't split it."""
+    def base(p: dict) -> str:
+        name = " ".join(str(p.get("title") or p.get("label") or p.get("pane_id") or "").split())
+        return name + "".join(f"{sep}{p[k]}" for sep, k in ((" · ", "tool"), (" in ", "session"))
+                              if p.get(k))
+    name, win = base(d), d.get("window_index")
+    twin = any(p["pane_id"] != d.get("pane_id") and base(p) == name for p in digest)
+    return f"{name} · window {win}" if twin and win not in (None, "") else name
 
 
 # Words that name the kind of thing, not which one: "the auth fix window".
@@ -282,11 +287,11 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     return [d for _, d in ranked[:5]], clear
 
 
-def _pane_block(d: dict, screen: str | None) -> str:
+def _pane_block(d: dict, screen: str | None, digest: list[dict] = ()) -> str:
     """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
     leads with the user-facing identity (_pane_name) and gives the internal pane id only
     as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
-    head = f"{_pane_name(d)} (id={d['pane_id']}) — {d.get('activity') or 'unknown'}"
+    head = f"{_pane_name(d, digest)} (id={d['pane_id']}) — {d.get('activity') or 'unknown'}"
     # Idle AGE, not just the state: "idle for 2d" and "idle for 40s" are different routing
     # candidates — the prompt tells the model a long-idle pane is rarely where a new
     # instruction is destined (see live_prompt's targeting ladder).
@@ -348,7 +353,7 @@ def _pane_context(watcher, screens: str) -> str:
             if t:
                 tails[d["pane_id"]] = t
                 budget -= len(t)
-    blocks = [_pane_block(d, tails.get(d["pane_id"])) for d in digest]
+    blocks = [_pane_block(d, tails.get(d["pane_id"]), digest) for d in digest]
     return "\n\n".join(blocks) if blocks else "(no panes)"
 
 
@@ -446,11 +451,12 @@ async def _approved(
     removes actions."""
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
-    d = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
+    digest = watcher.digest()
+    d = next((d for d in digest if d["pane_id"] == pane_id), None)
     known, pane = d is not None, pane_id
     if known:  # named as the prompt names it, so the card matches the reply above it; the
         # tmux address it means goes to the audit alone
-        pane, rec["target"] = _pane_name(d), f"{d.get('session')}:{d.get('window_index')}"
+        pane, rec["target"] = _pane_name(d, digest), f"{d.get('session')}:{d.get('window_index')}"
     # "" when the lookup finds no process: it matches no pane, so the send is refused
     # rather than going out unguarded (None would mean "don't check").
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
@@ -637,9 +643,10 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
     return {"status": "done", "pane": labels[pane_id]}
 
 
-async def _offer(websocket, pane_id: str, pane: dict, *, auto: bool = False) -> None:
-    await websocket.send_json(
-        {"type": "open_pane", "pane_id": pane_id, "label": _pane_name(pane), "auto": auto})
+async def _offer(websocket, pane_id: str, pane: dict, digest: list[dict], *,
+                 auto: bool = False) -> None:
+    await websocket.send_json({"type": "open_pane", "pane_id": pane_id,
+                               "label": _pane_name(pane, digest), "auto": auto})
 
 
 async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = False) -> dict:
@@ -657,10 +664,10 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
                     "reason": "no open window has that name; for past work use find_sessions"}
         if not clear:  # a button for each: a window named in the reply is one tap away
             for d in found:
-                await _offer(websocket, d["pane_id"], d)
+                await _offer(websocket, d["pane_id"], d, digest)
             return {"status": "ambiguous",
                     "reason": "a button for each is shown, nothing is open; say how they differ",
-                    "candidates": [{"pane_id": d["pane_id"], "window": _pane_name(d)}
+                    "candidates": [{"pane_id": d["pane_id"], "window": _pane_name(d, digest)}
                                    for d in found]}
         args = {"pane_id": found[0]["pane_id"]}
     pane_id = args.get("pane_id")
@@ -668,16 +675,16 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
     # Not published yet: a window resume_session just opened, before the watcher's next tick.
     if pane is None and isinstance(pane_id, str):
         with contextlib.suppress(subprocess.CalledProcessError, OSError):  # tmux unreachable
-            pane = next(({"label": p.label, "title": p.display_title,
-                          "tool": _host_tool(p), "session": p.session}
+            pane = next(({"label": p.label, "title": p.display_title, "tool": _host_tool(p),
+                          "session": p.session, "window_index": p.window_index}
                          for p in await asyncio.to_thread(tmux.list_panes) if p.id == pane_id),
                         None)
     if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:
         return {"status": "rejected", "reason": "malformed call or unknown pane"}
     rec["pane_id"] = pane_id
-    await _offer(websocket, pane_id, pane, auto=auto)
+    await _offer(websocket, pane_id, pane, digest, auto=auto)
     # Not "done": the model read that as "opened" and told the user so before any tap.
-    return {"status": "button_shown", "pane": _pane_name(pane),
+    return {"status": "button_shown", "pane": _pane_name(pane, digest),
             "reason": "the user taps it to open; nothing is open yet"}
 
 

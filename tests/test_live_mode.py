@@ -129,6 +129,16 @@ def test_pane_block_names_window_prefers_title_hides_id_role():
     assert "## shell · shell (id=%2)" in untitled
 
 
+def test_pane_name_adds_the_window_only_to_tell_twins_apart():
+    twins = [{"pane_id": f"%{i}", "title": "tests", "tool": "claude", "session": "qs",
+              "window_index": str(i)} for i in (3, 4)]
+    other = {"pane_id": "%5", "title": "docs", "tool": "claude", "session": "qs",
+             "window_index": "5"}
+    digest = [*twins, other]
+    assert L._pane_name(twins[0], digest) == "tests · claude in qs · window 3"
+    assert L._pane_name(other, digest) == "docs · claude in qs"
+
+
 def test_pane_block_idle_age_suffix():
     # Idle panes carry their AGE ("idle for 2d") — the prompt's targeting ladder says a
     # long-idle pane is rarely where a new instruction is destined, so the model needs
