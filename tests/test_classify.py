@@ -1321,6 +1321,10 @@ def test_question_naming_list_items_carries_them():
                 "Do Item 2 first?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert classify(_pane("claude"), screen, _llm({}))["question"]["items"]
+    long = classify(_pane("claude"), _auto_screen(message.replace(
+        "Close idle worker sessions.", "Close " + "idle worker " * 20 + "sessions.")), _llm({}))
+    capped = long["question"]["items"][1]
+    assert len(capped) <= 120 and capped.endswith("…")
     ranged = classify(_pane("claude"), _auto_screen(message.replace(
         "do 1 now and prepare the list for 2", "make edits 1–3")), _llm({}))["question"]
     assert [i[:2] for i in ranged["items"]] == ["1.", "2.", "3."]
@@ -1337,7 +1341,7 @@ def test_question_naming_list_items_carries_them():
            "options": ["1. Move the build cache to disk.", "Yes, both"]}
     echo = {"rows": [["1", "Move the build cache"], ["2.", "Close the sessions"]]}
     other = {"rows": [["1 min", "fast"], ["2 min", "slow"]]}
-    ranking = {"rows": [["1", "staging"], ["2", "production"]]}  # numbered, but not the rows
+    ranking = {"rows": [["1", "Move staging"], ["2", "Close production"]]}  # one shared verb
     screen = _auto_screen(message).replace("auto mode on", "plan mode on")
     tables = [echo, other, ranking]
     result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": tables}))

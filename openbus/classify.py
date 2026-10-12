@@ -657,19 +657,24 @@ def _referenced_rows(prompt: str, visible: str) -> dict[str, str]:
 def _item(number: str, text: str) -> str:
     """A referenced row on the card: its number and first sentence, at most 120 characters."""
     first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0]
-    return f"{number}. " + textwrap.shorten(first, 120, placeholder="…")
+    return textwrap.shorten(f"{number}. {first}", 120, placeholder="…")
 
 
 def _restates(table: object, rows: dict[str, str]) -> bool:
-    """Whether a parser table is its own copy of the referenced rows: each of its rows keyed
-    by a bare referenced number and sharing a word with that row, so an unrelated table
-    that happens to be numbered 1, 2 (a ranking, an index) stays."""
+    """Whether a parser table is its own copy of the referenced rows: every row keyed by a
+    bare referenced number, and most of them sharing at least two words with that row (the
+    parser paraphrases, so not all). A table that is merely numbered 1, 2 (a ranking, an
+    index) or shares one generic verb ("Update ...") with the rows stays."""
     body = table.get("rows") if isinstance(table, dict) else None
-    return isinstance(body, list) and bool(body) and all(
-        isinstance(r, list) and r and (n := str(r[0]).strip().rstrip(".)")) in rows
-        and set(_WORD_RE.findall(" ".join(map(str, r[1:])).lower()))
-        & set(_WORD_RE.findall(rows[n].lower()))
-        for r in body)
+    keys = [str(r[0]).strip().rstrip(".)") if isinstance(r, list) and r else None
+            for r in body] if isinstance(body, list) else []
+    if not keys or not all(k in rows for k in keys):
+        return False
+    def words(text: str) -> set[str]:
+        return set(_WORD_RE.findall(text.lower()))
+    shared = [len(words(" ".join(map(str, r[1:]))) & words(rows[k]))
+              for r, k in zip(body, keys, strict=True)]
+    return 2 * sum(n >= 2 for n in shared) > len(shared)
 
 
 def _final_ask(visible: str, tool: str) -> dict | None:
