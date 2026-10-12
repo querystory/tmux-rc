@@ -1053,8 +1053,9 @@ def test_menu_without_a_digit_row_is_answered_as_text():
             "prompt": prompt, "answer_style": "menu", "options": ["Yes", "No"]}}))
         assert result["question"]["answer_style"] == "text"
     # An option that repeats the question, on its row or wrapped below it, is no prompt.
-    for screen in ("1. Repeat “Which action?”", "1. Repeat\n   Which action?"):
-        result = classify(_pane(), f"Which action?\n{screen}\n2. Stop", _llm({"question": {
+    for screen in ("1. Repeat “Which action?”\n2. Stop", "1. Repeat\n   Which action?\n2. Stop",
+                   "1. Stop\n2. Repeat\n   Which action?"):
+        result = classify(_pane(), f"Which action?\n{screen}", _llm({"question": {
             "prompt": "Which action?", "answer_style": "menu", "options": ["Repeat", "Stop"]}}))
         assert result["question"]["answer_style"] == "menu"
 

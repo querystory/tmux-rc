@@ -1138,13 +1138,16 @@ def classify(
         # row. A prompt only on that row ("1. Continue? [y/N]"), below it (a bare [y/N]
         # under numbered output reads a typed line), or nowhere has no digit to press, so it
         # is answered as text. The last match counts, so an older copy of the same prompt
-        # vouches for nothing, and a match inside an option's words ("1. Repeat “Which
-        # action?”") is the option's, not the prompt. This check, not the parser prompt's
-        # "or is a y/n confirmation", is the authority: the eval measured every rewording
-        # of the prompt regressing others.
+        # vouches for nothing, and a match inside an option's words, wrapped or not ("1.
+        # Repeat “Which action?”"), is the option's, not the prompt. This check, not the
+        # parser prompt's "or is a y/n confirmation", is the authority: the eval measured
+        # every rewording of the prompt regressing others.
         rows = list(_OPTION_ROW_RE.finditer(visible))
+        # An option's words run past its row onto lines wrapped deeper than its number.
+        words = [(r.end(1), re.compile(rf"(?:\n[ \t]{{{len(r[1]) + 1},}}\S.*)*").match(
+            visible, r.end()).end()) for r in rows]
         said = [m for m in (_occurrences(asked, visible) if asked else [])
-                if not any(r.end(1) < m.start() < r.end() for r in rows)]
+                if not any(lo < m.start() < hi for lo, hi in words)]
         if style == "menu" and (not _FIRST_OPTION_RE.search(visible) or not said
                                 or said[-1].start() >= rows[-1].start()):
             # The menu's labels ("Yes") are no answer for a line prompt that reads "y":
