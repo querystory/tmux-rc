@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import time
+import urllib.error
 import urllib.request
 from contextlib import suppress
 from datetime import datetime
@@ -24,6 +25,10 @@ from . import tmux
 logger = logging.getLogger(__name__)
 POLL = 60  # Codex logs are local and cheap; the Claude endpoint is still CLAUDE_TTL
 CLAUDE_TTL = 300
+# How old a reading may be and still stand in for a failed read: three Claude polls, so one
+# or two transient failures in a row keep the meter up (a 5h window moves a few points in
+# that time), while an outage, or an expired token nobody refreshes, still reads unavailable.
+STALE_OK = 3 * CLAUDE_TTL
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CLAUDE_WINDOWS = {"five_hour": ("5h", 5 * 3600), "seven_day": ("7d", 7 * 86400)}
 ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
@@ -157,8 +162,17 @@ def fetch_claude(config: Path, now: float) -> list[dict]:
         raise PermissionError("token expired")
     request = urllib.request.Request(USAGE_URL, headers={
         "Authorization": f"Bearer {oauth['accessToken']}", "anthropic-beta": "oauth-2025-04-20"})
-    with _OPENER.open(request, timeout=10) as response:
-        return claude_samples(json.load(response), now)
+
+    def get() -> list[dict]:
+        with _OPENER.open(request, timeout=10) as response:
+            return claude_samples(json.load(response), now)
+    try:
+        return get()
+    except urllib.error.HTTPError:  # a status is an answer: a 401 won't fix itself in 2s
+        raise
+    except (urllib.error.URLError, TimeoutError):  # a network blip: one retry
+        time.sleep(2)
+        return get()
 
 
 def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
@@ -277,15 +291,20 @@ class PlanUsage:
         shorts = [(k[0], a["short"]) for k, a in accounts.items()]
         out = []
         for (tool, key), account in accounts.items():
-            # Stale numbers would mislead, and without History there are none to show.
-            error = account["error"] or (None if self.history else "unavailable")
-            rows = [] if error else self.history.latest_usage(tool, key)
-            error = error or (None if rows else "no data yet")  # not "no limits": unknown
+            # A failed read keeps showing the last reading while it is recent (STALE_OK),
+            # marked with its age; older numbers would mislead. No History: none to show.
+            rows = self.history.latest_usage(tool, key) if self.history else []
+            newest = max((r[2] for r in rows), default=0)
+            if account["error"] and now - newest > STALE_OK:
+                rows = []
+            error = None if rows else account["error"] or (
+                "no data yet" if self.history else "unavailable")  # not "no limits": unknown
             # One account: the provider's name. Several: short names, the full one on a clash.
             short = account["short"]
             label = (None if count[tool] < 2 else short if shorts.count((tool, short)) < 2
                      else account["long"])
             out.append({"provider": tool, "label": label,
                         "panes": account["panes"], "error": error,
+                        "as_of": newest * 1000 if rows and account["error"] else None,
                         "windows": [self._window(tool, key, row, now) for row in rows]})
         return sorted(out, key=lambda a: (a["provider"], a["label"] or ""))

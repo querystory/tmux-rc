@@ -6,12 +6,13 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar } from "/m/sidebar.js";
 import { renderUsage, paneAccount, shownUsage } from "/m/usage.js";
+import { renderLoops } from "/m/loops.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -51,6 +52,7 @@ const LUCIDE = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
   ellipsis: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  menu: '<path d="M4 5h16M4 12h16M4 19h16"/>',
   power: '<path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.77.04"/>',
   trash: '<path d="M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
@@ -123,9 +125,11 @@ const pendingAnswers = new Map();
 let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
 let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
+// CSPRNG-random or omitted, never guessed. getRandomValues, unlike randomUUID, needs no
+// secure context, and a reconnecting chat finds its parked cards by this id.
 const liveSession = (() => {
-  try { return crypto.randomUUID(); }
-  catch { return ""; } // CSPRNG-random or omitted, never guessed.
+  try { return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""); }
+  catch { return ""; }
 })();
 
 function draft(id = active) {
@@ -393,6 +397,7 @@ function renderLanding() {
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
   }, licon, $("usage-panel"));
   landingRows("landing-attention", waiting);
+  renderLoops($("landing-loops"), loops, navigate, licon);
 }
 
 // Drag the seam between the sidebar and the main column. Width is a CSS variable the
@@ -593,7 +598,7 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 // Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
 // by default); the wide sidebar has no such menu and keeps them all.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], usageAt = 0, usageMode = "auto", usageDetail = false;
+let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usageDetail = false;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
@@ -605,10 +610,13 @@ const paintUsage = () => {
   $("usage-detail").ariaLabel = $("usage-detail").title = usageDetail ? "Hide details" : "Show details";
   html($("usage-detail"), licon(usageDetail ? "chevronUp" : "chevronDown"));
 };
-async function refreshUsage() {
-  if (Date.now() - usageAt < 60000) return;
-  usageAt = Date.now();
-  try { usage = (await request("/api/usage")).accounts || []; } catch { return; }
+// Plan usage and open loops are both cached by the server; a minute is fresh enough.
+async function refreshCached() {
+  if (Date.now() - cachedAt < 60000) return;
+  cachedAt = Date.now();
+  const [u, l] = await Promise.allSettled([request("/api/usage"), request("/api/open-loops")]);
+  if (u.status === "fulfilled") usage = u.value.accounts || [];
+  if (l.status === "fulfilled") loops = l.value;
   paintUsage(); render();
 }
 
@@ -700,6 +708,7 @@ function render() {
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
   text($("prompt"), question?.ask || question?.prompt || "");
+  text($("question-items"), questionItems(question));
   // The widget's own rows, once and folded away: the restatement above is what to read.
   // Folded again for each new pane or command: an expanded one must not carry over.
   const command = $("question-command"), commandKey = `${active}\n${question?.context || ""}`;
@@ -913,7 +922,7 @@ function startState() {
   stateController?.abort();
   stateController = new AbortController();
   if (!document.hidden) {
-    refreshHistory(); refreshUsage();
+    refreshHistory(); refreshCached();
     pollState(stateController.signal);
   }
 }
@@ -973,7 +982,7 @@ async function pollState(signal) {
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory(); refreshUsage();
+      refreshHistory(); refreshCached();
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -1140,7 +1149,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", sort: "arrowUpDown", "usage-mode": "gauge", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "menu", sort: "arrowUpDown", "usage-mode": "gauge", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1567,6 +1576,11 @@ $("expunge-pane").onclick = async () => {
   $("expunge-dialog").showModal();
 };
 window.addEventListener("hashchange", route);
+// A push tapped while the app is open: sw.js names the address to show, and it is routed
+// here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
+navigator.serviceWorker?.addEventListener("message", ({ data }) => {
+  if (data?.open) { history.pushState(null, "", data.open); route(); }
+});
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
 document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); fitViewport(); });

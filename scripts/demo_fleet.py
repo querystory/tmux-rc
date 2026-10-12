@@ -69,7 +69,8 @@ ROWS = """\
 7|shell|idle|zsh ~/src|41m||Idle at the prompt.
 7|claude|idle|rss digest|5h||Summarised 12 new posts.
 7|opencode|idle|invoice parser|2d||Parsed 31 invoices, 2 flagged.
-7|shell|idle|dotfiles sync|3d||Synced with origin."""
+7|shell|idle|dotfiles sync|3d||Synced with origin.
+7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1"""
 
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
@@ -86,6 +87,7 @@ PLANS = [
                                     ("7d Fable", 7 * 86400, 1 - 7.5 / 168, 52)]),
     ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 40)]),
 ]
+STALE = {"claude": 360}  # a failed last read: the meter shows the reading from 6m before
 
 
 # SGR helpers for the captures: the live view renders these as colored spans.
@@ -206,6 +208,9 @@ MENU = {"dependency audit": {
     "ask": "The agent wants to upgrade React, Vite and ESLint to new major versions. "
            "Continue?",
 }}
+# A typed question that names list rows by number: the rows classify() reads off the screen.
+ITEMS = {"disk cleanup": {"items": ["1. Prune container images older than 14 days.",
+                                    "2. Archive the nightly log bundles."]}}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).
 EVENTS = {
@@ -249,7 +254,7 @@ def _pane(i: int, line: str, window: int) -> dict:
                  "waiting_on": "user",
                  "question": {"prompt": extra, "options": text.split(","),
                               "answer_style": "menu" if title in MENU else "text",
-                              **MENU.get(title, {})}}
+                              **MENU.get(title, {}), **ITEMS.get(title, {})}}
     return pane | DETAIL.get(title, {})
 
 
@@ -322,15 +327,65 @@ def seed_history(history: History) -> History:
 
 def seed_usage(usage):
     """Five-minute samples of each PLANS window, rising a little faster late in it, ending
-    at its share at NOW; and the accounts the panes draw on, as discovery would find them."""
+    at its share at NOW; and the accounts the panes draw on, as discovery would find them.
+    Claude's last read failed, so its samples stop STALE seconds short of NOW."""
     rows, panes = [], fleet()
     for tool, name, sessions, windows in PLANS:
+        last = NOW - STALE.get(tool, 0)
         for window, seconds, share, pct in windows:
             start = NOW - share * seconds
             rows += [(tool, name, window, seconds, t,
                       round(pct * ((t - start) / (NOW - start)) ** 1.2), start + seconds)
-                     for t in range(int(NOW), int(start), -300)]
-        usage.accounts[(tool, name)] = {"short": name, "error": None, "panes": [
-            p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions]}
+                     for t in range(int(last), int(start), -300)]
+        usage.accounts[(tool, name)] = {"short": name, "panes": [
+            p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions],
+            "error": "unavailable" if tool in STALE else None}
     usage.history.record_usage(rows)
     return usage
+
+
+# Open loops: example-org's pull requests and stray worktrees, as the GitHub query and the
+# worktree scan would leave them. repo#number | title | hours since the last update |
+# overrides of the defaults below (an open PR of yours, reviewer asked, green, to main).
+LOOPS = """\
+shop-web#412|Stabilize checkout.spec under slow iframes|1|
+shop-api#409|Structured money type for order totals|2|decision=APPROVED
+shop-api#410|Migrate API clients to the money v3 type|1|base=feat/409 stacked=1
+shop-api#401|Order totals carry their currency|5|state=MERGED merged=5
+shop-api#407|Idempotency keys for refunds|3|review=rin:CHANGES_REQUESTED:3
+infra#77|Move the build cache to the new bucket|20|author=rin asked=1 label=build-cache
+ops#33|Cache warmer reads the bucket from config|120|mergeable=CONFLICTING label=build-cache
+docs#58|Release notes for 0.15|30|reviewers=0
+shop-web#405|Coupon field keeps focus on error|26|checks=FAILURE draft=1
+shop-web#398|Coupon API client|40|base=feat/coupon-api stacked=1 base_merged=1"""
+LOOP_TREES = [("/work/research/.worktrees/tokenizer-v2", "research", "tokenizer-v2", 0, 3),
+              ("/work/ci/.worktrees/flaky-quarantine", "ci", "fix/flaky-quarantine", 4, 0)]
+
+
+def seed_loops(loops):
+    """The cache an OpenLoops refresh would fill, so the dashboard has lanes to draw."""
+    prs = []
+    for line in LOOPS.splitlines():
+        ref, title, hours, extra = line.split("|")
+        repo, number = ref.split("#")
+        o = dict(kv.split("=") for kv in extra.split())
+        at, merged = NOW - int(hours) * 3600, o.get("merged")
+        who, verdict, ago = (o.get("review") or "::").split(":")
+        prs.append({
+            "repo": f"example-org/{repo}", "number": int(number), "title": title,
+            "url": f"https://{ORG}/{repo}/pull/{number}", "state": o.get("state", "OPEN"),
+            "author": o.get("author", "dev"), "draft": "draft" in o, "updated_at": at,
+            "merged_at": merged and NOW - int(merged) * 3600, "base": o.get("base", "main"),
+            "head": f"feat/{number}", "fork": False, "stacked": "stacked" in o,
+            "base_merged": "base_merged" in o,
+            "mergeable": o.get("mergeable", "MERGEABLE"),
+            "decision": o.get("decision", "REVIEW_REQUIRED"), "checks": o.get("checks", "SUCCESS"),
+            "committed_at": at, "reviewers": int(o.get("reviewers", 1)), "asked": "asked" in o,
+            "reviews": [{"by": who, "state": verdict, "at": NOW - int(ago) * 3600}] if who else [],
+            "labels": [o["label"]] if "label" in o else []})
+    loops.github, loops.fetched_at = {"viewer": "dev", "older": 6, "prs": prs}, NOW - 7 * 60
+    loops.worktrees, loops.scanned_at = [
+        {"path": path, "repo": f"example-org/{repo}", "branch": branch, "dirty": dirty,
+         "unpushed": unpushed, "active_at": NOW - 2 * 86400}
+        for path, repo, branch, dirty, unpushed in LOOP_TREES], NOW - 7 * 60
+    return loops

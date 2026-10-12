@@ -31,3 +31,12 @@ test("countdowns and the trend run from the real clock unless told otherwise", (
   // The held point sits at now, 40% of the way across the 120-wide trend, not back at its start.
   assert.match(el.innerHTML, /<polyline class="proj" points="48\.0,/);
 });
+
+test("a reading kept through a failed read says how old it is", () => {
+  const now = Date.now(), el = {};
+  const win = { window: "5h", pct: 40, start: now - 3600e3, resets_at: now + 3600e3, samples: [] };
+  renderUsage(el, [{ provider: "claude", as_of: now - 6 * 60e3, windows: [win] }], { now });
+  assert.match(el.innerHTML, /<small>as of 6m ago<\/small>/);
+  renderUsage(el, [{ provider: "claude", windows: [win] }], { now });
+  assert.doesNotMatch(el.innerHTML, /as of/);
+});
