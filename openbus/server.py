@@ -857,14 +857,16 @@ def send(pane_id: str, body: SendBody, request: Request):
         # A cursor picker's select, checked against the screen under the send lock: the
         # walk's anchor is a parse, and a stale or misread one must not commit a row. It is
         # held to the server's latest parse, never the request's: the same prompt, that
-        # parse's rows, and the highlighted row drawn exactly as that parse read it. A
+        # parse's select key and rows, and the highlighted row drawn exactly as it read it. A
         # picker that changed since (a row "Fix" now "Fix  login bug", which its old rows
         # would read as "Fix" ahead of a value column) fails closed until it is reparsed.
         state = next((s for s in app.state.watcher.states if s.get("pane_id") == pane.id), {})
         question = state.get("question") if isinstance(state.get("question"), dict) else {}
         options, seen = question.get("options"), question.get("highlight")
+        keymap = question.get("keymap") if isinstance(question.get("keymap"), dict) else {}
         screen = tmux.capture_pane(pane.id, lines=0)
         if (question.get("prompt") != body.on_row.prompt or not isinstance(options, list)
+                or body.literal or body.keys != keymap.get("select")
                 or seen is None or drawn_row(screen, body.on_row.prompt) != seen
                 or highlighted_row(screen, body.on_row.prompt, options) != body.on_row.row):
             msg = f"The highlight is not on {body.on_row.row!r}; nothing was sent."

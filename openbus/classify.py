@@ -102,7 +102,8 @@ def _widget_end(visible: str, start: int) -> int:
 
 def drawn_row(visible: str, prompt: str) -> str | None:
     """The text of the live picker's highlighted row under prompt, as drawn, or None."""
-    found = prompt.strip() and _occurrences(prompt, visible)  # "" would match everywhere
+    # A whole row only: a longer prompt ("… for deployment") is a different picker.
+    found = prompt.strip() and _occurrences(prompt, visible, row=True)  # "" matches anywhere
     if not found:
         return None
     # The last match's widget is the live one, but the prompt is its first match there: a
@@ -371,11 +372,12 @@ def _question_prompt(question) -> str | None:
 
 
 def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Match]:
-    """The prompt's matches; with row, only those that are a whole row bar the frame, so
-    the same words inside a command (`printf "Proceed?"; rm …`) never stand in for it."""
+    """The prompt's matches; with row, only those that are a whole row bar the frame (and
+    a search field's ⌕), so the same words inside a command (`printf "Proceed?"; rm …`)
+    never stand in for it."""
     words = r"\s+".join(map(re.escape, prompt.split()))
     if row:
-        words = rf"^[ \t│┃╎]*{words}(?=[ \t│┃╎]*$)"
+        words = rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?=[ \t│┃╎]*$)"
     return list(re.finditer(words, visible, re.IGNORECASE | re.MULTILINE))
 
 
