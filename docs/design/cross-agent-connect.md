@@ -47,6 +47,8 @@ manifest) follows the list.
   record and the proposed Live and pane-input store. Neither is the transcript index.
 - [activity log](activity-log.md): the per-pane event log the daemon keeps of what it
   observed, distinct from both of the above.
+- [expunge](expunge.md): deleting a session's transcript and its agent-history entries,
+  the one path that writes to the index rather than reading it.
 - [Live Mode](live-mode.md): voice and text front end, pane tools, consent cards, and
   the single audited tool-call path.
 - [push notifications](push-notifications.md): Needs-you pushes and replies, and the
@@ -137,7 +139,9 @@ does not make agent reads possible. It makes them discoverable, scoped and audit
 Agents have concrete reasons to ask:
 - an orchestrator needs the directory;
 - a stuck agent wants to know what a sibling found;
-- a new session wants the last session's decisions on this branch.
+- a new session wants to know which earlier session worked this branch, to read or
+  resume it. Retrieving that session's decisions is the unbuilt memory item above, not
+  part of this plan.
 
 Four ways to let them:
 
@@ -468,8 +472,12 @@ of that path, and adds no second way in. Agent B never sees the endpoint.
 - **C4** (WS-F): the grant as a tool-surface field.
 
 Proposed: a new tmux-rc workstream, **WS-N agent connect**. It consumes C3 and C4
-drafts. Its first PR needs neither, because it injects only into launchers already
-written as plain argv, and adds the structured launcher form alongside the opaque one.
+drafts. Its first PR needs neither: it adds the structured launcher form alongside the
+opaque one and injects only into structured launchers and resume commands. No launcher
+is structured today (every configured command is kept as a shell string), so the first
+PR also rewrites the built-in defaults in the new form. A user's own launcher entries
+stay unconnectable at launch until rewritten; their agents can still connect through a
+resume, as above.
 
 1. **Observe (first PR).** The endpoint with read and history only: directory, pane
    detail, `find_sessions`, `get_session`. `get_session` takes harness and session id
