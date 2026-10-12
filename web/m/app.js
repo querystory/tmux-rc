@@ -1079,12 +1079,15 @@ function cursorIO(id) {
   // must not rely on. And question() reports nothing once `active` has moved off that
   // pane, which STOPS the walk: a picker the user has navigated away from should not go on
   // being driven, let alone committed, out of sight.
-  const pane = () => (active === id ? panes.find((p) => p.pane_id === id) : null);
+  // tmux recycles a %N, so the walk is bound to the incarnation it started on, too: a
+  // replacement under the same id stops it here, and the server refuses its keys.
+  const birth = panes.find((p) => p.pane_id === id)?.birth;
+  const pane = () => (active === id ? panes.find((p) => p.pane_id === id && p.birth === birth) : null);
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,
-    sendKey: (k, on) => sendKeys({ keys: k, enter: false, literal: false, on_row: on }, false, id),
-    sendText: (t, on) => sendKeys({ keys: t, enter: false, literal: true, on_row: on }, false, id),
+    sendKey: (k, on) => sendKeys({ keys: k, enter: false, literal: false, on_row: { ...on, birth } }, false, id),
+    sendText: (t, on) => sendKeys({ keys: t, enter: false, literal: true, on_row: { ...on, birth } }, false, id),
     note: notice,
   };
 }

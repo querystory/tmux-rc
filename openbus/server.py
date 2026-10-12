@@ -139,6 +139,7 @@ _EXT = {
 class OnRow(BaseModel):
     prompt: str = Field(min_length=1)
     row: str | None = None  # a select's row; none for a walk's move or search text
+    birth: str = Field(min_length=1)  # the pane incarnation the walk started on: ids recycle
 
 
 class SendBody(BaseModel):
@@ -868,7 +869,8 @@ def send(pane_id: str, body: SendBody, request: Request):
         prompt, row = body.on_row.prompt, body.on_row.row
         seen = question.get("picker")
         screen = tmux.capture_pane(pane.id, mark_dim=True)
-        if question.get("prompt") != prompt or not seen or seen != picker_digest(screen, prompt):
+        if (question.get("prompt") != prompt or state.get("birth") != body.on_row.birth
+                or not seen or seen != picker_digest(screen, prompt)):
             msg = f"The picker {prompt!r} changed since it was read; nothing was sent."
             raise tmux.PaneChangedError(msg)
         # A rowless send only moves or types search text, so it can never commit a row:
@@ -891,7 +893,8 @@ def send(pane_id: str, body: SendBody, request: Request):
 
     try:
         tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
-                       guard=None if body.on_row is None else on_row)
+                       guard=body.on_row and on_row,
+                       expected_pid=body.on_row and body.on_row.birth)
     except Exception as e:
         # Keys refused at a password prompt are probably the password: never recorded.
         keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys

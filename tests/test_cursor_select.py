@@ -157,6 +157,7 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     monkeypatch.setattr(tmux, "find_pane", lambda p: PANE)
     monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: f"{tmux.VISIBLE_SCREEN}\n{RESUME}")
     monkeypatch.setattr(tmux, "at_password_prompt", lambda p: False)
+    monkeypatch.setattr(tmux, "pane_pid", lambda p: "4242")
     monkeypatch.setattr(tmux, "_run", lambda args, *a, **k: sent.append(args) or "")
     read = {"tool": "claude", "question": {
         "prompt": "Resume session", "answer_style": "cursor", "options": SESSIONS,
@@ -166,12 +167,12 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
 
     def parse():  # the watcher's parse of the screen, with what the model read
         parsed = classify(PANE, tmux.capture_pane(PANE.id), lambda s, t: read)
-        server.app.state.watcher.states = [{"pane_id": PANE.id, **parsed}]
+        server.app.state.watcher.states = [{"pane_id": PANE.id, "birth": "4242", **parsed}]
         return parsed
 
-    def send(keys, *, enter=False, literal=False):
+    def send(keys, *, enter=False, literal=False, birth="4242"):
         body = {"keys": keys, "enter": enter, "literal": literal,
-                "on_row": {"prompt": "Resume session", "row": None}}
+                "on_row": {"prompt": "Resume session", "row": None, "birth": birth}}
         return TestClient(server.app).post(f"/api/panes/{PANE.id}/send", json=body).status_code
 
     assert parse()["question"]["highlight"] == SESSIONS[0]
@@ -180,6 +181,7 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     assert send("Down") == 200
     assert any("Down" in args for args in sent)
     assert send("harbor", literal=True) == 200  # search text
+    assert send("Down", birth="4141") == 409  # a recycled %N is another pane
     # A rowless send never commits: not the select key, nor Enter typed or appended. Each
     # refusal rereads, so a walk is never left stuck on a card the watcher keeps reusing.
     for keys, enter, literal in (("Enter", False, False), ("C-c", False, False),
@@ -231,7 +233,8 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
     try:
         monkeypatch.setattr(tmux, "_run", run)
         monkeypatch.setattr(tmux, "pane_pid", lambda p: tmux.find_pane(p).pid)
-        parsed = {"pane_id": pane, "question": {
+        birth = tmux.pane_pid(pane)
+        parsed = {"pane_id": pane, "birth": birth, "question": {
             "prompt": "Remove it?", "options": ["No", "Yes"], "selected": 0, "highlight": "No",
             "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
         def reparse():  # the watcher's parse records the picker as it is drawn now
@@ -250,7 +253,7 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
             raise AssertionError(shown)
 
         def send(keys, row=None, prompt="Remove it?"):
-            on = {"prompt": prompt, "row": row}  # every walk send names its picker
+            on = {"prompt": prompt, "row": row, "birth": birth}  # its picker and pane
             body = {"keys": keys, "enter": False, "literal": False, "on_row": on}
             return client.post(f"/api/panes/{pane}/send", json=body)
 
