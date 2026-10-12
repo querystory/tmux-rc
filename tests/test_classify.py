@@ -1335,8 +1335,11 @@ def test_question_naming_list_items_carries_them():
     assert result["question"]["options"] == ["Yes, both"] and result["tables"] == [other]
     result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": [echo]}))
     assert result["tables"] is None
-    menu = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "menu"}
-    assert "items" not in classify(_pane("claude"), screen, _llm({"question": menu}))["question"]
+    menu = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "menu",
+            "options": ["Yes", "No"]}
+    widget = _auto_screen(message + "\n  ❯ 1. Yes\n    2. No").replace("auto mode", "plan mode")
+    held = classify(_pane("claude"), widget, _llm({"question": menu}))["question"]
+    assert held["answer_style"] == "menu" and "items" not in held
 
 
 @pytest.fixture
