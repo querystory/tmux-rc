@@ -613,29 +613,34 @@ def _final_paragraph(message: str) -> str:
 
 
 # A numbered list row (inside any frame), and a number a prompt names: "do 1 please",
-# "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A count reads as one
-# from its neighbours: a determiner or copula before it ("there are 2", "the 7"), or a
-# plural noun within the next two words ("2 tests", "2 failing tests"). Precision beats
-# recall here: a missed reference leaves the bare question the card showed before, while
-# a count read as a reference would show an unrelated row as what the question means.
+# "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A count or a time reads
+# as one from its neighbours: a determiner, copula or time preposition before it ("there are
+# 2", "the 7", "at 2"), or a plural or unit within the next two words ("2 PRs", "2 failing
+# tests", "2 pm"). Precision beats recall here: a missed reference leaves the bare question
+# the card showed before, while a count read as a reference would show an unrelated row as
+# what the question means.
 _NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
 _ITEM_REF_RE = re.compile(r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)")
-_COUNT_BEFORE_RE = re.compile(r"(?i)\b(?:the|these|those|all|are|is|were|was|of|about)\s+$")
-_COUNT_AFTER_RE = re.compile(r"(?i)\s+(?:[a-z]+\s+)?[a-z]{2,}[^\Wsiu]s\b")
+_COUNT_BEFORE_RE = re.compile(
+    r"(?i)\b(?:the|these|those|all|are|is|were|was|of|about|at|by|until|in)\s+$")
+_COUNT_AFTER_RE = re.compile(
+    r"(?i)\s+(?:[a-z]+\s+)?(?:(?!(?:as|is|us|yes|this|thus|plus)\b)[a-z]*[^\Wsiu]s|am|pm|a\.m|"
+    r"p\.m|min|mins|minutes?|h|hrs?|hours?|days?|weeks?|seconds?|secs?|[kmgt]b|percent)\b")
+_WORD_RE = re.compile(r"[^\W\d_]{4,}")
 
 
-def _referenced_items(prompt: str, visible: str) -> list[str]:
+def _referenced_rows(prompt: str, visible: str) -> dict[str, str]:
     """The numbered rows above a typed-answer question that its prompt names by number
-    ("Want me to do 1 now and prepare 2?"), each as its number and first sentence, so the
-    card says what 1 and 2 are. Read off the screen: the parser, told to carry them, did
-    not reliably. The nearest row wins a number, so an older list above loses to the one
-    the question closes; numbers with no row (a count, a time) name nothing here."""
+    ("Want me to do 1 now and prepare 2?"), whole and in the prompt's order, so the card
+    can say what 1 and 2 are. Read off the screen: the parser, told to carry them, did not
+    reliably. The nearest row wins a number, so an older list above loses to the one the
+    question closes; numbers with no row (a count, a time) name nothing here."""
     found = _last_occurrence(prompt, visible)
-    items: dict[str, list[str]] = {}
+    rows: dict[str, list[str]] = {}
     item, indent = None, 0
     for row in visible[:found.start() if found else 0].splitlines():
         if m := _NUMBERED_ROW_RE.match(row):
-            item, indent = items.setdefault(m[1], []), _indent(row)
+            item, indent = rows.setdefault(m[1], []), _indent(row)
             item[:] = [m[2]]
         elif item is not None and row.strip() and _indent(row) > indent:
             item.append(row.strip())  # the item's wrapped continuation
@@ -645,10 +650,25 @@ def _referenced_items(prompt: str, visible: str) -> list[str]:
             if not (_COUNT_BEFORE_RE.search(prompt, 0, m.start())
                     or _COUNT_AFTER_RE.match(prompt, m.end()))
             for n in range(int(m[1]), int(m[2] or m[1]) + 1)]
-    firsts = {n: re.split(r"(?<=[.!?])\s", " ".join(rows), maxsplit=1)[0]
-              for n, rows in items.items()}
-    return [f"{n}. " + textwrap.shorten(firsts[n], 120, placeholder="…")
-            for n in dict.fromkeys(refs) if n in firsts]
+    return {n: " ".join(rows[n]) for n in dict.fromkeys(refs) if n in rows}
+
+
+def _item(number: str, text: str) -> str:
+    """A referenced row on the card: its number and first sentence, at most 120 characters."""
+    first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0]
+    return f"{number}. " + textwrap.shorten(first, 120, placeholder="…")
+
+
+def _restates(table: object, rows: dict[str, str]) -> bool:
+    """Whether a parser table is its own copy of the referenced rows: each of its rows keyed
+    by a bare referenced number and sharing a word with that row, so an unrelated table
+    that happens to be numbered 1, 2 (a ranking, an index) stays."""
+    body = table.get("rows") if isinstance(table, dict) else None
+    return isinstance(body, list) and bool(body) and all(
+        isinstance(r, list) and r and (n := str(r[0]).strip().rstrip(".)")) in rows
+        and set(_WORD_RE.findall(" ".join(map(str, r[1:])).lower()))
+        & set(_WORD_RE.findall(rows[n].lower()))
+        for r in body)
 
 
 def _final_ask(visible: str, tool: str) -> dict | None:
@@ -1034,18 +1054,14 @@ def classify(
             question.pop(key, None)
         style, asked = question.get("answer_style"), _question_prompt(question)
         # A menu's own numbers are its options, so only a typed answer names list items.
-        if items := style == "text" and asked and _referenced_items(asked, visible):
-            question["items"] = items
-            # The parser's own copy of those rows, as answer buttons or as a table whose
-            # first column is their numbers, would show them twice.
+        if rows := style == "text" and asked and _referenced_rows(asked, visible):
+            question["items"] = [_item(n, text) for n, text in rows.items()]
+            # The parser's own copy of those rows, as answer buttons or a table, would show
+            # them twice.
             if isinstance(question.get("options"), list):
                 question["options"] = [o for o in question["options"] if not _list_row(o)]
             if isinstance(result.get("tables"), list):
-                numbers = {item.split(".", 1)[0] for item in items}
-                result["tables"] = [t for t in result["tables"] if not (
-                    isinstance(t, dict) and isinstance(t.get("rows"), list) and t["rows"]
-                    and all(isinstance(r, list) and r and str(r[0]).strip().rstrip(".)") in numbers
-                            for r in t["rows"]))] or None
+                result["tables"] = [t for t in result["tables"] if not _restates(t, rows)] or None
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         if context := style == "menu" and asked and _widget_text(asked, visible):
             question["context"] = context
