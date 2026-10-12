@@ -148,10 +148,10 @@ def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
 # A tab strip under a dialog's top rule ("Settings  Status  Config  Usage  Stats") is a
 # panel the user opened and is browsing (/config, /plugin). The agent is not asking: a row
 # there toggles a setting or opens a page and the panel stays, so it is no question. Only
-# the last rule counts, since it is the dialog still open at the bottom of the screen: no
-# later ▔ panel, nor a whole-row ─ rule (a permission dialog's top edge, a newer widget).
-_TABBED_PANEL_RE = re.compile(r"▔{3,}.*\n[ \t]*\w+(?:[ \t]{2,}\w+){3,}[ \t]*$"
-                              r"(?![\s\S]*(?:▔|^[ \t]*[─━]{3,}[ \t]*$))", re.MULTILINE)
+# while it is still open: the screen's last row is its own footer ("… ↑ to tabs · Esc to
+# clear"), not that of any later dialog, framed or ruled, drawn below a lookalike.
+_TABBED_PANEL_RE = re.compile(r"▔{3,}.*\n[ \t]*\w+(?:[ \t]{2,}\w+){3,}[ \t]*\n"
+                              r"[\s\S]*\bto tabs\b.*\s*\Z")
 
 # The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
 # at its input box, so every row under it is status/footer chrome (Claude's welcome

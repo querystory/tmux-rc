@@ -123,6 +123,9 @@ def test_a_tabbed_panel_the_user_opened_is_not_a_question():
         "prompt": 'Permanently remove "Demo"?', "answer_style": "cursor", "options": ["No", "Yes"]}}
     later = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{PANEL}\n{SCREEN}", lambda s, t: asking)
     assert later["question"]["highlight"] == "No"
+    boxed = '╭──────────╮\n│ Permanently remove "Demo"? │\n│ ❯ No     │\n│   Yes    │\n╰──────────╯'
+    later = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{PANEL}\n{boxed}", lambda s, t: asking)
+    assert later["question"]["highlight"] == "No"
     assert "waiting_on" not in result
     # A failed parse of the same panel is grounded by it too: idle, and not reparsed.
     failed = {"tool": "claude", "activity": "unknown", "parse_ok": False}
