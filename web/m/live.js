@@ -559,8 +559,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // socket alive. pagehide still releases capture when leaving this document.
   window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } pullTaps(); });
   document.addEventListener("visibilitychange", () => {
-    if (run) { resumeAudio(run); keepAwake(run); viewing(); }
+    // Back in view, any forced reconnect goes first: its handshake carries the view, so
+    // viewing() has nothing left to change, rather than reviving a socket wake() replaces.
     if (!document.hidden) { wake(); pullTaps(); }
+    if (run) { resumeAudio(run); keepAwake(run); viewing(); }
   });
   // A "Chat needs you" tap (sw.js) brings back the chat holding its card, even minimized;
   // only that card's chat answers. Doing it twice is harmless, so it has two triggers: the

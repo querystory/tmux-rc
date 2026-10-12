@@ -764,24 +764,27 @@ def test_a_waiting_card_keeps_the_chat_reconnecting():
   due(); // its connect deadline passes with no answer: a fresh one, not the end
   assert.equal(sockets.length, 11);
   assert.equal(sockets[9].readyState, 3);
-  sockets[10].readyState = 0; document.dispatchEvent(new Event('visibilitychange'));
-  assert.equal(sockets.length, 12); // back in view: at once too, over a connect begun offline
-  assert.equal(sockets[10].readyState, 3);
-  say(sockets[11], {type: 'status', status: 'listening'});
-  assert.deepEqual(sockets[11].sent.map(JSON.parse), [{action: 'sync', ids: ['p1']}]);
-  window.dispatchEvent(new Event('online')); // woken with a card waiting: an open socket
-  assert.equal(sockets.length, 13);           // may be half-open, so it goes too
+  sockets[10].readyState = 0; document.hidden = true;
+  document.dispatchEvent(new Event('visibilitychange')); // the view goes in a new handshake
+  assert.equal(sockets.length, 12);
+  document.hidden = false; document.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(sockets.length, 13); // back in view: at once too, once, over a connect begun offline
   assert.equal(sockets[11].readyState, 3);
-  due(); // the replacement never answers: its deadline retries, whatever the old one said
-  assert.equal(sockets.length, 14);
+  say(sockets[12], {type: 'status', status: 'listening'});
+  assert.deepEqual(sockets[12].sent.map(JSON.parse), [{action: 'sync', ids: ['p1']}]);
+  window.dispatchEvent(new Event('online')); // woken with a card waiting: an open socket
+  assert.equal(sockets.length, 14);           // may be half-open, so it goes too
   assert.equal(sockets[12].readyState, 3);
-  say(sockets[13], {type: 'status', status: 'listening'});
-  say(sockets[13], {type: 'decided', id: 'p1', ok: false});
+  due(); // the replacement never answers: its deadline retries, whatever the old one said
+  assert.equal(sockets.length, 15);
+  assert.equal(sockets[13].readyState, 3);
+  say(sockets[14], {type: 'status', status: 'listening'});
+  say(sockets[14], {type: 'decided', id: 'p1', ok: false});
   window.dispatchEvent(new Event('online'));
-  assert.equal(sockets.length, 14); // with none, it stays
+  assert.equal(sockets.length, 15); // with none, it stays
   fail();
   for (let i = 0; i < 5; i++) { due(); fail(); }
-  assert.equal(sockets.length, 19); // five tries, then the chat ends
+  assert.equal(sockets.length, 20); // five tries, then the chat ends
   assert.match(status(), /disconnected/);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
