@@ -72,11 +72,20 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (follow) log.scrollTop = log.scrollHeight;
   }
   // A card left waiting while nobody looks pushes "Chat needs you" (live._nudge), so the
-  // daemon hears each change; a fresh socket starts at its default, looking.
+  // daemon hears each change, and a fresh socket the view at connect, in its handshake.
+  // Until a socket is first listening the daemon reads nothing from it, so a waiting card's
+  // change then goes in a new socket's handshake. A provider reconnect's backoff is not that:
+  // the daemon still reads the view meanwhile (live._hold), so it goes as a frame, and a
+  // provider down never churns sockets. Its next "connecting" is again unread, and a frame
+  // sent just as the backoff ended may sit unread through it: with a card waiting, that
+  // "connecting" replaces the socket, whose handshake confirms the view.
   function viewing(current = run) {
     const on = dialog.open && !document.hidden;
-    if (!current?.listening || current.viewing === on) return;
-    current.viewing = on; current.ws.send(JSON.stringify({ action: "viewing", on }));
+    if (!current || current.viewing === on) return;
+    if (current.listening || current.held) {
+      current.dirty = current.held; current.viewing = on; current.ws.send(JSON.stringify({ action: "viewing", on }));
+    }
+    else if (current.viewing != null && current.proposals.size) revive(current, true);
   }
   const bubble = chatBubble({ licon, open: () => show() });
   const starters = chatStarters($("chat-starters"), sendText);
@@ -400,12 +409,13 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (current.model) query.set("model", current.model);
     if (current.text) query.set("mode", "text");
     if (!current.up) query.set("fresh", "1"); // a new chat: drop any cards an offline end left parked
+    current.viewing = dialog.open && !document.hidden; query.set("viewing", current.viewing ? "1" : "0");
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop(`Could not connect to ${name(current)}.`); return; }
     // A new socket is not listening until it says so, even when it replaced an OPEN one,
     // and an echo lost with the old socket never comes.
-    current.ws = ws; current.listening = false; current.thumbs = []; current.viewing = true;
+    current.ws = ws; current.listening = false; current.held = false; current.thumbs = [];
     clearTimeout(current.deadline);
     current.deadline = setTimeout(() => {
       if (run !== current || current.listening) return;
@@ -417,12 +427,11 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       if (run !== current || current.ws !== ws) return;
       let message; try { message = JSON.parse(data); } catch { return; }
       if (message.type === "status") {
+        if (current.held && current.dirty && current.proposals.size && message.status === "connecting") return revive(current, true);
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
-        // A provider reconnect (live._hold) drops what the socket sends meanwhile, even a
-        // "viewing" sent before this status arrived: forget it, so listening sends it again.
-        if (message.status === "reconnecting") current.viewing = null;
+        current.held = message.status === "reconnecting"; current.dirty = false; // see viewing()
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); resync(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
@@ -522,8 +531,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   $("chat").onclick = () => {
     if (docked()) return hide(); // a docked panel toggles: nothing covers the button
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
+    show(); // first, so a new chat's handshake says it opened in view
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
-    show();
   };
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;
@@ -554,8 +563,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // socket alive. pagehide still releases capture when leaving this document.
   window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } pullTaps(); });
   document.addEventListener("visibilitychange", () => {
-    if (run) { resumeAudio(run); keepAwake(run); viewing(); }
+    // Back in view, any forced reconnect goes first: its handshake carries the view, so
+    // viewing() has nothing left to change, rather than reviving a socket wake() replaces.
     if (!document.hidden) { wake(); pullTaps(); }
+    if (run) { resumeAudio(run); keepAwake(run); viewing(); }
   });
   // A "Chat needs you" tap (sw.js) brings back the chat holding its card, even minimized;
   // only that card's chat answers. Doing it twice is harmless, so it has two triggers: the

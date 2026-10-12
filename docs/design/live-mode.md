@@ -550,12 +550,16 @@ stray tap on the backdrop never throws one away.
 
 **A waiting card notifies.** The bubble only helps someone looking at the page. A card left
 waiting while the sheet is minimized, the app is in the background or the phone is locked
-with its socket still up sends a "Chat needs you" push through the same subscriptions as a pane that needs you. The
+sends a "Chat needs you" push through the same subscriptions as a pane that needs you. The
 client tells the daemon over the chat socket whenever the sheet goes in or out of view, so
 a card the user is reading stays quiet. A card must wait unseen for the same settle time
 as a pane's push, so minimizing for a moment does not buzz, and it pushes at most once.
-A socket that drops parks its card, but the push ends with the call that owned it here;
-carrying the push across the park is a separate change.
+A dropped socket counts as out of view, and the wait belongs to the card rather than to
+the connection that showed it: locking a phone drops the socket and parks the card, and
+that is the moment a push matters most. Whether a parked card is in view again is the
+reconnected chat's word, including a card it took over from a half-open socket: the
+takeover ends the old connection's wait as a drop does, not as an answer, so the push still
+comes.
 The notification has no answer buttons: approving a pane action should happen where the
 card shows exactly what will be typed, not from a lock-screen line. Tapping it brings the
 chat back in the open page instead of navigating there, since a navigation would reload
