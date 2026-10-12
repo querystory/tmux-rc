@@ -197,7 +197,9 @@ pasted, and it can carry instructions. The endpoint applies three rules:
   timestamps, never raw tool output, which is most of the injection surface. `get`
   and `resolve` print more than that today (source and index paths, entrypoint, resume
   argv, process and pane liveness), so the endpoint projects their JSON onto an
-  explicit allowlist, keeping only the liveness that routing needs. Returning prompts
+  explicit allowlist: harness and session id (what `get_session` takes), repo, title,
+  cwd, branches, PRs, timestamps and matched terms, plus only the liveness that routing
+  needs. Returning prompts
   or excerpts needs a
   new bounded contract in the CLI (which prompts, how truncated), and even then a
   subagent's task is model-written and just as untrusted.
@@ -226,7 +228,8 @@ tools to receive, so any harness works. Replies come back the same way, or as th
 client's v0 reply path: a status line on the recipient's own screen that a subscribed
 sender sees through the directory.
 
-**Delivery.** At most once, confirmed, and only when the recipient is waiting for input.
+**Delivery.** At most one typing attempt, confirmed when the daemon can observe it
+landed (otherwise *unconfirmed*, below), and only when the recipient is waiting for input.
 Typing into a running turn steers it, and typing into a menu answers it, and neither is
 what the sender asked. A message for a busy pane waits in a small in-memory queue in the
 daemon, and goes in at the next idle transition. Just before typing, under the pane's
@@ -301,7 +304,9 @@ duplicate it.
 
 ### Default: pure, and what that does not mean
 
-No agent gets the endpoint unless a person grants it. A pure agent has no openbus tools,
+No agent gets the endpoint unless a person grants it, with one exception: control,
+which is connected under its charter (the routing doc), self-hosted and hosted alike, and
+which the user enables by starting it. A pure agent has no openbus tools,
 no instructions about siblings, and receives nothing except from the human or control.
 This is the default everywhere, self-hosted and hosted.
 
@@ -336,7 +341,8 @@ different user from the daemon.
 - **act**: keys, windows, resume and handoff. This is control's charter only.
 
 The UI offers **Off**, **Observe** (read and history) and **Collaborate** (adds message
-and reachable). Single scopes are an advanced setting.
+and reachable). Single scopes among read, history, message and reachable are an
+advanced setting; act is never grantable to an ordinary agent.
 
 ### Where the grant lives and how it takes effect
 
@@ -482,12 +488,14 @@ of that path, and adds no second way in. Agent B never sees the endpoint.
 - **C4** (WS-F): the grant as a tool-surface field.
 
 Proposed: a new tmux-rc workstream, **WS-N agent connect**. It consumes C3 and C4
-drafts. Its first PR needs neither: it adds the structured launcher form alongside the
-opaque one and injects only into structured launchers and resume commands. No launcher
-is structured today (every configured command is kept as a shell string), so the first
-PR also rewrites the built-in defaults in the new form. A user's own launcher entries
-stay unconnectable at launch until rewritten; their agents can still connect through a
-resume, as above.
+drafts, and Observe depends on both: its agent audit actor is the C3 addition and its
+grant is the C4 field. It adds the structured launcher form alongside the opaque one and
+injects only into structured launchers. No launcher is structured today (every configured
+command is kept as a shell string), so it also rewrites the built-in defaults in the new
+form. A user's own launcher entries stay unconnectable at launch until rewritten. From
+phase 2 their agents can connect through a resume, but only for harnesses with both a
+resume command and a supported MCP override: Claude Code and Codex today, omp once its
+injection is settled; OpenCode, Gemini and custom commands cannot.
 
 1. **Observe (first PR).** The endpoint with read and history only: directory, pane
    detail, `find_sessions`, `get_session`. `get_session` takes harness and session id
