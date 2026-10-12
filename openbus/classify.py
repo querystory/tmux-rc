@@ -636,7 +636,7 @@ def _final_paragraph(message: str) -> str:
 # separator after it (or nothing, as a table key), so prose such as "Option A is
 # fastest" is not a row.
 _ROW_LABEL = (
-    r"(?:[-*•●][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})\b"
+    r"(?:[-*•●⏺][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})\b"
     r"(?:[.):]|[ \t]*(?:[—–]|-(?=[ \t]))|(?=\s*$))[ \t]*|\(?([A-Ha-h]|\d{1,2})[.)][ \t]+)")
 _LABELED_ROW_RE = re.compile(rf"[ \t│┃╎]*{_ROW_LABEL}(\S.*)")
 _REF_AFTER = (
@@ -710,14 +710,16 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
     lists: dict[int, tuple[str, str]] = {}  # by indent: the last row's label, its list's lead
     item, indent, para, gap = None, 0, [], False
     for row in visible[:found.start() if found else 0].splitlines():
+        if row.lstrip(" \t│┃╎").startswith(("●", "⏺")):  # a new turn: nothing above leads in
+            para, lists = [], {}
         if m := _LABELED_ROW_RE.match(row):
             label = (m[1] or m[2]).upper()
             item, indent = rows.setdefault(label, []), _indent(row)
             item[:] = [m[3]]
             # The next label in sequence at the same indent (B after A, 3 after 2)
-            # continues its list and keeps the list's lead-in, across blank lines, a note
-            # or a nested list between rows. Any other row starts a list, led by the
-            # paragraph just above it or by nothing, never by an earlier list's.
+            # continues its list and keeps the list's lead-in, across blank lines, a
+            # nested list or a deeper note between rows. Any other row starts a list, led
+            # by the paragraph just above it or by nothing, never by an earlier list's.
             prev, lead = lists.get(indent, ("", ""))
             if label != _next_label(prev):
                 lead = " ".join(para)
@@ -725,7 +727,9 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
         elif item is not None and row.strip() and _indent(row) > indent:
             item.append(row.strip())  # the item's wrapped continuation
         elif row.strip():
-            para = [*(para if not gap else ()), row.strip(" \t│┃╎●•")]
+            # Prose at a list's indent or left of it ends that list.
+            lists = {i: v for i, v in lists.items() if i > _indent(row)}
+            para = [*(para if not gap else ()), row.strip(" \t│┃╎●⏺•")]
             item, gap = None, False
         else:
             item, gap = None, True

@@ -1384,7 +1384,8 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
     single = classify(_pane("claude"), screen, _llm({}))["question"]
     assert single["items"] == ["A. Answer first."]
     # A list that opens the agent's turn starts after its "●" marker, with no lead-in.
-    opening = classify(_pane("claude"), _auto_screen("A. Redis\n  B. SQLite\n\n  Go with A or B?"),
+    opening = classify(_pane("claude"), "\x1e[visible screen]\x1f\n❯ which store?\n\n" +
+                       _auto_screen("A. Redis\n  B. SQLite\n\n  Go with A or B?").split("\n", 1)[1],
                        _llm({}))["question"]
     assert opening["items"] == ["A. Redis", "B. SQLite"] and "subject" not in opening
     for ask in ("A quick check first?", "Grade A beef?", "Should I run it?", "Use a or b?",
@@ -1419,6 +1420,10 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
     spaced = classify(_pane("claude"), _auto_screen(
         "Decision heading:\n\n  A. First.\n\n  B. Second.\n\n  Choose B?"), _llm({}))["question"]
     assert spaced["items"] == ["B. Second."] and spaced["subject"] == "Decision heading:"
+    fresh = classify(_pane("claude"), _auto_screen(
+        "Old decision:\n  A. Old path.\n\n  New decision:\n  B. New path.\n\n  Choose B?"),
+        _llm({}))["question"]
+    assert fresh["items"] == ["B. New path."] and fresh["subject"] == "New decision:"
     nested = classify(_pane("claude"), _auto_screen(
         "Decision heading:\n  A. First.\n     1. Step one.\n     2. Step two.\n  B. Second.\n\n"
         "  Choose B?"), _llm({}))["question"]
