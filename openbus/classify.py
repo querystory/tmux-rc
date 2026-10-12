@@ -78,6 +78,11 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
+# The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
+# at its input box, so every row under it is status/footer chrome (Claude's welcome
+# session list included), never a question. A real picker replaces the box with a ❯ cursor.
+_EMPTY_INPUT_RE = re.compile(_PROMPT_ROW + r"[ \xa0\t│]*$(?![\s\S]*" + _PROMPT_ROW + ")",
+                             re.MULTILINE)
 # omp blocks that are never a live question: a completed Ask receipt, plain or boxed, from
 # its "? Ask" header through its chosen radios (a pending Ask is a "╭─ Ask" dialog with no
 # "?"); the queued outgoing-input bands ("Steering · 1", "After yield · 2"); and the "⎋"
@@ -100,31 +105,37 @@ _PROCESS_TOOLS = {
     "opencode": "opencode",
     "omp": "omp",
 }
-# omp installed through bun runs as `bun`, so its executable proves nothing; its title
-# (OMP_TITLE_RE) does. Launched behind a wrapper (`omp …; exec bash`, a script, `uv run`)
-# the foreground is a shell, and the title alone can't be trusted there because it
-# outlives omp, but the title plus a live omp process under the pane can.
-_OMP_PROC_LIMIT = 64  # processes walked under one pane, bounding a pathological tree
+# An agent installed through npm or bun runs as `node`/`bun`, so the foreground executable
+# proves nothing; the agent that interpreter runs, found under the pane, does. omp's title
+# (OMP_TITLE_RE) proves it outright under bun. Launched behind a wrapper (`omp …; exec
+# bash`, a script, `uv run`) the foreground is a shell, and the title alone can't be
+# trusted there because it outlives omp, but the title plus a live omp process under the
+# pane can. Other agents get no such shell walk: without a title to corroborate it, a
+# suspended or backgrounded agent under an idle shell would claim the pane.
+_INTERPRETERS = ("bun", "node")
 
 
-def _runs(pid: str, name: str) -> bool:
-    """Is `name` among `pid` and its descendants: argv[0], or bun/node running it?"""
-    for p in processes(pid, _OMP_PROC_LIMIT):
+def _programs(pid: str) -> set[str]:
+    """Programs among `pid` and its descendants: argv[0], or the script bun/node runs."""
+    names = set()
+    for p in processes(pid):
         argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
-        if argv[0] == name or (argv[0] in ("bun", "node") and argv[1:] == [name]):
-            return True
-    return False
+        names.add(argv[-1] if argv[0] in _INTERPRETERS else argv[0])
+    return names
 
 
 def _host_tool(pane: Pane) -> str | None:
     """The agent the pane's process or title proves it is running, else None."""
     if tool := _PROCESS_TOOLS.get(pane.current_command):
         return tool
-    if OMP_TITLE_RE.match(pane.title) and (
-        pane.current_command in ("bun", "node") or (pane.pid and _runs(pane.pid, "omp"))
-    ):
+    omp_title = OMP_TITLE_RE.match(pane.title)
+    hosted = pane.current_command in _INTERPRETERS
+    if hosted and omp_title:
         return "omp"
-    return None
+    if not pane.pid or not (hosted or omp_title):
+        return None
+    found = _programs(pane.pid) & (_PROCESS_TOOLS.keys() if hosted else {"omp"})
+    return _PROCESS_TOOLS[found.pop()] if len(found) == 1 else None
 
 
 # omp's status row is fixed-format chrome (status-line/metrics.ts), read here rather than
@@ -368,8 +379,10 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
     # agent asking; a live spinner below the text means the agent is working again; and a
     # finished turn's question followed by typed input has been answered.
+    idle_box = _EMPTY_INPUT_RE.search(visible)
     return found is not None and not (
-        _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
+        (idle_box and found.start() > idle_box.start())
+        or _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
@@ -408,7 +421,10 @@ def _ground_visible_fields(
     # viewport; for identity alone, restrict the same model to the status evidence.
     bad_action = bad_question or bad_rewind
     identity_chrome = "\n".join(_session_chrome(identity))
-    evidence = visible if bad_action else identity_chrome
+    # Below an idle input box is only chrome: the re-read never sees it, so a list there
+    # cannot be read as the question again.
+    box = _EMPTY_INPUT_RE.search(visible)
+    evidence = (visible[:box.end()] if box else visible) if bad_action else identity_chrome
     receipt = None
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
@@ -435,6 +451,11 @@ def _ground_visible_fields(
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
     if bad_action:
+        # Only the viewport re-read vouches for a link: the first read also saw history.
+        # Links survive a failed re-read, which the watcher publishes on the kept card.
+        result.pop("links", None)
+        if retry and isinstance(retry.get("links"), list) and retry["links"]:
+            result["links"] = retry["links"]
         state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
