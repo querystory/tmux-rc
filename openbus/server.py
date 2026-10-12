@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import io
 import logging
+import math
 import os
 import posixpath
 import re
@@ -90,17 +91,47 @@ from .watcher import Watcher  # noqa: E402
 # anything below WARNING silently invisible (which pushed routine lines to WARNING just
 # to be seen). Import-time, not main(): under --reload the worker process re-imports
 # this module but never calls main(). basicConfig is a no-op if root is already set up.
-logging.basicConfig(
-    level=os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+#
+# Under systemd, stderr goes to journald, which files every line at the unit's default
+# priority (info) — so `journalctl -p warning` hid real WARNING/ERROR lines. Prefixing
+# each line with its sd-daemon "<N>" syslog priority lets journald (SyslogLevelPrefix=yes,
+# the default) file it correctly, with no systemd-python dependency. Every line of a
+# multi-line record (tracebacks) is prefixed, or the traceback would sink back to info.
+# Gated on JOURNAL_STREAM matching *our* stderr, not merely being set: it is inherited,
+# e.g. by shells under a systemd-launched tmux, where `make dev` must stay unprefixed.
+_SYSLOG_PRIORITY = {
+    logging.DEBUG: 7, logging.INFO: 6, logging.WARNING: 4, logging.ERROR: 3, logging.CRITICAL: 2,
+}
+
+
+class JournalFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        prefix = f"<{_SYSLOG_PRIORITY.get(record.levelno, 6)}>"
+        return "\n".join(prefix + line for line in super().format(record).split("\n"))
+
+
+def stderr_is_journal() -> bool:
+    try:
+        st = os.fstat(2)
+    except OSError:
+        return False
+    return os.environ.get("JOURNAL_STREAM") == f"{st.st_dev}:{st.st_ino}"
+
+
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(
+    (JournalFormatter if stderr_is_journal() else logging.Formatter)(
+        "%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S",
+    ),
 )
+_log_level = os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=_log_level, handlers=[_log_handler])
 # Chatty third-party libraries log a line per LLM call at INFO (httpx: every Vertex
 # POST; google_genai: an "AFC is enabled" banner). That's ~2 lines per parse of pure
 # noise drowning our own signal — pin them to WARNING. EXCEPT under DEBUG: those same
 # loggers are the ones you need when debugging the Vertex/HTTP path, so an explicit
 # TMUXRC_LOG_LEVEL=DEBUG unmutes everything.
-if os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper() != "DEBUG":
+if _log_level != "DEBUG":
     for _noisy in ("httpx", "httpcore", "google_genai"):
         logging.getLogger(_noisy).setLevel(logging.WARNING)
 
@@ -128,6 +159,10 @@ IMG_MAX_BYTES = (
 # anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
 # telemetry too — this bounds the READ so a huge body can't balloon memory).
 CLIENT_ERROR_MAX_BYTES = 8 * 2**10
+# A boot failure (web/m/index.html's watchdog) also goes to the journal, at most this often,
+# so a reload loop can't flood it; one line is enough to see what broke.
+BOOT_WARN_INTERVAL_S = 10.0
+_boot_warn_after = [0.0]
 _EXT = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -543,17 +578,15 @@ def _history() -> History:
     return history
 
 
-MAX_EPOCH_MS = 1e13  # year 2286; a far larger `before` overflows SQLite's integers (a 500)
-
-
 @app.get("/api/history")
 def get_history(window: str = "24h", lead: str | None = None, before: float | None = None):
     """`before` (epoch ms) ends the range there instead of now, so a client can page back."""
     history = _history()
-    if before is not None and not 0 <= before <= MAX_EPOCH_MS:  # also refuses inf and nan
-        raise HTTPException(400, "before is a time in epoch milliseconds")
+    if before is not None and not 0 <= before < math.inf:  # NaN fails the comparison too
+        raise HTTPException(400, "before is a finite, non-negative time in epoch milliseconds")
+    now = None if before is None else min(before / 1000, time.time())  # a future cutoff is now
     try:
-        return history.query(window, lead=lead, now=None if before is None else before / 1000)
+        return history.query(window, lead=lead, now=now)
     except ValueError:
         raise HTTPException(400, "window and lead are all, or a count of hours or days "
                                  "(24h, 7d) up to 90 days") from None
@@ -1199,6 +1232,12 @@ async def client_error(request: Request):
         body = ClientErrorBody.model_validate_json(raw)
     except Exception:  # noqa: BLE001 - a malformed report is a 400, not a 500
         raise HTTPException(400, "invalid client-error report") from None
+    # The page is stuck on "couldn't start" with nothing else to go on, and OTel is optional,
+    # so log what broke and on what browser where `journalctl` finds it.
+    if body.kind == "boot" and time.monotonic() >= _boot_warn_after[0]:
+        _boot_warn_after[0] = time.monotonic() + BOOT_WARN_INTERVAL_S
+        logger.warning("client boot failed: %r [%r]", (body.message or "")[:500],
+                       (request.headers.get("user-agent") or "")[:300])
     try:
         telemetry.emit_client_error(
             kind=body.kind,

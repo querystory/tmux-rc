@@ -87,6 +87,7 @@ PLANS = [
                                     ("7d Fable", 7 * 86400, 1 - 7.5 / 168, 52)]),
     ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 40)]),
 ]
+STALE = {"claude": 360}  # a failed last read: the meter shows the reading from 6m before
 
 
 # SGR helpers for the captures: the live view renders these as colored spans.
@@ -326,16 +327,19 @@ def seed_history(history: History) -> History:
 
 def seed_usage(usage):
     """Five-minute samples of each PLANS window, rising a little faster late in it, ending
-    at its share at NOW; and the accounts the panes draw on, as discovery would find them."""
+    at its share at NOW; and the accounts the panes draw on, as discovery would find them.
+    Claude's last read failed, so its samples stop STALE seconds short of NOW."""
     rows, panes = [], fleet()
     for tool, name, sessions, windows in PLANS:
+        last = NOW - STALE.get(tool, 0)
         for window, seconds, share, pct in windows:
             start = NOW - share * seconds
             rows += [(tool, name, window, seconds, t,
                       round(pct * ((t - start) / (NOW - start)) ** 1.2), start + seconds)
-                     for t in range(int(NOW), int(start), -300)]
-        usage.accounts[(tool, name)] = {"short": name, "error": None, "panes": [
-            p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions]}
+                     for t in range(int(last), int(start), -300)]
+        usage.accounts[(tool, name)] = {"short": name, "panes": [
+            p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions],
+            "error": "unavailable" if tool in STALE else None}
     usage.history.record_usage(rows)
     return usage
 

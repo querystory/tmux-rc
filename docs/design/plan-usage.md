@@ -94,8 +94,13 @@ a file. Nothing else on disk holds the numbers. So the daemon calls
 `GET https://api.anthropic.com/api/oauth/usage` (`anthropic-beta: oauth-2025-04-20`) with
 the account's access token from `.credentials.json`. This is undocumented and may change
 shape or disappear; the parser reads only `five_hour` / `seven_day` →
-`utilization` and `resets_at`, treats a null window as 0% (not yet opened), and any
-failure shows as "unavailable" rather than stale numbers. Per-model weekly limits come
+`utilization` and `resets_at`, and treats a null window as 0% (not yet opened). A failed
+read keeps showing the last reading, marked "as of 6m ago", while it is at most three polls
+(15 minutes) old: the endpoint drops the odd request, and a meter that blanks for five
+minutes over one dropped request is worse than one a few points behind. Past that the
+account reads "unavailable", since older numbers would mislead. A network error (no
+HTTP status) is retried once after 2s; an HTTP status is not, as a 401 or 429 will not
+change in that time. Per-model weekly limits come
 from the `limits` list: each `weekly_scoped` entry naming a model becomes "7d <model>",
 with its `percent` and `resets_at`. The response also has `seven_day_opus`-style keys,
 but they are null on current plans while `limits` carries the number Claude Code's own

@@ -21,6 +21,43 @@
       document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
       document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
     })();
+    // Boot watchdog. app.js adds .booted once the chrome is built; until then the markup is
+    // a skeleton (style.css). If it never gets there (a module that failed to load, a throw
+    // at boot, a timer that runs out), say so with a Reload button rather than reveal the
+    // half-built chrome, and report why: a phone has no devtools, and app.js's own reporter
+    // never ran. The reason is also kept for the next start to re-send, since a network
+    // that failed the boot fails its report too.
+    (() => {
+      const root = document.documentElement, KEY = "tmuxrc-boot-failure", booted = () => root.classList.contains("booted");
+      const send = (message) => navigator.sendBeacon?.("/api/client-error", JSON.stringify({ kind: "boot", message }));
+      let reason;
+      const fail = (why) => {
+        if (booted() || reason) return;
+        reason = why;
+        root.classList.add("boot-failed");
+        send(why);
+        try { localStorage.setItem(KEY, why); } catch {}
+      };
+      try {
+        const last = localStorage.getItem(KEY);
+        if (last) { localStorage.removeItem(KEY); send(`previous start: ${last}`); }
+      } catch {}
+      addEventListener("error", (e) => {
+        const t = e.target, src = t instanceof HTMLScriptElement ? t.src : t?.rel === "modulepreload" && t.href;
+        if (e.filename) fail(`${e.message} at ${e.filename}:${e.lineno}:${e.colno}`);
+        else if (src) fail(`failed to load ${src}`);
+      }, true);
+      addEventListener("unhandledrejection", (e) => fail(`unhandled rejection: ${e.reason?.message ?? e.reason}`));
+      setTimeout(() => fail(`not booted after 10s (online: ${navigator.onLine})`), 10000);
+      // Boot does not re-run on a resume (bfcache, or a page iOS froze before its scripts
+      // ran), so an unbooted page that comes back starts over: restored from bfcache, or
+      // shown again after failing. Only on a return, never at load, or a failure would loop;
+      // a page that starts hidden (iOS can load one in the background) is already away.
+      let away = document.hidden;
+      const retry = (resumed) => { if (resumed && !booted()) location.reload(); };
+      addEventListener("pageshow", (e) => retry(e.persisted));
+      document.addEventListener("visibilitychange", () => document.hidden ? (away = true) : retry(away && reason));
+    })();
   </script>
   <link rel="stylesheet" href="/m/style.css">
   <link rel="stylesheet" href="/live-chat.css">
@@ -51,7 +88,7 @@
       <button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button>
       <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
       <!-- A phone keeps Chat and the mic in reach; the settings-like controls fold in here. -->
-      <details id="more-menu" class="header-picker"><summary id="more-button" class="icon-button" aria-label="More" title="More"></summary><div class="header-picker-menu">
+      <details id="more-menu" class="header-picker"><summary id="more-button" class="icon-button" aria-label="Menu" title="Menu"></summary><div class="header-picker-menu">
         <button id="push" class="icon-button" aria-label="Notifications" aria-pressed="false" hidden></button>
         <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
         <a id="docs" class="icon-button" href="/docs/" hidden aria-label="Documentation" title="Documentation"></a>
@@ -145,7 +182,7 @@
       <div id="voice-controls" class="voice-controls" hidden><button id="voice-mute" class="icon-button" aria-label="Mute microphone" title="Mute microphone" aria-pressed="false" hidden></button><button id="voice-start" class="primary" hidden>End Live Mode</button></div>
     </dialog>
   </div>
-  <p id="booting" role="status">Loading…</p>
+  <div id="booting" role="status"><p>Loading…</p><p>tmux-rc couldn't start.</p><button type="button" class="primary" onclick="location.reload()">Reload</button></div>
   <script type="module" src="/m/app.js"></script>
 </body>
 </html>

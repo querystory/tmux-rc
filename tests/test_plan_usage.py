@@ -1,4 +1,5 @@
 """Plan-limit sources, account discovery, and the projection the trend line draws."""
+import io
 import json
 from datetime import UTC, datetime
 
@@ -86,6 +87,44 @@ def test_expired_token_is_unavailable_without_a_request(tmp_path, monkeypatch):
         plan_usage.fetch_claude(tmp_path, NOW)
 
 
+def _token(config):
+    (config / ".credentials.json").write_text(json.dumps(
+        {"claudeAiOauth": {"accessToken": "x", "expiresAt": (NOW + 3600) * 1000}}))
+
+
+def _opener(monkeypatch, *errors):
+    """An opener raising each error in turn, then answering; returns the calls made."""
+    calls, body = [], json.dumps({"five_hour": None, "seven_day": None}).encode()
+
+    def open_(request, timeout):
+        calls.append(request)
+        if len(calls) <= len(errors):
+            raise errors[len(calls) - 1]
+        return io.BytesIO(body)
+    monkeypatch.setattr(plan_usage._OPENER, "open", open_)
+    monkeypatch.setattr(plan_usage.time, "sleep", lambda s: None)
+    return calls
+
+
+def test_a_network_blip_is_retried_once(tmp_path, monkeypatch):
+    _token(tmp_path)
+    calls = _opener(monkeypatch, TimeoutError())
+    assert [s["window"] for s in plan_usage.fetch_claude(tmp_path, NOW)] == ["5h", "7d"]
+    calls = _opener(monkeypatch, plan_usage.urllib.error.URLError("down"), TimeoutError())
+    with pytest.raises(TimeoutError):
+        plan_usage.fetch_claude(tmp_path, NOW)
+    assert len(calls) == 2
+
+
+def test_an_http_status_is_not_retried(tmp_path, monkeypatch):
+    _token(tmp_path)
+    calls = _opener(monkeypatch, plan_usage.urllib.error.HTTPError(
+        plan_usage.USAGE_URL, 401, "Unauthorized", {}, None))
+    with pytest.raises(plan_usage.urllib.error.HTTPError):
+        plan_usage.fetch_claude(tmp_path, NOW)
+    assert len(calls) == 1
+
+
 def test_projection_extends_the_fitted_pace_to_the_reset():
     hour, start = 3600, NOW
     # 10% an hour, steadily: 30% at 3h, so 50% by the 5h reset and no limit hit.
@@ -143,7 +182,7 @@ def test_two_claude_config_dirs_are_two_accounts_fetched_once_each(tmp_path, mon
         ("dev", ["%1", "%2"], 10.0), ("me", ["%3"], 60.0)]
 
 
-def test_report_drops_a_reset_window_and_hides_stale_data_on_error(tmp_path, monkeypatch):
+def test_report_drops_a_reset_window_and_keeps_a_recent_reading_on_error(tmp_path, monkeypatch):
     tmp_path.chmod(0o700)
     codex = tmp_path / ".codex"
     (codex / "sessions").mkdir(parents=True)
@@ -156,10 +195,16 @@ def test_report_drops_a_reset_window_and_hides_stale_data_on_error(tmp_path, mon
     assert account["windows"][0]["pct"] == 40.0
     assert usage.report(now=NOW + 120)[0]["windows"] == [
         {"window": "7d", "pct": 0.0, "resets_at": None, "samples": []}]
+    assert account["as_of"] is None
     usage.read = lambda home: 1 / 0
     usage.poll([], lambda _: None, now=NOW + 1)
-    assert usage.report(now=NOW)[0] | {"panes": []} == {
-        "provider": "codex", "label": None, "panes": [], "error": "unavailable", "windows": []}
+    # A failed read keeps the last reading, dated, while it is recent ...
+    [stale] = usage.report(now=NOW + 30)
+    assert (stale["error"], stale["as_of"], stale["windows"][0]["pct"]) == (None, NOW * 1000, 40.0)
+    # ... and reads unavailable once it is too old to trust.
+    assert usage.report(now=NOW + plan_usage.STALE_OK + 1)[0] | {"panes": []} == {
+        "provider": "codex", "label": None, "panes": [], "error": "unavailable",
+        "as_of": None, "windows": []}
 
 
 def test_without_history_an_account_reads_unavailable_not_limitless(tmp_path, monkeypatch):

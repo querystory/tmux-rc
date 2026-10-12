@@ -82,7 +82,8 @@ class DemoWatcher:
 
 class DemoHistory(demo.History):
     def query(self, *args, **kwargs):
-        now = min(kwargs.get("now") or demo.NOW, demo.NOW)  # a `before` pages back from NOW
+        now = kwargs.get("now")  # a `before` pages back from NOW
+        now = demo.NOW if now is None else min(now, demo.NOW)
         return super().query(*args, **{**kwargs, "now": now})
 
 

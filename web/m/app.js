@@ -52,6 +52,7 @@ const LUCIDE = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
   ellipsis: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  menu: '<path d="M4 5h16M4 12h16M4 19h16"/>',
   power: '<path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.77.04"/>',
   trash: '<path d="M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
@@ -269,7 +270,7 @@ function route() {
   restartDetail();
   render();
   // Focus follows: into the view's Back, then back to the card's Details.
-  if (wasPage && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector(".atlas-reset-zoom")?.focus({ preventScroll: true }); }
+  if (wasPage && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
   if (page && !wasPage) { $("landing").scrollTop = 0; $("dash-page").querySelector("button")?.focus({ preventScroll: true }); }
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
@@ -1157,7 +1158,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", sort: "arrowUpDown", "usage-mode": "gauge", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "menu", sort: "arrowUpDown", "usage-mode": "gauge", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1222,11 +1223,11 @@ $("usage-mode").onclick = () => {
   paintUsage();
 };
 // The strip is a glance; tapping it opens the usage view, where the trend and times read,
-// by way of the dashboard, so its Back lands on the Plan usage card. The strip shows every
-// meter, so a tool filter with none of its own (shell, say) is dropped rather than open empty.
+// by way of the dashboard, so its Back lands on the Plan usage card.
+// A tool filter with no plan meters (it hides the card) is dropped, so the view has some.
 const openUsage = () => {
   const scope = $("session-atlas")._scope;
-  if (scope?.tool && !usage.some((a) => a.provider === scope.tool)) scope.tool = "";
+  if (scope && !usage.some((a) => a.provider === scope.tool)) scope.tool = "";
   openDashboard(); openPage("usage");
 };
 $("usage").onclick = openUsage;
