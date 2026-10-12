@@ -137,6 +137,17 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       return button;
     }));
   }
+  const textOf = (row) => row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
+  // A reconnect opens a daemon session with no history (a restart loses it): hand back the
+  // conversation this log shows, so a "yes" still answers the question above it. Text
+  // only: approvals and tool results never come from here (live_chat.restore).
+  function restore(current) {
+    const transcript = [...log.children].filter((row) => ["user", "model", "typed"].includes(row.dataset.role))
+      .map((row) => ({ role: row.dataset.role, text: textOf(row).textContent }));
+    if (!transcript.length) return;
+    current.ws.send(JSON.stringify({ action: "resume", transcript }));
+    add("error", "Reconnected: the assistant was handed the conversation above again");
+  }
   function add(role, message, newSegment = false, images = []) {
     const previous = typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
     const follow = following();
@@ -150,7 +161,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
-    const body = row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
+    const body = textOf(row);
     if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
     else body.textContent += message || "";
     body.before(...images.map(chatThumb));
@@ -167,9 +178,11 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // instead (superseded: a card never holds the next turn hostage). The card shows a final
   // answer only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
   // side of the proposal with it, so any card still open then is expired, never retried.
-  function propose(current, { id, text, image, pane_id, session }) {
+  function propose(current, { id, text, image, pane_id, session, warn }) {
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
     if (session) row.lastChild.append(sessionMeta(session));
+    // A reply that only agreed, or context restored after a reconnect: look twice.
+    if (warn) row.lastChild.append(Object.assign(document.createElement("small"), { className: "voice-meta voice-warn", textContent: warn }));
     actions.className = "voice-actions";
     for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
       const button = document.createElement("button"); button.type = "button"; button.textContent = label;
@@ -380,7 +393,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) expire(current);
-        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
+        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; if (current.text) restore(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);

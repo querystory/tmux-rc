@@ -365,9 +365,11 @@ _TEXT_NOTE = (
     'Keep them short and plain. Label relayed messages "(via text)". Actions that change '
     "a pane (type_in_pane, press_key, resume_session, send_image_to_pane) are shown to the "
     "user to approve first; a declined one did not happen, so don't retry it unless the user "
-    "asks. Act first, then report the outcome briefly; don't narrate what you're about to "
-    "do before calling a tool. Pasted images are numbered in the turn text; to give one to "
-    'an agent ("send this to window 3") use send_image_to_pane.'
+    "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
+    "about to do before calling a tool, and never say what a pane did unless an update "
+    'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
+    "with none, ask what they mean instead of acting. Pasted images are numbered in the "
+    'turn text; to give one to an agent ("send this to window 3") use send_image_to_pane.'
 )
 
 
@@ -413,7 +415,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         "status": "rejected", "reason": "unknown tool"}
     try:
         if known:
-            ok, pid = (await _approved(websocket, call, watcher, meter, rec)
+            ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
             result = (await _dispatch(websocket, session, call, watcher, rec, expected_pid=pid,
                                       meter=meter)
@@ -422,7 +424,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         status, reason = result["status"], result.get("reason")
         _audit(
             meter, f"live_{fc.name if known else 'unknown_tool'}",
-            outcome="ok" if status in {"done", "ok", "opened", "button_shown"}
+            outcome="ok" if status in {"sent", "ok", "opened", "button_shown"}
             else f"{status}: {reason}" if reason else status,
             latency_ms=round((time.monotonic() - started) * 1000), **rec,
         )
@@ -437,19 +439,25 @@ _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 # Typing a new message while a card waits answers it: the user moved on, so the model is
 # told not to retry and to take the new turn (queued behind this one) instead.
 _DECLINED = {"declined": "the user declined",
+             "unanchored": "the user's message only agrees, and you asked them nothing: "
+                           "nothing was sent; ask what they want",
              "superseded": "the user sent a new message instead of answering; do not retry "
                            "this, answer their new message (it follows)"}
 
 
 async def _approved(
-    websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict
+    websocket: WebSocket, session, fc, watcher, meter: _Meter, rec: dict
 ) -> tuple[bool, str | None]:
     """Show the user what the call would do, as the model asked it, and wait for Send or
     Cancel, or a new typed turn, which supersedes the card. Returns the answer and the
     pane's pid when it was proposed: the card named THAT process, and tmux recycles %N, so
     an approval must not type into whatever holds the id by the time the user taps. A
     malformed call can be approved and is still refused by _dispatch: this gate only ever
-    removes actions."""
+    removes actions. A turn that only agrees ("yes") with nothing asked is refused before any
+    card (live_chat._BARE); the session's caution, if any, rides on the card."""
+    if getattr(session, "unanchored", False):
+        rec["consent"] = "unanchored"
+        return False, None
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
     d = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
@@ -463,7 +471,8 @@ async def _approved(
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
-    card = {"type": "propose", "pane_id": pane_id if known else None}  # Open
+    card = {"type": "propose", "pane_id": pane_id if known else None,  # Open
+            "warn": getattr(session, "caution", None)}
     if fc.name == "resume_session":
         entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
             await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}
@@ -599,7 +608,14 @@ async def _dispatch(
             )
 
     _background(asyncio.create_task(refresh()))
-    return {"status": "done", "pane": label}
+    return _sent(label)
+
+
+def _sent(label: str) -> dict:
+    """A delivered send. Not "done": the model read that as the work being done, and told the
+    user what the pane was "now" doing before it had seen the pane react at all."""
+    return {"status": "sent", "pane": label,
+            "note": "delivered; you haven't seen the pane react, so say only what you sent"}
 
 
 def _send_failed(e: Exception, rec: dict, reason: str) -> dict:
@@ -641,7 +657,7 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
     watcher.request_reparse(pane_id)
     await websocket.send_json({"type": "typed", "pane_id": pane_id, "label": labels[pane_id],
                                "text": f"[image] {caption}".strip(), "submitted": True})
-    return {"status": "done", "pane": labels[pane_id]}
+    return _sent(labels[pane_id])
 
 
 async def _offer(websocket, pane_id: str, pane: dict, *, auto: bool = False) -> None:
@@ -1023,6 +1039,9 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     answer.set_result(None)
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
+        elif action == "resume" and hasattr(session, "restore"):  # a chat's reconnect
+            logger.info("[live] chat context restored: %d rows",
+                        session.restore(data.get("transcript")))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
             answer = meter.approvals.get(str(data.get("id")))
             if answer and not answer.done():
