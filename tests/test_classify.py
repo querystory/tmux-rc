@@ -1317,6 +1317,7 @@ def test_question_naming_list_items_carries_them():
     question = classify(_pane("claude"), _auto_screen(message), _llm({}))["question"]
     assert question["items"] == ["1. Move the build cache to disk.",
                                  "2. Close idle worker sessions."]
+    assert question["subject"] == "Two ways to free memory, in order:"  # not the old plan's
     for ask in ("Want me to do 1 please?", "Start with 2 tomorrow?", "Make edit 2 immediately?",
                 "Do Item 2 first?", "Do 1 urgently?", "Could you handle 2 separately?",
                 "Do 1 and 2 on staging?", "Do task 1 now?", "Apply fix 2 first?",
@@ -1365,6 +1366,34 @@ def test_question_naming_list_items_carries_them():
     widget = _auto_screen(message + "\n  ❯ 1. Yes\n    2. No").replace("auto mode", "plan mode")
     held = classify(_pane("claude"), widget, _llm({"question": menu}))["question"]
     assert held["answer_style"] == "menu" and "items" not in held
+
+
+def test_question_naming_lettered_options_carries_them_and_the_decision():
+    message = ("Session store\n\n  - Option A: Redis. Fast.\n  - Option B — SQLite.\n\n"
+               "  Two ways to fix the timeouts:\n\n  A. Answer first. Then reserve stock.\n"
+               "  (b) Cache the stock levels.\n\n  Go with A or B?")
+    want = ["A. Answer first.", "B. Cache the stock levels."]
+    for ask in ("Go with A or B?", "A or B?", "Which do you prefer, A or B?",
+                "Is it (a) or (b)?", "Option B, then A?"):
+        screen = _auto_screen(message.replace("Go with A or B?", ask))
+        question = classify(_pane("claude"), screen, _llm({}))["question"]
+        assert sorted(question["items"]) == want
+        assert question["subject"] == "Two ways to fix the timeouts:"
+    for ask in ("A quick check first?", "Grade A beef?", "Should I run it?", "Use a or b?"):
+        screen = _auto_screen(message.replace("Go with A or B?", ask))
+        question = classify(_pane("claude"), screen, _llm({}))["question"]
+        assert "items" not in question and "subject" not in question
+    store = message.partition("\n\n  Two")[0]
+    labelled = classify(_pane("claude"), _auto_screen(store + "\n\n  Option A or B?"),
+                        _llm({}))["question"]
+    assert labelled["items"] == ["A. Redis.", "B. SQLite."]
+    assert labelled["subject"] == "Session store"
+    # The parser's echo of a lettered row as a button goes, as a numbered one does.
+    ask = {"prompt": "Go with A or B?", "answer_style": "text",
+           "options": ["A. Answer first", "Go with A"]}
+    screen = _auto_screen(message).replace("auto mode on", "plan mode on")
+    assert classify(_pane("claude"), screen, _llm({"question": ask}))["question"][
+        "options"] == ["Go with A"]
 
 
 @pytest.fixture

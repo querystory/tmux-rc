@@ -248,20 +248,32 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     with_option = push.contract(pane, "123")[0]
     pane["question"]["items"] = ["1. Prune old images."]
     assert push.contract(pane, "123")[0] != with_option
+    with_option = push.contract(pane, "123")[0]
+    pane["question"]["subject"] = "Ways to free disk:"
+    assert push.contract(pane, "123")[0] != with_option
 
 
 def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
     watcher.states = [waiting({"prompt": "Do 1 now?", "answer_style": "text",
-                               "options": ["Yes", "No"], "items": ["1. Prune old images."]})]
+                               "options": ["Yes", "No"], "items": ["1. Prune old images."],
+                               "subject": "Ways to free disk:"})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
-    assert sender.payloads[0]["body"] == "Do 1 now?\n1. Prune old images."
+    assert sender.payloads[0]["body"] == "Do 1 now?\nWays to free disk:\n1. Prune old images."
     assert [a["title"] for a in sender.payloads[0]["actions"]] == ["Yes", "No"]
+    # A subject the body cannot fit is left out; the rows still fit, so the buttons stay.
+    watcher.states = [waiting({"prompt": "Do 1-3 now?", "answer_style": "text",
+                               "options": ["Yes", "No"], "subject": "y" * 60,
+                               "items": [f"{n}. " + "x" * 115 for n in range(1, 4)]})]
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert "y" not in sender.payloads[1]["body"] and sender.payloads[1]["nonce"]
     # Rows the body cannot fit would be approved unseen: the notification only opens the app.
     watcher.states = [waiting({"prompt": "Do 1-4 now?", "answer_style": "text",
                                "options": ["Yes", "No"],
@@ -269,13 +281,14 @@ def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
-    assert sender.payloads[1]["actions"] == [] and sender.payloads[1]["nonce"] is None
+    assert sender.payloads[2]["actions"] == [] and sender.payloads[2]["nonce"] is None
     # Raw model fields are unvalidated: a numeric headline still notifies, as text.
     watcher.states = [{**waiting(), "headline": 42}]
+    clock[0] += push.RATE_WINDOW_SECONDS  # past the per-pane cap
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
-    assert sender.payloads[2]["body"] == "42"
+    assert sender.payloads[3]["body"] == "42"
 
 
 def test_subscription_only_accepts_known_push_relays(tmp_path):

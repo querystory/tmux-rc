@@ -127,8 +127,9 @@ export function lastActivity(pane) {
 export function paneName(pane) {
   return pane.title || pane.label || pane.window_name || pane.pane_id;
 }
-// The list rows a question names by number ("do 1 now?"), one per line, so it reads alone.
-export const questionItems = (question) => Array.isArray(question?.items) ? question.items.join("\n") : "";
+// What a question decides, then the list rows it names ("do 1 now?", "A or B?"), one per
+// line, so it reads alone.
+export const questionItems = (question) => Array.isArray(question?.items) ? [question.subject, ...question.items].filter(Boolean).join("\n") : "";
 // The line a list shows under the name: the question it is stuck on, else what it is doing.
 // A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare
 // "Do you want to proceed?" says nothing on a card.

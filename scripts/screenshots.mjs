@@ -37,6 +37,7 @@ const SHOTS = [
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-question-items", PHONE, "light", "#pane=%2546"],
+  ["mobile-question-subject", PHONE, "light", "#pane=%2547"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],

@@ -70,7 +70,8 @@ ROWS = """\
 7|claude|idle|rss digest|5h||Summarised 12 new posts.
 7|opencode|idle|invoice parser|2d||Parsed 31 invoices, 2 flagged.
 7|shell|idle|dotfiles sync|3d||Synced with origin.
-7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1"""
+7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1
+7|claude|need|webhook timeouts|4m|Go with A or B?|Go with A,Go with B"""
 
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
@@ -207,9 +208,13 @@ MENU = {"dependency audit": {
     "ask": "The agent wants to upgrade React, Vite and ESLint to new major versions. "
            "Continue?",
 }}
-# A typed question that names list rows by number: the rows classify() reads off the screen.
+# A typed question that names list rows by number or letter: the rows classify() reads off
+# the screen, and the line leading into them, which says what is being decided.
 ITEMS = {"disk cleanup": {"items": ["1. Prune container images older than 14 days.",
-                                    "2. Archive the nightly log bundles."]}}
+                                    "2. Archive the nightly log bundles."]},
+         "webhook timeouts": {"subject": "Two ways to fix the webhook timeouts:",
+                              "items": ["A. Answer first, then reserve stock in a background job.",
+                                        "B. Cache stock levels and reserve against the cache."]}}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).
 EVENTS = {
