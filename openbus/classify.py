@@ -1141,7 +1141,11 @@ def classify(
         # parser prompt's "or is a y/n confirmation", is the authority: the prompt is
         # left as is because the eval measured every rewording regressing other samples.
         option = list(_FIRST_OPTION_RE.finditer(visible))
-        said = asked and _last_occurrence(asked, visible)
+        # The prompt's own row, not an option repeating it ("1. Repeat “Which action?”"),
+        # unless it appears only on one.
+        found = _occurrences(asked, visible) if asked else []
+        said = ([m for m in found if not _OPTION_ROW_RE.match(
+            visible, visible.rfind("\n", 0, m.start()) + 1)] or found or [None])[-1]
         if style == "menu" and (not option or (said and said.start() >= option[-1].start())):
             # The menu's labels ("Yes") are no answer for a line prompt that reads "y":
             # without buttons the user types exactly what the screen asks for.

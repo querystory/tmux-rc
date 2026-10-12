@@ -1046,6 +1046,11 @@ def test_menu_without_a_digit_row_is_answered_as_text():
             "prompt": prompt, "answer_style": "menu", "options": ["Yes", "No"]}}))
         assert result["question"]["answer_style"] == "text"
         assert "options" not in result["question"]  # "Yes" + Enter is no answer to [y/N]
+    # An option that repeats the question is no prompt row below the menu.
+    result = classify(_pane(), "Which action?\n1. Repeat “Which action?”\n2. Stop", _llm({
+        "question": {"prompt": "Which action?", "answer_style": "menu",
+                     "options": ["Repeat “Which action?”", "Stop"]}}))
+    assert result["question"]["answer_style"] == "menu"
 
 
 def test_menu_command_becomes_context_not_paste_action():
