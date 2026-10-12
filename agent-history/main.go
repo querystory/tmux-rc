@@ -295,8 +295,14 @@ func claudeDirs() []string {
 		return []string{dir}
 	}
 	home, _ := os.UserHomeDir()
+	dirs := []string{filepath.Join(home, ".claude")}
 	more, _ := filepath.Glob(filepath.Join(home, ".claude-*"))
-	return append([]string{filepath.Join(home, ".claude")}, more...)
+	for _, dir := range more {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() { // not a stray ~/.claude-backup file
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
 }
 
 func stateFile() string { return filepath.Join(Root(), "state", "last-reconcile") }

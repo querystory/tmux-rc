@@ -92,9 +92,9 @@ def _profiles(pane_dirs) -> list[dict]:
              if d.is_dir()}
     for tool, config in pane_dirs:
         found.setdefault(str(config), tool)
-    for config, entry in store.items():
+    for config, entry in store.items():  # an added dir's provider was chosen, not guessed
         if entry.get("provider") in ENV:
-            found.setdefault(config, entry["provider"])
+            found[config] = entry["provider"]
     used, dirty, out = {e.get("color") for e in store.values()}, False, []
     for config, provider in found.items():
         entry, ident = store.get(config, {}), identity(provider, Path(config))
@@ -139,11 +139,12 @@ def command(provider: str, config: str, cmd: str | list[str]) -> list[str]:
 
 def session_defaults(sessions) -> dict[str, dict[str, str]]:
     """Each session's account per provider: what a new window there inherits from tmux,
-    the session's environment over the global one, else the provider's default dir."""
+    the session's environment over the global one, else the provider's default dir. Under
+    "": a new session's, from the global environment alone."""
     glob = tmux.show_env()
     out = {}
-    for session in sessions:
-        env = {**glob, **tmux.show_env(session)}
+    for session in ["", *sessions]:
+        env = {**glob, **(tmux.show_env(session) if session else {})}
         out[session] = {t: str(Path(os.path.expanduser(env.get(ENV[t]) or default_dir(t))))
                         for t in ENV}
     return out
@@ -160,8 +161,9 @@ def report(states: list[dict], birth) -> dict:
         if profile := by_dir.get(str(config)):
             profile["panes"].append(pane_id)
     several = any(sum(p["provider"] == t and p["signed_in"] for p in listed) > 1 for t in ENV)
-    sessions = {s["session"] for s in states if s.get("session")} if several else ()
-    return {"profiles": listed, "sessions": session_defaults(sorted(sessions)), "shared": SHARED}
+    sessions = sorted({s["session"] for s in states if s.get("session")})
+    return {"profiles": listed, "sessions": session_defaults(sessions) if several else {},
+            "shared": SHARED}
 
 
 def add(provider: str, config: str, label: str, link: list[str]) -> dict:

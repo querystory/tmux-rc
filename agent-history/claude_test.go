@@ -283,6 +283,7 @@ func TestEveryAccountInHomeIsIndexed(t *testing.T) {
 		must(t, os.MkdirAll(project, 0o700))
 		must(t, os.WriteFile(filepath.Join(project, dir[1:]+".jsonl"), nil, 0o600))
 	}
+	must(t, os.WriteFile(filepath.Join(home, ".claude-backup"), nil, 0o600)) // a file, not an account
 	sessions, err := claudeSessions()
 	must(t, err)
 	if len(sessions) != 2 {

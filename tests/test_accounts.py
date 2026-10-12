@@ -93,6 +93,13 @@ def test_adding_creates_a_private_dir_and_links_only_shared_files(home):
     assert accounts.add("claude", "~/.claude-old", "Old", [])["existed"] is True
 
 
+def test_an_added_dirs_provider_is_kept_whatever_its_name(home):
+    accounts.add("codex", "~/.claude-work", "Work", [])
+    (home / ".claude-work" / "auth.json").touch()
+    work = _by_dir(home)["~/.claude-work"]
+    assert (work["provider"], work["signed_in"]) == ("codex", True)
+
+
 def test_a_forgotten_dir_comes_back_when_added_again(home):
     accounts.edit(str(home / ".claude-personal"), forget=True)
     accounts.add("claude", str(home / ".claude-personal"), "Personal", [])
@@ -121,6 +128,7 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
                      "~/.codex2": []}
     # The global environment applies where the session sets nothing.
     assert report["sessions"]["work"]["claude"] == str(home / ".claude-personal")
+    assert report["sessions"][""]["claude"] == str(home / ".claude-personal")  # a new session
     for extra in (".claude-personal", ".codex2"):
         accounts.edit(str(home / extra), forget=True)
     assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"] == {}
