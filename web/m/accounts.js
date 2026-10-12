@@ -155,10 +155,12 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
       + `<label for="acct-name">Name</label><input id="acct-name" value="${esc(F.name)}" autocomplete="off" placeholder="Personal">`
       + `<label>Provider</label><div class="acct-seg">${Object.keys(ENV).map((p) => `<button type="button" data-prov="${p}" aria-pressed="${F.provider === p}">${title(p)}</button>`).join("")}</div>`
       + `<label for="acct-dir">Config dir</label><input id="acct-dir" value="${esc(F.dir)}" autocomplete="off" autocapitalize="off" spellcheck="false">`
-      + (owner ? `<p class="acct-msg err"><code>${esc(F.dir)}</code> is already the account ${esc(owner.name)}. Pick another dir, or rename that account instead.</p>`
+      + (owner && !owner.signed_in ? `<p class="acct-msg warn">A sign-in to <code>${esc(F.dir)}</code> (${esc(owner.name)}) was started and never finished. Next picks it up.</p>`
+        : owner ? `<p class="acct-msg err"><code>${esc(F.dir)}</code> is already the account ${esc(owner.name)}. Pick another dir, or rename that account instead.</p>`
         : `<p class="acct-msg">tmux-rc creates <code>${esc(F.dir)}</code> (private, mode 700), or uses it as it is if it already exists. Nothing is written yet.</p>`)
       + `<p class="acct-note">The provider keeps this account's login, settings and transcripts in that dir (${ENV[F.provider]}), apart from your other accounts.</p>`
-      + btns('<button class="ghost" data-goto="list">Back</button>', `<button class="primary" data-goto="share" ${owner || !F.name.trim() || !F.dir ? "disabled" : ""}>Next</button>`);
+      + btns('<button class="ghost" data-goto="list">Back</button>', owner && !owner.signed_in ? `<button class="primary" data-resume="${esc(owner.dir)}">Next</button>`
+        : `<button class="primary" data-goto="share" ${owner || !F.name.trim() || !F.dir ? "disabled" : ""}>Next</button>`);
     else if (s === "share") dlg.innerHTML = head("Share your setup? (optional)", 2)
       + `<p class="acct-note">tmux-rc can symlink these from <code>~/.${F.provider}</code> into <code>${esc(F.dir)}</code>, so there is one copy to edit and both accounts follow it. Only files that exist are linked.</p>`
       + Object.entries(shared[F.provider] || {}).map(([f, on]) => `<label class="acct-check"><input type="checkbox" data-link="${esc(f)}" ${on ? "checked" : ""}><span><code>${esc(f)}</code>${on ? "" : "<small>may carry work-only hooks, MCP servers or permissions; check it first</small>"}</span></label>`).join("")
@@ -174,7 +176,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
           + btns('<button class="ghost" data-goto="list">Later</button>', `<button class="primary" data-login ${sessions().length ? "" : "disabled"}>Open sign-in window</button>`));
     else if (s === "abandoned") dlg.innerHTML = head("Sign-in not finished")
       + `<p>${esc(F.name)} is not signed in yet, so it is listed as "not signed in" until you finish or remove it.</p><p class="acct-note"><code>${esc(F.dir)}</code> holds no login; any links you chose are in place and harmless.</p>`
-      + btns('<button class="ghost" data-remove-ok>Remove</button>', '<button data-goto="list">Later</button>', '<button class="primary" data-retry>Try again</button>');
+      + (F.pane && paneAlive(F.pane) ? `<label class="acct-check"><input type="checkbox" id="acct-close" checked><span>Close the sign-in window<small>the window tmux-rc opened for this, and nothing else</small></span></label>` : "")
+      + btns('<button class="ghost" data-remove-ok>Remove</button>', "<button data-later>Later</button>", '<button class="primary" data-retry>Try again</button>');
     else if (s === "done") {
       const p = byDir(F.dir) || { name: F.name, color: 0, who: "", plan: "", tilde: F.dir };
       dlg.innerHTML = head(`${F.name} is ready`, 4)
@@ -218,10 +221,16 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     if ("add" in d) return open("name");
     if (d.rename) return go("list", { renaming: d.rename });
     if (d.remove) return go("list", { removing: d.remove });
+    if (d.resume) { const p = byDir(d.resume); return go("abandoned", { dir: p.dir, name: p.name, provider: p.provider, pane: null }); }
     if (d.finish) { const p = byDir(d.finish); return go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: null }); }
     t.disabled = true;
     try {
       if ("renameSave" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.renaming, label: dlg.querySelector("#acct-rename").value }) }); await refresh(); return go("list"); }
+      // Leaving an unfinished sign-in: close the window it opened, if asked (that pane only).
+      if (F.step === "abandoned" && dlg.querySelector("#acct-close")?.checked) {
+        await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }).catch(() => {});
+        F.pane = null;
+      }
       if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); await refresh(); return go("list"); }
       if ("create" in d) {
         const link = d.create ? [...dlg.querySelectorAll("[data-link]:checked")].map((i) => i.dataset.link) : [];
@@ -229,8 +238,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         await refresh();
         return go("login", { dir: added.dir || F.dir, existed: added.existed, pane: null });
       }
-      if ("login" in d) { F.pane = (await post("/api/accounts/login", { dir: F.dir, session: F.session })).pane_id; F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
+      if ("login" in d) { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session })); F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
       if ("retry" in d) return go("login", { pane: null });
+      if ("later" in d) return go("list");
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }
       if ("go" in d) { dlg.close(); return openPane(F.pane); }
       if ("done" in d) {

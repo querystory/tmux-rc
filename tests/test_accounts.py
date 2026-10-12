@@ -3,6 +3,7 @@ add flow's dir and links, and launching a pane on an account. Every config dir h
 fictional one under tmp_path; no credentials file is ever written or read."""
 import json
 import stat
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -199,5 +200,38 @@ def test_the_session_default_and_the_sign_in_window(client, home):
     assert argv[argv.index("-n") + 1] == "sign in: Work"
     assert argv[argv.index("--") + 1:] == [
         "env", f"CODEX_HOME={home}/.codex-work", "codex", "login"]
-    assert client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-work"}
-                       ).status_code == 409
+    assert client.post("/api/accounts", json={"provider": "claude",
+                                              "dir": "~/.claude-personal"}).status_code == 409
+
+
+def test_an_unfinished_sign_in_is_resumed_not_refused(home):
+    first = accounts.add("claude", "~/.claude-demo", "Demo", [])
+    (home / ".claude-demo").rmdir()  # abandoned, and its dir gone since
+    again = accounts.add("claude", "~/.claude-demo", "Demo", [])
+    assert (again["dir"], again["existed"]) == (first["dir"], False)
+    assert (home / ".claude-demo").is_dir()
+    assert [p["name"] for p in accounts.profiles() if p["tilde"] == "~/.claude-demo"] == ["Demo"]
+
+
+def test_only_the_sign_in_window_it_opened_can_be_closed(client, home, monkeypatch):
+    monkeypatch.setattr(T, "pane_pid", lambda pane_id: "4242")
+    added = client.post("/api/accounts", json={"provider": "claude", "dir": "~/.claude-demo",
+                                               "label": "Demo"}).json()
+    opened = client.post("/api/accounts/login",
+                         json={"session": "work", "dir": added["dir"]}).json()
+    assert (opened["pane_id"], opened["pid"]) == ("%42", "4242")
+    client.calls.clear()
+    for pane_id, pid in (("%9", "4242"), ("%42", "1"), ("%42", "")):  # not that window
+        assert client.post("/api/accounts/login/close",
+                           json={"pane_id": pane_id, "pid": pid}).status_code == 404
+    assert "kill-window" not in str(client.calls)  # refused before any window is touched
+    monkeypatch.setattr(T, "find_pane",
+                        lambda pane_id: T.Pane("work", "3", "w", "0", pane_id, "claude", "t"))
+    monkeypatch.setattr(S.app.state, "watcher", SimpleNamespace(drop_panes=lambda ids: None),
+                        raising=False)
+    monkeypatch.setattr(T, "_run", lambda argv, **_: (client.calls.append(argv), "%42 4242")[1])
+    assert client.post("/api/accounts/login/close",
+                       json={"pane_id": "%42", "pid": "4242"}).status_code == 200
+    [kill] = [c for c in client.calls if c[0] == "if-shell"]
+    assert kill[:4] == ["if-shell", "-F", "-t", "%42"] and "#{pane_pid},4242" in kill[4]
+    assert "kill-session" not in str(kill) and "kill-server" not in str(kill)

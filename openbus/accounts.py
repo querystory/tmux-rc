@@ -193,7 +193,7 @@ def _add(provider: str, config: str, label: str, link: list[str]) -> dict:
     path = Path(os.path.expanduser(config))
     if not path.is_absolute():
         raise ValueError("the config dir must be an absolute path")
-    if find(str(path)):
+    if (listed := find(str(path))) and listed["signed_in"]:  # a sign-in never finished: resumed
         raise FileExistsError(f"{_tilde(str(path))} is already an account")
     if bad := set(link) - set(SHARED[provider]):
         raise ValueError(f"not shareable: {', '.join(sorted(bad))}")

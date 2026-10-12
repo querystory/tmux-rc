@@ -251,6 +251,11 @@ class AccountSessionBody(BaseModel):
     session: str
 
 
+class SignInWindowBody(BaseModel):
+    pane_id: str
+    pid: str
+
+
 # Agent launchers offered by the dock's "+" menu. Configurable so a fleet can offer
 # model/provider variants ("Claude (Fable)" → `claude --model fable`); the phone sends
 # back only the LABEL and the daemon looks the command up here, so the HTTP surface
@@ -1107,7 +1112,24 @@ def account_login(body: AccountSessionBody, request: Request):
     pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
                               accounts.command(profile["provider"], profile["dir"], argv))
     _audit(request, "account_login", pane_id, f"dir={body.dir[:120]!r}")
-    return _opened(pane_id)
+    _SIGN_IN[pane_id] = pid = tmux.pane_pid(pane_id) or ""
+    return {**_opened(pane_id), "pid": pid}
+
+
+# The sign-in windows this daemon opened, pane id -> pid: the only ones its close may end.
+_SIGN_IN: dict[str, str] = {}
+
+
+@app.post("/api/accounts/login/close")
+def account_login_close(body: SignInWindowBody, request: Request):
+    """Close a sign-in window that /api/accounts/login opened, by its exact pane and while
+    that same process still owns it; any other pane is refused untouched."""
+    if not body.pid or _SIGN_IN.get(body.pane_id) != body.pid:
+        _refuse(request, "account_login_close", body.pane_id, 404, "not a sign-in window")
+    _kill_window(request, body.pane_id, "account_login_close", pid=body.pid)
+    _SIGN_IN.pop(body.pane_id)
+    _audit(request, "account_login_close", body.pane_id)
+    return {"ok": True}
 
 
 @app.post("/api/accounts/default")
