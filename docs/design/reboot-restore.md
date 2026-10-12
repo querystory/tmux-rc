@@ -290,11 +290,19 @@ different: the agent is alive and waiting, so no shell can take over. That pane 
 it is, counts as started (it reached a prompt, which frees its slot), and is marked as
 needing attention, because a login is a human boundary anyway. No retries.
 
-**Idempotency** rests on a durable restore run. In one transaction, before anything
-launches, the daemon records the run (the exact selection, each selected pane pending)
-and marks the snapshot consumed *by that run*, recording the destination server's
-identity (the same boot id, pid and start time); a dismissal consumes it with no run. A
-second tap or device is therefore told a restore is running. Layout construction is
+**Idempotency** rests on a durable restore run, started in two steps so that no
+restorable target ever exists before the run can name the server it lives on. First, in
+one transaction, the daemon records the run (the exact selection, each selected pane
+pending) and marks the snapshot consumed *by that run*; a dismissal consumes it with no
+run. A second tap or device is therefore told a restore is running. Second, it records
+the destination server's identity (the same boot id, pid and start time) on the run.
+With a replacement server up, that is the live one. With none, the daemon first starts
+a server holding a single empty session named after the run, records that server's
+identity, and only then builds anything; the holder closes once the first restored
+session exists. A crash between the two steps leaves a run with no destination: recovery
+adopts the live server that holds the run's holder session, or else starts one as above.
+Nothing it built can be orphaned, because nothing is built before the identity is
+recorded. Layout construction is
 recorded too: each session, window and pane the executor creates is written to the run
 by its tmux id as it is created, and each launch outcome (pid, or the failure) as it
 lands. tmux ids are only unique within one server, and a replacement server reuses them,
