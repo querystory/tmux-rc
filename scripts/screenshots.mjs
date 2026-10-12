@@ -28,7 +28,7 @@ const SHOTS = [
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
   ["wide-heatmap", WIDE, "light", "#view=dashboard", heatCard],
   ["wide-heatmap-view", WIDE, "dark", "#view=heat", heatCell],
-  ["wide-usage-detail", WIDE, "dark", "#view=dashboard", (page) => page.click("#usage-detail")],
+  ["wide-usage-detail", WIDE, "dark", "#view=usage"],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["mobile-open-loops", PHONE, "light", "#view=dashboard", showLoops],
@@ -36,9 +36,8 @@ const SHOTS = [
   ["mobile-list-dark", PHONE, "dark", ""],
   ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
-  ["mobile-usage-detail", PHONE, "dark", "", async (page) => { await page.click("#usage"); await page.click("#usage-detail"); }],
+  ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
-  ["mobile-heatmap-view", PHONE, "dark", "#view=heat", heatCell],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-question-items", PHONE, "light", "#pane=%2546"],
@@ -106,9 +105,9 @@ async function heatCard(page) {
 async function heatSettled(page) {
   let days;
   for (let i = 0; i < 20; i++) {
-    await page.waitForSelector("#heat-view .heat-foot:not([aria-busy])");
+    await page.waitForSelector("#dash-page .heat-foot:not([aria-busy])");
     await page.waitForTimeout(400);
-    const now = await page.locator("#heat-view .heat-day").count();
+    const now = await page.locator("#dash-page .heat-day").count();
     if (now === days) return;
     days = now;
   }
@@ -116,7 +115,7 @@ async function heatSettled(page) {
 // The heatmap's own view, one cell's tip open.
 async function heatCell(page) {
   await heatSettled(page);
-  await page.locator("#heat-view .heat-grid .heat-cell").nth(24 + 14).click(); // yesterday, 14:00
+  await page.locator("#dash-page .heat-grid .heat-cell").nth(24 + 14).click(); // yesterday, 14:00
 }
 
 async function confirmExpunge(page) {
