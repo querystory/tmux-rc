@@ -111,11 +111,11 @@ function scoped(scope, samples = history) {
 // counts; under 'all' those buckets are gaps, not panes alone.
 const countsOf = s => fleet.metric === 'panes' ? s.n : s.n && sum([s.n, s.background]);
 
-// Chart rows: one metric's counts over the chosen range, each with the trailing average of
-// its running count. The average covers observed buckets only, and only where its whole
-// window is on record, so a young database draws no line rather than a guess.
-function rows(samples) {
-  const span = ms(fleet.average), step = historyData?.step || 60000, first = historyData?.first ?? Infinity;
+// Chart rows: one metric's counts over a range (the chosen one by default), each with the
+// trailing average of its running count. The average covers observed buckets only, and only
+// where its whole window is on record, so a young database draws no line rather than a guess.
+function rows(samples, range = fleet.range, step = historyData?.step || 60000) {
+  const span = ms(fleet.average), first = historyData?.first ?? Infinity;
   const counts = samples.map(countsOf);
   let oldest = 0, total = 0, seen = 0;
   const out = samples.map((s, i) => {
@@ -123,7 +123,7 @@ function rows(samples) {
     for (; samples[oldest].t <= s.t - span; oldest++) if (counts[oldest]) { total -= running(counts[oldest]); seen--; }
     return { ...s, n: counts[i], ma: seen && s.t - span + step >= first ? total / seen : null };
   });
-  const from = (samples.length ? samples[samples.length - 1].t : 0) - ms(fleet.range);
+  const from = (samples.length ? samples[samples.length - 1].t : 0) - ms(range);
   return out.filter(r => r.t > from);
 }
 // The heatmap pages back through history two weeks at a time, at 15-minute buckets: a 24h
@@ -587,7 +587,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   cards.forEach((chart, key) => { if (!keys.includes(key)) { chart.dispose(); cards.delete(key); } });
   // Slices depend on history and settings, not on pane state, so live updates reuse them.
   const slices = root._slices ||= {};
-  if (!unchanged(slices, [history, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, rows(scoped({ ...scope, session: key }))]);
+  // A fixed week whatever the chart's range, from the heatmap's 15-minute history.
+  if (!unchanged(slices, [heat, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, heat ? rows(scoped({ ...scope, session: key }, heat.samples), '7d', heat.step) : []]);
   const { series } = slices;
   const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
   // Folded, not spread: a long history across many sessions would pass Math.max too many arguments.
@@ -621,7 +622,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     card.append(head, ...(slice.some(r => r.n) ? [chart.el] : []), el('span', 'muted', avg == null ? 'No average yet' : `${fleet.average} avg ${avg.toFixed(1)}`),
       ...(members.length ? [dots] : []));
     grid.append(card);
-    paints.push(() => chart.update(chartData(slice, { goal: null, max })));
+    paints.push(() => chart.update(chartData(slice, { goal: null, max, step: heat?.step, zoomKey: '7d' })));
   });
   const legend = el('div', 'atlas-legend');
   STATES.forEach((label, i) => legend.append(el('span', `atlas-state s${i}`, `${panes.filter(p => stateOf(p) === i).length} ${label}`)));

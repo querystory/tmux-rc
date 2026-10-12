@@ -107,10 +107,10 @@ const reviewing = () => effectiveLayout() !== "focus";
 const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
-// page: a dashboard card's own view (url-state.js PAGES), which replaces the page. Opened
-// from its card, Back steps back to that entry rather than stacking a second dashboard on
-// it, and lands on the card it came from.
-let dashboard = false, page = null, pageFrom = null;
+// page: a dashboard card's own view (url-state.js PAGES), which replaces the page; leaving
+// it lands on its card (CARDS).
+let dashboard = false, page = null;
+const CARDS = { heat: "heat-card", usage: "usage-panel", loops: "loops-card" };
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], statePanes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false, tmuxRunning = true;
 let focusPushComposer = false;
@@ -226,7 +226,7 @@ function navigate(id = null, nextView = "summary", { mode } = {}) {
 // filter tap is a request for the list.
 // Opened from its card, a view's entry says so in history.state, which survives a reload and
 // Back/Forward; its Back then steps back rather than stacking a second dashboard entry.
-const openPage = (name, card) => { navigate(null, name); pageFrom = card; history.replaceState({ fromCard: true }, ""); };
+const openPage = (name) => { navigate(null, name); history.replaceState({ fromCard: true }, ""); };
 const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
 const stayPut = () => navigate(active, active ? view : dashboard && WIDE.matches ? page || "dashboard" : "summary");
 
@@ -243,13 +243,12 @@ function leaveMissingPane(id) {
 }
 
 function route() {
-  const wasDashboardVisible = dashboardVisible(), wasPage = page, from = pageFrom;
+  const wasDashboardVisible = dashboardVisible(), wasPage = page;
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort, page } = state);
-  if (!page) pageFrom = null;
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   if (active) returnPane = null;
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
@@ -268,7 +267,7 @@ function route() {
   restartDetail();
   render();
   // Focus follows: into the view's Back, then back to the card's Details.
-  if (wasPage && !page && dashboardVisible()) { from?.scrollIntoView({ block: "center" }); from?.querySelector(".atlas-reset-zoom").focus({ preventScroll: true }); }
+  if (wasPage && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector(".atlas-reset-zoom")?.focus({ preventScroll: true }); }
   if (page && !wasPage) { $("landing").scrollTop = 0; $("dash-page").querySelector("button")?.focus({ preventScroll: true }); }
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
@@ -392,7 +391,7 @@ function renderLanding() {
     renderList();
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
-  }, licon, [$("landing-cards"), $("usage-panel")], $("heat-card"), () => openPage("heat", $("heat-card")));
+  }, licon, [$("landing-cards"), $("usage-panel")], $("heat-card"), () => openPage("heat"));
   renderLoopsCard($("loops-card"), loops, openLane, licon);
 }
 
@@ -611,14 +610,14 @@ const paintUsage = () => {
 const usageView = document.createElement("section");
 usageView.className = "atlas-panel";
 usageView.innerHTML = '<div class="usage-board usage-full" role="group" aria-label="Plan usage"></div>';
-detailCard($("usage-panel"), "Plan usage", "", () => openPage("usage", $("usage-panel")));
+detailCard($("usage-panel"), "Plan usage", "", () => openPage("usage"));
 const loopsView = document.createElement("section");
 loopsView.id = "landing-loops";
 loopsView.ariaLabel = "Open loops";
-detailCard($("loops-card"), "Open loops", "", () => openPage("loops", $("loops-card")));
+detailCard($("loops-card"), "Open loops", "", () => openPage("loops"));
 // A lane's count on the card opens the view at that lane, unfolded.
 function openLane(lane) {
-  openPage("loops", $("loops-card"));
+  openPage("loops");
   const at = loopsView.querySelector(`[data-lane="${lane}"]`);
   if (at) { at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true }); }
 }
@@ -1226,7 +1225,7 @@ $("usage-mode").onclick = () => {
 const openUsage = () => {
   const scope = $("session-atlas")._scope;
   if (scope?.tool && !usage.some((a) => a.provider === scope.tool)) scope.tool = "";
-  openDashboard(); openPage("usage", $("usage-panel"));
+  openDashboard(); openPage("usage");
 };
 $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
