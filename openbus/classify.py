@@ -632,7 +632,7 @@ def _final_paragraph(message: str) -> str:
 # and "Grade A beef?" fail the after-check, and an article "a" is lowercase.
 _ROW_LABEL = (
     r"(?:[-*•][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})\b"
-    r"[.):]?[ \t]*[—–-]?[ \t]*|\(?([A-Ha-h]|\d{1,2})[.)][ \t]+)")
+    r"(?:[.):]|[ \t]*(?:[—–]|-(?=[ \t])))?[ \t]*|\(?([A-Ha-h]|\d{1,2})[.)][ \t]+)")
 _LABELED_ROW_RE = re.compile(rf"[ \t│┃╎]*{_ROW_LABEL}(\S.*)")
 _REF_AFTER = (
     r"(?=\s*(?:[^\w\s]|$|"
