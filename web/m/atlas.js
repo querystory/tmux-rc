@@ -588,7 +588,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // Slices depend on history and settings, not on pane state, so live updates reuse them.
   const slices = root._slices ||= {};
   // A fixed week whatever the chart's range, from the heatmap's 15-minute history.
-  if (!unchanged(slices, [heat, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, heat ? rows(scoped({ ...scope, session: key }, heat.samples), '7d', heat.step) : []]);
+  if (!unchanged(slices, [heat, historyData, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, heat ? rows(scoped({ ...scope, session: key }, heat.samples), '7d', heat.step) : []]);
   const { series } = slices;
   const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
   // Folded, not spread: a long history across many sessions would pass Math.max too many arguments.
