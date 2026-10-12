@@ -31,6 +31,7 @@ const SHOTS = [
   ["wide-usage-detail", WIDE, "dark", "#view=usage"],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
+  ["mobile-open-loops", PHONE, "light", "#view=dashboard", showLoops],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
   ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
@@ -39,6 +40,7 @@ const SHOTS = [
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
+  ["mobile-question-items", PHONE, "light", "#pane=%2546"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
@@ -74,6 +76,16 @@ async function noTmux(page) {
 const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 *, *::before, *::after { animation: none !important; transition: none !important;
   caret-color: transparent !important; scroll-behavior: auto !important; scrollbar-width: none !important; }`;
+
+// Open loops arrive after the dashboard draws; wait for them, then bring their top up.
+async function showLoops(page) {
+  if (!await page.locator("#landing-loops").count()) return; // a base that predates them
+  await page.locator("#landing-loops summary").first().waitFor();
+  await page.locator("#landing-loops").evaluate((el) => {
+    const pane = document.getElementById("landing"); // scroll the dashboard, never the page
+    pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+  });
+}
 
 // The Sub-agents toggle is on by default; show its lines under activity cards too.
 async function showSubagents(page) {
