@@ -350,7 +350,13 @@ def claim_question(watcher, pane_id: str, fingerprint: str, generation: int, fra
     the pane still holds the question the answer was offered on (held_question), has taken
     no input since (the generation) and still shows the frame that question was parsed
     from (keyboard input never reaches the generation), then consume the generation, so
-    only the first of two answers to one question can pass."""
+    only the first of two answers to one question can pass.
+
+    Residual risk, accepted: the send lock orders only tmux-rc's own senders, and tmux
+    has no compare-and-send, so a key typed at an attached client in the milliseconds
+    between this capture and send-keys can still answer the question first (send_keys
+    runs this guard last for that reason). Closing that gap needs the agent itself to
+    check a prompt identity, which no supported agent offers."""
     if watcher.pane_input_generation(pane_id) != generation:
         raise ValueError("the pane received newer input")
     question, _ = held_question(watcher, pane_id, fingerprint)

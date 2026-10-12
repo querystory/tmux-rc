@@ -488,7 +488,13 @@ def _ground_visible_fields(
 # A widget's own top edge (a ─── rule or a ╭ box corner), its first option row, and the
 # box/gutter glyphs framing each of its rows.
 _WIDGET_TOP_RE = re.compile(r"^\s*(?:[─━]{3,}|╭)")
-_FIRST_OPTION_RE = re.compile(r"^[ \t│❯›>]*1[.)]\s", re.MULTILINE)
+# A menu row is its digit then "." or ")" (the parser prompt's "1. 2. 3."), the only
+# shape any supported agent draws; none draws "1:" or "1 -" (no capture in the eval
+# samples or tests has one). Both the widget reader and the answer frame
+# (question_rows) use this one definition, so they never disagree on a menu's rows.
+_OPTION_ROW = r"^([ \t│❯›>]*)(?:{n})[.)]\s"
+_FIRST_OPTION_RE = re.compile(_OPTION_ROW.format(n="1"), re.MULTILINE)
+_OPTION_ROW_RE = re.compile(_OPTION_ROW.format(n=r"\d+") + ".*$", re.MULTILINE)
 _FRAME_RE = re.compile(r"^\s*[│┃╎]|\s+$")  # left glyph and padding: indentation is content
 _RULE_ROW_RE = re.compile(r"^\s*[─━╌┄]{3,}\s*$")  # a separator inside the widget
 
@@ -544,9 +550,14 @@ def question_rows(question: dict, text: str) -> str:
     numbered row, not the question's own last option: a replacement menu with one more
     option, or a new one drawn below, must change the rows. Never the rows above an edge,
     where an agent still working behind its dialog streams output, nor below, where an
-    input box or status line animates."""
+    input box or status line animates.
+
+    That relies on an invariant: a supported agent erases or redraws its dialog once it
+    is answered, so an old menu never stays on screen, row for row, above a new plain
+    question. Were one drawn that way, the stale digit would type into a text prompt,
+    which approves nothing until someone presses Enter."""
     visible = _visible(text)
-    end = list(re.finditer(r"^([ \t│❯›>]*)\d+[.)]\s.*$", visible, re.MULTILINE))
+    end = list(_OPTION_ROW_RE.finditer(visible))
     if not question.get("options") or not end:
         return ""
     under = re.match(rf"(?:\n[ \t│┃]{{{len(end[-1][1]) + 1},}}\S.*)*", visible[end[-1].end():])
@@ -1007,6 +1018,10 @@ def classify(
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask"):
             question.pop(key, None)
+        # A menu answer is its row's digit: with no "1." / "1)" row on screen there is no
+        # digit to press (a bare [y/N] reads a typed line), so it is answered as text.
+        if question.get("answer_style") == "menu" and not _FIRST_OPTION_RE.search(visible):
+            question["answer_style"] = "text"
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         asked = question.get("answer_style") == "menu" and _question_prompt(question)
         if context := asked and _widget_text(asked, visible):

@@ -1038,8 +1038,14 @@ def test_cursor_search_binding_requires_visible_footer_evidence():
         assert result["question"]["keymap"]["search"] is expected
 
 
+def test_menu_without_a_digit_row_is_answered_as_text():
+    result = classify(_pane(), "Continue? [y/N] ", _llm({
+        "question": {"prompt": "Continue?", "answer_style": "menu", "options": ["y", "N"]}}))
+    assert result["question"]["answer_style"] == "text"
+
+
 def test_menu_command_becomes_context_not_paste_action():
-    result = classify(_pane(), "Allow?\ngit apply patch.diff", _llm({
+    result = classify(_pane(), "git apply patch.diff\n1. Yes\n2. No", _llm({
         "question": {"prompt": "Allow?", "answer_style": "menu", "options": ["Yes", "No"]},
         "copyables": [{"label": "Command", "text": "git apply patch.diff"}],
     }))
@@ -1080,6 +1086,9 @@ def test_menu_context_is_read_off_its_own_widget():
     """The bare "Do you want to proceed?" gets the widget's rows (tool, description,
     command, blocking notice); the samples pin each layout's exact string end to end."""
     def ask(capture, prompt, style="menu", **extra):
+        if style == "menu" and not classify_mod._FIRST_OPTION_RE.search(capture):  # digits
+            last = capture.rsplit("\n", 1)[-1]
+            capture += "\n" + last[:len(last) - len(last.lstrip())] + "1. Yes"
         return classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
             "prompt": prompt, "answer_style": style, "options": ["Yes", "No"], **extra}}))
     proceed, run = "Do you want to proceed?", "Would you like to run the following command?"
