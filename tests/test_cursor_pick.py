@@ -80,6 +80,30 @@ CASES = [
         {"sent": ["Down", "Enter"], "selected": 1, "notes": []},
     ),
     (
+        # A refusal sends nothing, so it is not charged to the move budget.
+        "a stale refusal does not spend one of the budgeted moves",
+        {"options": [f"r{i}" for i in range(40)], "selected": 0, "keymap": NO_SEARCH_KM,
+         "reads": True, "refuse_first": True},
+        "r30", 30,
+        {"sent": ["Down"] * 30 + ["Enter"], "selected": 30, "notes": []},
+    ),
+    (
+        # A far row's filter refused as stale: walk there from the reparsed frame instead.
+        "a far row whose filter is refused is walked to instead",
+        {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM,
+         "reads": True, "refuse_text": True},
+        "r13", 13,
+        {"sent": ["Down"] * 13 + ["Enter"], "selected": 13, "notes": []},
+    ),
+    (
+        # A duplicated title can't be filtered for, however far: walk to the tapped index.
+        "a far duplicate title is walked to by its index, not searched for",
+        {"options": ["beta", "a", "b", "c", "d", "e", "beta"], "selected": 5,
+         "keymap": FULL_KM, "reads": True},
+        "beta", 0,
+        {"sent": ["Up"] * 5 + ["Enter"], "selected": 0, "notes": []},
+    ),
+    (
         # A misread keymap: Enter as `next` would commit the highlighted row, not move.
         "a direction bound to the select key is no direction",
         {"options": ROWS, "selected": 0, "keymap": {"next": "Enter", "select": "Enter"}},
@@ -376,6 +400,7 @@ function fake(spec) {{
       return spec.reads ? {{ picker: `f${{p.sends}}`, row: p.options[p.selected] }} : true;
     }},
     sendText: async (t) => {{
+      if (spec.refuse_text && !p.refused) {{ p.refused = true; p.parsed_at += 1; return STALE; }}
       const ok = deliver(t);
       // "filters" models a widget that narrows to the typed row and lands the highlight
       // on it; without it the typed text merely re-reads the same list.

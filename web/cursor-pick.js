@@ -42,6 +42,7 @@ export function answerBody(q, opt, i) {
 // box is filtered instead: two keys, not twenty.
 export const CURSOR_MAX_STEPS = 30;
 const NEAR = 3;
+const STALE_RETRIES = 3; // refusals a walk rides out (each waits for a reparse), uncharged
 export const STALE = "stale";
 const PARSE_WAIT_MS = 15000; // per move: a long list reparses in ~8s; a wedged parse must not strand the walk
 const SETTLE_MS = 4000;     // after the commit, before the lock is handed back
@@ -138,19 +139,22 @@ function bindings(q) {
   };
 }
 
-// The one option a highlighted row as drawn names (itself, or itself ahead of a value
-// column, as classify grounds it), or null.
-function rowIndex(options, label) {
+// The option a highlighted row as drawn names (itself, or itself ahead of a value column,
+// as classify grounds it): the one that does, or among several alike the one the key was
+// meant to land on, else null.
+function rowIndex(options, label, expect) {
   const named = typeof label === "string"
     ? options.flatMap((o, i) => (label === o || label.startsWith(`${o}  `) ? [i] : [])) : [];
-  return named.length === 1 ? named[0] : null;
+  return named.length === 1 ? named[0] : named.includes(expect) ? expect : null;
 }
 
 // The next frame a walk plans off: the screen a delivered key made, as /send read it back,
-// so no step waits on the model's parse. Null where it read none, or a row this list
-// does not name (scrolled past it): then the walk waits for the parse instead.
-function after(q, sent) {
-  const at = sent?.picker ? rowIndex(q.options, sent.row) : null;
+// so no step waits on the model's parse. An unchanged digest is a key that moved nothing.
+// Null where it read none, or a row this list does not name (scrolled past it): then the
+// walk waits for the parse instead.
+function after(q, sent, expect) {
+  if (!sent?.picker) return null;
+  const at = sent.picker === q.picker ? q.selected : rowIndex(q.options, sent.row, expect);
   return at === null ? null : { ...q, picker: sent.picker, selected: at };
 }
 
@@ -169,6 +173,7 @@ async function walk(io, targetText, targetIndex) {
   // only LOOK — see the bail below — or the budget would quietly be one larger than the
   // constant says.
   let read = null; // the screen the last key made, read back by /send
+  let stale = 0;
   for (let moves = 0; moves <= CURSOR_MAX_STEPS; moves++) {
     const live = picker(io);
     if (!live) return false;
@@ -204,10 +209,14 @@ async function walk(io, targetText, targetIndex) {
     const sent = await io.sendKey(key, q);
     // Refused and unsent: the card lags the screen (the reparse after a move takes a few
     // seconds, a tap can beat it). Plan again off the frame that refusal's reparse brings.
-    if (sent === STALE) { read = null; if (await waitForFrame(io, before, () => true)) continue; return false; }
+    if (sent === STALE) { // unsent, so no move is charged for it
+      read = null;
+      if (++stale <= STALE_RETRIES && await waitForFrame(io, before, () => true)) { moves--; continue; }
+      return false;
+    }
     if (!sent) return false; // undelivered: the anchor is now a lie
     if (at === want) return true;
-    read = after(q, sent);
+    read = after(q, sent, at < want ? at + 1 : at - 1);
     if (read) { if (read.selected === at) return false; continue; } // a key that moved nothing
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
@@ -253,9 +262,8 @@ export async function pickCursorRow(io, targetText, targetIndex) {
 }
 
 async function pick(io, targetText, targetIndex) {
-  const first = picker(io);
-  const far = first && bindings(first).search
-    && !(Math.abs(soleIndex(first.options, targetText) - first.selected) <= NEAR);
+  const first = picker(io), sole = first ? soleIndex(first.options, targetText) : -1;
+  const far = sole >= 0 && bindings(first).search && !(Math.abs(sole - first.selected) <= NEAR);
   if (!far && await walk(io, targetText, targetIndex)) return true;
   // Fallback: the widget's own search box. It needs BOTH bindings advertised — typing
   // filters the list but does not commit it, so the obvious shortcut of appending Enter
@@ -282,6 +290,9 @@ async function pick(io, targetText, targetIndex) {
   // is the one thing this fallback assumed and must not commit on.
   const was = q.options, wasAt = q.selected;
   const typed = await io.sendText(targetText, q);
+  // Refused unsent: walk from the frame the refusal's reparse brings instead.
+  if (typed === STALE && await waitForFrame(io, before, () => true)
+      && await walk(io, targetText, targetIndex)) return true;
   // Read back on the row already: commit it off that read, with no parse in between.
   if (typed?.picker && rowIndex([targetText], typed.row) === 0) {
     const done = await io.sendKey(km.select, { ...q, picker: typed.picker });
