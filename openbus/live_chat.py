@@ -71,9 +71,13 @@ _RESTORED = ("[Restored conversation] This session reconnected and lost its hist
 # A reply that only agrees means something only against a question just asked; live._approved
 # refuses a pane change for one that has none (unanchored), and warns on the card otherwise.
 # Matched on the words alone, so punctuation ("yes,", "ok - do it") can't slip past it.
-_AGREE = (r"(yes|yeah|yep|yup|y|ok|okay|k|sure|do it|go|go ahead|please|sounds good|"
-          r"confirm(ed)?|approved?)")
+# Politeness ("yes, thanks") adds nothing to agree with either.
+_AGREE = (r"(yes|yeah|yep|yup|y|ok|okay|k|sure|do it|go|go ahead|go for it|please|please do|"
+          r"sounds good|alright|all right|fine|great|cool|perfect|absolutely|definitely|correct|"
+          r"right|confirm(ed)?|approved?|thanks|thank you|thx|ty|cheers)")
 _BARE = re.compile(rf"{_AGREE}( {_AGREE})*")
+# A question mark that ends a sentence, so a URL's query string isn't one.
+_ASKS = re.compile(r"\?(?=[\s*_)\"']|$)")
 CAUTION_RESTORED = "The chat reconnected and its context was restored: check this is what you meant"
 CAUTION_BARE = 'Your reply was only "{}": check this is what you agreed to'
 
@@ -108,7 +112,7 @@ class _Chat:
             text = "(earlier turns omitted)\n" + text[-RESTORED_CHARS:]
         if rows:
             self._restored = _RESTORED.format(text)
-            self.asked = rows[-1]["role"] == "model" and "?" in rows[-1]["text"]
+            self.asked = rows[-1]["role"] == "model" and bool(_ASKS.search(rows[-1]["text"]))
         return len(rows)
 
     async def send_audio(self, _pcm: bytes) -> None:
@@ -144,7 +148,7 @@ class _Chat:
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim
             acted = asked = False
-            said = ""  # the turn's last reply: whether it asks something anchors the next
+            said = ""  # the turn's last response: whether it asks something anchors the next
             for step in range(STEPS):
                 last = step == STEPS - 1
                 if last:
@@ -160,10 +164,12 @@ class _Chat:
                     # Anything else (rate limit, 5xx, timeout) costs this turn, not the
                     # conversation: a reconnect would start over with no history.
                     logger.warning("[live] %s call failed: %r", self.model.model, e)
+                    said = ""
                     yield Event("transcript", role="model", text=sep + _FAILED)
                     self._model(_FAILED)
                     break
                 self._usage = [a + b for a, b in zip(self._usage, usage, strict=True)]
+                said = reply  # a question followed by a call in the same response was acted on
                 yield Event("usage", usage=Split(*self._usage))
                 if not (reply or calls):
                     if acted and not asked:
@@ -173,7 +179,6 @@ class _Chat:
                     self._model(_DONE if acted else _EMPTY)  # closed, like a failed turn
                     reply = "" if acted else _EMPTY
                 if reply:
-                    said = reply
                     yield Event("transcript", role="model", text=sep + reply)
                     sep = " "
                 if not calls:
@@ -192,7 +197,7 @@ class _Chat:
                 self._answers = []
             else:  # quiet or still calling on the last step: closed, as a quiet turn is
                 self._model(_DONE)
-            self.asked = "?" in said
+            self.asked = bool(_ASKS.search(said))
             yield Event("turn_complete")
 
 
