@@ -1063,13 +1063,13 @@ def classify(
         rows, asked = question.get("options"), _question_prompt(question)
         if asked:  # the walk and /send hold the prompt across moves, which redraw the count
             question["prompt"] = asked = _LIVE_COUNT_RE.sub("", asked)
-        # The screen /send holds a walk's keys to: read off it, never passed through.
-        question["picker"] = asked and picker_digest(text, asked)
-        # Where the screen names no single option (a colour-only highlight, no glyph row),
-        # the model's anchor stands: it is the only reading there is, and the digest holds
-        # every step to the screen it was read off.
+        # The screen /send holds a walk's keys to, read off it and never passed through, and
+        # only where it shows which row is highlighted: a colour-only highlight is invisible
+        # to the digest, so no walk is held to a screen that hashes alike whichever row it is.
+        question.pop("picker", None)
         if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
+            question["picker"] = picker_digest(text, asked)
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask"):
             question.pop(key, None)

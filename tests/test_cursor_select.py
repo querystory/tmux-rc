@@ -98,6 +98,10 @@ def test_classify_overrides_a_misread_anchor():
     result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{SCREEN}", lambda s, t: misread)
     assert result["question"]["selected"] == 0  # grounded off the screen
     assert result["question"]["picker"] == picker_digest(SCREEN, 'Permanently remove "Demo"?')
+    # A colour-only highlight hashes alike whichever row it is on: no walk is held to it.
+    plain = SCREEN.replace(" ❯ No", "   No")
+    result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{plain}", lambda s, t: misread)
+    assert "picker" not in result["question"]
 
 
 def test_a_picker_digest_changes_with_anything_drawn_from_its_prompt_down():
