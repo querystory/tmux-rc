@@ -504,6 +504,10 @@ async def _approved(
         await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
     finally:
         meter.approvals.pop(proposal, None)
+        # Deliberately also on a dropped socket (a locked phone): here the card dies with
+        # its connection, since nothing can answer it once this call ends, so a push would
+        # lead to a card that no longer exists. Keeping the card, and so its nudge, across
+        # a drop is parking, a separate change (#358, #359) that moves the nudge off this call.
         if nudge:
             nudge.cancel()
     return rec["consent"] == "approved", pid
