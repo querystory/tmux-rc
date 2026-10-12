@@ -27,7 +27,7 @@ class _Watcher:
 
     def digest(self):
         return [
-            {"pane_id": "%1", "label": "work", "window_index": "3", "tool": "claude",
+            {"pane_id": "%1", "label": "work", "session": "dev", "window_index": "3", "tool": "claude",
              "activity": "waiting", "tmux_active": True,
              "headline": "asking about tests", "summary": "ran the suite",
              "prs": [{"repo": "querystory/qs-app", "number": 4955}],
@@ -100,7 +100,7 @@ def test_pane_context_carries_state_and_screens():
     ctx = L._pane_context(w, screens="all")
     # User-facing identity (name · tool, as the list row shows it) leads; the %id is the
     # tool-call handle. Name falls back to label here (stub has no self-published title).
-    assert "work · claude (id=%1) — waiting" in ctx
+    assert "work · claude in dev (id=%1) — waiting" in ctx
     assert "ACTIVE" in ctx  # the focused pane is flagged for "here"/"this" resolution
     assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
     assert "PRs this pane has worked on: querystory/qs-app#4955" in ctx
@@ -162,7 +162,7 @@ def test_pane_block_collapses_name_newlines():
 def test_system_prompt_has_rules_and_panes():
     p = L._system_prompt(_Watcher())
     assert "type_in_pane" in p  # the tool contract is in the instructions
-    assert "# Panes (live state)" in p and "work · claude (id=%1)" in p
+    assert "# Panes (live state)" in p and "work · claude in dev (id=%1)" in p
 
 
 def test_cwd_cannot_introduce_fake_pane_prompt_lines():
@@ -214,9 +214,9 @@ def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text)
         _FC(name="open_pane", args={"pane_id": "%1"}), monkeypatch,
         meter=L._Meter("s1", "tester", P._DEFAULT[0], text=text))
     assert ws.sent == [
-        {"type": "open_pane", "pane_id": "%1", "label": "work · claude", "auto": False}]
+        {"type": "open_pane", "pane_id": "%1", "label": "work · claude in dev", "auto": False}]
     assert session.responses[0][1] == {  # "done" read as "opened" to the model
-        "status": "button_shown", "pane": "work · claude",
+        "status": "button_shown", "pane": "work · claude in dev",
         "reason": "the user taps it to open; nothing is open yet"}
     assert typed == [] and w.reparsed == []
 
@@ -228,7 +228,7 @@ def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
     _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
                             panes=[fresh])
     assert ws.sent == [
-        {"type": "open_pane", "pane_id": "%40", "label": "auth fix in work", "auto": False}]
+        {"type": "open_pane", "pane_id": "%40", "label": "auth fix · claude in work", "auto": False}]
 
 
 @pytest.mark.parametrize(
@@ -317,7 +317,7 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
 
     assert ws.sent[0]["type"] == "propose"
     # Named as the list names it, with the id the card's Open button navigates to.
-    assert ws.sent[0]["text"] == "Send to work · claude: rebase onto main"
+    assert ws.sent[0]["text"] == "Send to work · claude in dev: rebase onto main"
     assert ws.sent[0]["pane_id"] == "%1"
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
@@ -370,8 +370,8 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
     ws = Cancel()
     fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
     _run(L._handle_tool_call(ws, _Session(), fc, Titled(), meter))
-    assert ws.sent[0]["text"] == "Type (no Enter) into Prevent leaks · claude: draft"
-    assert audits[-1]["target"] == "misc-1:3"  # the tmux address: the audit's alone
+    assert ws.sent[0]["text"] == "Type (no Enter) into Prevent leaks · claude in dev: draft"
+    assert audits[-1]["target"] == "dev:3"  # the tmux address: the audit's alone
 
 
 def test_text_session_prompt_labels_relays_as_typed():
@@ -898,7 +898,7 @@ def test_forwarding_an_image_waits_for_send_and_binds_to_the_pane(monkeypatch):
     assert _forward(meter, ws, image_number=1, caption="what is this?") == {
         "status": "done", "pane": "work"}
     card = ws.sent[0]
-    assert card["text"] == "Send image 1 to work · claude: what is this?"
+    assert card["text"] == "Send image 1 to work · claude in dev: what is this?"
     assert card["image"] == "data:image/png;base64,UE5H"  # the thumbnail the user approves
     assert events == [  # delivered once, bound to the pid the card showed, caption in the draft
         ("attach", "%1", "4242", b"PNG", "image/png", "what is this?")]

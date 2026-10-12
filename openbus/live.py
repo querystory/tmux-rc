@@ -28,7 +28,7 @@ from types import SimpleNamespace
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import agent_history, live_providers, llm, telemetry, tmux
-from .classify import _load_prompt
+from .classify import _host_tool, _load_prompt
 from .expunge import codex_status_segments
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
@@ -450,7 +450,7 @@ async def _approved(
     known, pane = d is not None, pane_id
     if known:  # named as the prompt names it, so the card matches the reply above it; the
         # tmux address it means goes to the audit alone
-        pane, rec["target"] = _pane_name(d), d.get("label") or pane_id
+        pane, rec["target"] = _pane_name(d), f"{d.get('session')}:{d.get('window_index')}"
     # "" when the lookup finds no process: it matches no pane, so the send is refused
     # rather than going out unguarded (None would mean "don't check").
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
@@ -669,7 +669,7 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
     if pane is None and isinstance(pane_id, str):
         with contextlib.suppress(subprocess.CalledProcessError, OSError):  # tmux unreachable
             pane = next(({"label": p.label, "title": p.display_title,
-                          "session": p.session}
+                          "tool": _host_tool(p), "session": p.session}
                          for p in await asyncio.to_thread(tmux.list_panes) if p.id == pane_id),
                         None)
     if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:

@@ -435,6 +435,7 @@ class Watcher:
                     "label": s.get("label"),
                     "title": s.get("title"),  # self-published title, or bootstrap name
                     "cwd": s.get("cwd"),
+                    "session": s.get("session"),  # the list row's session chip
                     "window_index": s.get("window_index"),
                     "tool": s.get("tool"),
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
