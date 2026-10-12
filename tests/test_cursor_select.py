@@ -243,14 +243,17 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
         screen_until(" ❯ No")
         reparse()
         assert send("Down", prompt="Remove that?").status_code == 409  # another picker's
-        assert send("Down").status_code == 200
+        moved = send("Down")
+        assert moved.status_code == 200
         screen_until(" ❯ Yes")
         # The screen moved since the frame the step was read off: nothing goes, not even
         # the select a walk would press here, until it is reread.
         refused = send("Enter")
         assert refused.status_code == 409
         assert "changed" in refused.json()["detail"]
-        reparse()
+        # /send read the screen its key made back: the next step is held to that, no parse.
+        assert moved.json()["row"] == "Yes"
+        parsed["question"]["picker"] = moved.json()["picker"]
         assert send("Enter").status_code == 200
         assert "SELECTED Yes" in screen_until("SELECTED")
     finally:

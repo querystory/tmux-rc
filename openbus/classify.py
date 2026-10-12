@@ -127,26 +127,37 @@ def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
 _DIALOG_TOP_RE = re.compile(r"^(?:[─━▔]{3,}|╭)", re.MULTILINE)
 
 
-def picker_digest(text: str, prompt: str) -> str | None:
-    """A hash of a capture's live picker, from its dialog's top edge (so the command a
-    generic "Do you want to proceed?" approves is part of it) down to the screen's end,
-    as classify reads the viewport (_visible) but otherwise verbatim: what a cursor walk's
-    keys are held to (/send). Any change since the frame a step was computed from, be it a
-    replacement picker, a moved highlight or a row's "30s" now "60s", refuses it."""
+def _drawn_row(visible: str, live: tuple[re.Match, int]) -> str | None:
+    *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1])]
+    return row and row["label"]
+
+
+def picker_read(text: str, prompt: str) -> tuple[str, str | None] | None:
+    """A capture's live picker, as a walk is held to it: its digest and its highlighted
+    row as drawn, or None. The digest hashes from the dialog's top edge (so the command a
+    generic "Do you want to proceed?" approves is part of it) down to the screen's end, as
+    classify reads the viewport (_visible) but otherwise verbatim. Any change since the
+    frame a step was computed from, be it a replacement picker, a moved highlight or a
+    row's "30s" now "60s", refuses the step (/send), and /send hands both back after each
+    key, so the next step is planned off the screen itself with no parse in between."""
     visible = _visible(text)
     live = _live_prompt(visible, prompt)
     if not live:
         return None
     *_, top = [live[0].start(), *(m.start() for m in
                                   _DIALOG_TOP_RE.finditer(visible, 0, live[0].start()))]
-    return hashlib.sha256(visible[top:].encode()).hexdigest()
+    return hashlib.sha256(visible[top:].encode()).hexdigest(), _drawn_row(visible, live)
+
+
+def picker_digest(text: str, prompt: str) -> str | None:
+    read = picker_read(text, prompt)
+    return read and read[0]
 
 
 def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
     """The one option the live picker's highlighted row under prompt names, or None."""
     live = _live_prompt(visible, prompt)
-    *_, row = [None, *(_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1]) if live else ())]
-    label = row and row["label"]
+    label = live and _drawn_row(visible, live)
     named = label is not None and [option for option in options if isinstance(option, str)
                                    and (label == option or label.startswith(f"{option}  "))]
     return named[0] if named and len(named) == 1 else None

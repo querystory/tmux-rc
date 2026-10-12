@@ -111,18 +111,34 @@ CASES = [
         # move — a row exactly CURSOR_MAX_STEPS away used to be reached by the last move
         # and then reported as a failure, with the highlight sitting on it.
         "a row exactly CURSOR_MAX_STEPS away is still committed",
-        {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM},
-        "r12", 12,
-        {"sent": ["Down"] * 12 + ["Enter"], "selected": 12, "notes": []},
+        {"options": [f"r{i}" for i in range(40)], "selected": 0, "keymap": NO_SEARCH_KM},
+        "r30", 30,
+        {"sent": ["Down"] * 30 + ["Enter"], "selected": 30, "notes": []},
     ),
     (
         # Regression, Copilot: the extra pass that lets a row CURSOR_MAX_STEPS away be
-        # noticed must only look. Allowing it to move too made the real budget 13.
-        "a row beyond the step budget hands over without spending a 13th move",
+        # noticed must only look. Allowing it to move too made the real budget one more.
+        "a row beyond the step budget gives up without spending one more move",
+        {"options": [f"r{i}" for i in range(40)], "selected": 0, "keymap": NO_SEARCH_KM},
+        "r31", 31,
+        {"sent": ["Down"] * 30, "selected": 30, "notes": 1},
+    ),
+    (
+        # Each key is read back by /send, so a long walk never waits on the model's parse
+        # (parsed_at never moves here): eighteen rows down is eighteen quick round trips.
+        "a long walk completes off /send's read-backs without any parse",
+        {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": NO_SEARCH_KM,
+         "reads": True},
+        "r18", 18,
+        {"sent": ["Down"] * 18 + ["Enter"], "selected": 18, "notes": []},
+    ),
+    (
+        # Far, with a search box: filter for the row and commit it off the box's read-back.
+        "a far row is filtered for and committed off the read-back",
         {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM,
-         "filters": True},
+         "filters": True, "reads": True},
         "r13", 13,
-        {"sent": ["Down"] * 12 + ["r13", "Enter"], "selected": 12, "notes": []},
+        {"sent": ["r13", "Enter"], "selected": 0, "notes": []},
     ),
     (
         # Regression, Copilot: indexOf resolves both duplicates to the first one, so
@@ -314,7 +330,7 @@ function fake(spec) {{
       if (spec.tick_on_fail) p.parsed_at += 1;
       return false;
     }}
-    p.parsed_at += 1;
+    if (!spec.reads) p.parsed_at += 1; // with reads, /send's read-back is the only news
     if (spec.close_after === p.sends) p.open = false;
     if (spec.morph_after === p.sends) p.style = "text";
     // A filter that renumbers the list without resolving the ambiguity: both rows sharing
@@ -357,14 +373,14 @@ function fake(spec) {{
       // exception models the real lag the hold exists for: the pane is still publishing
       // the old frame for a beat after Enter lands.
       if (k === km.select && !spec.hold_open) p.open = false;
-      return true;
+      return spec.reads ? {{ picker: `f${{p.sends}}`, row: p.options[p.selected] }} : true;
     }},
     sendText: async (t) => {{
       const ok = deliver(t);
       // "filters" models a widget that narrows to the typed row and lands the highlight
       // on it; without it the typed text merely re-reads the same list.
       if (ok && spec.filters) {{ p.options = [t]; p.selected = 0; }}
-      return ok;
+      return ok && spec.reads ? {{ picker: `f${{p.sends}}`, row: p.options[p.selected] }} : ok;
     }},
     note: (m) => p.notes.push(m),
   }};

@@ -1038,8 +1038,8 @@ async function sendKeys(body, answer = false, id = active) {
   let delivered = false;
   sending = true; notice(); render();
   try {
-    await paneInput.run(id, () => post(paneUrl(id, "send"), body));
-    delivered = true;
+    const sent = await paneInput.run(id, () => post(paneUrl(id, "send"), body));
+    delivered = sent && "picker" in sent ? sent : true; // a walk's step: the screen it made
     if (answer) {
       pendingAnswers.set(id, signature);
       setTimeout(() => { if (pendingAnswers.get(id) === signature) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);

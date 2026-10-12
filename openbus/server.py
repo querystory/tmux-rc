@@ -75,7 +75,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import agent_history, expunge, telemetry, tmux  # noqa: E402
-from .classify import picker_digest  # noqa: E402
+from .classify import picker_digest, picker_read  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -128,6 +128,10 @@ IMG_MAX_BYTES = (
 # anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
 # telemetry too — this bounds the READ so a huge body can't balloon memory).
 CLIENT_ERROR_MAX_BYTES = 8 * 2**10
+# After a cursor walk's key, how often and how long /send waits for the screen to redraw
+# before it reads the picker back: a terminal redraws in milliseconds, a key that moved
+# nothing never redraws, so a second bounds it.
+PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 20
 _EXT = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -891,7 +895,24 @@ def send(pane_id: str, body: SendBody, request: Request):
     # queued under an alias would simply never fire and the card would go stale until the
     # next poll.
     app.state.watcher.request_reparse(pane.id)
-    return {"ok": True}
+    return {"ok": True} if body.picker is None else {"ok": True, **_picker_after(pane.id, body)}
+
+
+def _picker_after(pane_id: str, body: SendBody) -> dict:
+    """The screen a walk's key made, read off a capture as soon as it redraws (or a second
+    on, for a key that moved nothing): the digest the next step is held to and the row
+    now highlighted. The walk plans its next step off this at once instead of waiting
+    seconds for the model's parse; null where the picker can no longer be found."""
+    read = None
+    for _ in range(PICKER_SETTLE_POLLS):
+        time.sleep(PICKER_SETTLE_S)
+        try:
+            read = picker_read(tmux.capture_pane(pane_id, mark_dim=True), body.prompt)
+        except subprocess.CalledProcessError:  # the pane closed: nothing to read
+            return {"picker": None, "row": None}
+        if not read or read[0] != body.picker:  # redrawn, or the picker is gone
+            break
+    return {"picker": read and read[0], "row": read and read[1]}
 
 
 @app.post("/api/panes/{pane_id}/click")

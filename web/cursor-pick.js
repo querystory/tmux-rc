@@ -10,7 +10,9 @@
 //   io.parsedAt()   → parsed_at of the frame that question() came from (seconds, float)
 //   io.sendKey(k, q) → send ONE tmux key-name, no Enter, only to the very picker screen
 //                     question q was read off (the server compares q.picker, see /send).
-//                     Resolves true only if DELIVERED, STALE if refused unsent because the
+//                     Resolves truthy only if DELIVERED: { picker, row }, the digest and
+//                     highlighted row of the screen the key made (/send reads them back),
+//                     or true where it read none. STALE if refused unsent because the
 //                     card's picker lags the screen (the refusal asks for a reparse).
 //   io.sendText(t, q) → type literal text, NO Enter appended. Same contract.
 //   io.note(msg)    → say something to the user
@@ -35,10 +37,11 @@ export function answerBody(q, opt, i) {
   return { keys: yn ? opt[0].toLowerCase() : String(i + 1), enter: false, literal: true };
 }
 
-// How many moves we will walk before handing over to the widget's own search box. A row
-// thirty rows down is better filtered for than arrowed to, and an anchor that is wrong
-// only gets more wrong the further we walk on it.
-export const CURSOR_MAX_STEPS = 12;
+// How many moves we will walk before handing over to the widget's own search box; each is
+// read back by /send in well under a second. Further than NEAR, a picker with a search
+// box is filtered instead: two keys, not twenty.
+export const CURSOR_MAX_STEPS = 30;
+const NEAR = 3;
 export const STALE = "stale";
 const PARSE_WAIT_MS = 15000; // per move: a long list reparses in ~8s; a wedged parse must not strand the walk
 const SETTLE_MS = 4000;     // after the commit, before the lock is handed back
@@ -135,6 +138,22 @@ function bindings(q) {
   };
 }
 
+// The one option a highlighted row as drawn names (itself, or itself ahead of a value
+// column, as classify grounds it), or null.
+function rowIndex(options, label) {
+  const named = typeof label === "string"
+    ? options.flatMap((o, i) => (label === o || label.startsWith(`${o}  `) ? [i] : [])) : [];
+  return named.length === 1 ? named[0] : null;
+}
+
+// The next frame a walk plans off: the screen a delivered key made, as /send read it back,
+// so no step waits on the model's parse. Null where it read none, or a row this list
+// does not name (scrolled past it): then the walk waits for the parse instead.
+function after(q, sent) {
+  const at = sent?.picker ? rowIndex(q.options, sent.row) : null;
+  return at === null ? null : { ...q, picker: sent.picker, selected: at };
+}
+
 // Same rows, same order — i.e. the list has not renumbered under us.
 const sameRows = (a, b) => a.length === b.length && a.every((row, i) => row === b[i]);
 
@@ -149,9 +168,11 @@ async function walk(io, targetText, targetIndex) {
   // reports failure with the highlight sitting on the requested row. That last pass may
   // only LOOK — see the bail below — or the budget would quietly be one larger than the
   // constant says.
+  let read = null; // the screen the last key made, read back by /send
   for (let moves = 0; moves <= CURSOR_MAX_STEPS; moves++) {
-    const q = picker(io);
-    if (!q) return false;
+    const live = picker(io);
+    if (!live) return false;
+    const q = read || live;
     const km = bindings(q);
     // The tapped index identifies the row only while the list has not moved under it.
     // "Same text at the same index" is not proof on its own: two sessions can share a
@@ -183,9 +204,11 @@ async function walk(io, targetText, targetIndex) {
     const sent = await io.sendKey(key, q);
     // Refused and unsent: the card lags the screen (the reparse after a move takes a few
     // seconds, a tap can beat it). Plan again off the frame that refusal's reparse brings.
-    if (sent === STALE) { if (await waitForFrame(io, before, () => true)) continue; return false; }
+    if (sent === STALE) { read = null; if (await waitForFrame(io, before, () => true)) continue; return false; }
     if (!sent) return false; // undelivered: the anchor is now a lie
     if (at === want) return true;
+    read = after(q, sent);
+    if (read) { if (read.selected === at) return false; continue; } // a key that moved nothing
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
     // binding the widget doesn't really have) — and both mean this walk cannot continue.
@@ -230,7 +253,10 @@ export async function pickCursorRow(io, targetText, targetIndex) {
 }
 
 async function pick(io, targetText, targetIndex) {
-  if (await walk(io, targetText, targetIndex)) return true;
+  const first = picker(io);
+  const far = first && bindings(first).search
+    && !(Math.abs(soleIndex(first.options, targetText) - first.selected) <= NEAR);
+  if (!far && await walk(io, targetText, targetIndex)) return true;
   // Fallback: the widget's own search box. It needs BOTH bindings advertised — typing
   // filters the list but does not commit it, so the obvious shortcut of appending Enter
   // is precisely the unadvertised guess this file exists to stop. A picker that binds Tab
@@ -255,7 +281,13 @@ async function pick(io, targetText, targetIndex) {
   // either is proof the filter took. Neither changing means the box did not filter, which
   // is the one thing this fallback assumed and must not commit on.
   const was = q.options, wasAt = q.selected;
-  const filtered = await io.sendText(targetText, q)
+  const typed = await io.sendText(targetText, q);
+  // Read back on the row already: commit it off that read, with no parse in between.
+  if (typed?.picker && rowIndex([targetText], typed.row) === 0) {
+    const done = await io.sendKey(km.select, { ...q, picker: typed.picker });
+    if (done !== STALE) return !!done; // undelivered: never press it twice
+  }
+  const filtered = typed && typed !== STALE
     && await waitForFrame(io, before, (f) => !sameRows(was, f.options) || f.selected !== wasAt);
   // Re-walk the filtered list rather than trusting the filter to have landed on the row.
   // -1, not 0: the filter renumbered everything, so the tapped index is spent and no index
