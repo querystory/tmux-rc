@@ -392,10 +392,12 @@ def _question_prompt(question) -> str | None:
 def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Match]:
     """The prompt's matches; with row, only those that are a whole row bar the frame (and
     a search field's ⌕), so the same words inside a command (`printf "Proceed?"; rm …`)
-    never stand in for it."""
+    never stand in for it. The row may close on one parenthetical the model drops as
+    chrome: a live count like /resume's "Resume session (1 of 47)" redraws as the list
+    filters, while the picker is the same. More words outside one are another prompt."""
     words = r"\s+".join(map(re.escape, prompt.split()))
     if row:
-        words = rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?=[ \t│┃╎]*$)"
+        words = rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*\([^()\n]*\))?(?=[ \t│┃╎]*$)"
     return list(re.finditer(words, visible, re.IGNORECASE | re.MULTILINE))
 
 

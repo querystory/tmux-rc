@@ -125,6 +125,49 @@ def test_a_tabbed_panel_the_user_opened_is_not_a_question():
     assert result["activity"] == "idle"
     assert "parse_ok" not in result
 
+# Claude Code's /resume: a live count after the prompt that the model reads as chrome.
+RESUME = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Resume session (1 of 12)
+   ╭──────────────────────────────────╮
+   │ ⌕ Search…                        │
+   ╰──────────────────────────────────╯
+   ❯ Tune the lighthouse scheduler
+     4 minutes ago · main · 2.1MB
+
+     Draft the harbor release notes
+     1 hour ago · docs/harbor · 880KB
+
+     Type to search · Esc to cancel"""
+SESSIONS = ["Tune the lighthouse scheduler", "Draft the harbor release notes"]
+
+
+def test_a_picker_prompt_may_close_on_a_count():
+    assert highlighted_row(RESUME, "Resume session", SESSIONS) == SESSIONS[0]
+    assert picker_digest(RESUME, "Resume session") is not None
+    assert picker_digest(RESUME, "Resume session (1 of 12)") is not None
+    # More words, outside a parenthetical, are still a different picker.
+    longer = RESUME.replace("(1 of 12)", "for deployment (1 of 12)")
+    assert picker_digest(longer, "Resume session") is None
+
+
+def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
+    sent = []
+    monkeypatch.setattr(tmux, "find_pane", lambda p: PANE)
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: f"{tmux.VISIBLE_SCREEN}\n{RESUME}")
+    monkeypatch.setattr(tmux, "at_password_prompt", lambda p: False)
+    monkeypatch.setattr(tmux, "_run", lambda args, *a, **k: sent.append(args) or "")
+    read = {"tool": "claude", "question": {
+        "prompt": "Resume session", "answer_style": "cursor", "options": SESSIONS,
+        "selected": 0, "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
+    parsed = classify(PANE, tmux.capture_pane(PANE.id), lambda s, t: read)
+    assert parsed["question"]["highlight"] == SESSIONS[0]
+    server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
+                                               states=[{"pane_id": PANE.id, **parsed}])
+    body = {"keys": "Down", "enter": False, "literal": False,
+            "on_row": {"prompt": "Resume session", "row": None}}
+    assert TestClient(server.app).post(f"/api/panes/{PANE.id}/send", json=body).status_code == 200
+    assert any("Down" in args for args in sent)
+
 
 MENU = """
 import sys, time, tty
