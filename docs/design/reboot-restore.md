@@ -81,9 +81,12 @@ by tmux's automatic renaming, tmux layout string, zoomed); and each
 pane (index, active, directory, title, classified tool, the basename of the program in
 its foreground (never its arguments), and for agents the **binding**: harness and
 session id). Each pane also carries a **copy** of its last
-activity time, coarse to the minute, and its folded state: the classified working,
-waiting or idle that the card's defaults and the launch order read, which a timestamp
-alone cannot recover once the server is gone. The copy keeps the snapshot meaningful
+activity time, coarse to the minute, and its classified state as the watcher reports it
+(`activity` and, for a wait, `waiting_on`), which the card's defaults and the launch
+order read and a timestamp alone cannot recover once the server is gone. They normalize
+it one way: `running` and `compacting` are working; `waiting` on the user is waiting on
+the user; a wait on something external, `idle` and `unknown` are judged by recency
+alone. The copy keeps the snapshot meaningful
 after checkpoints are pruned; the coarseness keeps it from rewriting on every keystroke.
 
 The current window is a property of the link, not the window: one window linked into two
@@ -194,7 +197,8 @@ panes have one selection each, because the run restores a pane once. Its checkbo
 therefore one state drawn in several places: ticking a shared pane under one session
 ticks it under all of them, and each session's tri-state reads the same pane states. A
 session is restored when any pane it shows is selected, with all its links to restored
-windows, so focus and indexes come back for every member that shared them.
+windows, so indexes come back for every member that shared them, and focus does
+wherever its target was restored (below).
 
 **Defaults decide whether a restore is one tap or forty.** A pane is checked when its
 agent was working, waiting on the user, or active in the last 24 hours; unchecked when
@@ -222,11 +226,15 @@ session level by default, the wide layout shows panes expanded.
 
 The executor does what a person would. For each selected session, in snapshot order, it
 creates the session in its saved creation directory, which tmux keeps as the default for
-later windows, respawns the first pane into that pane's own directory, adds each window at its
+later windows (or, if that directory is gone, in the first selected pane's validated
+directory, which the card notes), respawns the first pane into that pane's own directory, adds each window at its
 original index, splits off the window's panes in order, each in its own directory, then
 applies the saved layout string for exact geometry. A deselected pane makes the layout
 string's pane count wrong and tmux rejects it, so that window falls back to the nearest
 built-in layout rather than failing. Names, the active window and pane, and zoom go last.
+A saved current window or active pane that was deselected was never built, so focus falls
+back deterministically: the session's lowest-index restored window, and that window's
+first restored pane.
 A window whose name was set by hand gets automatic renaming turned off before its name is
 applied; otherwise tmux renames it after the agent's process the moment it starts (the
 [orchestration notes](../agent-orchestration.md) describe the same clobbering). Windows
