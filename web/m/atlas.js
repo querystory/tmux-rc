@@ -616,8 +616,10 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
 
   // One card per tmux session: its running count, who needs you, its trend on the shared
   // scale, and its panes by state underneath. Sessions with live panes come first.
-  // Keys from the live panes and the week the cards draw (history until it loads), in the tool filter.
-  const week = (heat ? heat.samples : history).flatMap(s => (s.groups || []).filter(g => !scope.tool || g.tool === scope.tool).map(g => g.session));
+  // The cards chart the last week (the heatmap's history, the chart's until it loads), and need
+  // one averaging window before it; their keys are the live panes plus that week's sessions.
+  const src = heat ? heat.samples : history, end = src.at(-1)?.t ?? 0, recent = src.filter(s => s.t > end - ms('7d') - ms(fleet.average));
+  const week = recent.filter(s => s.t > end - ms('7d')).flatMap(s => (s.groups || []).filter(g => !scope.tool || g.tool === scope.tool).map(g => g.session));
   const live = new Set(panes.map(p => p.session)), keys = scope.session ? [scope.session]
     : [...new Set([...live, ...week].filter(Boolean))].sort().sort((a, b) => live.has(b) - live.has(a));
   const multiples = el('section', 'atlas-panel atlas-multiples');
@@ -626,7 +628,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // Slices depend on history and settings, not on pane state, so live updates reuse them.
   const slices = root._slices ||= {};
   // A fixed week whatever the chart's range, from the heatmap's 15-minute history.
-  if (!unchanged(slices, [heat, historyData, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, heat ? rows(scoped({ ...scope, session: key }, heat.samples), '7d', heat.step) : []]);
+  if (!unchanged(slices, [heat, historyData, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, heat ? rows(scoped({ ...scope, session: key }, recent), '7d', heat.step) : []]);
   const { series } = slices;
   const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
   // Folded, not spread: a long history across many sessions would pass Math.max too many arguments.
