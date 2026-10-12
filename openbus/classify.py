@@ -1065,6 +1065,9 @@ def classify(
             question["prompt"] = asked = _LIVE_COUNT_RE.sub("", asked)
         # The screen /send holds a walk's keys to: read off it, never passed through.
         question["picker"] = asked and picker_digest(text, asked)
+        # Where the screen names no single option (a colour-only highlight, no glyph row),
+        # the model's anchor stands: it is the only reading there is, and the digest holds
+        # every step to the screen it was read off.
         if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
     if isinstance(question, dict):  # read off the screen, never passed through from the model

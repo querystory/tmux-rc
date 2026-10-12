@@ -126,9 +126,10 @@ const KEYS = new Set([
 // true; typing into a list that does not filter is stray keystrokes.
 function bindings(q) {
   const km = (q && q.keymap) || {};
-  const key = (name) => (KEYS.has(name) ? name : null);
+  // A direction that is also the select key would commit, not move: no direction at all.
+  const key = (name, dir) => (KEYS.has(name) && !(dir && name === km.select) ? name : null);
   return {
-    next: key(km.next), prev: key(km.prev), select: key(km.select), search: km.search === true,
+    next: key(km.next, 1), prev: key(km.prev, 1), select: key(km.select), search: km.search === true,
   };
 }
 
@@ -234,7 +235,8 @@ async function pick(io, targetText, targetIndex) {
   // would leave the user's picker filtered for a walk that was never going to commit.
   const q = picker(io);
   const km = bindings(q);
-  if (!q || !km.search || !km.select || soleIndex(q.options, targetText) < 0) {
+  // A line break typed into the box would submit it, so such a row is never typed.
+  if (!q || !km.search || !km.select || soleIndex(q.options, targetText) < 0 || /[\r\n]/.test(targetText)) {
     io.note(STUCK);
     return false;
   }

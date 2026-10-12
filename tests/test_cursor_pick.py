@@ -62,6 +62,13 @@ CASES = [
         {"sent": ["Down"], "selected": 1, "notes": 1},
     ),
     (
+        # A misread keymap: Enter as `next` would commit the highlighted row, not move.
+        "a direction bound to the select key is no direction",
+        {"options": ROWS, "selected": 0, "keymap": {"next": "Enter", "select": "Enter"}},
+        "beta", 1,
+        {"sent": [], "selected": 0, "notes": 1},
+    ),
+    (
         "no advertised direction: says so instead of inventing an arrow",
         {"options": ROWS, "selected": 0, "keymap": {"select": "Enter"}},
         "gamma", 2,
