@@ -626,16 +626,17 @@ def _final_paragraph(message: str) -> str:
 # question means.
 #
 # Options are lettered as often as numbered ("A. Retry inline", "(b) Queue it", a bulleted
-# "- Option A: Retry inline"), and "Go with A or B?" names them just as "do 1?" does. A
-# letter A-H in parentheses ("(a)", "(B)") is a label. So is a bare capital followed by
-# what follows a reference ("A quick fix?" and "Grade A beef?" are not), when the prompt
-# names another letter too ("A or B?"), it chains onto a reference, or an option noun or
-# choosing verb precedes it ("option A", "go with B"); the article in "A really quick
-# check?" and the grade in "Grade A only?" are not, and an article "a" is lowercase. "Option A"
-# needs a separator after it (or nothing, as a table key), so prose such as "Option A is
+# "- Option A: Retry inline", or a row opening the agent's turn after its "●"), and "Go
+# with A or B?" names them just as "do 1?" does. A letter A-H in parentheses ("(a)",
+# "(B)") is a label. So is a bare capital followed by what follows a reference ("A quick
+# fix?" and "Grade A beef?" are not) when the prompt names another letter too ("A or
+# B?"), it chains onto a reference, or an option noun or choosing verb precedes it
+# ("option A", "go with B"). The article in "A really quick check?" and the grade in
+# "Grade A only?" are not labels, and an article "a" is lowercase. "Option A" needs a
+# separator after it (or nothing, as a table key), so prose such as "Option A is
 # fastest" is not a row.
 _ROW_LABEL = (
-    r"(?:[-*•][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})\b"
+    r"(?:[-*•●][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})\b"
     r"(?:[.):]|[ \t]*(?:[—–]|-(?=[ \t]))|(?=\s*$))[ \t]*|\(?([A-Ha-h]|\d{1,2})[.)][ \t]+)")
 _LABELED_ROW_RE = re.compile(rf"[ \t│┃╎]*{_ROW_LABEL}(\S.*)")
 _REF_AFTER = (
@@ -731,7 +732,7 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
     # One pass over numbers and letters in prompt order, so either chains onto the one
     # before it ("Do A and 1?", "Do 1 and A?").
     letters = list(_LETTER_REF_RE.finditer(prompt))
-    several = len({m[2] for m in letters if m[2]}) > 1
+    several = len({(m[1] or m[2]).upper() for m in letters}) > 1
     refs, ends = [], []
     for m in sorted([*_ITEM_REF_RE.finditer(prompt), *letters], key=re.Match.start):
         before = prompt[:m.start()]
