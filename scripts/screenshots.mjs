@@ -65,24 +65,27 @@ const SHOTS = [
 // badges, the strip by urgency, grouped Plan usage, the picker, the filter and Accounts….
 // Everything above is the one-account state, which must look as it did before accounts.
 const TWO_ACCOUNTS = [
-  ["accounts-wide-dashboard", WIDE, "light", "#view=dashboard", badges],
-  ["accounts-hd-dashboard", HD, "dark", "#view=dashboard", badges],
-  ["accounts-wide-pane", WIDE, "light", "#pane=%2513", badges],
-  ["accounts-wide-new-window", WIDE, "dark", "", async (page) => { await badges(page); await page.click("#new-window"); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); }],
-  ["accounts-mobile-list", PHONE, "light", "", badges],
-  ["accounts-mobile-list-dark", PHONE, "dark", "", badges],
-  ["accounts-mobile-menu", PHONE, "light", "", async (page) => { await badges(page); await page.click("#more-button"); }],
-  ["accounts-mobile-filtered", PHONE, "dark", "", async (page) => { await badges(page); await page.click("#more-button"); await page.click('#acct-filter [data-dir="~/.claude-personal"]'); }],
-  ["accounts-mobile-dashboard", PHONE, "light", "#view=dashboard", async (page) => { await badges(page); await page.locator("#usage-panel").scrollIntoViewIfNeeded(); }],
-  ["accounts-mobile-pane", PHONE, "light", "#pane=%2513", badges],
-  ["accounts-mobile-new-window", PHONE, "light", "", async (page) => { await badges(page); await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }],
-  ["accounts-mobile-consent", PHONE, "light", "", async (page) => { await badges(page); await chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge")(page); }],
-  ["accounts-mobile-accounts", PHONE, "dark", "", async (page) => { await badges(page); await page.click("#more-button"); await page.click("#accounts-open"); }],
-  ["accounts-mobile-add", PHONE, "light", "", async (page) => { await badges(page); await page.click("#more-button"); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); }],
+  ["accounts-wide-dashboard", WIDE, "light", "#view=dashboard", two()],
+  ["accounts-hd-dashboard", HD, "dark", "#view=dashboard", two()],
+  ["accounts-wide-pane", WIDE, "light", "#pane=%2513", two()],
+  ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await page.click("#new-window"); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
+  ["accounts-mobile-list", PHONE, "light", "", two()],
+  ["accounts-mobile-list-dark", PHONE, "dark", "", two()],
+  ["accounts-mobile-menu", PHONE, "light", "", two((page) => page.click("#more-button"))],
+  ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { await page.click("#more-button"); await page.click('#acct-filter [data-dir="~/.claude-personal"]'); })],
+  ["accounts-mobile-dashboard", PHONE, "light", "#view=dashboard", two((page) => page.locator("#usage-panel").scrollIntoViewIfNeeded())],
+  ["accounts-mobile-pane", PHONE, "light", "#pane=%2513", two()],
+  ["accounts-mobile-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); })],
+  ["accounts-mobile-consent", PHONE, "light", "", two(chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge"))],
+  ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await page.click("#more-button"); await page.click("#accounts-open"); })],
+  ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await page.click("#more-button"); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
 ];
-// The accounts arrive after the panes; a base without them shoots the page as it is.
-async function badges(page) {
-  await page.locator(".acct-badge").first().waitFor({ timeout: 5000 }).catch(() => {});
+// Once the accounts have arrived (after the panes), the step; a base from before accounts
+// draws no badge, and is shot as it is.
+function two(step) {
+  return async (page) => {
+    if (await page.locator(".acct-badge").first().waitFor({ timeout: 5000 }).then(() => true, () => false)) await step?.(page);
+  };
 }
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so

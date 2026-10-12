@@ -21,7 +21,12 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const active = () => { const p = any() && byDir(filter); return p?.signed_in ? p : null; };
   const dot = (p) => `<i class="acct-dot" style="--a:var(--acct-${p.color})"></i>`;
   const badge = (p, inner = esc(p.name)) => `<span class="acct-badge" style="--a:var(--acct-${p.color})" title="${esc(`${p.name}: ${p.tilde}`)}">${dot(p)}${inner}</span>`;
-  const defaultOf = (session, provider) => byDir(defaults[session]?.[provider]) || profiles.find((p) => p.provider === provider && p.default);
+  // A session's default as tmux resolves it (none listed or signed in: null); a new session's,
+  // the provider's default dir.
+  const defaultOf = (session, provider) => {
+    const dir = defaults[session]?.[provider], p = dir ? byDir(dir) : profiles.find((a) => a.provider === provider && a.default);
+    return p?.signed_in ? p : null;
+  };
 
   async function refresh() {
     try { ({ profiles, sessions: defaults, shared } = await request("/api/accounts")); } catch { return; }

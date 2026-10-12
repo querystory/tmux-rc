@@ -55,13 +55,20 @@ def test_discovery_names_each_account_from_its_non_secret_info(home):
     assert [p["color"] for p in accounts.profiles()] == colors  # kept, not recomputed
 
 
-def test_a_label_names_the_account_and_forgetting_only_hides_it(home):
+def test_a_label_names_the_account_and_forgetting_only_hides_it(home, monkeypatch):
+    shown = {"work": {"CLAUDE_CONFIG_DIR": str(home / ".claude-personal")}}
+    monkeypatch.setattr(T, "list_panes", lambda: [T.Pane("work", "1", "w", "0", "%9", "bash", "t")])
+    monkeypatch.setattr(T, "show_env", lambda session=None: shown.get(session, {}))
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda argv, **_: calls.append(argv) or "")
     personal = str(home / ".claude-personal")
     accounts.edit(personal, "Personal")
     assert _by_dir(home)["~/.claude-personal"]["name"] == "Personal"
     accounts.edit(personal, forget=True)
     assert "~/.claude-personal" not in _by_dir(home)
     assert (home / ".claude-personal" / ".claude.json").exists()  # nothing deleted
+    # A session that defaulted to it falls back to the default dir.
+    assert calls == [["set-environment", "-t", "=work", "-r", "CLAUDE_CONFIG_DIR"]]
     with pytest.raises(ValueError, match="default"):
         accounts.edit(str(home / ".claude"), forget=True)
 

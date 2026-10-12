@@ -970,5 +970,6 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 #acct-dialog .acct-seg button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); font-weight: 600; }
 .acct-cmd { display: block; margin: 6px 0; padding: 8px 10px; overflow-x: auto; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 .acct-wait { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
-.acct-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: acct-spin 1s linear infinite; }
+.acct-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) { .acct-spin { animation: acct-spin 1s linear infinite; } }
 @keyframes acct-spin { to { transform: rotate(360deg); } }

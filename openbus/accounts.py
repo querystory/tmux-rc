@@ -8,9 +8,11 @@ docs/design/agent-accounts.md.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
+import subprocess
 import threading
 from pathlib import Path
 
@@ -194,7 +196,8 @@ def _add(provider: str, config: str, label: str, link: list[str]) -> dict:
 
 def edit(config: str, label: str | None = None, *, forget: bool = False) -> None:
     """Rename (the label only) or forget a profile. Forgetting only drops it from the
-    list: the dir, its login and its transcripts stay on disk."""
+    list (and from sessions' defaults): the dir, its login and its transcripts stay on
+    disk."""
     with _LOCK:
         _edit(config, label, forget=forget)
 
@@ -209,6 +212,13 @@ def _edit(config: str, label: str | None, *, forget: bool) -> None:
     entry = store.setdefault(profile["dir"], {"provider": profile["provider"]})
     if forget:
         entry["hidden"] = True
+        # A session defaulting to it would keep starting panes there, unbadged once the
+        # picker goes: such sessions fall back to the provider's default dir.
+        with contextlib.suppress(subprocess.CalledProcessError):
+            sessions = {p.session for p in tmux.list_panes()}
+            for session, chosen in session_defaults(sessions).items():
+                if chosen[profile["provider"]] == profile["dir"]:
+                    tmux.set_env(ENV[profile["provider"]], None, session=session)
     if label is not None:
         entry["label"] = label.strip() or None
     _save(store)
