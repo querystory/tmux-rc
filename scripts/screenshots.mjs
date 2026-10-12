@@ -75,7 +75,7 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-filtered", PHONE, "dark", "", async (page) => { await badges(page); await page.click("#more-button"); await page.click('#acct-filter [data-dir="~/.claude-personal"]'); }],
   ["accounts-mobile-dashboard", PHONE, "light", "#view=dashboard", async (page) => { await badges(page); await page.locator("#usage-panel").scrollIntoViewIfNeeded(); }],
   ["accounts-mobile-pane", PHONE, "light", "#pane=%2513", badges],
-  ["accounts-mobile-new-window", PHONE, "light", "#view=dashboard", async (page) => { await badges(page); await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }],
+  ["accounts-mobile-new-window", PHONE, "light", "", async (page) => { await badges(page); await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }],
   ["accounts-mobile-consent", PHONE, "light", "", async (page) => { await badges(page); await chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge")(page); }],
   ["accounts-mobile-accounts", PHONE, "dark", "", async (page) => { await badges(page); await page.click("#more-button"); await page.click("#accounts-open"); }],
   ["accounts-mobile-add", PHONE, "light", "", async (page) => { await badges(page); await page.click("#more-button"); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); }],
