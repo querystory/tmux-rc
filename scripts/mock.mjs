@@ -141,7 +141,7 @@ async function build(src, out) {
 // Variant scripts are fetched fresh on every render, so an edit shows on reload.
 function live(src) {
   const { scripts, ...data } = manifest(src);
-  write(path.join(src, "live"), { ...data, fragments: {}, live: true }); // fragments are captured by a build
+  write(path.join(src, "live"), { ...data, fragments: {}, fragmentSteps: data.fragments, live: true }); // the harness captures them
   console.log("open http://127.0.0.1:18039/mock/live/");
 }
 

@@ -89,6 +89,33 @@ function boot(M) {
     el.replaceChildren(sel);
   };
 
+  // mock-live: the real app in `iframe`, booted and taken through a view's (or fragment's)
+  // steps, waiting as long as a snapshot build would and saying what never came.
+  async function liveApp(iframe, step) {
+    store("tmuxrc-theme", s.theme); // same origin as the app: it boots in the harness's theme, icon and all
+    await new Promise((resolve) => { iframe.onload = resolve; iframe.src = `/m/${step.hash || ""}`; });
+    const doc = iframe.contentDocument, until = async (ok, what) => {
+      for (const end = Date.now() + 10000; !ok(); await new Promise((r) => setTimeout(r, 100))) {
+        if (Date.now() > end) throw new Error(`mock-live: ${what} not reached in 10s`);
+      }
+    };
+    const shown = (sel) => doc.querySelector(sel)?.checkVisibility() && !doc.querySelector(sel).disabled; // as Playwright's actionability
+    await until(() => doc.documentElement.classList.contains("booted"), "app boot");
+    for (const sel of step.click || []) { await until(() => shown(sel), `visible ${sel}`); doc.querySelector(sel).click(); }
+    if (step.wait) await until(() => shown(step.wait), `visible ${step.wait}`);
+    return doc;
+  }
+  // Fragments, captured once from an off-screen phone-sized app the way a build does. A chat
+  // fragment needs the build's canned socket, so it comes from snapshots only.
+  let fragmentsReady;
+  const liveFragments = () => fragmentsReady ||= Promise.all(Object.entries(M.fragmentSteps || {}).filter(([, step]) => !step.chat).map(async ([name, step]) => {
+    const iframe = Object.assign(document.createElement("iframe"), { ariaHidden: "true", tabIndex: -1 });
+    iframe.style.cssText = `position:fixed; left:-10000px; width:${PHONE_WIDTH}px; height:844px`;
+    document.body.append(iframe);
+    M.fragments[name] = (await liveApp(iframe, step)).querySelector(step.selector).outerHTML;
+    iframe.remove();
+  }));
+
   async function frame(name, i, width, extra) {
     const v = variant(name), cfg = { variant: v.name, view: s.view, theme: s.theme, width, state: { ...s.state, ...extra }, fragments: M.fragments };
     const fig = document.createElement("figure"), cap = document.createElement("figcaption");
@@ -99,27 +126,15 @@ function boot(M) {
       sel.onchange = () => set({ v: [s.v[0], sel.value] });
       cap.append(sel, ` ${v.description || ""}`);
     } else cap.textContent = `${v.label}: ${v.description || ""}`;
-    iframe.style.width = phone.matches ? "100%" : `${width}px`;
+    iframe.style.width = fig.style.width = phone.matches ? "100%" : `${width}px`; // the caption may not widen it
     iframe.title = v.label;
     fig.append(cap, iframe);
     const text = await script(v.script);
     if (M.live) {
-      iframe.onload = async () => { // the real app: wait for its boot, take the view's steps, then patch it
-        const w = iframe.contentWindow, doc = iframe.contentDocument;
-        const until = async (ok, what) => { // as long as a snapshot build would wait, then say what never came
-          for (const end = Date.now() + 10000; !ok(); await new Promise((r) => setTimeout(r, 100))) {
-            if (Date.now() > end) throw new Error(`mock-live: ${what} not reached in 10s`);
-          }
-        };
-        const view = M.views.find((x) => x.name === s.view);
-        await until(() => doc.documentElement.classList.contains("booted"), "app boot");
-        const shown = (sel) => doc.querySelector(sel)?.checkVisibility() && !doc.querySelector(sel).disabled; // as Playwright's actionability
-        for (const sel of view.click || []) { await until(() => shown(sel), `visible ${sel}`); doc.querySelector(sel).click(); }
-        if (view.wait) await until(() => shown(view.wait), `visible ${view.wait}`);
-        w.eval(inject(cfg, text));
-      };
-      store("tmuxrc-theme", s.theme); // same origin as the app: it boots in the harness's theme, icon and all
-      iframe.src = `/m/${M.views.find((x) => x.name === s.view).hash || ""}`; // a chat view needs the canned socket: snapshots only
+      liveApp(iframe, M.views.find((x) => x.name === s.view)).then(async () => {
+        await liveFragments();
+        iframe.contentWindow.eval(inject({ ...cfg, fragments: M.fragments }, text));
+      });
     } else {
       const snap = await loadSnap(`${s.view}/${s.theme}/${width}`);
       iframe.srcdoc = snap ? srcdoc(M, snap, cfg, text) : `<p style="font:14px sans-serif">No ${width}px snapshot of this view: rebuild the mock.</p>`;
@@ -189,7 +204,10 @@ function boot(M) {
   $("#title").textContent = document.title = M.title;
   if (M.note && q.get("note") === "1") $("#note-btn").click();
   phone.addEventListener("change", render);
-  addEventListener("resize", () => { if (sideBySide() !== shown) render(); });
+  addEventListener("resize", () => {
+    $("#ab").disabled = !fits(s.width, innerWidth);
+    if (sideBySide() !== shown) render();
+  });
   render();
 }
 
