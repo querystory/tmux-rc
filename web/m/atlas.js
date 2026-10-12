@@ -627,7 +627,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // scale, and its panes by state underneath. Sessions with live panes come first.
   // The cards chart the last week (the heatmap's history, the chart's until it loads), and need
   // one averaging window before it; their keys are the live panes plus that week's sessions.
-  const src = heat ? heat.samples : history, end = src.at(-1)?.t ?? 0, recent = src.filter(s => s.t > end - ms('7d') - ms(fleet.average));
+  const src = heat ? heat.samples : history, step = heat ? heat.step : historyData?.step || 60000, end = src.at(-1)?.t ?? 0, recent = src.filter(s => s.t > end - ms('7d') - ms(fleet.average));
   const week = recent.filter(s => s.t > end - ms('7d')).flatMap(s => (s.groups || []).filter(g => !scope.tool || g.tool === scope.tool).map(g => g.session));
   const live = new Set(panes.map(p => p.session)), keys = scope.session ? [scope.session]
     : [...new Set([...live, ...week].filter(Boolean))].sort().sort((a, b) => live.has(b) - live.has(a));
@@ -637,7 +637,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // Slices depend on history and settings, not on pane state, so live updates reuse them.
   const slices = root._slices ||= {};
   // A fixed week whatever the chart's range, from the heatmap's 15-minute history.
-  if (!unchanged(slices, [heat, historyData, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, heat ? rows(scoped({ ...scope, session: key }, recent), '7d', heat.step) : []]);
+  if (!unchanged(slices, [heat, history, historyData, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, rows(scoped({ ...scope, session: key }, recent), '7d', step)]);
   const { series } = slices;
   const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
   // Folded, not spread: a long history across many sessions would pass Math.max too many arguments.
@@ -671,7 +671,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     card.append(head, ...(slice.some(r => r.n?.some(Boolean)) ? [chart.el] : []), el('span', 'muted', avg == null ? 'No average yet' : `${fleet.average} avg ${avg.toFixed(1)}`),
       ...(members.length ? [dots] : []));
     grid.append(card);
-    paints.push(() => chart.update(chartData(slice, { goal: null, max, step: heat?.step, zoomKey: '7d' })));
+    paints.push(() => chart.update(chartData(slice, { goal: null, max, step, zoomKey: '7d' })));
   });
   const legend = el('div', 'atlas-legend');
   STATES.forEach((label, i) => legend.append(el('span', `atlas-state s${i}`, `${panes.filter(p => stateOf(p) === i).length} ${label}`)));
