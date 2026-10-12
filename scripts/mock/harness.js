@@ -20,7 +20,7 @@ function bridge() {
     if (!d.matches(":modal")) { d.close(); d.showModal(); }
     d.addEventListener("cancel", (e) => e.preventDefault());
   }
-  for (const el of document.querySelectorAll("[data-mock-scroll]")) el.scrollTop = +el.dataset.mockScroll;
+  for (const el of document.querySelectorAll("[data-mock-scroll]")) [el.scrollTop, el.scrollLeft] = el.dataset.mockScroll.split(",").map(Number);
   // Keys and swipes never leave a frame, so hand the harness's own to the page that owns it.
   addEventListener("keydown", (e) => {
     if (["h", "ArrowLeft", "ArrowRight"].includes(e.key) && !e.target.closest("input, textarea, select, [contenteditable]")) parent.postMessage({ mockKey: e.key }, "*");
@@ -42,7 +42,7 @@ const inject = (cfg, script) => `window.MOCK = ${JSON.stringify(cfg)};\n(${bridg
 // variant's script run last, over the finished DOM.
 function srcdoc(M, snap, cfg, script) {
   const html = snap.html.replace("</head>", () => `<style>${M.css[snap.css]}</style></head>`)
-    .replace("</body>", () => `<script>${inject(cfg, script).replaceAll("</script", "<\\/script")}</script></body>`);
+    .replace("</body>", () => `<script>${inject(cfg, script).replace(/<\/(script)/gi, "<\\/$1")}</script></body>`);
   return `<!doctype html>${html.replace(/@@IMG(\d+)@@/g, (_, i) => M.imgs[i])}`;
 }
 
