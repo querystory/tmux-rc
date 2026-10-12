@@ -480,8 +480,12 @@ A consent card that targets a pane carries the same button, because the card is 
 wrong target gets caught: asked for "the QS linux OMP session", the model picked an omp
 pane idle for two days over the window titled "qslinux codex installation", and the card
 named it only by its tmux address, so nothing on it said which window that was. The card
-now names the pane as the prompt and list do (window number and title, plus the label when
-it adds something), and Open lets the user look before answering. Opening does not answer
+now names the pane as the list row does (title, tool and session chip, "qs-app · codex in
+qs-app"), and Open lets the user look before answering. It used to lead with the window
+number and append the tmux address, but the phone never shows either, so both read as
+jargon on the one surface where the user must recognise the target; the address now goes
+only to the audit record. The window number comes back only to tell two otherwise
+identical panes apart, since nothing else on their rows differs. Opening does not answer
 the card: it stays pending on the chat bubble until Send or Cancel, since looking is the
 point and a card that resolved on navigation would force a choice before the look.
 
@@ -558,7 +562,7 @@ turn gets exactly one answer, its echo or a refusal flagged as such, so a refuse
 cannot shift the next turn's thumbnails onto the wrong echo.
 
 **Forwarding images to agents.** `send_image_to_pane` is how a pasted image reaches a pane
-("send this to window 3"). The daemon numbers each pasted image across the conversation and
+("send this to the auth fix"). The daemon numbers each pasted image across the conversation and
 tells the model the number in the turn text, since the model cannot otherwise name an image
 from an earlier turn. The numbered copies are kept only for as many turns as the chat model
 keeps, so the memory the numbering holds is the history's own bound. The tool goes through
