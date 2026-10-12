@@ -297,6 +297,29 @@ def test_failed_pane_tick_does_not_persist_a_partial_inventory(inventory, monkey
     assert not w.is_stale()
 
 
+@pytest.mark.parametrize(("code", "stderr", "level"), [
+    (1, "can't find pane: %0\n", "INFO"),  # closed between list-panes and capture-pane
+    (1, "no server running on /tmp/tmux-1000/default\n", "WARNING"),
+    (124, None, "WARNING"),
+])
+def test_failed_pane_tick_log_level(inventory, monkeypatch, caplog, code, stderr, level):
+    """Only a pane that closed mid-tick is routine; every other tmux failure still warns."""
+    import subprocess
+
+    w, panes = inventory
+    monkeypatch.setattr(W.tmux, "server_uid", lambda **_kwargs: "s")
+
+    def capture(pane):
+        if pane.id == panes[0].id:
+            raise subprocess.CalledProcessError(code, "tmux", stderr=stderr)
+        return parsed(pane)
+
+    monkeypatch.setattr(w, "_tick_pane", capture)
+    caplog.set_level("INFO", logger=W.logger.name)
+    w._tick()
+    assert [r.levelname for r in caplog.records if "mid-tick" in r.message] == [level]
+
+
 def test_restarted_server_during_tick_does_not_record_old_panes(inventory, monkeypatch):
     from unittest.mock import Mock
 

@@ -684,13 +684,16 @@ class Watcher:
             except subprocess.CalledProcessError as e:
                 # rc=124 is tmux.py's timeout marker: a wedged/slow tmux SERVER, not a
                 # closed pane — labeling it "vanished" would misdirect exactly the
-                # incident class the timeouts exist to expose. Anything else here is
+                # incident class the timeouts exist to expose. "can't find pane" is
                 # the expected pane-closed race (gone between list-panes and
-                # capture-pane); one line, next tick's gc evicts it.
+                # capture-pane): routine, and next tick's gc evicts it. Any other
+                # failure (no server, a bad command) is real and keeps its warning.
                 if e.returncode == 124:
                     logger.warning("tmux timed out mid-tick on pane %s", p.id)
-                else:
+                elif "can't find pane" in (e.stderr or ""):
                     logger.info("pane %s vanished mid-tick", p.id)
+                else:
+                    logger.warning("tmux failed mid-tick on pane %s: %s", p.id, e.stderr)
                 s = None
             except Exception:  # isolate per-pane failures
                 logger.warning("pane tick failed: %s", p.id, exc_info=True)
