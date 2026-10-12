@@ -408,10 +408,14 @@ def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Mat
     """The prompt's matches; with row, only those that are a whole row bar the frame (and
     a search field's ⌕), so the same words inside a command (`printf "Proceed?"; rm …`)
     never stand in for it. The row may close on a live count, which the model drops; any
-    other words after the prompt ("… for deployment", "(production)") are another one."""
+    other words after the prompt ("… for deployment", "(production)") are another one,
+    unless the prompt is a whole sentence: the model quotes the question out of a longer
+    paragraph (Claude's trust dialog: "… one you trust? (Like your own code, …"), which
+    the terminal may also wrap, so the prompt's row runs on past it."""
     words = r"\s+".join(map(re.escape, prompt.split()))
     if row:
-        words = rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?(?=[ \t│┃╎]*$)"
+        words = (rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?"
+                 r"(?=[ \t│┃╎]*$|(?<=[?.!:])[ \t]+\S)")
     return list(re.finditer(words, visible, re.IGNORECASE | re.MULTILINE))
 
 
