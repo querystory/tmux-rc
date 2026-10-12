@@ -100,8 +100,8 @@ def _widget_end(visible: str, start: int) -> int:
                 len(visible))
 
 
-def live_widget(visible: str, prompt: str) -> tuple[int, int] | None:
-    """Where the picker headed by prompt lists its rows, if it is the live one on screen."""
+def drawn_row(visible: str, prompt: str) -> str | None:
+    """The text of the live picker's highlighted row under prompt, as drawn, or None."""
     # A whole row only: a longer prompt ("… for deployment") is a different picker.
     found = prompt.strip() and _occurrences(prompt, visible, row=True)  # "" matches anywhere
     if not found:
@@ -112,13 +112,7 @@ def live_widget(visible: str, prompt: str) -> tuple[int, int] | None:
     end = _widget_end(visible, asked.end())
     if _HIGHLIGHT_RE.search(visible, end):  # a later picker, or the input box, is live:
         return None                         # this one is history in the scrollback
-    return asked.end(), end
-
-
-def drawn_row(visible: str, prompt: str) -> str | None:
-    """The text of the live picker's highlighted row under prompt, as drawn, or None."""
-    widget = live_widget(visible, prompt)
-    *_, row = [None, *(_HIGHLIGHT_RE.finditer(visible, *widget) if widget else ())]
+    *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, asked.end(), end)]
     return row and row["label"]
 
 
@@ -1054,7 +1048,7 @@ def classify(
         question.pop("highlight", None)  # read off the screen, never passed through
         if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
-            question["highlight"] = drawn_row(visible, asked)  # what /send re-checks
+            question["highlight"] = drawn_row(visible, asked)  # grounded: /send may commit it
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask"):
             question.pop(key, None)

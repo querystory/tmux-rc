@@ -75,7 +75,6 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import agent_history, expunge, telemetry, tmux  # noqa: E402
-from .classify import drawn_row, highlighted_row, live_widget  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -854,27 +853,24 @@ def send(pane_id: str, body: SendBody, request: Request):
     _invalidate_input_actions(pane.id)
 
     def on_row() -> None:
-        # A cursor picker's select, checked against the screen under the send lock: the
-        # walk's anchor is a parse, and a stale or misread one must not commit a row. It is
-        # held to the server's latest parse, never the request's: the same prompt, that
-        # parse's select key and rows, and the highlighted row drawn exactly as it read it. A
-        # picker that changed since (a row "Fix" now "Fix  login bug", which its old rows
-        # would read as "Fix" ahead of a value column) fails closed until it is reparsed.
-        # Every other walk send (a move, search text) goes only while that parse's picker
-        # is still the live one, so a replacement never takes a key meant for it.
+        # A cursor walk's send, checked under the send lock against the server's latest
+        # parse, never the request's: the pane must show, right now, the very screen that
+        # parse read, and the request must name that parse's picker. So a picker replaced
+        # or changed since (however its highlight is drawn) takes no key meant for the old
+        # one: the walk waits for the reparse. A select must also be that parse's highlight,
+        # grounded on the screen (classify's `highlight`), with its select key.
         state = next((s for s in app.state.watcher.states if s.get("pane_id") == pane.id), {})
         question = state.get("question") if isinstance(state.get("question"), dict) else {}
-        options, seen = question.get("options"), question.get("highlight")
+        rows, at = question.get("options"), question.get("selected")
         keymap = question.get("keymap") if isinstance(question.get("keymap"), dict) else {}
         prompt, row = body.on_row.prompt, body.on_row.row
-        screen = tmux.capture_pane(pane.id, lines=0)
-        if question.get("prompt") != prompt or not live_widget(screen, prompt):
-            msg = f"The picker {prompt!r} is no longer on screen; nothing was sent."
+        if question.get("prompt") != prompt or not app.state.watcher.shows_parsed_screen(pane.id):
+            msg = f"The picker {prompt!r} changed since it was read; nothing was sent."
             raise tmux.PaneChangedError(msg)
         if row is not None and (
-                not isinstance(options, list) or body.literal or body.keys != keymap.get("select")
-                or seen is None or drawn_row(screen, prompt) != seen
-                or highlighted_row(screen, prompt, options) != row):
+                question.get("highlight") is None or not isinstance(rows, list)
+                or not isinstance(at, int) or not 0 <= at < len(rows) or rows[at] != row
+                or body.literal or body.keys != keymap.get("select")):
             msg = f"The highlight is not on {row!r}; nothing was sent."
             raise tmux.PaneChangedError(msg)
 

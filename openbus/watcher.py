@@ -978,6 +978,19 @@ class Watcher:
         """Return the process identity that disambiguates a recycled tmux pane id."""
         return self._birth.get(pane_id)
 
+    def _screen_fp(self, text: str) -> str:
+        # Hashed: cheap to hold per pane, and the same value the checkpoint stores. The
+        # parser version and LLM mode are mixed in so a stored card from a different
+        # classifier misses on restart and is re-read.
+        return hashlib.sha256(
+            f"{CARD_VERSION}:{self.use_llm}\n{_fingerprint(text)}".encode()).hexdigest()
+
+    def shows_parsed_screen(self, pane_id: str) -> bool:
+        """Whether the pane shows, right now, the very screen its published card was read
+        from by a successful parse: what a cursor walk's keys are held to (server /send)."""
+        return self.pane_parse_valid(pane_id) and self._prev_fp.get(pane_id) == self._screen_fp(
+            tmux.capture_pane(pane_id, mark_dim=True))
+
     def pane_parse_valid(self, pane_id: str) -> bool:
         """Whether this pane's published classification came from a successful parse."""
         return self._parse_valid.get(pane_id, False)
@@ -1212,11 +1225,7 @@ class Watcher:
         # one); snapshot_text() strips the markers at the phone-facing boundary.
         text = tmux.capture_pane(pane.id, mark_dim=True)
         now = time.time()
-        # Hashed: cheap to hold per pane, and the same value the checkpoint stores. The
-        # parser version and LLM mode are mixed in so a stored card from a different
-        # classifier misses on restart and is re-read.
-        fp = hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{_fingerprint(text)}".encode()).hexdigest()
+        fp = self._screen_fp(text)
         # First sighting since startup (or since a recycled id): resume from the
         # checkpoint when the screen is unchanged, else seed the clocks from tmux.
         row = None if pane.id in self._seen_fp else self._restore(pane, fp, now)

@@ -150,10 +150,17 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
         monkeypatch.setattr(tmux, "_run", run)
         monkeypatch.setattr(tmux, "pane_pid", lambda p: tmux.find_pane(p).pid)
         parsed = {"pane_id": pane, "question": {
-            "prompt": "Remove it?", "options": ["No", "Yes"], "highlight": "No",
+            "prompt": "Remove it?", "options": ["No", "Yes"], "selected": 0, "highlight": "No",
             "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
-        server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
-                                                   states=[parsed])
+        read = []  # the screen the server's parse read, as the watcher fingerprints it
+
+        def reparse(**question):
+            read[:] = [tmux.capture_pane(pane, mark_dim=True)]
+            parsed["question"].update(question)
+
+        server.app.state.watcher = SimpleNamespace(
+            request_reparse=lambda p: None, states=[parsed],
+            shows_parsed_screen=lambda p: read == [tmux.capture_pane(p, mark_dim=True)])
         client = TestClient(server.app)
 
         def screen_until(text):
@@ -169,15 +176,18 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
             return client.post(f"/api/panes/{pane}/send", json=body)
 
         screen_until(" ❯ No")
-        refused = send("Enter", "Yes")  # the highlight is still on No
+        reparse()
+        refused = send("Enter", "Yes")  # the parse has the highlight on No
         assert refused.status_code == 409
         assert "Yes" in refused.json()["detail"]
         assert send("Down", prompt="Remove that?").status_code == 409  # another picker's move
         assert send("Down").status_code == 200
         screen_until(" ❯ Yes")
-        # Held to the server's own parse: until it has read the highlight on Yes, no select.
+        # The screen moved since the parse: nothing goes, not even the right row's select,
+        # until it is reread.
+        parsed["question"].update(selected=1, highlight="Yes")
         assert send("Enter", "Yes").status_code == 409
-        parsed["question"]["highlight"] = "Yes"
+        reparse()
         # That parse names the rows: one that no longer lists "Yes" refuses it.
         parsed["question"]["options"] = ["No", "Yes  later"]
         assert send("Enter", "Yes").status_code == 409
