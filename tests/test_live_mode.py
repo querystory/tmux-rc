@@ -343,7 +343,8 @@ def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     pushed = []
 
     class Push:
-        def chat(self, text):
+        def chat(self, card, text):
+            assert card in meter.approvals  # the push names the card, so its own tab answers
             pushed.append(text)
             return len(pushed) > 1  # the first finds the queue full
 

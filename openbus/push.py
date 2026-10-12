@@ -400,12 +400,12 @@ class PushManager:
             "p256dh": keys["p256dh"], "auth": keys["auth"],
         }})
 
-    def chat(self, text: str) -> bool:
+    def chat(self, card: str, text: str) -> bool:
         """The chat assistant's card waits on a user who isn't looking (live._nudge). The tap
-        brings the chat back in the open page (sw.js); approving stays in the app. False
-        when it was not queued (a full queue): the caller tries again."""
+        brings back the chat holding that card id in the open page (sw.js); approving stays
+        in the app. False when it was not queued (a full queue): the caller tries again."""
         return self.sender.send({"title": "Chat needs you", "body": _push_text(text, 400),
-                          "tag": "chat", "url": "/m", "chat": True, "actions": []})
+                          "tag": "chat", "url": "/m", "chat": card, "actions": []})
 
     def answer(self, nonce: str, option_index: int) -> tuple[str, str]:
         now = self.clock()

@@ -19,16 +19,17 @@ self.addEventListener("push", (event) => {
     icon: "/apple-touch-icon.png",
     badge: "/apple-touch-icon.png",
     actions,
-    data: { url: data.url || "/m", nonce: data.nonce || null, chat: !!data.chat },
+    data: { url: data.url || "/m", nonce: data.nonce || null, chat: data.chat || null },
   }));
 });
 
-// Asks one app window whether its chat holds a waiting card: the window, or null.
-const holdsCard = (client) => new Promise((resolve) => {
+// Asks one app window whether its chat holds this waiting card (by id, so with two tabs
+// holding cards only the push's own answers): the window, or null.
+const holdsCard = (card) => (client) => new Promise((resolve) => {
   const { port1, port2 } = new MessageChannel();
   port1.onmessage = ({ data }) => resolve(data === true ? client : null);
   setTimeout(() => resolve(null), 1000);
-  client.postMessage("chat", [port2]);
+  client.postMessage({ chat: card }, [port2]);
 });
 
 self.addEventListener("notificationclick", (event) => {
@@ -53,7 +54,7 @@ self.addEventListener("notificationclick", (event) => {
     });
     // A chat lives in the open app: navigating would reload it away, so every app window is
     // asked instead, and the one whose chat holds the card (it brings the chat back) is focused.
-    const owner = data.chat && (await Promise.all(apps.map(holdsCard))).find(Boolean);
+    const owner = data.chat && (await Promise.all(apps.map(holdsCard(data.chat)))).find(Boolean);
     const existing = owner || apps[0] || windows[0];
     if (existing) {
       try {

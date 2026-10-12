@@ -496,7 +496,7 @@ async def _approved(
     nudge = None
     try:
         await websocket.send_json({**card, "id": proposal})
-        nudge = meter.push and asyncio.create_task(_nudge(meter, answer, summary))  # sent
+        nudge = meter.push and asyncio.create_task(_nudge(meter, proposal, answer, summary))  # sent
         ok = await answer  # True / False on a tap, None when a new message superseded it
         rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
         # The client shows the answer as final only on this, so a reconnect can't leave a
@@ -516,7 +516,7 @@ async def _approved(
 _NUDGE_TICK = 1.0
 
 
-async def _nudge(meter: _Meter, answer: asyncio.Future, text: str) -> None:
+async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str) -> None:
     """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
     at the chat (sheet minimized, page hidden, phone locked with the socket up) the whole
     time. Answering the card cancels this, and so does a dropped socket, which ends the card
@@ -529,7 +529,7 @@ async def _nudge(meter: _Meter, answer: asyncio.Future, text: str) -> None:
         if (since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS
                 # On the loop, not a thread: nothing (a tap, coming into view) can land
                 # between the check above and the queueing. It reads a small JSON file.
-                and meter.push.chat(text)):
+                and meter.push.chat(proposal, text)):
             return  # queued; a full queue falls through and tries again next tick
         await asyncio.sleep(_NUDGE_TICK)
 
