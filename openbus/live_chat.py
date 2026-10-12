@@ -49,9 +49,10 @@ _EMPTY = "(No response from the model; try again.)"
 _OUTCOME = "(Tell the user in one sentence what you did, or that nothing was done.)"
 _DONE = "(Done.)"  # closes a turn that stayed quiet; never shown
 # A bare agreement refused before any card has no card or typed row to show for it: if the
-# model stays quiet then too, the turn asks this itself rather than end in silence.
+# model stays quiet then too, the turn says so itself rather than end in silence. It asks
+# no question, so a bare yes after it is still refused: there is still nothing to agree to.
 _UNANCHORED = ("(Nothing was sent: your message only agrees, and nothing was asked. "
-               "What should I do?)")
+               "Say what you want done.)")
 # Typed turns kept in the conversation. Every request resends all of it, so an unbounded
 # session costs more per turn and eventually overflows the context window. Whole turns are
 # dropped from the front, which keeps every tool call next to its result.
