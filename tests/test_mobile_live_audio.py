@@ -731,9 +731,15 @@ def test_a_view_change_while_connecting_goes_in_a_new_handshake():
   $('voice-close').onclick(); // heard by live._hold: a frame, no socket churn
   assert.equal(sockets.length, 3);
   assert.deepEqual(sockets[2].viewing, [false]);
-  say(sockets[2], {type: 'status', status: 'connecting'}); // the retry's connect: unread again
-  [...document.body.children][0].onclick();
-  assert.equal(sockets.length, 4); assert.match(sockets[3].url, /[?&]viewing=1/);
+  // The retry's connect: that frame may have missed live._hold, so the handshake confirms it.
+  say(sockets[2], {type: 'status', status: 'connecting'});
+  assert.equal(sockets.length, 4); assert.match(sockets[3].url, /[?&]viewing=0/);
+  say(sockets[3], {type: 'status', status: 'listening'});
+  say(sockets[3], {type: 'status', status: 'reconnecting'});
+  say(sockets[3], {type: 'status', status: 'connecting'}); // nothing sent while held: kept
+  assert.equal(sockets.length, 4);
+  [...document.body.children][0].onclick(); // unread again: a new handshake
+  assert.equal(sockets.length, 5); assert.match(sockets[4].url, /[?&]viewing=1/);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 
