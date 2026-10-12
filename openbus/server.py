@@ -127,6 +127,10 @@ IMG_MAX_BYTES = (
 # anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
 # telemetry too — this bounds the READ so a huge body can't balloon memory).
 CLIENT_ERROR_MAX_BYTES = 8 * 2**10
+# A boot failure (web/m/index.html's watchdog) also goes to the journal, at most this often,
+# so a reload loop can't flood it; one line is enough to see what broke.
+BOOT_WARN_INTERVAL_S = 10.0
+_boot_warn_after = [0.0]
 _EXT = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -1182,6 +1186,12 @@ async def client_error(request: Request):
         body = ClientErrorBody.model_validate_json(raw)
     except Exception:  # noqa: BLE001 - a malformed report is a 400, not a 500
         raise HTTPException(400, "invalid client-error report") from None
+    # The page is stuck on "couldn't start" with nothing else to go on, and OTel is optional,
+    # so log what broke and on what browser where `journalctl` finds it.
+    if body.kind == "boot" and time.monotonic() >= _boot_warn_after[0]:
+        _boot_warn_after[0] = time.monotonic() + BOOT_WARN_INTERVAL_S
+        logger.warning("client boot failed: %r [%r]", (body.message or "")[:500],
+                       (request.headers.get("user-agent") or "")[:300])
     try:
         telemetry.emit_client_error(
             kind=body.kind,

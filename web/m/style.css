@@ -20,13 +20,14 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple
 html, body { position: fixed; inset: 0; overflow: hidden; }
 /* Until app.js runs, the markup is a skeleton: icon buttons ship empty and both brand rows
    show, since app.js picks the layout. Over a slow tunnel that lasts seconds, so show a
-   plain loading line instead of the half-built chrome. If app.js never runs (a module
-   failed to load, or threw), both flip after 10s, so the page is never stuck on the line. */
-html:not(.booted) #app { visibility: hidden; animation: unveil 0s 10s forwards; }
-#booting { position: fixed; inset: 0; margin: 0; display: grid; place-items: center; color: var(--muted); animation: veil 0s 10s forwards; }
-.booted #booting { display: none; }
-@keyframes unveil { to { visibility: visible; } }
-@keyframes veil { to { visibility: hidden; } }
+   plain loading line instead of the half-built chrome. If app.js never gets there, the
+   watchdog in index.html swaps the line for a Reload button: the skeleton is never shown. */
+html:not(.booted) #app { visibility: hidden; }
+#booting { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--muted); }
+#booting p { margin: 0; }
+#booting button { padding: 0 24px; }
+#booting > :not(:first-child), .boot-failed #booting > :first-child, .booted #booting { display: none; }
+.boot-failed #booting > :not(:first-child) { display: revert; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, a, input, textarea, select { touch-action: manipulation; }
 button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; min-height: 44px; }
