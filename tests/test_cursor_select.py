@@ -108,6 +108,14 @@ def test_a_picker_digest_changes_with_anything_drawn_from_its_prompt_down():
     # A replacement drawn with a colour highlight (no glyph) below the old picker.
     assert picker_digest(wait, "Delay?") != picker_digest(wait + "\nNew?\n  Red", "Delay?")
     assert picker_digest(wait, "Other?") is None
+    # A generic prompt approves whatever its widget shows above it: that is part of it,
+    # and the conversation above the widget's edge is not.
+    asked = "Do you want to proceed?"
+    dialog = SCREEN.replace('Permanently remove "Demo"?', asked)
+    other = dialog.replace("────────────────────", "────────────────────\n rm -rf build")
+    assert picker_digest(dialog, asked) != picker_digest(other, asked)
+    above = dialog.replace("remove it", "drop it")  # a user turn above the widget's edge
+    assert picker_digest(dialog, asked) == picker_digest(above, asked)
 
 
 def test_a_tabbed_panel_the_user_opened_is_not_a_question():

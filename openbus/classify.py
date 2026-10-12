@@ -128,14 +128,19 @@ def drawn_row(visible: str, prompt: str) -> str | None:
 
 
 def picker_digest(text: str, prompt: str) -> str | None:
-    """A hash of a capture's live picker and everything drawn below it, as classify reads
-    the viewport (_visible) but otherwise verbatim: what a cursor
+    """A hash of a capture's live picker, from its widget's top edge (so the command a
+    generic "Do you want to proceed?" approves is part of it) and everything drawn below,
+    as classify reads the viewport (_visible) but otherwise verbatim: what a cursor
     walk's keys are held to (/send). Any change since the parse that recorded it, be it a
     replacement picker however its highlight is drawn or a row's "30s" now "60s", refuses
     them until a reparse; heuristics over the new screen each had a case they missed."""
     visible = _visible(text)
     live = _live_prompt(visible, prompt)
-    return live and hashlib.sha256(visible[live[0].start():].encode()).hexdigest()
+    if not live:
+        return None
+    above, top = _widget_top(visible, live[0].start())
+    start = live[0].start() if top is None else sum(len(row) + 1 for row in above[:top])
+    return hashlib.sha256(visible[start:].encode()).hexdigest()
 
 
 def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
@@ -574,6 +579,14 @@ def _indent(row: str) -> int:
     return len(row) - len(row.lstrip(" \t│┃╎"))
 
 
+def _widget_top(visible: str, at: int) -> tuple[list[str], int | None]:
+    """The whole rows above the row at `at`, and the index among them of its widget's top
+    edge (a rule or a ╭ corner) within 16 rows, or None: then the rows are conversation."""
+    above = visible[:visible.rfind("\n", 0, at) + 1].splitlines()
+    return above, next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
+                        if _WIDGET_TOP_RE.match(above[i])), None)
+
+
 def _widget_text(prompt: str, visible: str) -> str:
     """What a menu asks about, read off its own widget: the rows from the widget's top
     edge down to the prompt (Claude's tool, description, command and any blocking notice)
@@ -596,9 +609,7 @@ def _widget_text(prompt: str, visible: str) -> str:
     if not found:
         return ""
     found = found[-1]
-    above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows
-    top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
-                if _WIDGET_TOP_RE.match(above[i])), None)
+    above, top = _widget_top(visible, found.start())
     below = visible[found.end():end].splitlines()[1:]
     # With no edge the rows are unframed (Codex): only the terminal's padding goes, so
     # a command's own "│" or "━━━" row stays part of the identity. Framed, a rule is the
