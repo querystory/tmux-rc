@@ -654,6 +654,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     cards.set(key, chart);
     const members = panes.filter(p => p.session === key), need = members.filter(needsYou).length;
     const card = el('div', 'atlas-multiple'), head = el('span', 'atlas-multiple-head'), dots = el('div', 'atlas-dots');
+    Object.assign(card, { role: 'group', ariaLabel: `Session ${key}` }); // its panes' buttons are grouped under its name
     head.append(el('b', '', key), el('span', 'fleet-gap'), el('b', '', String(running(liveCounts(members)))), el('span', 'muted', ' running'),
       ...(need ? [el('span', 'atlas-need', `${need} need you`)] : []));
     members.forEach(p => {
