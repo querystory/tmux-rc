@@ -874,7 +874,8 @@ def send(pane_id: str, body: SendBody, request: Request):
         # A rowless send only moves or types search text, so it can never commit a row:
         # no Enter, and a key only a move (the keymap is model output, so it may misread
         # Enter as `next`). Committing is a select's, held to its row below.
-        moves = {keymap.get("next"), keymap.get("prev")} - {None, keymap.get("select")}
+        moves = [key for key in (keymap.get("next"), keymap.get("prev"))
+                 if isinstance(key, str) and key != keymap.get("select")]
         if row is None and (body.enter or (any(c in body.keys for c in "\r\n") if body.literal
                                            else body.keys not in moves)):
             msg = f"{body.keys!r} is not a move in {prompt!r}; nothing was sent."
@@ -894,6 +895,10 @@ def send(pane_id: str, body: SendBody, request: Request):
         keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
         _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
         if isinstance(e, tmux.PaneChangedError):
+            # The watcher reuses a card while its fingerprint holds, and that ignores
+            # repaints (a timer, a cost) the picker digest counts: reread, so a refused
+            # walk can go again on the next parse instead of staying refused.
+            app.state.watcher.request_reparse(pane.id)
             raise HTTPException(409, str(e)) from e
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)

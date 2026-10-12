@@ -159,14 +159,20 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     read = {"tool": "claude", "question": {
         "prompt": "Resume session", "answer_style": "cursor", "options": SESSIONS,
         "selected": 0, "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
-    parsed = classify(PANE, tmux.capture_pane(PANE.id), lambda s, t: read)
-    assert parsed["question"]["highlight"] == SESSIONS[0]
-    server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
-                                               states=[{"pane_id": PANE.id, **parsed}])
+    reparsed = []
+    server.app.state.watcher = SimpleNamespace(request_reparse=reparsed.append)
+
+    def parse():  # the watcher's parse of the screen, with what the model read
+        parsed = classify(PANE, tmux.capture_pane(PANE.id), lambda s, t: read)
+        server.app.state.watcher.states = [{"pane_id": PANE.id, **parsed}]
+        return parsed
+
     def send(keys, *, enter=False, literal=False):
         body = {"keys": keys, "enter": enter, "literal": literal,
                 "on_row": {"prompt": "Resume session", "row": None}}
         return TestClient(server.app).post(f"/api/panes/{PANE.id}/send", json=body).status_code
+
+    assert parse()["question"]["highlight"] == SESSIONS[0]
     assert send("Down") == 200
     assert any("Down" in args for args in sent)
     assert send("harbor", literal=True) == 200  # search text
@@ -174,10 +180,13 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     for refused in (send("Enter"), send("C-c"), send("harbor", literal=True, enter=True),
                     send("harbor\r", literal=True)):
         assert refused == 409
+    assert len(reparsed) == 6  # a refusal rereads too, so the walk is not stuck on it
     read["question"]["keymap"]["next"] = "Enter"  # a misread binding is no move either
-    server.app.state.watcher.states = [{"pane_id": PANE.id, **classify(
-        PANE, tmux.capture_pane(PANE.id), lambda s, t: read)}]
+    parse()
     assert send("Enter") == 409
+    read["question"]["keymap"]["prev"] = ["Up"]  # malformed model output fails closed
+    parse()
+    assert send("Up") == 409
 
 
 MENU = """
