@@ -860,6 +860,8 @@ def send(pane_id: str, body: SendBody, request: Request):
         # for no other: a replaced or redrawn picker, a moved highlight, another pane under
         # a recycled id all change it. A screen that hashes the same takes the key as the
         # walk meant it, which is why nothing about the key, row or pane is checked apart.
+        # The check and the key are two tmux calls: a keystroke at the desk landing between
+        # them is beyond any remote send's reach, and the walk rereads after every step.
         try:
             screen = tmux.capture_pane(pane.id, mark_dim=True)
         except subprocess.CalledProcessError as e:  # closed since find_pane: refuse, reread
