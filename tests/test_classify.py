@@ -1335,7 +1335,8 @@ def test_question_naming_list_items_carries_them():
                 "There are 2 failing tests; should I fix them?", "Shall I fix 2 bugs?",
                 "Want me to fix 2 PRs?", "Should I start at 2 pm?", "Start in 2 minutes?",
                 "Should I upgrade to Python 3?", "Should I fix 1 failing test?",
-                "Python 3 support?", "Do we have 2?", "Set retries to 2?"):
+                "Python 3 support?", "Do we have 2?", "Set retries to 2?", "Set timeout 2?",
+                "The API returned 2. Should I retry?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert "items" not in classify(_pane("claude"), screen, _llm({}))["question"]
     # The parser's own copy of the rows, as buttons or a table keyed by them, goes; other
