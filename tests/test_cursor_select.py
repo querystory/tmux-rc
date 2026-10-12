@@ -253,6 +253,8 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
         # That parse names the rows: one that no longer lists "Yes" refuses it.
         parsed["question"]["options"] = ["No", "Yes  later"]
         assert send("Enter", "Yes").status_code == 409
+        parsed["question"]["options"] = ["Yes", "Yes"]  # which "Yes" was tapped is unknowable
+        assert send("Enter", "Yes").status_code == 409
         parsed["question"]["options"] = ["No", "Yes"]
         parsed["question"]["prompt"] = "Remove the other one?"  # a different picker's parse
         assert send("Enter", "Yes").status_code == 409

@@ -859,7 +859,8 @@ def send(pane_id: str, body: SendBody, request: Request):
         # picker and all below it must be drawn exactly as that parse recorded them (its
         # `picker` digest, captured as the watcher captures). So a picker replaced or
         # changed since takes no key meant for the old one: the walk waits for the reparse.
-        # A select must also be that parse's grounded highlight, with its select key.
+        # A select must also be that parse's grounded highlight, with its select key, and
+        # the only row so named there: of two alike, the tapped one cannot be told apart.
         state = next((s for s in app.state.watcher.states if s.get("pane_id") == pane.id), {})
         question = state.get("question") if isinstance(state.get("question"), dict) else {}
         rows, at = question.get("options"), question.get("selected")
@@ -881,7 +882,7 @@ def send(pane_id: str, body: SendBody, request: Request):
         if row is not None and (
                 question.get("highlight") is None or not isinstance(rows, list)
                 or not isinstance(at, int) or not 0 <= at < len(rows) or rows[at] != row
-                or body.literal or body.keys != keymap.get("select")):
+                or rows.count(row) != 1 or body.literal or body.keys != keymap.get("select")):
             msg = f"The highlight is not on {row!r}; nothing was sent."
             raise tmux.PaneChangedError(msg)
 
