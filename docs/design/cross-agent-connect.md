@@ -415,16 +415,22 @@ at launch.
 the next call fails with "not connected". The stale tool entry stays harmlessly until the
 agent's next restart. Narrowing scopes works the same way, since scope is checked on
 every call. Revocation also cancels that agent's queued messages and open cards, sent
-or received. Both ends' scopes are checked again just before delivery, so nothing
-admitted earlier lands after either side is turned off. Open subscriptions and long
+or received. Revocation and delivery share one linearization point, the recipient
+pane's send lock: delivery checks both ends' scopes again while holding it and types
+before releasing it, and turning Connect off takes each affected pane's lock before it
+returns. So a delivery either finished before the Off took effect, and the toggle
+returns only after it has, or sees the revoked scope and is cancelled. Nothing admitted
+earlier lands after either side is turned off. Open subscriptions and long
 polls held by that agent end at once too, so it receives nothing more. Its cancelled messages
 still get their final outcome in the audit record, where the human sees it, since the
 revoked sender can no longer ask. Granting is slow
 and visible, and taking away is instant. That is the point of authorizing at the server.
 
 **Transport.** The endpoint is MCP over HTTP on the daemon's existing localhost port,
-with the bearer token on every request. Claude Code and Codex both speak it. For a
-stdio-only harness, the agent client's CLI fallback acts as a shim. The token is bound
+with the bearer token on every request. Claude Code and Codex both speak it. A
+stdio-only harness is unsupported: the agent client's `openbus send`/`wait` CLI is a
+command-line fallback, not an MCP server, and no phase builds a stdio-to-HTTP proxy.
+One is small to add if such a harness matters. The token is bound
 to the session, the pane and the process incarnation. Any process of the same user can
 read it, so it gives attribution and guards against mistakes, not against a hostile
 local process, which is the sandbox's job.
