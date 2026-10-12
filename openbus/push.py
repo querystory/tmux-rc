@@ -364,9 +364,10 @@ def claim_question(watcher, pane_id: str, fingerprint: str, generation: int, fra
     question, _ = held_question(watcher, pane_id, fingerprint)
     # The frame hashes the normalized screen plus the question's own rows verbatim, so
     # neither animation nor "sleep 10s" becoming "sleep 20s" fools it.
-    if watcher.frame_fp(tmux.capture_pane(pane_id, mark_dim=True), question) != frame:
+    text = tmux.capture_pane(pane_id, mark_dim=True)
+    if watcher.frame_fp(text, question) != frame:
         raise ValueError("the pending question has changed")
-    watcher.invalidate_input_actions(pane_id)
+    watcher.consume_answer(pane_id, watcher.frame_fp(text), frame)
 
 
 @contextmanager

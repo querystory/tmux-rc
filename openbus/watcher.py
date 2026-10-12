@@ -293,6 +293,8 @@ class Watcher:
         # rollback or a restored snapshot can repeat.
         self._generation_base = secrets.randbits(62)
         self._input_generation_lock = threading.Lock()
+        # pane_id -> (screen, frame) an answer was claimed on (consume_answer).
+        self._answered: dict[str, tuple[str, str]] = {}
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
@@ -582,6 +584,15 @@ class Watcher:
         with self._input_generation_lock:
             self._input_generation[pane_id] = self._input_generation.get(
                 pane_id, self._generation_base) + 1
+
+    def consume_answer(self, pane_id: str, screen: str, frame: str) -> None:
+        """An answer claimed on this capture is about to be sent: invalidate every token,
+        and keep the question it answered consumed until a parse reads it gone. send-keys
+        returning only queues the key, so the reparse that follows can still capture the
+        old menu, and stamping it with the new generation would reissue a token whose
+        digit lands on whatever prompt comes next."""
+        self._answered[pane_id] = screen, frame
+        self.invalidate_input_actions(pane_id)
 
     def note_input(self, pane_id: str) -> None:
         """Record successful push input and schedule a fresh classification."""
@@ -1018,6 +1029,7 @@ class Watcher:
             self._state,
             self._recent_events,
             self._last_dropped,
+            self._answered,
             self.snapshots,
             self._burst,
             self._summary,
@@ -1530,7 +1542,15 @@ class Watcher:
         # The input generation and frame this question was read from, on the state itself
         # so they publish with it: input since (a menu answer above all) or a screen that
         # has moved on leaves the question unanswerable from the app (server.send).
-        state["input_generation"] = generation
         state["frame"] = self.frame_fp(text, state.get("question"))
+        # Until then a parse of the answered screen keeps the consumed generation: the same
+        # normalized screen (its key not drawn yet) or the same question rows (output still
+        # streaming above a menu). Fail-safe: a key the agent ignored, or a successor that
+        # differs only in a duration, waits for the screen to move or the keyboard.
+        if {fp, state["frame"]} & set(self._answered.get(pane.id, ())):
+            generation = (self._state.get(pane.id) or {}).get("input_generation", 0)
+        else:
+            self._answered.pop(pane.id, None)
+        state["input_generation"] = generation
         self._state[pane.id] = state
         return state

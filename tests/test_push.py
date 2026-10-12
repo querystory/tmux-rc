@@ -57,6 +57,9 @@ class Watcher:
     def invalidate_input_actions(self, pane_id):
         self.input_generations[pane_id] = self.pane_input_generation(pane_id) + 1
 
+    def consume_answer(self, pane_id, _screen, _frame):
+        self.invalidate_input_actions(pane_id)
+
     def note_input(self, pane_id):
         self.invalidate_input_actions(pane_id)
         self.request_reparse(pane_id)
@@ -760,6 +763,16 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch, 
     # land a second digit on whatever the first one opened.
     assert tap(token()).status_code == 409
     assert sent == ["1"]
+
+
+def test_only_a_menu_question_carries_an_answer_token(monkeypatch, _screen):
+    """No other answer sends one, and a token that changed on each reparse would re-enable
+    an answered text card's buttons (app.js pendingAnswers) before its reply has landed."""
+    watcher = Watcher()
+    watcher.states = [waiting(held(answer_style="text"))]
+    _, token, _ = _send_app(monkeypatch, watcher)
+    with pytest.raises(KeyError):
+        token()
 
 
 def test_send_compares_a_menu_without_widget_rows_losslessly_too(monkeypatch, _screen):

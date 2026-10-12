@@ -596,8 +596,10 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     # three, and /send refuses it once the pane holds a different ask, has taken input
     # since (a double tap, a second client, a refetch before the reparse lands), or shows
     # a different screen (advanced from the keyboard, its parse not yet published).
+    # Menu questions only: no other answer sends it, and a changed fp would re-enable an
+    # answered text card's buttons (app.js pendingAnswers) before its reply has landed.
     for s in panes:
-        if isinstance(s.get("question"), dict):
+        if isinstance(s.get("question"), dict) and s["question"].get("answer_style") == "menu":
             fp = ":".join((contract(s, s.get("birth"))[0],
                            str(s.get("input_generation", 0)), s.get("frame", "")))
             s["question"] = {**s["question"], "fp": fp}
