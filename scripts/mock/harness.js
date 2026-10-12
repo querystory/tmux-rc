@@ -99,9 +99,10 @@ function boot(M) {
         if (Date.now() > end) throw new Error(`mock-live: ${what} not reached in 10s`);
       }
     };
-    const shown = (sel) => doc.querySelector(sel)?.checkVisibility() && !doc.querySelector(sel).disabled; // as Playwright's actionability
+    // As Playwright waits: a click target visible and enabled, a wait target only visible.
+    const shown = (sel) => doc.querySelector(sel)?.checkVisibility();
     await until(() => doc.documentElement.classList.contains("booted"), "app boot");
-    for (const sel of step.click || []) { await until(() => shown(sel), `visible ${sel}`); doc.querySelector(sel).click(); }
+    for (const sel of step.click || []) { await until(() => shown(sel) && !doc.querySelector(sel).disabled, `clickable ${sel}`); doc.querySelector(sel).click(); }
     if (step.wait) await until(() => shown(step.wait), `visible ${step.wait}`);
     return doc;
   }
@@ -202,7 +203,7 @@ function boot(M) {
   $("#theme").onclick = () => set({ theme: s.theme === "light" ? "dark" : "light" });
   $("#hide").onclick = $("#pill").onclick = () => set({ hidden: !s.hidden });
   $("#title").textContent = document.title = M.title;
-  if (M.note && q.get("note") === "1") $("#note-btn").click();
+  if (q.get("note") === "1") $("#note-btn").click(); // never empty: it always holds the description
   phone.addEventListener("change", render);
   addEventListener("resize", () => {
     $("#ab").disabled = !fits(s.width, innerWidth);

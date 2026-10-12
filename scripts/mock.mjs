@@ -45,10 +45,11 @@ export function manifest(src) {
 // values, scroll offsets, canvas pixels) is written into the markup, the app's scripts are
 // dropped, and its linked stylesheets come back as one string with absolute URLs.
 function snapshot() {
-  for (const el of document.querySelectorAll("input, textarea")) {
+  for (const el of document.querySelectorAll("input")) {
     el.setAttribute("value", el.value);
-    el.toggleAttribute("checked", !!el.checked);
+    el.toggleAttribute("checked", el.checked);
   }
+  for (const el of document.querySelectorAll("textarea")) el.textContent = el.value; // a textarea's markup value is its text
   for (const o of document.querySelectorAll("option")) o.toggleAttribute("selected", o.selected);
   for (const d of document.querySelectorAll("dialog:modal")) d.dataset.mockModal = "";
   // Images are inlined, which would break selectors on their paths (img[src$="-working.svg"]):
