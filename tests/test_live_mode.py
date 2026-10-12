@@ -28,7 +28,7 @@ class _Watcher:
     def digest(self):
         return [
             {"pane_id": "%1", "label": "work", "session": "dev", "window_index": "3",
-             "tool": "claude", "activity": "waiting", "tmux_active": True,
+             "pane_index": "0", "tool": "claude", "activity": "waiting", "tmux_active": True,
              "headline": "asking about tests", "summary": "ran the suite",
              "prs": [{"repo": "querystory/qs-app", "number": 4955}],
              "cwd": "/repo/worktree",
@@ -100,7 +100,7 @@ def test_pane_context_carries_state_and_screens():
     ctx = L._pane_context(w, screens="all")
     # User-facing identity (name · tool, as the list row shows it) leads; the %id is the
     # tool-call handle. Name falls back to label here (stub has no self-published title).
-    assert "work · claude in dev (id=%1) — waiting" in ctx
+    assert '"work · claude in dev" (id=%1) — waiting' in ctx
     assert "ACTIVE" in ctx  # the focused pane is flagged for "here"/"this" resolution
     assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
     assert "PRs this pane has worked on: querystory/qs-app#4955" in ctx
@@ -121,12 +121,12 @@ def test_pane_block_names_window_prefers_title_hides_id_role():
     titled = L._pane_block(
         {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78", "session": "qs",
          "label": "work", "tool": "claude", "activity": "idle"}, None)
-    assert "## Resolve PR 78 · claude in qs (id=%16)" in titled
+    assert '## "Resolve PR 78 · claude in qs" (id=%16)' in titled
     # No self-published title ⇒ fall back to the window label.
     untitled = L._pane_block(
         {"pane_id": "%2", "window_index": "2", "title": None, "label": "shell",
          "tool": "shell", "activity": "running"}, None)
-    assert "## shell · shell (id=%2)" in untitled
+    assert '## "shell · shell" (id=%2)' in untitled
 
 
 def test_pane_name_adds_the_window_only_to_tell_twins_apart():
@@ -160,19 +160,19 @@ def test_pane_block_idle_age_suffix():
     assert L._fmt_age(3 * 3600 + 5) == "3h" and L._fmt_age(86400 * 2 + 30) == "2d"
 
 
-def test_pane_block_collapses_name_newlines():
-    # A title with newlines must not split the heading.
+def test_pane_block_quotes_the_name_and_collapses_newlines():
+    # A terminal-set title must not split the heading or close its quotes to forge an id.
     b = L._pane_block(
         {"pane_id": "%1", "window_index": "0", "title": 'fix "the" bug\nnow',
          "tool": "claude", "activity": "idle"}, None)
     head = b.splitlines()[0]
-    assert head == '## fix "the" bug now · claude (id=%1) — idle'
+    assert head == '## "fix \\"the\\" bug now · claude" (id=%1) — idle'
 
 
 def test_system_prompt_has_rules_and_panes():
     p = L._system_prompt(_Watcher())
     assert "type_in_pane" in p  # the tool contract is in the instructions
-    assert "# Panes (live state)" in p and "work · claude in dev (id=%1)" in p
+    assert "# Panes (live state)" in p and '"work · claude in dev" (id=%1)' in p
 
 
 def test_cwd_cannot_introduce_fake_pane_prompt_lines():
@@ -385,7 +385,7 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
     fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
     _run(L._handle_tool_call(ws, _Session(), fc, Titled(), meter))
     assert ws.sent[0]["text"] == "Type (no Enter) into Prevent leaks · claude in dev: draft"
-    assert audits[-1]["target"] == "dev:3"  # the tmux address: the audit's alone
+    assert audits[-1]["target"] == "dev:3.0"  # the tmux address: the audit's alone
 
 
 def test_text_session_prompt_labels_relays_as_typed():
@@ -800,9 +800,9 @@ def test_connect_snapshot_screen_budget():
     assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400 + MARKER_SLACK
     # Priority: the ACTIVE pane always keeps its screen, however it sorts in digest
     # order; the longest-idle pane is the first to lose its own.
-    active_block = ctx.split("## p29 ")[1]
+    active_block = ctx.split('## "p29 ')[1]
     assert "screen:" in active_block.split("##")[0]
-    idlest_block = ctx.split("## p28 ")[1]  # idle_seconds=2800, the stalest
+    idlest_block = ctx.split('## "p28 ')[1]  # idle_seconds=2800, the stalest
     assert "screen:" not in idlest_block.split("##")[0]
 
 

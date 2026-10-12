@@ -236,7 +236,7 @@ def _pane_name(d: dict, digest: list[dict] = ()) -> str:
     and Open button read the same as the reply above them. The window number (the row's
     small print, "Window 7") is added only when another pane in `digest` reads the same, so
     two "tests" panes stay tellable apart. Splits of one window share even that, as their
-    rows do; the card's Open button shows which, and the audit has the pane id. Newlines
+    rows do; the card's Open button shows which, and the audit has the pane address. Newlines
     collapse so a stray title can't split the heading."""
     def base(p: dict) -> str:
         name = " ".join(str(p.get("title") or p.get("label") or p.get("pane_id") or "").split())
@@ -293,7 +293,9 @@ def _pane_block(d: dict, screen: str | None, digest: list[dict] = ()) -> str:
     """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
     leads with the user-facing identity (_pane_name) and gives the internal pane id only
     as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
-    head = f"{_pane_name(d, digest)} (id={d['pane_id']}) — {d.get('activity') or 'unknown'}"
+    # Quoted and escaped: the name is terminal-set text, and must not forge an id or a flag.
+    name = json.dumps(_pane_name(d, digest), ensure_ascii=False)
+    head = f"{name} (id={d['pane_id']}) — {d.get('activity') or 'unknown'}"
     # Idle AGE, not just the state: "idle for 2d" and "idle for 40s" are different routing
     # candidates — the prompt tells the model a long-idle pane is rarely where a new
     # instruction is destined (see live_prompt's targeting ladder).
@@ -458,7 +460,8 @@ async def _approved(
     known, pane = d is not None, pane_id
     if known:  # named as the prompt names it, so the card matches the reply above it; the
         # tmux address it means goes to the audit alone
-        pane, rec["target"] = _pane_name(d, digest), f"{d.get('session')}:{d.get('window_index')}"
+        pane, rec["target"] = _pane_name(d, digest), (
+            f"{d.get('session')}:{d.get('window_index')}.{d.get('pane_index')}")
     # "" when the lookup finds no process: it matches no pane, so the send is refused
     # rather than going out unguarded (None would mean "don't check").
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None

@@ -15,7 +15,7 @@ the tools. Never dead-end with "I can't see that": not finding an answer on scre
 a cue to go get it from the agent, not to stop. A question is answered or chased down,
 never left hanging.
 
-Each pane is listed as `<title> · <tool> in <session> (id=%N)`. Two names, two jobs:
+Each pane is listed as `"<title> · <tool> in <session>" (id=%N)`. Two names, two jobs:
 the title, tool and session are what the user sees on their screen — refer to a pane
 by its title, adding its tool or session only when titles repeat ("the codex one in
 qs-app"). The `id=%N` is an internal handle for the tools only: pass it as
