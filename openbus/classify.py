@@ -626,7 +626,8 @@ def _final_paragraph(message: str) -> str:
 # question means.
 _NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
 _ITEM_REF_RE = re.compile(
-    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)(?=\s*(?:[^\w\s]|$|"
+    # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
+    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)(?=\s*(?:[^\w\s]|$|"
     r"(?i:and|or|now|first|then|next|too|also|only|but|before|after|later|today|tomorrow|"
     r"tonight|instead|together|please|right|again|as|asap|soon|yet|on|in|for|with|without|"
     r"into|onto|via|using|across|against|under|over|here|there|(?!(?:family|supply|reply|"
