@@ -90,7 +90,10 @@ def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
         calls.append(q)
         if "author:@me archived:false updated:>=" in q and len(calls) == 1:
             return "<html>502 Bad Gateway</html>"  # GitHub's answer to a slow search
-        s = ({"issueCount": 4} if "updated:<" in q
+        old_asked = [{"number": n, "repository": {"nameWithOwner": REPO}} for n in (5, 6)]
+        s = ({"pageInfo": {}, "nodes": old_asked} if "review-requested:@me archived:false updated:<"
+             in q
+             else {"issueCount": 4} if "updated:<" in q
              else {"pageInfo": {"hasNextPage": False}, "nodes": [node(3)]} if 'after: "c1"' in q
              else {"pageInfo": {"hasNextPage": True, "endCursor": "c1"}, "nodes": [node(1), {}]}
              if "author:@me archived:false updated:>=" in q
@@ -99,7 +102,8 @@ def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
              else None)
         refs = {"r0": None, "r1": {"issueOrPullRequest": None},
                 "r2": {"issueOrPullRequest": node(2, author="lee")},
-                "r3": {"issueOrPullRequest": node(5, author="lee", updated=30 * 86400)}
+                "r3": {"issueOrPullRequest": node(5, author="lee", updated=30 * 86400)},
+                "r4": {"issueOrPullRequest": node(7, author="lee", updated=30 * 86400)}
                 } if s is None else {"s": s}
         assert ("fragment P" in q) == ("...P" in q)  # an unused fragment is a GraphQL error
         return json.dumps({"data": {"viewer": {"login": "dev"}, **refs},
@@ -107,8 +111,9 @@ def test_fetch_pages_retries_and_keeps_partial_data(monkeypatch):
 
     monkeypatch.setattr(open_loops, "run_gh", gh)
     got = fetch_github([(REPO, 9)], NOW)
-    # 4 + 4 from the counts, and #5: old, referenced, neither the viewer's nor asked of them.
-    assert got["older"] == 9 and sorted(p["number"] for p in got["prs"]) == [1, 2, 3, 5]
+    # 4 of yours, #5 and #6 asked of you (#5 a pane's reference too, counted once), and #7:
+    # old, referenced, neither yours nor asked of you.
+    assert got["older"] == 7 and sorted(p["number"] for p in got["prs"]) == [1, 2, 3, 5, 7]
     assert next(p for p in got["prs"] if p["number"] == 1)["asked"]
     assert len(calls) == 8  # mine twice (a retry), page 2, asked, merged, refs, two counts
 
@@ -120,7 +125,8 @@ def test_a_stack_parent_nobody_searched_for_is_looked_up(monkeypatch):
         q = args[-1]
         if "pullRequests(headRefName" in q:
             asked.append(q)
-            parent = [node(40, author="lee", base="feat/39")] if '"feat/40"' in q else []
+            parent = [node(90, author="kim", head="feat/40", head_repo="kim/shop-api"),
+                      node(40, author="lee", base="feat/39")] if '"feat/40"' in q else []
             return json.dumps({"data": {"viewer": {"login": "dev"},
                                         "r0": {"pullRequests": {"nodes": parent}}}})
         mine = [node(41, base="feat/40")] if "author:@me archived:false updated:>=" in q else []
@@ -130,7 +136,7 @@ def test_a_stack_parent_nobody_searched_for_is_looked_up(monkeypatch):
     monkeypatch.setattr(open_loops, "run_gh", gh)
     got = fetch_github([], NOW)
     assert sorted(p["number"] for p in got["prs"]) == [40, 41]
-    assert len(asked) == 2  # feat/40 found its PR; feat/39 was asked once and found none
+    assert len(asked) == 2  # feat/40 found its PR past a fork's; feat/39 found none
     lanes = build({**got, "prs": [{**p, "checks": "FAILURE"} for p in got["prs"]]}, [], [], NOW)
     assert [g["workstream"]["id"] for g in lanes["lanes"]["dropped"]] == [f"{REPO}#40"]
 

@@ -70,7 +70,10 @@ months. Listing them all as "no activity" would bury the dozen that dropped this
 Open PRs and worktrees idle past fourteen days are counted (`older_open_prs`,
 `older_worktrees`), not listed, so nothing disappears silently. The two counting searches
 see only PRs you wrote or were asked to review, so an old PR fetched only because a pane
-names it, or as a stack's parent, is added to the count by hand. A worktree's last activity
+names it, or as a stack's parent, is added to the count by hand. Yours are a bare count,
+since a PR's author is known exactly; the old asked come back by name, because a request
+to one of your teams names no login to match a pane's reference against, and a guess
+would count the same PR twice. A worktree's last activity
 is the later of its last commit or staging and the last edit to a file still uncommitted,
 untracked files included, so an old branch with fresh edits is not mistaken for abandoned.
 
@@ -107,7 +110,8 @@ and is right whenever it fires, so it runs first; a parent that no search return
 teammate's PR, or one of yours from before the horizon) is looked up by its head branch,
 up to three levels toward the root, so the stack still finds its root's name. A fork PR's
 head is a branch of another repository that may share a name with one here, so it is
-never taken for a stack's base or a local worktree's branch. The other signals only name or merge
+never taken for a stack's base or a local worktree's branch, and a parent lookup skips a
+fork's PR that shares the head name. The other signals only name or merge
 whole stacks. A `workstream:<name>` label on any PR in a stack names it, and stacks (in
 any repository) with the same label become one workstream: this is how a design doc and
 its implementation, or work across repositories, come together. Last, an optional

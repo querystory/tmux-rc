@@ -40,7 +40,7 @@ MAX_STAT = 200  # uncommitted files whose mtimes date a worktree's last activity
 FIELDS = """number title url isDraft state updatedAt mergedAt author { login }
 baseRefName headRefName mergeable reviewDecision headRepository { nameWithOwner }
 repository { nameWithOwner defaultBranchRef { name } }
-reviewRequests(first: 10) { nodes { requestedReviewer { __typename ... on User { login } } } }
+reviewRequests(first: 10) { nodes { requestedReviewer { __typename } } }
 latestReviews(first: 10) { nodes { author { __typename login } state submittedAt } }
 commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
 baseRef { associatedPullRequests(states: MERGED, first: 1) { totalCount } }
@@ -55,6 +55,13 @@ def _ts(stamp: str | None) -> float:
     return datetime.fromisoformat(stamp).timestamp() if stamp else 0.0
 
 
+def _fork(node: dict) -> bool:
+    """A fork's head names a branch in another repository (or a deleted one): it can share
+    a name with a branch here, so it never stands for a local branch or a stack's base."""
+    return (node.get("headRepository") or {}).get("nameWithOwner") != \
+        node["repository"]["nameWithOwner"]
+
+
 def _pr(node: dict) -> dict:
     commit = ((node["commits"]["nodes"] or [{}])[0]).get("commit") or {}
     default = (node["repository"].get("defaultBranchRef") or {}).get("name")
@@ -67,18 +74,13 @@ def _pr(node: dict) -> dict:
         "author": (node.get("author") or {}).get("login"), "draft": node["isDraft"],
         "updated_at": _ts(node["updatedAt"]), "merged_at": _ts(node.get("mergedAt")),
         "base": node["baseRefName"], "head": node["headRefName"], "stacked": stacked,
-        # A fork's head names a branch in another repository (or a deleted one): it can share
-        # a name with a branch here, so it never stands for a local branch or a stack's base.
-        "fork": (node.get("headRepository") or {}).get("nameWithOwner") !=
-                node["repository"]["nameWithOwner"],
+        "fork": _fork(node),
         "mergeable": node.get("mergeable"), "decision": node.get("reviewDecision"),
         "checks": (commit.get("statusCheckRollup") or {}).get("state"),
         "committed_at": _ts(commit.get("committedDate")),  # not the push: GitHub keeps no such date
         # A bot (a Copilot review, say) is not a reviewer a person will answer for.
         "reviewers": sum(r["requestedReviewer"].get("__typename") in ("User", "Team")
                          for r in node["reviewRequests"]["nodes"] if r["requestedReviewer"]),
-        "requested": [r["requestedReviewer"].get("login")
-                      for r in node["reviewRequests"]["nodes"] if r["requestedReviewer"]],
         "reviews": [{"by": r["author"]["login"], "state": r["state"],
                      "at": _ts(r["submittedAt"])} for r in humans],
         "labels": [x["name"].removeprefix("workstream:") for x in node["labels"]["nodes"]
@@ -129,13 +131,18 @@ def requests(refs: list[tuple[str, int]], now: float):
     # issueOrPullRequest, not pullRequest: a number that names an issue is just null.
     yield from _lookups([(repo, f"issueOrPullRequest(number: {int(num)}) {{ ...P }}")
                          for repo, num in refs])
-    for who in (mine, asked):  # disjoint: nobody can be asked to review their own PR
-        q = f"{who} updated:<{horizon}"
-        yield "older", f's: search(type: ISSUE, first: 0, query: "{q}") {{ issueCount }}'
+    # Disjoint: nobody can be asked to review their own PR. Yours are a count, since an old
+    # PR's author is known exactly; the asked come back by name, so an old PR a pane refers
+    # to can be told apart from them (a team's request names no login to match).
+    q = f"{mine} updated:<{horizon}"
+    yield "older", f's: search(type: ISSUE, first: 0, query: "{q}") {{ issueCount }}'
+    yield "older", (f's: search(type: ISSUE, first: {PAGE}, query: "{asked} updated:<{horizon}"'
+                    f'{AFTER}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ ... on PullRequest '
+                    '{ number repository { nameWithOwner } } } }')
 
 
 def fetch_github(refs: list[tuple[str, int]], now: float, stopping: Event | None = None) -> dict:
-    prs, older, truncated, data = {}, 0, False, {}
+    prs, older, truncated, data, counted = {}, 0, False, {}, set()
 
     def run(tag, body):
         nonlocal older, truncated, data
@@ -145,12 +152,17 @@ def fetch_github(refs: list[tuple[str, int]], now: float, stopping: Event | None
             result = data.get("s") or {}
             older += result.get("issueCount", 0)
             looked = [v for k, v in data.items() if k.startswith("r") and v]
+            # A stack parent is the newest of the PRs with that head that is not a fork's.
             for node in result.get("nodes") or [
-                    n for v in looked for n in [v.get("issueOrPullRequest"),
-                                                *(v.get("pullRequests") or {}).get("nodes", [])]]:
+                    n for v in looked for n in [v.get("issueOrPullRequest"), *[
+                        p for p in (v.get("pullRequests") or {}).get("nodes", [])
+                        if not _fork(p)][:1]]]:
                 if node and "number" in node:  # an issue matches the fragment as {}
-                    pr = prs.setdefault((node["repository"]["nameWithOwner"].lower(),
-                                         node["number"]), _pr(node))
+                    key = (node["repository"]["nameWithOwner"].lower(), node["number"])
+                    if tag == "older":
+                        counted.add(key)
+                        continue
+                    pr = prs.setdefault(key, _pr(node))
                     pr["asked"] = pr.get("asked") or tag == "asked"
             page = result.get("pageInfo") or {}
             if not page.get("hasNextPage"):
@@ -168,15 +180,16 @@ def fetch_github(refs: list[tuple[str, int]], now: float, stopping: Event | None
         bases = list(dict.fromkeys((p["repo"], p["base"]) for p in prs.values()
                                    if p["stacked"] and (p["repo"].lower(), p["base"]) not in heads))
         tried |= {(repo.lower(), base) for repo, base in bases}
-        newest = "first: 1, orderBy: {field: UPDATED_AT, direction: DESC}"
+        newest = "first: 5, orderBy: {field: UPDATED_AT, direction: DESC}"  # forks may share it
         parent = "pullRequests(headRefName: %s, " + newest + ") { nodes { ...P } }"
         for tag, body in _lookups([(repo, parent % json.dumps(base)) for repo, base in bases]):
             run(tag, body)
-    # The older counts search only the viewer's and the asked: an old PR a pane refers to (or
-    # a stack's parent) is neither, so count it here rather than let it vanish.
+    # The older searches find only the viewer's and the asked: an old PR a pane refers to (or
+    # a stack's parent) may be neither, so count it here rather than let it vanish.
     viewer = data["viewer"]["login"]
-    older += sum(p["state"] == "OPEN" and p["updated_at"] < now - HORIZON and
-                 p["author"] != viewer and viewer not in p["requested"] for p in prs.values())
+    older += len(counted) + sum(p["state"] == "OPEN" and p["updated_at"] < now - HORIZON and
+                                p["author"] != viewer and key not in counted
+                                for key, p in prs.items())
     return {"viewer": viewer, "older": older, "truncated": truncated,
             "prs": list(prs.values())}
 
