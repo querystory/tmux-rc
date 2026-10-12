@@ -22,7 +22,6 @@ JSON. It then scores the candidate against the sample's blessed `expected`:
   FREE-TEXT fields (LLM-as-judge) — `headline` is prose; exact-match would be noise.
   A second Vertex call (temperature 0) rules PASS/FAIL on whether the candidate
   headline captures the SAME situation as the expected one, given the screen.
-  Concrete expected tables also require every referenced edit to survive in the output.
   An expected `question.ask` (the plain restatement of an approval prompt) is judged the
   same way: same most consequential effect, destructive steps named, no command text.
 
@@ -163,7 +162,8 @@ def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     model that says "cursor" with a wrong anchor selects the WRONG SESSION — silently,
     and with an eval that was still green. Scored only where a sample asks for it, since
     most screens have nothing to say about either. `context` (the widget rows classify()
-    reads around a menu's prompt) is pinned the same way, as an exact string; an `ask`
+    reads around a menu's prompt) and `items` (the list rows a typed question names by
+    number) are pinned the same way, exactly; an `ask`
     pinned null asserts a menu is NOT restated (a present one is left to the judge)."""
     if field is None:
         return None
@@ -212,7 +212,8 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
     # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
-    extra = tuple(k for k in ("selected", "keymap", "context", "ask")  # ask: only its absence
+    extra = tuple(k for k in ("selected", "keymap", "context", "items",
+                              "ask")  # ask: only its absence
                   if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
@@ -232,13 +233,11 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     presence = {k: candidate.get(k) for k in ("rewind", "tasks", "copyables")}
     # `tables` is presence too, but OPT-IN — scored only on a sample that names it. Most
     # screens have no table and take no position, so scoring it everywhere would newly fail
-    # existing samples on a field they were never blessed against. Naming it is the claim,
-    # and the claim is "the question refers to a list, so the list has to travel with it or
-    # the phone asks about items it never showed". So score what the PHONE would RENDER,
-    # not bare truthiness: app.js draws a table only where `rows` is an ARRAY (and an empty
-    # one carries no list), and nothing validates this field — the model answers under a
-    # mime type, not a schema — so a string, a {} or `rows: "1. do the thing"` would
-    # otherwise score as a list that travelled when the phone would show none.
+    # existing samples on a field they were never blessed against. Score what the PHONE
+    # would RENDER, not bare truthiness: app.js draws a table only where `rows` is an
+    # ARRAY (and an empty one carries no rows), and nothing validates this field — the
+    # model answers under a mime type, not a schema — so a string, a {} or `rows: "x"` would
+    # otherwise score as a table the phone would never show.
     if "tables" in expected:
         tables = candidate.get("tables")
         valid = tables is None or (isinstance(tables, list) and all(
@@ -290,11 +289,8 @@ _JUDGE_SYSTEM = (
     "the expected one? Be lenient on wording, phrasing, and length — different words "
     "for the same situation PASS. Fail only if the candidate headline is about a "
     "materially DIFFERENT situation, is misleading, or contradicts the screen. If "
-    "neither side has a headline, that check passes. When expected_tables is provided, "
-    "ALSO check that candidate_tables contains every expected edit with its meaning "
-    "intact. Ignore wording and table layout, but FAIL for missing edits or unrelated "
-    "rows substituted for the referenced edits. Both headline and table content must "
-    "pass. When expected_ask is provided, ALSO judge candidate_ask, the card's plain "
+    "neither side has a headline, that check passes. When expected_ask is provided, "
+    "ALSO judge candidate_ask, the card's plain "
     "restatement of an approval prompt: it must be one short plain-English sentence "
     "(about 120 characters at most) ending in a question such as 'Continue?', say what "
     "approving actually does with the SAME most consequential effect as expected_ask, "
@@ -321,10 +317,6 @@ def judge_freetext(sample: Sample, candidate: dict, llm_fn) -> tuple[bool, str]:
         got_q = candidate.get("question")
         fields["expected_ask"] = want_q["ask"]
         fields["candidate_ask"] = got_q.get("ask") if isinstance(got_q, dict) else None
-    # A boolean asserts presence only; concrete expected tables also assert meaning.
-    if isinstance(sample.expected.get("tables"), list):
-        fields["expected_tables"] = sample.expected["tables"]
-        fields["candidate_tables"] = candidate.get("tables")
     payload = json.dumps(fields, ensure_ascii=False)
     reply = llm_fn(_JUDGE_SYSTEM, payload)
     if not isinstance(reply, dict) or reply.get("verdict") not in ("PASS", "FAIL"):
