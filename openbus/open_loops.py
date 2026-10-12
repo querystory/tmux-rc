@@ -237,9 +237,12 @@ def _worktree(path: str, branch: str, repo: str | None) -> dict | None:
                 next(rest, None)
     # An upstream that is pushed and then deleted (gone) almost always went on merge: its
     # commits live in main now even though no remote ref holds them. A detached HEAD is a
-    # scratch merge or a bisect, not a branch of work.
-    unpushed = 0 if "[gone]" in header or not branch else int(
-        (_git("-C", path, "rev-list", "--count", "HEAD", "--not", "--remotes") or "0").strip())
+    # scratch merge or a bisect, not a branch of work. An unborn branch has nothing to push.
+    count = "0" if "[gone]" in header or not branch or "No commits yet" in header else _git(
+        "-C", path, "rev-list", "--count", "HEAD", "--not", "--remotes")
+    if count is None:  # failed, not zero: the previous scan's row stands in
+        return None
+    unpushed = int(count.strip())
     return {"path": path, "repo": repo, "branch": branch, "unpushed": unpushed,
             "dirty": len(changed), "active_at": _active_at(path, changed)}
 

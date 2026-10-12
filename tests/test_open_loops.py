@@ -167,6 +167,13 @@ def test_a_failed_git_listing_keeps_the_previous_rows(monkeypatch):
     assert scan_worktrees(["/wt/drift"], previous=before) == before[:1]
     monkeypatch.setattr(open_loops, "_git", lambda *a: None)  # discovery fails too
     assert scan_worktrees(["/wt/drift/src"], previous=before) == before[:1]
+    # Status works but the unpushed count fails: a failure, not zero commits to push.
+    git = {"status": "## spike...origin/spike\0", "rev-list": None}
+    monkeypatch.setattr(open_loops, "_git", lambda *a: next(
+        (v for k, v in git.items() if k in a), None))
+    assert open_loops._worktree("/wt/drift", "spike", REPO) is None
+    git["status"] = "## No commits yet on fresh\0"  # unborn: nothing to count, nothing failed
+    assert open_loops._worktree("/wt/drift", "fresh", REPO)["unpushed"] == 0
 
 
 def test_a_new_association_refreshes_early(monkeypatch):
