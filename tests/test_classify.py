@@ -1458,3 +1458,35 @@ def test_question_not_below_an_empty_input_box_stands(screen, prompt):
     result = classify(_pane("claude"), f"\x1e[visible screen]\x1f\n{screen}", _llm({
         "tool": "claude", "question": {"prompt": prompt, "answer_style": "cursor"}}))
     assert result["question"]["prompt"] == prompt
+
+
+_PANEL = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ◐ medium · /effort ▔
+   Settings  Status   Config   Usage   Stats
+
+   ╭──────────────────────╮
+   │ ⌕ Search settings…   │
+   ╰──────────────────────╯
+
+   ❯ Auto-compact                true
+     Theme                       Auto (match terminal) ›
+
+   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear"""
+
+
+def test_a_tabbed_panel_the_user_opened_is_not_a_question():
+    asking = {"tool": "claude", "activity": "waiting", "waiting_on": "user", "question": {
+        "prompt": "Search settings…", "answer_style": "cursor", "options": ["Auto-compact"]}}
+    result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{_PANEL}", lambda s, t: asking)
+    assert "question" not in result
+    assert result["activity"] == "idle"
+    # A failed parse of the same panel is grounded by it too: idle, and not reparsed.
+    failed = {"tool": "claude", "activity": "unknown", "parse_ok": False}
+    result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{_PANEL}", lambda s, t: failed)
+    assert (result["activity"], "parse_ok" in result) == ("idle", False)
+    # Only while its own footer is the last row: a later dialog below a lookalike asks.
+    ruled, boxed = "────────\n Proceed?\n ❯ No\n   Yes", "╭─────╮\n│ Proceed? │\n│ ❯ No │\n╰─────╯"
+    for dialog in (ruled, boxed):
+        later = {"tool": "claude", "question": {"prompt": "Proceed?", "answer_style": "cursor",
+                                                "options": ["No", "Yes"]}}
+        text = f"{tmux.VISIBLE_SCREEN}\n{_PANEL}\n{dialog}"
+        assert "question" in classify(_pane("claude"), text, lambda s, t, q=later: q)

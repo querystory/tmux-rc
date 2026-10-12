@@ -78,6 +78,14 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
+# A tab strip under a dialog's top rule ("Settings  Status  Config  Usage  Stats") is a
+# panel the user opened and is browsing (/config, /plugin). The agent is not asking: a row
+# there toggles a setting or opens a page and the panel stays, so it is no question. Only
+# while it is still open: the screen's last row is its own footer ("… ↑ to tabs · Esc to
+# clear"), not that of any later dialog, framed or ruled, drawn below a lookalike.
+_TABBED_PANEL_RE = re.compile(r"▔{3,}.*\n[ \t]*\w+(?:[ \t]{2,}\w+){3,}[ \t]*\n"
+                              r"[\s\S]*\bto tabs\b.*\s*\Z")
+
 # The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
 # at its input box, so every row under it is status/footer chrome (Claude's welcome
 # session list included), never a question. A real picker replaces the box with a ❯ cursor.
@@ -975,6 +983,13 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
+    if result.get("tool") == "claude" and _TABBED_PANEL_RE.search(visible):
+        # Authoritative over the model, a failed parse included: the screen is a settings
+        # panel, so nothing is asked. Only a turn the model saw still running stays running.
+        result.pop("question", None)
+        result.pop("parse_ok", None)
+        if result.get("activity") != "running":
+            result["activity"] = "idle"
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
