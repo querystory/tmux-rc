@@ -1134,17 +1134,19 @@ def classify(
             question.pop(key, None)
         # A question with no style is answered as text (models.py), so it may name rows.
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
-        # A menu answer is its row's digit, so a menu's prompt sits above its last "1." row:
-        # with no such row, or the prompt only below it (a bare [y/N] under numbered output
-        # reads a typed line) or on it ("1. Continue? [y/N]"), there is no digit to press,
-        # so it is answered as text. A match below the row may also be an option's own
-        # words, wrapped or not, so any match above it counts, even across a numbered list
-        # in the command it shows. This check, not the parser prompt's "or is a y/n
-        # confirmation", is the authority: the eval measured every rewording of the prompt
-        # regressing others.
-        firsts = [m.start() for m in _FIRST_OPTION_RE.finditer(visible)]
-        found = [m.start() for m in _occurrences(asked, visible)] if asked else []
-        if style == "menu" and (not firsts or (found and min(found) >= firsts[-1])):
+        # A menu answer is its row's digit, so a menu shows its prompt above its last option
+        # row. A prompt only on that row ("1. Continue? [y/N]"), below it (a bare [y/N]
+        # under numbered output reads a typed line), or nowhere has no digit to press, so it
+        # is answered as text. The last match counts, so an older copy of the same prompt
+        # vouches for nothing, and a match inside an option's words ("1. Repeat “Which
+        # action?”") is the option's, not the prompt. This check, not the parser prompt's
+        # "or is a y/n confirmation", is the authority: the eval measured every rewording
+        # of the prompt regressing others.
+        rows = list(_OPTION_ROW_RE.finditer(visible))
+        said = [m for m in (_occurrences(asked, visible) if asked else [])
+                if not any(r.end(1) < m.start() < r.end() for r in rows)]
+        if style == "menu" and (not _FIRST_OPTION_RE.search(visible) or not said
+                                or said[-1].start() >= rows[-1].start()):
             # The menu's labels ("Yes") are no answer for a line prompt that reads "y":
             # without buttons the user types exactly what the screen asks for.
             style = question["answer_style"] = "text"

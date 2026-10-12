@@ -1046,6 +1046,12 @@ def test_menu_without_a_digit_row_is_answered_as_text():
             "prompt": prompt, "answer_style": "menu", "options": ["Yes", "No"]}}))
         assert result["question"]["answer_style"] == "text"
         assert "options" not in result["question"]  # "Yes" + Enter is no answer to [y/N]
+    # An older copy of the prompt, or none at all, vouches for nothing.
+    for screen, prompt in (("Continue?\n1. Yes\n2. No\n1. Built\nContinue? [y/N] ", "Continue?"),
+                           ("1. Built\nReally? [y/N] ", "Continue?")):
+        result = classify(_pane(), screen, _llm({"question": {
+            "prompt": prompt, "answer_style": "menu", "options": ["Yes", "No"]}}))
+        assert result["question"]["answer_style"] == "text"
     # An option that repeats the question, on its row or wrapped below it, is no prompt.
     for screen in ("1. Repeat “Which action?”", "1. Repeat\n   Which action?"):
         result = classify(_pane(), f"Which action?\n{screen}\n2. Stop", _llm({"question": {
@@ -1054,8 +1060,9 @@ def test_menu_without_a_digit_row_is_answered_as_text():
 
 
 def test_menu_command_becomes_context_not_paste_action():
-    result = classify(_pane(), "git apply patch.diff\n1. Yes\n2. No", _llm({
-        "question": {"prompt": "Allow?", "answer_style": "menu", "options": ["Yes", "No"]},
+    # A cursor picker: a numbered menu would read the command as its widget's context.
+    result = classify(_pane(), "Allow?\ngit apply patch.diff\n❯ Yes\n  No", _llm({
+        "question": {"prompt": "Allow?", "answer_style": "cursor", "options": ["Yes", "No"]},
         "copyables": [{"label": "Command", "text": "git apply patch.diff"}],
     }))
     assert "copyables" not in result
