@@ -614,19 +614,21 @@ def _final_paragraph(message: str) -> str:
 
 # A numbered list row (inside any frame), and a number a prompt names: "do 1 please",
 # "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A reference is followed
-# by punctuation, the end, or a word that cannot be counted ("now", "please", "and", an -ly
-# adverb such as "separately"); any other word is what a count counts ("1 failing test",
-# "2 PRs", "2 pm", "Python 3 support"). A determiner, copula, verb of having, time
-# preposition, assignment ("to", "="), name or "version" before it marks a count, value,
-# time or version too ("there are 2", "the 7", "do we have 2?", "at 2", "set retries to
-# 2?", "upgrade to Python 3?"). Precision beats
-# recall: a missed reference leaves the bare question the card showed before, while a
-# count read as a reference would show an unrelated row as what the question means.
+# by punctuation, the end, or a word that cannot be counted: "now", "please", "and", a
+# preposition opening a modifier ("1 and 2 on staging"), an -ly adverb ("separately"). Any
+# other word is what a count counts ("1 failing test", "2 PRs", "2 pm", "Python 3
+# support"). A determiner, copula, verb of having, time preposition, assignment ("to",
+# "="), name or "version" before it marks a count, value, time or version too ("there are
+# 2", "the 7", "do we have 2?", "at 2", "set retries to 2?", "upgrade to Python 3?").
+# Precision beats recall: a missed reference leaves the bare question the card showed
+# before, while a count read as a reference would show an unrelated row as what the
+# question means.
 _NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
 _ITEM_REF_RE = re.compile(
     r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)(?=\s*(?:[^\w\s]|$|"
     r"(?i:and|or|now|first|then|next|too|also|only|but|before|after|later|today|tomorrow|"
-    r"tonight|instead|together|please|right|again|as|asap|soon|yet|(?!(?:family|supply|reply|"
+    r"tonight|instead|together|please|right|again|as|asap|soon|yet|on|in|for|with|without|"
+    r"into|onto|via|using|across|against|under|over|here|there|(?!(?:family|supply|reply|"
     r"ally|rally|assembly|anomaly|daily|weekly|monthly|yearly)\b)[a-z]+ly)\b))")
 _COUNT_BEFORE_RE = re.compile(
     r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
