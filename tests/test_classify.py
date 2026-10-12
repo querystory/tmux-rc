@@ -1479,8 +1479,9 @@ def test_a_tabbed_panel_the_user_opened_is_not_a_question():
     result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{_PANEL}", lambda s, t: asking)
     assert "question" not in result
     assert result["activity"] == "idle"
-    # A failed parse of the same panel is grounded by it too: idle, and not reparsed.
-    failed = {"tool": "claude", "activity": "unknown", "parse_ok": False}
+    # A failed parse of the same panel is grounded by it too: idle (not the running it
+    # carried over), and not reparsed.
+    failed = {"tool": "claude", "activity": "running", "parse_ok": False}
     result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{_PANEL}", lambda s, t: failed)
     assert (result["activity"], "parse_ok" in result) == ("idle", False)
     # Only while its own footer is the last row: a later dialog below a lookalike asks.

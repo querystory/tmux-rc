@@ -985,10 +985,10 @@ def classify(
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     if result.get("tool") == "claude" and _TABBED_PANEL_RE.search(visible):
         # Authoritative over the model, a failed parse included: the screen is a settings
-        # panel, so nothing is asked. Only a turn the model saw still running stays running.
+        # panel, so nothing is asked. Only a turn the model saw still running stays running
+        # (not one a failed parse carried over).
         result.pop("question", None)
-        result.pop("parse_ok", None)
-        if result.get("activity") != "running":
+        if result.pop("parse_ok", True) is False or result.get("activity") != "running":
             result["activity"] = "idle"
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
