@@ -23,6 +23,14 @@ self.addEventListener("push", (event) => {
   }));
 });
 
+// Asks one app window whether its chat holds a waiting card: the window, or null.
+const holdsCard = (client) => new Promise((resolve) => {
+  const { port1, port2 } = new MessageChannel();
+  port1.onmessage = ({ data }) => resolve(data === true ? client : null);
+  setTimeout(() => resolve(null), 1000);
+  client.postMessage("chat", [port2]);
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const data = event.notification.data || {};
@@ -40,13 +48,16 @@ self.addEventListener("notificationclick", (event) => {
     }
     const target = new URL(data.url || "/m", self.location.origin).href;
     const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
-    const app = windows.find((client) => {
+    const apps = windows.filter((client) => {
       try { return new URL(client.url).pathname.startsWith("/m"); } catch { return false; }
-    }), existing = app || windows[0];
+    });
+    // A chat lives in the open app: navigating would reload it away, so every app window is
+    // asked instead, and the one whose chat holds the card (it brings the chat back) is focused.
+    const owner = data.chat && (await Promise.all(apps.map(holdsCard))).find(Boolean);
+    const existing = owner || apps[0] || windows[0];
     if (existing) {
       try {
-        // A chat lives in the open app: navigating would reload it away, so ask it instead.
-        if (data.chat && app) app.postMessage("chat"); else await existing.navigate(target);
+        if (!(data.chat && apps.length)) await existing.navigate(target);
         return existing.focus();
       } catch {}
     }
