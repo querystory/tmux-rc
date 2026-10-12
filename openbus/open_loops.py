@@ -253,14 +253,21 @@ def scan_worktrees(cwds: list[str], stopping: Event | None = None,
     matter, and each repository's own list finds worktrees wherever they live. Where git
     fails, the previous scan's rows stand in, so a hiccup does not hide drift."""
     old = {w["path"]: w for w in previous}
-    commons = set()
+    commons, out = set(), []
+
+    def stopped():  # each git call can take seconds; a cancelled scan makes no more of them
+        return stopping is not None and stopping.is_set()
+
     for cwd in filter(None, set(cwds)):
+        if stopped():
+            return out
         found = _git("-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
         # Discovery failed: the repository a previous scan placed this cwd in still counts.
         commons |= {found.strip()} if found else {
             w["common"] for w in previous if (cwd + "/").startswith(w["path"] + "/")}
-    out = []
     for common in sorted(commons - {""}):
+        if stopped():
+            return out
         repo, listing = None, _git("--git-dir", common, "worktree", "list", "--porcelain")
         if listing is None:
             out += [w for w in previous if w.get("common") == common]
@@ -268,7 +275,7 @@ def scan_worktrees(cwds: list[str], stopping: Event | None = None,
         for block in listing.strip().split("\n\n"):
             fields = dict([*line.split(" ", 1), ""][:2] for line in block.splitlines())
             path = fields.get("worktree")
-            if stopping is not None and stopping.is_set():
+            if stopped():
                 return out
             if not path or "bare" in fields or "prunable" in fields or not os.path.isdir(path):
                 continue

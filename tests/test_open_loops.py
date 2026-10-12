@@ -354,6 +354,14 @@ def test_scan_finds_every_worktree_and_what_it_holds(tmp_path):
     assert scan_worktrees([str(repo)], stop) == []  # shutdown: the scan stops at once
 
 
+def test_a_cancelled_scan_runs_no_git(monkeypatch):
+    calls = []
+    monkeypatch.setattr(open_loops, "_git", lambda *a: calls.append(a))
+    stop = Event()
+    stop.set()
+    assert scan_worktrees(["/src/a", "/src/b"], stop) == [] and not calls
+
+
 def test_endpoint_renders_from_cache(monkeypatch):
     loops = OpenLoops()
     loops.github, loops.fetched_at = github(node(13)), NOW - 60
