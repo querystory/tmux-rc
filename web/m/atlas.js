@@ -616,7 +616,10 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
 
   // One card per tmux session: its running count, who needs you, its trend on the shared
   // scale, and its panes by state underneath. Sessions with live panes come first.
-  const live = new Set(panes.map(p => p.session)), keys = (scope.session ? [scope.session] : sessions).sort((a, b) => live.has(b) - live.has(a));
+  // Keys from the live panes and the week the cards draw (history until it loads), in the tool filter.
+  const week = (heat ? heat.samples : history).flatMap(s => (s.groups || []).filter(g => !scope.tool || g.tool === scope.tool).map(g => g.session));
+  const live = new Set(panes.map(p => p.session)), keys = scope.session ? [scope.session]
+    : [...new Set([...live, ...week].filter(Boolean))].sort().sort((a, b) => live.has(b) - live.has(a));
   const multiples = el('section', 'atlas-panel atlas-multiples');
   const cards = root._cards ||= new Map();
   cards.forEach((chart, key) => { if (!keys.includes(key)) { chart.dispose(); cards.delete(key); } });
