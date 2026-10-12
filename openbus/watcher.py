@@ -690,7 +690,7 @@ class Watcher:
                 if e.returncode == 124:
                     logger.warning("tmux timed out mid-tick on pane %s", p.id)
                 else:
-                    logger.warning("pane %s vanished mid-tick", p.id)
+                    logger.info("pane %s vanished mid-tick", p.id)
                 s = None
             except Exception:  # isolate per-pane failures
                 logger.warning("pane tick failed: %s", p.id, exc_info=True)

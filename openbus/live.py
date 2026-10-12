@@ -1276,6 +1276,11 @@ async def _hold(websocket: WebSocket, seconds: float, meter: _Meter) -> bool:
     return False
 
 
+# Close codes a client sends when it simply goes away: normal, going away, no status
+# (a tab closed or a phone asleep), and service restart.
+_NORMAL_CLOSES = frozenset({1000, 1001, 1005, 1012})
+
+
 async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
     """Connect to meter.model and run the session; reconnect with backoff on drops."""
     model = meter.model
@@ -1342,9 +1347,13 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
                         )
                     for t in done:
                         if not t.cancelled() and (exc := t.exception()) is not None:
-                            logger.warning(
-                                "[live] side task %s ended in error: %r", t.get_name(), exc
-                            )
+                            # A phone tab closing or sleeping (1005), or a restart (1012),
+                            # is the client's normal lifecycle, not an error worth a warning.
+                            normal = (isinstance(exc, WebSocketDisconnect)
+                                      and exc.code in _NORMAL_CLOSES)
+                            logger.log(logging.INFO if normal else logging.WARNING,
+                                       "[live] side task %s ended in error: %r",
+                                       t.get_name(), exc)
         except (WebSocketDisconnect, live_providers.Unreachable):
             raise  # client gone, or a misconfiguration no retry can fix
         except Exception:

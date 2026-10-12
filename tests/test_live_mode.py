@@ -979,15 +979,19 @@ def test_run_session_reconnects_when_the_provider_stream_ends(monkeypatch):
     assert _statuses(ws).count("reconnecting") == 1
 
 
-def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
+@pytest.mark.parametrize(("code", "level"), [(1005, logging.INFO), (1012, logging.INFO),
+                                             (1006, logging.WARNING)])
+def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch, caplog, code, level):
     # A gone client (WebSocketDisconnect from receive_json) propagates out — there is
-    # nothing to reconnect to, so no second connect attempt is made.
+    # nothing to reconnect to, so no second connect attempt is made. A tab closing or
+    # sleeping (1005) or a restart (1012) is logged at INFO; an abnormal close still warns.
+    caplog.set_level(logging.INFO, logger=L.logger.name)
     monkeypatch.setattr(L, "_receiver", _park)
     monkeypatch.setattr(L, "_context_updater", _park)
     client = _FakeClient([_Connect(_Session())])
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
-    ws = _ScriptedWS([L.WebSocketDisconnect(code=1006)])
+    ws = _ScriptedWS([L.WebSocketDisconnect(code=code)])
     try:
         _run(L._run_session(ws, _Watcher(), L._Meter("s", "a", P._DEFAULT[0])))
         raised = False
@@ -996,6 +1000,7 @@ def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
 
     assert raised  # the disconnect surfaces, not swallowed as a reconnectable drop
     assert client.attempts == 1
+    assert [r.levelno for r in caplog.records if "ended in error" in r.message] == [level]
 
 
 class _Detail:
