@@ -235,8 +235,12 @@ what the sender asked. A message for a busy pane waits in a small in-memory queu
 daemon, and goes in at the next idle transition. Just before typing, under the pane's
 send lock, the daemon checks three things again: the incarnation, that the screen is
 still the idle one it saw, and that a workstream handle still resolves to this pane. This
-is the same guard push answers use. If any of them changed, the message waits for the
-next idle transition rather than steering a turn or landing in someone's draft. Within
+is the same guard push answers use. Only a changed screen is transient: the message
+waits for the next idle transition rather than steering a turn or landing in someone's
+draft. A changed incarnation is permanent, since the process it was addressed to is
+gone, so the message is finalized as cancelled at once instead of holding its id and
+queue space for the hour. A workstream handle that now resolves elsewhere moves the
+message to the head of the new pane's queue, where the same three checks run again. Within
 one daemon lifetime, and while its grant stands, the sender always gets one result:
 delivered, declined, refused, cancelled, expired or
 unconfirmed. Those six are final, and queued is the only interim answer. One kind of
