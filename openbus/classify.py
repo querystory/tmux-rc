@@ -702,19 +702,21 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
     found = _last_occurrence(prompt, visible)
     rows: dict[str, list[str]] = {}
     leads: dict[str, str] = {}
-    item, indent, para, lead, gap = None, 0, [], "", False
+    lists: dict[int, tuple[str, str]] = {}  # by indent: the last row's label, its list's lead
+    item, indent, para, gap = None, 0, [], False
     for row in visible[:found.start() if found else 0].splitlines():
         if m := _LABELED_ROW_RE.match(row):
             label = (m[1] or m[2]).upper()
             item, indent = rows.setdefault(label, []), _indent(row)
             item[:] = [m[3]]
-            # A list's own lead-in, never an earlier list's: a row after a blank or at 1/A
-            # with no paragraph of its own has none (precision: a blank-spaced list's
-            # later rows lose theirs, but the first named row is usually its first).
-            if para or gap or label in ("1", "A"):
+            # The next label in sequence at the same indent (B after A, 3 after 2)
+            # continues its list and keeps the list's lead-in, across blank lines, a note
+            # or a nested list between rows. Any other row starts a list, led by the
+            # paragraph just above it or by nothing, never by an earlier list's.
+            prev, lead = lists.get(indent, ("", ""))
+            if label != _next_label(prev):
                 lead = " ".join(para)
-            para, gap = [], False
-            leads[label] = lead
+            lists[indent], leads[label], para = (label, lead), lead, []
         elif item is not None and row.strip() and _indent(row) > indent:
             item.append(row.strip())  # the item's wrapped continuation
         elif row.strip():
@@ -737,6 +739,13 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
     refs.sort(key=lambda ref: ref[0])  # stable: a range keeps its order
     named = [n for n in dict.fromkeys(n for _, n in refs) if n in rows]
     return {n: " ".join(rows[n]) for n in named}, leads[named[0]] if named else ""
+
+
+def _next_label(label: str) -> str | None:
+    """The label after this one in its sequence ("3" after "2", "B" after "A")."""
+    if not label:
+        return None
+    return str(int(label) + 1) if label.isdigit() else chr(ord(label) + 1)
 
 
 def _item(number: str, text: str) -> str:
