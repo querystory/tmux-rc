@@ -613,9 +613,14 @@ def _final_paragraph(message: str) -> str:
 
 
 # A numbered list row (inside any frame), and a number a prompt names: "do 1 now", "edits
-# 1–4", but not "#195", "v2.1", "8080" or "2:30".
+# 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A count is followed by what it
+# counts ("2 failing tests"), so a reference is followed only by punctuation, the end, or a
+# word that cannot be counted.
 _NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
-_ITEM_REF_RE = re.compile(r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)")
+_ITEM_REF_RE = re.compile(
+    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)"
+    r"(?=\s*(?:[^\w\s]|$|(?:and|or|now|first|then|next|too|also|only|but|before|after|"
+    r"later|today|instead|together)\b))", re.IGNORECASE)
 
 
 def _referenced_items(prompt: str, visible: str) -> list[str]:

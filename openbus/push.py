@@ -320,6 +320,8 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         # The same "Do you want to proceed?" over a different command is a different ask:
         # a notification describing one must not approve the other.
         "context": question.get("context") if question else None,
+        # Likewise "Do 1 now?" over a different row 1: the body shows the rows it names.
+        "items": question.get("items") if question else None,
         # The body is the restatement: one that arrives late (a retried call) re-notifies.
         "ask": question.get("ask") if question else None,
     }
@@ -528,13 +530,15 @@ class PushManager:
                     pane.get("title") or pane.get("label") or pane_id, 100
                 ),
                 # A widget's plain restatement ("Do you want to proceed?" alone says
-                # nothing; classify._restate), else the prompt itself.
-                "body": _push_text((
+                # nothing; classify._restate), else the prompt itself, then the list rows
+                # it names by number ("Do 1 now?" alone says nothing either).
+                "body": _push_text("\n".join([
                     (question or {}).get("ask")
                     or (question or {}).get("prompt")
                     or pane.get("headline")
-                    or "Needs your attention"
-                ), 400),
+                    or "Needs your attention",
+                    *((question or {}).get("items") or []),
+                ]), 400),
                 "tag": f"block:{pane_id}",
                 "url": url,
                 "nonce": nonce,

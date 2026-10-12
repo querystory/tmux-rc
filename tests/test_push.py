@@ -245,6 +245,22 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     with_option = push.contract(pane, "123")[0]
     pane["activity"] = "running"
     assert push.contract(pane, "123")[0] != with_option
+    with_option = push.contract(pane, "123")[0]
+    pane["question"]["items"] = ["1. Prune old images."]
+    assert push.contract(pane, "123")[0] != with_option
+
+
+def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting({"prompt": "Do 1 now?", "answer_style": "text",
+                               "items": ["1. Prune old images."]})]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert sender.payloads[0]["body"] == "Do 1 now?\n1. Prune old images."
 
 
 def test_subscription_only_accepts_known_push_relays(tmp_path):

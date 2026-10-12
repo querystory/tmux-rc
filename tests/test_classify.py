@@ -1321,7 +1321,8 @@ def test_question_naming_list_items_carries_them():
         "do 1 now and prepare the list for 2", "make edits 1–3")), _llm({}))["question"]
     assert [i[:2] for i in ranged["items"]] == ["1.", "2.", "3."]
     # A count, a PR number or a menu's own option numbers name no list item.
-    for ask in ("Want me to fix the 7 failing tests?", "Should I merge #2?"):
+    for ask in ("Want me to fix the 7 failing tests?", "Should I merge #2?",
+                "There are 2 failing tests; should I fix them?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert "items" not in classify(_pane("claude"), screen, _llm({}))["question"]
     # The parser's own copy of the rows, as buttons or a table keyed by them, goes; other
