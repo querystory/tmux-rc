@@ -70,8 +70,10 @@ _RESTORED = ("[Restored conversation] This session reconnected and lost its hist
              "[End of restored conversation]")
 # A reply that only agrees means something only against a question just asked; live._approved
 # refuses a pane change for one that has none (unanchored), and warns on the card otherwise.
-_BARE = re.compile(r"(yes|yeah|yep|yup|y|ok|okay|k|sure|do it|go|go ahead|please|"
-                   r"yes please|sounds good|confirm(ed)?|approved?)[.!]*", re.IGNORECASE)
+# Matched on the words alone, so punctuation ("yes,", "ok - do it") can't slip past it.
+_AGREE = (r"(yes|yeah|yep|yup|y|ok|okay|k|sure|do it|go|go ahead|please|sounds good|"
+          r"confirm(ed)?|approved?)")
+_BARE = re.compile(rf"{_AGREE}( {_AGREE})*")
 CAUTION_RESTORED = "The chat reconnected and its context was restored: check this is what you meant"
 CAUTION_BARE = 'Your reply was only "{}": check this is what you agreed to'
 
@@ -133,7 +135,7 @@ class _Chat:
                 cut = self._starts[-TURNS_KEPT]
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
-            bare = bool(_BARE.fullmatch(text.strip()))
+            bare = bool(_BARE.fullmatch(" ".join(re.findall(r"\w+", text.casefold()))))
             self.unanchored = bare and not self.asked
             self.caution = (CAUTION_RESTORED if self._restored
                             else CAUTION_BARE.format(text.strip()) if bare else None)

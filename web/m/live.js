@@ -137,13 +137,12 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       return button;
     }));
   }
-  const textOf = (row) => row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
   // A reconnect opens a daemon session with no history (a restart loses it): hand back the
   // conversation this log shows, so a "yes" still answers the question above it. Text
   // only: approvals and tool results never come from here (live_chat.restore).
   function restore(current) {
     const transcript = [...log.children].filter((row) => ["user", "model", "typed"].includes(row.dataset.role))
-      .map((row) => ({ role: row.dataset.role, text: textOf(row).textContent }));
+      .map((row) => ({ role: row.dataset.role, text: row.said.trim() })).filter((row) => row.text); // an Open-only row says nothing
     if (!transcript.length) return;
     current.ws.send(JSON.stringify({ action: "resume", transcript }));
     add("error", "Reconnected: the assistant was handed the conversation above again");
@@ -161,7 +160,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
-    const body = textOf(row);
+    const body = row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
+    row.said = (row.said || "") + (message || ""); // the source, for restore: rendered Markdown loses it
     if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
     else body.textContent += message || "";
     body.before(...images.map(chatThumb));

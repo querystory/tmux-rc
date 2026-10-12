@@ -410,7 +410,7 @@ def test_a_bare_yes_with_nothing_asked_never_reaches_a_pane(monkeypatch):
     """With no question from the assistant in this conversation, "yes" has no referent: the
     pane change is refused before any card, and the model is told to ask instead."""
     s = _Fake([_TYPE, ("What should I say yes to?", [])])
-    frames, audits, typed = _turn(s, "Yes.", monkeypatch, ok=True)
+    frames, audits, typed = _turn(s, "Yes, ok - do it!", monkeypatch, ok=True)
     assert typed == [] and not any(f["type"] == "propose" for f in frames)
     assert s.history[2] == ("results", [("type_in_pane", "declined")])
     assert audits == ["live_type_in_pane"]
