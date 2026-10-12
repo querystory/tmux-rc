@@ -401,7 +401,9 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop(`Could not connect to ${name(current)}.`); return; }
-    current.ws = ws; current.thumbs = []; // an echo lost with the old socket never comes
+    // A new socket is not listening until it says so, even when it replaced an OPEN one,
+    // and an echo lost with the old socket never comes.
+    current.ws = ws; current.listening = false; current.thumbs = [];
     clearTimeout(current.deadline);
     current.deadline = setTimeout(() => {
       if (run !== current || current.listening) return;

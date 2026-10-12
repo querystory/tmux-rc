@@ -652,13 +652,16 @@ def test_a_waiting_card_keeps_the_chat_reconnecting():
   window.dispatchEvent(new Event('online')); // woken with a card waiting: an open socket
   assert.equal(sockets.length, 13);           // may be half-open, so it goes too
   assert.equal(sockets[11].readyState, 3);
-  say(sockets[12], {type: 'status', status: 'listening'});
-  say(sockets[12], {type: 'decided', id: 'p1', ok: false});
+  due(); // the replacement never answers: its deadline retries, whatever the old one said
+  assert.equal(sockets.length, 14);
+  assert.equal(sockets[12].readyState, 3);
+  say(sockets[13], {type: 'status', status: 'listening'});
+  say(sockets[13], {type: 'decided', id: 'p1', ok: false});
   window.dispatchEvent(new Event('online'));
-  assert.equal(sockets.length, 13); // with none, it stays
+  assert.equal(sockets.length, 14); // with none, it stays
   fail();
   for (let i = 0; i < 5; i++) { due(); fail(); }
-  assert.equal(sockets.length, 18); // five tries, then the chat ends
+  assert.equal(sockets.length, 19); // five tries, then the chat ends
   assert.match(status(), /disconnected/);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
