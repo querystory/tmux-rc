@@ -158,7 +158,7 @@ function loadHeat(older) {
   request(`/api/history?window=24h&lead=13d${older ? `&before=${before}` : ''}`).then(data => {
     const fresh = older ? data.samples.filter(s => s.t < before) : data.samples, start = fresh[0]?.t ?? Infinity;
     const kept = heat ? heat.samples.filter(s => older || s.t < start) : [];
-    heat = { step: data.step, now: older ? heat.now : data.now, samples: older ? [...fresh, ...kept] : [...kept, ...fresh], done: !fresh.length || start <= data.first || (!older && !!heat?.done) };
+    heat = { step: data.step, first: data.first, now: older ? heat.now : data.now, samples: older ? [...fresh, ...kept] : [...kept, ...fresh], done: !fresh.length || start <= data.first || (!older && !!heat?.done) };
   }, () => {
     // A failed older page retries in 10s: a fresh `heat` re-renders the view, whose foot re-arms.
     if (older) setTimeout(() => { heat = { ...heat }; changed(); }, 10000);
@@ -176,9 +176,9 @@ const fig = (value, label) => { const node = el('span', 'heat-fig'); node.append
 const heatUnit = () => fleet.metric === 'panes' ? 'pane-hours' : 'agent-hours';
 const heatWaiting = () => el('p', 'muted', heat === false ? 'History unavailable. Retrying automatically.' : 'Loading saved history…');
 // Local days, today first, each 24 hours. A cell sums its buckets' running counts times the
-// time each covers (the newest only up to the server's now): the agent-hours recorded in that hour, so a
-// DST fall-back hour holds both of its hours and a half-observed hour counts what was seen.
-// A day's total sums its cells.
+// time on record in each: the agent-hours recorded in that hour, so a DST fall-back hour
+// holds both of its hours and a half-observed hour counts what was seen. A day's total sums
+// its cells.
 function heatDays(scope) {
   const days = new Map();
   scoped(scope, heat.samples).forEach(s => {
@@ -186,7 +186,8 @@ function heatDays(scope) {
     if (!days.has(day)) days.set(day, []);
     if (!n) return;
     const cell = days.get(day)[t.getHours()] ||= { sum: 0, tools: {} };
-    const hours = Math.max(0, Math.min(heat.step, heat.now - s.t)) / 3600000; // the newest bucket ends at the query's now
+    // Each bucket covers its step, the newest only to the query's now, the oldest only from the first record.
+    const hours = Math.max(0, Math.min(s.t + heat.step, heat.now) - Math.max(s.t, heat.first)) / 3600000;
     cell.sum += running(n) * hours;
     (s.groups || []).forEach(g => { const c = countsOf(g); if (c) cell.tools[g.tool] = (cell.tools[g.tool] || 0) + running(c) * hours; });
   });
