@@ -257,8 +257,8 @@ def _words(text: str) -> list[str]:
 
 def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     """The live panes a spoken window name may mean, best first, and whether the first
-    clearly wins. A pane scores the query words that its title, window label, tool or cwd's
-    basename (its repo, usually) holds as whole words; two adjacent words also match run
+    clearly wins. A pane scores the query words that its title, window label, tool, session
+    or cwd's basename (its repo, usually) holds as whole words; two adjacent words also match run
     together, so "qs linux" finds "qslinux". A "window N" in the name keeps only panes with
     that number and counts as a word they all hold. It wins alone on top with most of the
     words: a stray extra word ("slack inbox merge") still finds "slack inbox", one shared
@@ -270,7 +270,7 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     query = [w for w in _words(name) if w not in _FILLER]
 
     def score(d: dict) -> int:
-        fields = [str(d.get(k) or "") for k in ("title", "label", "tool")]
+        fields = [str(d.get(k) or "") for k in ("title", "label", "tool", "session")]
         fields.append(os.path.basename(str(d.get("cwd") or "").rstrip("/")))
         have = set(_words(" ".join(fields)))
         hit = set()

@@ -270,6 +270,8 @@ class _Fleet(_Watcher):
             *({**pane(p, w, "x", t, "codex"), "cwd": "~/src/sales-kit/"} for p, w, t in (
                 ("%19", "19", "pipeline fix"), ("%20", "20", "event | sales-kit"),
                 ("%28", "28", "copy tweaks"))),  # one repo: the title alone must not win
+            *({**pane(p, "2", "x", "tests", "claude"), "session": sess}  # twins but for session
+              for p, sess in (("%30", "storefront"), ("%31", "ledger"))),
         ]
 
 
@@ -280,6 +282,7 @@ class _Fleet(_Watcher):
     ("window 25 auth", "%16"),
     ("café 認証", "%15"),             # names are not only ASCII
     ("cafe\u0301 認証", "%15"),       # nor in one Unicode form
+    ("tests in ledger", "%31"),        # the session chip tells same-titled panes apart
 ])
 def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, name, pane_id):
     _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
