@@ -176,11 +176,13 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     assert send("Down") == 200
     assert any("Down" in args for args in sent)
     assert send("harbor", literal=True) == 200  # search text
-    # A rowless send never commits: not the select key, nor Enter typed or appended.
-    for refused in (send("Enter"), send("C-c"), send("harbor", literal=True, enter=True),
-                    send("harbor\r", literal=True)):
-        assert refused == 409
-    assert len(reparsed) == 6  # a refusal rereads too, so the walk is not stuck on it
+    # A rowless send never commits: not the select key, nor Enter typed or appended. Each
+    # refusal rereads, so a walk is never left stuck on a card the watcher keeps reusing.
+    for keys, enter, literal in (("Enter", False, False), ("C-c", False, False),
+                                 ("harbor", True, True), ("harbor\r", False, True)):
+        reparsed.clear()
+        assert send(keys, enter=enter, literal=literal) == 409
+        assert reparsed
     read["question"]["keymap"]["next"] = "Enter"  # a misread binding is no move either
     parse()
     assert send("Enter") == 409
