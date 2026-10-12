@@ -257,6 +257,7 @@ export function pageHead(title, icon, back) {
   const head = el('div', 'landing-head'), button = el('button', 'icon-button');
   button.innerHTML = icon('back', 18);
   button.setAttribute('aria-label', 'Back to the Dashboard');
+  button.dataset.key = 'page-back'; // a rebuilt view gives the keyboard back to it
   button.onclick = back;
   head.append(button, el('h2', '', title));
   return head;
