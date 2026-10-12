@@ -298,7 +298,8 @@ async function pick(io, targetText, targetIndex) {
   if (typed === STALE && await waitForFrame(io, before, () => true)
       && await walk(io, targetText, targetIndex)) return true;
   // Read back on the row already: commit it off that read, with no parse in between.
-  if (typed?.picker && rowIndex([targetText], typed.row) === 0) {
+  // Named against the whole list, so "Fix  login bug" is never taken for "Fix".
+  if (typed?.picker && rowIndex(q.options, typed.row) === soleIndex(q.options, targetText)) {
     const done = await io.sendKey(km.select, { ...q, picker: typed.picker });
     if (done !== STALE) return !!done; // undelivered: never press it twice
   }

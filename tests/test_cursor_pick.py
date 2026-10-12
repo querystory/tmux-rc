@@ -104,6 +104,15 @@ CASES = [
         {"sent": ["Up"] * 5 + ["Enter"], "selected": 0, "notes": []},
     ),
     (
+        # The filter for "r1" lands on "r1  x", which a value column could make look like
+        # "r1": named against the whole list it is ambiguous, so it is never committed.
+        "a filter landing on a row that only looks like the target is not committed",
+        {"options": [f"r{i}" for i in range(2, 9)] + ["r1  x", "r1"], "selected": 0,
+         "keymap": FULL_KM, "reads": True, "filters_to": "r1  x"},
+        "r1", 8,
+        {"sent": ["r1"], "selected": 0, "notes": 1},
+    ),
+    (
         # A row whose title carries a control character is never typed into the box.
         "a far row with a control character is not filtered for",
         {"options": [f"r{i}" for i in range(19)] + ["r\u001b"], "selected": 0,
@@ -413,6 +422,7 @@ function fake(spec) {{
       // "filters" models a widget that narrows to the typed row and lands the highlight
       // on it; without it the typed text merely re-reads the same list.
       if (ok && spec.filters) {{ p.options = [t]; p.selected = 0; }}
+      if (ok && spec.filters_to) {{ p.options = [spec.filters_to, t]; p.selected = 0; }}
       return ok && spec.reads ? {{ picker: `f${{p.sends}}`, row: p.options[p.selected] }} : ok;
     }},
     note: (m) => p.notes.push(m),
