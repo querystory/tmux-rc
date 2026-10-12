@@ -138,7 +138,7 @@ def picker_digest(text: str, prompt: str) -> str | None:
     live = _live_prompt(visible, prompt)
     if not live:
         return None
-    above, top = _widget_top(visible, live[0].start())
+    above, top = _widget_top(visible, live[0].start(), rows=None)  # however long it is
     start = live[0].start() if top is None else sum(len(row) + 1 for row in above[:top])
     return hashlib.sha256(visible[start:].encode()).hexdigest()
 
@@ -579,11 +579,13 @@ def _indent(row: str) -> int:
     return len(row) - len(row.lstrip(" \t│┃╎"))
 
 
-def _widget_top(visible: str, at: int) -> tuple[list[str], int | None]:
+def _widget_top(visible: str, at: int, rows: int | None = 16) -> tuple[list[str], int | None]:
     """The whole rows above the row at `at`, and the index among them of its widget's top
-    edge (a rule or a ╭ corner) within 16 rows, or None: then the rows are conversation."""
+    edge (a rule or a ╭ corner) within `rows` rows (None: any), or None: then the rows
+    are conversation."""
     above = visible[:visible.rfind("\n", 0, at) + 1].splitlines()
-    return above, next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
+    return above, next((i for i in reversed(range(max(len(above) - (rows or len(above)), 0),
+                                                  len(above)))
                         if _WIDGET_TOP_RE.match(above[i])), None)
 
 

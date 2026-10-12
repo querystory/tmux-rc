@@ -870,7 +870,10 @@ def send(pane_id: str, body: SendBody, request: Request):
         keymap = question.get("keymap") if isinstance(question.get("keymap"), dict) else {}
         prompt, row = body.on_row.prompt, body.on_row.row
         seen = question.get("picker")
-        screen = tmux.capture_pane(pane.id, mark_dim=True)
+        try:
+            screen = tmux.capture_pane(pane.id, mark_dim=True)
+        except subprocess.CalledProcessError as e:  # the pane closed since find_pane
+            raise tmux.PaneChangedError(f"The pane closed; nothing was sent: {e}") from e
         if (question.get("prompt") != prompt or state.get("birth") != body.on_row.birth
                 or not seen or seen != body.on_row.picker or seen != picker_digest(screen, prompt)):
             msg = f"The picker {prompt!r} changed since it was read; nothing was sent."

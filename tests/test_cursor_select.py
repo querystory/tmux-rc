@@ -114,6 +114,8 @@ def test_a_picker_digest_changes_with_anything_drawn_from_its_prompt_down():
     dialog = SCREEN.replace('Permanently remove "Demo"?', asked)
     other = dialog.replace("────────────────────", "────────────────────\n rm -rf build")
     assert picker_digest(dialog, asked) != picker_digest(other, asked)
+    long = dialog.replace("────────────────────", "────────────────────" + "\n echo step" * 20)
+    assert picker_digest(long, asked) != picker_digest(long.replace("echo", "rm -rf"), asked)
     above = dialog.replace("remove it", "drop it")  # a user turn above the widget's edge
     assert picker_digest(dialog, asked) == picker_digest(above, asked)
 
@@ -200,6 +202,9 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     assert send("harbor", literal=True) == 200  # search text
     assert send("Down", birth="4141") == 409  # a recycled %N is another pane
     assert send("Down", picker="an earlier frame") == 409  # a step read off another frame
+    with monkeypatch.context() as closing:  # the pane closed after it was found
+        closing.setattr(tmux, "capture_pane", lambda *a, **k: subprocess.check_output("false"))
+        assert send("Down") == 409
     # A rowless send never commits: not the select key, nor Enter typed or appended. Each
     # refusal rereads, so a walk is never left stuck on a card the watcher keeps reusing.
     for keys, enter, literal in (("Enter", False, False), ("C-c", False, False),
