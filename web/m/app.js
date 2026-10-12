@@ -392,7 +392,7 @@ function renderLanding() {
     renderList();
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
-  }, licon, [$("landing-cards"), $("usage-panel")], $("heat-card"), () => openPage("heat"), $("radar-card"));
+  }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"));
   renderLoopsCard($("loops-card"), loops, openLane, licon);
 }
 

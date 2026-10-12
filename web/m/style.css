@@ -549,9 +549,15 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #loops-card .loop-row:first-of-type { border-top: 0; }
 #loops-card .loop-row a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #loops-card .loop-panes { display: none; }
-/* Cards side by side as many as fit (three on a desktop), the row's height shared; stacked on a phone. */
+/* One grid of cards, as many columns of at least 320px as fit, each row's height shared.
+   Four cards leave no hole at one, two or four columns; at three, Plan usage takes the
+   second row whole. Column counts by width: n fit from 320n + 16(n - 1). */
+#landing-main { container: dash / inline-size; }
 #landing-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; margin-top: 16px; }
 #landing-cards .atlas-panel { height: 100%; margin-top: 0; }
+@container dash (min-width: 992px) and (max-width: 1327.98px) { #usage-panel { grid-column: 1 / -1; } }
+/* Without Plan usage, two columns would leave the radar alone: it takes that row. */
+@container dash (min-width: 656px) and (max-width: 991.98px) { #radar-card:has(+ #usage-panel[hidden]) { grid-column: 1 / -1; } }
 /* Activity, last on the page: until its slot scrolls into view, a strip pinned to the bottom
    edge (atlas.js), growing into the full chart as the slot arrives. */
 .atlas-pulse .fleet-chart-axis { transition: height .25s; }

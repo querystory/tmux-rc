@@ -510,9 +510,9 @@ export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
 
 const STOP = new Set(('the a an and or to of in on for with from is are was were be been being this that it its as at by has have had not no into about after before all can will would should could their they them then than also currently successfully session agent task work working focused completed using updated implementation changes implemented new current which but while other now ready identified verified three two one these those there here more only already still through when where what how our your you we may any each both same').split(' '));
 
-// `after` is the caller's nodes to place under the filters (app.js: the row of cards, then
-// Plan usage); `foot` and `radar` are the slots in that row for the heatmap card and the word
-// cloud, and `openHeat` opens the heatmap's own view.
+// `after` is the caller's nodes to place under the filters (app.js: the grid of cards);
+// `foot` and `radar` are the slots in it for the heatmap card and the word cloud, and
+// `openHeat` opens the heatmap's own view.
 export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after, foot, openHeat, radar) {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
