@@ -420,6 +420,18 @@ def test_a_bare_yes_with_nothing_asked_never_reaches_a_pane(monkeypatch):
     assert s.asked  # the model asked back, so the next "yes" has its referent
 
 
+def test_a_question_anchors_only_the_next_message_sent():
+    """A "yes" queued while a turn runs was written before that turn's reply: a question
+    in the reply must not anchor it after the fact."""
+    async def go():
+        s = _Fake([])
+        s.asked = True
+        await s.send_text("tell work to rebase")
+        await s.send_text("yes")  # sent while that turn runs, before its reply
+        return [s._inbox.get_nowait()[2] for _ in range(2)]
+    assert asyncio.run(go()) == [True, False]
+
+
 @pytest.mark.parametrize(("reply", "asks"), [
     ("Reopen it? It is idle.", True), ("Reopen it?**", True),
     ("See https://example.com/x?id=1 for it.", False), ("Done.", False)])
