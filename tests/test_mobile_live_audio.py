@@ -417,10 +417,10 @@ def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
   assert.equal(dialog.open, false); assert.equal(bubble.hidden, false);
   assert.equal(live.isActive(), true); assert.equal(sockets[0].readyState, 1);
   assert.deepEqual(sockets[0].viewing, [false]); // a card now would push "Chat needs you"
-  // A provider reconnect drops what it hears meanwhile (live._hold), so the view goes again.
+  // A provider reconnect still hears the view (live._hold): nothing to send again.
   sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'reconnecting'})});
   sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'listening'})});
-  assert.deepEqual(sockets[0].viewing, [false, false]);
+  assert.deepEqual(sockets[0].viewing, [false]);
   sockets[0].onmessage({data: JSON.stringify({type: 'transcript', role: 'model', text: 'hi'})});
   assert.equal(bubble.classList.contains('unread'), true);
   sockets[0].onmessage({data: JSON.stringify({type: 'propose', id: 'p1', text: 'Send to work'})});
@@ -428,7 +428,7 @@ def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
   sockets[0].onmessage({data: JSON.stringify({type: 'decided', id: 'p1', ok: true})});
   assert.equal(badge.textContent, '');
   bubble.onclick(); assert.equal(dialog.open, true); assert.equal(bubble.hidden, true);
-  assert.deepEqual(sockets[0].viewing, [false, false, true]);
+  assert.deepEqual(sockets[0].viewing, [false, true]);
   // A card's Open goes to its pane without answering it: still pending on the bubble,
   // and still pending in the log when the user comes back to approve.
   sockets[0].onmessage({data: JSON.stringify(
@@ -708,8 +708,8 @@ def test_a_card_outlives_a_dropped_connection():
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_a_view_change_while_connecting_goes_in_a_new_handshake():
     """The daemon reads nothing from a socket until it is listening, so with a card waiting
-    a view change then replaces the socket, whose handshake carries the new view; a view
-    a provider reconnect made the page forget is just sent again on listening."""
+    a view change then replaces the socket, whose handshake carries the new view; during a
+    provider reconnect the daemon still reads it, so it goes as a frame at once."""
     _run_live(r"""
 (async () => {
   const $ = (id) => document.getElementById(id);
@@ -728,8 +728,9 @@ def test_a_view_change_while_connecting_goes_in_a_new_handshake():
   assert.match(sockets[2].url, /[?&]viewing=1/);
   say(sockets[2], {type: 'status', status: 'listening'});
   say(sockets[2], {type: 'status', status: 'reconnecting'});
-  $('voice-close').onclick(); // dropped by live._hold: no socket churn, sent on listening
+  $('voice-close').onclick(); // heard by live._hold: a frame, no socket churn
   assert.equal(sockets.length, 3);
+  assert.deepEqual(sockets[2].viewing, [false]);
   say(sockets[2], {type: 'status', status: 'listening'});
   assert.deepEqual(sockets[2].viewing, [false]);
 })().catch(error => {console.error(error); process.exitCode = 1;});

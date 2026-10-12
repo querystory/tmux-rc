@@ -932,7 +932,7 @@ def test_run_session_reconnects_once_after_a_drop(monkeypatch):
     monkeypatch.setattr(L, "_receiver", _park)
     monkeypatch.setattr(L, "_context_updater", _park)
     hold = L._hold
-    monkeypatch.setattr(L, "_hold", lambda ws, seconds: hold(ws, 0.01))  # collapse the backoff
+    monkeypatch.setattr(L, "_hold", lambda ws, _, m: hold(ws, 0.01, m))  # collapse the backoff
     client = _FakeClient([
         _Connect(_Session(), boom=RuntimeError("gemini drop")),
         _Connect(_Session()),
@@ -963,7 +963,7 @@ def test_run_session_reconnects_when_the_provider_stream_ends(monkeypatch):
     monkeypatch.setattr(L, "_receiver", receiver)
     monkeypatch.setattr(L, "_context_updater", _park)
     hold = L._hold
-    monkeypatch.setattr(L, "_hold", lambda ws, seconds: hold(ws, 0.01))  # collapse the backoff
+    monkeypatch.setattr(L, "_hold", lambda ws, _, m: hold(ws, 0.01, m))  # collapse the backoff
     client = _FakeClient([_Connect(_Session()), _Connect(_Session())])
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 

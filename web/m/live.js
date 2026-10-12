@@ -73,13 +73,14 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   // A card left waiting while nobody looks pushes "Chat needs you" (live._nudge), so the
   // daemon hears each change, and a fresh socket the view at connect, in its handshake.
-  // Until a socket is listening the daemon reads nothing from it, so a waiting card's change
-  // then goes in a new socket's handshake; a view forgotten on "reconnecting" (null) is
-  // simply sent on listening, or a provider down would churn sockets.
+  // Until a socket is first listening the daemon reads nothing from it, so a waiting card's
+  // change then goes in a new socket's handshake. A provider reconnect is not that: the
+  // daemon still reads the view meanwhile (live._hold), so it goes as a frame, and a
+  // provider down never churns sockets.
   function viewing(current = run) {
     const on = dialog.open && !document.hidden;
     if (!current || current.viewing === on) return;
-    if (current.listening) { current.viewing = on; current.ws.send(JSON.stringify({ action: "viewing", on })); }
+    if (current.listening || current.held) { current.viewing = on; current.ws.send(JSON.stringify({ action: "viewing", on })); }
     else if (current.viewing != null && current.proposals.size) revive(current, true);
   }
   const bubble = chatBubble({ licon, open: () => show() });
@@ -410,7 +411,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     catch { stop(`Could not connect to ${name(current)}.`); return; }
     // A new socket is not listening until it says so, even when it replaced an OPEN one,
     // and an echo lost with the old socket never comes.
-    current.ws = ws; current.listening = false; current.thumbs = [];
+    current.ws = ws; current.listening = false; current.held = false; current.thumbs = [];
     clearTimeout(current.deadline);
     current.deadline = setTimeout(() => {
       if (run !== current || current.listening) return;
@@ -425,9 +426,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
-        // A provider reconnect (live._hold) drops what the socket sends meanwhile, even a
-        // "viewing" sent before this status arrived: forget it, so listening sends it again.
-        if (message.status === "reconnecting") current.viewing = null;
+        if (message.status === "reconnecting") current.held = true; // see viewing()
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); resync(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);

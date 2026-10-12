@@ -1221,9 +1221,8 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
             for proposal in map(str, ids if isinstance(ids, list) else []):
                 if proposal not in meter.approvals and _key(meter, proposal) not in _parked:
                     await _tell(websocket, meter, proposal)
-        elif action == "viewing":  # whether a card waiting now would be seen (_nudge)
-            meter.unseen_since = (None if data.get("on") is not False
-                                  else meter.unseen_since or time.monotonic())
+        elif action == "viewing":
+            _view(meter, data)
         elif action == "stop":
             return
         else:
@@ -1253,15 +1252,25 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
             await websocket.send_json({"type": "interrupted"})
 
 
-async def _hold(websocket: WebSocket, seconds: float) -> bool:
+def _view(meter: _Meter, data: dict) -> None:
+    """Whether a card waiting now would be seen (_nudge): unseen time runs from the moment
+    the chat left view, and a repeated "out of view" keeps that moment."""
+    meter.unseen_since = (None if data.get("on") is not False
+                          else meter.unseen_since or time.monotonic())
+
+
+async def _hold(websocket: WebSocket, seconds: float, meter: _Meter) -> bool:
     """Wait out a reconnect backoff while still reading the browser socket. Without this
     the loop reconnected to Vertex for a phone that was already gone — the tunnel drops
     both legs at once, and the browser's disconnect is only observed by a receive. A
-    WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True."""
+    WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True.
+    The view is still heard, so a card parked by the provider drop can push meanwhile."""
     try:
         async with asyncio.timeout(seconds):
-            while (await websocket.receive_json()).get("action") != "stop":
-                pass  # a stray frame (audio already in flight) is no reason to reconnect early
+            while (data := await websocket.receive_json()).get("action") != "stop":
+                if data.get("action") == "viewing":
+                    _view(meter, data)
+                # any other stray frame (audio already in flight) is no reason to reconnect early
     except TimeoutError:
         return True
     return False
@@ -1344,7 +1353,7 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
             backoff = min(2**attempt, 15)
             logger.warning("[live] session dropped; reconnecting in %ds", backoff, exc_info=True)
             await websocket.send_json({"type": "status", "status": "reconnecting"})
-            if not await _hold(websocket, backoff):
+            if not await _hold(websocket, backoff, meter):
                 return  # client sent stop during the backoff
 
 
