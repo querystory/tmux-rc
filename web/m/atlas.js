@@ -510,10 +510,10 @@ export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
 
 const STOP = new Set(('the a an and or to of in on for with from is are was were be been being this that it its as at by has have had not no into about after before all can will would should could their they them then than also currently successfully session agent task work working focused completed using updated implementation changes implemented new current which but while other now ready identified verified three two one these those there here more only already still through when where what how our your you we may any each both same').split(' '));
 
-// `after` is the caller's nodes to place under the big chart (app.js: the row of Open loops
-// and heatmap cards, then Plan usage); `foot`, the node in that row that gets the heatmap
-// card, and `openHeat` opens the heatmap's own view.
-export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after, foot, openHeat) {
+// `after` is the caller's nodes to place under the filters (app.js: the row of cards, then
+// Plan usage); `foot` and `radar` are the slots in that row for the heatmap card and the word
+// cloud, and `openHeat` opens the heatmap's own view.
+export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after, foot, openHeat, radar) {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
   const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(isAgent))];
@@ -561,11 +561,20 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   sessionPicker.onchange = () => { scope.session = sessionPicker.value; redraw(); };
   controls.append(sessionPicker); nodes.push(controls);
 
-  // The big chart leads the page: the fleet over time, against the goal.
+  // The big chart: the fleet over time, against the goal.
   const samples = scoped(scope), data = rows(samples);
   // One header row: title and current numbers on the left, every control on the right; the
   // notes hide behind an info toggle so the plot starts right under the controls.
-  const pulse = el('section', 'atlas-panel atlas-pulse');
+  // Activity closes the page. Until its slot scrolls into view it waits as a strip pinned to
+  // the bottom edge (the same chart, compact), and grows into the full chart as the slot
+  // arrives; a page that fits shows it full from the start. The sentinel marks the slot.
+  const pulse = root._pulse = el('section', root._compact ? 'atlas-panel atlas-pulse compact' : 'atlas-panel atlas-pulse');
+  const sentinel = root._sentinel ||= el('div');
+  root._slot ||= new IntersectionObserver(([entry]) => {
+    root._compact = main.compact = !entry.isIntersecting;
+    root._pulse.classList.toggle('compact', root._compact);
+  });
+  root._slot.observe(sentinel);
   const heading = el('div', 'atlas-panel-heading');
   const now = el('span', 'fleet-now');
   now.append(el('b', '', String(running(liveCounts(panes)))), el('span', 'muted', ' running'));
@@ -612,7 +621,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   });
   toggles.append(el('span', 'fleet-gap'), resetZoomButton(main));
   pulse.append(toggles, main.el);
-  nodes.push(pulse, ...after);
+  nodes.push(...after);
 
   // One card per tmux session: its running count, who needs you, its trend on the shared
   // scale, and its panes by state underneath. Sessions with live panes come first.
@@ -690,9 +699,10 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   });
   topics.append(charts.cloud, topicLinks);
   if (!words.size) topics.append(el('p', 'muted', 'Topics appear as panes acquire titles and summaries.'));
-  // The heatmap card, in the row under the chart; like the slices, rebuilt only when its inputs change.
+  // The heatmap card, in the row of cards; like the slices, rebuilt only when its inputs change.
   if (!unchanged(foot, [heat, settings, scope.tool, scope.session])) foot.replaceChildren(heatCard(scope, openHeat));
-  nodes.push(topics);
+  radar.replaceChildren(topics); // the third card in the row under the controls
+  nodes.push(sentinel, pulse);
   rebuild(root, nodes, focus);
   root._resize = new ResizeObserver(entries => {
     const width = Math.floor(entries[0].contentRect.width);

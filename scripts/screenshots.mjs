@@ -36,6 +36,8 @@ const SHOTS = [
   ["mobile-open-loops", PHONE, "light", "#view=loops", showLoops],
   ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card .loop-count")],
   ["mobile-sessions", PHONE, "dark", "#view=dashboard", reach(".atlas-multiples")],
+  ["wide-activity", WIDE, "light", "#view=dashboard", reach(".atlas-pulse", true)],
+  ["mobile-activity", PHONE, "dark", "#view=dashboard", reach(".atlas-pulse", true)],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
   ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
@@ -82,15 +84,24 @@ const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
   caret-color: transparent !important; scroll-behavior: auto !important; scrollbar-width: none !important; }`;
 
 // Bring a dashboard node to the top once it, and the Open loops card above it (which arrives
-// after the page), have drawn; a base that predates either shoots the page as it is.
-function reach(selector) {
+// after the page), have drawn; a base that predates either shoots the page as it is. `end`
+// scrolls to the page's foot instead (Activity, which grows from its strip there).
+function reach(selector, end = false) {
   return async (page) => {
     for (const node of ["#loops-card .loop-count", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(500); // the panels above settle their height first
-    await page.locator(selector).first().evaluate((el) => {
+    await page.locator(selector).first().evaluate((el, end) => {
       const pane = document.getElementById("landing"); // scroll the dashboard, never the page
-      pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 16;
-    }).catch(() => {});
+      pane.scrollTop = end ? pane.scrollHeight : pane.scrollTop + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 16;
+    }, end).catch(() => {});
+    if (!end) return;
+    // The strip grows into the chart, which lengthens the page: follow the foot until it holds.
+    for (let last = -1, i = 0; i < 10; i++) {
+      await page.waitForTimeout(300);
+      const top = await page.evaluate(() => { const pane = document.getElementById("landing"); pane.scrollTop = pane.scrollHeight; return pane.scrollTop; });
+      if (top === last) break;
+      last = top;
+    }
   };
 }
 // The Open loops page, once its lanes arrive.

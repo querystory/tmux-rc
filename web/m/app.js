@@ -253,7 +253,6 @@ function route() {
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort, page } = state);
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
-  if (active) returnPane = null;
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
@@ -381,7 +380,6 @@ function renderLanding() {
   if (page === "usage") return paintUsage();
   if (page === "loops") return renderLoops(cardView("Open loops", loopsView), loops, navigate, licon);
   paintUsage(); // follows the tool chips
-  show("landing-back", panes.some((p) => p.pane_id === returnPane));
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
   // only for the loading and empty states, and hides itself when blank (style.css).
   text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "" : "No panes yet");
@@ -394,7 +392,7 @@ function renderLanding() {
     renderList();
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
-  }, licon, [$("landing-cards"), $("usage-panel")], $("heat-card"), () => openPage("heat"));
+  }, licon, [$("landing-cards"), $("usage-panel")], $("heat-card"), () => openPage("heat"), $("radar-card"));
   renderLoopsCard($("loops-card"), loops, openLane, licon);
 }
 
@@ -549,7 +547,7 @@ reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ?
 // capped so the pane's flexible row (the terminal, or the overview alone) keeps
 // FLEET_ROOM, which a short window or a tall stacked overview would otherwise take.
 const FLEET_KEY = "tmuxrc-fleet-height", STRIP = 40, MEDIUM = 300, FLEET_ROOM = 120;
-let fleetHeight = STRIP, fleetShown = STRIP, returnPane = null, returnView = "summary";
+let fleetHeight = STRIP, fleetShown = STRIP;
 try { fleetHeight = Number(localStorage.getItem(FLEET_KEY)) || STRIP; } catch {}
 const fleetHandle = $("fleet-handle");
 function sizeFleet(px = fleetHeight, mode = "") {
@@ -582,11 +580,9 @@ fleetHandle.onkeydown = (e) => {
   if (!step) return;
   e.preventDefault(); sizeFleet(fleetShown + step, "drag");
 };
-// The strip's Dashboard swaps the pane for the dashboard page; its Back returns to the pane.
-// Opening it again from the dashboard keeps the pane Back returns to.
-const openDashboard = () => { if (active) [returnPane, returnView] = [active, view]; navigate(null, "dashboard"); };
-$("landing-back").onclick = () => navigate(returnPane, returnView); // the tab the user left, too
-html($("landing-back"), licon("back", 18));
+// The strip's Dashboard swaps the pane for the dashboard page. The dashboard has no Back to
+// the pane: the sidebar and the tab bar reach every pane, and the browser's Back returns to it.
+const openDashboard = () => navigate(null, "dashboard");
 function renderFleetSplit() {
   if (!WIDE.matches || !active) return;
   renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard });

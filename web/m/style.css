@@ -549,9 +549,22 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #loops-card .loop-row:first-of-type { border-top: 0; }
 #loops-card .loop-row a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #loops-card .loop-panes { display: none; }
-/* Cards side by side where two fit, the row's height shared; stacked on a phone. */
-#landing-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; margin-top: 16px; }
+/* Cards side by side as many as fit (three on a desktop), the row's height shared; stacked on a phone. */
+#landing-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; margin-top: 16px; }
 #landing-cards .atlas-panel { height: 100%; margin-top: 0; }
+/* Activity, last on the page: until its slot scrolls into view, a strip pinned to the bottom
+   edge (atlas.js), growing into the full chart as the slot arrives. */
+.atlas-pulse .fleet-chart-axis { transition: height .25s; }
+#session-atlas > .atlas-pulse.compact { position: sticky; bottom: 0; z-index: 3; padding-block: 6px 8px; border-radius: 16px 16px 0 0; box-shadow: 0 -4px 16px rgb(0 0 0 / .12); }
+.atlas-pulse.compact .fleet-chart-axis { height: 32px; }
+.atlas-pulse.compact :is(.atlas-state-legend, .atlas-history-note, .atlas-panel-heading > :not(h3, .fleet-now, .fleet-average)) { display: none; }
+#session-atlas > .atlas-pulse.compact > .atlas-panel-heading:first-child { flex-wrap: nowrap; min-height: 0; margin: 0 0 4px; }
+.atlas-pulse.compact > .atlas-panel-heading > * { white-space: nowrap; }
+.atlas-pulse.compact > .atlas-panel-heading > .fleet-average { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A card narrower than its heading drops the heading's note rather than wrap under the title. */
+#landing-cards > * { container-type: inline-size; }
+@container (max-width: 420px) { .atlas-detail-card .atlas-panel-heading > .muted { display: none; } }
+@media (prefers-reduced-motion: reduce) { .atlas-pulse .fleet-chart-axis { transition: none; } }
 
 /* The atlas inherits both palettes. State always has a text label as well as colour. */
 #session-atlas { --atlas-idle: var(--muted); }
@@ -801,7 +814,6 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .atlas-multiple-head b:first-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .atlas-multiple .fleet-chart { flex: none; width: 100%; height: 48px; }
 .landing-head { display: flex; align-items: center; gap: 4px; }
-#landing-back { margin-left: -12px; }
 @media (min-width: 1100px) {
   #detail > #fleet { grid-row: 5; grid-column: 1 / -1; height: var(--fleet-h, 40px); min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line); background: var(--surface); }
   #detail > #fleet-handle { grid-row: 5; grid-column: 1 / -1; align-self: start; position: relative; z-index: 5; height: 9px; margin-top: -5px; cursor: row-resize; touch-action: none; }
