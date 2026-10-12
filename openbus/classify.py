@@ -99,7 +99,7 @@ def _widget_end(visible: str, start: int) -> int:
 
 
 def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
-    found = _occurrences(prompt, visible)
+    found = prompt.strip() and _occurrences(prompt, visible)  # "" would match everywhere
     if not found:
         return None
     # The last match's widget is the live one, but the prompt is its first match there: a
