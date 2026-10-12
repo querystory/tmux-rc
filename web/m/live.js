@@ -517,8 +517,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   $("chat").onclick = () => {
     if (docked()) return hide(); // a docked panel toggles: nothing covers the button
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
+    show(); // first, so a new chat's handshake says it opened in view
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
-    show();
   };
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;
