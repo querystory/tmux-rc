@@ -418,6 +418,9 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
+        // A provider reconnect (live._hold) drops what the socket sends meanwhile, even a
+        // "viewing" sent before this status arrived: forget it, so listening sends it again.
+        if (message.status === "reconnecting") current.viewing = null;
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); resync(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);

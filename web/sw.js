@@ -55,7 +55,8 @@ self.addEventListener("notificationclick", (event) => {
     // A chat lives in the open app: navigating would reload it away, so the app window whose
     // chat holds the card is asked to bring it back. A lone one (a home-screen app's) is
     // focused before it is asked: iOS may drop a focus that waits on a reply, and a suspended
-    // page cannot reply until it is woken. Several are each asked first, to focus the owner.
+    // page cannot reply until it is woken. Several are each asked first, to focus the owner;
+    // if none answers in time, the most recently focused (matchAll's order) is, and is asked.
     const owner = data.chat && apps.length > 1 && (await Promise.all(apps.map(holdsCard(data.chat)))).find(Boolean);
     const existing = owner || apps[0] || windows[0];
     if (existing) {
