@@ -673,9 +673,9 @@ _FUNCTION_WORDS = frozenset((
     "first", "next", "please"))
 # A reply, whatever row number it carries: "1. Yes, but check with me before sending".
 # An option written as a list row: "1. Fix the cache", "B) Queue it", "Option A: Redis".
-_OPTION_ROW_RE = re.compile(rf"^\s*{_ROW_LABEL}")
+_ROW_LABEL_RE = re.compile(rf"^\s*{_ROW_LABEL}")
 _REPLY_RE = re.compile(
-    rf"(?i)(?:{_OPTION_ROW_RE.pattern})?\s*(?:yes|no|ok|okay|sure|go|skip|hold)\b")
+    rf"(?i)(?:{_ROW_LABEL_RE.pattern})?\s*(?:yes|no|ok|okay|sure|go|skip|hold)\b")
 
 
 def _copies(text: object, row: str) -> bool:
@@ -687,7 +687,7 @@ def _copies(text: object, row: str) -> bool:
 
     def words(value: object) -> set[str]:
         return set(_WORD_RE.findall(str(value).lower())) - _FUNCTION_WORDS
-    quoted = _OPTION_ROW_RE.sub("", str(text), count=1).strip(" .").lower()
+    quoted = _ROW_LABEL_RE.sub("", str(text), count=1).strip(" .").lower()
     return (bool(quoted) and quoted in row.lower()) or len(words(text) & words(row)) >= 2
 
 
@@ -785,7 +785,7 @@ def _final_ask(visible: str, tool: str) -> dict | None:
 
 def _row_number(option: object) -> str | None:
     """The label of an option written as a list row ("1. Fix the cache"), else None."""
-    m = isinstance(option, str) and _OPTION_ROW_RE.match(option)
+    m = isinstance(option, str) and _ROW_LABEL_RE.match(option)
     return (m[1] or m[2]).upper() if m else None
 
 
