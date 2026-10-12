@@ -70,6 +70,16 @@ CASES = [
         {"sent": ["Down", "Enter"], "selected": 1, "notes": []},
     ),
     (
+        # Live on /resume: the reparse after the Down dropped the group header the previous
+        # one listed, so the moved highlight came back on the same index. A new row list is
+        # a new reading, not a move that did nothing.
+        "a move whose reparse renumbers the rows onto the old index still lands",
+        {"options": ["qs", "alpha", "beta", "gamma"], "selected": 1, "keymap": NO_SEARCH_KM,
+         "drop_header_after": 1},
+        "beta", 2,
+        {"sent": ["Down", "Enter"], "selected": 1, "notes": []},
+    ),
+    (
         # A misread keymap: Enter as `next` would commit the highlighted row, not move.
         "a direction bound to the select key is no direction",
         {"options": ROWS, "selected": 0, "keymap": {"next": "Enter", "select": "Enter"}},
@@ -313,6 +323,7 @@ function fake(spec) {{
     // A scroll: the window onto the list moves, so the rows renumber while a row with the
     // tapped text still happens to sit at the tapped index — a DIFFERENT session, though.
     if (spec.scroll_after === p.sends) p.options = ["beta", "gamma", "beta"];
+    if (spec.drop_header_after === p.sends) {{ p.options = p.options.slice(1); p.selected -= 1; }}
     // The same list, now advertising a different commit key.
     if (spec.keymap_after && p.sends === 1) p.keymap = spec.keymap_after;
     return true;

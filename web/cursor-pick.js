@@ -189,7 +189,11 @@ async function walk(io, targetText, targetIndex) {
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
     // binding the widget doesn't really have) — and both mean this walk cannot continue.
-    if (!(await waitForFrame(io, before, (f) => f.selected !== at))) return false;
+    // A reparse can also list the rows anew (the model adding or dropping a group header),
+    // which can renumber the moved highlight back onto the old index: that is a new
+    // reading too, and the next pass finds the row by its text.
+    const moved = (f) => f.selected !== at || !sameRows(rows, f.options);
+    if (!(await waitForFrame(io, before, moved))) return false;
   }
   return false;
 }
