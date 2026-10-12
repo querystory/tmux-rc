@@ -145,17 +145,19 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       .map((row) => ({ role: row.dataset.role, text: row.said.trim() })).filter((row) => row.text); // an Open-only row says nothing
     if (!transcript.length) return;
     current.ws.send(JSON.stringify({ action: "resume", transcript }));
-    add("error", "Reconnected: the assistant was handed the conversation above again");
+    // A quiet status line, not an error: nothing failed. One per run of reconnects.
+    if (lastRow()?.dataset.role !== "note") add("note", "Reconnected: the assistant has the conversation above");
   }
+  const lastRow = () => typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
   function add(role, message, newSegment = false, images = []) {
-    const previous = typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
+    const previous = lastRow();
     const follow = following();
     const grow = !newSegment && (role === "user" || role === "model") && previous?.dataset.role === role && !previous.dataset.done;
     let row = previous;
     if (!grow) {
       row = document.createElement("div"); row.className = "voice-entry";
       row.dataset.role = role;
-      row.classList.add(["user", "model", "typed", "error", "propose"].includes(role) ? role : "model");
+      row.classList.add(["user", "model", "typed", "error", "propose", "note"].includes(role) ? role : "model");
       const heading = document.createElement("strong");
       heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
@@ -165,7 +167,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
     else body.textContent += message || "";
     body.before(...images.map(chatThumb));
-    if (!dialog.open && role !== "user") unread = true; // not the user's own echo
+    if (!dialog.open && !["user", "note"].includes(role)) unread = true; // not the user's own echo, nor a status line
     // Oldest first, but never a proposal still waiting on the user: the daemon would wait
     // forever for a Send/Cancel that is no longer on screen.
     for (let old; log.children.length - typing.isConnected > TRANSCRIPT_ROWS && (old = [...log.children].find((r) => r !== typing && !r.querySelector(".voice-actions")));) old.remove();
