@@ -27,8 +27,8 @@ class _Watcher:
 
     def digest(self):
         return [
-            {"pane_id": "%1", "label": "work", "session": "dev", "window_index": "3", "tool": "claude",
-             "activity": "waiting", "tmux_active": True,
+            {"pane_id": "%1", "label": "work", "session": "dev", "window_index": "3",
+             "tool": "claude", "activity": "waiting", "tmux_active": True,
              "headline": "asking about tests", "summary": "ran the suite",
              "prs": [{"repo": "querystory/qs-app", "number": 4955}],
              "cwd": "/repo/worktree",
@@ -228,7 +228,8 @@ def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
     _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
                             panes=[fresh])
     assert ws.sent == [
-        {"type": "open_pane", "pane_id": "%40", "label": "auth fix · claude in work", "auto": False}]
+        {"type": "open_pane", "pane_id": "%40", "label": "auth fix · claude in work",
+         "auto": False}]
 
 
 @pytest.mark.parametrize(
