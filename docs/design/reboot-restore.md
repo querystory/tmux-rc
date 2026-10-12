@@ -221,7 +221,8 @@ session level by default, the wide layout shows panes expanded.
 ### Building the layout
 
 The executor does what a person would. For each selected session, in snapshot order, it
-creates the session with its first pane in that pane's directory, adds each window at its
+creates the session in its saved creation directory, which tmux keeps as the default for
+later windows, respawns the first pane into that pane's own directory, adds each window at its
 original index, splits off the window's panes in order, each in its own directory, then
 applies the saved layout string for exact geometry. A deselected pane makes the layout
 string's pane count wrong and tmux rejects it, so that window falls back to the nearest
@@ -256,7 +257,11 @@ instead of closing and taking its place in the layout with it.
 
 - **Agent panes** run the bound session's resume argv, fetched fresh from agent-history at
   restore time and gated by the daemon's known-resumable list, so nothing from the
-  snapshot beyond a session id reaches a command line. The index produces `claude
+  snapshot beyond a session id reaches a command line. The argv comes paired with the
+  index entry's `cwd`, which is where it must run, and restore validates that directory
+  as Live Mode's resume does. When it differs from the snapshot's pane directory (the
+  agent changed directory mid-session), the index wins, because only there can the
+  harness find the conversation; the card shows the indexed directory. The index produces `claude
   --resume <id>`, `codex resume <id>` and `omp --resume <id>` today. OpenCode and Gemini
   have no reader yet; their panes return as shells in the right directory with a note
   naming the tool. Resume restores the conversation, not launch flags: a pane started as
@@ -438,6 +443,9 @@ foreground program is the `pane_current_command` already read, stored as a basen
 agent-history's live-session listing and the once-a-minute binding, the consumed mark,
 and a read-only endpoint returning the latest dead-server snapshot with each pane's
 computed default, so the card's data can be checked by hand before the card exists.
+With `TMUXRC_TARGET` set, the watcher lists only its one pane and agent-history features
+are off, so the recorder does not run and leaves any existing row untouched: a one-pane
+view must never replace a server's full snapshot.
 
 Acceptance:
 
