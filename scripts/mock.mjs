@@ -166,6 +166,7 @@ async function check(out) {
     ["phone", PHONE, "hide=0"], ["phone-next", PHONE, `v=${second}&hide=0`], ["phone-hidden", PHONE, ""],
   ].filter(([name]) => second || !["phone-next", "desktop-ab"].includes(name)); // one variant: nothing to flip to
   const dir = path.join(out, "shots"), browser = await launch();
+  rmSync(dir, { recursive: true, force: true }); // only this check's shots, none left over from an older mock
   mkdirSync(dir, { recursive: true });
   try {
     for (const [name, viewport, hash] of shots) {
