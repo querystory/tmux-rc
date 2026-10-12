@@ -189,7 +189,7 @@ search only. Hooks stay an evidence source.
 
 | | Skill (b) | Daemon MCP (c) | Hooks (d) |
 |---|---|---|---|
-| Portability | One file, several harnesses | Any harness with a per-launch MCP override (Claude Code, Codex, OpenCode today; omp and Gemini open, below) | Per-harness config |
+| Portability | One file, several harnesses | Any harness with a per-launch MCP override (Claude Code and Codex; OpenCode, omp and Gemini open, below) | Per-harness config |
 | Per-agent opt-in | No (per user or repo) | Yes (per launch) | Awkward |
 | Caller identity, scope | None | Per-agent token and scopes | Harness-local |
 | Audit | Outside the daemon | The one audited path | Outside the daemon |
@@ -401,7 +401,9 @@ session.
 harness's per-launch override, never by writing the user's global config:
 - Claude Code: `--mcp-config`.
 - Codex: a `-c` override of `mcp_servers`, with the token in an environment variable.
-- OpenCode: a config file named by an environment variable.
+- OpenCode: a config file named by an environment variable is the override, but binding
+  its launch token to a stable session identity is not designed, and no phase below
+  builds it. Connect stays unavailable for OpenCode until both are.
 - omp: an MCP file or extension for that launch. The exact mechanism still needs
   checking.
 - Gemini, a default launcher too: not designed yet. Connect stays unavailable for its
@@ -415,9 +417,14 @@ already stores resume commands as argv.
 
 **On a running agent,** connecting means relaunching onto the same conversation. The
 daemon waits for idle with an empty composer, rechecked just before it exits the agent,
-since an idle pane can still hold an unsent draft that a relaunch would discard. It then
-runs the session's resume command, which
-agent-history already resolves, with the override added. The conversation survives, but
+since an idle pane can still hold an unsent draft that a relaunch would discard. The
+agent is usually the pane's initial process, so its exit would close the pane, and there
+is no shell to type into. So the daemon first sets `remain-on-exit` on that pane, asks
+the agent to quit through its own exit command (which lets it flush its transcript),
+waits for the process to end, then `respawn-pane`s the same pane with the session's
+resume argv, which agent-history already resolves, plus the override, in the indexed
+cwd, and finally restores the pane's `remain-on-exit`. The pane id and layout stay; the
+token is rebound to the new process incarnation. The conversation survives, but
 terminal state does not. So the card asks "Restart this agent to connect it?", and the
 relaunch never happens mid-turn. A harness with no resume command can only be connected
 at launch.
