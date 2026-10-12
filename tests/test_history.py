@@ -152,6 +152,7 @@ def test_endpoint_pages_back_with_before(tmp_path, monkeypatch):
     samples = TestClient(app).get("/api/history?window=1h&before=4200000").json()["samples"]
     assert samples[0]["t"] == 600_000
     assert samples[-1]["t"] == 4_200_000  # the range ends at `before`, not now
+    assert TestClient(app).get("/api/history?window=1h&before=4200000").json()["now"] == 4_200_000
     assert TestClient(app).get("/api/history?before=inf").status_code == 400
 
 

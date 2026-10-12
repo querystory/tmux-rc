@@ -158,7 +158,7 @@ function loadHeat(older) {
   request(`/api/history?window=24h&lead=13d${older ? `&before=${before}` : ''}`).then(data => {
     const fresh = older ? data.samples.filter(s => s.t < before) : data.samples, start = fresh[0]?.t ?? Infinity;
     const kept = heat ? heat.samples.filter(s => older || s.t < start) : [];
-    heat = { step: data.step, samples: older ? [...fresh, ...kept] : [...kept, ...fresh], done: !fresh.length || start <= data.first || (!older && !!heat?.done) };
+    heat = { step: data.step, now: older ? heat.now : data.now, samples: older ? [...fresh, ...kept] : [...kept, ...fresh], done: !fresh.length || start <= data.first || (!older && !!heat?.done) };
   }, () => {
     // A failed older page retries in 10s: a fresh `heat` re-renders the view, whose foot re-arms.
     if (older) setTimeout(() => { heat = { ...heat }; changed(); }, 10000);
@@ -176,20 +176,22 @@ const fig = (value, label) => { const node = el('span', 'heat-fig'); node.append
 const heatUnit = () => fleet.metric === 'panes' ? 'pane-hours' : 'agent-hours';
 const heatWaiting = () => el('p', 'muted', heat === false ? 'History unavailable. Retrying automatically.' : 'Loading saved history…');
 // Local days, today first, each 24 hours. A cell sums its buckets' running counts times the
-// bucket length: the agent-hours recorded in that hour, so a DST fall-back hour holds both of
-// its hours and a half-observed hour counts what was seen. A day's total sums its cells.
+// time each covers (the newest only up to the server's now): the agent-hours recorded in that hour, so a
+// DST fall-back hour holds both of its hours and a half-observed hour counts what was seen.
+// A day's total sums its cells.
 function heatDays(scope) {
   const days = new Map();
   scoped(scope, heat.samples).forEach(s => {
     const t = new Date(s.t), day = new Date(s.t).setHours(0, 0, 0, 0), n = countsOf(s);
     if (!days.has(day)) days.set(day, []);
     if (!n) return;
-    const cell = days.get(day)[t.getHours()] ||= { sum: 0, seen: 0, tools: {} };
-    cell.sum += running(n); cell.seen++;
-    (s.groups || []).forEach(g => { const c = countsOf(g); if (c) cell.tools[g.tool] = (cell.tools[g.tool] || 0) + running(c); });
+    const cell = days.get(day)[t.getHours()] ||= { sum: 0, tools: {} };
+    const hours = Math.max(0, Math.min(heat.step, heat.now - s.t)) / 3600000; // the newest bucket ends at the query's now
+    cell.sum += running(n) * hours;
+    (s.groups || []).forEach(g => { const c = countsOf(g); if (c) cell.tools[g.tool] = (cell.tools[g.tool] || 0) + running(c) * hours; });
   });
   // Until history runs out, the oldest day loaded may be cut by the chunk; it waits for the next.
-  const all = [...days].reverse().slice(0, heat.done ? undefined : -1), value = c => c.sum * heat.step / 3600000;
+  const all = [...days].reverse().slice(0, heat.done ? undefined : -1), value = c => c.sum;
   // One scale for the card and the view, from the 3rd to the 97th percentile of the latest
   // two weeks (the first chunk): a fleet that never idles still shows its rhythm, a spike does
   // not wash it out, and loading older days never recolours the newer ones.
@@ -279,11 +281,10 @@ export function renderHeatView(root, scope, icon, back) {
   // Each hour on record is a button labelled with its detail, one tab stop for the grid (the
   // arrow keys move it), and one tip shows the detail of the cell a pointer, tap or focus is on.
   const tip = el('div', 'heat-tip'), cells = [...grid.querySelectorAll('.heat-cell')];
-  const hours = n => (n * heat.step / 3600000).toFixed(1);
   const describe = ([day, h, c]) => {
-    const tools = c ? Object.entries(c.tools).filter(([, n]) => hours(n) >= 0.05).sort((x, y) => y[1] - x[1]) : [];
+    const tools = c ? Object.entries(c.tools).filter(([, n]) => n >= 0.05).sort((x, y) => y[1] - x[1]) : [];
     return [`${new Date(day).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${pad(h)}:00–${pad(h + 1)}:00`,
-      c ? `${data.value(c).toFixed(1)} ${unit}` : 'Not recorded', ...(tools.length > 1 ? tools.map(([tool, n]) => `${tool} ${hours(n)}`) : [])];
+      c ? `${c.sum.toFixed(1)} ${unit}` : 'Not recorded', ...tools.map(([tool, n]) => `${tool} ${n.toFixed(1)}`)];
   };
   cells.forEach(cell => {
     if (!cell.hour) return;
