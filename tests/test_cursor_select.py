@@ -1,8 +1,9 @@
 """A cursor picker's highlight is read off the screen, not trusted from the model: the
-parse's `selected` is grounded on the last ❯/› row, and /send re-reads that row before it
-presses a picker's select. The end-to-end case drives a fake digitless No/Yes menu (the
-shape of Claude Code's artifact-delete prompt) in a private tmux server reached only by
-its own -L socket, never $TMUX, and closes it by the pane id it created."""
+parse's `selected` is grounded on the last ❯/› row, and /send takes a walk's key only
+while the picker hashes as it did in the frame the step was computed from. The
+end-to-end case drives a fake digitless No/Yes menu (the shape of Claude Code's
+artifact-delete prompt) in a private tmux server reached only by its own -L socket,
+never $TMUX, and closes it by the pane id it created."""
 
 import os
 import shutil
@@ -16,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import server, tmux
-from openbus.classify import classify, highlighted_row, picker_digest, picker_head
+from openbus.classify import classify, highlighted_row, picker_digest
 from openbus.tmux import Pane
 
 # A user turn that starts with the target's own word, above a box highlighting No.
@@ -83,9 +84,6 @@ def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
     stacked = "│ Old?   │\n│ ❯ No   │\n╰───────╯\n│ New?   │\n│ ❯ Keep │\n╰───────╯"
     assert highlighted_row(stacked, "Old?", no_yes) is None
     assert highlighted_row(stacked, "New?", ["Keep"]) == "Keep"
-    unframed = "Old?\n❯ No\n  Yes\nNew?\n  No\n❯ Yes"  # no edge between them: no telling
-    assert highlighted_row(unframed, "Old?", no_yes) is None
-    assert picker_digest(unframed, "Old?") is None
     # Only a row that opens with a frame loses a closing bar; a label's own bar is kept.
     assert highlighted_row("Pick?\n❯ Fix │", "Pick?", ["Fix │"]) == "Fix │"
     assert highlighted_row("│ Pick?   │\n│ ❯ a │   │", "Pick?", ["a │"]) == "a │"
@@ -94,12 +92,11 @@ def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
 def test_classify_overrides_a_misread_anchor():
     misread = {"tool": "claude", "question": {
         "prompt": 'Permanently remove "Demo"?', "answer_style": "cursor",
-        "options": ["No", "Yes"], "selected": 1, "highlight": "Yes",
+        "options": ["No", "Yes"], "selected": 1,
         "keymap": {"next": "Down", "prev": "Up", "select": "Enter"},
     }}
     result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{SCREEN}", lambda s, t: misread)
-    assert result["question"]["selected"] == 0
-    assert result["question"]["highlight"] == "No"  # grounded off the screen
+    assert result["question"]["selected"] == 0  # grounded off the screen
     assert result["question"]["picker"] == picker_digest(SCREEN, 'Permanently remove "Demo"?')
 
 
@@ -122,36 +119,9 @@ def test_a_picker_digest_changes_with_anything_drawn_from_its_prompt_down():
     # A command's own rule-like row is indented: the dialog's edge is still the one above.
     ruled = dialog.replace("────────────────────", "────────────────────\n cat x\n   ─────")
     assert picker_digest(ruled, asked) != picker_digest(ruled.replace("cat x", "rm -rf"), asked)
-    # What a walk stays bound to: the dialog above the prompt, which a move never redraws.
-    moved = dialog.replace(" ❯ No\n   Yes", "   No\n ❯ Yes")
-    assert picker_head(dialog, asked) == picker_head(moved, asked)
-    assert picker_head(dialog, asked) != picker_head(other, asked)
     above = dialog.replace("remove it", "drop it")  # a user turn above the widget's edge
     assert picker_digest(dialog, asked) == picker_digest(above, asked)
 
-
-def test_a_tabbed_panel_the_user_opened_is_not_a_question():
-    read = {"tool": "claude", "activity": "waiting", "waiting_on": "user", "question": {
-        "prompt": "Search settings…", "answer_style": "cursor", "selected": 0,
-        "options": ["Auto-compact", "Thinking mode", "Theme"],
-    }}
-    result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{PANEL}", lambda s, t: read)
-    assert "question" not in result
-    assert result["activity"] == "idle"
-    # A panel above a later dialog (another rule glyph) is history: that dialog is asking.
-    asking = {"tool": "claude", "question": {
-        "prompt": 'Permanently remove "Demo"?', "answer_style": "cursor", "options": ["No", "Yes"]}}
-    later = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{PANEL}\n{SCREEN}", lambda s, t: asking)
-    assert later["question"]["highlight"] == "No"
-    boxed = '╭──────────╮\n│ Permanently remove "Demo"? │\n│ ❯ No     │\n│   Yes    │\n╰──────────╯'
-    later = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{PANEL}\n{boxed}", lambda s, t: asking)
-    assert later["question"]["highlight"] == "No"
-    assert "waiting_on" not in result
-    # A failed parse of the same panel is grounded by it too: idle, and not reparsed.
-    failed = {"tool": "claude", "activity": "unknown", "parse_ok": False}
-    result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{PANEL}", lambda s, t: dict(failed))
-    assert result["activity"] == "idle"
-    assert "parse_ok" not in result
 
 # Claude Code's /resume: a live count after the prompt that the model reads as chrome.
 RESUME = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
@@ -181,55 +151,31 @@ def test_a_picker_prompt_may_close_on_a_count():
 
 
 def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
-    sent = []
+    sent, reparsed = [], []
     monkeypatch.setattr(tmux, "find_pane", lambda p: PANE)
     monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: f"{tmux.VISIBLE_SCREEN}\n{RESUME}")
     monkeypatch.setattr(tmux, "at_password_prompt", lambda p: False)
-    monkeypatch.setattr(tmux, "pane_pid", lambda p: "4242")
     monkeypatch.setattr(tmux, "_run", lambda args, *a, **k: sent.append(args) or "")
-    read = {"tool": "claude", "question": {
-        "prompt": "Resume session", "answer_style": "cursor", "options": SESSIONS,
-        "selected": 0, "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
-    reparsed = []
     server.app.state.watcher = SimpleNamespace(request_reparse=reparsed.append)
+    read = {"tool": "claude", "question": {
+        "prompt": "Resume session (1 of 12)", "answer_style": "cursor", "options": SESSIONS,
+        "selected": 1, "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
+    question = classify(PANE, tmux.capture_pane(PANE.id), lambda s, t: read)["question"]
+    assert question["selected"] == 0  # off the screen
+    assert question["prompt"] == "Resume session"  # the count redraws with every move
 
-    def parse():  # the watcher's parse of the screen, with what the model read
-        parsed = classify(PANE, tmux.capture_pane(PANE.id), lambda s, t: read)
-        server.app.state.watcher.states = [{"pane_id": PANE.id, "birth": "4242", **parsed}]
-        return parsed
-
-    def send(keys, *, enter=False, literal=False, birth="4242", picker=None):
-        seen = server.app.state.watcher.states[0]["question"]["picker"]
-        body = {"keys": keys, "enter": enter, "literal": literal, "on_row": {
-            "prompt": "Resume session", "birth": birth, "picker": picker or seen}}
+    def send(picker):
+        body = {"keys": "Down", "enter": False, "literal": False,
+                "prompt": question["prompt"], "picker": picker}
         return TestClient(server.app).post(f"/api/panes/{PANE.id}/send", json=body).status_code
 
-    assert parse()["question"]["highlight"] == SESSIONS[0]
-    read["question"]["prompt"] = "Resume session (1 of 12)"  # as drawn: the count goes,
-    assert parse()["question"]["prompt"] == "Resume session"  # so moves keep one prompt
-    assert send("Down") == 200
+    assert send(question["picker"]) == 200
     assert any("Down" in args for args in sent)
-    assert send("harbor", literal=True) == 200  # search text
-    assert send("Down", birth="4141") == 409  # a recycled %N is another pane
-    assert send("Down", picker="an earlier frame") == 409  # a step read off another frame
-    with monkeypatch.context() as closing:  # the pane closed after it was found
-        closing.setattr(tmux, "capture_pane", lambda *a, **k: subprocess.check_output("false"))
-        assert send("Down") == 409
-    # A rowless send never commits: not the select key, nor Enter typed or appended. Each
-    # refusal rereads, so a walk is never left stuck on a card the watcher keeps reusing.
-    for keys, enter, literal in (("Enter", False, False), ("C-c", False, False),
-                                 ("harbor", True, True), ("harbor\r", False, True)):
+    # Read off another frame, or off none: refused, and reread so the walk can go again.
+    for stale in ("an earlier frame", ""):
         reparsed.clear()
-        assert send(keys, enter=enter, literal=literal) == 409
+        assert send(stale) == 409
         assert reparsed
-    parse()["question"]["keymap"]["search"] = False  # a parse with no search box: no typing
-    assert send("harbor", literal=True) == 409
-    read["question"]["keymap"]["next"] = "Enter"  # a misread binding is no move either
-    parse()
-    assert send("Enter") == 409
-    read["question"]["keymap"]["prev"] = ["Up"]  # malformed model output fails closed
-    parse()
-    assert send("Up") == 409
 
 
 MENU = """
@@ -252,7 +198,7 @@ time.sleep(30)
 
 
 @pytest.mark.skipif(not shutil.which("tmux"), reason="tmux is not installed")
-def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypatch):
+def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
     env = {k: v for k, v in os.environ.items() if k != "TMUX"}
     socket = f"tmuxrc-cursor-{uuid.uuid4().hex[:12]}"
 
@@ -266,10 +212,7 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
     try:
         monkeypatch.setattr(tmux, "_run", run)
         monkeypatch.setattr(tmux, "pane_pid", lambda p: tmux.find_pane(p).pid)
-        birth = tmux.pane_pid(pane)
-        parsed = {"pane_id": pane, "birth": birth, "question": {
-            "prompt": "Remove it?", "options": ["No", "Yes"], "selected": 0, "highlight": "No",
-            "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
+        parsed = {"pane_id": pane, "question": {}}
         def reparse():  # the watcher's parse records the picker as it is drawn now
             screen = tmux.capture_pane(pane, mark_dim=True)
             parsed["question"]["picker"] = picker_digest(screen, "Remove it?")
@@ -285,38 +228,23 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
                 time.sleep(0.05)
             raise AssertionError(shown)
 
-        def send(keys, row=None, prompt="Remove it?"):
-            on = {"prompt": prompt, "row": row, "birth": birth,  # its picker and pane
-                  "picker": parsed["question"]["picker"]}
-            body = {"keys": keys, "enter": False, "literal": False, "on_row": on}
+        def send(keys, prompt="Remove it?"):
+            body = {"keys": keys, "enter": False, "literal": False, "prompt": prompt,
+                    "picker": parsed["question"]["picker"]}
             return client.post(f"/api/panes/{pane}/send", json=body)
 
         screen_until(" ❯ No")
         reparse()
-        refused = send("Enter", "Yes")  # the parse has the highlight on No
-        assert refused.status_code == 409
-        assert "Yes" in refused.json()["detail"]
-        assert send("Down", prompt="Remove that?").status_code == 409  # another picker's move
+        assert send("Down", prompt="Remove that?").status_code == 409  # another picker's
         assert send("Down").status_code == 200
         screen_until(" ❯ Yes")
-        # The screen moved since the parse: nothing goes, not even the right row's select,
-        # until it is reread.
-        parsed["question"].update(selected=1, highlight="Yes")
-        assert send("Enter", "Yes").status_code == 409
+        # The screen moved since the frame the step was read off: nothing goes, not even
+        # the select a walk would press here, until it is reread.
+        refused = send("Enter")
+        assert refused.status_code == 409
+        assert "changed" in refused.json()["detail"]
         reparse()
-        # That parse names the rows: one that no longer lists "Yes" refuses it.
-        parsed["question"]["options"] = ["No", "Yes  later"]
-        assert send("Enter", "Yes").status_code == 409
-        parsed["question"]["options"] = ["Yes", "Yes"]  # which "Yes" was tapped is unknowable
-        assert send("Enter", "Yes").status_code == 409
-        parsed["question"]["options"] = ["No", "Yes"]
-        parsed["question"]["prompt"] = "Remove the other one?"  # a different picker's parse
-        assert send("Enter", "Yes").status_code == 409
-        parsed["question"]["prompt"] = "Remove it?"
-        parsed["question"]["keymap"]["select"] = "Tab"  # the picker's select key changed
-        assert send("Enter", "Yes").status_code == 409
-        parsed["question"]["keymap"]["select"] = "Enter"
-        assert send("Enter", "Yes").status_code == 200
+        assert send("Enter").status_code == 200
         assert "SELECTED Yes" in screen_until("SELECTED")
     finally:
         subprocess.run(["tmux", "-L", socket, "kill-pane", "-t", pane], env=env,

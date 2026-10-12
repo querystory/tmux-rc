@@ -136,18 +136,15 @@ _EXT = {
 }
 
 
-class OnRow(BaseModel):
-    prompt: str = Field(min_length=1)
-    row: str | None = None  # a select's row; none for a walk's move or search text
-    picker: str = Field(min_length=1)  # the parse's picker digest the walk read this step off
-    birth: str = Field(min_length=1)  # the pane incarnation the walk started on: ids recycle
-
-
 class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
-    on_row: OnRow | None = None  # send only while the picker's highlight is on this row
+    # A cursor walk's step: the picker digest of the frame it was computed from (classify's
+    # `picker`, "" when it located none) and the prompt that locates that picker. Sent only
+    # to that very screen.
+    picker: str | None = None
+    prompt: str = ""
 
 
 class PushKeysBody(BaseModel):
@@ -855,51 +852,22 @@ def send(pane_id: str, body: SendBody, request: Request):
         raise HTTPException(404, "pane not found")
     _invalidate_input_actions(pane.id)
 
-    def on_row() -> None:
-        # A cursor walk's send, checked under the send lock against the server's latest
-        # parse, never the request's: the request must name that parse's picker (prompt and
-        # digest, so a step read off an earlier frame of it is refused), and the
-        # picker and all below it must be drawn exactly as that parse recorded them (its
-        # `picker` digest, captured as the watcher captures). So a picker replaced or
-        # changed since takes no key meant for the old one: the walk waits for the reparse.
-        # A select must also be that parse's grounded highlight, with its select key, and
-        # the only row so named there: of two alike, the tapped one cannot be told apart.
-        state = next((s for s in app.state.watcher.states if s.get("pane_id") == pane.id), {})
-        question = state.get("question") if isinstance(state.get("question"), dict) else {}
-        rows, at = question.get("options"), question.get("selected")
-        keymap = question.get("keymap") if isinstance(question.get("keymap"), dict) else {}
-        prompt, row = body.on_row.prompt, body.on_row.row
-        seen = question.get("picker")
-        try:
-            screen = tmux.capture_pane(pane.id, mark_dim=True)
-        except subprocess.CalledProcessError as e:  # the pane closed since find_pane
-            raise tmux.PaneChangedError(f"The pane closed; nothing was sent: {e}") from e
-        if (question.get("prompt") != prompt or state.get("birth") != body.on_row.birth
-                or not seen or seen != body.on_row.picker or seen != picker_digest(screen, prompt)):
-            msg = f"The picker {prompt!r} changed since it was read; nothing was sent."
-            raise tmux.PaneChangedError(msg)
-        # A rowless send only moves or types search text, so it can never commit a row:
-        # no Enter, text only where that parse saw a search box, and a key only a move
-        # (the keymap is model output, so it may misread Enter as `next`). Committing is a
-        # select's, held to its row below.
-        moves = [key for key in (keymap.get("next"), keymap.get("prev"))
-                 if isinstance(key, str) and key != keymap.get("select")]
-        if row is None and (body.enter or (
-                keymap.get("search") is not True or any(c in body.keys for c in "\r\n")
-                if body.literal else body.keys not in moves)):
-            msg = f"{body.keys!r} is not a move in {prompt!r}; nothing was sent."
-            raise tmux.PaneChangedError(msg)
-        if row is not None and (
-                question.get("highlight") is None or not isinstance(rows, list)
-                or not isinstance(at, int) or not 0 <= at < len(rows) or rows[at] != row
-                or rows.count(row) != 1 or body.literal or body.keys != keymap.get("select")):
-            msg = f"The highlight is not on {row!r}; nothing was sent."
+    def same_picker() -> None:
+        # The whole guard on a cursor walk, under the send lock: the picker, from its
+        # dialog's top edge down (the command a generic "Proceed?" approves included), must
+        # hash exactly as in the frame the step was computed from. That frame's highlight
+        # was read off the screen (classify), so the step is right for that screen and
+        # for no other: a replaced or redrawn picker, a moved highlight, another pane under
+        # a recycled id all change it. A screen that hashes the same takes the key as the
+        # walk meant it, which is why nothing about the key, row or pane is checked apart.
+        screen = tmux.capture_pane(pane.id, mark_dim=True)
+        if not body.picker or picker_digest(screen, body.prompt) != body.picker:
+            msg = f"The picker {body.prompt!r} changed since it was read; nothing was sent."
             raise tmux.PaneChangedError(msg)
 
     try:
         tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
-                       guard=body.on_row and on_row,
-                       expected_pid=body.on_row and body.on_row.birth)
+                       guard=None if body.picker is None else same_picker)
     except Exception as e:
         # Keys refused at a password prompt are probably the password: never recorded.
         keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys

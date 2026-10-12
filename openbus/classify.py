@@ -82,13 +82,13 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 # A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
 # the frame, a radio and a digit. The model reads the highlight too but can misplace it
 # (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
-# Yes pressed Enter on No), so the screen decides wherever it shows one, and /send checks
-# it before a select. Only between the prompt and the widget's bottom edge (a ─── rule or
-# a ╰ corner), so neither a turn in the scrollback nor the input box under a picker that
-# has closed is ever the cursor. A box with no highlight in it is the search field above
-# the list (/resume, /config), not its edge, so it is passed over. Returns the one option
-# the row names: itself, or itself ahead of a value column ("Auto-compact      true").
-# Only a row that opens with a frame loses one closing bar: a label's own bar is content.
+# Yes pressed Enter on No), so the screen decides wherever it shows one. Only between the
+# prompt and the widget's bottom edge (a ─── rule or a ╰ corner), so neither a turn in the
+# scrollback nor the input box under a picker that has closed is ever the cursor. A box
+# with no highlight in it is the search field above the list (/resume, /config), not its
+# edge, so it is passed over. Returns the one option the row names: itself, or itself
+# ahead of a value column ("Auto-compact      true"). Only a row that opens with a frame
+# loses one closing bar: a label's own bar is content.
 _HIGHLIGHT_RE = re.compile(
     rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
     r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
@@ -115,20 +115,11 @@ def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
     # later one inside the same widget is an option or footer repeating the prompt's words.
     asked = next(m for m in found if _widget_end(visible, m.end()) > found[-1].start())
     end = _widget_end(visible, asked.end())
+    # Past an unframed picker's end nothing is drawn: a supported agent erases or redraws
+    # a picker once it is answered, so no later one ever sits below it in its range.
     if _HIGHLIGHT_RE.search(visible, end):  # a later picker, or the input box, is live:
         return None                         # this one is history in the scrollback
-    # An unframed picker has no edge, so its range runs to the screen's end and can hold a
-    # later one drawn below it: two highlights is no telling which is its own.
-    if len(_HIGHLIGHT_RE.findall(visible, asked.end(), end)) > 1:
-        return None
     return asked, end
-
-
-def drawn_row(visible: str, prompt: str) -> str | None:
-    """The text of the live picker's highlighted row under prompt, as drawn, or None."""
-    live = _live_prompt(visible, prompt)
-    *_, row = [None, *(_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1]) if live else ())]
-    return row and row["label"]
 
 
 # A dialog's own top edge, drawn from column 0 (▔▔▔, ───, ╭): a command's rule-like row
@@ -136,54 +127,30 @@ def drawn_row(visible: str, prompt: str) -> str | None:
 _DIALOG_TOP_RE = re.compile(r"^(?:[─━▔]{3,}|╭)", re.MULTILINE)
 
 
-def _picker_span(visible: str, prompt: str) -> tuple[int, int] | None:
-    """Where the live picker's dialog begins (its nearest top edge above the prompt, any
-    distance up, else the prompt row) and where its prompt row does, or None."""
+def picker_digest(text: str, prompt: str) -> str | None:
+    """A hash of a capture's live picker, from its dialog's top edge (so the command a
+    generic "Do you want to proceed?" approves is part of it) down to the screen's end,
+    as classify reads the viewport (_visible) but otherwise verbatim: what a cursor walk's
+    keys are held to (/send). Any change since the frame a step was computed from, be it a
+    replacement picker, a moved highlight or a row's "30s" now "60s", refuses it."""
+    visible = _visible(text)
     live = _live_prompt(visible, prompt)
     if not live:
         return None
     *_, top = [live[0].start(), *(m.start() for m in
                                   _DIALOG_TOP_RE.finditer(visible, 0, live[0].start()))]
-    return top, live[0].start()
-
-
-def _sha(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()
-
-
-def picker_digest(text: str, prompt: str) -> str | None:
-    """A hash of a capture's live picker, from its dialog's top edge (so the command a
-    generic "Do you want to proceed?" approves is part of it) and everything drawn below,
-    as classify reads the viewport (_visible) but otherwise verbatim: what a cursor
-    walk's keys are held to (/send). Any change since the parse that recorded it, be it a
-    replacement picker however its highlight is drawn or a row's "30s" now "60s", refuses
-    them until a reparse; heuristics over the new screen each had a case they missed."""
-    visible = _visible(text)
-    span = _picker_span(visible, prompt)
-    return span and _sha(visible[span[0]:])
-
-
-def picker_head(visible: str, prompt: str) -> str | None:
-    """A hash of the live picker's dialog above its prompt (the command it approves): the
-    part no move redraws, so what tells one same-prompt ask from its replacement."""
-    span = _picker_span(visible, prompt)
-    return span and _sha(visible[span[0]:span[1]])
+    return hashlib.sha256(visible[top:].encode()).hexdigest()
 
 
 def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
-    label = drawn_row(visible, prompt)
+    """The one option the live picker's highlighted row under prompt names, or None."""
+    live = _live_prompt(visible, prompt)
+    *_, row = [None, *(_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1]) if live else ())]
+    label = row and row["label"]
     named = label is not None and [option for option in options if isinstance(option, str)
                                    and (label == option or label.startswith(f"{option}  "))]
     return named[0] if named and len(named) == 1 else None
 
-
-# A tab strip under a dialog's top rule ("Settings  Status  Config  Usage  Stats") is a
-# panel the user opened and is browsing (/config, /plugin). The agent is not asking: a row
-# there toggles a setting or opens a page and the panel stays, so it is no question. Only
-# while it is still open: the screen's last row is its own footer ("… ↑ to tabs · Esc to
-# clear"), not that of any later dialog, framed or ruled, drawn below a lookalike.
-_TABBED_PANEL_RE = re.compile(r"▔{3,}.*\n[ \t]*\w+(?:[ \t]{2,}\w+){3,}[ \t]*\n"
-                              r"[\s\S]*\bto tabs\b.*\s*\Z")
 
 # The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
 # at its input box, so every row under it is status/footer chrome (Claude's welcome
@@ -1084,13 +1051,6 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    if result.get("tool") == "claude" and _TABBED_PANEL_RE.search(visible):
-        # Authoritative over the model, a failed parse included: the screen is a settings
-        # panel, so nothing is asked. Only a turn the model saw still running stays running.
-        result.pop("question", None)
-        result.pop("parse_ok", None)
-        if result.get("activity") != "running":
-            result["activity"] = "idle"
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
@@ -1103,14 +1063,10 @@ def classify(
         rows, asked = question.get("options"), _question_prompt(question)
         if asked:  # the walk and /send hold the prompt across moves, which redraw the count
             question["prompt"] = asked = _LIVE_COUNT_RE.sub("", asked)
-        for key in ("highlight", "picker", "head"):  # read off the screen, never passed through
-            question.pop(key, None)
-        if asked and (digest := picker_digest(text, asked)):
-            question["picker"] = digest  # the screen /send holds this walk's keys to
-            question["head"] = picker_head(visible, asked)  # the ask the walk stays bound to
+        # The screen /send holds a walk's keys to: read off it, never passed through.
+        question["picker"] = asked and picker_digest(text, asked)
         if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
-            question["highlight"] = drawn_row(visible, asked)  # grounded: /send may commit it
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask"):
             question.pop(key, None)
