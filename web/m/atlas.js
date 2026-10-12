@@ -154,10 +154,11 @@ function refreshHeat() {
 const pad = h => String(h).padStart(2, '0');
 const shade = (v, low, top) => v < 0.05 ? 'var(--raised)' : `color-mix(in oklab, var(--chart-s1) ${Math.round(12 + 88 * Math.max(0, Math.min(1, (v - low) / (top - low))))}%, var(--surface))`;
 const fig = (value, label) => { const node = el('span', 'heat-fig'); node.append(el('b', '', value), el('span', 'muted', label)); return node; };
-const heatUnit = () => fleet.metric === 'panes' ? 'pane-hours' : 'agent-hours';
+// The metric's population, as the activity chart's unit names it: every pane, shells too, plus agents.
+const heatUnit = () => fleet.metric === 'panes' ? 'pane-hours' : 'pane+agent hours';
 const heatWaiting = () => el('p', 'muted', heat === false ? 'History unavailable. Retrying automatically.' : 'Loading saved history…');
 // Local days, today first, each 24 hours. A cell sums its buckets' running counts times the
-// time each covers (the newest only up to the server's now): the agent-hours recorded in that hour, so a
+// time each covers (the newest only up to the server's now): the running hours recorded in that hour, so a
 // DST fall-back hour holds both of its hours and a half-observed hour counts what was seen.
 // A day's total sums its cells.
 function heatDays(scope) {
@@ -192,7 +193,7 @@ function heatGrid({ all, value, low, top, totals, most }, days, compact) {
   grid.setAttribute('role', compact ? 'img' : 'group');
   grid.setAttribute('aria-label', `Running ${unit} by hour for ${days} days; the busiest had ${Math.round(most)}.${compact ? '' : ' Arrow keys move between hours.'}`);
   grid.append(el('span'), ...Array.from({ length: 24 }, (_, h) => el('span', 'heat-hour', h % (compact ? 12 : 6) ? '' : `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`)),
-    el('span', 'heat-hour heat-total', compact ? '' : unit === 'agent-hours' ? 'Agent-h' : 'Pane-h'));
+    el('span', 'heat-hour heat-total', compact ? '' : 'Hours'));
   all.slice(0, days).forEach(([day, cells], i) => {
     grid.append(el('span', day === today() ? 'heat-day today' : 'heat-day', dayName(day)));
     for (let h = 0; h < 24; h++) {

@@ -224,8 +224,10 @@ function navigate(id = null, nextView = "summary", { mode } = {}) {
 // Filter and sort change the list, not the screen: with the sidebar beside an open pane
 // (wide layout) the pane, its tab and a dashboard view must survive them; on a phone a
 // filter tap is a request for the list.
-const openPage = (name, card) => { navigate(null, name); pageFrom = card; };
-const closePage = () => pageFrom ? history.back() : navigate(null, "dashboard", { mode: "replace" });
+// Opened from its card, a view's entry says so in history.state, which survives a reload and
+// Back/Forward; its Back then steps back rather than stacking a second dashboard entry.
+const openPage = (name, card) => { navigate(null, name); pageFrom = card; history.replaceState({ fromCard: true }, ""); };
+const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
 const stayPut = () => navigate(active, active ? view : dashboard && WIDE.matches ? page || "dashboard" : "summary");
 
 // Leaving a pane the user did not choose to leave: it closed under them, or a deep link
