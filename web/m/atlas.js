@@ -291,10 +291,12 @@ export function renderHeatView(root, scope, icon, back) {
   const figs = heatFigs(data);
   view.figs.replaceWith(figs);
   view.figs = figs;
-  const foot = el('p', 'muted heat-foot', heat.done ? 'Start of saved history' : 'Loading older days…');
+  // The view stops paging at 180 days, so a long-lived daemon never grows the grid without end.
+  const horizon = !heat.done && heat.samples[0].t <= Date.now() - ms('180d');
+  const foot = el('p', 'muted heat-foot', heat.done ? 'Start of saved history' : horizon ? 'The view goes back 180 days' : 'Loading older days…');
   view.foot.replaceWith(foot);
   view.foot = foot;
-  if (heat.done) return;
+  if (heat.done || horizon) return;
   // aria-busy until the load re-renders the view with a new foot.
   root._older = new IntersectionObserver(entries => { if (entries[0].isIntersecting) { foot.setAttribute('aria-busy', 'true'); loadHeat(true); } }, { rootMargin: '400px' });
   root._older.observe(foot);
@@ -516,8 +518,12 @@ const STOP = new Set(('the a an and or to of in on for with from is are was were
 export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after, foot, openHeat, radar) {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
-  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(isAgent))];
-  const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))].filter(Boolean))].sort();
+  // The session cards chart the last week (the heatmap's history, the chart's until it loads)
+  // and need one averaging window before it. The filters offer what the chart and that week hold.
+  const src = heat ? heat.samples : history, step = heat ? heat.step : historyData?.step || 60000, end = src.at(-1)?.t ?? 0, recent = src.filter(s => s.t > end - ms('7d') - ms(fleet.average));
+  const weekGroups = recent.filter(s => s.t > end - ms('7d')).flatMap(s => s.groups || []), seen = [...history.flatMap(s => s.groups), ...weekGroups];
+  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...seen.map(g => g.tool)].filter(isAgent))];
+  const sessions = [...new Set([...allPanes.map(p => p.session), ...seen.map(g => g.session)].filter(Boolean))].sort();
   panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
   // Preserve focus and pointer targets across unchanged long polls.
   // draft too: the goal editor is shared, so an edit on one surface refreshes the other.
@@ -625,10 +631,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
 
   // One card per tmux session: its running count, who needs you, its trend on the shared
   // scale, and its panes by state underneath. Sessions with live panes come first.
-  // The cards chart the last week (the heatmap's history, the chart's until it loads), and need
-  // one averaging window before it; their keys are the live panes plus that week's sessions.
-  const src = heat ? heat.samples : history, step = heat ? heat.step : historyData?.step || 60000, end = src.at(-1)?.t ?? 0, recent = src.filter(s => s.t > end - ms('7d') - ms(fleet.average));
-  const week = recent.filter(s => s.t > end - ms('7d')).flatMap(s => (s.groups || []).filter(g => !scope.tool || g.tool === scope.tool).map(g => g.session));
+  // Their keys are the live panes plus the week's sessions (in the tool filter).
+  const week = weekGroups.filter(g => !scope.tool || g.tool === scope.tool).map(g => g.session);
   const live = new Set(panes.map(p => p.session)), keys = scope.session ? [scope.session]
     : [...new Set([...live, ...week].filter(Boolean))].sort().sort((a, b) => live.has(b) - live.has(a));
   const multiples = el('section', 'atlas-panel atlas-multiples');
