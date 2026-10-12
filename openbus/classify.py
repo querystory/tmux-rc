@@ -634,13 +634,15 @@ _ITEM_REF_RE = re.compile(
 _COUNT_BEFORE_RE = re.compile(
     r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
     r"had|got|need|needs|want|wants|own|owns|keep|keeps|to|from|equals?)\s+$|=\s*$"
-    r"|(?<=\s)(?!(?:Items?|Edits?|Steps?|Options?|Points?|Rows?)\b)[A-Z][\w.+-]*\s+$")
+    r"|(?<=\s)(?!(?:Items?|Edits?|Steps?|Options?|Points?|Rows?|Tasks?|Fix)\b)[A-Z][\w.+-]*\s+$")
 # What a reference takes before it, positively: an item noun or a preposition ("edits 1",
 # "for 2"), a verb in command position ("Do 1", "want me to do 1", "could you handle 2"),
 # or a conjunction after another reference ("1 and 2", "2, then 3").
 _REF_BEFORE_RE = re.compile(
-    r"(?i:\b(?:items?|edits?|steps?|options?|points?|rows?|number|no\.?|for|with|after|"
-    r"before)\s+$)|(?:^|[.?!;:]\s+|\b(?i:to|I|you|we|me|let's|please)\s+)[A-Za-z']+\s+$")
+    r"(?i:\b(?:items?|edits?|steps?|options?|choices?|points?|rows?|tasks?|fix(?:es)?|"
+    r"recommendations?|suggestions?|changes?|ideas?|approach(?:es)?|plans?|proposals?|"
+    r"actions?|issues?|findings?|comments?|bullets?|entry|entries|parts?|phases?|stages?|"
+    r"number|no\.?|for|with|after|before)\s+$)|(?:^|[.?!;:]\s+|\b(?i:to|I|you|we|me|let's|please)\s+)[A-Za-z']+\s+$")
 _REF_CHAIN_RE = re.compile(r"\s*(?:,\s*)?(?:(?i:and|or|then)\s+|&\s*)?|\s*,\s*")
 _WORD_RE = re.compile(r"[^\W\d_]{4,}")
 # Four-letter-plus words too common to tell a copy of a row from a reply to it.
