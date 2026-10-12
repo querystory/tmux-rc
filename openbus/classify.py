@@ -631,8 +631,8 @@ def _final_paragraph(message: str) -> str:
 # reference is a label wherever it sits, so letters skip the before-checks: "A quick fix?"
 # and "Grade A beef?" fail the after-check, and an article "a" is lowercase.
 _ROW_LABEL = (
-    r"(?:[-*•][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})"
-    r"[.):]?[ \t]*[—–-]?|\(?([A-Ha-h]|\d{1,2})[.)])[ \t]+")
+    r"(?:[-*•][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})\b"
+    r"[.):]?[ \t]*[—–-]?[ \t]*|\(?([A-Ha-h]|\d{1,2})[.)][ \t]+)")
 _LABELED_ROW_RE = re.compile(rf"[ \t│┃╎]*{_ROW_LABEL}(\S.*)")
 _REF_AFTER = (
     r"(?=\s*(?:[^\w\s]|$|"
@@ -706,7 +706,9 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
             label = (m[1] or m[2]).upper()
             item, indent = rows.setdefault(label, []), _indent(row)
             item[:] = [m[3]]
-            lead, para = " ".join(para) if para else lead, []
+            if para or label in ("1", "A"):  # a list's own lead-in, never an earlier list's
+                lead = " ".join(para)
+            para = []
             leads[label] = lead
         elif item is not None and row.strip() and _indent(row) > indent:
             item.append(row.strip())  # the item's wrapped continuation

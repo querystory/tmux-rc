@@ -1395,6 +1395,11 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
     result = classify(_pane("claude"), screen, _llm({"question": echo, "tables": [table]}))
     assert result["question"]["options"] == ["Option B please"] and result["tables"] is None
     # Numbers and letters keep the prompt's order, and the first named row leads.
+    # A list with no lead-in of its own has no subject, not the list above's.
+    bare = message.replace("  Two ways to fix the timeouts:\n\n", "").rsplit("\n\n", 1)[0]
+    question = classify(_pane("claude"), _auto_screen(bare + "\n\n  1. Ship it.\n\n  Do 1 now?"),
+                        _llm({}))["question"]
+    assert question["items"] == ["1. Ship it."] and "subject" not in question
     for ask, want in (("Do A, then step 1?", "A1"), ("Do A and 1?", "A1"), ("Do 1 and A?", "1A")):
         mixed = classify(_pane("claude"), _auto_screen(
             message + f"\n\n  Steps:\n  1. Ship it now.\n\n  {ask}"), _llm({}))["question"]
