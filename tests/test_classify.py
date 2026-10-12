@@ -1307,6 +1307,28 @@ def test_wrapped_closing_question_is_read_whole(message):
     assert "options" not in result["question"]  # no replies_fn: no buttons
 
 
+def test_question_naming_list_items_carries_them():
+    message = ("Old plan:\n  1. Rewrite the cache layer.\n\n  Two ways to free memory, in order:\n"
+               "  1. Move the build cache to disk. This is the biggest win and loses\n"
+               "     nothing; every tool keeps working.\n"
+               "  2. Close idle worker sessions. 40 of them hold 12 GB.\n"
+               "  3. Optional: point caches at ~/.cache.\n\n"
+               "  Want me to do 1 now and prepare the list for 2?")
+    question = classify(_pane("claude"), _auto_screen(message), _llm({}))["question"]
+    assert question["items"] == ["1. Move the build cache to disk.",
+                                 "2. Close idle worker sessions."]
+    ranged = classify(_pane("claude"), _auto_screen(message.replace(
+        "do 1 now and prepare the list for 2", "make edits 1–3")), _llm({}))["question"]
+    assert [i[:2] for i in ranged["items"]] == ["1.", "2.", "3."]
+    # A count, a PR number or a menu's own option numbers name no list item.
+    for ask in ("Want me to fix the 7 failing tests?", "Should I merge #2?"):
+        screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
+        assert "items" not in classify(_pane("claude"), screen, _llm({}))["question"]
+    menu = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "menu"}
+    screen = _auto_screen(message).replace("auto mode on", "plan mode on")
+    assert "items" not in classify(_pane("claude"), screen, _llm({"question": menu}))["question"]
+
+
 @pytest.fixture
 def replies():
     classify_mod._replies.clear()
@@ -1358,6 +1380,10 @@ def test_model_options_for_the_same_question_skip_the_extra_call(replies):
     other = {"prompt": "Pick a color", "options": ["red"]}
     assert _ask(make({"options": ["Yes", "No"]}), other)["options"] == ["Yes", "No"]
     assert calls == [ASK]
+    # The list the question names, echoed as its options, is context: replies are asked for.
+    rows = {"prompt": ASK, "options": ["1. Send it to Copilot", "2. Merge it"]}
+    classify_mod._replies.clear()
+    assert _ask(make({"options": ["Yes", "No"]}), rows)["options"] == ["Yes", "No"]
 
 
 def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):

@@ -612,6 +612,37 @@ def _final_paragraph(message: str) -> str:
     return " ".join(r.strip() for r in reversed(rows))
 
 
+# A numbered list row (inside any frame), and a number a prompt names: "do 1 now", "edits
+# 1–4", but not "#195", "v2.1", "8080" or "2:30".
+_NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
+_ITEM_REF_RE = re.compile(r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)")
+
+
+def _referenced_items(prompt: str, visible: str) -> list[str]:
+    """The numbered rows above a typed-answer question that its prompt names by number
+    ("Want me to do 1 now and prepare 2?"), each as its number and first sentence, so the
+    card says what 1 and 2 are. Read off the screen: the parser, told to carry them, did
+    not reliably. The nearest row wins a number, so an older list above loses to the one
+    the question closes; numbers with no row (a count, a time) name nothing here."""
+    found = _last_occurrence(prompt, visible)
+    items: dict[str, list[str]] = {}
+    item, indent = None, 0
+    for row in visible[:found.start() if found else 0].splitlines():
+        if m := _NUMBERED_ROW_RE.match(row):
+            item, indent = items.setdefault(m[1], []), _indent(row)
+            item[:] = [m[2]]
+        elif item is not None and row.strip() and _indent(row) > indent:
+            item.append(row.strip())  # the item's wrapped continuation
+        else:
+            item = None
+    refs = [str(n) for m in _ITEM_REF_RE.finditer(prompt)
+            for n in range(int(m[1]), int(m[2] or m[1]) + 1)]
+    firsts = {n: re.split(r"(?<=[.!?])\s", " ".join(rows), maxsplit=1)[0]
+              for n, rows in items.items()}
+    return [f"{n}. " + textwrap.shorten(firsts[n], 120, placeholder="…")
+            for n in dict.fromkeys(refs) if n in firsts]
+
+
 def _final_ask(visible: str, tool: str) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
@@ -641,12 +672,14 @@ def _final_ask(visible: str, tool: str) -> dict | None:
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
     """Suggested replies as buttons: strings only, short, deduped, printable (an option is
-    typed into the agent's input box), none that just repeat a prompt. Callers cap the count."""
+    typed into the agent's input box), none that just repeat a prompt, and no list rows
+    ("1. Fix the cache"): those are the context the question names, which question.items
+    carries, not a reply to type. Callers cap the count."""
     repeats = {p.casefold() for p in prompts}
     picks: dict[str, str] = {}
     for o in raw if isinstance(raw, list) else []:
         if (isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.isprintable()
-                and o.strip().casefold() not in repeats):
+                and o.strip().casefold() not in repeats and not _LIST_ITEM_RE.match(o.strip())):
             picks.setdefault(o.strip().lower(), o.strip())
     return list(picks.values())
 
@@ -985,11 +1018,14 @@ def classify(
         ) for line in footer):
             keymap["search"] = True
     if isinstance(question, dict):  # read off the screen, never passed through from the model
-        for key in ("context", "ask"):
+        for key in ("context", "ask", "items"):
             question.pop(key, None)
+        style, asked = question.get("answer_style"), _question_prompt(question)
+        # A menu's own numbers are its options, so only a typed answer names list items.
+        if items := style == "text" and asked and _referenced_items(asked, visible):
+            question["items"] = items
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
-        asked = question.get("answer_style") == "menu" and _question_prompt(question)
-        if context := asked and _widget_text(asked, visible):
+        if context := style == "menu" and asked and _widget_text(asked, visible):
             question["context"] = context
             # Only an approval is restated: a numbered choice such as "Which environment?"
             # keeps its own question.

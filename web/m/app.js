@@ -700,6 +700,8 @@ function render() {
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
   text($("prompt"), question?.ask || question?.prompt || "");
+  // The list rows the question names by number ("do 1 now?"), so it reads on its own.
+  text($("question-items"), Array.isArray(question?.items) ? question.items.join("\n") : "");
   // The widget's own rows, once and folded away: the restatement above is what to read.
   // Folded again for each new pane or command: an expanded one must not carry over.
   const command = $("question-command"), commandKey = `${active}\n${question?.context || ""}`;
