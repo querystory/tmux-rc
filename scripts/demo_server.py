@@ -37,6 +37,10 @@ try:  # absent on a base that predates plan limits: screenshots_diff runs these 
     from openbus.plan_usage import PlanUsage
 except ImportError:
     PlanUsage = None
+try:  # likewise for agent accounts
+    from openbus import accounts
+except ImportError:
+    accounts = None
 try:  # likewise for open loops
     from openbus.open_loops import OpenLoops
 except ImportError:
@@ -50,6 +54,8 @@ def _no_tmux(args, *_a, **_kw):
 
 
 FLEET = {p["pane_id"]: p for p in demo.fleet()}
+# The two-account screenshot state (scripts/screenshots.mjs); unset, one account each.
+TWO_ACCOUNTS = os.environ.get("TMUXRC_DEMO_ACCOUNTS") == "2"
 
 
 def _capture(pane_id, **_):
@@ -68,6 +74,7 @@ class DemoWatcher:
         self.tmux_running = True
 
     def state_version(self): return 1
+    def pane_birth(self, _pane_id): return None
     def is_stale(self): return False
     def booted(self): return True
     def snapshot_text(self, *_): return None
@@ -112,7 +119,7 @@ async def lifespan(app):
         app.state.history = demo.seed_history(DemoHistory(Path(tmp) / "history.sqlite3"))
         app.state.watcher, app.state.push = DemoWatcher(), None
         if PlanUsage:
-            app.state.usage = demo.seed_usage(PlanUsage(app.state.history))
+            app.state.usage = demo.seed_usage(PlanUsage(app.state.history), TWO_ACCOUNTS)
             app.state.usage.report = partial(app.state.usage.report, demo.NOW)
         if OpenLoops:
             app.state.loops = demo.seed_loops(OpenLoops())
@@ -123,6 +130,8 @@ async def lifespan(app):
 def install() -> None:
     """Swap the live seams for the demo ones. Separate from main() so a test can use it."""
     tmux._run = _no_tmux  # noqa: SLF001 - the one seam every tmux call goes through
+    if accounts:  # the fleet's own accounts, never a scan of this machine's config dirs
+        accounts.report = lambda *_: {**demo.accounts(TWO_ACCOUNTS), "shared": accounts.SHARED}
     tmux.capture_pane = _capture
     # A fixed model menu, so the chat button shows on every machine whatever keys it holds;
     # the socket itself is dropped (the screenshot browser stubs it), so no provider is called.

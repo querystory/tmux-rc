@@ -287,12 +287,16 @@ func withLock(name string, wait bool, fn func()) {
 	}
 }
 
-func claudeDir() string {
+// claudeDirs are the config dirs whose sessions are indexed: CLAUDE_CONFIG_DIR when
+// set (a hook runs inside one account), else every account in HOME, ~/.claude and each
+// ~/.claude-<name>, so a session started under a second account can still be resumed.
+func claudeDirs() []string {
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return dir
+		return []string{dir}
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude")
+	more, _ := filepath.Glob(filepath.Join(home, ".claude-*"))
+	return append([]string{filepath.Join(home, ".claude")}, more...)
 }
 
 func stateFile() string { return filepath.Join(Root(), "state", "last-reconcile") }

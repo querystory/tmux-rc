@@ -17,7 +17,7 @@ import path from "node:path";
 const playwright = process.env.PLAYWRIGHT_DIR || path.join(homedir(), ".cache/tmux-rc/playwright");
 const { chromium } = createRequire(path.join(playwright, "/"))("playwright");
 const [out = ".screenshots", tree = process.cwd()] = process.argv.slice(2);
-const WIDE = { width: 1440, height: 900 }, PHONE = { width: 390, height: 844 };
+const WIDE = { width: 1440, height: 900 }, HD = { width: 1920, height: 1080 }, PHONE = { width: 390, height: 844 };
 
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
@@ -60,6 +60,30 @@ const SHOTS = [
   ["mobile-no-tmux", PHONE, "light", "", noTmux],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
 ];
+
+// The same fleet with a second Claude account (TMUXRC_DEMO_ACCOUNTS=2, demo_fleet.PERSONAL):
+// badges, the strip by urgency, grouped Plan usage, the picker, the filter and Accounts….
+// Everything above is the one-account state, which must look as it did before accounts.
+const TWO_ACCOUNTS = [
+  ["accounts-wide-dashboard", WIDE, "light", "#view=dashboard", badges],
+  ["accounts-hd-dashboard", HD, "dark", "#view=dashboard", badges],
+  ["accounts-wide-pane", WIDE, "light", "#pane=%2513", badges],
+  ["accounts-wide-new-window", WIDE, "dark", "", async (page) => { await badges(page); await page.click("#new-window"); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); }],
+  ["accounts-mobile-list", PHONE, "light", "", badges],
+  ["accounts-mobile-list-dark", PHONE, "dark", "", badges],
+  ["accounts-mobile-menu", PHONE, "light", "", async (page) => { await badges(page); await page.click("#more-button"); }],
+  ["accounts-mobile-filtered", PHONE, "dark", "", async (page) => { await badges(page); await page.click("#more-button"); await page.click('#acct-filter [data-dir="~/.claude-personal"]'); }],
+  ["accounts-mobile-dashboard", PHONE, "light", "#view=dashboard", async (page) => { await badges(page); await page.locator("#usage-panel").scrollIntoViewIfNeeded(); }],
+  ["accounts-mobile-pane", PHONE, "light", "#pane=%2513", badges],
+  ["accounts-mobile-new-window", PHONE, "light", "#view=dashboard", async (page) => { await badges(page); await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }],
+  ["accounts-mobile-consent", PHONE, "light", "", async (page) => { await badges(page); await chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge")(page); }],
+  ["accounts-mobile-accounts", PHONE, "dark", "", async (page) => { await badges(page); await page.click("#more-button"); await page.click("#accounts-open"); }],
+  ["accounts-mobile-add", PHONE, "light", "", async (page) => { await badges(page); await page.click("#more-button"); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); }],
+];
+// The accounts arrive after the panes; a base without them shoots the page as it is.
+async function badges(page) {
+  await page.locator(".acct-badge").first().waitFor({ timeout: 5000 }).catch(() => {});
+}
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
 // its state is emptied on the way to the page.
@@ -200,19 +224,25 @@ async function waitUp(url, server) {
 
 const python = (...args) => ["uv", ["run", "--directory", tree, "python", ...args]];
 const now = Number(execFileSync(...python("-c", "from scripts.demo_fleet import NOW; print(NOW)"), { encoding: "utf8" }));
-const port = await freePort();
-const server = spawn(...python("-m", "scripts.demo_server", String(port)), { stdio: "inherit" });
-const base = `http://127.0.0.1:${port}`;
+// One server per account state: the demo fleet's accounts are fixed when it starts.
+const servers = [];
+async function serve(env = {}) {
+  const port = await freePort();
+  const server = spawn(...python("-m", "scripts.demo_server", String(port)), { stdio: "inherit", env: { ...process.env, ...env } });
+  servers.push(server);
+  await waitUp(`http://127.0.0.1:${port}/api/version`, server);
+  return `http://127.0.0.1:${port}`;
+}
 mkdirSync(out, { recursive: true });
 let browser;
 try {
-  await waitUp(`${base}/api/version`, server);
+  const runs = [[SHOTS, await serve()], [TWO_ACCOUNTS, await serve({ TMUXRC_DEMO_ACCOUNTS: "2" })]];
   // Font rendering settled by flags, not by whatever fontconfig answers: on a fresh CI runner
   // one shot came out with three text baselines (and an icon aligned to one) a pixel lower
   // than every other render of the same page. Unhinted metrics and grayscale antialiasing
   // leave nothing for that answer to change.
   browser = await chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none"] });
-  for (const [name, viewport, colorScheme, hash, step] of SHOTS) {
+  for (const [shots, base] of runs) for (const [name, viewport, colorScheme, hash, step] of shots) {
     const context = await browser.newContext({ viewport, colorScheme, deviceScaleFactor: 2,
       reducedMotion: "reduce", locale: "en-US", timezoneId: "UTC", serviceWorkers: "block",
       isMobile: viewport === PHONE, hasTouch: viewport === PHONE });
@@ -247,5 +277,5 @@ try {
   }
 } finally {
   await browser?.close();
-  server.kill();
+  for (const server of servers) server.kill();
 }

@@ -6,6 +6,8 @@
   --amber: #f1c56a; --amber-bg: #352d1c; --red: #ff9696; --purple: #a371f7;
   /* Fleet chart states, in history order: Needs you, Running, Idle, Unknown, Compacting, Waiting. */
   --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5;
+  /* Agent accounts (accounts.js), by the colour index openbus/accounts.py hands out. */
+  --acct-0: #5eead4; --acct-1: #c4b5fd; --acct-2: #a8b3c4; --acct-3: #fcd34d; --acct-4: #7dd3fc; --acct-5: #fda4af;
 }
 :root.light {
   color-scheme: light;
@@ -13,6 +15,7 @@
   --fg: #1b2821; --muted: #53655b; --accent: #146b46; --accent-bg: #dcf4e7; --lift: #fff;
   --amber: #815600; --amber-bg: #fff2d4; --red: #b52c36; --purple: #8250df;
   --chart-s0: #f2ad32; --chart-s1: #39b978; --chart-s2: #e3e8ed; --chart-s3: #d1d8e2; --chart-s4: #9363c4; --chart-s5: #729cc1;
+  --acct-0: #0f766e; --acct-1: #7c3aed; --acct-2: #64748b; --acct-3: #b45309; --acct-4: #0369a1; --acct-5: #be123c;
 }
 * { box-sizing: border-box; letter-spacing: 0; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
@@ -767,7 +770,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .usage-spark .limit { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
 @media (max-width: 1099px) { #usage { order: -1; position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); } }
 @media (min-width: 1100px) {
-  #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
+  #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); scroll-padding-inline: 14px; }
 }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
@@ -890,3 +893,82 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
 .ending :is(.badge, .sb-open .a, .m)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
 @media (prefers-reduced-motion: no-preference) { .ending :is(.badge, .sb-open .a, .m)::before { animation: logo-spin .8s linear infinite; } }
+
+/* Agent accounts (accounts.js): drawn only for a provider with two or more. */
+.acct-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--a); }
+.acct-dot.none { background: none; border: 1px solid var(--muted); }
+.acct-badge { --a: var(--muted); display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 0 6px 0 5px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.45; white-space: nowrap; color: var(--a); border: 1px solid color-mix(in srgb, var(--a) 45%, transparent); background: color-mix(in srgb, var(--a) 10%, transparent); }
+.acct-badge .acct-dot { width: 6px; height: 6px; }
+.row-acct:empty, .sb-acct:empty { display: none; }
+.sb-acct .acct-badge { margin-left: 4px; font-size: 10.5px; vertical-align: 1px; }
+#pane-location .acct-badge { vertical-align: 1px; }
+.acct-on { display: block; font-size: 12px; color: var(--muted); }
+.acct-pill { display: flex; flex: none; align-items: center; gap: 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
+.acct-pill .acct-badge { font-size: 12px; padding: 1px 2px 1px 8px; }
+.acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
+#more-menu.filtered > summary { position: relative; }
+#more-menu.filtered > summary::before { content: ""; position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--a); box-shadow: 0 0 0 2px var(--bg); }
+#acct-filter .menu-sec { padding: 8px 12px 2px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+#acct-filter hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+#acct-filter .acct-opt { width: 100%; gap: 10px; padding: 6px 14px 6px 12px; white-space: nowrap; }
+#acct-filter .acct-opt svg { margin-left: auto; color: var(--accent); visibility: hidden; }
+#acct-filter .acct-opt[aria-checked="true"] { font-weight: 600; }
+#acct-filter .acct-opt[aria-checked="true"] svg { visibility: visible; }
+#sb-head #more-menu { margin-left: auto; }
+#app.rail #sb-head #more-menu { display: none; }
+/* The strip: one row, swiped sideways, snapping per meter, two to a phone's width. */
+:is(#usage, #usage-board).acct-strip:not([hidden]) { display: flex; }
+.acct-strip { gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; }
+#usage-board.acct-strip { scroll-padding-inline: 0; }
+.acct-strip::-webkit-scrollbar { display: none; }
+.acct-strip > .usage-cell { flex: 0 0 calc(50% - 8px); scroll-snap-align: start; }
+.acct-strip.more-r { mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
+.acct-strip.more-l { mask-image: linear-gradient(90deg, transparent, #000 36px); }
+.acct-strip.more-l.more-r { mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
+/* The wide dashboard: one row of capped meters, wrapping only when they don't fit. */
+.usage-groups { display: flex; flex-wrap: wrap; align-items: flex-start; row-gap: 16px; font-size: 13px; line-height: 18px; }
+.ug { display: flex; flex-direction: column; gap: 6px; padding: 0 22px; border-left: 1px solid var(--line); }
+.ug:first-child { padding-left: 0; border-left: 0; }
+.ug-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: default; }
+.ug-cells { display: flex; gap: 20px; }
+.ug-cells .usage-cell { flex: 0 0 180px; }
+.ug-cells .usage-spark { height: 56px; margin-top: 6px; }
+/* New window's picker and the Accounts dialog. */
+.acct-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 6px; }
+.acct-pick button { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 12px; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.acct-pick button[aria-checked="true"] { border-color: var(--a); box-shadow: inset 0 0 0 1px var(--a); background: color-mix(in srgb, var(--a) 8%, var(--surface)); }
+.acct-pick button.add { grid-column: 1 / -1; justify-content: center; min-height: 40px; border-style: dashed; color: var(--muted); }
+.acct-pick span { min-width: 0; }
+.acct-pick small, .acct-hint { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.acct-hint { margin: 0; }
+dialog .acct-check { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; min-height: 44px; color: var(--fg); font-size: 14px; cursor: pointer; }
+dialog .acct-check input { flex: none; width: 20px; height: 20px; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); }
+dialog .acct-check small { display: block; color: var(--muted); font-size: 12px; }
+dialog .acct-check.locked { opacity: .6; cursor: default; }
+@media (max-width: 600px) { .acct-pick { grid-template-columns: 1fr; } }
+#acct-dialog { max-width: 560px; overflow-y: auto; }
+#acct-dialog button:not(.icon-button) { min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+#acct-dialog button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+#acct-dialog button.ghost { margin-right: auto; border: 0; background: none; color: var(--muted); }
+#acct-dialog code { font: 12.5px var(--mono); }
+.acct-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.acct-row.col { display: block; }
+.acct-row .who { flex: 1; min-width: 0; }
+.acct-row .who small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.acct-row input { min-height: 36px; padding: 4px 8px; }
+#acct-dialog .acct-add { width: 100%; margin-top: 10px; min-height: 44px; border-style: dashed; background: none; color: var(--accent); font-weight: 600; }
+.acct-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.acct-note { margin: 10px 0 0; color: var(--muted); font-size: 12.5px; }
+.acct-msg { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--raised); font-size: 12.5px; }
+.acct-msg.warn { color: var(--amber); }
+.acct-msg.err { color: var(--red); }
+.acct-steps { display: flex; gap: 6px; margin: -4px 0 8px; }
+.acct-steps i { flex: 1; height: 3px; border-radius: 2px; background: var(--line); }
+.acct-steps i.on { background: var(--accent); }
+.acct-seg { display: flex; gap: 8px; }
+#acct-dialog .acct-seg button { flex: 1; min-height: 44px; }
+#acct-dialog .acct-seg button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); font-weight: 600; }
+.acct-cmd { display: block; margin: 6px 0; padding: 8px 10px; overflow-x: auto; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.acct-wait { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.acct-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: acct-spin 1s linear infinite; }
+@keyframes acct-spin { to { transform: rotate(360deg); } }

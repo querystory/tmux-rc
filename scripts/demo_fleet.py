@@ -79,14 +79,45 @@ MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("G
 # Plan limits, one Claude and one weekly-only Codex account, as a typical day reads: a
 # light 5h window behind its even pace, a 7d window on pace to end in the 90s (amber), a
 # per-model weekly limit, and Codex on pace to run out before its reset (red), with no 5h
-# window at all. provider | name | the sessions whose panes draw on it | per window: name,
-# seconds, share of it gone at NOW, % used at NOW.
+# window at all. provider | config dir | the sessions whose panes draw on it | per window:
+# name, seconds, share of it gone at NOW, % used at NOW.
 PLANS = [
-    ("claude", "claude", SESSIONS, [("5h", 5 * 3600, 1 - 160 / 300, 16),
-                                    ("7d", 7 * 86400, 1 - 7.5 / 168, 89),
-                                    ("7d Fable", 7 * 86400, 1 - 7.5 / 168, 52)]),
-    ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 40)]),
+    ("claude", "~/.claude", SESSIONS, [("5h", 5 * 3600, 1 - 160 / 300, 16),
+                                       ("7d", 7 * 86400, 1 - 7.5 / 168, 89),
+                                       ("7d Fable", 7 * 86400, 1 - 7.5 / 168, 52)]),
+    ("codex", "~/.codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 40)]),
 ]
+# The two-account state (TMUXRC_DEMO_ACCOUNTS=2): a personal Claude plan beside the work
+# one, its default in two sessions. Named by label, as accounts.profiles() names them.
+PERSONAL = ("claude", "~/.claude-personal", ["research", "docs"],
+            [("5h", 5 * 3600, 1 - 185 / 300, 34), ("7d", 7 * 86400, 1 - 74 / 168, 22),
+             ("7d Fable", 7 * 86400, 1 - 74 / 168, 9)])
+PROFILES = {"~/.claude": ("Work", "Example Org", "Team", 0),
+            "~/.claude-personal": ("Personal", "Sam Rivera", "Max", 1),
+            "~/.codex": ("Codex", "", "", 2)}
+
+
+def plans(two: bool = False) -> list[tuple]:
+    if not two:
+        return PLANS
+    work = [s for s in SESSIONS if s not in PERSONAL[2]]
+    return [PERSONAL, (*PLANS[0][:2], work, PLANS[0][3]), PLANS[1]]
+
+
+def accounts(two: bool = False) -> dict:
+    """GET /api/accounts as accounts.report() answers it for this fleet."""
+    panes = fleet()
+    profiles = [{"dir": d, "tilde": d, "provider": tool, "name": PROFILES[d][0],
+                 "label": PROFILES[d][0] if two else None, "who": PROFILES[d][1],
+                 "plan": PROFILES[d][2], "color": PROFILES[d][3], "signed_in": True,
+                 "default": "-" not in d,
+                 "panes": [p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in ss]}
+                for tool, d, ss, _ in plans(two)]
+    sessions = {s: {"claude": PERSONAL[1] if s in PERSONAL[2] else "~/.claude",
+                    "codex": "~/.codex"} for s in SESSIONS} if two else {}
+    return {"profiles": profiles, "sessions": sessions}
+
+
 STALE = {"claude": 360}  # a failed last read: the meter shows the reading from 6m before
 
 
@@ -325,19 +356,19 @@ def seed_history(history: History) -> History:
     return history
 
 
-def seed_usage(usage):
+def seed_usage(usage, two: bool = False):
     """Five-minute samples of each PLANS window, rising a little faster late in it, ending
     at its share at NOW; and the accounts the panes draw on, as discovery would find them.
     Claude's last read failed, so its samples stop STALE seconds short of NOW."""
     rows, panes = [], fleet()
-    for tool, name, sessions, windows in PLANS:
+    for tool, name, sessions, windows in plans(two):
         last = NOW - STALE.get(tool, 0)
         for window, seconds, share, pct in windows:
             start = NOW - share * seconds
             rows += [(tool, name, window, seconds, t,
                       round(pct * ((t - start) / (NOW - start)) ** 1.2), start + seconds)
                      for t in range(int(last), int(start), -300)]
-        usage.accounts[(tool, name)] = {"short": name, "panes": [
+        usage.accounts[(tool, name)] = {"homes": [name], "panes": [
             p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions],
             "error": "unavailable" if tool in STALE else None}
     usage.history.record_usage(rows)

@@ -76,6 +76,3 @@ export function renderUsage(el, accounts, { wide = false, detail = false, now = 
 export const HIGH_PCT = 70;
 export const shownUsage = (accounts, mode) => mode === 'on' ? accounts : mode === 'off' ? []
   : accounts.map(a => ({ ...a, windows: (a.windows || []).filter(w => w.limit_at || w.pct >= HIGH_PCT) })).filter(a => !a.error && a.windows.length);
-
-// The account a pane draws on, named only when its provider has several to tell apart.
-export const paneAccount = (accounts, paneId) => accounts.find(a => a.label && a.panes.includes(paneId))?.label;

@@ -1,0 +1,201 @@
+"""Agent accounts: one per provider config dir (CLAUDE_CONFIG_DIR or CODEX_HOME).
+
+A profile is a provider plus a config dir. They are found in ~/.claude, ~/.claude-*,
+~/.codex*, the dirs live panes use, and the ones added here, and named by the user's
+label, else by the dir's non-secret account info. The store keeps only labels, colours
+and forgotten dirs; nothing here reads, copies or links a login. See
+docs/design/agent-accounts.md.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+from pathlib import Path
+
+from . import plan_usage, tmux
+from .plan_usage import ENV
+
+COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
+# What a new account may share with the provider's default dir, one symlink each, and
+# whether the add flow ticks it: settings often carry work-only hooks, MCP servers or
+# permissions. The login (.credentials.json, auth.json), .claude.json and the transcripts
+# are never offered.
+SHARED = {"claude": {"CLAUDE.md": True, "skills": True, "hooks": True, "statusline.sh": True,
+                     "settings.json": False},
+          "codex": {"AGENTS.md": True, "prompts": True, "config.toml": False}}
+LOGIN = {"claude": ["claude"], "codex": ["codex", "login"]}  # the provider's own sign-in
+
+
+def store_path() -> Path:
+    state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+    return state / "tmux-rc" / "accounts.json"
+
+
+def _load() -> dict:
+    try:
+        data = json.loads(store_path().read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save(data: dict) -> None:
+    path = store_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=1))
+    tmp.replace(path)
+
+
+def default_dir(provider: str) -> Path:
+    return Path.home() / f".{provider}"
+
+
+def _tilde(path: str) -> str:
+    home = str(Path.home())
+    return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
+
+
+def identity(provider: str, config: Path) -> dict | None:
+    """Who is signed in to this dir, from non-secret files only; None when nobody is.
+    Codex keeps no such file, so only its login's presence is checked, never read."""
+    if provider == "codex":
+        return {"who": "", "plan": ""} if (config / "auth.json").exists() else None
+    account = plan_usage.oauth_account(config, plan_usage.env_for("claude", config))
+    if not account.get("accountUuid"):
+        return None
+    # A personal plan's organisation is named for its owner's email: show just the email.
+    org = re.sub(r"'s Organi[sz]ation$", "", account.get("organizationName") or "")
+    plan = (account.get("organizationType") or "").removeprefix("claude_").replace("_", " ")
+    return {"who": org or account.get("displayName") or account.get("emailAddress") or "",
+            "plan": plan.title()}
+
+
+def profiles(pane_dirs=()) -> list[dict]:
+    """Every account tmux-rc lists: signed in or added here, and not forgotten. A dir seen
+    for the first time gets the lowest colour no other has, kept in the store."""
+    store, home = _load(), Path.home()
+    found = {str(d): t for t in ENV for d in [default_dir(t), *sorted(home.glob(f".{t}-*"))]
+             if d.is_dir()}
+    for tool, config in pane_dirs:
+        found.setdefault(str(config), tool)
+    for config, entry in store.items():
+        if entry.get("provider") in ENV:
+            found.setdefault(config, entry["provider"])
+    used, dirty, out = {e.get("color") for e in store.values()}, False, []
+    for config, provider in found.items():
+        entry, ident = store.get(config, {}), identity(provider, Path(config))
+        if entry.get("hidden") or not (ident or config in store):
+            continue
+        if "color" not in entry:
+            free = sorted(set(range(COLORS)) - used) or [len(used) % COLORS]
+            entry = store[config] = {**entry, "provider": provider, "color": free[0]}
+            used.add(free[0])
+            dirty = True
+        name = entry.get("label") or (ident or {}).get("who") or (
+            provider.title() if Path(config) == default_dir(provider)
+            else Path(config).name.lstrip("."))
+        out.append({"dir": config, "tilde": _tilde(config), "provider": provider, "name": name,
+                    "label": entry.get("label"), "color": entry["color"], "panes": [],
+                    "signed_in": bool(ident), "default": Path(config) == default_dir(provider),
+                    **(ident or {"who": "", "plan": ""})})
+    if dirty:
+        _save(store)
+    return out
+
+
+def find(config: str, provider: str | None = None) -> dict | None:
+    """The listed profile for this config dir (and provider, if given), or None."""
+    path = str(Path(os.path.expanduser(config)))
+    return next((p for p in profiles() if p["dir"] == path
+                 and provider in (None, p["provider"])), None)
+
+
+def metered() -> list[tuple[str, Path]]:
+    """The signed-in profiles' dirs, for PlanUsage to meter with or without a pane."""
+    return [(p["provider"], Path(p["dir"])) for p in profiles() if p["signed_in"]]
+
+
+def command(provider: str, config: str, cmd: str | list[str]) -> list[str]:
+    """`cmd` on this account whatever the session's default: the provider's variable set
+    to the dir, or unset for the default dir. A string runs through sh, as tmux would."""
+    var = ENV[provider]
+    pin = ["-u", var] if Path(config) == default_dir(provider) else [f"{var}={config}"]
+    return ["env", *pin, *(cmd if isinstance(cmd, list) else ["sh", "-c", cmd])]
+
+
+def session_defaults(sessions) -> dict[str, dict[str, str]]:
+    """Each session's account per provider: what a new window there inherits from tmux,
+    the session's environment over the global one, else the provider's default dir."""
+    glob = tmux.show_env()
+    out = {}
+    for session in sessions:
+        env = {**glob, **tmux.show_env(session)}
+        out[session] = {t: str(Path(os.path.expanduser(env.get(ENV[t]) or default_dir(t))))
+                        for t in ENV}
+    return out
+
+
+def report(states: list[dict], birth) -> dict:
+    """GET /api/accounts: the profiles with the panes on each, and, once a provider has
+    several (the only time the UI asks), each session's default account."""
+    panes = {pane_id: (tool, plan_usage.home(tool, env))
+             for tool, env, pane_id in plan_usage.pane_envs(states, birth)}
+    listed = profiles(panes.values())
+    by_dir = {p["dir"]: p for p in listed}
+    for pane_id, (_, config) in panes.items():
+        if profile := by_dir.get(str(config)):
+            profile["panes"].append(pane_id)
+    several = any(sum(p["provider"] == t and p["signed_in"] for p in listed) > 1 for t in ENV)
+    sessions = {s["session"] for s in states if s.get("session")} if several else ()
+    return {"profiles": listed, "sessions": session_defaults(sorted(sessions)), "shared": SHARED}
+
+
+def add(provider: str, config: str, label: str, link: list[str]) -> dict:
+    """Create (mode 700) or reuse the dir, symlink the chosen shared files from the
+    provider's default dir, and list it. Never deletes or overwrites anything."""
+    path = Path(os.path.expanduser(config))
+    if not path.is_absolute():
+        raise ValueError("the config dir must be an absolute path")
+    if find(str(path)):
+        raise FileExistsError(f"{_tilde(str(path))} is already an account")
+    if bad := set(link) - set(SHARED[provider]):
+        raise ValueError(f"not shareable: {', '.join(sorted(bad))}")
+    existed = path.exists()
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    linked = []
+    for name in link:
+        src, dst = default_dir(provider) / name, path / name
+        if src.exists() and not (dst.exists() or dst.is_symlink()):
+            dst.symlink_to(src)
+            linked.append(name)
+    store = _load()
+    entry = {k: v for k, v in store.get(str(path), {}).items() if k != "hidden"}
+    store[str(path)] = {**entry, "provider": provider, "label": label.strip() or None}
+    _save(store)
+    return {"dir": str(path), "existed": existed, "linked": linked}
+
+
+def edit(config: str, label: str | None = None, *, forget: bool = False) -> None:
+    """Rename (the label only) or forget a profile. Forgetting only drops it from the
+    list: the dir, its login and its transcripts stay on disk."""
+    profile = find(config)
+    if profile is None:
+        raise LookupError("unknown account")
+    if forget and profile["default"]:
+        raise ValueError("the default account can't be removed")
+    store = _load()
+    entry = store.setdefault(profile["dir"], {"provider": profile["provider"]})
+    if forget:
+        entry["hidden"] = True
+    if label is not None:
+        entry["label"] = label.strip() or None
+    _save(store)
+
+
+def set_default(session: str, profile: dict) -> None:
+    """Make this profile the session's default: `tmux set-environment`, as by hand, so
+    every window created there afterwards (prefix c included) starts on it."""
+    tmux.set_env(ENV[profile["provider"]], None if profile["default"] else profile["dir"],
+                 session=session)
