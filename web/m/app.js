@@ -1216,7 +1216,12 @@ $("usage-mode").onclick = () => {
 };
 // The strip is a glance; tapping it opens the usage view, where the trend and times read,
 // by way of the dashboard, so its Back lands on the Plan usage card.
-const openUsage = () => { openDashboard(); openPage("usage", $("usage-panel")); };
+// A tool filter with no plan meters (it hides the card) is dropped, so the view has some.
+const openUsage = () => {
+  const scope = $("session-atlas")._scope;
+  if (scope && !usage.some((a) => a.provider === scope.tool)) scope.tool = "";
+  openDashboard(); openPage("usage", $("usage-panel"));
+};
 $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
 paintUsage(); // labels the item before the first fetch

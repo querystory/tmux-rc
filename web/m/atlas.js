@@ -516,7 +516,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const nodes = [];
   const controls = el('div', 'atlas-controls');
   controls.append(el('span', 'atlas-controls-label muted', 'Sessions'));
-  const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos, searchTopic, icon, after, foot, openHeat); };
+  const redraw = () => setFleet({}); // through app.js, which repaints what follows the filters (Plan usage)
   ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].forEach(tool => {
     const count = allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length;
     const button = el('button', 'atlas-filter atlas-tool-filter');
@@ -534,7 +534,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     button.append(el('span', 'count', String(count)));
     button.dataset.key = `tool:${tool}`;
     button.setAttribute('aria-pressed', String(scope.tool === tool));
-    button.onclick = () => { scope.tool = tool; setFleet({}); }; // through app.js, whose Plan usage it filters too
+    button.onclick = () => { scope.tool = tool; redraw(); };
     controls.append(button);
   });
   const sessionPicker = el('select', 'atlas-session-picker');
