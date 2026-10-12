@@ -628,7 +628,12 @@ async def _approved(
         answer.set_result(None)
     try:
         await websocket.send_json({**card, "id": proposal})
-        if meter.push:  # once the phone has the card; outlives this call, so parked notifies
+        # Started on the send, deliberately not on a client ack: the push exists for a phone
+        # that got the card while locked or backgrounded, whose page is suspended and could
+        # not ack, so an ack-gated nudge would stay silent exactly when it is needed. A send
+        # that raises parks the card unpushed; a frame lost after it returns gets one push
+        # to a page with no card, the same as a killed tab, and its card expires parked.
+        if meter.push:  # outlives this call, so a parked card notifies
             _background(asyncio.create_task(_nudge(meter, proposal, answer, summary)))
         ok = await answer  # True / False on a tap, None when a new message superseded it
         await _decide(websocket, meter, proposal, ok, rec)
