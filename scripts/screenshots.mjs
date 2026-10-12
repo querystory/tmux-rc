@@ -26,12 +26,15 @@ const SHOTS = [
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
+  ["wide-usage-detail", WIDE, "dark", "#view=dashboard", (page) => page.click("#usage-detail")],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["mobile-open-loops", PHONE, "light", "#view=dashboard", showLoops],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
   ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
+  ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
+  ["mobile-usage-detail", PHONE, "dark", "", async (page) => { await page.click("#usage"); await page.click("#usage-detail"); }],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
@@ -44,7 +47,24 @@ const SHOTS = [
   ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
   ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-close"); }],
+  ["mobile-no-tmux", PHONE, "light", "", noTmux],
+  ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
 ];
+
+// A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
+// its state is emptied on the way to the page.
+async function noTmux(page) {
+  // No timeout: the fetch may be a 25s long poll. A failure (the context closing under a
+  // held poll) is dropped, not thrown — an unhandled one would end the whole run.
+  await page.route(/\/api\/state/, async (route) => {
+    try {
+      const state = await (await route.fetch({ timeout: 0 })).json();
+      await route.fulfill({ json: { ...state, panes: [], tmux_running: false } });
+    } catch { /* page gone */ }
+  });
+  await page.reload();
+  await page.waitForSelector(".start-session:not([hidden])");
+}
 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:
 // resolving -apple-system / "Segoe UI" (absent here) races, and the loser shifts inline

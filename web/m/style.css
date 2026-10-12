@@ -18,6 +18,15 @@
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 html, body { position: fixed; inset: 0; overflow: hidden; }
+/* Until app.js runs, the markup is a skeleton: icon buttons ship empty and both brand rows
+   show, since app.js picks the layout. Over a slow tunnel that lasts seconds, so show a
+   plain loading line instead of the half-built chrome. If app.js never runs (a module
+   failed to load, or threw), both flip after 10s, so the page is never stuck on the line. */
+html:not(.booted) #app { visibility: hidden; animation: unveil 0s 10s forwards; }
+#booting { position: fixed; inset: 0; margin: 0; display: grid; place-items: center; color: var(--muted); animation: veil 0s 10s forwards; }
+.booted #booting { display: none; }
+@keyframes unveil { to { visibility: visible; } }
+@keyframes veil { to { visibility: hidden; } }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, a, input, textarea, select { touch-action: manipulation; }
 button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; min-height: 44px; }
@@ -262,7 +271,9 @@ dialog::backdrop { background: #0008; }
 #voice-close { margin-left: auto; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 dialog label { display: block; margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
-dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
+dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
+.start-session { display: block; min-height: 44px; padding: 0 20px; border-radius: 6px; margin: 16px 0 0; }
+#list-start { margin: 0 auto; }
 #launch-error { color: var(--red); margin-top: 12px; font-size: 13px; }
 #live-mode.active { color: var(--red); background: var(--raised); box-shadow: inset 0 0 0 1px var(--red); }
 #chat.active { color: var(--accent); background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -571,7 +582,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-state-toggle[aria-pressed="false"]::before { background: transparent; }
 .atlas-state-toggle[aria-pressed="false"] { text-decoration: line-through; }
 .atlas-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 24px; }
-#landing-sub:empty + #session-atlas .atlas-controls { margin-top: 0; }
+#landing-sub:empty ~ #session-atlas .atlas-controls { margin-top: 0; }
 .atlas-controls-label { font-size: 13px; }
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
@@ -697,6 +708,14 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
    list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
 #usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
 #usage[hidden], #app.rail #usage { display: none; }
+#usage { cursor: pointer; }
+/* The dashboard's panel: the same cells, as many to a row as fit, the trend tall enough to read;
+   opened (aria-expanded), wider cells (one to a row on a phone, two on desktop) with the times spelled out. */
+#usage-panel { cursor: pointer; }
+#usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
+#usage-board .usage-spark { height: 56px; margin-top: 6px; }
+#usage-panel:has([aria-expanded="true"]) #usage-board { grid-template-columns: repeat(auto-fit, minmax(max(280px, 40%), 1fr)); }
+#usage-panel:has([aria-expanded="true"]) .usage-spark { height: 96px; }
 .usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
