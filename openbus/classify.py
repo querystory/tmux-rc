@@ -558,8 +558,8 @@ def question_rows(question: dict, text: str) -> str:
     which approves nothing until someone presses Enter."""
     visible = _visible(text)
     end = list(_OPTION_ROW_RE.finditer(visible))
-    if not question.get("options") or not end:
-        return ""
+    if question.get("answer_style") != "menu" or not question.get("options") or not end:
+        return ""  # only a menu's digit needs it; any other question keeps the whole frame
     under = re.match(rf"(?:\n[ \t│┃]{{{len(end[-1][1]) + 1},}}\S.*)*", visible[end[-1].end():])
     rows = visible[:end[-1].end() + under.end()]
     top = list(re.finditer(r"^(?:[─━▔]{3,}|╭)", rows, re.MULTILINE))
@@ -1018,9 +1018,15 @@ def classify(
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask"):
             question.pop(key, None)
-        # A menu answer is its row's digit: with no "1." / "1)" row on screen there is no
-        # digit to press (a bare [y/N] reads a typed line), so it is answered as text.
-        if question.get("answer_style") == "menu" and not _FIRST_OPTION_RE.search(visible):
+        # A menu answer is its row's digit: with no "1." / "1)" row below the question's
+        # own prompt there is no digit to press (a bare [y/N] under earlier numbered
+        # output reads a typed line), so it is answered as text. This check, not the
+        # parser prompt's "or is a y/n confirmation", is the authority: the prompt is
+        # left as is because the eval measured every rewording regressing other samples.
+        option = list(_FIRST_OPTION_RE.finditer(visible))
+        said = (asked := _question_prompt(question)) and _last_occurrence(asked, visible)
+        if question.get("answer_style") == "menu" and (
+                not option or (said and said.start() > option[-1].start())):
             question["answer_style"] = "text"
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         asked = question.get("answer_style") == "menu" and _question_prompt(question)
