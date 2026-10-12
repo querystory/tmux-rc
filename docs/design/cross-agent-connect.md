@@ -420,21 +420,24 @@ structured form: argv plus environment, which is what the manifest (C4) grows th
 Connect is offered only for structured launchers and resume commands. agent-history
 already stores resume commands as argv.
 
-**On a running agent,** connecting means relaunching onto the same conversation. The
-daemon waits for idle with an empty composer, rechecked just before it exits the agent,
-since an idle pane can still hold an unsent draft that a relaunch would discard. The
-agent is usually the pane's initial process, so its exit would close the pane, and there
-is no shell to type into. So the daemon first sets `remain-on-exit` on that pane, asks
-the agent to quit through its own exit command (which lets it flush its transcript),
-waits for the process to end, then `respawn-pane`s the same pane with the session's
-resume argv, which agent-history already resolves, plus the override, in the indexed
-cwd, and finally restores the pane's `remain-on-exit`. The indexed argv names a
-conversation but not which profile holds it, so before the agent exits the daemon reads
-an allowlist of profile variables from its environment (`CLAUDE_CONFIG_DIR`,
-`CODEX_HOME`, `PI_CODING_AGENT_DIR`, as `openbus/plan_usage.py` already does) and passes
-exactly those to the respawn beside the override; nothing else from the environment is
-carried. If they cannot be read, the session is not offered Connect. The pane id and layout stay; the
-token is rebound to the new process incarnation. The conversation survives, but
+**On a running agent,** connecting means relaunching onto the same conversation. That
+is offered only where the daemon can reproduce the launch exactly: an agent it started
+from a structured launcher, which owns the pane's root process. That launcher's declared
+environment is configuration the daemon already holds, and it records which launcher
+started the pane, so the relaunch reuses the same environment (profile directories,
+endpoints, model settings) rather than guessing it from `/proc`. An agent typed into a shell, or started from an opaque launcher string, is not
+offered a restart: quitting it would leave the shell running, and its environment cannot
+be reconstructed. It can be connected at its next structured launch.
+
+The daemon waits for idle with an empty composer, rechecked just before it exits the
+agent, since an idle pane can still hold an unsent draft that a relaunch would discard.
+Because the agent is the pane's root process, its exit would close the pane, so the
+daemon first sets `remain-on-exit` on it, asks the agent to quit through its own exit
+command (which lets it flush its transcript), waits for the process to end, then
+`respawn-pane`s the same pane with the session's resume argv, which agent-history
+already resolves, in the indexed cwd, under that launcher's environment plus the
+override, and finally restores the pane's `remain-on-exit`. The pane id and layout stay;
+the token is rebound to the new process incarnation. The conversation survives, but
 terminal state does not. So the card asks "Restart this agent to connect it?", and the
 relaunch never happens mid-turn. A harness with no resume command can only be connected
 at launch.
@@ -550,10 +553,10 @@ drafts, and Observe depends on both: its agent audit actor is the C3 addition an
 grant is the C4 field. It adds the structured launcher form alongside the opaque one and
 injects only into structured launchers. No launcher is structured today (every configured
 command is kept as a shell string), so it also rewrites the built-in defaults in the new
-form. A user's own launcher entries stay unconnectable at launch until rewritten. From
-phase 2 their agents can connect through a resume, but only for harnesses with both a
-resume command and a supported MCP override: Claude Code and Codex today, omp once its
-injection is settled; OpenCode, Gemini and custom commands cannot.
+form. A user's own launcher entries stay unconnectable, at launch and by restart, until
+rewritten. Restart-to-connect (phase 2) also needs a resume command and a supported MCP
+override: Claude Code and Codex today, omp once its injection is settled; OpenCode,
+Gemini and custom commands cannot.
 
 1. **Observe (first PR).** The endpoint with read and history only: directory, pane
    detail, `find_sessions`, `get_session`. `get_session` takes harness and session id
