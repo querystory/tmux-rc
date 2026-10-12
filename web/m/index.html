@@ -51,8 +51,9 @@
       setTimeout(() => fail(`not booted after 10s (online: ${navigator.onLine})`), 10000);
       // Boot does not re-run on a resume (bfcache, or a page iOS froze before its scripts
       // ran), so an unbooted page that comes back starts over: restored from bfcache, or
-      // shown again after failing. Only on a return, never at load, or a failure would loop.
-      let away = false;
+      // shown again after failing. Only on a return, never at load, or a failure would loop;
+      // a page that starts hidden (iOS can load one in the background) is already away.
+      let away = document.hidden;
       const retry = (resumed) => { if (resumed && !booted()) location.reload(); };
       addEventListener("pageshow", (e) => retry(e.persisted));
       document.addEventListener("visibilitychange", () => document.hidden ? (away = true) : retry(away && reason));
