@@ -404,6 +404,9 @@ def test_restored_text_is_bounded_to_its_tail():
     s.restore([{"role": "user", "text": "x" * C.RESTORED_CHARS}, {"role": "model", "text": "end?"}])
     assert "(earlier turns omitted)" in s._restored and s._restored.count("x") < C.RESTORED_CHARS
     assert s.asked
+    s = _Fake([])
+    s.restore([{"role": "model", "text": "Reopen it? " + "x" * C.RESTORED_CHARS}])
+    assert not s.asked  # the question was cut, so it anchors nothing
 
 
 def test_a_bare_yes_with_nothing_asked_never_reaches_a_pane(monkeypatch):

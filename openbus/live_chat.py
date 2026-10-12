@@ -112,7 +112,8 @@ class _Chat:
             text = "(earlier turns omitted)\n" + text[-RESTORED_CHARS:]
         if rows:
             self._restored = _RESTORED.format(text)
-            self.asked = rows[-1]["role"] == "model" and bool(_ASKS.search(rows[-1]["text"]))
+            last = rows[-1]["text"][-RESTORED_CHARS:]  # only what the model will see asks
+            self.asked = rows[-1]["role"] == "model" and bool(_ASKS.search(last))
         return len(rows)
 
     async def send_audio(self, _pcm: bytes) -> None:
