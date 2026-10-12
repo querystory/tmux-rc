@@ -45,6 +45,9 @@ function snapshot() {
   }
   for (const o of document.querySelectorAll("option")) o.toggleAttribute("selected", o.selected);
   for (const d of document.querySelectorAll("dialog:modal")) d.dataset.mockModal = "";
+  // Images are inlined, which would break selectors on their paths (img[src$="-working.svg"]):
+  // keep each path in data-mock-src and point those selectors at it.
+  for (const el of document.querySelectorAll("[src]:not([src^='data:'])")) el.dataset.mockSrc = el.getAttribute("src");
   for (const el of document.querySelectorAll("*")) if (el.scrollTop || el.scrollLeft) el.dataset.mockScroll = `${el.scrollTop},${el.scrollLeft}`;
   for (const c of document.querySelectorAll("canvas")) {
     const img = Object.assign(document.createElement("img"), { src: c.toDataURL("image/webp", 0.9), className: c.className });
@@ -53,31 +56,31 @@ function snapshot() {
   }
   for (const s of document.querySelectorAll("style")) if (s.textContent.startsWith("/* demo-still")) s.remove();
   const css = [...document.styleSheets].filter((s) => s.ownerNode?.tagName === "LINK").map((s) => [...s.cssRules]
-    .map((r) => r.cssText).join("\n").replace(/url\("?([^")]+)"?\)/g, (m, u) => u.startsWith("#") ? m : `url("${new URL(u, s.href).href}")`)).join("\n");
+    .map((r) => r.cssText).join("\n").replace(/url\("?([^")]+)"?\)/g, (m, u) => u.startsWith("#") ? m : `url("${new URL(u, s.href).href}")`))
+    .join("\n").replace(/\[src(?=[~|^$*]?=)/g, "[data-mock-src");
   const root = document.documentElement.cloneNode(true);
   for (const n of root.querySelectorAll("script, link")) n.remove();
   return { html: root.outerHTML, css };
 }
 
 // Every image a snapshot references, fetched once and swapped for an @@IMG<n>@@ index into
-// one shared table, since the same icons recur in every frame.
+// one shared table, since the same icons recur in every frame. Only src attributes and
+// url()s are rewritten, never the data-mock-src copies the stylesheet's selectors read.
+const IMAGE = /((?<![-\w])src="|url\((?:"|&quot;))([^"&)]+)/g, skip = (u) => /^(data:|blob:|#)/.test(u);
 async function inliner(base) {
   const imgs = [], seen = new Map();
+  // A fragment selects a view inside the file (claude-working.svg#still is its still
+  // frame), so the file is fetched once and the fragment rides on after its placeholder.
+  const file = (u) => new URL(u.split("#")[0], base).href;
   async function inline(text) {
-    const urls = new Set([...text.matchAll(/(?:\bsrc="|url\((?:"|&quot;))([^"&)]+)/g)].map((m) => m[1]).filter((u) => !/^(data:|blob:|#)/.test(u)));
-    for (const u of urls) {
-      // A fragment selects a view inside the file (claude-working.svg#still is its still
-      // frame), so the file is fetched once and the fragment rides on after its placeholder.
-      const [file, frag] = u.split("#"), url = new URL(file, base).href;
-      if (!seen.has(url)) {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`${url}: ${res.status}`);
-        imgs.push(`data:${res.headers.get("content-type")};base64,${Buffer.from(await res.arrayBuffer()).toString("base64")}`);
-        seen.set(url, imgs.length - 1);
-      }
-      text = text.replaceAll(u, `@@IMG${seen.get(url)}@@${frag === undefined ? "" : `#${frag}`}`);
+    for (const [, , u] of text.matchAll(IMAGE)) {
+      if (skip(u) || seen.has(file(u))) continue;
+      const res = await fetch(file(u));
+      if (!res.ok) throw new Error(`${file(u)}: ${res.status}`);
+      imgs.push(`data:${res.headers.get("content-type")};base64,${Buffer.from(await res.arrayBuffer()).toString("base64")}`);
+      seen.set(file(u), imgs.length - 1);
     }
-    return text;
+    return text.replace(IMAGE, (m, at, u) => skip(u) ? m : `${at}@@IMG${seen.get(file(u))}@@${u.includes("#") ? u.slice(u.indexOf("#")) : ""}`);
   }
   return { imgs, inline };
 }

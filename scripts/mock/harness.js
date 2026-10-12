@@ -14,7 +14,9 @@ const PHONE_WIDTH = 390, GAP = 16;
 function bridge() {
   const root = document.documentElement, M = window.MOCK;
   root.classList.toggle("light", M.theme === "light");
-  root.style.setProperty("--app-height", `${innerHeight}px`);
+  const fit = () => root.style.setProperty("--app-height", `${innerHeight}px`); // the snapshot froze its own
+  fit();
+  addEventListener("resize", fit);
   // A snapshot keeps a dialog's `open` but not its modality; reopen the modal ones (marked
   // by scripts/mock.mjs) in the top layer, and leave a non-modal one, like the desktop chat
   // column, where it is.
