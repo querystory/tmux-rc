@@ -18,7 +18,7 @@ export const WIDE = { width: 1440, height: 900 }, PHONE = { width: 390, height: 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:
 // resolving -apple-system / "Segoe UI" (absent here) races, and the loser shifts inline
 // icons and timestamps by a pixel from run to run.
-export const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
+export const STILL = `/* demo-still: a mock snapshot drops this */ body { font-family: "Liberation Sans", sans-serif !important; }
 *, *::before, *::after { animation: none !important; transition: none !important;
   caret-color: transparent !important; scroll-behavior: auto !important; scrollbar-width: none !important; }`;
 
@@ -130,7 +130,7 @@ export async function startDemo(tree = process.cwd()) {
       await page.routeWebSocket(/\/api\/live-mode/, stubChat);
       const state = page.waitForResponse((r) => r.url().includes("/api/state"));
       await page.goto(`${base}/m/${hash}`);
-      await (await page.addStyleTag({ content: STILL })).evaluate((el) => { el.id = "demo-still"; }); // a mock drops it
+      await page.addStyleTag({ content: STILL });
       await state;
       return page;
     },

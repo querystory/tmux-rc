@@ -50,7 +50,7 @@ function snapshot() {
     img.style.cssText = c.style.cssText;
     c.replaceWith(img);
   }
-  document.getElementById("demo-still")?.remove();
+  for (const s of document.querySelectorAll("style")) if (s.textContent.startsWith("/* demo-still")) s.remove();
   const css = [...document.styleSheets].filter((s) => s.ownerNode?.tagName === "LINK").map((s) => [...s.cssRules]
     .map((r) => r.cssText).join("\n").replace(/url\("?([^")]+)"?\)/g, (m, u) => u.startsWith("#") ? m : `url("${new URL(u, s.href).href}")`)).join("\n");
   const root = document.documentElement.cloneNode(true);
