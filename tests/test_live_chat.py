@@ -409,6 +409,14 @@ def test_restored_text_is_bounded_to_its_tail():
     assert not s.asked  # the question was cut, so it anchors nothing
 
 
+def test_a_refused_bare_yes_never_ends_silent(monkeypatch):
+    """No card and no typed row show for the refusal, so a model quiet after it doesn't
+    leave the turn empty: the turn asks what to do itself."""
+    s = _Fake([_TYPE, ("", []), ("", [])])
+    frames, _, typed = _turn(s, "yes", monkeypatch, ok=True)
+    assert typed == [] and _said(frames) == [C._UNANCHORED]
+
+
 def test_a_bare_yes_with_nothing_asked_never_reaches_a_pane(monkeypatch):
     """With no question from the assistant in this conversation, "yes" has no referent: the
     pane change is refused before any card, and the model is told to ask instead."""

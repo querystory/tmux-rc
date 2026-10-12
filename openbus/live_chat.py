@@ -48,6 +48,10 @@ _EMPTY = "(No response from the model; try again.)"
 # what happened, and a placeholder under them reads as a failure.
 _OUTCOME = "(Tell the user in one sentence what you did, or that nothing was done.)"
 _DONE = "(Done.)"  # closes a turn that stayed quiet; never shown
+# A bare agreement refused before any card has no card or typed row to show for it: if the
+# model stays quiet then too, the turn asks this itself rather than end in silence.
+_UNANCHORED = ("(Nothing was sent: your message only agrees, and nothing was asked. "
+               "What should I do?)")
 # Typed turns kept in the conversation. Every request resends all of it, so an unbounded
 # session costs more per turn and eventually overflows the context window. Whole turns are
 # dropped from the front, which keeps every tool call next to its result.
@@ -180,8 +184,8 @@ class _Chat:
                         asked = True
                         self._user(_OUTCOME)
                         continue
-                    self._model(_DONE if acted else _EMPTY)  # closed, like a failed turn
-                    reply = "" if acted else _EMPTY
+                    reply = _UNANCHORED if self.unanchored else "" if acted else _EMPTY
+                    self._model(reply or _DONE)  # closed, like a failed turn
                 if reply:
                     yield Event("transcript", role="model", text=sep + reply)
                     sep = " "
