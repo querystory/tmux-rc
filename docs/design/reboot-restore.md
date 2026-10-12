@@ -74,21 +74,29 @@ binding.
 ### The new record: one layout snapshot per tmux server
 
 One row per tmux server, replaced in place: current state, not history, like the
-checkpoint table. It holds each session (name, creation directory, and its session
-group, if any); each window (tmux window id, index, name, whether that name was set
-by hand or by tmux's automatic renaming, tmux layout string, active, zoomed); and each
+checkpoint table. It holds each session (name, creation directory, its session group,
+if any, and its window links: which window ids it shows, at which index, and which one is
+current in it); each window (tmux window id, name, whether that name was set by hand or
+by tmux's automatic renaming, tmux layout string, zoomed); and each
 pane (index, active, directory, title, classified tool, the basename of the program in
 its foreground (never its arguments), and for agents the **binding**: harness and
 session id). Each pane also carries a **copy** of its last
-activity time and folded state, coarse to the minute. The copy keeps the snapshot
-meaningful after checkpoints are pruned; the coarseness keeps it from rewriting on every
-keystroke.
+activity time, coarse to the minute, and its folded state: the classified working,
+waiting or idle that the card's defaults and the launch order read, which a timestamp
+alone cannot recover once the server is gone. The copy keeps the snapshot meaningful
+after checkpoints are pruned; the coarseness keeps it from rewriting on every keystroke.
+
+The current window is a property of the link, not the window: one window linked into two
+sessions can be current in one and not the other, so a single flag on the shared window
+would lose one session's focus.
 
 **Grouped sessions** share their windows, and `list-panes -a` reports a shared pane once
 per member; the watcher already folds those copies into one. The snapshot does the same:
-each shared window is stored once, under the group, and the other members are recorded
-as names only. Restore builds the windows once and creates the other members as
-members of that group, so a shared agent is never resumed twice. **Linked windows**
+each shared window and its panes are stored once, and every member keeps its own
+session record (creation directory, links, current window). Restore builds the windows
+once and creates the other members as members of that group, then restores each member's
+own current window, so a shared agent is never resumed twice and no member loses its
+focus. What is deduplicated is the windows, never the sessions. **Linked windows**
 (`link-window`) are the same sharing without a group: `list-panes -a` again repeats the
 pane, but `session_group` is empty. So windows are keyed by their tmux id, each session
 records which window ids it shows at which index, and restore builds a shared window once
@@ -126,7 +134,13 @@ process, since a pane id from another server would otherwise match by accident.
 
 The snapshot needs the inverse, every live session with its pane, in one call: a listing
 in agent-history in the shape `get` already returns. The daemon calls it once a minute,
-not per tick, and keeps the last good binding per pane. Codex sessions behind the shared
+not per tick. The ancestry check proves a session belongs to this server, not that it
+occupies the pane: a pane can hold a stopped background agent under a foreground one. So
+a pane is bound only to the one listed session whose process is in the pane's foreground
+process group (the terminal's `tpgid` in `/proc/<pane pid>/stat`); with none or several,
+it stays unbound rather than guessing. The last good binding is cached per pane together
+with that process's pid and start time, and dropped when the foreground process changes,
+so a swap never carries the old conversation forward. Codex sessions behind the shared
 app-server have no pane (agent-history's README explains why); for them the watcher falls
 back to the status-bar `session-id` match Live Mode already uses ([agent-setup](../agent-setup.md)).
 A Codex pane with neither stays *unbound*: restore still knows it was Codex in that
@@ -256,7 +270,12 @@ working, then by recency. The layout is built up front, so every pane exists at 
 agents fill in as their turn comes. Readiness has a bound, about a minute: an agent that
 is still alive but has shown neither its input line nor a recognized prompt by then is
 marked as needing attention, and its slot passes to the next one, so a few hung starts
-cannot stall the rest of the queue.
+cannot stall the rest of the queue. The timed-out process is still alive, though, so
+slots alone would let repeated hangs pile up processes without bound. A second, hard cap
+counts every live agent that has not reached a prompt, timed out or not (six, twice the
+pace): at the cap the queue waits until one becomes ready or exits. The executor never
+kills a timed-out start, since a slow first run is indistinguishable from a hung one and
+the user can close it from the card.
 
 An agent that exits at once stays in the layout as the shell its launcher falls back to,
 with the error above the prompt, and the card reports it. A login or first-run prompt is
@@ -266,14 +285,20 @@ needing attention, because a login is a human boundary anyway. No retries.
 
 **Idempotency** rests on a durable restore run. In one transaction, before anything
 launches, the daemon records the run (the exact selection, each selected pane pending)
-and marks the snapshot consumed *by that run*; a dismissal consumes it with no run. A
+and marks the snapshot consumed *by that run*, recording the destination server's
+identity (the same boot id, pid and start time); a dismissal consumes it with no run. A
 second tap or device is therefore told a restore is running. Layout construction is
 recorded too: each session, window and pane the executor creates is written to the run
 by its tmux id as it is created, and each launch outcome (pid, or the failure) as it
-lands. A daemon that restarts mid-restore finds the unfinished run, reconciles those ids
-against tmux (reusing every target that still exists, rather than meeting its own half
+lands. tmux ids are only unique within one server, and a replacement server reuses them,
+so all of it is scoped to that destination identity. A daemon that restarts mid-restore
+finds the unfinished run. If its destination server is still alive, it reconciles those
+ids against tmux (reusing every target that still exists, rather than meeting its own half
 built session as a name collision and suffixing it), creates what is missing, and
-launches what is pending.
+launches what is pending. If that server died too, its ids and launch outcomes describe
+objects that no longer exist: they are discarded, every selected pane returns to pending
+(the running check below still skips what is live), and the run continues against the
+current server under its new identity.
 The audit trail is not this record: it is telemetry, for reconstruction afterwards,
 not state an executor can resume from. And right before each launch the running check
 runs again, so a session resumed by hand meanwhile is skipped. That check and its lock
@@ -402,8 +427,12 @@ Acceptance:
 - After the test server is stopped by its own socket, the endpoint returns its snapshot as
   a candidate, even after a second test server has written a newer row; a daemon restart
   with the server alive returns none.
-- Grouped sessions record each shared window once, with the other members by name; a
-  window linked into two ungrouped sessions is recorded once and relinked on restore.
+- Grouped sessions record each shared window once, with every member's own session
+  record and current window; a window linked into two ungrouped sessions is recorded once,
+  current in one and not the other, and relinked on restore with both focuses intact.
+- A pane holding a stopped background agent under a foreground one binds to the
+  foreground one; a pane where no or several listed sessions are in the foreground stays
+  unbound.
 - A server identity whose pid now belongs to a different process (a different start
   time) counts as dead, and a new server reusing a dead one's pid gets its own row.
 - A new tmux server appearing does not delete the previous server's snapshot, the
