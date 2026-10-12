@@ -5,6 +5,7 @@ must be pinned in tests is everything that decides WHAT the model sees and WHETH
 tool call may touch a real terminal — the context builder and the reject paths."""
 
 import asyncio
+import dataclasses
 import logging
 import time
 from types import SimpleNamespace
@@ -235,10 +236,12 @@ def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text)
 
 def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
     """resume_session returns a pane id the digest may not hold yet; tmux vouches for it,
-    and it is named as the watcher would: the agent's own title over tmux's "claude"."""
+    and it is named as the watcher would: the agent's own title over tmux's "claude", and
+    the attached member of a session group rather than whichever copy tmux lists first."""
     fresh = L.tmux.Pane("work", "7", "claude", "0", "%40", "claude", "auth fix")
+    twin = dataclasses.replace(fresh, session="work-2")  # grouped, unattached
     _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
-                            panes=[fresh])
+                            panes=[twin, dataclasses.replace(fresh, session_attached="1")])
     assert ws.sent == [
         {"type": "open_pane", "pane_id": "%40", "label": "auth fix · claude in work",
          "auto": False}]

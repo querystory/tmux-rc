@@ -857,8 +857,9 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
         with contextlib.suppress(subprocess.CalledProcessError, OSError):  # tmux unreachable
             pane = next(({"label": p.label, "title": p.display_title, "tool": _host_tool(p),
                           "session": p.session, "window_index": p.window_index}
-                         for p in await asyncio.to_thread(tmux.list_panes) if p.id == pane_id),
-                        None)
+                         # display side, so a grouped session's pane is named as the list names it
+                         for p in tmux.dedupe_grouped(await asyncio.to_thread(tmux.list_panes))
+                         if p.id == pane_id), None)
     if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:
         return {"status": "rejected", "reason": "malformed call or unknown pane"}
     rec["pane_id"] = pane_id
