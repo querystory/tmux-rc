@@ -75,7 +75,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import agent_history, expunge, telemetry, tmux  # noqa: E402
-from .classify import drawn_row, highlighted_row  # noqa: E402
+from .classify import drawn_row, highlighted_row, live_widget  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -138,7 +138,7 @@ _EXT = {
 
 class OnRow(BaseModel):
     prompt: str = Field(min_length=1)
-    row: str
+    row: str | None = None  # a select's row; none for a walk's move or search text
 
 
 class SendBody(BaseModel):
@@ -860,16 +860,22 @@ def send(pane_id: str, body: SendBody, request: Request):
         # parse's select key and rows, and the highlighted row drawn exactly as it read it. A
         # picker that changed since (a row "Fix" now "Fix  login bug", which its old rows
         # would read as "Fix" ahead of a value column) fails closed until it is reparsed.
+        # Every other walk send (a move, search text) goes only while that parse's picker
+        # is still the live one, so a replacement never takes a key meant for it.
         state = next((s for s in app.state.watcher.states if s.get("pane_id") == pane.id), {})
         question = state.get("question") if isinstance(state.get("question"), dict) else {}
         options, seen = question.get("options"), question.get("highlight")
         keymap = question.get("keymap") if isinstance(question.get("keymap"), dict) else {}
+        prompt, row = body.on_row.prompt, body.on_row.row
         screen = tmux.capture_pane(pane.id, lines=0)
-        if (question.get("prompt") != body.on_row.prompt or not isinstance(options, list)
-                or body.literal or body.keys != keymap.get("select")
-                or seen is None or drawn_row(screen, body.on_row.prompt) != seen
-                or highlighted_row(screen, body.on_row.prompt, options) != body.on_row.row):
-            msg = f"The highlight is not on {body.on_row.row!r}; nothing was sent."
+        if question.get("prompt") != prompt or not live_widget(screen, prompt):
+            msg = f"The picker {prompt!r} is no longer on screen; nothing was sent."
+            raise tmux.PaneChangedError(msg)
+        if row is not None and (
+                not isinstance(options, list) or body.literal or body.keys != keymap.get("select")
+                or seen is None or drawn_row(screen, prompt) != seen
+                or highlighted_row(screen, prompt, options) != row):
+            msg = f"The highlight is not on {row!r}; nothing was sent."
             raise tmux.PaneChangedError(msg)
 
     try:

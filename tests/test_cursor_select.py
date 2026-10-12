@@ -163,8 +163,8 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
                 time.sleep(0.05)
             raise AssertionError(shown)
 
-        def send(keys, row=None):
-            on = row and {"prompt": "Remove it?", "row": row}
+        def send(keys, row=None, prompt="Remove it?"):
+            on = {"prompt": prompt, "row": row}  # every walk send names its picker
             body = {"keys": keys, "enter": False, "literal": False, "on_row": on}
             return client.post(f"/api/panes/{pane}/send", json=body)
 
@@ -172,6 +172,7 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
         refused = send("Enter", "Yes")  # the highlight is still on No
         assert refused.status_code == 409
         assert "Yes" in refused.json()["detail"]
+        assert send("Down", prompt="Remove that?").status_code == 409  # another picker's move
         assert send("Down").status_code == 200
         screen_until(" ❯ Yes")
         # Held to the server's own parse: until it has read the highlight on Yes, no select.

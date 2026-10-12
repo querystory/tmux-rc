@@ -8,10 +8,11 @@
 //
 //   io.question()   → the pane's current question object, or null if it is gone
 //   io.parsedAt()   → parsed_at of the frame that question() came from (seconds, float)
-//   io.sendKey(k, on) → send ONE tmux key-name, no Enter; with `on` ({prompt, row}), only
-//                     while the highlight under that prompt is on that row (and on no other
-//                     of the server's current options). Resolves true only if DELIVERED.
-//   io.sendText(t)  → type literal text, NO Enter appended. Same delivery contract.
+//   io.sendKey(k, on) → send ONE tmux key-name, no Enter, only while the picker headed by
+//                     on.prompt is still the live one; with on.row (a select), only while
+//                     its highlight is on that row (and on no other of the server's current
+//                     options). Resolves true only if DELIVERED.
+//   io.sendText(t, on) → type literal text, NO Enter appended. Same contract, no row.
 //   io.note(msg)    → say something to the user
 //
 // The delivery contract on sendKey/sendText is load-bearing, not politeness: a move that
@@ -181,7 +182,7 @@ async function walk(io, targetText, targetIndex) {
     const key = at < want ? km.next : km.prev;
     if (!key) return false; // the widget never advertised this direction — don't invent one
     const before = io.parsedAt();
-    if (!(await io.sendKey(key))) return false; // undelivered: the anchor is now a lie
+    if (!(await io.sendKey(key, { prompt: q.prompt }))) return false; // undelivered: the anchor is now a lie
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
     // binding the widget doesn't really have) — and both mean this walk cannot continue.
@@ -244,7 +245,7 @@ async function pick(io, targetText, targetIndex) {
   // either is proof the filter took. Neither changing means the box did not filter, which
   // is the one thing this fallback assumed and must not commit on.
   const was = q.options, wasAt = q.selected;
-  const filtered = await io.sendText(targetText)
+  const filtered = await io.sendText(targetText, { prompt: q.prompt })
     && await waitForFrame(io, before, (f) => !sameRows(was, f.options) || f.selected !== wasAt);
   // Re-walk the filtered list rather than trusting the filter to have landed on the row.
   // -1, not 0: the filter renumbered everything, so the tapped index is spent and no index

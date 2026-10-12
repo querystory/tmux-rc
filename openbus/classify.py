@@ -100,8 +100,8 @@ def _widget_end(visible: str, start: int) -> int:
                 len(visible))
 
 
-def drawn_row(visible: str, prompt: str) -> str | None:
-    """The text of the live picker's highlighted row under prompt, as drawn, or None."""
+def live_widget(visible: str, prompt: str) -> tuple[int, int] | None:
+    """Where the picker headed by prompt lists its rows, if it is the live one on screen."""
     # A whole row only: a longer prompt ("… for deployment") is a different picker.
     found = prompt.strip() and _occurrences(prompt, visible, row=True)  # "" matches anywhere
     if not found:
@@ -112,7 +112,13 @@ def drawn_row(visible: str, prompt: str) -> str | None:
     end = _widget_end(visible, asked.end())
     if _HIGHLIGHT_RE.search(visible, end):  # a later picker, or the input box, is live:
         return None                         # this one is history in the scrollback
-    *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, asked.end(), end)]
+    return asked.end(), end
+
+
+def drawn_row(visible: str, prompt: str) -> str | None:
+    """The text of the live picker's highlighted row under prompt, as drawn, or None."""
+    widget = live_widget(visible, prompt)
+    *_, row = [None, *(_HIGHLIGHT_RE.finditer(visible, *widget) if widget else ())]
     return row and row["label"]
 
 

@@ -325,8 +325,10 @@ function fake(spec) {{
     }},
     parsedAt: () => p.parsed_at,
     sendKey: async (k, on) => {{
-      // The server's check: a select carrying its row is refused off the real highlight.
-      if (on !== undefined && on.row !== p.options[p.selected]) return false;
+      // The server's check: every walk send names its picker, and a select carrying its row
+      // is refused off the real highlight.
+      if (on?.prompt !== "A?") return false;
+      if (on.row !== undefined && on.row !== p.options[p.selected]) return false;
       const moved = deliver(k);
       if (!moved) return false;
       const km = typeof p.keymap === "object" ? p.keymap : {{}};
@@ -344,8 +346,8 @@ function fake(spec) {{
       if (k === km.select && !spec.hold_open) p.open = false;
       return true;
     }},
-    sendText: async (t) => {{
-      const ok = deliver(t);
+    sendText: async (t, on) => {{
+      const ok = on?.prompt === "A?" && deliver(t);
       // "filters" models a widget that narrows to the typed row and lands the highlight
       // on it; without it the typed text merely re-reads the same list.
       if (ok && spec.filters) {{ p.options = [t]; p.selected = 0; }}
