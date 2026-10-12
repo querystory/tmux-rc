@@ -1395,9 +1395,10 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
     result = classify(_pane("claude"), screen, _llm({"question": echo, "tables": [table]}))
     assert result["question"]["options"] == ["Option B please"] and result["tables"] is None
     # Numbers and letters keep the prompt's order, and the first named row leads.
-    for row, body in (("Option A: --use-redis", "--use-redis"), ("Option B -1 s", "-1 s"),
+    for row, body in (("Option A: --use-redis", "--use-redis"), ("Option B: -1 s", "-1 s"),
                       ("Option B—SQLite", "SQLite"), ("Option B - SQLite", "SQLite")):
         assert classify_mod._LABELED_ROW_RE.match(row)[3] == body
+    assert not classify_mod._LABELED_ROW_RE.match("  Option A is fastest, but heavier.")
     # A list with no lead-in of its own has no subject, not the list above's.
     bare = message.replace("  Two ways to fix the timeouts:\n\n", "").rsplit("\n\n", 1)[0]
     question = classify(_pane("claude"), _auto_screen(bare + "\n\n  1. Ship it.\n\n  Do 1 now?"),

@@ -629,10 +629,12 @@ def _final_paragraph(message: str) -> str:
 # "- Option A: Retry inline"), and "Go with A or B?" names them just as "do 1?" does. A
 # capital A-H (or a lowercase one in parentheses) standing alone before what follows a
 # reference is a label wherever it sits, so letters skip the before-checks: "A quick fix?"
-# and "Grade A beef?" fail the after-check, and an article "a" is lowercase.
+# and "Grade A beef?" fail the after-check, and an article "a" is lowercase. "Option A"
+# needs a separator after it (or nothing, as a table key), so prose such as "Option A is
+# fastest" is not a row.
 _ROW_LABEL = (
     r"(?:[-*•][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})\b"
-    r"(?:[.):]|[ \t]*(?:[—–]|-(?=[ \t])))?[ \t]*|\(?([A-Ha-h]|\d{1,2})[.)][ \t]+)")
+    r"(?:[.):]|[ \t]*(?:[—–]|-(?=[ \t]))|(?=\s*$))[ \t]*|\(?([A-Ha-h]|\d{1,2})[.)][ \t]+)")
 _LABELED_ROW_RE = re.compile(rf"[ \t│┃╎]*{_ROW_LABEL}(\S.*)")
 _REF_AFTER = (
     r"(?=\s*(?:[^\w\s]|$|"
