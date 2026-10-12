@@ -429,7 +429,8 @@ Acceptance:
   with the server alive returns none.
 - Grouped sessions record each shared window once, with every member's own session
   record and current window; a window linked into two ungrouped sessions is recorded once,
-  current in one and not the other, and relinked on restore with both focuses intact.
+  with both sessions' links, indexes and current-window flags (current in one, not the
+  other). Rebuilding and relinking from that record is the executor's test, later.
 - A pane holding a stopped background agent under a foreground one binds to the
   foreground one; a pane where no or several listed sessions are in the foreground stays
   unbound.
