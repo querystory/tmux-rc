@@ -627,11 +627,11 @@ def _final_paragraph(message: str) -> str:
 #
 # Options are lettered as often as numbered ("A. Retry inline", "(b) Queue it", a bulleted
 # "- Option A: Retry inline"), and "Go with A or B?" names them just as "do 1?" does. A
-# capital A-H (or a lowercase one in parentheses) standing alone before what follows a
-# reference ("A quick fix?" and "Grade A beef?" fail that) is a label when the prompt
-# names another letter too ("A or B?"), or an option noun or choosing verb precedes it
-# ("option A", "go with B"); so the article in "A really quick check?" and the grade in
-# "Grade A only?" are not, and an article "a" is lowercase. "Option A"
+# letter A-H in parentheses ("(a)", "(B)") is a label. So is a bare capital followed by
+# what follows a reference ("A quick fix?" and "Grade A beef?" are not), when the prompt
+# names another letter too ("A or B?"), it chains onto a reference, or an option noun or
+# choosing verb precedes it ("option A", "go with B"); the article in "A really quick
+# check?" and the grade in "Grade A only?" are not, and an article "a" is lowercase. "Option A"
 # needs a separator after it (or nothing, as a table key), so prose such as "Option A is
 # fastest" is not a row.
 _ROW_LABEL = (
@@ -648,7 +648,7 @@ _ITEM_REF_RE = re.compile(
     # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
     r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)" + _REF_AFTER)
 _LETTER_REF_RE = re.compile(
-    r"(?<![\w#$.:/'’-])(?:\(([a-h])\)|([A-H]))(?![\w%:/'’-]|\.\w)" + _REF_AFTER)
+    r"(?<![\w#$.:/'’-])(?:\(([A-Ha-h])\)|([A-H]))(?![\w%:/'’-]|\.\w)" + _REF_AFTER)
 # The nouns an agent numbers what it proposes by ("edit 2", "Recommendation 2").
 _ITEM_LABEL = (
     r"(?i:items?|edits?|steps?|options?|choices?|points?|rows?|tasks?|fix(?:es)?|"

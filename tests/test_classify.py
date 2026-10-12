@@ -1374,11 +1374,15 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
                "  (b) Cache the stock levels.\n\n  Go with A or B?")
     want = ["A. Answer first.", "B. Cache the stock levels."]
     for ask in ("Go with A or B?", "A or B?", "Which do you prefer, A or B?",
-                "Is it (a) or (b)?", "Option B, then A?", "Go with A, or B?"):
+                "Is it (a) or (b)?", "Option B, then A?", "Go with A, or B?",
+                "Go with (A) or (B)?"):
         screen = _auto_screen(message.replace("Go with A or B?", ask))
         question = classify(_pane("claude"), screen, _llm({}))["question"]
         assert sorted(question["items"]) == want
         assert question["subject"] == "Two ways to fix the timeouts:"
+    screen = _auto_screen(message.replace("Go with A or B?", "Go with (A)?"))
+    single = classify(_pane("claude"), screen, _llm({}))["question"]
+    assert single["items"] == ["A. Answer first."]
     for ask in ("A quick check first?", "Grade A beef?", "Should I run it?", "Use a or b?",
                 "A really quick check first?", "Grade A only?"):
         screen = _auto_screen(message.replace("Go with A or B?", ask))
