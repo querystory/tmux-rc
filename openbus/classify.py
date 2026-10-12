@@ -612,15 +612,16 @@ def _final_paragraph(message: str) -> str:
     return " ".join(r.strip() for r in reversed(rows))
 
 
-# A numbered list row (inside any frame), and a number a prompt names: "do 1 now", "edits
-# 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A count is followed by what it
-# counts ("2 failing tests"), so a reference is followed only by punctuation, the end, or a
-# word that cannot be counted.
+# A numbered list row (inside any frame), and a number a prompt names: "do 1 please",
+# "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A count reads as one
+# from its neighbours: a determiner or copula before it ("there are 2", "the 7"), or a
+# plural noun within the next two words ("2 tests", "2 failing tests"). Precision beats
+# recall here: a missed reference leaves the bare question the card showed before, while
+# a count read as a reference would show an unrelated row as what the question means.
 _NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
-_ITEM_REF_RE = re.compile(
-    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)"
-    r"(?=\s*(?:[^\w\s]|$|(?:and|or|now|first|then|next|too|also|only|but|before|after|"
-    r"later|today|instead|together)\b))", re.IGNORECASE)
+_ITEM_REF_RE = re.compile(r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)")
+_COUNT_BEFORE_RE = re.compile(r"(?i)\b(?:the|these|those|all|are|is|were|was|of|about)\s+$")
+_COUNT_AFTER_RE = re.compile(r"(?i)\s+(?:[a-z]+\s+)?[a-z]{2,}[^\Wsiu]s\b")
 
 
 def _referenced_items(prompt: str, visible: str) -> list[str]:
@@ -641,6 +642,8 @@ def _referenced_items(prompt: str, visible: str) -> list[str]:
         else:
             item = None
     refs = [str(n) for m in _ITEM_REF_RE.finditer(prompt)
+            if not (_COUNT_BEFORE_RE.search(prompt, 0, m.start())
+                    or _COUNT_AFTER_RE.match(prompt, m.end()))
             for n in range(int(m[1]), int(m[2] or m[1]) + 1)]
     firsts = {n: re.split(r"(?<=[.!?])\s", " ".join(rows), maxsplit=1)[0]
               for n, rows in items.items()}
@@ -1041,7 +1044,7 @@ def classify(
                 numbers = {item.split(".", 1)[0] for item in items}
                 result["tables"] = [t for t in result["tables"] if not (
                     isinstance(t, dict) and isinstance(t.get("rows"), list) and t["rows"]
-                    and all(isinstance(r, list) and r and re.sub(r"\D", "", str(r[0])) in numbers
+                    and all(isinstance(r, list) and r and str(r[0]).strip().rstrip(".)") in numbers
                             for r in t["rows"]))] or None
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         if context := style == "menu" and asked and _widget_text(asked, visible):

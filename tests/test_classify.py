@@ -1317,12 +1317,15 @@ def test_question_naming_list_items_carries_them():
     question = classify(_pane("claude"), _auto_screen(message), _llm({}))["question"]
     assert question["items"] == ["1. Move the build cache to disk.",
                                  "2. Close idle worker sessions."]
+    for ask in ("Want me to do 1 please?", "Start with 2 tomorrow?", "Make edit 2 immediately?"):
+        screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
+        assert classify(_pane("claude"), screen, _llm({}))["question"]["items"]
     ranged = classify(_pane("claude"), _auto_screen(message.replace(
         "do 1 now and prepare the list for 2", "make edits 1–3")), _llm({}))["question"]
     assert [i[:2] for i in ranged["items"]] == ["1.", "2.", "3."]
     # A count, a PR number or a menu's own option numbers name no list item.
     for ask in ("Want me to fix the 7 failing tests?", "Should I merge #2?",
-                "There are 2 failing tests; should I fix them?"):
+                "There are 2 failing tests; should I fix them?", "Shall I fix 2 bugs?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert "items" not in classify(_pane("claude"), screen, _llm({}))["question"]
     # The parser's own copy of the rows, as buttons or a table keyed by them, goes; other
@@ -1330,7 +1333,7 @@ def test_question_naming_list_items_carries_them():
     ask = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "text",
            "options": ["1. Move the build cache to disk.", "Yes, both"]}
     echo = {"rows": [["1", "Move the cache"], ["2.", "Close sessions"]]}
-    other = {"rows": [["disk", "6 GB"]]}
+    other = {"rows": [["1 min", "fast"], ["2 min", "slow"]]}
     screen = _auto_screen(message).replace("auto mode on", "plan mode on")
     result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": [echo, other]}))
     assert result["question"]["options"] == ["Yes, both"] and result["tables"] == [other]
