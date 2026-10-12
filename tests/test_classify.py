@@ -1404,6 +1404,9 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
     question = classify(_pane("claude"), _auto_screen(bare + "\n\n  1. Ship it.\n\n  Do 1 now?"),
                         _llm({}))["question"]
     assert question["items"] == ["1. Ship it."] and "subject" not in question
+    later = classify(_pane("claude"), _auto_screen(bare + "\n\n  B. New row.\n\n  Choose B?"),
+                     _llm({}))["question"]
+    assert later["items"] == ["B. New row."] and "subject" not in later
     for ask, want in (("Do A, then step 1?", "A1"), ("Do A and 1?", "A1"), ("Do 1 and A?", "1A")):
         mixed = classify(_pane("claude"), _auto_screen(
             message + f"\n\n  Steps:\n  1. Ship it now.\n\n  {ask}"), _llm({}))["question"]

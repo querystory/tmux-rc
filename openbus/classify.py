@@ -708,9 +708,12 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
             label = (m[1] or m[2]).upper()
             item, indent = rows.setdefault(label, []), _indent(row)
             item[:] = [m[3]]
-            if para or label in ("1", "A"):  # a list's own lead-in, never an earlier list's
+            # A list's own lead-in, never an earlier list's: a row after a blank or at 1/A
+            # with no paragraph of its own has none (precision: a blank-spaced list's
+            # later rows lose theirs, but the first named row is usually its first).
+            if para or gap or label in ("1", "A"):
                 lead = " ".join(para)
-            para = []
+            para, gap = [], False
             leads[label] = lead
         elif item is not None and row.strip() and _indent(row) > indent:
             item.append(row.strip())  # the item's wrapped continuation
