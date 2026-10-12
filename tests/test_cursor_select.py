@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import server, tmux
-from openbus.classify import classify, highlighted_row, picker_digest
+from openbus.classify import classify, highlighted_row, picker_digest, picker_head
 from openbus.tmux import Pane
 
 # A user turn that starts with the target's own word, above a box highlighting No.
@@ -119,6 +119,13 @@ def test_a_picker_digest_changes_with_anything_drawn_from_its_prompt_down():
     assert picker_digest(dialog, asked) != picker_digest(other, asked)
     long = dialog.replace("────────────────────", "────────────────────" + "\n echo step" * 20)
     assert picker_digest(long, asked) != picker_digest(long.replace("echo", "rm -rf"), asked)
+    # A command's own rule-like row is indented: the dialog's edge is still the one above.
+    ruled = dialog.replace("────────────────────", "────────────────────\n cat x\n   ─────")
+    assert picker_digest(ruled, asked) != picker_digest(ruled.replace("cat x", "rm -rf"), asked)
+    # What a walk stays bound to: the dialog above the prompt, which a move never redraws.
+    moved = dialog.replace(" ❯ No\n   Yes", "   No\n ❯ Yes")
+    assert picker_head(dialog, asked) == picker_head(moved, asked)
+    assert picker_head(dialog, asked) != picker_head(other, asked)
     above = dialog.replace("remove it", "drop it")  # a user turn above the widget's edge
     assert picker_digest(dialog, asked) == picker_digest(above, asked)
 

@@ -203,8 +203,10 @@ export async function pickCursorRow(io, targetText, targetIndex) {
   try {
     // Bound to the question that was tapped: a replacement with the same rows is another
     // ask, and its prompt is what the server's check would read under.
-    const read = io.question, asked = read()?.prompt;
-    io = { ...io, question: () => { const q = read(); return q?.prompt === asked ? q : null; } };
+    // `head` is the dialog above the prompt (the command it approves), which no move
+    // redraws: two same-prompt asks for different commands differ there.
+    const read = io.question, { prompt: asked, head } = read() || {};
+    io = { ...io, question: () => { const q = read(); return q?.prompt === asked && q?.head === head ? q : null; } };
     const done = await pick(io, targetText, targetIndex);
     // Hold the lock PAST the commit, until a frame arrives that has noticed it. The picker
     // does not vanish the instant Enter is delivered — the phone goes on rendering the

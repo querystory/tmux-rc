@@ -131,20 +131,43 @@ def drawn_row(visible: str, prompt: str) -> str | None:
     return row and row["label"]
 
 
+# A dialog's own top edge, drawn from column 0 (▔▔▔, ───, ╭): a command's rule-like row
+# inside a dialog is indented, so it never stands in for the edge.
+_DIALOG_TOP_RE = re.compile(r"^(?:[─━▔]{3,}|╭)", re.MULTILINE)
+
+
+def _picker_span(visible: str, prompt: str) -> tuple[int, int] | None:
+    """Where the live picker's dialog begins (its nearest top edge above the prompt, any
+    distance up, else the prompt row) and where its prompt row does, or None."""
+    live = _live_prompt(visible, prompt)
+    if not live:
+        return None
+    *_, top = [live[0].start(), *(m.start() for m in
+                                  _DIALOG_TOP_RE.finditer(visible, 0, live[0].start()))]
+    return top, live[0].start()
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 def picker_digest(text: str, prompt: str) -> str | None:
-    """A hash of a capture's live picker, from its widget's top edge (so the command a
+    """A hash of a capture's live picker, from its dialog's top edge (so the command a
     generic "Do you want to proceed?" approves is part of it) and everything drawn below,
     as classify reads the viewport (_visible) but otherwise verbatim: what a cursor
     walk's keys are held to (/send). Any change since the parse that recorded it, be it a
     replacement picker however its highlight is drawn or a row's "30s" now "60s", refuses
     them until a reparse; heuristics over the new screen each had a case they missed."""
     visible = _visible(text)
-    live = _live_prompt(visible, prompt)
-    if not live:
-        return None
-    above, top = _widget_top(visible, live[0].start(), rows=None)  # however long it is
-    start = live[0].start() if top is None else sum(len(row) + 1 for row in above[:top])
-    return hashlib.sha256(visible[start:].encode()).hexdigest()
+    span = _picker_span(visible, prompt)
+    return span and _sha(visible[span[0]:])
+
+
+def picker_head(visible: str, prompt: str) -> str | None:
+    """A hash of the live picker's dialog above its prompt (the command it approves): the
+    part no move redraws, so what tells one same-prompt ask from its replacement."""
+    span = _picker_span(visible, prompt)
+    return span and _sha(visible[span[0]:span[1]])
 
 
 def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
@@ -583,16 +606,6 @@ def _indent(row: str) -> int:
     return len(row) - len(row.lstrip(" \t│┃╎"))
 
 
-def _widget_top(visible: str, at: int, rows: int | None = 16) -> tuple[list[str], int | None]:
-    """The whole rows above the row at `at`, and the index among them of its widget's top
-    edge (a rule or a ╭ corner) within `rows` rows (None: any), or None: then the rows
-    are conversation."""
-    above = visible[:visible.rfind("\n", 0, at) + 1].splitlines()
-    return above, next((i for i in reversed(range(max(len(above) - (rows or len(above)), 0),
-                                                  len(above)))
-                        if _WIDGET_TOP_RE.match(above[i])), None)
-
-
 def _widget_text(prompt: str, visible: str) -> str:
     """What a menu asks about, read off its own widget: the rows from the widget's top
     edge down to the prompt (Claude's tool, description, command and any blocking notice)
@@ -615,7 +628,9 @@ def _widget_text(prompt: str, visible: str) -> str:
     if not found:
         return ""
     found = found[-1]
-    above, top = _widget_top(visible, found.start())
+    above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows
+    top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
+                if _WIDGET_TOP_RE.match(above[i])), None)
     below = visible[found.end():end].splitlines()[1:]
     # With no edge the rows are unframed (Codex): only the terminal's padding goes, so
     # a command's own "│" or "━━━" row stays part of the identity. Framed, a rule is the
@@ -1088,10 +1103,11 @@ def classify(
         rows, asked = question.get("options"), _question_prompt(question)
         if asked:  # the walk and /send hold the prompt across moves, which redraw the count
             question["prompt"] = asked = _LIVE_COUNT_RE.sub("", asked)
-        for key in ("highlight", "picker"):  # read off the screen, never passed through
+        for key in ("highlight", "picker", "head"):  # read off the screen, never passed through
             question.pop(key, None)
         if asked and (digest := picker_digest(text, asked)):
             question["picker"] = digest  # the screen /send holds this walk's keys to
+            question["head"] = picker_head(visible, asked)  # the ask the walk stays bound to
         if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
             question["highlight"] = drawn_row(visible, asked)  # grounded: /send may commit it
