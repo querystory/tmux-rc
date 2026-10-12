@@ -176,6 +176,9 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
         reparsed.clear()
         assert send(stale) == 409
         assert reparsed
+    with monkeypatch.context() as closing:  # the pane closed after it was found
+        closing.setattr(tmux, "capture_pane", lambda *a, **k: subprocess.check_output("false"))
+        assert send(question["picker"]) == 409
 
 
 MENU = """

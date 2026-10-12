@@ -1080,7 +1080,10 @@ function cursorIO(id) {
   // pane, which STOPS the walk: a picker the user has navigated away from should not go on
   // being driven, let alone committed, out of sight.
   const pane = () => (active === id ? panes.find((p) => p.pane_id === id) : null);
-  const held = (q) => ({ prompt: q.prompt ?? "", picker: q.picker ?? "" }); // what /send holds it to
+  // What /send holds a step to: the picker screen q was read off. No pane birth is needed:
+  // another pane under a recycled id refuses unless it shows that very screen, and then
+  // the key does exactly what the walk computed.
+  const held = (q) => ({ prompt: q.prompt ?? "", picker: q.picker ?? "" });
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,

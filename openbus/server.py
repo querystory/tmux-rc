@@ -860,7 +860,10 @@ def send(pane_id: str, body: SendBody, request: Request):
         # for no other: a replaced or redrawn picker, a moved highlight, another pane under
         # a recycled id all change it. A screen that hashes the same takes the key as the
         # walk meant it, which is why nothing about the key, row or pane is checked apart.
-        screen = tmux.capture_pane(pane.id, mark_dim=True)
+        try:
+            screen = tmux.capture_pane(pane.id, mark_dim=True)
+        except subprocess.CalledProcessError as e:  # closed since find_pane: refuse, reread
+            raise tmux.PaneChangedError(f"The pane closed; nothing was sent: {e}") from e
         if not body.picker or picker_digest(screen, body.prompt) != body.picker:
             msg = f"The picker {body.prompt!r} changed since it was read; nothing was sent."
             raise tmux.PaneChangedError(msg)

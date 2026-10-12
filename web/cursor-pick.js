@@ -195,7 +195,8 @@ export async function pickCursorRow(io, targetText, targetIndex) {
   try {
     // Bound to the question that was tapped: a replacement with the same rows is another ask.
     // One under the same prompt is not told apart, and need not be: an agent's dialog stays
-    // until it is answered, and nothing but this walk is answering it.
+    // until it is answered, the walk's moves answer nothing, and its select ends the walk,
+    // so a same-prompt replacement mid-walk would take someone else answering at the desk.
     const read = io.question, asked = read()?.prompt;
     io = { ...io, question: () => { const q = read(); return q?.prompt === asked ? q : null; } };
     const done = await pick(io, targetText, targetIndex);
