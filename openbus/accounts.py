@@ -220,10 +220,10 @@ def _edit(config: str, label: str | None, *, forget: bool) -> None:
             sessions = {p.session for p in tmux.list_panes()}
         except subprocess.CalledProcessError:  # no tmux: no session defaults either
             sessions = set()
-        for session, chosen in session_defaults(sessions).items():
-            if session and chosen[profile["provider"]] == profile["dir"]:
+        for session, chosen in session_defaults(sessions).items():  # "": the global env
+            if chosen[profile["provider"]] == profile["dir"]:
                 with contextlib.suppress(subprocess.CalledProcessError):  # gone meanwhile
-                    tmux.set_env(ENV[profile["provider"]], None, session=session)
+                    tmux.set_env(ENV[profile["provider"]], None, session=session or None)
     if label is not None:
         entry["label"] = label.strip() or None
     _save(store)

@@ -204,7 +204,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     if (!dlg.open || F.step !== "login" || !F.pane) return;
     await refresh();
     if (byDir(F.dir)?.signed_in) return go("done");
-    if (!paneAlive(F.pane)) return go("abandoned");
+    // Gone once seen, or never seen within a grace: the page's state can lag the new window.
+    if (paneAlive(F.pane)) F.seen = true;
+    else if (F.seen || Date.now() - F.openedAt > 15000) return go("abandoned");
     poll = setTimeout(wait, 2000);
   }
   dlg.addEventListener("click", async (e) => {
@@ -227,7 +229,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         await refresh();
         return go("login", { dir: added.dir || F.dir, existed: added.existed, pane: null });
       }
-      if ("login" in d) { F.pane = (await post("/api/accounts/login", { dir: F.dir, session: F.session })).pane_id; render(); return wait(); }
+      if ("login" in d) { F.pane = (await post("/api/accounts/login", { dir: F.dir, session: F.session })).pane_id; F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
       if ("retry" in d) return go("login", { pane: null });
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }
       if ("go" in d) { dlg.close(); return openPane(F.pane); }
