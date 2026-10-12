@@ -580,9 +580,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // One card per tmux session: its running count, who needs you, its trend on the shared
   // scale, and its panes by state underneath. Sessions with live panes come first.
   const live = new Set(panes.map(p => p.session)), keys = (scope.session ? [scope.session] : sessions).sort((a, b) => live.has(b) - live.has(a));
-  const busy = panes.filter(p => stateOf(p) === 1).length, waiting = panes.filter(needsYou).length;
-  const multiples = el('section', 'atlas-panel atlas-multiples'), title = el('h3', '', 'Sessions');
-  title.title = `${panes.length} panes across ${live.size} sessions · ${panes.length ? Math.round(busy / panes.length * 100) : 0}% running · ${waiting} waiting for you. The cards share one scale; an icon opens its pane.`;
+  const multiples = el('section', 'atlas-panel atlas-multiples');
   const cards = root._cards ||= new Map();
   cards.forEach((chart, key) => { if (!keys.includes(key)) { chart.dispose(); cards.delete(key); } });
   // Slices depend on history and settings, not on pane state, so live updates reuse them.
@@ -626,7 +624,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const legend = el('div', 'atlas-legend');
   STATES.forEach((label, i) => legend.append(el('span', `atlas-state s${i}`, `${panes.filter(p => stateOf(p) === i).length} ${label}`)));
   const sessionsHead = el('div', 'atlas-panel-heading');
-  sessionsHead.append(title);
+  sessionsHead.append(el('h3', '', 'Sessions'));
   multiples.append(sessionsHead, grid, legend);
   nodes.push(multiples);
   if (!panes.length) nodes.push(el('p', 'muted', 'No current panes match these filters.'));

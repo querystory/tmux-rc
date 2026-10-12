@@ -72,13 +72,13 @@ function paint(el, markup, onclick) {
 }
 
 // The dashboard's card (its heading is atlas.js detailCard's): each lane's count, which opens
-// the view at that lane, and the top three loops waiting on you. Anywhere else opens the view.
+// the view at that lane, and the three newest loops waiting on you. Anywhere else opens the view.
 export function renderLoopsCard(card, report, openLane, licon, now = Date.now()) {
   const lanes = report?.lanes;
   card.hidden = !lanes;
   if (!lanes) return;
   card.querySelector("h3").title = `Pull requests and worktrees that need a decision. ${notes(report, now)}`;
-  const top = groups(lanes, "waiting").flatMap(g => g.items).slice(0, 3);
+  const top = groups(lanes, "waiting").flatMap(g => g.items).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 3);
   paint(card.querySelector(".loop-card-body"), `<div class="loop-counts">${Object.entries(LANES).map(([lane, title]) => `<button type="button" class="loop-count ${lane}" data-lane="${lane}" data-key="count ${lane}">`
       + `<b>${count(groups(lanes, lane))}</b><span>${title}</span></button>`).join("")}</div>`
     + (top.length ? `<h4>Waiting on you</h4>${top.map(i => row(i, licon, now, "top")).join("")}` : ""),
