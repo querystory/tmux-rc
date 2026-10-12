@@ -40,12 +40,13 @@ self.addEventListener("notificationclick", (event) => {
     }
     const target = new URL(data.url || "/m", self.location.origin).href;
     const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
-    const existing = windows.find((client) => {
+    const app = windows.find((client) => {
       try { return new URL(client.url).pathname.startsWith("/m"); } catch { return false; }
-    }) || windows[0];
+    }), existing = app || windows[0];
     if (existing) {
       try {
-        await existing.navigate(target);
+        // iOS will not navigate() an open app to a new hash, so the app routes itself (app.js).
+        if (app) app.postMessage({ open: target }); else await existing.navigate(target);
         return existing.focus();
       } catch {}
     }

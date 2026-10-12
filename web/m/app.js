@@ -1557,6 +1557,11 @@ $("expunge-pane").onclick = async () => {
   $("expunge-dialog").showModal();
 };
 window.addEventListener("hashchange", route);
+// A push tapped while the app is open: sw.js names the address to show, and it is routed
+// here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
+navigator.serviceWorker?.addEventListener("message", ({ data }) => {
+  if (data?.open) { history.pushState(null, "", data.open); route(); }
+});
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
 document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); fitViewport(); });
