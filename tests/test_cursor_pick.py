@@ -104,6 +104,14 @@ CASES = [
         {"sent": ["Up"] * 5 + ["Enter"], "selected": 0, "notes": []},
     ),
     (
+        # A row whose title carries a control character is never typed into the box.
+        "a far row with a control character is not filtered for",
+        {"options": [f"r{i}" for i in range(19)] + ["r\u001b"], "selected": 0,
+         "keymap": FULL_KM, "reads": True},
+        "r\u001b", 19,
+        {"sent": ["Down"] * 19 + ["Enter"], "selected": 19, "notes": []},
+    ),
+    (
         # A misread keymap: Enter as `next` would commit the highlighted row, not move.
         "a direction bound to the select key is no direction",
         {"options": ROWS, "selected": 0, "keymap": {"next": "Enter", "select": "Enter"}},

@@ -158,6 +158,10 @@ function after(q, sent, expect) {
   return at === null ? null : { ...q, picker: sent.picker, selected: at };
 }
 
+// A control character typed into a search box would act, not filter (Enter submits, Esc
+// cancels, ^C interrupts), so a row carrying one is never typed.
+const typable = (text) => !/[\x00-\x1f\x7f]/.test(text);
+
 // Same rows, same order — i.e. the list has not renumbered under us.
 const sameRows = (a, b) => a.length === b.length && a.every((row, i) => row === b[i]);
 
@@ -178,7 +182,7 @@ async function walk(io, targetText, targetIndex) {
     const live = picker(io);
     if (!live) return false;
     const q = read || live;
-    const km = bindings(q);
+    const km = bindings(live); // a read-back grounds the row, never the bindings: the parse does
     // The tapped index identifies the row only while the list has not moved under it.
     // "Same text at the same index" is not proof on its own: two sessions can share a
     // title, and after a scroll index 2 can be a DIFFERENT session wearing the same name.
@@ -263,7 +267,8 @@ export async function pickCursorRow(io, targetText, targetIndex) {
 
 async function pick(io, targetText, targetIndex) {
   const first = picker(io), sole = first ? soleIndex(first.options, targetText) : -1;
-  const far = sole >= 0 && bindings(first).search && !(Math.abs(sole - first.selected) <= NEAR);
+  const far = sole >= 0 && bindings(first).search && typable(targetText)
+    && !(Math.abs(sole - first.selected) <= NEAR);
   if (!far && await walk(io, targetText, targetIndex)) return true;
   // Fallback: the widget's own search box. It needs BOTH bindings advertised — typing
   // filters the list but does not commit it, so the obvious shortcut of appending Enter
@@ -279,8 +284,7 @@ async function pick(io, targetText, targetIndex) {
   // would leave the user's picker filtered for a walk that was never going to commit.
   const q = picker(io);
   const km = bindings(q);
-  // A line break typed into the box would submit it, so such a row is never typed.
-  if (!q || !km.search || !km.select || soleIndex(q.options, targetText) < 0 || /[\r\n]/.test(targetText)) {
+  if (!q || !km.search || !km.select || soleIndex(q.options, targetText) < 0 || !typable(targetText)) {
     io.note(STUCK);
     return false;
   }
