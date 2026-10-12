@@ -122,10 +122,14 @@ into an ungrouped bucket rather than being guessed into one.
 
 ## The view
 
-Open loops sit on the dashboard, below Needs you, rather than as a new screen: the
-dashboard is already where both phone and desktop go to ask "what is the fleet doing",
-and Needs you is the first lane's existing half, so the pane rows of Waiting on you are not
-repeated there. Each lane folds, Moving starts folded because a busy day fills it, and a
+Open loops start on the dashboard, because it is already where both phone and desktop go
+to ask "what is the fleet doing". There they are a summary card: each lane's count and the
+top three rows waiting on you, which is the question a glance answers. The full lanes run
+long on a busy day and would push every chart below them out of reach, so they live on a
+page of the dashboard (`#view=loops`) that the card, or one of its lane counts, opens; Back
+returns to the card. Panes blocked on you are the first lane's existing half, already shown
+by the sidebar's Needs you group and the Needs you tab, so neither surface repeats them.
+On the page each lane folds, Moving starts folded because a busy day fills it, and a
 workstream holding a single PR drops its heading, which would only repeat the title. A
 row's pane buttons open the owning window the same way a sidebar row does; a row with no
 owner says "no pane" in the warning colour, because that is the finding. The view polls

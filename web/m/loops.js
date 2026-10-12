@@ -1,7 +1,8 @@
-// Open loops on the dashboard: Waiting on you, Moving and Dropped, by workstream, from
-// /api/open-loops (rendered server-side from cached GitHub and git state). Panes blocked
-// on you stay in the dashboard's own Needs you list above, so they are not repeated here.
-// A row's pane buttons open the window that owns it. See docs/design/open-loops.md.
+// Open loops: Waiting on you, Moving and Dropped, by workstream, from /api/open-loops
+// (rendered server-side from cached GitHub and git state): a summary card on the dashboard,
+// and the full lanes on its own page. Panes blocked on you are the sidebar's and the Needs
+// you tab's, so they are not repeated here. A row's pane buttons open the window that owns
+// it. See docs/design/open-loops.md.
 import { since } from "/m/pane-model.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
@@ -52,30 +53,55 @@ function moved(items, now) {
 // A workstream of one PR is just that PR: its heading would repeat the row's title.
 const solo = g => g.items.length === 1 && g.items[0].title === g.workstream?.name;
 
+// Each lane's workstreams, less the panes blocked on you, and how many loops they hold.
+const groups = (lanes, lane) => lanes[lane].map(g => ({ ...g, items: g.items.filter(i => !i.reasons?.includes("needs_you")) }))
+  .filter(g => g.items.length);
+const count = list => list.reduce((sum, g) => sum + g.items.length, 0);
+const notes = (report, now) => [report.fetched_at ? `GitHub as of ${ago(report.fetched_at, now)}` : "GitHub not read yet",
+  report.error && "last refresh failed", report.older_open_prs && `${report.older_open_prs} older open PRs not shown`,
+  report.older_worktrees && `${report.older_worktrees} older worktrees not shown`,
+  report.truncated && "too many PRs to list them all"].filter(Boolean).join(" · ");
+
+// A redraw (an age ticking, a lane folding) must not drop keyboard focus.
+function paint(el, markup, onclick) {
+  el.onclick = onclick;
+  if (el._html === markup) return;
+  const focused = el.contains(document.activeElement) && document.activeElement.dataset.key;
+  el.innerHTML = markup; el._html = markup;
+  if (focused) [...el.querySelectorAll("[data-key]")].find(c => c.dataset.key === focused)?.focus();
+}
+
+// The dashboard's card (its heading is atlas.js detailCard's): each lane's count, which opens
+// the view at that lane, and the top three loops waiting on you. Anywhere else opens the view.
+export function renderLoopsCard(card, report, openLane, licon, now = Date.now()) {
+  const lanes = report?.lanes;
+  card.hidden = !lanes;
+  if (!lanes) return;
+  card.querySelector("h3").title = `Pull requests and worktrees that need a decision. ${notes(report, now)}`;
+  const top = groups(lanes, "waiting").flatMap(g => g.items).slice(0, 3);
+  paint(card.querySelector(".loop-card-body"), `<div class="loop-counts">${Object.entries(LANES).map(([lane, title]) => `<button type="button" class="loop-count ${lane}" data-lane="${lane}" data-key="count ${lane}">`
+      + `<b>${count(groups(lanes, lane))}</b><span>${title}</span></button>`).join("")}</div>`
+    + (top.length ? `<h4>Waiting on you</h4>${top.map(i => row(i, licon, now, "top")).join("")}` : ""),
+  e => {
+    const lane = e.target.closest("[data-lane]");
+    if (lane || e.target.closest("a")) e.stopPropagation(); // a PR link opens only the PR
+    if (lane) openLane(lane.dataset.lane);
+  });
+}
+
+// The page: every lane in full. Moving starts folded and reads one line per workstream.
 export function renderLoops(el, report, open, licon, now = Date.now()) {
   const lanes = report?.lanes;
   el.hidden = !lanes;
   if (!lanes) return;
-  const groups = lane => lanes[lane].map(g => ({ ...g, items: g.items.filter(i => !i.reasons?.includes("needs_you")) }))
-    .filter(g => g.items.length);
-  const notes = [report.fetched_at ? `GitHub as of ${ago(report.fetched_at, now)}` : "GitHub not read yet",
-    report.error && "last refresh failed", report.older_open_prs && `${report.older_open_prs} older open PRs not shown`,
-    report.older_worktrees && `${report.older_worktrees} older worktrees not shown`,
-    report.truncated && "too many PRs to list them all"];
   // A lane the viewer folded stays folded when a minute's tick redraws the ages.
   const open0 = [...el.querySelectorAll(".loop-lane")].map(d => d.open);
-  const markup = Object.entries(LANES).map(([lane, title], k) => {
-    const list = groups(lane), n = list.reduce((sum, g) => sum + g.items.length, 0);
-    return `<details class="loop-lane" ${open0[k] ?? lane !== "moving" ? "open" : ""}><summary data-key="${lane}">${licon("chevron", 16)}<h3>${title}</h3><span class="m">${n}</span></summary>`
+  paint(el, Object.entries(LANES).map(([lane, title], k) => {
+    const list = groups(lanes, lane);
+    return `<details class="loop-lane" data-lane="${lane}" ${open0[k] ?? lane !== "moving" ? "open" : ""}><summary data-key="${lane}">${licon("chevron", 16)}<h3>${title}</h3><span class="m">${count(list)}</span></summary>`
       + (list.map(g => `<section class="loop-ws">${lane !== "moving" && solo(g) ? "" : `<h4>${esc(g.workstream?.name || "Ungrouped")}</h4>`}`
         + (lane === "moving" ? moved(g.items, now) : g.items.map(i => row(i, licon, now, lane)).join("")) + "</section>").join("")
         || '<p class="m">Nothing here.</p>') + "</details>";
-  }).join("") + `<p class="m loop-notes">${esc(notes.filter(Boolean).join(" · "))}</p>`;
-  if (el._html !== markup) {
-    // A redraw (an age ticking, a lane folding) must not drop keyboard focus.
-    const focused = el.contains(document.activeElement) && document.activeElement.dataset.key;
-    el.innerHTML = markup; el._html = markup;
-    if (focused) [...el.querySelectorAll("[data-key]")].find(c => c.dataset.key === focused)?.focus();
-  }
-  el.onclick = e => { const b = e.target.closest("[data-pane]"); if (b) open(b.dataset.pane); };
+  }).join("") + `<p class="m loop-notes">${esc(notes(report, now))}</p>`,
+  e => { const b = e.target.closest("[data-pane]"); if (b) open(b.dataset.pane); });
 }

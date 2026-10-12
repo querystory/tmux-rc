@@ -86,15 +86,11 @@
         <!-- Plan limits at a readable size (usage.js), placed under the activity chart by atlas.js;
              its Details, or the phone's usage strip, opens #view=usage. -->
         <section id="usage-panel" hidden><div id="usage-board" class="usage-board" role="group" aria-label="Plan usage"></div></section>
-        <section id="landing-attention" hidden>
-          <h3>Needs you</h3>
-          <div id="landing-attention-list"></div>
-        </section>
-        <!-- Open loops (loops.js): what has stopped moving, by workstream. -->
-        <section id="landing-loops" aria-label="Open loops" hidden></section>
-        <div id="landing-foot"></div><!-- the heatmap card (atlas.js), the page's last panel -->
+        <!-- A row of cards that open their own view, placed under the activity chart by atlas.js:
+             Open loops (loops.js) and the heatmap (atlas.js). -->
+        <div id="landing-cards"><section id="loops-card" hidden><div class="loop-card-body"></div></section><div id="heat-card"></div></div>
       </div>
-      <div id="dash-page" class="landing-inner" hidden></div><!-- a dashboard card's own view: #view=heat, #view=usage (app.js) -->
+      <div id="dash-page" class="landing-inner" hidden></div><!-- a dashboard card's own view: #view=heat, #view=usage, #view=loops (app.js) -->
     </section>
     <div id="divider" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" hidden></div>
     <section id="detail" aria-label="Selected pane" hidden>

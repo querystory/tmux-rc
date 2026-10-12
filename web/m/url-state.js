@@ -1,7 +1,7 @@
 // Navigation state <-> location.hash, with no DOM so `node --test` can drive it.
 //
 // The hash is the whole addressable state: `#pane=%25N&view=terminal&filter=attention&sort=session`
-// or, with no pane, `#view=dashboard`, or one of PAGES: a dashboard card's own view (`#view=heat`). A hash (not a path) because the daemon serves /m and
+// or, with no pane, `#view=dashboard`, or one of PAGES: a dashboard card's own view (`#view=heat`, `#view=loops`). A hash (not a path) because the daemon serves /m and
 // nothing under it, and because the installed PWA's start_url stays the plain list. Unknown
 // fields (push's `from=push`) are ignored on read and dropped on write; `compose=1` is
 // read-only, set by push links to focus the reply box.
@@ -10,7 +10,7 @@
 // keep working.
 
 const FILTERS = ["attention", "running", "recent"];
-export const PAGES = ["heat", "usage"]; // the dashboard's cards that open their own view
+export const PAGES = ["heat", "usage", "loops"]; // the dashboard's cards that open their own view
 
 // `tab` is the view a pane opens on when the hash names none: the wide Layout picker's choice.
 export function parseHash(hash, tab = "summary") {

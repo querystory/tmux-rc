@@ -519,18 +519,6 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #landing-title:empty, #landing-sub:empty { display: none; }
 .landing-inner h3 { margin: 24px 0 8px; font-size: 13px; text-transform: uppercase;
                     letter-spacing: 0.04em; color: var(--muted); }
-/* Same affordance as a list row: the whole thing is the target, text stays left-aligned. */
-.landing-row {
-  display: block; width: 100%; text-align: left; background: none; cursor: pointer;
-  border: 0; border-top: 1px solid var(--line); padding: 10px 2px; font: inherit; color: inherit;
-}
-.landing-row:hover { background: var(--raised); }
-/* overflow-wrap as everywhere else that renders a pane name: a title or a window name is
-   user-supplied and can be one unbroken run, and these are spans, so the h1/h2/p rule at
-   the top of the file does not reach them. */
-.landing-row .t { display: block; font-weight: 600; overflow-wrap: anywhere; }
-.landing-row .m { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
-
 /* Open loops: a lane per <details>, a workstream per section, a row per loop. */
 .loop-lane > summary { display: flex; align-items: center; gap: 8px; margin: 24px 0 8px; cursor: pointer; list-style: none; }
 .landing-inner .loop-lane > summary h3 { margin: 0; }
@@ -540,7 +528,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .loop-ws h4 { margin: 12px 0 2px; font-size: 14px; overflow-wrap: anywhere; }
 .loop-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 2px; border-top: 1px solid var(--line); }
 .loop-row a, .loop-row .t { font-weight: 600; color: inherit; overflow-wrap: anywhere; }
-#landing-loops .m { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+#landing-loops .m, #loops-card .m { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .loop-panes { display: flex; flex-wrap: wrap; gap: 6px; }
 .loop-pane { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; max-width: 100%; padding: 0 10px;
              border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px;
@@ -548,10 +536,25 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .loop-pane:hover { border-color: var(--accent); }
 .loop-orphan { font-size: 12px; color: var(--amber); }
 .loop-notes { margin-top: 16px; }
+/* The Open loops card: a tile per lane (each opens the page at its lane), then the top rows. */
+.loop-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
+.loop-count { display: flex; flex-direction: column; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--c); }
+.loop-count b { font-size: 24px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.loop-count span { font-size: 12px; color: var(--muted); }
+.loop-count.waiting { --c: var(--amber); background: var(--amber-bg); border-color: transparent; }
+.loop-count.moving { --c: var(--accent); }
+.loop-count.dropped { --c: var(--red); }
+#loops-card h4 { margin: 8px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+#loops-card .loop-row:first-of-type { border-top: 0; }
+#loops-card .loop-row a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#loops-card .loop-panes { display: none; }
+/* Cards side by side where two fit, the row's height shared; stacked on a phone. */
+#landing-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; margin-top: 16px; }
+#landing-cards .atlas-panel { height: 100%; margin-top: 0; }
 
 /* The atlas inherits both palettes. State always has a text label as well as colour. */
 #session-atlas { --atlas-idle: var(--muted); }
-.atlas-legend { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 24px 0; font-size: 13px; }
+.atlas-legend { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 16px; font-size: 13px; }
 .s0 { --state-color: var(--amber); }
 .s1 { --state-color: var(--accent); }
 .s2 { --state-color: var(--atlas-idle); }
@@ -559,15 +562,9 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .s4 { --state-color: var(--purple); }
 .s5 { --state-color: #729cc1; }
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
-.atlas-map { display: grid; gap: 12px; }
-.atlas-split { display: grid; gap: 12px; min-width: 0; }
-.atlas-island { padding: 10px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); --card: var(--surface); min-width: 0; }
-.landing-inner .atlas-island h3, .landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
+.landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
 .atlas-panel > p { font-size: 12px; }
-/* Name and counts share a row, wrapping only when the card is too narrow for both. */
-.atlas-island-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; font-size: 12px; }
-.landing-inner .atlas-island-head h3 { margin: 0; }
-.atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; margin-top: 6px; align-items: start; }
+.atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); align-items: start; }
 .atlas-dot { min-width: 0; padding: 6px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .atlas-agent-icon { width: 26px; height: 26px; object-fit: contain; padding: 2px; }
 .atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; background: var(--amber-bg); outline: 2px solid var(--amber); outline-offset: 4px; }
@@ -590,7 +587,6 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
-.atlas-insight { font-size: 12px; margin-top: 18px; }
 
 .atlas-range { margin: 0 0 0 auto; min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 4px 8px; }
 
@@ -798,10 +794,10 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .atlas-info[aria-expanded="true"] { color: var(--accent); }
 /* A mouse needs no 44px row; touch keeps it. */
 @media (pointer: fine) { .atlas-state-toggle { min-height: 30px; } }
-.atlas-multiple { display: grid; gap: 4px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; text-align: left; font-size: 12px; }
-.atlas-multiple[aria-pressed="true"] { border-color: var(--accent); }
-.atlas-multiple-head { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
-.atlas-multiple-head b:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-multiple { display: grid; gap: 4px; align-content: start; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; font-size: 12px; --card: var(--surface); }
+.atlas-need { margin-left: 8px; color: var(--amber); font-weight: 600; white-space: nowrap; }
+.atlas-multiple-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; min-width: 0; }
+.atlas-multiple-head b:first-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .atlas-multiple .fleet-chart { flex: none; width: 100%; height: 48px; }
 .landing-head { display: flex; align-items: center; gap: 4px; }
 #landing-back { margin-left: -12px; }
@@ -828,7 +824,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   .fleet-strip > .fleet-gap { flex: 1; }
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }
-:is(.atlas-multiples, .atlas-heat) .atlas-panel-heading > .muted { font-size: 12px; }
+.atlas-detail-card .atlas-panel-heading > .muted { font-size: 12px; }
 /* The heatmap (atlas.js heatPanel): day labels, 24 hour columns, then each day's total. */
 .heat-grid { --rh: 16px; position: relative; display: grid; grid-template-columns: 52px repeat(24, minmax(0, 1fr)) minmax(96px, 20%); gap: 2px; align-items: center; font-size: 11px; line-height: 14px; font-variant-numeric: tabular-nums; }
 .heat-compact { --rh: 14px; }

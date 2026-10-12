@@ -12,7 +12,7 @@ import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.j
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar } from "/m/sidebar.js";
 import { renderUsage, paneAccount, shownUsage } from "/m/usage.js";
-import { renderLoops } from "/m/loops.js";
+import { renderLoops, renderLoopsCard } from "/m/loops.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -371,28 +371,10 @@ function renderPhoneList(subset) {
   });
 }
 
-// The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
-// filter tabs already show — a second count that disagreed with the tabs would be worse
-// than no count — plus panes blocked on you. Rows navigate exactly like sidebar rows.
-function landingRows(id, subset) {
-  show(id, !!subset.length);
-  reconcile($(id + "-list"), subset, (p) => p.pane_id, () => {
-    const b = document.createElement("button");
-    b.className = "landing-row";
-    b.innerHTML = '<span class="t"></span><span class="m"></span>';
-    return b;
-  }, (node, p) => {
-    node.onclick = () => navigate(p.pane_id);
-    markEnding(node, p);
-    text(node.querySelector(".t"), paneName(p));
-    text(node.querySelector(".m"), `${activityLabel(p)} · ${p.session} / ${p.window_name || p.pane_id}`);
-  });
-}
-
 function renderLanding() {
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
-  const waiting = panes.filter(needsYou);
+  if (page === "loops") return renderLoops(cardView("Open loops", loopsView), loops, navigate, licon);
   paintUsage(); // follows the tool chips
   show("landing-back", panes.some((p) => p.pane_id === returnPane));
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
@@ -407,9 +389,8 @@ function renderLanding() {
     renderList();
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
-  }, licon, $("usage-panel"), $("landing-foot"), () => openPage("heat", $("landing-foot")));
-  landingRows("landing-attention", waiting);
-  renderLoops($("landing-loops"), loops, navigate, licon);
+  }, licon, [$("landing-cards"), $("usage-panel")], $("heat-card"), () => openPage("heat", $("heat-card")));
+  renderLoopsCard($("loops-card"), loops, openLane, licon);
 }
 
 // Drag the seam between the sidebar and the main column. Width is a CSS variable the
@@ -622,13 +603,27 @@ const paintUsage = () => {
   show("usage-panel", board.length > 0);
   renderUsage($("usage-board"), board, { wide: true });
   if (page !== "usage") return;
-  if (!$("dash-page").contains(usageView)) $("dash-page").replaceChildren(pageHead("Plan usage", licon, closePage), usageView);
-  renderUsage(usageView.firstChild, board, { wide: true, detail: true });
+  renderUsage(cardView("Plan usage", usageView).firstChild, board, { wide: true, detail: true });
 };
 const usageView = document.createElement("section");
 usageView.className = "atlas-panel";
 usageView.innerHTML = '<div class="usage-board usage-full" role="group" aria-label="Plan usage"></div>';
 detailCard($("usage-panel"), "Plan usage", "", () => openPage("usage", $("usage-panel")));
+const loopsView = document.createElement("section");
+loopsView.id = "landing-loops";
+loopsView.ariaLabel = "Open loops";
+detailCard($("loops-card"), "Open loops", "", () => openPage("loops", $("loops-card")));
+// A lane's count on the card opens the view at that lane, unfolded.
+function openLane(lane) {
+  openPage("loops", $("loops-card"));
+  const at = loopsView.querySelector(`[data-lane="${lane}"]`);
+  if (at) { at.open = true; at.scrollIntoView(); }
+}
+// A card's view: its head over `node`, built once a visit (route() empties #dash-page).
+function cardView(title, node) {
+  if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);
+  return node;
+}
 // Plan usage and open loops are both cached by the server; a minute is fresh enough.
 async function refreshCached() {
   if (Date.now() - cachedAt < 60000) return;

@@ -31,7 +31,11 @@ const SHOTS = [
   ["wide-usage-detail", WIDE, "dark", "#view=usage"],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
-  ["mobile-open-loops", PHONE, "light", "#view=dashboard", showLoops],
+  ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
+  ["wide-sessions", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
+  ["mobile-open-loops", PHONE, "light", "#view=loops", showLoops],
+  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card .loop-count")],
+  ["mobile-sessions", PHONE, "dark", "#view=dashboard", reach(".atlas-multiples")],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
   ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
@@ -77,14 +81,21 @@ const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 *, *::before, *::after { animation: none !important; transition: none !important;
   caret-color: transparent !important; scroll-behavior: auto !important; scrollbar-width: none !important; }`;
 
-// Open loops arrive after the dashboard draws; wait for them, then bring their top up.
+// Bring a dashboard node to the top once it, and the Open loops card above it (which arrives
+// after the page), have drawn; a base that predates either shoots the page as it is.
+function reach(selector) {
+  return async (page) => {
+    for (const node of ["#loops-card .loop-count", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(500); // the panels above settle their height first
+    await page.locator(selector).first().evaluate((el) => {
+      const pane = document.getElementById("landing"); // scroll the dashboard, never the page
+      pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 16;
+    }).catch(() => {});
+  };
+}
+// The Open loops page, once its lanes arrive.
 async function showLoops(page) {
-  if (!await page.locator("#landing-loops").count()) return; // a base that predates them
-  await page.locator("#landing-loops summary").first().waitFor();
-  await page.locator("#landing-loops").evaluate((el) => {
-    const pane = document.getElementById("landing"); // scroll the dashboard, never the page
-    pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top;
-  });
+  await page.locator("#landing-loops summary").first().waitFor({ timeout: 5000 }).catch(() => {});
 }
 
 // The Sub-agents toggle is on by default; show its lines under activity cards too.
