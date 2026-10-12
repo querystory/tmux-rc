@@ -83,6 +83,9 @@ def test_highlighted_row_reads_the_pointer_row_below_the_prompt():
     stacked = "│ Old?   │\n│ ❯ No   │\n╰───────╯\n│ New?   │\n│ ❯ Keep │\n╰───────╯"
     assert highlighted_row(stacked, "Old?", no_yes) is None
     assert highlighted_row(stacked, "New?", ["Keep"]) == "Keep"
+    unframed = "Old?\n❯ No\n  Yes\nNew?\n  No\n❯ Yes"  # no edge between them: no telling
+    assert highlighted_row(unframed, "Old?", no_yes) is None
+    assert picker_digest(unframed, "Old?") is None
     # Only a row that opens with a frame loses a closing bar; a label's own bar is kept.
     assert highlighted_row("Pick?\n❯ Fix │", "Pick?", ["Fix │"]) == "Fix │"
     assert highlighted_row("│ Pick?   │\n│ ❯ a │   │", "Pick?", ["a │"]) == "a │"

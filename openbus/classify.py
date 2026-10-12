@@ -117,6 +117,10 @@ def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
     end = _widget_end(visible, asked.end())
     if _HIGHLIGHT_RE.search(visible, end):  # a later picker, or the input box, is live:
         return None                         # this one is history in the scrollback
+    # An unframed picker has no edge, so its range runs to the screen's end and can hold a
+    # later one drawn below it: two highlights is no telling which is its own.
+    if len(_HIGHLIGHT_RE.findall(visible, asked.end(), end)) > 1:
+        return None
     return asked, end
 
 
