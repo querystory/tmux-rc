@@ -36,6 +36,7 @@ const SHOTS = [
   ["mobile-usage-detail", PHONE, "dark", "", async (page) => { await page.click("#usage"); await page.click("#usage-detail"); }],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
+  ["mobile-question-items", PHONE, "light", "#pane=%2546"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],

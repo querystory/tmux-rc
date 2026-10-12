@@ -127,6 +127,8 @@ export function lastActivity(pane) {
 export function paneName(pane) {
   return pane.title || pane.label || pane.window_name || pane.pane_id;
 }
+// The list rows a question names by number ("do 1 now?"), one per line, so it reads alone.
+export const questionItems = (question) => Array.isArray(question?.items) ? question.items.join("\n") : "";
 // The line a list shows under the name: the question it is stuck on, else what it is doing.
 // A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare
 // "Do you want to proceed?" says nothing on a card.
@@ -154,7 +156,7 @@ export function matchesSearch(pane, query) {
         `${repo} ${pr.number}`, `${repo} PR ${pr.number}`, `${repo} PR #${pr.number}`])];
   });
   const text = [pane.session, pane.title, pane.label, pane.window_name, pane.pane_id, pane.tool, pane.model,
-    pane.question?.prompt, pane.question?.ask, pane.question?.context, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
+    pane.question?.prompt, pane.question?.ask, pane.question?.context, questionItems(pane.question), pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
     pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : "", ...refs]
     .filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "); // context keeps its rows and runs of spaces
   return text.includes(String(query).trim().toLowerCase().replace(/\s+/g, " "));

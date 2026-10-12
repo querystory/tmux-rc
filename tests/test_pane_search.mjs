@@ -85,4 +85,6 @@ test("a question's widget context is searchable, as the rows show it", () => {
   assert.ok(matchesSearch(asking, "npm install"));
   const rows = { ...pane, question: { prompt: "Proceed?", context: "kill $(ss  -ltnp\n  | grep 4100)" } };
   assert.ok(matchesSearch(rows, "ss -ltnp | grep"));
+  const named = { ...pane, question: { prompt: "Do 1 now?", items: ["1. Prune container images."] } };
+  assert.ok(matchesSearch(named, "prune container images"));
 });
