@@ -509,8 +509,10 @@ class PushManager:
             # nothing; classify._restate), else the prompt itself, then the list rows
             # it names by number ("Do 1 now?" alone says nothing either).
             items = (question or {}).get("items") or []
-            body = "\n".join([(question or {}).get("ask") or (question or {}).get("prompt")
-                              or pane.get("headline") or "Needs your attention", *items])
+            # str(): raw model fields are unvalidated, and one bad headline must not stall
+            # every pane's notifications.
+            body = "\n".join(map(str, [(question or {}).get("ask") or (question or {}).get(
+                "prompt") or pane.get("headline") or "Needs your attention", *items]))
             # A menu with no widget rows (one taller than classify reads, or none) can't
             # tell one "Do you want to proceed?" from the next, so its nonce could approve
             # a later command; an approval not yet restated (a failed call, retried) would

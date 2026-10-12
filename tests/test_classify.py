@@ -1320,7 +1320,7 @@ def test_question_naming_list_items_carries_them():
     for ask in ("Want me to do 1 please?", "Start with 2 tomorrow?", "Make edit 2 immediately?",
                 "Do Item 2 first?", "Do 1 urgently?", "Could you handle 2 separately?",
                 "Do 1 and 2 on staging?", "Do task 1 now?", "Apply fix 2 first?",
-                "Implement recommendation 2 next?"):
+                "Implement recommendation 2 next?", "Should I implement Recommendation 2 next?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert len(classify(_pane("claude"), screen, _llm({}))["question"]["items"]) == len(
             [c for c in ask if c.isdigit()])

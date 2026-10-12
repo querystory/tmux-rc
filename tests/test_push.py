@@ -270,6 +270,12 @@ def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
     assert sender.payloads[1]["actions"] == [] and sender.payloads[1]["nonce"] is None
+    # Raw model fields are unvalidated: a numeric headline still notifies, as text.
+    watcher.states = [{**waiting(), "headline": 42}]
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert sender.payloads[2]["body"] == "42"
 
 
 def test_subscription_only_accepts_known_push_relays(tmp_path):
