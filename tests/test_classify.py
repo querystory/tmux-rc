@@ -1485,6 +1485,9 @@ def test_a_tabbed_panel_the_user_opened_is_not_a_question():
     result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{_PANEL}", lambda s, t: failed)
     assert (result["activity"], "parse_ok" in result) == ("idle", False)
     # Only while its own footer is the last row: a later dialog below a lookalike asks.
+    asking["question"] = {"prompt": "Switch the output to tabs?", "answer_style": "text"}
+    lookalike = _PANEL.rsplit("\n", 1)[0] + "\n\nSwitch the output to tabs?"  # its own words
+    assert "question" in classify(_pane("claude"), lookalike, lambda s, t: asking)
     ruled, boxed = "────────\n Proceed?\n ❯ No\n   Yes", "╭─────╮\n│ Proceed? │\n│ ❯ No │\n╰─────╯"
     for dialog in (ruled, boxed):
         later = {"tool": "claude", "question": {"prompt": "Proceed?", "answer_style": "cursor",

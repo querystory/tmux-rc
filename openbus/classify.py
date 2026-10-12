@@ -84,7 +84,7 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 # while it is still open: the screen's last row is its own footer ("… ↑ to tabs · Esc to
 # clear"), not that of any later dialog, framed or ruled, drawn below a lookalike.
 _TABBED_PANEL_RE = re.compile(r"▔{3,}.*\n[ \t]*\w+(?:[ \t]{2,}\w+){3,}[ \t]*\n"
-                              r"[\s\S]*\bto tabs\b.*\s*\Z")
+                              r"[\s\S]*↑ to tabs\b.*\s*\Z")
 
 # The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
 # at its input box, so every row under it is status/footer chrome (Claude's welcome
