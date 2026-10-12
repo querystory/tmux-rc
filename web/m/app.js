@@ -1221,8 +1221,13 @@ $("usage-mode").onclick = () => {
   paintUsage();
 };
 // The strip is a glance; tapping it opens the usage view, where the trend and times read,
-// by way of the dashboard, so its Back lands on the Plan usage card.
-const openUsage = () => { openDashboard(); openPage("usage", $("usage-panel")); };
+// by way of the dashboard, so its Back lands on the Plan usage card. The strip shows every
+// meter, so a tool filter with none of its own (shell, say) is dropped rather than open empty.
+const openUsage = () => {
+  const scope = $("session-atlas")._scope;
+  if (scope?.tool && !usage.some((a) => a.provider === scope.tool)) scope.tool = "";
+  openDashboard(); openPage("usage", $("usage-panel"));
+};
 $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
 paintUsage(); // labels the item before the first fetch
