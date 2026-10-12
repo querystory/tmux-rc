@@ -52,16 +52,20 @@ self.addEventListener("notificationclick", (event) => {
     const apps = windows.filter((client) => {
       try { return new URL(client.url).pathname.startsWith("/m"); } catch { return false; }
     });
-    // A chat lives in the open app: navigating would reload it away, so every app window is
-    // asked instead, and the one whose chat holds the card (it brings the chat back) is focused.
-    const owner = data.chat && (await Promise.all(apps.map(holdsCard(data.chat)))).find(Boolean);
+    // A chat lives in the open app: navigating would reload it away, so the app window whose
+    // chat holds the card is asked to bring it back. A lone one (a home-screen app's) is
+    // focused before it is asked: iOS may drop a focus that waits on a reply, and a suspended
+    // page cannot reply until it is woken. Several are each asked first, to focus the owner.
+    const owner = data.chat && apps.length > 1 && (await Promise.all(apps.map(holdsCard(data.chat)))).find(Boolean);
     const existing = owner || apps[0] || windows[0];
     if (existing) {
       try {
         // iOS will not navigate() an open app to a new hash, so the app routes itself (app.js).
         if (!apps.length) await existing.navigate(target);
         else if (!data.chat) existing.postMessage({ open: target });
-        return existing.focus();
+        const focused = existing.focus();
+        if (data.chat && apps.length && !owner) holdsCard(data.chat)(existing);
+        return focused;
       } catch {}
     }
     return clients.openWindow(target);

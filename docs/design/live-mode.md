@@ -531,7 +531,11 @@ that card, and keeping it across the drop is a separate change.
 The notification has no answer buttons: approving a pane action should happen where the
 card shows exactly what will be typed, not from a lock-screen line. Tapping it brings the
 chat back in the open page instead of navigating there, since a navigation would reload
-the page and end the conversation that holds the card.
+the page and end the conversation that holds the card. A minimized chat comes back too,
+scrolled to the card. The app window is focused before it is asked, not after its answer:
+iOS may refuse a focus that is no longer tied to the tap, and a suspended page cannot
+answer until it is woken. Only with several app windows open does the worker ask first,
+so that only the one holding the card is brought forward.
 
 **Docked on a wide screen.** At the wide layout's breakpoint (1100px) the same panel opens
 non-modally as a column right of the work area, so nothing is dimmed and the pane stays
