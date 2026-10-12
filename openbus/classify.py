@@ -715,15 +715,16 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
             item, gap = None, False
         else:
             item, gap = None, True
-    refs, last = [], None
+    refs, last = [], None  # (position, label): numbers and letters merge in prompt order
     for m in _ITEM_REF_RE.finditer(prompt):
         chained = last is not None and _REF_CHAIN_RE.fullmatch(prompt, last, m.start())
         if (chained or _REF_BEFORE_RE.search(prompt, 0, m.start())) and not (
                 _COUNT_BEFORE_RE.search(prompt, 0, m.start())):
-            refs += map(str, range(int(m[1]), int(m[2] or m[1]) + 1))
+            refs += [(m.start(), str(n)) for n in range(int(m[1]), int(m[2] or m[1]) + 1)]
             last = m.end()
-    refs += [(m[1] or m[2]).upper() for m in _LETTER_REF_RE.finditer(prompt)]
-    named = [n for n in dict.fromkeys(refs) if n in rows]
+    refs += [(m.start(), (m[1] or m[2]).upper()) for m in _LETTER_REF_RE.finditer(prompt)]
+    refs.sort(key=lambda ref: ref[0])  # stable: a range keeps its order
+    named = [n for n in dict.fromkeys(n for _, n in refs) if n in rows]
     return {n: " ".join(rows[n]) for n in named}, leads[named[0]] if named else ""
 
 
@@ -739,8 +740,8 @@ def _restates(table: object, rows: dict[str, str]) -> bool:
     not all). A table that is merely numbered 1, 2 (a ranking, an
     index) or shares one generic verb ("Update ...") with the rows stays."""
     body = table.get("rows") if isinstance(table, dict) else None
-    keys = [str(r[0]).strip().rstrip(".)").upper() if isinstance(r, list) and r else None
-            for r in body] if isinstance(body, list) else []
+    keys = [_row_number(f"{r[0]} ") or str(r[0]).strip().upper() if isinstance(r, list) and r
+            else None for r in body] if isinstance(body, list) else []
     if not keys or not all(k in rows for k in keys):
         return False
     copied = [_copies(" ".join(map(str, r[1:])), rows[k]) for r, k in zip(body, keys, strict=True)]

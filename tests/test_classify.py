@@ -1391,8 +1391,14 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
     echo = {"prompt": "Option A or B?", "answer_style": "text",
             "options": ["Option A: Redis", "- Option B — SQLite", "Option B please"]}
     screen = _auto_screen(store + "\n\n  Option A or B?").replace("auto mode", "plan mode")
-    assert classify(_pane("claude"), screen, _llm({"question": echo}))["question"][
-        "options"] == ["Option B please"]
+    table = {"rows": [["Option A", "Redis, fast"], ["(b)", "SQLite"]]}
+    result = classify(_pane("claude"), screen, _llm({"question": echo, "tables": [table]}))
+    assert result["question"]["options"] == ["Option B please"] and result["tables"] is None
+    # Numbers and letters keep the prompt's order, and the first named row leads.
+    mixed = classify(_pane("claude"), _auto_screen(
+        message + "\n\n  Steps:\n  1. Ship it now.\n\n  Do A, then step 1?"), _llm({}))["question"]
+    assert mixed["items"] == ["A. Answer first.", "1. Ship it now."]
+    assert mixed["subject"] == "Two ways to fix the timeouts:"
     # The parser's echo of a lettered row as a button goes, as a numbered one does.
     ask = {"prompt": "Go with A or B?", "answer_style": "text",
            "options": ["A. Answer first", "Go with A"]}
