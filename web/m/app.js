@@ -1086,13 +1086,15 @@ function cursorIO(id) {
   const pane = () => (active === id ? panes.find((p) => p.pane_id === id) : null);
   // What /send holds a step to: the picker screen q was read off. No pane birth is needed:
   // another pane under a recycled id refuses unless it shows that very screen, and then
-  // the key does exactly what the walk computed.
-  const held = (q) => ({ prompt: q.prompt ?? "", picker: q.picker ?? "" });
+  // the key does exactly what the walk computed. With no digest (classify grounded no
+  // highlight) there is nothing to hold a key to, so none is sent and the walk stops here.
+  const send = (body, q) => q.picker
+    && sendKeys({ ...body, enter: false, prompt: q.prompt ?? "", picker: q.picker }, false, id);
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,
-    sendKey: (k, q) => sendKeys({ keys: k, enter: false, literal: false, ...held(q) }, false, id),
-    sendText: (t, q) => sendKeys({ keys: t, enter: false, literal: true, ...held(q) }, false, id),
+    sendKey: (k, q) => send({ keys: k, literal: false }, q),
+    sendText: (t, q) => send({ keys: t, literal: true }, q),
     note: notice,
   };
 }

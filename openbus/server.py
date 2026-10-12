@@ -145,8 +145,7 @@ class SendBody(BaseModel):
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
     # A cursor walk's step: the picker digest of the frame it was computed from (classify's
-    # `picker`, "" when it located none) and the prompt that locates that picker. Sent only
-    # to that very screen.
+    # `picker`) and the prompt that locates that picker. Sent only to that very screen.
     picker: str | None = None
     prompt: str = ""
 
