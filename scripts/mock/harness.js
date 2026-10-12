@@ -30,9 +30,13 @@ function bridge() {
   addEventListener("keydown", (e) => {
     if (["h", "ArrowLeft", "ArrowRight"].includes(e.key) && !e.target.closest("input, textarea, select, [contenteditable]")) parent.postMessage({ mockKey: e.key }, "*");
   });
+  // A swipe that starts on something that scrolls sideways (the usage strip, the keys row)
+  // belongs to the app.
+  const scrollsX = (el) => !!el?.closest && (el.scrollWidth > el.clientWidth && /auto|scroll/.test(getComputedStyle(el).overflowX) || scrollsX(el.parentElement));
   let t0;
-  addEventListener("touchstart", (e) => { t0 = e.touches[0]; }, { passive: true });
+  addEventListener("touchstart", (e) => { t0 = scrollsX(e.target) ? null : e.touches[0]; }, { passive: true });
   addEventListener("touchend", (e) => {
+    if (!t0) return;
     const t = e.changedTouches[0], dx = t.clientX - t0.clientX, dy = t.clientY - t0.clientY;
     if (Math.abs(dx) > 60 && Math.abs(dy) < 45) parent.postMessage({ mockKey: dx < 0 ? "ArrowRight" : "ArrowLeft" }, "*");
   }, { passive: true });
@@ -91,8 +95,7 @@ function boot(M) {
     const iframe = document.createElement("iframe");
     if (i === 1) { // the second slot picks its own option; the first follows the bar
       const sel = Object.assign(document.createElement("select"), { ariaLabel: "Second option" });
-      sel.innerHTML = M.variants.map((x) => `<option value="${x.name}">${x.label}</option>`).join("");
-      sel.value = v.name;
+      sel.append(...M.variants.map((x) => new Option(x.label, x.name, false, x.name === v.name)));
       sel.onchange = () => set({ v: [s.v[0], sel.value] });
       cap.append(sel, ` ${v.description || ""}`);
     } else cap.textContent = `${v.label}: ${v.description || ""}`;
@@ -110,8 +113,9 @@ function boot(M) {
         };
         const view = M.views.find((x) => x.name === s.view);
         await until(() => doc.documentElement.classList.contains("booted"), "app boot");
-        for (const sel of view.click || []) { await until(() => doc.querySelector(sel) && !doc.querySelector(sel).disabled, `clickable ${sel}`); doc.querySelector(sel).click(); }
-        if (view.wait) await until(() => doc.querySelector(view.wait), view.wait);
+        const shown = (sel) => doc.querySelector(sel)?.checkVisibility() && !doc.querySelector(sel).disabled; // as Playwright's actionability
+        for (const sel of view.click || []) { await until(() => shown(sel), `visible ${sel}`); doc.querySelector(sel).click(); }
+        if (view.wait) await until(() => shown(view.wait), `visible ${view.wait}`);
         w.eval(inject(cfg, text));
       };
       store("tmuxrc-theme", s.theme); // same origin as the app: it boots in the harness's theme, icon and all
