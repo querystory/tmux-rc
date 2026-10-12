@@ -30,6 +30,8 @@ export function manifest(src) {
     note: note && markdownit().render(note),
     views: m.views || [{ name: "app", label: "App" }],
     variants: m.variants,
+    states: m.states || [],
+    fragments: m.fragments || {},
     widths: [PHONE.width, ...(m.widths || [1280, 1440, 1920])],
     scripts: Object.fromEntries(m.variants.filter((v) => v.script).map((v) => [v.script, read(v.script)])),
   };
@@ -100,24 +102,31 @@ function write(out, { snaps = {}, ...data }) {
 }
 
 async function build(src, out) {
-  const data = manifest(src), css = [], snaps = {};
+  const data = manifest(src), css = [], snaps = {}, fragments = {};
   const demo = await startDemo(ROOT);
+  // /m in `theme` at `width`, after a view's (or a fragment's) steps, made static.
+  async function capture(step, theme, width, name) {
+    const page = await demo.open({ width, height: width === PHONE.width ? PHONE.height : 900 }, theme, step.hash);
+    for (const selector of step.click || []) await page.click(selector);
+    if (step.chat) await chat(step.chat, step.wait)(page);
+    else if (step.wait) await page.waitForSelector(step.wait);
+    await page.evaluate(() => document.fonts.ready);
+    await settle(page, name);
+    const snap = await page.evaluate(snapshot);
+    const fragment = step.selector && await page.$eval(step.selector, (el) => el.outerHTML);
+    await page.context().close();
+    console.log(`snapshot ${name}`);
+    return { ...snap, fragment };
+  }
   try {
     const { imgs, inline } = await inliner(`${demo.base}/m/`);
     for (const theme of ["light", "dark"]) for (const width of data.widths) for (const view of data.views) {
-      const name = `${view.name}/${theme}/${width}`;
-      const page = await demo.open({ width, height: width === PHONE.width ? PHONE.height : 900 }, theme, view.hash);
-      for (const selector of view.click || []) await page.click(selector);
-      if (view.chat) await chat(view.chat, view.wait)(page);
-      else if (view.wait) await page.waitForSelector(view.wait);
-      await page.evaluate(() => document.fonts.ready);
-      await settle(page, name);
-      const snap = await page.evaluate(snapshot), sheet = await inline(snap.css);
+      const name = `${view.name}/${theme}/${width}`, snap = await capture(view, theme, width, name), sheet = await inline(snap.css);
       snaps[name] = { html: await inline(snap.html), css: css.includes(sheet) ? css.indexOf(sheet) : css.push(sheet) - 1 };
-      await page.context().close();
-      console.log(`snapshot ${name}`);
     }
-    write(out, { ...data, css, imgs, snaps });
+    // A fragment is one element (a populated sheet, say) the variant can drop into any frame.
+    for (const [name, step] of Object.entries(data.fragments)) fragments[name] = await inline((await capture(step, "light", PHONE.width, name)).fragment);
+    write(out, { ...data, fragments, css, imgs, snaps });
   } finally {
     await demo.close();
   }
@@ -128,7 +137,7 @@ async function build(src, out) {
 // Variant scripts are fetched fresh on every render, so an edit shows on reload.
 function live(src) {
   const { scripts, ...data } = manifest(src);
-  write(path.join(src, "live"), { ...data, live: true });
+  write(path.join(src, "live"), { ...data, fragments: {}, live: true }); // fragments are captured by a build
   console.log("open http://127.0.0.1:18039/mock/live/");
 }
 
@@ -143,8 +152,8 @@ async function check(out) {
   const shots = [
     ["desktop", DESKTOP, ""], ["desktop-note", DESKTOP, "note=1"], ["desktop-hidden", DESKTOP, "hide=1"],
     ["desktop-ab", DESKTOP, `w=${PHONE.width}&ab=1`],
-    ["phone", PHONE, "hide=0"], ["phone-next", PHONE, `v=${second}&hide=0`], ["phone-hidden", PHONE, "hide=1"],
-  ];
+    ["phone", PHONE, "hide=0"], ["phone-next", PHONE, `v=${second}&hide=0`], ["phone-hidden", PHONE, ""],
+  ].filter(([name]) => second || !["phone-next", "desktop-ab"].includes(name)); // one variant: nothing to flip to
   const dir = path.join(out, "shots"), browser = await launch(), failures = [];
   mkdirSync(dir, { recursive: true });
   try {

@@ -214,6 +214,12 @@ source is a folder outside every checkout, by default
   and one to `wait` for, or a `chat` message for the canned chat (snapshots only). One
   plain view if left out.
 - `widths`: the desktop widths to offer (default 1280, 1440 and 1920; 390 is always there).
+- `states`: switches the design itself has, such as one account or two: each a `name`, a
+  `label` and `options` as value/label pairs. The harness shows them as controls and hands
+  the current values to the script as `MOCK.state`.
+- `fragments`: single elements to capture once, such as a populated New window sheet,
+  given as the same steps as a view plus a `selector`. The script can drop them into any
+  frame (`MOCK.fragments`).
 - `note`: the working design note, in Markdown, shown in the harness's Note panel.
 - `doc`: the name of the decision record in `docs/design/`, shown under the note.
 
@@ -237,9 +243,16 @@ variant scripts on every reload: that is the loop for writing a variant, on this
   sideways if the window is narrower. Two options sit side by side only when both fit at
   that width; otherwise ← and → flip between them.
 - On a phone (narrower than 700px) the app fills the screen as the phone would show it,
-  with no width choices: a row of options, the views, and a swipe between options.
+  and the controls start folded into the pill. Unfolded, they are one row of menus
+  (option, view, each state) with no width choices, and a swipe moves between options. A
+  mock with one variant shows no option menu, and each variant's description sits in the
+  Note panel.
 - `h`, or the Hide button, folds the controls into a small pill, remembered per page, so
   what is left is the app alone. The light/dark toggle swaps in that theme's snapshot.
+- A prototype can be played rather than only looked at: a frame posts
+  `{ mock: { view, theme, state, once } }` to its parent to move to another view, flip the
+  theme or change a state, and `once` carries state for the next frame only, such as a
+  toast.
 - The state is in the URL hash (`v`, `b`, `view`, `w`, `ab`, `theme`, `hide`, `note`), so
   a link opens the same comparison.
 

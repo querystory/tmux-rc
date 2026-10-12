@@ -30,15 +30,13 @@ body.hidden #bar, body.hidden figcaption { display:none; }
 #note::backdrop { background:#0004; }
 #note .close { position:sticky; top:12px; float:right; }
 #note code, #note pre { font:12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-/* A phone shows the app full screen: options and views at the foot, no widths, no A/B. */
-body.phone #bar { order:1; gap:6px; padding:6px 8px calc(6px + env(safe-area-inset-bottom)); border:0; border-top:1px solid var(--line); }
-body.phone #bar h1, body.phone .desktop, body.phone .gap, body.phone figcaption { display:none; }
-body.phone button { min-height:30px; padding:0 8px; font-size:13px; }
-body.phone .seg { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
-body.phone #variants { flex:1 0 70%; min-width:0; } body.phone #views { flex:1 0 50%; min-width:0; }
-body.phone #hide { order:1; } body.phone #views, body.phone #theme, body.phone #note-btn { order:2; } body.phone #desc { order:3; }
-body.phone #desc { flex-basis:100%; font-size:12px; color:var(--muted); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-body:not(.phone) #desc { display:none; }
+#states { display:inline-flex; gap:8px; }
+#note-desc { color:var(--muted); }
+/* A phone shows the app full screen, with one compact row at the foot: no widths, no A/B. */
+body.phone #bar { order:1; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; gap:6px; padding:6px 8px calc(6px + env(safe-area-inset-bottom)); border:0; border-top:1px solid var(--line); }
+body.phone #bar h1, body.phone .desktop, body.phone .gap, body.phone figcaption, body.phone .seg:empty { display:none; }
+body.phone :is(button, select) { flex:none; min-height:32px; padding:0 8px; font-size:13px; }
+body.phone :is(.seg, #states) { flex:1 1 0; min-width:0; } body.phone select { width:100%; }
 body.phone figure { flex:1; }
 </style>
 </head>
@@ -47,17 +45,17 @@ body.phone figure { flex:1; }
   <h1 id="title"></h1>
   <span class="seg" id="variants" role="group" aria-label="Option"></span>
   <span class="seg" id="views" role="group" aria-label="View"></span>
+  <span id="states"></span>
   <span class="gap"></span>
   <span class="seg desktop" id="widths" role="group" aria-label="Width"></span>
   <button class="desktop" id="ab" title="Two options side by side, when both fit at this width">A | B</button>
   <button id="theme">Theme</button>
   <button id="note-btn" aria-expanded="false">Note</button>
   <button id="hide" title="Hide the controls (h)">Hide</button>
-  <span id="desc"></span>
 </header>
 <main id="stage"></main>
 <button id="pill" hidden title="Show the controls (h)"></button>
-<dialog id="note" aria-label="Design note"><button class="close" id="note-close">Close</button><div id="note-body"></div></dialog>
+<dialog id="note" aria-label="Design note"><button class="close" id="note-close">Close</button><p id="note-desc"></p><div id="note-body"></div></dialog>
 <script src="data.js"></script>
 <script src="harness.js"></script>
 </body>

@@ -64,20 +64,29 @@ function boot(M) {
     width: +q.get("w") || widest(M.widths, innerWidth),
     ab: q.get("ab") === "1",
     theme: q.get("theme") || store(key("theme")) || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"),
-    hidden: q.has("hide") ? q.get("hide") === "1" : store(key("hidden")) === "1",
+    // A phone starts on the app alone, controls folded into the pill.
+    hidden: (q.get("hide") ?? store(key("hidden")) ?? (phone.matches ? "1" : "0")) === "1",
+    state: Object.fromEntries((M.states || []).map((st) => [st.name, q.get(`s.${st.name}`) || st.options[0][0]])),
   };
+  let once = {}; // state a frame asked for its next render only (a toast, a sheet left open)
   const variant = (name) => M.variants.find((v) => v.name === name) || M.variants[0];
   const script = async (file) => !file ? "" : M.live ? (await fetch(`../${file}`)).text() : M.scripts[file];
   // A frame's snapshot is its own script (scripts/mock.mjs), fetched the first time it shows.
   const loadSnap = (k) => M.snaps[k] || new Promise((resolve) => document.head.append(Object.assign(document.createElement("script"),
     { src: `snaps/${k.replaceAll("/", "-")}.js`, onload: () => resolve(M.snaps[k]), onerror: () => resolve() })));
-  const seg = (el, items, pressed, pick) => {
-    el.replaceChildren(...items.map(([value, label, title]) => Object.assign(document.createElement("button"), {
-      textContent: label, title: title || "", ariaPressed: String(value === pressed), onclick: () => pick(value) })));
+  // A row of buttons on a desktop; on a phone, a select, so every group fits on one row.
+  const seg = (el, items, pressed, pick, label) => {
+    if (!phone.matches || !items.length) {
+      return el.replaceChildren(...items.map(([value, text, title]) => Object.assign(document.createElement("button"), {
+        textContent: text, title: title || "", ariaPressed: String(value === pressed), onclick: () => pick(value) })));
+    }
+    const sel = Object.assign(document.createElement("select"), { ariaLabel: label, onchange: () => pick(items[sel.selectedIndex][0]) });
+    sel.append(...items.map(([value, text]) => new Option(text, value, false, value === pressed)));
+    el.replaceChildren(sel);
   };
 
-  async function frame(name, i, width) {
-    const v = variant(name), cfg = { variant: v.name, view: s.view, theme: s.theme, width };
+  async function frame(name, i, width, extra) {
+    const v = variant(name), cfg = { variant: v.name, view: s.view, theme: s.theme, width, state: { ...s.state, ...extra }, fragments: M.fragments };
     const fig = document.createElement("figure"), cap = document.createElement("figcaption");
     const iframe = document.createElement("iframe");
     if (i === 1) { // the second slot picks its own option; the first follows the bar
@@ -109,25 +118,31 @@ function boot(M) {
     return fig;
   }
 
-  const sideBySide = () => !phone.matches && s.ab && fits(s.width, innerWidth);
+  const sideBySide = () => !phone.matches && s.ab && M.variants.length > 1 && fits(s.width, innerWidth);
   let shown, renders = 0;
   async function render() {
     const mine = ++renders; // frames load lazily: only the latest render may fill the stage
-    const width = phone.matches ? PHONE_WIDTH : s.width, two = shown = sideBySide();
+    const width = phone.matches ? PHONE_WIDTH : s.width, two = shown = sideBySide(), extra = once;
+    once = {};
     document.body.classList.toggle("phone", phone.matches);
     document.body.classList.toggle("hidden", s.hidden);
     document.documentElement.classList.toggle("light", s.theme === "light");
-    seg($("#variants"), M.variants.map((v) => [v.name, phone.matches && v.short || v.label, v.description]), s.v[0], (v) => set({ v: [v, s.v[1]] }));
-    seg($("#views"), M.views.length > 1 ? M.views.map((v) => [v.name, v.label]) : [], s.view, (view) => set({ view }));
+    seg($("#variants"), M.variants.length > 1 ? M.variants.map((v) => [v.name, phone.matches && v.short || v.label, v.description]) : [], s.v[0], (v) => set({ v: [v, s.v[1]] }), "Option");
+    seg($("#views"), M.views.length > 1 ? M.views.map((v) => [v.name, v.label]) : [], s.view, (view) => set({ view }), "View");
+    $("#states").replaceChildren(...(M.states || []).map((st) => {
+      const el = Object.assign(document.createElement("span"), { className: "seg", title: st.label });
+      seg(el, st.options, s.state[st.name], (value) => set({ state: { ...s.state, [st.name]: value } }), st.label);
+      return el;
+    }));
     seg($("#widths"), M.widths.map((w) => [w, String(w)]), s.width, (w) => set({ width: w }));
-    for (const b of document.querySelectorAll("#bar [aria-pressed=true]")) b.scrollIntoView({ block: "nearest", inline: "nearest" }); // a phone's rows scroll
+    $("#ab").hidden = M.variants.length < 2;
     $("#ab").disabled = !fits(width, innerWidth);
     $("#ab").ariaPressed = String(two);
     $("#theme").textContent = s.theme === "light" ? "Dark" : "Light";
-    $("#desc").textContent = variant(s.v[0]).description || "";
+    $("#note-desc").textContent = `${variant(s.v[0]).label}: ${variant(s.v[0]).description || ""}`;
     $("#pill").hidden = !s.hidden;
     $("#pill").textContent = `${variant(s.v[0]).label} · h`;
-    const frames = await Promise.all((two ? s.v : s.v.slice(0, 1)).map((v, i) => frame(v, i, width)));
+    const frames = await Promise.all((two ? s.v : s.v.slice(0, 1)).map((v, i) => frame(v, i, width, extra)));
     if (mine !== renders) return;
     $("#stage").replaceChildren(...frames);
     writeHash();
@@ -140,18 +155,24 @@ function boot(M) {
   }
   const step = (d) => set({ v: [names[(names.indexOf(s.v[0]) + d + names.length) % names.length], s.v[1]] });
   const onKey = (k) => k === "h" ? set({ hidden: !s.hidden }) : k === "ArrowLeft" ? step(-1) : k === "ArrowRight" ? step(1) : null;
-  addEventListener("message", (e) => onKey(e.data?.mockKey));
+  // A frame can move the harness itself, so a prototype's own buttons navigate between views:
+  // { mock: { view, theme, state, once } }.
+  const go = ({ view, theme, state, once: next }) => {
+    once = { ...next };
+    set({ view: M.views.some((x) => x.name === view) ? view : s.view, theme: theme || s.theme, state: { ...s.state, ...state } });
+  };
+  addEventListener("message", (e) => e.data?.mock ? go(e.data.mock) : onKey(e.data?.mockKey));
   addEventListener("keydown", (e) => { if (!e.target.closest("select")) onKey(e.key); });
   // The hash carries the whole state, so a link (or a reload, where storage is sandboxed off) reopens it.
   function writeHash() {
-    const hash = new URLSearchParams({ v: s.v[0], b: s.v[1], view: s.view, w: s.width, ab: +s.ab, theme: s.theme, hide: +s.hidden, note: +$("#note").open });
+    const hash = new URLSearchParams({ v: s.v[0], b: s.v[1], view: s.view, w: s.width, ab: +s.ab, theme: s.theme, hide: +s.hidden, note: +$("#note").open,
+      ...Object.fromEntries(Object.entries(s.state).map(([k, v]) => [`s.${k}`, v])) });
     try { history.replaceState(null, "", `#${hash}`); } catch { location.replace(`#${hash}`); } // an opaque origin may refuse the first
   }
   // A modal dialog: it takes focus, traps it, closes on Escape and hands focus back to Note.
   $("#note").onclose = () => { $("#note-btn").ariaExpanded = "false"; writeHash(); };
   $("#note-btn").onclick = () => { $("#note").showModal(); $("#note-btn").ariaExpanded = "true"; writeHash(); };
   $("#note-body").innerHTML = M.note || "";
-  $("#note-btn").hidden = !M.note;
   $("#note-close").onclick = () => $("#note").close();
   $("#ab").onclick = () => set({ ab: !s.ab });
   $("#theme").onclick = () => set({ theme: s.theme === "light" ? "dark" : "light" });
