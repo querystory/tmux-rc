@@ -239,8 +239,16 @@ is the same guard push answers use. Only a changed screen is transient: the mess
 waits for the next idle transition rather than steering a turn or landing in someone's
 draft. A changed incarnation is permanent, since the process it was addressed to is
 gone, so the message is finalized as cancelled at once instead of holding its id and
-queue space for the hour. A workstream handle that now resolves elsewhere moves the
-message to the head of the new pane's queue, where the same three checks run again. Within
+queue space for the hour. A workstream handle that now resolves elsewhere is a new
+recipient, so consent given for the old one does not carry: the message keeps its id and
+moves to the new pane's queue only once that pair is approved (an existing pair approval,
+or a fresh card), and the same three checks run again there.
+
+"Waiting for input" is not enough on its own: the parser counts a pane with an unsent
+draft as idle, and a message typed there would join the draft and be submitted with it.
+So delivery also requires an empty composer, rechecked under the send lock. The parser
+emits no such field today; adding it, with an eval case, is part of Collaborate, and a
+pane with a draft keeps the message queued like any other changed screen. Within
 one daemon lifetime, and while its grant stands, the sender always gets one result:
 delivered, declined, refused, cancelled, expired or
 unconfirmed. Those six are final, and queued is the only interim answer. One kind of
@@ -291,9 +299,9 @@ about an id the daemon no longer knows, treats the message as unconfirmed.
   flooding a sibling. A byte cap per message and a total queued-byte budget are enforced
   before anything is stored, so one call cannot fill the queue, a card or a recipient's
   context.
-- **Text only.** A message is printable text plus newlines and tabs, checked before
-  consent or queueing. Escape, carriage return and every other control character are
-  refused, because the send path types literals verbatim, and a peer that could send
+- **Text only.** A message is printable text plus newlines, checked before
+  consent or queueing. Escape, carriage return, tab (which composers take as completion)
+  and every other control character are refused, because the send path types literals verbatim, and a peer that could send
   them could cancel a menu or submit extra input: the key presses peers are never
   offered. A newline is typed inside the paste, where harnesses take it as a line break
   in the same turn rather than Enter (the timing `openbus/tmux.py` already relies on).
