@@ -1,0 +1,16 @@
+{
+  "description": "Codex permission prompt whose heredoc holds BOTH a numbered row (\"1. payload\") and a whole-row copy of the prompt below it. The real prompt is the one level with the real options (the last option-1 row); the command's rows, the quoted prompt among them, are indented deeper. Pairing the copy with the payload row as an earlier menu would cut the command to its tail, so commands differing in the prefix would share an identity. Synthetic.",
+  "current_command": "codex",
+  "capture": "[visible screen]\n› I'll write the checklist and clear the old build.\n\n  Would you like to run the following command?\n\n    cat > CHECKLIST.md <<EOF\n    1. payload\n    Would you like to run the following command?\n    EOF\n    rm -rf build\n\n  1. Yes\n  2. Yes, and don't ask again for commands that start with cat\n  3. No, and tell Codex what to do differently (esc)\n\n[visible screen]\n  gpt-5.5 xhigh fast · ~/src/app",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "context": "cat > CHECKLIST.md <<EOF\n1. payload\nWould you like to run the following command?\nEOF\nrm -rf build"
+    },
+    "headline": "Asking to write a checklist and delete the build directory",
+    "session": null
+  }
+}

@@ -4,6 +4,7 @@ with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 import pytest
 
 from openbus import classify as classify_mod
+from openbus import tmux
 from openbus.classify import bootstrap, classify
 from openbus.tmux import Pane
 
@@ -175,16 +176,23 @@ def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
     assert r["working"] == {"verb": "Delegating", "elapsed": "1m 3s"}
 
 
-@pytest.mark.parametrize(("child", "tool"), [
-    ("bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash` wrapper
-    ("/usr/local/bin/omp\0", "omp"),
-    ("vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+@pytest.mark.parametrize(("command", "title", "child", "tool"), [
+    # omp behind a shell is proven by its title plus a live omp process
+    ("bash", "π ⠧ x", "bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash`
+    ("bash", "π ⠧ x", "/usr/local/bin/omp\0", "omp"),
+    ("bash", "π ⠧ x", "vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+    ("bash", "x", "/usr/local/bin/codex\0", "opencode"),  # no title: a stopped agent proves nothing
+    # an npm-installed agent's foreground is `node`; the script it runs names the agent
+    ("node", "x", "node\0/opt/nvm/bin/codex\0", "codex"),
+    ("node", "x", "node\0/opt/nvm/bin/claude\0--resume\0", "claude"),
+    ("node", "x", "node\0server.js\0", "opencode"),  # not an agent: the model decides
 ])
-def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, tool):
+def test_host_tool_from_the_process_tree(monkeypatch, command, title, child, tool):
     proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
             ("11", "cmdline"): child}
-    monkeypatch.setattr(classify_mod, "proc_read", lambda pid, name: proc.get((pid, name), ""))
-    pane = Pane("work", "0", "bash", "0", "%0", "bash", "π ⠧ agent-history-omp", "/x", pid="10")
+    for module in (classify_mod, tmux):  # the process walk lives in tmux
+        monkeypatch.setattr(module, "proc_read", lambda pid, name: proc.get((pid, name), ""))
+    pane = Pane("work", "0", "bash", "0", "%0", command, title, "/x", pid="10")
     r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
     assert r["tool"] == tool
 
@@ -827,6 +835,17 @@ def test_failed_question_retry_does_not_retire_the_screen():
         assert result["parse_ok"] is False
 
 
+def test_failed_question_retry_keeps_only_the_viewport_links():
+    now, old = {"href": "https://auth.example.com/now"}, {"href": "https://example.com/old"}
+    for retry_links, want in (([now], [now]), (None, None), (3, None)):
+        replies = iter([{"tool": "codex", "question": {"prompt": "Old approval?"},
+                         "links": [old, now]},
+                        {"question": {"prompt": "Still old?"}, "links": retry_links}])
+        result = classify(_pane("codex"), "Old approval?\n\x1e[visible screen]\x1f\n› Ready",
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert result["parse_ok"] is False and result.get("links") == want
+
+
 def test_question_retry_cannot_resurrect_stale_rewind():
     replies = iter([
         {"tool": "codex", "question": {"prompt": "Old approval?"}},
@@ -1029,6 +1048,13 @@ def test_menu_command_becomes_context_not_paste_action():
     assert result["question"]["options"] == ["Yes", "No"]
 
 
+def test_copyable_keeps_line_continuations_as_shown():
+    shown = "  grep -n caps \\\n    /etc/keyd 2>/dev/null"
+    for text in ("grep -n caps \\\n  /etc/keyd 2>/dev/null", "grep -n caps /etc/keyd 2>/dev/null"):
+        result = classify(_pane(), shown, _llm({"copyables": [{"text": text}]}))
+        assert result["copyables"][0]["text"] == text
+
+
 def test_copyable_cannot_cut_a_summary_out_of_prose():
     result = classify(_pane(), "• Tests reject malformed input. No PR was opened.", _llm({
         "copyables": [{"label": "Summary", "text": "Tests reject malformed input."}],
@@ -1043,11 +1069,115 @@ def test_copyable_can_quote_inline_code_and_wrapped_box():
     assert [c["text"] for c in result["copyables"]] == ["git status", "A wrapped message."]
 
 
-def _sample(name):
+def _sample(name, field="capture"):
     import json
     from pathlib import Path
     path = Path(__file__).parents[1] / "research/eval/samples" / f"{name}.json"
-    return json.loads(path.read_text(encoding="utf-8"))["capture"]
+    return json.loads(path.read_text(encoding="utf-8"))[field]
+
+
+def test_menu_context_is_read_off_its_own_widget():
+    """The bare "Do you want to proceed?" gets the widget's rows (tool, description,
+    command, blocking notice); the samples pin each layout's exact string end to end."""
+    def ask(capture, prompt, style="menu", **extra):
+        return classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
+            "prompt": prompt, "answer_style": style, "options": ["Yes", "No"], **extra}}))
+    proceed, run = "Do you want to proceed?", "Would you like to run the following command?"
+    for name, prompt in (("69_claude_permission_context", proceed),
+                         ("05_claude_permission_box", proceed), ("06_codex_permission_box", run),
+                         ("75_codex_permission_prompt_in_command", run),
+                         ("76_codex_numbered_rows_in_command", run),
+                         ("78_claude_box_row_ends_in_glyph", proceed),
+                         ("79_codex_unframed_rows_keep_glyphs", run),
+                         ("80_codex_numbered_row_then_prompt_in_command", run)):
+        got = ask(_sample(name), prompt)["question"].get("context")
+        assert got == _sample(name, "expected")["question"]["context"]
+    # Unframed (no edge), a command's own "│" or "━━━" row is content, not frame.
+    unframed = _sample("79_codex_unframed_rows_keep_glyphs")
+    for row in ("    │ build report\n", "    ━━━━━━━━━━━━\n"):
+        assert ask(unframed.replace(row, ""), run)["question"]["context"] != (
+            ask(unframed, run)["question"]["context"])
+    # A command's own "1." row is not option 1: commands sharing that prefix stay distinct.
+    numbered = _sample("76_codex_numbered_rows_in_command")
+    assert ask(numbered.replace("rm -rf build", "rm -rf src"), run)["question"]["context"] != (
+        ask(numbered, run)["question"]["context"])
+    # A cursor picker is a plain choice: its prompt boxed earlier in the transcript is no
+    # widget to read, nor an approval to restate.
+    picker = ask(_sample("62_omp_ask_picker"), "Which color do you prefer?", style="cursor")
+    assert "context" not in picker["question"]
+    # Indentation inside the command is content; only the widget's margin goes.
+    nested = ("\x1e[visible screen]\x1f\n───\n │ python - <<EOF\n │ if x:\n │     go()\n"
+              " │ EOF\n\n Go?")
+    assert ask(nested, "Go?")["question"]["context"] == "python - <<EOF\nif x:\n    go()\nEOF"
+    spaced = nested.replace("if x:\n", "if x:\n │\n │ ━━━\n")  # blank rows and rule text too
+    want = "python - <<EOF\nif x:\n\n━━━\n    go()\nEOF"
+    assert ask(spaced, "Go?")["question"]["context"] == want
+    # Only a ╭ box's own right border goes: a row's trailing "│" is content, so commands
+    # differing by one never share an identity.
+    box = "\x1e[visible screen]\x1f\n╭────╮\n│ echo a │ │\n│ Go?      │\n│ 1. Yes   │\n╰────╯"
+    assert ask(box, "Go?")["question"]["context"] == "echo a │"
+    assert ask(nested.replace(" EOF\n", " EOF │\n"), "Go?")["question"]["context"].endswith("EOF │")
+    # The edge may sit a full 16 rows above the prompt's own row.
+    edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
+    assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"
+    # No widget edge close above: those rows are the conversation, and the model's own
+    # context/ask are never passed through.
+    plain = "\x1e[visible screen]\x1f\n● Ran the build.\nDo you want to proceed?\n❯ 1. Yes\n  2. No"
+    q = ask(plain, "Do you want to proceed?", context="made up", ask="made up")
+    q = q["question"]
+    assert not {"context", "ask"} & q.keys()
+    # A command the model also offered as a copyable shows once, in the widget's own rows.
+    held = classify(_pane("node"), _sample("69_claude_permission_context"), _llm({
+        "tool": "claude", "copyables": [{"label": "Command", "text": "for p in 4100 4200; do "
+                                         "kill $(ss -ltnp | grep \":$p \" | grep -o 'pid=[0-9]*'"
+                                         " | cut -d= -f2); done"}],
+        "question": {"prompt": "Do you want to proceed?", "answer_style": "menu"}}))
+    assert "tables" not in held and "copyables" not in held
+    assert "context" not in ask(_sample("69_claude_permission_context"),
+                                "Do you want to proceed?", style="text")["question"]
+
+
+def test_widget_ask_is_restated_once_per_widget():
+    classify_mod._asks.clear()
+    capture, calls = _sample("69_claude_permission_context"), []
+    def restate(reply):
+        return lambda system, text: calls.append(text) or reply
+    def ask(capture, replies_fn):
+        return classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
+            "prompt": "Do you want to proceed?", "answer_style": "menu",
+            "options": ["Yes", "No"]}}), replies_fn=replies_fn)["question"]
+    good = restate({"ask": "The agent wants to kill what listens on 4100 and 4200. Continue?"})
+    q = ask(capture, good)
+    assert q["ask"].startswith("The agent wants to kill")
+    # "Latest blocked action: [Git Destructive]" names an EARLIER action: no tag from it.
+    assert "flag" not in q
+    assert "cut -d= -f2); done" in calls[0] and "Options: Yes / No" in calls[0]  # uncut
+    ask(capture, good)
+    assert len(calls) == 1  # cached per widget...
+    ask(capture.replace("4200", "4300"), good)
+    ask(capture.replace("ss -ltnp", "ss  -ltnp"), good)
+    assert len(calls) == 3  # ...so a new command, even by whitespace, is a new ask
+    # A failed call, or one off the asked-for shape, leaves the bare prompt (never the
+    # raw rows) and is retried next time.
+    assert "ask" not in ask(capture.replace("4100", "3"), restate({"ask": "Sure, kill them."}))
+    off_shape = restate({"ask": "The agent is unable to summarize this?"})
+    assert "ask" not in ask(capture.replace("4100", "4"), off_shape)
+    # A numbered choice that is no approval keeps its own question, with no call made.
+    choice = classify(_pane("node"), _sample("77_claude_numbered_choice_not_approval"),
+                      _llm({"tool": "claude", "question": {
+                          "prompt": "Which environment should I deploy to?",
+                          "answer_style": "menu", "options": ["Staging", "Production"]}}),
+                      replies_fn=good)["question"]
+    assert choice["context"] == "Deploy target" and "ask" not in choice
+    assert len(calls) == 5  # unchanged
+    bad = classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
+        "prompt": "Do you want to proceed?", "answer_style": "menu", "options": 1}}),
+        replies_fn=good)["question"]  # malformed options: no restatement, no crash
+    assert bad["context"] and "ask" not in bad and len(calls) == 5
+    failed = capture.replace("4100", "2")
+    assert "ask" not in ask(failed, restate(None))
+    ask(failed, restate(None))
+    assert len(calls) == 7
 
 
 def test_users_own_turn_under_a_live_spinner_is_not_a_question():
@@ -1251,3 +1381,80 @@ def test_provider_error_retry_is_deterministic(replies):
     screen = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
     out = classify(_pane("claude"), screen, _llm({}), replies_fn=make({"options": ["a", "b"]}))
     assert out["question"]["options"] == ["try again"] and not calls
+
+
+def test_transcript_code_blocks_beat_the_models_retyping():
+    reply = ("Run this on the desktop. It changes nothing.\n\n```bash\n{\n  uname -a\n  lpstat -t\n"
+             "} 2>&1 | tee /tmp/report.txt\n```\n\nThen:\n\n```\ncat /tmp/report.txt\n````\n")
+    retyped = {"copyables": [{"text": "{ lpstat -t; } 2>&1 | tee /tmp/report.txt"}]}
+    shown = "  cat /tmp/report.txt"
+    tail = "    uname -a\n    lpstat -t\n  } 2>&1 | tee /tmp/report.txt\n"  # "{" scrolled off
+    result = classify(_pane("node"), tail + shown, _llm(retyped), reply=reply)
+    assert result["copyables"] == [  # newest first, labelled by its lead-in
+        {"label": "Then", "text": "cat /tmp/report.txt"},
+        {"label": "Run this on the desktop.",
+         "text": "{\n  uname -a\n  lpstat -t\n} 2>&1 | tee /tmp/report.txt"},
+    ]
+    # A list item's fence indent is markup; indentation inside the code is kept.
+    nested = "1. Add:\n\n   ```\n       return x\n   ```\n"
+    assert classify(_pane(), "       return x", _llm({}), reply=nested)["copyables"] == [
+        {"label": "Add", "text": "    return x"}]
+    # Continued lines count as one, as the screen side joins them.
+    cont = "```\nsudo grep -n x \\\n  /etc/a \\\n  /etc/b\necho done\n```"
+    assert classify(_pane(), "sudo grep -n x \\\n    /etc/a \\\n    /etc/b\necho done",
+                    _llm({}), reply=cont)["copyables"][0]["text"].endswith("echo done")
+    # A generic closing line alone doesn't ground a block.
+    assert "copyables" not in classify(_pane(), "other\n}", _llm({}),
+                                       reply="```\nf() {\n  g\n}\n```")
+    # A reply whose blocks aren't on screen is stale; the model's picks stand in.
+    result = classify(_pane(), "git status", _llm({"copyables": [{"text": "git status"}]}),
+                      reply=reply)
+    assert result["copyables"] == [{"label": "", "text": "git status"}]
+
+
+@pytest.mark.parametrize(("sample", "tool", "style", "kept"), [
+    ("82_shell_answered_npx_prompt_then_output", "shell", "text", False),
+    ("82_shell_answered_npx_prompt_then_output", "shell", "menu", True),  # options follow it
+    ("82_shell_answered_npx_prompt_then_output", "claude", "text", True),  # agent widgets
+    ("83_shell_pending_npx_prompt", "shell", "text", True),  # the cursor is on it
+])
+def test_shell_prompt_with_output_after_it_was_answered(sample, tool, style, kept):
+    seen = []
+    result = classify(_pane("node"), _sample(sample), lambda system, text: seen.append(text) or {
+        "tool": tool, "activity": "waiting",
+        "question": {"prompt": "Ok to proceed? (y)", "answer_style": style},
+    })
+    assert bool(result.get("question")) is kept
+    assert result["activity"] == "waiting"
+    assert ("[Completed prompt" in seen[-1]) is not kept
+
+
+_WELCOME = ("\x1e[visible screen]\x1f\n────\n⟪/dim⟫❯\xa0⟪placeholder⟫Try 'fix'⟪/placeholder⟫"
+            "⟪dim⟫\n────\n  ~/src/app | Sonnet 5.5\n  Welcome back! Recent sessions to resume:\n"
+            "  live  Rename the webhook handler\n  ⏵⏵ auto mode on")
+
+
+def test_list_below_an_empty_input_box_is_chrome_not_a_question():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "claude", "activity": "idle", "question": {
+                "prompt": "Welcome back! Recent sessions to resume:", "answer_style": "cursor"}}
+        assert "Welcome back" not in text and "Rename" not in text
+        return {"tool": "claude", "activity": "idle", "headline": "Ready for a new task"}
+    result = classify(_pane("claude"), _WELCOME, read)
+    assert len(calls) == 2
+    assert "question" not in result and result["activity"] == "idle"
+
+
+@pytest.mark.parametrize(("screen", "prompt"), [
+    ("  Resume session\n  ❯ Mid-file imports cleanup\n    tmuxrc-dev\n  Esc to cancel",
+     "Resume session"),  # the real picker: its ❯ cursor row has text, no empty box
+    ("● Should I open the PR now?\n────\n❯\xa0\n────\n  ~/src/app | Sonnet 5.5",
+     "Should I open the PR now?"),  # asked above the empty box
+])
+def test_question_not_below_an_empty_input_box_stands(screen, prompt):
+    result = classify(_pane("claude"), f"\x1e[visible screen]\x1f\n{screen}", _llm({
+        "tool": "claude", "question": {"prompt": prompt, "answer_style": "cursor"}}))
+    assert result["question"]["prompt"] == prompt

@@ -218,6 +218,7 @@ def test_foreign_history_database_does_not_prevent_startup(monkeypatch):
     monkeypatch.setattr(server, "History", foreign)
     monkeypatch.setattr(server.Watcher, "start", lambda _self: None)
     monkeypatch.setattr(server.Watcher, "stop", stop)
+    monkeypatch.setattr(server, "_advertise_scratch", lambda: None)  # never the live tmux
 
     async def check():
         async with server.lifespan(server.app):

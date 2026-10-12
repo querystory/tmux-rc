@@ -1,0 +1,16 @@
+{
+  "description": "Claude Code Bash permission prompt (current layout: rule-topped, description under the tool header, command and auto-mode notice in │ gutters) whose prompt is only \"Do you want to proceed?\". MUST be a user-waiting menu, and classify() must carry the widget's own rows as question.context (tool, description, command, blocking notice) so a card shows what is being approved. Synthetic, genericized from a live pane. The card's plain restatement (question.ask) must say approving stops the two preview servers, and must not call it a git or destructive-git action: \"Latest blocked action: [Git Destructive]\" names an EARLIER blocked action, not this kill loop.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n● I'll stop the two preview servers before rebuilding.\n\n──────────────────────────────────────────────────────────────────────────────────\n Bash command · from the general-purpose agent\n Stop the preview servers\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ for p in 4100 4200; do kill $(ss -ltnp | grep \":$p \" | grep -o 'pid=[0-9]*' | cut -d= -f2); done\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ Auto mode classifier requires confirmation for this command.\n │ 3 consecutive actions were blocked. Please review the transcript before continuing.\n │\n │ Latest blocked action: [Git Destructive]\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "context": "Bash command · from the general-purpose agent\nStop the preview servers\n\nfor p in 4100 4200; do kill $(ss -ltnp | grep \":$p \" | grep -o 'pid=[0-9]*' | cut -d= -f2); done\n\nAuto mode classifier requires confirmation for this command.\n3 consecutive actions were blocked. Please review the transcript before continuing.\n\nLatest blocked action: [Git Destructive]",
+      "ask": "The agent wants to stop the two preview servers on ports 4100 and 4200 by killing their processes. Continue?"
+    },
+    "headline": "Asking permission to run a command that stops the preview servers"
+  }
+}
