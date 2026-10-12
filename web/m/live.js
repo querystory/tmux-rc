@@ -516,7 +516,12 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (run) { resumeAudio(run); keepAwake(run); viewing(); }
     if (!document.hidden) capabilities();
   });
-  navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data === "chat" && run) show(); });
+  navigator.serviceWorker?.addEventListener("message", ({ data, ports }) => {
+    if (data !== "chat") return;
+    const mine = !!run?.proposals.size; // a "Chat needs you" tap: only the chat holding a card answers
+    if (mine) show();
+    ports[0]?.postMessage(mine);
+  });
   paint(); capabilities();
   return { isActive: () => !!run, refresh: capabilities };
 }

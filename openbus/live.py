@@ -518,8 +518,9 @@ _NUDGE_TICK = 1.0
 
 async def _nudge(meter: _Meter, answer: asyncio.Future, text: str) -> None:
     """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
-    at the chat (sheet minimized, page hidden, phone locked) the whole time. Answering the
-    card cancels this, and it returns after one push, so a card notifies at most once."""
+    at the chat (sheet minimized, page hidden, phone locked with the socket up) the whole
+    time. Answering the card cancels this, and so does a dropped socket, which ends the card
+    (see _approved). It returns after one push, so a card notifies at most once."""
     shown = time.monotonic()
     while True:
         if answer.done():  # answered: _approved's cancel may not have reached this yet

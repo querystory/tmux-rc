@@ -522,10 +522,12 @@ stray tap on the backdrop never throws one away.
 
 **A waiting card notifies.** The bubble only helps someone looking at the page. A card left
 waiting while the sheet is minimized, the app is in the background or the phone is locked
-sends a "Chat needs you" push through the same subscriptions as a pane that needs you. The
+with its socket still up sends a "Chat needs you" push through the same subscriptions as a pane that needs you. The
 client tells the daemon over the chat socket whenever the sheet goes in or out of view, so
 a card the user is reading stays quiet. A card must wait unseen for the same settle time
 as a pane's push, so minimizing for a moment does not buzz, and it pushes at most once.
+A socket that drops takes its card with it, so it takes the push too: nothing could answer
+that card, and keeping it across the drop is a separate change.
 The notification has no answer buttons: approving a pane action should happen where the
 card shows exactly what will be typed, not from a lock-screen line. Tapping it brings the
 chat back in the open page instead of navigating there, since a navigation would reload
