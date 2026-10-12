@@ -279,7 +279,7 @@ means typing started but the daemon cannot say it landed: a send failed partway,
 confirming re-parse failed. Its id stays used, so a retry cannot type it a second time. A queued message keeps
 its id, and the sender can ask for its final outcome or subscribe to it. Nothing fails
 silently, which is the agent client's founding complaint. At most once needs identity:
-the caller supplies a message id, scoped to that sender (the daemon keys it by actor
+the caller supplies a message id, scoped to that sender (the daemon keys it by the sender's principal, below,
 plus id, so one agent cannot reserve another's), and the daemon refuses a retried id
 instead of typing it twice. The ids and the queue live in memory, and ids are kept for a bounded window
 (an hour), so the guarantee holds within that window of one daemon lifetime. An
@@ -383,12 +383,17 @@ can collide across harnesses. For a manifest agent
 it is a tool-surface field in C4. For an ad-hoc pane it goes in a small daemon table
 keyed the same way. A brand-new agent has no session id until it starts, so its
 launch token is first bound to the new pane and process. It is rebound to the session id
-once that is known. Claude Code accepts a preset session id. Codex and omp report theirs
+once that is known. Rebinding must not reset anything keyed by the sender, so the daemon
+keeps one immutable internal principal per token from launch, and message ids, rate and
+hop counters and pair approvals key on that principal. The session id is attached to it
+as an alias, atomically, and is what persists across a resume; a resumed agent's new
+token joins the same principal through that alias. Claude Code accepts a preset session id. Codex and omp report theirs
 only after launch, and a Codex thread held by its shared app-server often has no pane at
 all, unless its status bar shows the session id. So for those harnesses the grant stays
 on the pane's process until the daemon sees an unambiguous pane-to-session binding, and
 it survives a resume only once that binding has been seen. The toggle appears on the pane,
-and on the window for convenience.
+and on the window as a shortcut only when the window holds exactly one unambiguously
+bound agent session; a split or mixed window offers per-pane toggles only.
 A restored resumable session (WS-D) keeps its grant, and a new agent in a recycled `%N` does not
 inherit one.
 
