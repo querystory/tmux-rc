@@ -553,8 +553,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (!document.hidden) wake();
   });
   navigator.serviceWorker?.addEventListener("message", ({ data, ports }) => {
-    if (data !== "chat") return;
-    const mine = !!run?.proposals.size; // a "Chat needs you" tap: only the chat holding a card answers
+    if (!data?.chat) return;
+    const mine = !!run?.proposals.has(data.chat); // a "Chat needs you" tap: only its card's chat answers
     if (mine) show();
     ports[0]?.postMessage(mine);
   });

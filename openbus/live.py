@@ -671,7 +671,7 @@ async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str
         if (since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS
                 # On the loop, not a thread: nothing (a tap, coming into view) can land
                 # between the check above and the queueing. It reads a small JSON file.
-                and meter.push.chat(text)):
+                and meter.push.chat(proposal, text)):
             return  # queued; a full queue falls through and tries again next tick
         await asyncio.sleep(_NUDGE_TICK)
 
