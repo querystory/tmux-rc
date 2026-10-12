@@ -651,6 +651,37 @@ def test_a_card_outlives_a_dropped_connection():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_view_change_while_connecting_goes_in_a_new_handshake():
+    """The daemon reads nothing from a socket until it is listening, so with a card waiting
+    a view change then replaces the socket, whose handshake carries the new view; a view
+    a provider reconnect made the page forget is just sent again on listening."""
+    _run_live(r"""
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  await live.refresh();
+  $('chat').onclick(); await flush();
+  const say = (socket, message) => socket.onmessage({data: JSON.stringify(message)});
+  say(sockets[0], {type: 'status', status: 'listening'});
+  $('voice-close').onclick(); // minimized while listening: a frame, no new socket
+  assert.equal(sockets.length, 1);
+  say(sockets[0], {type: 'propose', id: 'p1', text: 'Send to work'});
+  sockets[0].readyState = 3; sockets[0].onclose({code: 1006});
+  const backoff = [...timers]; timers.clear(); backoff.forEach((fn) => fn());
+  assert.match(sockets[1].url, /[?&]viewing=0/);
+  [...document.body.children][0].onclick(); // back in view while it connects
+  assert.equal(sockets.length, 3); assert.equal(sockets[1].readyState, 3);
+  assert.match(sockets[2].url, /[?&]viewing=1/);
+  say(sockets[2], {type: 'status', status: 'listening'});
+  say(sockets[2], {type: 'status', status: 'reconnecting'});
+  $('voice-close').onclick(); // dropped by live._hold: no socket churn, sent on listening
+  assert.equal(sockets.length, 3);
+  say(sockets[2], {type: 'status', status: 'listening'});
+  assert.deepEqual(sockets[2].viewing, [false]);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_a_waiting_card_keeps_the_chat_reconnecting():
     """The daemon keeps a card half an hour, and the tunnel takes a minute to come back
     from its hourly drop: while a card waits, the chat keeps retrying past its usual

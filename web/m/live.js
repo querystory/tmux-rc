@@ -70,10 +70,14 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   // A card left waiting while nobody looks pushes "Chat needs you" (live._nudge), so the
   // daemon hears each change, and a fresh socket the view at connect, in its handshake.
+  // Until a socket is listening the daemon reads nothing from it, so a waiting card's change
+  // then goes in a new socket's handshake; a view forgotten on "reconnecting" (null) is
+  // simply sent on listening, or a provider down would churn sockets.
   function viewing(current = run) {
     const on = dialog.open && !document.hidden;
-    if (!current?.listening || current.viewing === on) return;
-    current.viewing = on; current.ws.send(JSON.stringify({ action: "viewing", on }));
+    if (!current || current.viewing === on) return;
+    if (current.listening) { current.viewing = on; current.ws.send(JSON.stringify({ action: "viewing", on })); }
+    else if (current.viewing != null && current.proposals.size) revive(current, true);
   }
   const bubble = chatBubble({ licon, open: () => show() });
   const starters = chatStarters($("chat-starters"), sendText);
