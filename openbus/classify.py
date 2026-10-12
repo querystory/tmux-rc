@@ -628,8 +628,10 @@ def _final_paragraph(message: str) -> str:
 # Options are lettered as often as numbered ("A. Retry inline", "(b) Queue it", a bulleted
 # "- Option A: Retry inline"), and "Go with A or B?" names them just as "do 1?" does. A
 # capital A-H (or a lowercase one in parentheses) standing alone before what follows a
-# reference is a label wherever it sits, so letters skip the before-checks: "A quick fix?"
-# and "Grade A beef?" fail the after-check, and an article "a" is lowercase. "Option A"
+# reference ("A quick fix?" and "Grade A beef?" fail that) is a label when the prompt
+# names another letter too ("A or B?"), or an option noun or choosing verb precedes it
+# ("option A", "go with B"); so the article in "A really quick check?" and the grade in
+# "Grade A only?" are not, and an article "a" is lowercase. "Option A"
 # needs a separator after it (or nothing, as a table key), so prose such as "Option A is
 # fastest" is not a row.
 _ROW_LABEL = (
@@ -653,6 +655,8 @@ _ITEM_LABEL = (
     r"recommendations?|suggestions?|changes?|ideas?|approach(?:es)?|plans?|proposals?|"
     r"actions?|issues?|findings?|comments?|bullets?|entry|entries|parts?|phases?|stages?|"
     r"number|no\.?)")
+_LETTER_BEFORE_RE = re.compile(
+    rf"\b(?:{_ITEM_LABEL}|(?i:with|for|pick|choose|take|use|prefer|do|go))\s+$")
 _COUNT_BEFORE_RE = re.compile(
     r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
     r"had|got|need|needs|want|wants|own|owns|keep|keeps|to|from|equals?)\s+$|=\s*$"
@@ -724,20 +728,22 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
             item, gap = None, False
         else:
             item, gap = None, True
-    # (position, label): numbers and letters merge in prompt order. A number chains onto
-    # any reference before it, a letter's too ("Do A and 1?").
+    # One pass over numbers and letters in prompt order, so either chains onto the one
+    # before it ("Do A and 1?", "Do 1 and A?").
     letters = list(_LETTER_REF_RE.finditer(prompt))
-    refs = [(m.start(), (m[1] or m[2]).upper()) for m in letters]
-    ends = [m.end() for m in letters]
-    for m in _ITEM_REF_RE.finditer(prompt):
-        chained = any(e <= m.start() and _REF_CHAIN_RE.fullmatch(prompt, e, m.start())
-                      for e in ends)
-        if (chained or _REF_BEFORE_RE.search(prompt, 0, m.start())) and not (
-                _COUNT_BEFORE_RE.search(prompt, 0, m.start())):
-            refs += [(m.start(), str(n)) for n in range(int(m[1]), int(m[2] or m[1]) + 1)]
+    several = len({m[2] for m in letters if m[2]}) > 1
+    refs, ends = [], []
+    for m in sorted([*_ITEM_REF_RE.finditer(prompt), *letters], key=re.Match.start):
+        before = prompt[:m.start()]
+        chained = any(_REF_CHAIN_RE.fullmatch(before, e) for e in ends)
+        if m.re is _LETTER_REF_RE:
+            if m[1] or several or chained or _LETTER_BEFORE_RE.search(before):
+                refs.append((m[1] or m[2]).upper())
+                ends.append(m.end())
+        elif (chained or _REF_BEFORE_RE.search(before)) and not _COUNT_BEFORE_RE.search(before):
+            refs += map(str, range(int(m[1]), int(m[2] or m[1]) + 1))
             ends.append(m.end())
-    refs.sort(key=lambda ref: ref[0])  # stable: a range keeps its order
-    named = [n for n in dict.fromkeys(n for _, n in refs) if n in rows]
+    named = [n for n in dict.fromkeys(refs) if n in rows]
     return {n: " ".join(rows[n]) for n in named}, leads[named[0]] if named else ""
 
 
