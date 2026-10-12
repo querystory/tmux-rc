@@ -614,19 +614,22 @@ def _final_paragraph(message: str) -> str:
 
 # A numbered list row (inside any frame), and a number a prompt names: "do 1 please",
 # "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A reference is followed
-# by punctuation, the end, or a word that cannot be counted ("now", "please", "and"); any
-# other word is what a count counts ("1 failing test", "2 PRs", "2 pm", "Python 3 support").
-# A determiner, copula, time preposition, name or "version" before it marks a count, time
-# or version too ("there are 2", "the 7", "at 2", "upgrade to Python 3?"). Precision beats
+# by punctuation, the end, or a word that cannot be counted ("now", "please", "and", an -ly
+# adverb such as "separately"); any other word is what a count counts ("1 failing test",
+# "2 PRs", "2 pm", "Python 3 support"). A determiner, copula, verb of having, time
+# preposition, name or "version" before it marks a count, time or version too ("there are
+# 2", "the 7", "do we have 2?", "at 2", "upgrade to Python 3?"). Precision beats
 # recall: a missed reference leaves the bare question the card showed before, while a
 # count read as a reference would show an unrelated row as what the question means.
 _NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
 _ITEM_REF_RE = re.compile(
     r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)(?=\s*(?:[^\w\s]|$|"
     r"(?i:and|or|now|first|then|next|too|also|only|but|before|after|later|today|tomorrow|"
-    r"tonight|instead|together|please|immediately|right|again|as|asap|soon|yet)\b))")
+    r"tonight|instead|together|please|right|again|as|asap|soon|yet|(?!(?:family|supply|reply|"
+    r"ally|rally|assembly|anomaly|daily|weekly|monthly|yearly)\b)[a-z]+ly)\b))")
 _COUNT_BEFORE_RE = re.compile(
-    r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version)\s+$"
+    r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
+    r"had|got|need|needs|want|wants|own|owns|keep|keeps)\s+$"
     r"|(?<=\s)(?!(?:Items?|Edits?|Steps?|Options?|Points?|Rows?)\b)[A-Z][\w.+-]*\s+$")
 _WORD_RE = re.compile(r"[^\W\d_]{4,}")
 
@@ -1067,12 +1070,13 @@ def classify(
             question["items"] = [_item(n, text) for n, text in rows.items()]
             # The parser's own copy of those rows would show them twice: as answer buttons
             # (a row's number and one of its words: "1. Resolve the merge conflict", not
-            # "1. Yes, do both"), whose set the reply call then replaces, or as a table.
+            # "1. Yes, do both"; the reply call fills in when nothing else is left), or as
+            # a table.
             options = question.get("options")
             kept = [o for o in options if (n := _row_number(o)) not in rows
                     or not _words(o) & _words(rows[n])] if isinstance(options, list) else options
             if kept != options:
-                question["options"] = _reply_options(asked, replies_fn) or kept
+                question["options"] = kept or _reply_options(asked, replies_fn)
             if isinstance(result.get("tables"), list):
                 result["tables"] = [t for t in result["tables"] if not _restates(t, rows)] or None
         # Numbered menus only: a cursor picker is a plain choice, never an approval.

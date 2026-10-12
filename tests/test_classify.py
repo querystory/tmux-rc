@@ -1318,7 +1318,7 @@ def test_question_naming_list_items_carries_them():
     assert question["items"] == ["1. Move the build cache to disk.",
                                  "2. Close idle worker sessions."]
     for ask in ("Want me to do 1 please?", "Start with 2 tomorrow?", "Make edit 2 immediately?",
-                "Do Item 2 first?"):
+                "Do Item 2 first?", "Do 1 urgently?", "Could you handle 2 separately?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert classify(_pane("claude"), screen, _llm({}))["question"]["items"]
     long = classify(_pane("claude"), _auto_screen(message.replace(
@@ -1333,7 +1333,7 @@ def test_question_naming_list_items_carries_them():
                 "There are 2 failing tests; should I fix them?", "Shall I fix 2 bugs?",
                 "Want me to fix 2 PRs?", "Should I start at 2 pm?", "Start in 2 minutes?",
                 "Should I upgrade to Python 3?", "Should I fix 1 failing test?",
-                "Python 3 support?"):
+                "Python 3 support?", "Do we have 2?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert "items" not in classify(_pane("claude"), screen, _llm({}))["question"]
     # The parser's own copy of the rows, as buttons or a table keyed by them, goes; other
