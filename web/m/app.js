@@ -3,7 +3,7 @@ import { renderAtlas, renderFleet, refreshAtlasHistory } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
-import { answerBody, pickCursorRow } from "/cursor-pick.js";
+import { answerBody, pickCursorRow, STALE } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
@@ -1046,7 +1046,11 @@ async function sendKeys(body, answer = false, id = active) {
     }
     if (active === id) text($("draft-status"), "Sent");
     startState();
-  } catch { notice("Delivery could not be confirmed. Check the terminal before retrying."); }
+  } catch (error) {
+    // 409 on a cursor walk's step: nothing was sent, and the walk rereads and goes again.
+    if ("picker" in body && error.status === 409) delivered = STALE;
+    else notice("Delivery could not be confirmed. Check the terminal before retrying.");
+  }
   finally { sending = false; render(); }
   return delivered;
 }

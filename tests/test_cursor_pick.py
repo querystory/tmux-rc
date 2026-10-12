@@ -62,6 +62,14 @@ CASES = [
         {"sent": ["Down"], "selected": 1, "notes": 1},
     ),
     (
+        # The tap beat the reparse of the last change: /send refuses the step unsent and asks
+        # for a reparse, and the walk goes again from that frame instead of giving up.
+        "a step refused as stale is planned again off the next frame",
+        {"options": ROWS, "selected": 0, "keymap": NO_SEARCH_KM, "refuse_first": True},
+        "beta", 1,
+        {"sent": ["Down", "Enter"], "selected": 1, "notes": []},
+    ),
+    (
         # A misread keymap: Enter as `next` would commit the highlighted row, not move.
         "a direction bound to the select key is no direction",
         {"options": ROWS, "selected": 0, "keymap": {"next": "Enter", "select": "Enter"}},
@@ -279,7 +287,7 @@ CASES = [
 def render_script() -> str:
     return f"""
 import assert from "node:assert/strict";
-import {{ pickCursorRow }} from {json.dumps(MODULE)};
+import {{ pickCursorRow, STALE }} from {json.dumps(MODULE)};
 
 // A picker that answers exactly like the daemon does: parsed_at only advances on a
 // DELIVERED send, and Up/Down move the highlight the way the real widget would.
@@ -322,6 +330,7 @@ function fake(spec) {{
     }},
     parsedAt: () => p.parsed_at,
     sendKey: async (k) => {{
+      if (spec.refuse_first && !p.refused) {{ p.refused = true; p.parsed_at += 1; return STALE; }}
       const moved = deliver(k);
       if (!moved) return false;
       const km = typeof p.keymap === "object" ? p.keymap : {{}};

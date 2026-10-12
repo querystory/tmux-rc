@@ -10,7 +10,8 @@
 //   io.parsedAt()   → parsed_at of the frame that question() came from (seconds, float)
 //   io.sendKey(k, q) → send ONE tmux key-name, no Enter, only to the very picker screen
 //                     question q was read off (the server compares q.picker, see /send).
-//                     Resolves true only if DELIVERED.
+//                     Resolves true only if DELIVERED, STALE if refused unsent because the
+//                     card's picker lags the screen (the refusal asks for a reparse).
 //   io.sendText(t, q) → type literal text, NO Enter appended. Same contract.
 //   io.note(msg)    → say something to the user
 //
@@ -38,7 +39,8 @@ export function answerBody(q, opt, i) {
 // thirty rows down is better filtered for than arrowed to, and an anchor that is wrong
 // only gets more wrong the further we walk on it.
 export const CURSOR_MAX_STEPS = 12;
-const PARSE_WAIT_MS = 4000; // per move; a wedged parse must not strand the walk
+export const STALE = "stale";
+const PARSE_WAIT_MS = 15000; // per move: a long list reparses in ~8s; a wedged parse must not strand the walk
 const SETTLE_MS = 4000;     // after the commit, before the lock is handed back
 const POLL_MS = 120;
 
@@ -174,12 +176,16 @@ async function walk(io, targetText, targetIndex) {
       : null;
     if (want < 0) return false; // gone, or two rows wear the title and neither is "the" one
     if (at === null) return false; // no trustworthy anchor — walking blind picks a row
-    if (at === want) return km.select ? io.sendKey(km.select, q) : false;
-    if (moves === CURSOR_MAX_STEPS) return false; // budget spent; this pass only looked
-    const key = at < want ? km.next : km.prev;
-    if (!key) return false; // the widget never advertised this direction — don't invent one
+    if (at !== want && moves === CURSOR_MAX_STEPS) return false; // budget spent; only looked
+    const key = at === want ? km.select : at < want ? km.next : km.prev;
+    if (!key) return false; // the widget never advertised this key — don't invent one
     const before = io.parsedAt();
-    if (!(await io.sendKey(key, q))) return false; // undelivered: the anchor is now a lie
+    const sent = await io.sendKey(key, q);
+    // Refused and unsent: the card lags the screen (the reparse after a move takes a few
+    // seconds, a tap can beat it). Plan again off the frame that refusal's reparse brings.
+    if (sent === STALE) { if (await waitForFrame(io, before, () => true)) continue; return false; }
+    if (!sent) return false; // undelivered: the anchor is now a lie
+    if (at === want) return true;
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
     // binding the widget doesn't really have) — and both mean this walk cannot continue.
