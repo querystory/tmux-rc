@@ -499,7 +499,7 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
     meter = _chat()
-    meter.push = SimpleNamespace(chat=lambda text: pushed.append(text) or True)  # queued
+    meter.push = SimpleNamespace(chat=lambda card, text: pushed.append(text) or True)  # queued
 
     async def go():
         await L._connect(meter, viewing=True)  # in view when proposed
