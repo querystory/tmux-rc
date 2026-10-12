@@ -87,9 +87,11 @@ exact resume command. Subagents and sessions whose transcript is gone have none.
 - **Coverage.** It is built from transcripts, so it also covers sessions no watched pane
   ever showed: subagents, headless runs, anything from before a reboot.
 
-The daemon uses it in one place. Live Mode's `find_sessions` and `resume_session`
-(`openbus/agent_history.py`) find past work by topic and reopen it in its original
-directory. Resuming changes a pane, so in a text session it waits for a consent card.
+The daemon's main use is Live Mode's `find_sessions` and `resume_session`
+(`openbus/agent_history.py`), which find past work by topic and reopen it in its original
+directory. Two smaller ones read it too: New session suggests directories from
+`recent_dirs()` (`/api/sessions/dirs`), and expunge removes a session's entries from the
+index along with its transcript (`openbus/expunge.py`). Resuming changes a pane, so in a text session it waits for a consent card.
 Finding only reads, so it runs at once. Both are recorded by the same audit point
 (`_handle_tool_call`).
 
@@ -174,7 +176,7 @@ search only. Hooks stay an evidence source.
 
 | | Skill (b) | Daemon MCP (c) | Hooks (d) |
 |---|---|---|---|
-| Portability | One file, several harnesses | Every harness here | Per-harness config |
+| Portability | One file, several harnesses | Any harness with a per-launch MCP override (Claude Code, Codex, OpenCode today; omp and Gemini open, below) | Per-harness config |
 | Per-agent opt-in | No (per user or repo) | Yes (per launch) | Awkward |
 | Caller identity, scope | None | Per-agent token and scopes | Harness-local |
 | Audit | Outside the daemon | The one audited path | Outside the daemon |
