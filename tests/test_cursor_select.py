@@ -185,6 +185,7 @@ def test_a_prompt_sentence_may_open_a_wrapped_paragraph():
     assert question["picker"] == picker_digest(TRUST, sentence)
     # Only a whole sentence may run on: a phrase cut mid-sentence is not the prompt.
     assert picker_digest(TRUST, "Quick safety check: Is this a project") is None
+    assert picker_digest(TRUST, "Quick safety check:") is None  # a colon introduces more
 
 
 def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):

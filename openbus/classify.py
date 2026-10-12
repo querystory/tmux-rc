@@ -415,7 +415,7 @@ def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Mat
     words = r"\s+".join(map(re.escape, prompt.split()))
     if row:
         words = (rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?"
-                 r"(?=[ \t│┃╎]*$|(?<=[?.!:])[ \t]+\S)")
+                 r"(?=[ \t│┃╎]*$|(?<=[?.!])[ \t]+\S)")
     return list(re.finditer(words, visible, re.IGNORECASE | re.MULTILINE))
 
 
