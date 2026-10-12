@@ -835,6 +835,17 @@ def test_failed_question_retry_does_not_retire_the_screen():
         assert result["parse_ok"] is False
 
 
+def test_failed_question_retry_keeps_only_the_viewport_links():
+    now, old = {"href": "https://auth.example.com/now"}, {"href": "https://example.com/old"}
+    for retry_links, want in (([now], [now]), (None, None), (3, None)):
+        replies = iter([{"tool": "codex", "question": {"prompt": "Old approval?"},
+                         "links": [old, now]},
+                        {"question": {"prompt": "Still old?"}, "links": retry_links}])
+        result = classify(_pane("codex"), "Old approval?\n\x1e[visible screen]\x1f\n› Ready",
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert result["parse_ok"] is False and result.get("links") == want
+
+
 def test_question_retry_cannot_resurrect_stale_rewind():
     replies = iter([
         {"tool": "codex", "question": {"prompt": "Old approval?"}},

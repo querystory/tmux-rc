@@ -227,8 +227,14 @@ def _meaningful(name: str) -> bool:
     return bool(name) and name.lower() not in _GENERIC_NAMES and not name.isdigit()
 
 
-def _run(args: list[str], stdin: str | None = None) -> str:
+def _run(args: list[str], stdin: str | None = None, *, prefix: list[str] | None = None,
+         env: dict[str, str] | None = None) -> str:
     """Run a tmux command, returning stdout. Raises on non-zero exit.
+
+    Every tmux call goes through here, so TMUXRC_TMUX_SOCKET (a `tmux -L` socket name)
+    points the whole daemon at a server other than the default one: a dev daemon or test
+    can then create and kill sessions without touching the user's own server. `prefix`
+    and `env` exist for new_session alone — see there.
 
     Bounded by a timeout so a wedged tmux (server hang, blocked pipe) can't block the poll
     thread forever and silently freeze all cards (the 'stale, no error' failure). A
@@ -236,9 +242,10 @@ def _run(args: list[str], stdin: str | None = None) -> str:
     callers already handle (server_running/prefix_key/active_pane_id catch only that) —
     otherwise a raw TimeoutExpired would leak past them and fail a tick unexpectedly."""
     try:
+        sock = os.environ.get("TMUXRC_TMUX_SOCKET")
         return subprocess.run(
-            ["tmux", *args], input=stdin, capture_output=True, text=True, check=True,
-            timeout=10,
+            [*(prefix or []), "tmux", *(["-L", sock] if sock else []), *args],
+            input=stdin, capture_output=True, text=True, check=True, timeout=10, env=env,
         ).stdout
     except subprocess.TimeoutExpired as e:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
@@ -477,9 +484,9 @@ def server_path() -> str | None:
     """PATH from the tmux SERVER's global environment — the list a new window's command is
     actually looked up in — or None if tmux can't say.
 
-    The daemon does NOT start the server; it connects to whatever is already running (the
-    unit only runs the daemon, and the README has the user open `tmux new -s work` first).
-    A server started from a login shell therefore carries that shell's PATH, which is
+    The daemon rarely starts the server (only new_session with none running, after a
+    reboot); it normally connects to whatever is already running. A server started from a
+    login shell therefore carries that shell's PATH, which is
     typically far wider than the daemon's own — nvm, ~/bin — and is the difference between
     a launcher that works and one the daemon would swear does not exist.
 
@@ -517,6 +524,72 @@ def new_window(session: str, name: str, command: str | list[str], cwd: str | Non
         ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd or "#{session_path}",
          "-t", f"{session}:", "-n", name, "--", *argv]
     ).strip()
+
+
+# What a tmux server this daemon STARTS may inherit. The server's environment becomes every
+# future shell's, and the daemon's is not a user's: `uv run` puts the daemon's virtualenv
+# first on PATH (so `python` in every pane would be tmux-rc's), and the daemon holds .env
+# and the provider API keys in os.environ. An allowlist, because a denylist misses
+# whatever gets loaded next. SSH_AUTH_SOCK is a socket path, not a secret, and without it
+# an agent started here could not push over SSH. TMUX and TMUX_TMPDIR pick the server, so
+# dropping them would send this one call somewhere other than every other _run.
+_SERVER_ENV = re.compile(r"HOME|USER|LOGNAME|SHELL|LANG|LC_\w+|TZ|PATH|XDG_\w+"
+                         r"|DBUS_SESSION_BUS_ADDRESS|SSH_AUTH_SOCK|TMUX|TMUX_TMPDIR")
+
+
+def server_env() -> dict[str, str]:
+    """The environment new_session hands tmux — see _SERVER_ENV — with PATH taken from
+    the user's LOGIN shell. The daemon's unit PATH is deliberately minimal, and a launcher
+    runs via `sh -c` with whatever PATH the server holds, so without this an agent
+    installed under nvm or ~/bin would be "not found" in a session started after a
+    reboot, though it runs fine in one the user starts by hand. `exec env` rather than
+    echoing $PATH, which fish would space-join; the LAST PATH= line wins, past anything
+    the profile prints. If the shell fails, the scrubbed PATH stands."""
+    env = {k: v for k, v in os.environ.items() if _SERVER_ENV.fullmatch(k)}
+    venv = os.environ.get("VIRTUAL_ENV")
+    if venv:
+        dirs = env.get("PATH", "").split(os.pathsep)
+        env["PATH"] = os.pathsep.join(d for d in dirs if d != os.path.join(venv, "bin"))
+    try:
+        out = subprocess.run([env.get("SHELL") or "/bin/sh", "-lc", "exec env"], env=env,
+                             capture_output=True, text=True, timeout=5, check=True,
+                             stdin=subprocess.DEVNULL).stdout
+        paths = [line[5:] for line in out.splitlines() if line.startswith("PATH=")]
+        if paths:
+            env["PATH"] = paths[-1]
+    except (OSError, subprocess.SubprocessError):
+        logger.warning("Login shell did not report a PATH; the new tmux server gets the "
+                       "daemon's", exc_info=True)
+    return env
+
+
+def new_session(name: str, cwd: str, command: str | None = None, window: str = "",
+                env: dict[str, str] | None = None) -> str:
+    """Create detached session `name` in `cwd` and return its first pane's id. Starts the
+    tmux server if none is running (after a reboot, nothing else will), which is why this
+    is the one tmux call with a scrubbed environment (server_env).
+
+    Under systemd it also runs in its own transient scope: a server forked from this
+    daemon would otherwise live in the daemon unit's cgroup, and the next
+    `systemctl --user restart tmux-rc` would kill it along with every session in it.
+    `command` (a configured launcher's) runs in the first window, as in new_window; None
+    leaves tmux's default, the user's login shell. `env` is server_env() if the caller
+    already has it."""
+    scope = []
+    if os.environ.get("INVOCATION_ID"):  # set by systemd for the units it runs
+        # Absolute: _run resolves argv[0] on the login shell's PATH, which may lack it.
+        if systemd_run := shutil.which("systemd-run"):
+            scope = [systemd_run, "--user", "--scope", "--quiet", "--collect"]
+        else:  # still start it: a session that dies on restart beats no session at all
+            logger.warning("systemd-run not found: a tmux server started now lives in the "
+                           "daemon's cgroup and dies on the next tmux-rc restart")
+    # -E: on a server already running, the session takes its global environment as is,
+    # rather than update-environment marking every variable env scrubbed (DISPLAY) removed.
+    argv = ["new-session", "-d", "-E", "-P", "-F", "#{pane_id}", "-s", name, "-c", cwd]
+    if window:
+        argv += ["-n", window]
+    return _run([*argv, *([command] if command else [])], prefix=scope,
+                env=server_env() if env is None else env).strip()
 
 
 # OSC 8 hyperlink: ESC]8;params;URL(BEL|ESC\) LABEL ESC]8;;(BEL|ESC\). Terminals show

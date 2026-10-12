@@ -83,6 +83,8 @@ strictness is correct:
   choice that is not an approval keeps its own question).
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
   ("Yes…") then a decline ("No…"); their wording is not pinned.
+- `links` — opt-in list of URLs, each of which must be offered whole among the candidate's
+  link hrefs (extra links are fine): a URL the terminal wrapped must not arrive as a fragment.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.
 - `tables` — presence too, but **opt-in**: scored only on a sample whose `expected`
   names it. Most screens have no table and take no position, so scoring it everywhere
@@ -182,6 +184,7 @@ actually hit:
 | `66_omp_queued_user_question` | omp's outgoing numbered Steering message → running, no question, even without dim styling |
 | `67_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
 | `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
+| `88_claude_wrapped_login_link_beside_options` | a wrapped OSC 8 login URL beside a prose option list → the whole URL in `links`, even though grounding rejects the misread question |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { shownUsage, HIGH_PCT } from "../web/m/usage.js";
+import { renderUsage, shownUsage, HIGH_PCT } from "../web/m/usage.js";
 
 const w = (window, pct, limit_at = null) => ({ window, pct, limit_at });
 const ACCOUNTS = [
@@ -21,4 +21,13 @@ test("auto keeps meters filling before the reset or at the threshold, and drops 
 
 test("auto with nothing worth showing hides the strip", () => {
   assert.deepEqual(shownUsage([{ provider: "codex", windows: [w("7d", HIGH_PCT - 1)] }], "auto"), []);
+});
+
+test("countdowns and the trend run from the real clock unless told otherwise", () => {
+  const now = Date.now(), H = 3600e3, el = {};
+  const win = { window: "5h", pct: 40, projected: 80, start: now - 2 * H, resets_at: now + 3 * H, samples: [[now - H, 20]] };
+  renderUsage(el, [{ provider: "claude", windows: [win] }], { wide: true, detail: true });
+  assert.match(el.innerHTML, /resets 3h0m, /);
+  // The held point sits at now, 40% of the way across the 120-wide trend, not back at its start.
+  assert.match(el.innerHTML, /<polyline class="proj" points="48\.0,/);
 });

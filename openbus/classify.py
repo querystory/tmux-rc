@@ -451,6 +451,11 @@ def _ground_visible_fields(
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
     if bad_action:
+        # Only the viewport re-read vouches for a link: the first read also saw history.
+        # Links survive a failed re-read, which the watcher publishes on the kept card.
+        result.pop("links", None)
+        if retry and isinstance(retry.get("links"), list) and retry["links"]:
+            result["links"] = retry["links"]
         state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
