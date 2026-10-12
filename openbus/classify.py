@@ -92,14 +92,20 @@ _HIGHLIGHT_RE = re.compile(
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
 
 
+def _widget_end(visible: str, start: int) -> int:
+    return next((edge.start() for edge in _WIDGET_END_RE.finditer(visible, start)
+                 if edge["rule"] or _HIGHLIGHT_RE.search(visible, start, edge.start())),
+                len(visible))
+
+
 def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
-    *_, asked = [None, *_occurrences(prompt, visible)]
-    if not asked:
+    found = _occurrences(prompt, visible)
+    if not found:
         return None
-    end = next((edge.start() for edge in _WIDGET_END_RE.finditer(visible, asked.end())
-                if edge["rule"] or _HIGHLIGHT_RE.search(visible, asked.end(), edge.start())),
-               len(visible))
-    rows = _HIGHLIGHT_RE.finditer(visible, asked.end(), end)
+    # The last match's widget is the live one, but the prompt is its first match there: a
+    # later one inside the same widget is an option or footer repeating the prompt's words.
+    asked = next(m for m in found if _widget_end(visible, m.end()) > found[-1].start())
+    rows = _HIGHLIGHT_RE.finditer(visible, asked.end(), _widget_end(visible, asked.end()))
     *_, row = [None, *rows]
     named = row and [option for option in options if isinstance(option, str)
                      and (row[1] == option or row[1].startswith(f"{option}  "))]
