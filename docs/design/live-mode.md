@@ -536,6 +536,15 @@ scrolled to the card. The app window is focused before it is asked, not after it
 iOS may refuse a focus that is no longer tied to the tap, and a suspended page cannot
 answer until it is woken. Only with several app windows open does the worker ask first,
 so that only the one holding the card is brought forward.
+The message alone proved not enough on an iPhone: a tap opened the app with the chat still
+minimized, most likely because iOS loses a message posted to a page it is still waking. So
+the worker also records the tap, before focusing, in Cache Storage, which both sides can
+read, and the page pulls it whenever it comes back (visible, shown, focused, booted) and
+again a moment later, since iOS may show the page before the worker has run. A record older
+than a minute or naming another tab's card is ignored, and one acted on is deleted, so a
+later return never reopens a chat minimized since. Bringing a chat back twice is harmless,
+which is what lets both paths stay. A page iOS killed meanwhile has no chat to bring back,
+since the conversation lived in it, so its boot does nothing with the record.
 
 **Docked on a wide screen.** At the wide layout's breakpoint (1100px) the same panel opens
 non-modally as a column right of the work area, so nothing is dimmed and the pane stays

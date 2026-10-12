@@ -220,7 +220,15 @@ const navigator = {audioSession, serviceWorker: new EventTarget(), wakeLock: {re
   const stream = {getTracks: () => [track], getAudioTracks: () => [track]};
   streams.push(stream); return stream;
 }}};
-const sandbox = {document, window, navigator, AudioContext: Context, WebSocket: Socket,
+// Cache Storage, where sw.js records a "Chat needs you" tap: by cache name and key.
+const tapped = new Map();
+const caches = {open: async (name) => ({
+  match: async (key) => {
+    const entry = tapped.get(`${name} ${key}`);
+    return entry && {json: async () => entry};
+  },
+  delete: async (key) => tapped.delete(`${name} ${key}`)})};
+const sandbox = {document, window, navigator, caches, AudioContext: Context, WebSocket: Socket,
   appendChatMarkdown, since,
   AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
   Audio: class {
@@ -479,6 +487,53 @@ def test_chat_needs_you_tap_restores_the_minimized_chat_holding_its_card():
   assert.deepEqual(tap('p1'), [true]);
   assert.equal(dialog.open, true); assert.equal(actions.scrolled, before + 1);
   completed = true;
+})().catch((error) => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes_back():
+    _run_live(r"""
+(async () => {
+  const $ = (id) => document.getElementById(id), dialog = $('voice-dialog');
+  // What sw.js records on a tap, `ago` ms back; and the page's reads of it, now and later.
+  const record = (chat, ago = 0) =>
+    tapped.set('chat-tap /__tapped-chat', {chat, at: Date.now() - ago});
+  const reads = async () => {
+    [...timers].filter((t) => t.name === 'pullTap').forEach((t) => t()); await flush();
+  };
+  const back = async (event = 'visibilitychange') => {
+    document.hidden = true; document.dispatchEvent(new Event('visibilitychange'));
+    document.hidden = false;
+    (event === 'focus' ? window : document).dispatchEvent(new Event(event));
+    await reads();
+  };
+  // A killed page's boot finds the tap with no chat to bring back, and starts none.
+  record('p1'); await reads();
+  assert.ok(!dialog.open); assert.equal(sockets.length, 0);
+  await live.refresh();
+  $('chat').onclick(); await flush();
+  sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'listening'})});
+  $('voice-close').onclick();
+  sockets[0].onmessage({data: JSON.stringify({type: 'propose', id: 'p1', text: 'Send to work'})});
+  const actions = $('voice-log').children.at(-1).lastChild, before = actions.scrolled;
+  // The worker's message never arrives (iOS waking the page); only the record is there.
+  record('p1', 61000); await back(); // too old: a tap from some other time
+  assert.equal(dialog.open, false);
+  record('p2'); await back(); // another tab's card: left for that tab
+  assert.equal(dialog.open, false); assert.equal(tapped.size, 1);
+  record('p1'); await back();
+  assert.equal(dialog.open, true); assert.equal(actions.scrolled, before + 1);
+  assert.equal(tapped.size, 0); // spent
+  // Minimized again, a later return to the app leaves it so.
+  $('voice-close').onclick(); await back('focus');
+  assert.equal(dialog.open, false);
+  // When the message does arrive it spends the record, so the read after it adds nothing.
+  record('p1');
+  const message = Object.assign(new Event('message'), {data: {chat: 'p1'}, ports: []});
+  navigator.serviceWorker.dispatchEvent(message); await flush(); await back('pageshow');
+  assert.equal(dialog.open, true); assert.equal(actions.scrolled, before + 2);
+  assert.equal(tapped.size, 0);
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 
