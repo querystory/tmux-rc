@@ -1135,13 +1135,14 @@ def classify(
         # A question with no style is answered as text (models.py), so it may name rows.
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
         # A menu answer is its row's digit: with no "1." / "1)" row below the question's
-        # own prompt there is no digit to press (a bare [y/N] under earlier numbered
+        # own prompt (one that IS the prompt's row, "1. Continue? [y/N]", is not below it)
+        # there is no digit to press (a bare [y/N] under earlier numbered
         # output reads a typed line), so it is answered as text. This check, not the
         # parser prompt's "or is a y/n confirmation", is the authority: the prompt is
         # left as is because the eval measured every rewording regressing other samples.
         option = list(_FIRST_OPTION_RE.finditer(visible))
         said = asked and _last_occurrence(asked, visible)
-        if style == "menu" and (not option or (said and said.start() > option[-1].start())):
+        if style == "menu" and (not option or (said and said.start() >= option[-1].start())):
             # The menu's labels ("Yes") are no answer for a line prompt that reads "y":
             # without buttons the user types exactly what the screen asks for.
             style = question["answer_style"] = "text"

@@ -212,3 +212,21 @@ def test_a_reparse_before_the_answer_is_drawn_reissues_no_token(monkeypatch):
     w._forced_this_tick = set()
     assert w._tick_pane(pane)["input_generation"] == w.pane_input_generation("%1")
     assert w._answered == {}
+
+
+def test_a_claim_during_a_parse_outlives_that_parse(monkeypatch):
+    """A tick that captured before a claim must not clear the claim's marker: its screen
+    can't show the answer yet, and the next parse would reissue the token."""
+    frame, clock = ["$ idle"], [1000.0]
+    w = _harness(monkeypatch, frame, [{"activity": "idle", "events": [], "tool": "shell"}],
+                 clock)
+    parse = W.classify
+
+    def claimed_mid_parse(*a, **kw):
+        w.consume_answer("%1", "the claimed screen", "its frame")  # a /send thread
+        return parse(*a, **kw)
+
+    monkeypatch.setattr(W, "classify", claimed_mid_parse)
+    w._forced_this_tick = set()
+    w._tick_pane(_Pane())
+    assert w._answered["%1"][1:] == ("the claimed screen", "its frame")
