@@ -142,7 +142,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // only: approvals and tool results never come from here (live_chat.restore).
   function restore(current) {
     const transcript = [...log.children].filter((row) => ["user", "model", "typed"].includes(row.dataset.role))
-      .map((row) => ({ role: row.dataset.role, text: row.said.trim() })).filter((row) => row.text); // an Open-only row says nothing
+      .map((row) => ({ role: row.dataset.role, text: row.said })).filter((row) => row.text.trim()); // an Open-only row says nothing
     if (!transcript.length) return;
     current.ws.send(JSON.stringify({ action: "resume", transcript }));
     // A quiet status line, not an error: nothing failed. One per run of reconnects.
