@@ -67,9 +67,9 @@ Non-goals:
   vanish the moment the user opened a fresh shell.
 
 Everything else is already read on every tick: `list-panes` returns session, window index
-and name, pane index, current path, current command, title and pid. Missing are a few more format fields (the session's creation path, the
-window's layout string, zoom flag and automatic-rename setting) and the agent session
-binding.
+and name, pane index, current path, current command, title and pid. Missing are a few more format fields (the window's
+tmux id, the session's group and creation path, the window's layout string, zoom flag and
+automatic-rename setting) and the agent session binding.
 
 ### The new record: one layout snapshot per tmux server
 
@@ -189,6 +189,13 @@ The card groups the snapshot as tmux did: sessions, windows, panes. Each pane sh
 tool icon, title, directory and how long it had been idle when the server died, with a
 checkbox; sessions and windows have tri-state checkboxes over their panes.
 
+A shared (grouped or linked) window appears under every session that shows it, but its
+panes have one selection each, because the run restores a pane once. Its checkboxes are
+therefore one state drawn in several places: ticking a shared pane under one session
+ticks it under all of them, and each session's tri-state reads the same pane states. A
+session is restored when any pane it shows is selected, with all its links to restored
+windows, so focus and indexes come back for every member that shared them.
+
 **Defaults decide whether a restore is one tap or forty.** A pane is checked when its
 agent was working, waiting on the user, or active in the last 24 hours; unchecked when
 idle longer, or a shell with nothing running. Staleness is measured **from when the
@@ -298,7 +305,9 @@ built session as a name collision and suffixing it), creates what is missing, an
 launches what is pending. If that server died too, its ids and launch outcomes describe
 objects that no longer exist: they are discarded, every selected pane returns to pending
 (the running check below still skips what is live), and the run continues against the
-current server under its new identity.
+current server under its new identity. The dead destination's own snapshot, a half-built
+copy of the same workspace, is marked consumed by that run in the same step, so it is
+never offered afterwards as a second restore.
 The audit trail is not this record: it is telemetry, for reconstruction afterwards,
 not state an executor can resume from. And right before each launch the running check
 runs again, so a session resumed by hand meanwhile is skipped. That check and its lock
@@ -410,7 +419,8 @@ It records snapshots and restores nothing. A snapshot helps only if it was being
 the restore half lands with real data from the user's own fleet to test against.
 
 Scope: the snapshot table (a new schema migration), the new fields in the pane listing
-(session path, window layout, zoom, automatic rename, foreground program),
+(window id, session group, session path, window layout, zoom, automatic rename; the
+foreground program is the `pane_current_command` already read, stored as a basename),
 agent-history's live-session listing and the once-a-minute binding, the consumed mark,
 and a read-only endpoint returning the latest dead-server snapshot with each pane's
 computed default, so the card's data can be checked by hand before the card exists.
