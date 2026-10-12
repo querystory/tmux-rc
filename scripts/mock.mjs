@@ -24,7 +24,11 @@ export function manifest(src) {
   const m = JSON.parse(readFileSync(path.join(src, "variants.json"), "utf8"));
   const read = (file) => readFileSync(path.resolve(src, file), "utf8");
   const doc = m.doc && path.join(ROOT, "docs/design", `${m.doc}.md`);
-  const note = [m.note && read(m.note), doc && existsSync(doc) && read(doc)].filter(Boolean).join("\n\n---\n\n");
+  // The record links GitHub-style to sibling .md files; point those at the docs site's
+  // pretty URLs (as docs-site/layouts/_markup/render-link.html does), not at the mock.
+  const record = doc && existsSync(doc) && read(doc).replace(/\]\((?![a-z]+:|\/|#)([^)\s#]+)\.md(#[^)\s]*)?\)/g,
+    (_, rel, frag = "") => `](/docs/${path.posix.join("design", rel)}/${frag})`);
+  const note = [m.note && read(m.note), record].filter(Boolean).join("\n\n---\n\n");
   return {
     title: m.title || path.basename(src),
     note: note && markdownit().render(note),

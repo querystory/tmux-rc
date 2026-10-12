@@ -103,11 +103,15 @@ function boot(M) {
     if (M.live) {
       iframe.onload = async () => { // the real app: wait for its boot, take the view's steps, then patch it
         const w = iframe.contentWindow, doc = iframe.contentDocument;
-        const until = async (ok) => { while (!ok()) await new Promise((r) => setTimeout(r, 100)); };
+        const until = async (ok, what) => { // as long as a snapshot build would wait, then say what never came
+          for (const end = Date.now() + 10000; !ok(); await new Promise((r) => setTimeout(r, 100))) {
+            if (Date.now() > end) throw new Error(`mock-live: ${what} not reached in 10s`);
+          }
+        };
         const view = M.views.find((x) => x.name === s.view);
-        await until(() => doc.documentElement.classList.contains("booted"));
-        for (const sel of view.click || []) { await until(() => doc.querySelector(sel) && !doc.querySelector(sel).disabled); doc.querySelector(sel).click(); }
-        if (view.wait) await until(() => doc.querySelector(view.wait));
+        await until(() => doc.documentElement.classList.contains("booted"), "app boot");
+        for (const sel of view.click || []) { await until(() => doc.querySelector(sel) && !doc.querySelector(sel).disabled, `clickable ${sel}`); doc.querySelector(sel).click(); }
+        if (view.wait) await until(() => doc.querySelector(view.wait), view.wait);
         w.eval(inject(cfg, text));
       };
       iframe.src = `/m/${M.views.find((x) => x.name === s.view).hash || ""}`; // a chat view needs the canned socket: snapshots only
