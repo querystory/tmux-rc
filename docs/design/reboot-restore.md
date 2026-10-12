@@ -293,8 +293,10 @@ needing attention, because a login is a human boundary anyway. No retries.
 **Idempotency** rests on a durable restore run, started in two steps so that no
 restorable target ever exists before the run can name the server it lives on. First, in
 one transaction, the daemon records the run (the exact selection, each selected pane
-pending) and marks the snapshot consumed *by that run*; a dismissal consumes it with no
-run. A second tap or device is therefore told a restore is running. Second, it records
+pending, and the actor and confirmation tier of the tap that started it, since the
+request that carried them is gone after a daemon restart and every deferred launch is
+still audited with them) and marks the snapshot consumed *by that run*; a dismissal
+consumes it with no run. A second tap or device is therefore told a restore is running. Second, it records
 the destination server's identity (the same boot id, pid and start time) on the run.
 With a replacement server up, that is the live one. With none, the daemon first starts
 a server holding a single empty session named after the run, records that server's
@@ -303,12 +305,16 @@ session exists. A crash between the two steps leaves a run with no destination: 
 adopts the live server that holds the run's holder session, or else starts one as above.
 Nothing it built can be orphaned, because nothing is built before the identity is
 recorded. Layout construction is
-recorded too: each session, window and pane the executor creates is written to the run
-by its tmux id as it is created, and each launch outcome (pid, or the failure) as it
-lands. tmux ids are only unique within one server, and a replacement server reuses them,
+recorded too, and a tmux command and a database write cannot be one transaction, so
+the order matters. Before each mutation the run records its intent (which snapshot
+object it is about to create), and the creating tmux command list also tags the new
+object with a user option naming the run and that object. Afterwards its tmux id and,
+for a pane, its launch outcome (pid, or the failure) are written to the run. A crash
+between the mutation and that write loses only the id: recovery finds the object by its
+tag rather than creating it again beside the first. tmux ids are only unique within one server, and a replacement server reuses them,
 so all of it is scoped to that destination identity. A daemon that restarts mid-restore
-finds the unfinished run. If its destination server is still alive, it reconciles those
-ids against tmux (reusing every target that still exists, rather than meeting its own half
+finds the unfinished run. If its destination server is still alive, it reconciles the run
+against tmux by those ids and tags (reusing every target that still exists, rather than meeting its own half
 built session as a name collision and suffixing it), creates what is missing, and
 launches what is pending. If that server died too, its ids and launch outcomes describe
 objects that no longer exist: they are discarded, every selected pane returns to pending
