@@ -1094,7 +1094,8 @@ def classify(
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask", "items"):
             question.pop(key, None)
-        style, asked = question.get("answer_style"), _question_prompt(question)
+        # A question with no style is answered as text (models.py), so it may name rows.
+        style, asked = question.get("answer_style", "text"), _question_prompt(question)
         # A menu's own numbers are its options, so only a typed answer names list items.
         if rows := style == "text" and asked and _referenced_rows(asked, visible):
             question["items"] = [_item(n, text) for n, text in rows.items()]

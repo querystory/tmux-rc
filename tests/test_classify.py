@@ -1353,6 +1353,8 @@ def test_question_naming_list_items_carries_them():
     assert result["tables"] == [other, ranking]
     result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": [echo]}))
     assert result["tables"] is None
+    styleless = {"prompt": ask["prompt"]}  # answered as text, so it names rows too
+    assert classify(_pane("claude"), screen, _llm({"question": styleless}))["question"]["items"]
     kept = ["2. Check with me before closing them", "2. Yes, but check with me first"]
     check = {**ask, "options": ["2. Close idle worker sessions", *kept]}
     result = classify(_pane("claude"), screen, _llm({"question": check}))
