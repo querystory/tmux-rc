@@ -216,7 +216,9 @@ function navigate(id = null, nextView = "summary", { mode } = {}) {
   const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, sort });
   const current = location.hash.slice(1);
   if (next !== current) {
-    history[`${mode || historyMode(current, next)}State`](null, "", next ? `#${next}` : location.pathname + location.search);
+    // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
+    const how = mode || historyMode(current, next);
+    history[`${how}State`](how === "replace" ? history.state : null, "", next ? `#${next}` : location.pathname + location.search);
   }
   route();
 }
