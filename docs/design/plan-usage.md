@@ -47,17 +47,18 @@ no more, so a range past the last reset would mean keeping history nothing else 
 The sidebar strip stays. It is the only place the limits show while a pane is open, and both
 draw from one renderer (`renderUsage`), so the panel is a size and a flag, not a copy.
 
-### Usage over time: the heatmap (#377)
+### Usage over time: the heatmap instead (#377)
 
-Issue #377 asked what a busy day costs: usage burn charted against how many agents were
-running. The mocks tried hand-drawn line and scatter charts of burn against running agents,
-and a heatmap of hour of day by date from the long activity history. **The heatmap won**
-and shipped as the dashboard's Running by hour card and its own view (#378). It reads at a
-glance, needs no axis to decode, and is built on pane history, which is kept for good,
-rather than on usage samples, which are pruned after eight days. The hand-drawn charts were
+Issue #377 proposed keeping usage history long term and charting burn against running
+agents, to answer what a busy day costs. The mocks tried hand-drawn line and scatter charts
+of exactly that, and a heatmap of hour of day by date. **The heatmap was chosen and the
+burn charts were not built**: it shipped as the dashboard's Running by hour card and its own
+view (#378), drawn from pane history, which is kept for good. The hand-drawn charts were
 rejected as janky next to the app's own charts, and each would have been one more bespoke
-chart to maintain. The
-design record for the dashboard as a whole is [its layout](dashboard-layout.md).
+chart to maintain. So what the heatmap shows is when agents run, not what they cost: usage
+samples are still pruned after eight days, and cost per agent-hour, burn by tool and the
+"will this burst hit a limit" question stay open under #377. The dashboard as a whole is
+recorded in [its layout](dashboard-layout.md).
 
 ## Accounts, not providers
 

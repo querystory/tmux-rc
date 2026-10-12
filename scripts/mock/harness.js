@@ -105,8 +105,9 @@ function boot(M) {
   }
 
   const sideBySide = () => !phone.matches && s.ab && fits(s.width, innerWidth);
-  let shown;
+  let shown, renders = 0;
   async function render() {
+    const mine = ++renders; // frames load lazily: only the latest render may fill the stage
     const width = phone.matches ? PHONE_WIDTH : s.width, two = shown = sideBySide();
     document.body.classList.toggle("phone", phone.matches);
     document.body.classList.toggle("hidden", s.hidden);
@@ -121,7 +122,9 @@ function boot(M) {
     $("#desc").textContent = variant(s.v[0]).description || "";
     $("#pill").hidden = !s.hidden;
     $("#pill").textContent = `${variant(s.v[0]).label} · h`;
-    $("#stage").replaceChildren(...await Promise.all((two ? s.v : s.v.slice(0, 1)).map((v, i) => frame(v, i, width))));
+    const frames = await Promise.all((two ? s.v : s.v.slice(0, 1)).map((v, i) => frame(v, i, width)));
+    if (mine !== renders) return;
+    $("#stage").replaceChildren(...frames);
     const hash = new URLSearchParams({ v: s.v[0], b: s.v[1], view: s.view, w: s.width, ab: +s.ab, theme: s.theme });
     try { history.replaceState(null, "", `#${hash}`); } catch { /* an opaque origin may refuse */ }
   }
@@ -132,9 +135,9 @@ function boot(M) {
     render();
   }
   const step = (d) => set({ v: [names[(names.indexOf(s.v[0]) + d + names.length) % names.length], s.v[1]] });
-  const keys = { h: () => set({ hidden: !s.hidden }), ArrowLeft: () => step(-1), ArrowRight: () => step(1) };
-  addEventListener("message", (e) => keys[e.data?.mockKey]?.());
-  addEventListener("keydown", (e) => { if (!e.target.closest("select")) keys[e.key]?.(); });
+  const keys = new Map([["h", () => set({ hidden: !s.hidden })], ["ArrowLeft", () => step(-1)], ["ArrowRight", () => step(1)]]);
+  addEventListener("message", (e) => keys.get(e.data?.mockKey)?.());
+  addEventListener("keydown", (e) => { if (!e.target.closest("select")) keys.get(e.key)?.(); });
   const note = (open) => { $("#note").hidden = !open; $("#note-btn").ariaExpanded = String(open); };
   $("#note-body").innerHTML = M.note || "";
   $("#note-btn").hidden = !M.note;

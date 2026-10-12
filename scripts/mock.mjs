@@ -150,9 +150,13 @@ async function check(out) {
       await page.waitForSelector("iframe");
       await page.waitForTimeout(1500); // no settling: the app's spinners keep turning in a snapshot
       writeFileSync(path.join(dir, `${name}.png`), await page.screenshot());
-      const widths = await page.$$eval("iframe", (fs) => fs.map((f) => f.getBoundingClientRect().width));
-      const want = viewport === PHONE ? [PHONE.width] : hash.includes("ab=1") ? [PHONE.width, PHONE.width] : [DESKTOP.width];
-      if (String(widths) !== String(want)) failures.push(`${name}: frames ${widths}px wide, expected ${want}`);
+      // Each frame as wide as it was asked to be (the whole phone screen on a phone), and two
+      // of them only where both fit.
+      const frames = await page.$$eval("iframe", (fs) => fs.map((f) => [f.getBoundingClientRect().width, parseFloat(f.style.width)]));
+      const count = hash.includes("ab=1") ? 2 : 1;
+      if (frames.length !== count || frames.some(([got, asked]) => got !== (viewport === PHONE ? PHONE.width : asked))) {
+        failures.push(`${name}: frames ${JSON.stringify(frames)} ([rendered, asked] px), expected ${count}`);
+      }
       console.log(`shot ${path.join(dir, name)}.png`);
       await page.context().close();
     }
