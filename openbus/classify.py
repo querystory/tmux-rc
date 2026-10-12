@@ -1143,8 +1143,9 @@ def classify(
         # parser prompt's "or is a y/n confirmation", is the authority: the eval measured
         # every rewording of the prompt regressing others.
         rows = list(_OPTION_ROW_RE.finditer(visible))
-        # An option's words run past its row onto lines wrapped deeper than its number.
-        words = [(r.end(1), re.compile(rf"(?:\n[ \t]{{{len(r[1]) + 1},}}\S.*)*").match(
+        # An option's words run past its row onto lines wrapped deeper than its number
+        # (a boxed widget's frame glyph counted as indentation).
+        words = [(r.end(1), re.compile(rf"(?:\n[ \t│┃╎]{{{len(r[1]) + 1},}}[^\s│┃╎].*)*").match(
             visible, r.end()).end()) for r in rows]
         said = [m for m in (_occurrences(asked, visible) if asked else [])
                 if not any(lo < m.start() < hi for lo, hi in words)]
