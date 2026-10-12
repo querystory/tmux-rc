@@ -65,14 +65,16 @@ async function inliner(base) {
   async function inline(text) {
     const urls = new Set([...text.matchAll(/(?:\bsrc="|url\((?:"|&quot;))([^"&)]+)/g)].map((m) => m[1]).filter((u) => !/^(data:|blob:|#)/.test(u)));
     for (const u of urls) {
-      const url = new URL(u, base).href;
+      // A fragment selects a view inside the file (claude-working.svg#still is its still
+      // frame), so the file is fetched once and the fragment rides on after its placeholder.
+      const [file, frag] = u.split("#"), url = new URL(file, base).href;
       if (!seen.has(url)) {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`${url}: ${res.status}`);
         imgs.push(`data:${res.headers.get("content-type")};base64,${Buffer.from(await res.arrayBuffer()).toString("base64")}`);
         seen.set(url, imgs.length - 1);
       }
-      text = text.replaceAll(u, `@@IMG${seen.get(url)}@@`);
+      text = text.replaceAll(u, `@@IMG${seen.get(url)}@@${frag === undefined ? "" : `#${frag}`}`);
     }
     return text;
   }
