@@ -75,8 +75,11 @@ def identity(provider: str, config: Path) -> dict | None:
     # A personal plan's organisation is named for its owner's email: show just the email.
     org = re.sub(r"'s Organi[sz]ation$", "", account.get("organizationName") or "")
     plan = (account.get("organizationType") or "").removeprefix("claude_").replace("_", " ")
-    return {"who": org or account.get("displayName") or account.get("emailAddress") or "",
-            "plan": plan.title()}
+    email = account.get("emailAddress") or ""
+    return {"who": org or account.get("displayName") or email, "plan": plan.title(),
+            # Tell apart two people of one organisation: the display name, else the email's
+            # local part; the full email only if those clash too (see _distinguish).
+            "_more": [account.get("displayName") or email.split("@")[0], email]}
 
 
 def profiles(pane_dirs=()) -> list[dict]:
@@ -114,7 +117,20 @@ def _profiles(pane_dirs) -> list[dict]:
                     **(ident or {"who": "", "plan": ""})})
     if dirty:
         _save(store)
+    _distinguish([p for p in out if not p["label"]])
+    for p in out:
+        p.pop("_more", None)
     return out
+
+
+def _distinguish(unlabelled: list[dict]) -> None:
+    """Unlabelled profiles that read the same ("QSI" twice) become "QSI · sam" and
+    "QSI · alex", or carry the full email if those clash too. A label always wins."""
+    for i in range(2):
+        names = [p["name"] for p in unlabelled]
+        for p in unlabelled:
+            if names.count(p["name"]) > 1 and p.get("_more", ["", ""])[i]:
+                p["name"] = f"{p['who']} · {p['_more'][i]}"
 
 
 def find(config: str, provider: str | None = None) -> dict | None:

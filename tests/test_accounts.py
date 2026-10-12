@@ -101,6 +101,21 @@ def test_an_added_dirs_provider_is_kept_whatever_its_name(home):
     assert (work["provider"], work["signed_in"]) == ("codex", True)
 
 
+def test_two_people_of_one_organisation_are_told_apart(home):
+    for name, who in (("a", "Sam"), ("b", "Alex"), ("c", "Sam"), ("d", "Alex")):
+        _signed_in(home / f".claude-{name}", f"u-{name}", organizationName="Example Org",
+                   displayName=who, emailAddress=f"{name}@example.com")
+    accounts.edit(str(home / ".claude-c"), "Mine")
+    names = {p["tilde"]: p["name"] for p in accounts.profiles()}
+    assert names["~/.claude-a"] == "Example Org · Sam"  # c's label leaves Sam unique
+    assert names["~/.claude-c"] == "Mine"
+    assert names["~/.claude"] == "Example Org · dev"  # no display name: the email's local part
+    # Two Alexes: the full email.
+    assert (names["~/.claude-b"], names["~/.claude-d"]) == (
+        "Example Org · b@example.com", "Example Org · d@example.com")
+    assert "_more" not in accounts.profiles()[0]
+
+
 def test_a_forgotten_dir_comes_back_when_added_again(home):
     accounts.edit(str(home / ".claude-personal"), forget=True)
     accounts.add("claude", str(home / ".claude-personal"), "Personal", [])

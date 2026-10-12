@@ -23,7 +23,10 @@ in" until the sign-in finishes).
 
 A profile is named by the user's label, else by the non-secret `oauthAccount` fields in
 the dir's `.claude.json`: the organisation name, with a personal plan's
-"<email>'s Organization" shortened to the email, then the display name, then the email.
+"<email>'s Organization" shortened to the email, then the display name, then the email. Two
+unlabelled accounts that would read the same (two people of one organisation) add the
+display name or the email's local part ("QSI · sam"), and the full email only if that
+clashes too.
 The credentials file is never opened by this code: Codex keeps no non-secret identity
 file, so only the presence of its login file is checked. The old meter labels (the email's
 local part, or the full email on a clash) are gone: for one person with two plans they put
