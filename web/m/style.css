@@ -18,6 +18,15 @@
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 html, body { position: fixed; inset: 0; overflow: hidden; }
+/* Until app.js runs, the markup is a skeleton: icon buttons ship empty and both brand rows
+   show, since app.js picks the layout. Over a slow tunnel that lasts seconds, so show a
+   plain loading line instead of the half-built chrome. If app.js never runs (a module
+   failed to load, or threw), both flip after 10s, so the page is never stuck on the line. */
+html:not(.booted) #app { visibility: hidden; animation: unveil 0s 10s forwards; }
+#booting { position: fixed; inset: 0; margin: 0; display: grid; place-items: center; color: var(--muted); animation: veil 0s 10s forwards; }
+.booted #booting { display: none; }
+@keyframes unveil { to { visibility: visible; } }
+@keyframes veil { to { visibility: hidden; } }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, a, input, textarea, select { touch-action: manipulation; }
 button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; min-height: 44px; }
@@ -196,11 +205,14 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #scroll-cue { flex: 1; min-width: 0; font-size: 12px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .terminal-toolbar:has(#scroll-cue:not([hidden])) #terminal-status { display: none; }
 #font-size { width: 24px; text-align: center; font-size: 12px; }
-#click-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
+#click-mode, #key-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
 /* Hover/focus helper, not a native title: a title never shows on a phone, and here the
    tap that toggles also hovers, so the new mode explains itself as it switches. */
-#click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
+:is(#click-mode, #key-mode):is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
+/* Key passthrough is wide only (app.js): there the ring shows the terminal has the keys. */
+@media (min-width: 1100px) { #terminal.keys-live #terminal-scroll:focus { outline: 2px solid var(--accent); outline-offset: -2px; } }
+@media (max-width: 1099px) { #key-mode { display: none; } }
 #capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 var(--mono); tab-size: 8; transition: transform .2s ease-out; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
@@ -259,7 +271,9 @@ dialog::backdrop { background: #0008; }
 #voice-close { margin-left: auto; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 dialog label { display: block; margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
-dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
+dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
+.start-session { display: block; min-height: 44px; padding: 0 20px; border-radius: 6px; margin: 16px 0 0; }
+#list-start { margin: 0 auto; }
 #launch-error { color: var(--red); margin-top: 12px; font-size: 13px; }
 #live-mode.active { color: var(--red); background: var(--raised); box-shadow: inset 0 0 0 1px var(--red); }
 #chat.active { color: var(--accent); background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -550,7 +564,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-state-toggle[aria-pressed="false"]::before { background: transparent; }
 .atlas-state-toggle[aria-pressed="false"] { text-decoration: line-through; }
 .atlas-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 24px; }
-#landing-sub:empty + #session-atlas .atlas-controls { margin-top: 0; }
+#landing-sub:empty ~ #session-atlas .atlas-controls { margin-top: 0; }
 .atlas-controls-label { font-size: 13px; }
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
@@ -579,7 +593,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; min-height: var(--bar); padding: 0 18px; border-bottom: 1px solid var(--line); }
   .pane-heading-text { line-height: 1.3; }
   :is(#heading, .terminal-toolbar) :is(.icon-button, #review-layout) { min-height: 32px; height: 32px; }
-  :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode) { width: 32px; }
+  :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode, #key-mode) { width: 32px; }
   #heading > #close-pane { margin: 0 -6px; } /* outranks the base -12px, which is sized for the 44px box */
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
   #detail > #composer { grid-row: 4; min-width: 0; }
@@ -672,24 +686,29 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 }
 
 
-/* Plan limits (usage.js): one row per account, a cell per window. A phone pins it over the
+/* Plan limits (usage.js): one flat grid of meters, two to a row. A phone pins it over the
    list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
-#usage { display: grid; grid-template-columns: max-content 1fr 1fr; gap: 8px 16px; align-items: center; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
+#usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
 #usage[hidden], #app.rail #usage { display: none; }
-.usage-account { display: contents; }
-.usage-name { grid-column: 1; display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; white-space: nowrap; } /* column 1 starts every account on its own row, even one with a single window */
-.usage-name img { border-radius: 3px; }
-.usage-name > span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; } /* labels are user-chosen; never let one push the cells off-screen */
-.usage-cell { --u: var(--accent); display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
-.usage-cell[data-w="7d"] { grid-column: -2; } /* the last column, so a weekly-only plan's 7d lines up */
+#usage { cursor: pointer; }
+/* The dashboard's panel: the same cells, as many to a row as fit, the trend tall enough to read;
+   opened (aria-expanded), wider cells (one to a row on a phone, two on desktop) with the times spelled out. */
+#usage-panel { cursor: pointer; }
+#usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
+#usage-board .usage-spark { height: 56px; margin-top: 6px; }
+#usage-panel:has([aria-expanded="true"]) #usage-board { grid-template-columns: repeat(auto-fit, minmax(max(280px, 40%), 1fr)); }
+#usage-panel:has([aria-expanded="true"]) .usage-spark { height: 96px; }
+.usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
 .usage-cell :is(span, em, small), .usage-cell.none { color: var(--muted); }
 .usage-cell em { font-style: normal; font-size: 11px; }
+@container (max-width: 130px) { .usage-cell em { display: none; } } /* the sidebar's narrowest cells keep the window and %, not the word */
+.usage-cell > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* account names are user-chosen: truncate, never push the % out */
+.usage-cell img { vertical-align: -2px; margin-right: 5px; border-radius: 3px; }
 .usage-cell b { font-variant-numeric: tabular-nums; margin-left: 2px; }
-.usage-cell:is(.warn, .full) :is(b, small) { color: var(--u); }
+.usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast stacks over the reset, which always shows */
 .usage-cell small { grid-column: 1 / -1; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.usage-cell.wide { grid-column: span 2; }
 .usage-bar, .usage-spark { grid-column: 1 / -1; }
 .usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
@@ -700,10 +719,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .usage-spark .proj { stroke-dasharray: 3 3; }
 .usage-spark .limit { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
 @media (max-width: 1099px) { #usage { order: -1; position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); } }
-/* Wide, the name takes its own line so each trend gets half the sidebar. */
 @media (min-width: 1100px) {
-  #usage { grid-template-columns: 1fr 1fr; align-items: start; gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
-  .usage-name { grid-column: 1 / -1; margin-top: 2px; }
+  #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
 }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
@@ -788,3 +805,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }
 .atlas-multiples .atlas-panel-heading > .muted { font-size: 12px; }
+/* A window being killed or expunged from here (markEnding): greyed, its label under a spinner. */
+.ending { opacity: .55; }
+.ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
+.ending :is(.badge, .sb-open .a, .m)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) { .ending :is(.badge, .sb-open .a, .m)::before { animation: logo-spin .8s linear infinite; } }

@@ -176,17 +176,23 @@ def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
     assert r["working"] == {"verb": "Delegating", "elapsed": "1m 3s"}
 
 
-@pytest.mark.parametrize(("child", "tool"), [
-    ("bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash` wrapper
-    ("/usr/local/bin/omp\0", "omp"),
-    ("vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+@pytest.mark.parametrize(("command", "title", "child", "tool"), [
+    # omp behind a shell is proven by its title plus a live omp process
+    ("bash", "π ⠧ x", "bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash`
+    ("bash", "π ⠧ x", "/usr/local/bin/omp\0", "omp"),
+    ("bash", "π ⠧ x", "vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+    ("bash", "x", "/usr/local/bin/codex\0", "opencode"),  # no title: a stopped agent proves nothing
+    # an npm-installed agent's foreground is `node`; the script it runs names the agent
+    ("node", "x", "node\0/opt/nvm/bin/codex\0", "codex"),
+    ("node", "x", "node\0/opt/nvm/bin/claude\0--resume\0", "claude"),
+    ("node", "x", "node\0server.js\0", "opencode"),  # not an agent: the model decides
 ])
-def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, tool):
+def test_host_tool_from_the_process_tree(monkeypatch, command, title, child, tool):
     proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
             ("11", "cmdline"): child}
     for module in (classify_mod, tmux):  # the process walk lives in tmux
         monkeypatch.setattr(module, "proc_read", lambda pid, name: proc.get((pid, name), ""))
-    pane = Pane("work", "0", "bash", "0", "%0", "bash", "π ⠧ agent-history-omp", "/x", pid="10")
+    pane = Pane("work", "0", "bash", "0", "%0", command, title, "/x", pid="10")
     r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
     assert r["tool"] == tool
 
@@ -829,6 +835,17 @@ def test_failed_question_retry_does_not_retire_the_screen():
         assert result["parse_ok"] is False
 
 
+def test_failed_question_retry_keeps_only_the_viewport_links():
+    now, old = {"href": "https://auth.example.com/now"}, {"href": "https://example.com/old"}
+    for retry_links, want in (([now], [now]), (None, None), (3, None)):
+        replies = iter([{"tool": "codex", "question": {"prompt": "Old approval?"},
+                         "links": [old, now]},
+                        {"question": {"prompt": "Still old?"}, "links": retry_links}])
+        result = classify(_pane("codex"), "Old approval?\n\x1e[visible screen]\x1f\n› Ready",
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert result["parse_ok"] is False and result.get("links") == want
+
+
 def test_question_retry_cannot_resurrect_stale_rewind():
     replies = iter([
         {"tool": "codex", "question": {"prompt": "Old approval?"}},
@@ -1410,3 +1427,34 @@ def test_shell_prompt_with_output_after_it_was_answered(sample, tool, style, kep
     assert bool(result.get("question")) is kept
     assert result["activity"] == "waiting"
     assert ("[Completed prompt" in seen[-1]) is not kept
+
+
+_WELCOME = ("\x1e[visible screen]\x1f\n────\n⟪/dim⟫❯\xa0⟪placeholder⟫Try 'fix'⟪/placeholder⟫"
+            "⟪dim⟫\n────\n  ~/src/app | Sonnet 5.5\n  Welcome back! Recent sessions to resume:\n"
+            "  live  Rename the webhook handler\n  ⏵⏵ auto mode on")
+
+
+def test_list_below_an_empty_input_box_is_chrome_not_a_question():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "claude", "activity": "idle", "question": {
+                "prompt": "Welcome back! Recent sessions to resume:", "answer_style": "cursor"}}
+        assert "Welcome back" not in text and "Rename" not in text
+        return {"tool": "claude", "activity": "idle", "headline": "Ready for a new task"}
+    result = classify(_pane("claude"), _WELCOME, read)
+    assert len(calls) == 2
+    assert "question" not in result and result["activity"] == "idle"
+
+
+@pytest.mark.parametrize(("screen", "prompt"), [
+    ("  Resume session\n  ❯ Mid-file imports cleanup\n    tmuxrc-dev\n  Esc to cancel",
+     "Resume session"),  # the real picker: its ❯ cursor row has text, no empty box
+    ("● Should I open the PR now?\n────\n❯\xa0\n────\n  ~/src/app | Sonnet 5.5",
+     "Should I open the PR now?"),  # asked above the empty box
+])
+def test_question_not_below_an_empty_input_box_stands(screen, prompt):
+    result = classify(_pane("claude"), f"\x1e[visible screen]\x1f\n{screen}", _llm({
+        "tool": "claude", "question": {"prompt": prompt, "answer_style": "cursor"}}))
+    assert result["question"]["prompt"] == prompt

@@ -282,6 +282,9 @@ class Watcher:
         self._parsed_reply: dict[str, str | None] = {}  # pane_id -> agent reply at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
         self._collection_failed = False
+        # Last tick's answer to "is a tmux server running at all?" — lets the UI tell a
+        # host after a reboot (no server) from a server with nothing in it.
+        self.tmux_running = True
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
         self._input_generation_lock = threading.Lock()
@@ -355,8 +358,9 @@ class Watcher:
         # deck (tmux down / no panes), whose fingerprint is "". Otherwise version would
         # stay 0 through a prolonged empty state and the long-poll (which only engages at
         # version > 0) would never kick in.
-        self._state_fp: str | None = None
+        self._state_fp: tuple | None = None
         self._state_changed = asyncio.Event()
+        self._publish_lock = threading.Lock()  # deck writers vs. drop_panes (a request thread)
 
     def state_version(self) -> int:
         """Monotonic version of the deck-relevant view; bumped only when it changes.
@@ -532,12 +536,13 @@ class Watcher:
         # briefly dropping the UI's active selection. The next full tick reconciles.
         if focused is None:
             return
-        cur = next((s.get("pane_id") for s in self.states if s.get("tmux_active")), None)
-        if focused == cur:
-            return
-        for s in self.states:
-            s["tmux_active"] = s.get("pane_id") == focused
-        self._bump_state_if_changed(self.states)
+        with self._publish_lock:  # against drop_panes publishing a smaller deck meanwhile
+            cur = next((s.get("pane_id") for s in self.states if s.get("tmux_active")), None)
+            if focused == cur:
+                return
+            for s in self.states:
+                s["tmux_active"] = s.get("pane_id") == focused
+            self._bump_state_if_changed(self.states)
 
     def request_reparse(self, pane_id: str) -> None:
         """Force an LLM re-parse of `pane_id` on the next tick AND wake the loop now, so
@@ -556,6 +561,17 @@ class Watcher:
                 # in _force_parse and a running loop would pick it up on its next tick.
                 pass
 
+    def drop_panes(self, pane_ids: set[str]) -> None:
+        """Unpublish panes the daemon just killed, so the next /api/state omits them rather
+        than serving them until a tick notices; then wake that tick to reconcile. A tick
+        already running read tmux before the kill and may publish them once more (the client
+        hides those, app.js endPane)."""
+        with self._publish_lock:  # a tick publishing meanwhile must not swallow the bump
+            self.states = [s for s in self.states if s.get("pane_id") not in pane_ids]
+            self._bump_state_if_changed(self.states)
+        for pane_id in pane_ids:
+            self.request_reparse(pane_id)
+
     def invalidate_input_actions(self, pane_id: str) -> None:
         """Invalidate actions before a pane-input transaction can take its send lock."""
         with self._input_generation_lock:
@@ -568,7 +584,8 @@ class Watcher:
 
     def _tick(self) -> None:
         self._delete_forgotten()
-        if not tmux.server_running():
+        self.tmux_running = tmux.server_running()
+        if not self.tmux_running:
             self._collection_failed = False
             self._gc(set())  # confirmed server absence ends every pane lifetime
             self._publish_states([])
@@ -740,9 +757,10 @@ class Watcher:
                         history_server: str | None = None) -> None:
         # Publish a fresh snapshot so replacing/enriching the next startup result does
         # not mutate the deck already visible to HTTP handlers between version bumps.
-        self.states = [dict(s) for s in states]
-        self._booted = True
-        self._bump_state_if_changed(self.states)
+        with self._publish_lock:
+            self.states = [dict(s) for s in states]
+            self._booted = True
+            self._bump_state_if_changed(self.states)
         # Progressive UI publication mixes old and newly parsed pane states. Only
         # the final inventory for a tick belongs in durable history.
         if record_history and self.history is not None:
@@ -792,6 +810,7 @@ class Watcher:
         parts = [
             repr((
                 s.get("pane_id"), s.get("tmux_active"), s.get("session_active"),
+                s.get("birth"),  # a recycled %N is a new pane even where nothing else differs
                 # The structural identity the phone RENDERS (headers, window numbers):
                 # a renumber/rename with unchanged content must still bump the version.
                 s.get("session"), s.get("window_index"), s.get("window_name"),
@@ -811,7 +830,9 @@ class Watcher:
         return "\n".join(parts)
 
     def _bump_state_if_changed(self, states: list[dict]) -> None:
-        fp = self._deck_fp(states)
+        # tmux_running is in the fingerprint: an empty deck whose server stops (or starts)
+        # changes nothing else, and the phone would hold a stale empty state for a poll.
+        fp = (self.tmux_running, self._deck_fp(states))
         if fp == self._state_fp:
             return
         self._state_fp = fp
@@ -1438,13 +1459,16 @@ class Watcher:
             # is worse than a stale card. We failed to read the screen, so the honest
             # card is the last one we actually read: keep it whole and retry next tick.
             # Identity, timers and the snapshot id are re-stamped below from live tmux.
+            # Links are the exception: a parse fails when its question or rewind is
+            # rejected, yet the URLs it read off the screen still stand, and a login
+            # link printed in that turn would otherwise never reach the card.
             replacement_tool = state.get("identity_tool")
             previous_tool = previous.get("identity_tool", previous.get("tool"))
             known_replacement = (
                 replacement_tool not in (None, "unknown")
                 and replacement_tool != previous_tool
             )
-            state = dict(previous)
+            state = {**previous, "links": state.get("links") or previous.get("links")}
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)
