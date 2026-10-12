@@ -97,9 +97,10 @@ CASES = [
     ),
     (
         # A duplicated title can't be filtered for, however far: walk to the tapped index.
+        # Its read-back can't say which "beta" it is, so the walk takes the parse there.
         "a far duplicate title is walked to by its index, not searched for",
         {"options": ["beta", "a", "b", "c", "d", "e", "beta"], "selected": 5,
-         "keymap": FULL_KM, "reads": True},
+         "keymap": FULL_KM},
         "beta", 0,
         {"sent": ["Up"] * 5 + ["Enter"], "selected": 0, "notes": []},
     ),

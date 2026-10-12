@@ -139,13 +139,13 @@ function bindings(q) {
   };
 }
 
-// The option a highlighted row as drawn names, else null: the option it is exactly (among
-// identical duplicates, the one the key was meant to land on), or failing that the one
-// option it starts with ahead of a value column, as classify grounds it.
-function rowIndex(options, label, expect) {
+// The one option a highlighted row as drawn names, else null: the option it is exactly,
+// or failing that the one it starts with ahead of a value column, as classify grounds it.
+// Identical duplicates stay unresolved: a label alone can't say which one it is.
+function rowIndex(options, label) {
   const at = (named) => options.flatMap((o, i) => (named(o) ? [i] : []));
   const exact = typeof label === "string" ? at((o) => o === label) : [];
-  if (exact.length) return exact.length === 1 ? exact[0] : exact.includes(expect) ? expect : null;
+  if (exact.length) return exact.length === 1 ? exact[0] : null;
   const prefixed = typeof label === "string" ? at((o) => label.startsWith(`${o}  `)) : [];
   return prefixed.length === 1 ? prefixed[0] : null;
 }
@@ -154,9 +154,9 @@ function rowIndex(options, label, expect) {
 // so no step waits on the model's parse. An unchanged digest is a key that moved nothing.
 // Null where it read none, or a row this list does not name (scrolled past it): then the
 // walk waits for the parse instead.
-function after(q, sent, expect) {
+function after(q, sent) {
   if (!sent?.picker) return null;
-  const at = sent.picker === q.picker ? q.selected : rowIndex(q.options, sent.row, expect);
+  const at = sent.picker === q.picker ? q.selected : rowIndex(q.options, sent.row);
   return at === null ? null : { ...q, picker: sent.picker, selected: at };
 }
 
@@ -184,7 +184,9 @@ async function walk(io, targetText, targetIndex) {
     const live = picker(io);
     if (!live) return false;
     const q = read || live;
-    const km = bindings(live); // a read-back grounds the row, never the bindings: the parse does
+    // A read-back grounds the row, never the bindings: those are the widget's, not its
+    // highlight's, so no move changes them, and the latest parse is the one to trust.
+    const km = bindings(live);
     // The tapped index identifies the row only while the list has not moved under it.
     // "Same text at the same index" is not proof on its own: two sessions can share a
     // title, and after a scroll index 2 can be a DIFFERENT session wearing the same name.
@@ -222,7 +224,7 @@ async function walk(io, targetText, targetIndex) {
     }
     if (!sent) return false; // undelivered: the anchor is now a lie
     if (at === want) return true;
-    read = after(q, sent, at < want ? at + 1 : at - 1);
+    read = after(q, sent);
     if (read) { if (read.selected === at) return false; continue; } // a key that moved nothing
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
