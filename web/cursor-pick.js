@@ -139,13 +139,15 @@ function bindings(q) {
   };
 }
 
-// The option a highlighted row as drawn names (itself, or itself ahead of a value column,
-// as classify grounds it): the one that does, or among several alike the one the key was
-// meant to land on, else null.
+// The option a highlighted row as drawn names, else null: the option it is exactly (among
+// identical duplicates, the one the key was meant to land on), or failing that the one
+// option it starts with ahead of a value column, as classify grounds it.
 function rowIndex(options, label, expect) {
-  const named = typeof label === "string"
-    ? options.flatMap((o, i) => (label === o || label.startsWith(`${o}  `) ? [i] : [])) : [];
-  return named.length === 1 ? named[0] : named.includes(expect) ? expect : null;
+  const at = (named) => options.flatMap((o, i) => (named(o) ? [i] : []));
+  const exact = typeof label === "string" ? at((o) => o === label) : [];
+  if (exact.length) return exact.length === 1 ? exact[0] : exact.includes(expect) ? expect : null;
+  const prefixed = typeof label === "string" ? at((o) => label.startsWith(`${o}  `)) : [];
+  return prefixed.length === 1 ? prefixed[0] : null;
 }
 
 // The next frame a walk plans off: the screen a delivered key made, as /send read it back,

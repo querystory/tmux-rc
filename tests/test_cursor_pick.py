@@ -113,6 +113,16 @@ CASES = [
         {"sent": ["r1"], "selected": 0, "notes": 1},
     ),
     (
+        # Each key jumps two rows, so a Down from "Start" lands on "Fix  login bug": the
+        # read-back names exactly that row, and is never taken for the "Fix" it starts with
+        # (which would commit the wrong row). The walk never gets there, so it never commits.
+        "a read-back exactly naming a row is never taken for its prefix",
+        {"options": ["Start", "Fix", "Fix  login bug"], "selected": 0, "keymap": NO_SEARCH_KM,
+         "reads": True, "stride": 2},
+        "Fix", 1,
+        {"sent": ["Down", "Up"] * 15, "selected": 0, "notes": 1},
+    ),
+    (
         # A row whose title carries a control character is never typed into the box.
         "a far row with a control character is not filtered for",
         {"options": [f"r{i}" for i in range(19)] + ["r\u001b"], "selected": 0,
@@ -408,7 +418,7 @@ function fake(spec) {{
       // frames have been read — so "newer" is true well before the move has happened.
       if (step && p.selected !== null) {{
         if (spec.stale_frames) p.lag = {{ step, left: spec.stale_frames }};
-        else p.selected += step;
+        else p.selected += step * (spec.stride || 1);
       }}
       // A committed picker goes away, which is what lets the post-commit hold end. The
       // exception models the real lag the hold exists for: the pane is still publishing
