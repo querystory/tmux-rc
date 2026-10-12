@@ -76,11 +76,19 @@ _RESTORED = ("[Restored conversation] This session reconnected and lost its hist
 # A reply that only agrees means something only against a question just asked; live._approved
 # refuses a pane change for one that has none (unanchored), and warns on the card otherwise.
 # Matched on the words alone, so punctuation ("yes,", "ok - do it") can't slip past it.
-# Politeness ("yes, thanks") adds nothing to agree with either.
+# Politeness ("yes, thanks") adds nothing to agree with either, nor does a lead-in such as
+# "that's" (split at its apostrophe, either kind, to "that s").
 _AGREE = (r"(yes|yeah|yep|yup|y|ok|okay|k|sure|do it|go|go ahead|go for it|please|please do|"
+          r"that s|that is|thats|it s|it is|its|let s|lets|"
           r"sounds good|alright|all right|fine|great|cool|perfect|absolutely|definitely|correct|"
           r"right|confirm(ed)?|approved?|thanks|thank you|thx|ty|cheers)")
 _BARE = re.compile(rf"{_AGREE}( {_AGREE})*")
+
+
+def only_agrees(text: str) -> bool:
+    return bool(_BARE.fullmatch(" ".join(re.findall(r"\w+", text.casefold()))))
+
+
 # A question mark that ends a sentence, so a URL's query string isn't one.
 _ASKS = re.compile(r"\?(?=[\s*_)\"']|$)")
 CAUTION_RESTORED = "The chat reconnected and its context was restored: check this is what you meant"
@@ -148,7 +156,7 @@ class _Chat:
                 cut = self._starts[-TURNS_KEPT]
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
-            bare = bool(_BARE.fullmatch(" ".join(re.findall(r"\w+", text.casefold()))))
+            bare = only_agrees(text)
             self.unanchored = bare and not anchored
             self.caution = (CAUTION_RESTORED if self._restored
                             else CAUTION_BARE.format(text.strip()) if bare else None)

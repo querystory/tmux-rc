@@ -428,6 +428,13 @@ def test_a_bare_yes_with_nothing_asked_never_reaches_a_pane(monkeypatch):
     assert s.asked  # the model asked back, so the next "yes" has its referent
 
 
+@pytest.mark.parametrize(("text", "bare"), [
+    ("Yes, that's fine", True), ("that’s right, go ahead", True), ("let's go", True),
+    ("yes, that's the auth fix", False), ("yes, rebase it", False)])
+def test_agreement_is_matched_on_its_words(text, bare):
+    assert C.only_agrees(text) is bare
+
+
 def test_a_question_anchors_only_the_next_message_sent():
     """A "yes" queued while a turn runs was written before that turn's reply: a question
     in the reply must not anchor it after the fact."""

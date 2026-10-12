@@ -590,7 +590,7 @@ async def _approved(
     an approval must not type into whatever holds the id by the time the user taps. A
     malformed call can be approved and is still refused by _dispatch: this gate only ever
     removes actions. A turn that only agrees ("yes") with nothing asked is refused before any
-    card (live_chat._BARE); the session's caution, if any, rides on the card."""
+    card (live_chat.only_agrees); the session's caution, if any, rides on the card."""
     if getattr(session, "unanchored", False):
         rec["consent"] = "unanchored"
         return False, None
