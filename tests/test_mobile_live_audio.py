@@ -709,7 +709,7 @@ def test_a_card_outlives_a_dropped_connection():
 def test_a_view_change_while_connecting_goes_in_a_new_handshake():
     """The daemon reads nothing from a socket until it is listening, so with a card waiting
     a view change then replaces the socket, whose handshake carries the new view; during a
-    provider reconnect the daemon still reads it, so it goes as a frame at once."""
+    provider reconnect's backoff the daemon still reads it, so it goes as a frame at once."""
     _run_live(r"""
 (async () => {
   const $ = (id) => document.getElementById(id);
@@ -731,8 +731,9 @@ def test_a_view_change_while_connecting_goes_in_a_new_handshake():
   $('voice-close').onclick(); // heard by live._hold: a frame, no socket churn
   assert.equal(sockets.length, 3);
   assert.deepEqual(sockets[2].viewing, [false]);
-  say(sockets[2], {type: 'status', status: 'listening'});
-  assert.deepEqual(sockets[2].viewing, [false]);
+  say(sockets[2], {type: 'status', status: 'connecting'}); // the retry's connect: unread again
+  [...document.body.children][0].onclick();
+  assert.equal(sockets.length, 4); assert.match(sockets[3].url, /[?&]viewing=1/);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 

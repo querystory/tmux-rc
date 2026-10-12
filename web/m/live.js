@@ -74,9 +74,9 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // A card left waiting while nobody looks pushes "Chat needs you" (live._nudge), so the
   // daemon hears each change, and a fresh socket the view at connect, in its handshake.
   // Until a socket is first listening the daemon reads nothing from it, so a waiting card's
-  // change then goes in a new socket's handshake. A provider reconnect is not that: the
-  // daemon still reads the view meanwhile (live._hold), so it goes as a frame, and a
-  // provider down never churns sockets.
+  // change then goes in a new socket's handshake. A provider reconnect's backoff is not that:
+  // the daemon still reads the view meanwhile (live._hold), so it goes as a frame, and a
+  // provider down never churns sockets. Its next "connecting" is again unread.
   function viewing(current = run) {
     const on = dialog.open && !document.hidden;
     if (!current || current.viewing === on) return;
@@ -426,7 +426,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
-        if (message.status === "reconnecting") current.held = true; // see viewing()
+        current.held = message.status === "reconnecting"; // see viewing()
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); resync(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
