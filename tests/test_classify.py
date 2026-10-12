@@ -1317,7 +1317,8 @@ def test_question_naming_list_items_carries_them():
     question = classify(_pane("claude"), _auto_screen(message), _llm({}))["question"]
     assert question["items"] == ["1. Move the build cache to disk.",
                                  "2. Close idle worker sessions."]
-    for ask in ("Want me to do 1 please?", "Start with 2 tomorrow?", "Make edit 2 immediately?"):
+    for ask in ("Want me to do 1 please?", "Start with 2 tomorrow?", "Make edit 2 immediately?",
+                "Do Item 2 first?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert classify(_pane("claude"), screen, _llm({}))["question"]["items"]
     ranged = classify(_pane("claude"), _auto_screen(message.replace(
@@ -1326,7 +1327,8 @@ def test_question_naming_list_items_carries_them():
     # A count, a PR number or a menu's own option numbers name no list item.
     for ask in ("Want me to fix the 7 failing tests?", "Should I merge #2?",
                 "There are 2 failing tests; should I fix them?", "Shall I fix 2 bugs?",
-                "Want me to fix 2 PRs?", "Should I start at 2 pm?", "Start in 2 minutes?"):
+                "Want me to fix 2 PRs?", "Should I start at 2 pm?", "Start in 2 minutes?",
+                "Should I upgrade to Python 3?"):
         screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
         assert "items" not in classify(_pane("claude"), screen, _llm({}))["question"]
     # The parser's own copy of the rows, as buttons or a table keyed by them, goes; other
@@ -1401,10 +1403,13 @@ def test_model_options_for_the_same_question_skip_the_extra_call(replies):
     other = {"prompt": "Pick a color", "options": ["red"]}
     assert _ask(make({"options": ["Yes", "No"]}), other)["options"] == ["Yes", "No"]
     assert calls == [ASK]
-    # The list the question names, echoed as its options, is context: replies are asked for.
-    rows = {"prompt": ASK, "options": ["1. Send it to Copilot", "2. Merge it"]}
-    classify_mod._replies.clear()
-    assert _ask(make({"options": ["Yes", "No"]}), rows)["options"] == ["Yes", "No"]
+    # Numbered options are replies unless they are the rows the question names: then they
+    # are context, and the reply call is asked instead.
+    choice = {"prompt": "Which backend?", "options": ["1. PostgreSQL", "2. Redis"]}
+    assert _ask(make({}), choice, "Which backend?")["options"] == choice["options"]
+    named = "Ways forward:\n  1. Send it to Copilot.\n  2. Merge it.\n\n  Do 1 then 2?"
+    rows = {"prompt": "Do 1 then 2?", "options": ["1. Send it to Copilot", "2. Merge it"]}
+    assert _ask(make({"options": ["Yes", "No"]}), rows, named)["options"] == ["Yes", "No"]
 
 
 def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):

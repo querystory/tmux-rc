@@ -613,16 +613,17 @@ def _final_paragraph(message: str) -> str:
 
 
 # A numbered list row (inside any frame), and a number a prompt names: "do 1 please",
-# "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A count or a time reads
-# as one from its neighbours: a determiner, copula or time preposition before it ("there are
-# 2", "the 7", "at 2"), or a plural or unit within the next two words ("2 PRs", "2 failing
-# tests", "2 pm"). Precision beats recall here: a missed reference leaves the bare question
-# the card showed before, while a count read as a reference would show an unrelated row as
-# what the question means.
+# "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A count, time or
+# version reads as one from its neighbours: a determiner, copula, time preposition, name or
+# "version" before it ("there are 2", "the 7", "at 2", "Python 3"), or a plural or unit
+# within the next two words ("2 PRs", "2 failing tests", "2 pm"). Precision beats recall:
+# a missed reference leaves the bare question the card showed before, while a count read
+# as a reference would show an unrelated row as what the question means.
 _NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
 _ITEM_REF_RE = re.compile(r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?(?![\w%:/]|\.\d)")
 _COUNT_BEFORE_RE = re.compile(
-    r"(?i)\b(?:the|these|those|all|are|is|were|was|of|about|at|by|until|in)\s+$")
+    r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version)\s+$"
+    r"|(?<=\s)(?!(?:Items?|Edits?|Steps?|Options?|Points?|Rows?)\b)[A-Z][\w.+-]*\s+$")
 _COUNT_AFTER_RE = re.compile(
     r"(?i)\s+(?:[a-z]+\s+)?(?:(?!(?:as|is|us|yes|this|thus|plus)\b)[a-z]*[^\Wsiu]s|am|pm|a\.m|"
     r"p\.m|min|mins|minutes?|h|hrs?|hours?|days?|weeks?|seconds?|secs?|[kmgt]b|percent)\b")
@@ -698,20 +699,20 @@ def _final_ask(visible: str, tool: str) -> dict | None:
     return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
 
 
-def _list_row(option: object) -> bool:
-    return isinstance(option, str) and bool(_LIST_ITEM_RE.match(option.strip()))
+def _row_number(option: object) -> str | None:
+    """The number of an option written as a list row ("1. Fix the cache"), else None."""
+    m = isinstance(option, str) and re.match(r"\s*(\d{1,2})[.)]\s", option)
+    return m[1] if m else None
 
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
     """Suggested replies as buttons: strings only, short, deduped, printable (an option is
-    typed into the agent's input box), none that just repeat a prompt, and no list rows
-    ("1. Fix the cache"): those are the context the question names, which question.items
-    carries, not a reply to type. Callers cap the count."""
+    typed into the agent's input box), none that just repeat a prompt. Callers cap the count."""
     repeats = {p.casefold() for p in prompts}
     picks: dict[str, str] = {}
     for o in raw if isinstance(raw, list) else []:
         if (isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.isprintable()
-                and o.strip().casefold() not in repeats and not _list_row(o)):
+                and o.strip().casefold() not in repeats):
             picks.setdefault(o.strip().lower(), o.strip())
     return list(picks.values())
 
@@ -1057,9 +1058,12 @@ def classify(
         if rows := style == "text" and asked and _referenced_rows(asked, visible):
             question["items"] = [_item(n, text) for n, text in rows.items()]
             # The parser's own copy of those rows, as answer buttons or a table, would show
-            # them twice.
-            if isinstance(question.get("options"), list):
-                question["options"] = [o for o in question["options"] if not _list_row(o)]
+            # them twice; with only those for buttons, the reply call offers real replies.
+            options = question.get("options")
+            kept = [o for o in options if _row_number(o) not in rows] if isinstance(
+                options, list) else options
+            if kept != options:
+                question["options"] = kept or _reply_options(asked, replies_fn)
             if isinstance(result.get("tables"), list):
                 result["tables"] = [t for t in result["tables"] if not _restates(t, rows)] or None
         # Numbered menus only: a cursor picker is a plain choice, never an approval.

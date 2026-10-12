@@ -345,6 +345,9 @@ def option_keys(question: dict, index: int) -> str:
     return option
 
 
+PUSH_BODY_MAX = 400
+
+
 def _push_text(value, limit: int) -> str:
     """Bound encrypted payload size while keeping the full question in the deep link."""
     text = str(value or "").strip()
@@ -502,13 +505,21 @@ class PushManager:
             if len(rate) >= RATE_MAX:
                 continue
             offered = renderable_options(question)[:2] if question else []
+            # A widget's plain restatement ("Do you want to proceed?" alone says
+            # nothing; classify._restate), else the prompt itself, then the list rows
+            # it names by number ("Do 1 now?" alone says nothing either).
+            items = (question or {}).get("items") or []
+            body = "\n".join([(question or {}).get("ask") or (question or {}).get("prompt")
+                              or pane.get("headline") or "Needs your attention", *items])
             # A menu with no widget rows (one taller than classify reads, or none) can't
             # tell one "Do you want to proceed?" from the next, so its nonce could approve
             # a later command; an approval not yet restated (a failed call, retried) would
-            # be approved blind. Either way the notification only opens the app.
+            # be approved blind. Nor is one whose named rows the body cannot fit. Either
+            # way the notification only opens the app.
             style = (question or {}).get("answer_style")
             if (style == "cursor" or (style == "menu" and not question.get("context"))
                     or (style == "menu" and is_approval(question) and not question.get("ask"))
+                    or (items and len(body) > PUSH_BODY_MAX)
                     or not self.watcher.pane_birth(pane_id)):
                 offered = []
             nonce = secrets.token_urlsafe(24) if offered else None
@@ -529,16 +540,7 @@ class PushManager:
                 "title": _push_text(
                     pane.get("title") or pane.get("label") or pane_id, 100
                 ),
-                # A widget's plain restatement ("Do you want to proceed?" alone says
-                # nothing; classify._restate), else the prompt itself, then the list rows
-                # it names by number ("Do 1 now?" alone says nothing either).
-                "body": _push_text("\n".join([
-                    (question or {}).get("ask")
-                    or (question or {}).get("prompt")
-                    or pane.get("headline")
-                    or "Needs your attention",
-                    *((question or {}).get("items") or []),
-                ]), 400),
+                "body": _push_text(body, PUSH_BODY_MAX),
                 "tag": f"block:{pane_id}",
                 "url": url,
                 "nonce": nonce,

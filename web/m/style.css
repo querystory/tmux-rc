@@ -465,7 +465,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-card.need { background: var(--amber-bg); --card: var(--amber-bg); }
 .sb-card .sb-open { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; padding: 7px 10px; white-space: normal; }
 .sb-open p { flex-basis: 100%; padding-left: 31px; color: var(--muted); font-size: 12px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.sb-open p.sb-items { color: var(--fg); white-space: pre-line; -webkit-line-clamp: 4; }
+.sb-open p.sb-items { display: block; color: var(--fg); white-space: pre-line; } /* never clipped: the answers below act on these rows */
 .sb-open p.sb-items:empty { display: none; }
 .sb-open:not(:disabled):hover { background: transparent; } /* the row underneath carries state and selection */
 :is(.sb-row, .sb-card):not(.need):not([aria-current="true"]):hover { background: var(--raised); }
