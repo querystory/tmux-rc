@@ -33,11 +33,14 @@ class Channel {
 }
 
 // `holds`: the card id this window's chat holds, which it answers sw.js's question with.
-const fakeWindow = (url, { navigate = async () => {}, holds } = {}) => {
+// A `silent` window is suspended and never answers; a `gone` one closed after matchAll().
+const fakeWindow = (url, { navigate = async () => {}, holds, silent, gone } = {}) => {
   const w = { url, posted: [], navigated: [], focused: 0, askedAfterFocus: [] };
   w.postMessage = (message, [port] = []) => {
+    if (gone) throw new TypeError("client gone");
     w.posted.push(structuredClone(message)); // into this realm, as a real post
-    if (port) { w.askedAfterFocus.push(w.focused > 0); port.postMessage(message.chat === holds); }
+    if (port) w.askedAfterFocus.push(w.focused > 0);
+    if (port && !silent) port.postMessage(message.chat === holds);
   };
   w.navigate = async (target) => { w.navigated.push(target); return navigate(target); };
   w.focus = async () => { w.focused += 1; };
@@ -79,4 +82,13 @@ test("with several app windows, only the one holding the card is focused", async
   assert.equal(owner.focused, 1);
   assert.equal(other.focused, 0);
   assert.deepEqual(owner.askedAfterFocus, [false]); // asked once, before the focus
+});
+
+test("the owner is focused as soon as it answers, past a suspended or closed window", async () => {
+  const gone = fakeWindow("https://host/m", { gone: true }), asleep = fakeWindow("https://host/m", { silent: true });
+  const owner = fakeWindow("https://host/m", { holds: "c1" }), start = Date.now();
+  await tap("/m", [gone, asleep, owner], "c1");
+  assert.ok(Date.now() - start < 500); // not held for the suspended window's timeout
+  assert.equal(owner.focused, 1);
+  assert.equal(asleep.focused + gone.focused, 0);
 });

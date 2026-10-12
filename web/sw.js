@@ -24,11 +24,12 @@ self.addEventListener("push", (event) => {
 });
 
 // Asks one app window whether its chat holds this waiting card (by id, so with two tabs
-// holding cards only the push's own answers): the window, or null.
-const holdsCard = (card) => (client) => new Promise((resolve) => {
+// holding cards only the push's own answers): the window, or a rejection for a no, no
+// answer in time, or a window closed since (its postMessage throws).
+const holdsCard = (card) => (client) => new Promise((resolve, reject) => {
   const { port1, port2 } = new MessageChannel();
-  port1.onmessage = ({ data }) => resolve(data === true ? client : null);
-  setTimeout(() => resolve(null), 1000);
+  port1.onmessage = ({ data }) => (data === true ? resolve(client) : reject());
+  setTimeout(reject, 1000);
   client.postMessage({ chat: card }, [port2]);
 });
 
@@ -55,9 +56,10 @@ self.addEventListener("notificationclick", (event) => {
     // A chat lives in the open app: navigating would reload it away, so the app window whose
     // chat holds the card is asked to bring it back. A lone one (a home-screen app's) is
     // focused before it is asked: iOS may drop a focus that waits on a reply, and a suspended
-    // page cannot reply until it is woken. Several are each asked first, to focus the owner;
-    // if none answers in time, the most recently focused (matchAll's order) is, and is asked.
-    const owner = data.chat && apps.length > 1 && (await Promise.all(apps.map(holdsCard(data.chat)))).find(Boolean);
+    // page cannot reply until it is woken. Several are each asked first, and the first to
+    // say it owns the card is focused at once; if none does, the most recently focused
+    // (matchAll's order) is, and is asked.
+    const owner = data.chat && apps.length > 1 && await Promise.any(apps.map(holdsCard(data.chat))).catch(() => null);
     const existing = owner || apps[0] || windows[0];
     if (existing) {
       try {
@@ -65,7 +67,7 @@ self.addEventListener("notificationclick", (event) => {
         if (!apps.length) await existing.navigate(target);
         else if (!data.chat) existing.postMessage({ open: target });
         const focused = existing.focus();
-        if (data.chat && apps.length && !owner) holdsCard(data.chat)(existing);
+        if (data.chat && apps.length && !owner) holdsCard(data.chat)(existing).catch(() => {});
         return focused;
       } catch {}
     }
