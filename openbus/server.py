@@ -872,12 +872,14 @@ def send(pane_id: str, body: SendBody, request: Request):
             msg = f"The picker {prompt!r} changed since it was read; nothing was sent."
             raise tmux.PaneChangedError(msg)
         # A rowless send only moves or types search text, so it can never commit a row:
-        # no Enter, and a key only a move (the keymap is model output, so it may misread
-        # Enter as `next`). Committing is a select's, held to its row below.
+        # no Enter, text only where that parse saw a search box, and a key only a move
+        # (the keymap is model output, so it may misread Enter as `next`). Committing is a
+        # select's, held to its row below.
         moves = [key for key in (keymap.get("next"), keymap.get("prev"))
                  if isinstance(key, str) and key != keymap.get("select")]
-        if row is None and (body.enter or (any(c in body.keys for c in "\r\n") if body.literal
-                                           else body.keys not in moves)):
+        if row is None and (body.enter or (
+                keymap.get("search") is not True or any(c in body.keys for c in "\r\n")
+                if body.literal else body.keys not in moves)):
             msg = f"{body.keys!r} is not a move in {prompt!r}; nothing was sent."
             raise tmux.PaneChangedError(msg)
         if row is not None and (

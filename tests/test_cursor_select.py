@@ -148,6 +148,8 @@ def test_a_picker_prompt_may_close_on_a_count():
     # More words, outside a parenthetical, are still a different picker.
     longer = RESUME.replace("(1 of 12)", "for deployment (1 of 12)")
     assert picker_digest(longer, "Resume session") is None
+    other = RESUME.replace("(1 of 12)", "(archived)")  # only a live count is dropped
+    assert picker_digest(other, "Resume session") is None
 
 
 def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
@@ -185,6 +187,8 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
         reparsed.clear()
         assert send(keys, enter=enter, literal=literal) == 409
         assert reparsed
+    parse()["question"]["keymap"]["search"] = False  # a parse with no search box: no typing
+    assert send("harbor", literal=True) == 409
     read["question"]["keymap"]["next"] = "Enter"  # a misread binding is no move either
     parse()
     assert send("Enter") == 409

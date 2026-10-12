@@ -92,7 +92,10 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 _HIGHLIGHT_RE = re.compile(
     rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
     r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
-_LIVE_COUNT_RE = re.compile(r"\s*\(\d+ of \d+\)\s*$")
+# A picker heading's live count ("Resume session (1 of 47)"): it redraws with every move
+# and filter while the picker stays the same, so it is never part of the prompt.
+_LIVE_COUNT = r"\(\d+ of \d+\)"
+_LIVE_COUNT_RE = re.compile(rf"\s*{_LIVE_COUNT}\s*$")
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
 
 
@@ -393,12 +396,11 @@ def _question_prompt(question) -> str | None:
 def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Match]:
     """The prompt's matches; with row, only those that are a whole row bar the frame (and
     a search field's ⌕), so the same words inside a command (`printf "Proceed?"; rm …`)
-    never stand in for it. The row may close on one parenthetical the model drops as
-    chrome: a live count like /resume's "Resume session (1 of 47)" redraws as the list
-    filters, while the picker is the same. More words outside one are another prompt."""
+    never stand in for it. The row may close on a live count, which the model drops; any
+    other words after the prompt ("… for deployment", "(production)") are another one."""
     words = r"\s+".join(map(re.escape, prompt.split()))
     if row:
-        words = rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*\([^()\n]*\))?(?=[ \t│┃╎]*$)"
+        words = rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?(?=[ \t│┃╎]*$)"
     return list(re.finditer(words, visible, re.IGNORECASE | re.MULTILINE))
 
 
@@ -1066,8 +1068,7 @@ def classify(
         ) for line in footer):
             keymap["search"] = True
         rows, asked = question.get("options"), _question_prompt(question)
-        if asked:  # a live count ("(1 of 47)") redraws with every move: it is no part of
-            # the picker's identity, which the walk and /send hold across moves
+        if asked:  # the walk and /send hold the prompt across moves, which redraw the count
             question["prompt"] = asked = _LIVE_COUNT_RE.sub("", asked)
         for key in ("highlight", "picker"):  # read off the screen, never passed through
             question.pop(key, None)
