@@ -2,13 +2,15 @@
 guess. Every config dir here is a temp dir: never the real ~/.claude or ~/.codex."""
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
-from openbus import expunge, server, tmux
+from openbus import expunge, server, tmux, watcher
 from openbus.expunge import Refused, Session
 
 A, B = "0f0f0f0f-1111-4222-8333-444444444444", "0e0e0e0e-5555-4666-8777-888888888888"
@@ -235,10 +237,9 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
 
     def kill(pane_id, pid=None):  # tmux.kill_window's guard, as the tmux server applies it
         if panes[pane_id] != pid:
-            return False
+            return []
         order.append("kill")
-        panes.pop(pane_id)
-        return True
+        return [(pane_id, panes.pop(pane_id))]
     monkeypatch.setattr(tmux, "find_pane", find_pane)
     monkeypatch.setattr(tmux, "pane_pid", panes.get)
     monkeypatch.setattr(tmux, "kill_window", kill)
@@ -248,7 +249,7 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
     monkeypatch.setattr(expunge, "alive", lambda s: True)
     server.app.state.watcher = SimpleNamespace(
         checkpoint_key=lambda pane_id, pid: f"boot:1:{pane_id}:{pid}", history=object(),
-        forget_checkpoint=lambda uid: order.append(uid) or True)
+        forget_checkpoint=lambda uid: order.append(uid) or True, drop_panes=order.append)
     client = TestClient(server.app)
     # Identified under 1234, but %1 is 999's by the kill: nothing is killed or deleted.
     assert client.post("/api/panes/work:0.0/expunge", json=CONFIRM).status_code == 409
@@ -256,16 +257,44 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
     panes["%1"] = "1234"
     r = client.post("/api/panes/work:0.0/expunge", json=CONFIRM)
     assert r.status_code == 200 and r.json()["lines"] == 1
-    assert order == ["kill", "gone", "boot:1:%1:1234"]
+    assert r.json()["killed"] == [["%1", "1234"]]
+    assert order == ["kill", {"%1"}, "gone", "boot:1:%1:1234"]  # unpublished at the kill
     assert not (claude / f"projects/-src-api/{A}.jsonl").exists()
 
 
-def test_kill_window_guard_runs_in_one_tmux_command(monkeypatch):
-    sent = []
-    monkeypatch.setattr(tmux, "_run", lambda argv: sent.append(argv) or "kept\n")
-    assert not tmux.kill_window("%1", "1234")  # the other branch ran: the pane changed hands
-    assert sent == [["if-shell", "-F", "-t", "%1", "#{==:#{pane_pid},1234}", "kill-window -t %1",
-                     "display-message -p kept"]]
+def test_a_killed_window_leaves_the_next_state_at_once(monkeypatch):
+    """The deck the watcher published before the kill must not outlive it until a tick."""
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid="1234"))
+    # tmux names what it killed: %1 and a split of it, %3.
+    monkeypatch.setattr(tmux, "kill_window", lambda *_a: [("%1", "1234"), ("%3", "1240")])
+    monkeypatch.setattr(tmux, "prefix_key", lambda: "C-b")
+    w = watcher.Watcher(None, use_llm=False)
+    w._publish_states([{"pane_id": p} for p in ("%1", "%3", "%2")], record_history=False)
+    server.app.state.watcher = w
+    client = TestClient(server.app)
+    version = client.get("/api/state").json()["version"]
+    assert client.post("/api/panes/%251/close").json()["killed"] == [["%1", "1234"], ["%3", "1240"]]
+    state = client.get(f"/api/state?v={version}").json()  # returns now: the version moved
+    assert [p["pane_id"] for p in state["panes"]] == ["%2"] and "%1" in w._force_parse
+
+
+def test_kill_window_names_exactly_the_panes_it_killed(monkeypatch, tmp_path):
+    """On a throwaway server (-S): the guard and the listing run in the kill's own command."""
+    if not shutil.which("tmux"):
+        pytest.skip("tmux is not installed")
+    socket = str(tmp_path / "kill.sock")
+
+    def run(args):
+        return subprocess.check_output(["tmux", "-f", "/dev/null", "-S", socket, *args], text=True)
+    monkeypatch.setattr(tmux, "_run", run)
+    fmt = ["-P", "-F", "#{pane_id} #{pane_pid}"]
+    target = tuple(run(["new-session", "-d", "-x", "80", "-y", "20", *fmt, "sh"]).split())
+    split = tuple(run(["split-window", "-t", target[0], *fmt, "sh"]).split())
+    other = run(["new-window", "-d", *fmt, "sh"]).split()[0]
+    assert tmux.kill_window(target[0], "1") == []  # another process owns it now: kept
+    assert sorted(tmux.kill_window(target[0], target[1])) == sorted([target, split])
+    assert run(["list-panes", "-a", "-F", "#{pane_id}"]).split() == [other]
+    tmux.kill_window(other)  # its last window: the throwaway server exits with it
 
 
 def test_an_unreadable_registration_refuses(monkeypatch, tmp_path):

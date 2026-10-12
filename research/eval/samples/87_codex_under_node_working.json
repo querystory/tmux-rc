@@ -1,0 +1,14 @@
+{
+  "description": "Codex installed through npm runs as `node` (node running the codex script), so tmux's foreground process names no agent. This working screen shows no model or session footer, only Codex's own chrome: the bullet transcript (• Explored, • Ran, └ output), 'Working (… • esc to interrupt)', 'tab to queue message' and 'N% context left'. The work itself is about Claude Code (the docs it edits name it), and the model reads it as 'claude' every time, as it did live. The process tree under the pane is the ground truth: node running codex must pin the tool, as `processes` replays here.",
+  "current_command": "node",
+  "processes": [
+    "bash",
+    "node /opt/nvm/versions/node/v24/bin/codex",
+    "codex"
+  ],
+  "capture": "• Explored\n  └ Read launchers.md, agents.md\n    Search Claude Code in docs\n\n• The launcher page still says only Claude Code panes get a session name. I’m updating it to cover every agent and regenerating the screenshots that show the dock.\n\n• Edited docs/guide/launchers.md (+6 -3)\n    12 -Claude Code panes show the session name from its status line.\n    12 +Each agent pane shows its own session name when the agent prints one;\n    13 +Claude Code, Codex and omp all do.\n\n• Ran make screenshots\n  └ shot dock-desktop.png\n    shot dock-phone.png\n    … +9 lines (^t to view transcript)\n\n• Viewed image dock-phone.png\n\n• Working (2m 32s • esc to interrupt)\n\n\n›\n\n\n  tab to queue message                                                                    35% context left",
+  "expected": {
+    "tool": "codex",
+    "activity": "running"
+  }
+}

@@ -76,13 +76,15 @@ MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("G
 
 
 # Plan limits, one Claude and one weekly-only Codex account, as a typical day reads: a
-# light 5h window behind its even pace, a 7d window on pace to end in the 90s (amber), and
-# Codex ahead of pace with no 5h window at all. provider | name | the sessions whose
-# panes draw on it | per window: name, seconds, share of it gone at NOW, % used at NOW.
+# light 5h window behind its even pace, a 7d window on pace to end in the 90s (amber), a
+# per-model weekly limit, and Codex on pace to run out before its reset (red), with no 5h
+# window at all. provider | name | the sessions whose panes draw on it | per window: name,
+# seconds, share of it gone at NOW, % used at NOW.
 PLANS = [
     ("claude", "claude", SESSIONS, [("5h", 5 * 3600, 1 - 160 / 300, 16),
-                                    ("7d", 7 * 86400, 1 - 7.5 / 168, 89)]),
-    ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 14)]),
+                                    ("7d", 7 * 86400, 1 - 7.5 / 168, 89),
+                                    ("7d Fable", 7 * 86400, 1 - 7.5 / 168, 52)]),
+    ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 40)]),
 ]
 
 

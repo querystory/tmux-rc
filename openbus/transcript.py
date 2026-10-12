@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import plan_usage, tmux
-from .classify import _codex_model_segments, _runs, _session_chrome
+from .classify import _codex_model_segments, _programs, _session_chrome
 from .tmux import Pane
 
 # The final message sits at the end, but a session's file grows to megabytes (pasted
@@ -95,7 +95,7 @@ def _codex_file(pane: Pane, text: str) -> Path | None:
     A shell can print a captured footer, so Codex must also be running in the pane."""
     ids = {s.strip() for line in _session_chrome(text) if _codex_model_segments(line)
            for s in line.split("·") if _UUID_RE.fullmatch(s.strip())}
-    if len(ids) != 1 or not (pane.pid and _runs(pane.pid, "codex")):
+    if len(ids) != 1 or not (pane.pid and "codex" in _programs(pane.pid)):
         return None
     home = _home(pane, "codex")
     return _codex_rollout(home, ids.pop(), _stamp(home / "sessions" / time.strftime("%Y/%m/%d")))
