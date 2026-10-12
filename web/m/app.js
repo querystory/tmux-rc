@@ -1,5 +1,5 @@
 import { headerPicker, dismissable } from "/m/header-picker.js";
-import { renderAtlas, renderFleet, refreshAtlasHistory } from '/m/atlas.js';
+import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
@@ -106,7 +106,9 @@ const reviewing = () => effectiveLayout() !== "focus";
 const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
-let dashboard = false;
+// heatView: the dashboard's heatmap view replaces the page. Opened from its card, Back
+// steps back to that entry rather than stacking a second dashboard on it.
+let dashboard = false, heatView = false, heatFromCard = false;
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], statePanes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false, tmuxRunning = true;
 let focusPushComposer = false;
@@ -208,7 +210,7 @@ function notice(message = "", ms = 0) {
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
 function navigate(id = null, nextView = "summary", { mode } = {}) {
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard", filter, sort });
+  const next = formatHash({ pane: id, view: nextView, dashboard: ["dashboard", "heat"].includes(nextView), heat: nextView === "heat", filter, sort });
   const current = location.hash.slice(1);
   if (next !== current) {
     history[`${mode || historyMode(current, next)}State`](null, "", next ? `#${next}` : location.pathname + location.search);
@@ -234,12 +236,13 @@ function leaveMissingPane(id) {
 }
 
 function route() {
-  const wasDashboardVisible = dashboardVisible();
+  const wasDashboardVisible = dashboardVisible(), wasHeat = heatView;
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
   active = state.pane;
   focusPushComposer = state.compose;
-  ({ dashboard, view, filter, sort } = state);
+  ({ dashboard, view, filter, sort, heat: heatView } = state);
+  heatFromCard &&= heatView;
   if (active) returnPane = null;
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {
@@ -256,6 +259,8 @@ function route() {
   // aborted at once, so every navigation fetched events twice.
   restartDetail();
   render();
+  if (wasHeat && !heatView && dashboardVisible()) $("landing-foot").scrollIntoView({ block: "center" }); // back at the card
+  if (heatView && !wasHeat) $("landing").scrollTop = 0;
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
   }
@@ -379,7 +384,9 @@ function landingRows(id, subset) {
 }
 
 function renderLanding() {
+  if (heatView) return renderHeatView($("heat-view"), $("session-atlas")._scope || {}, licon, () => heatFromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" }));
   const waiting = panes.filter(needsYou);
+  paintUsage(); // follows the tool chips
   show("landing-back", panes.some((p) => p.pane_id === returnPane));
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
   // only for the loading and empty states, and hides itself when blank (style.css).
@@ -393,7 +400,7 @@ function renderLanding() {
     renderList();
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
-  }, licon, $("usage-panel"));
+  }, licon, $("usage-panel"), $("landing-foot"), () => { navigate(null, "heat"); heatFromCard = true; });
   landingRows("landing-attention", waiting);
 }
 
@@ -601,8 +608,10 @@ const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
   renderUsage($("usage"), shownUsage(usage, WIDE.matches ? "on" : usageMode), { wide: WIDE.matches });
   // The dashboard's panel draws every meter as a trend whatever the mode; tapped, it opens up.
-  show("usage-panel", usage.length > 0);
-  renderUsage($("usage-board"), usage, { wide: true, detail: usageDetail });
+  // The dashboard's tool chips filter it too, and a tool with no plan meters hides it.
+  const tool = $("session-atlas")._scope?.tool, board = tool ? usage.filter((a) => a.provider === tool) : usage;
+  show("usage-panel", board.length > 0);
+  renderUsage($("usage-board"), board, { wide: true, detail: usageDetail });
   $("usage-detail").ariaExpanded = usageDetail;
   $("usage-detail").ariaLabel = $("usage-detail").title = usageDetail ? "Hide details" : "Show details";
   html($("usage-detail"), licon(usageDetail ? "chevronUp" : "chevronDown"));
@@ -635,7 +644,7 @@ function render() {
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
-  show("landing", dashboardVisible());
+  show("landing", dashboardVisible()); show("landing-main", !heatView); show("heat-view", heatView);
   show("divider", wide); show("fleet", wide); show("fleet-handle", wide);
   renderList();
   if (!inPane) { if (dashboardVisible()) renderLanding(); return; }

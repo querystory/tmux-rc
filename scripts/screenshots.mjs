@@ -26,6 +26,8 @@ const SHOTS = [
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
+  ["wide-heatmap", WIDE, "light", "#view=dashboard", heatCard],
+  ["wide-heatmap-view", WIDE, "dark", "#view=heat", heatCell],
   ["wide-usage-detail", WIDE, "dark", "#view=dashboard", (page) => page.click("#usage-detail")],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
@@ -34,6 +36,8 @@ const SHOTS = [
   ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "", async (page) => { await page.click("#usage"); await page.click("#usage-detail"); }],
+  ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
+  ["mobile-heatmap-view", PHONE, "dark", "#view=heat", heatCell],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-question-items", PHONE, "light", "#pane=%2546"],
@@ -77,6 +81,31 @@ const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 async function showSubagents(page) {
   await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
+}
+
+// The heatmap card at the dashboard's foot, once the page above it has its height.
+async function heatCard(page) {
+  // The word cloud above lays out at random, and at the page's foot it is in frame.
+  await page.addStyleTag({ content: ".atlas-cloud { visibility: hidden; }" });
+  await page.waitForSelector(".atlas-heat-card .heat-grid");
+  await page.waitForTimeout(500); // the panels above settle their height first
+  await page.locator(".atlas-heat-card").scrollIntoViewIfNeeded();
+}
+// Older days page in while the foot is near; a shot waits until the day count holds still.
+async function heatSettled(page) {
+  let days;
+  for (let i = 0; i < 20; i++) {
+    await page.waitForSelector("#heat-view .heat-foot:not([aria-busy])");
+    await page.waitForTimeout(400);
+    const now = await page.locator("#heat-view .heat-day").count();
+    if (now === days) return;
+    days = now;
+  }
+}
+// The heatmap's own view, one cell's tip open.
+async function heatCell(page) {
+  await heatSettled(page);
+  await page.locator("#heat-view .heat-grid .heat-cell").nth(24 + 14).click(); // yesterday, 14:00
 }
 
 async function confirmExpunge(page) {

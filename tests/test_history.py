@@ -141,6 +141,20 @@ def test_endpoint_validates_range(tmp_path, monkeypatch):
     assert client.get("/api/history?window=all").json()["samples"][0]["n"] is None
 
 
+def test_endpoint_pages_back_with_before(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from openbus.server import app
+
+    h = History(tmp_path / "h.db")
+    h.record([], "s", 600)
+    monkeypatch.setattr(app.state, "history", h, raising=False)
+    samples = TestClient(app).get("/api/history?window=1h&before=4200000").json()["samples"]
+    assert samples[0]["t"] == 600_000
+    assert samples[-1]["t"] == 4_200_000  # the range ends at `before`, not now
+    assert TestClient(app).get("/api/history?before=inf").status_code == 400
+
+
 def test_watcher_publishes_full_inventory_to_history(tmp_path, monkeypatch):
     from openbus import tmux
     from openbus.watcher import Watcher

@@ -578,6 +578,10 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 
 .atlas-panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
 .landing-inner .atlas-panel-heading h3 { margin: 0; }
+/* A card's heading row is a 44px row of controls, whose own air above the title would
+   double the card's padding; pulled up into it, the title sits as far from the top as
+   the card's content does from its sides. */
+.atlas-panel > .atlas-panel-heading:first-child { min-height: 44px; margin-top: -12px; }
 .atlas-reset-zoom { font-size: 12px; color: var(--accent); padding: 4px 8px; }
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
@@ -666,6 +670,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   #landing { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   #landing .landing-inner { padding: 20px 16px; }
   #landing .atlas-panel { padding: 16px; }
+  #landing .atlas-panel > .atlas-panel-heading:first-child { margin-top: -8px; } /* less pull: a phone wraps the controls off the title's line */
   #list-nav button { font-size: 11px; }
   .sb-only { display: none !important; }
   .search { margin: 8px 16px; border: 0; border-radius: 10px; background: var(--raised); }
@@ -784,7 +789,6 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .landing-head { display: flex; align-items: center; gap: 4px; }
 #landing-back { margin-left: -12px; }
 @media (min-width: 1100px) {
-  .atlas-multiple .fleet-chart { height: 64px; }
   #detail > #fleet { grid-row: 5; grid-column: 1 / -1; height: var(--fleet-h, 40px); min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line); background: var(--surface); }
   #detail > #fleet-handle { grid-row: 5; grid-column: 1 / -1; align-self: start; position: relative; z-index: 5; height: 9px; margin-top: -5px; cursor: row-resize; touch-action: none; }
   #detail[data-layout="stack"] > #fleet, #detail[data-layout="stack"] > #fleet-handle { grid-row: 6; }
@@ -807,7 +811,42 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   .fleet-strip > .fleet-gap { flex: 1; }
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }
-.atlas-multiples .atlas-panel-heading > .muted { font-size: 12px; }
+:is(.atlas-multiples, .atlas-heat) .atlas-panel-heading > .muted { font-size: 12px; }
+/* The heatmap (atlas.js heatPanel): day labels, 24 hour columns, then each day's total. */
+.heat-grid { --rh: 16px; position: relative; display: grid; grid-template-columns: 52px repeat(24, minmax(0, 1fr)) minmax(96px, 20%); gap: 2px; align-items: center; font-size: 11px; line-height: 14px; font-variant-numeric: tabular-nums; }
+.heat-compact { --rh: 14px; }
+.heat-hour, .heat-day { color: var(--muted); white-space: nowrap; }
+.heat-day { padding-right: 6px; text-align: right; }
+.heat-day.today { color: var(--fg); }
+.heat-cell { height: var(--rh); border-radius: 3px; }
+.heat-skip { visibility: hidden; }
+.heat-gap { background: repeating-linear-gradient(135deg, transparent 0 3px, var(--raised) 3px 4.5px); }
+.heat-future { box-shadow: inset 0 0 0 1px var(--raised); }
+#heat-view .heat-cell { cursor: pointer; }
+.heat-cell.sel, #heat-view .heat-cell:not(.heat-future):hover { box-shadow: inset 0 0 0 1.5px var(--fg); }
+.heat-total { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 8px; padding-left: 8px; --u: var(--chart-s1); }
+.heat-total .usage-bar { margin: 0; grid-column: auto; }
+.heat-total b { min-width: 4ch; text-align: right; font-weight: normal; } /* regular: bold glyphs in this grid rasterised differently run to run */
+.atlas-heat-card { cursor: pointer; }
+.atlas-heat-card:hover { border-color: var(--muted); }
+.heat-foot { margin: 12px 0 0; font-size: 12px; text-align: center; }
+.heat-tip { position: absolute; z-index: 2; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); white-space: pre-line; pointer-events: none; }
+.heat-figs { display: flex; flex-wrap: wrap; gap: 4px 28px; margin-bottom: 12px; }
+.heat-fig { display: flex; flex-direction: column; }
+.heat-fig b { font-size: 22px; line-height: 26px; font-variant-numeric: tabular-nums; }
+.heat-fig span { font-size: 12px; }
+.heat-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; font-size: 12px; }
+.heat-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.heat-legend i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; }
+.heat-legend i.heat-ramp { width: 96px; background: linear-gradient(90deg, color-mix(in oklab, var(--chart-s1) 12%, var(--surface)), var(--chart-s1)); }
+@media (max-width: 699px) {
+  .heat-grid { --rh: 13px; gap: 1px; grid-template-columns: 40px repeat(24, minmax(0, 1fr)) 44px; font-size: 10px; }
+  .heat-compact { --rh: 12px; }
+  .atlas-heat-card .atlas-panel-heading > .muted { display: none; } /* keeps Details on the title's line */
+  .heat-day { padding-right: 4px; }
+  .heat-total { grid-template-columns: 1fr; padding-left: 4px; }
+  .heat-total .usage-bar { display: none; }
+}
 /* A window being killed or expunged from here (markEnding): greyed, its label under a spinner. */
 .ending { opacity: .55; }
 .ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }

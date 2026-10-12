@@ -78,7 +78,7 @@
     </section>
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
     <section id="landing" aria-label="Dashboard" hidden>
-      <div class="landing-inner">
+      <div id="landing-main" class="landing-inner">
         <div class="landing-head"><button id="landing-back" class="icon-button" aria-label="Back to the pane" title="Back to the pane" hidden></button><h2 id="landing-title"></h2></div>
         <p id="landing-sub" class="muted"></p><button id="landing-start" class="primary start-session" hidden>Start a tmux session</button>
         <div id="session-atlas" role="region" aria-label="Session atlas"></div>
@@ -89,7 +89,9 @@
           <h3>Needs you</h3>
           <div id="landing-attention-list"></div>
         </section>
+        <div id="landing-foot"></div><!-- the heatmap card (atlas.js), the page's last panel -->
       </div>
+      <div id="heat-view" class="landing-inner" hidden></div><!-- #view=heat: the full heatmap (atlas.js) -->
     </section>
     <div id="divider" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" hidden></div>
     <section id="detail" aria-label="Selected pane" hidden>
