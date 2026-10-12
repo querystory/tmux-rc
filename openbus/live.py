@@ -230,19 +230,14 @@ def _labels(watcher) -> dict[str, str]:
 
 
 def _pane_name(d: dict) -> str:
-    """A pane's user-facing identity, `window <number> "<title>"`: how the prompt lists it
-    and the model names it, so an Open button reads the same as the reply above it."""
-    win = d.get("window_index")
-    head = f"window {win}" if win not in (None, "") else "window"
-    # Best-first name, matching the phone card: the agent's self-published title, else
-    # the window label (which itself falls back to session / session:index). Collapse any
-    # newlines and drop embedded quotes so a stray title can't unbalance the quoting or
-    # split the heading — the model must be able to parse one clean identity per pane.
-    name = d.get("title") or d.get("label")
-    if name:
-        name = " ".join(str(name).split()).replace('"', "")
-        head += f' "{name}"'
-    return head
+    """A pane's user-facing identity as the phone's list row shows it: its name (paneName's
+    rungs: the agent's own title, else the window label), its tool and its session chip,
+    `qs-app · codex in qs-app`. The prompt lists it and the model names it so, and the card
+    and Open button read the same as the reply above them. Never the window number: the
+    phone doesn't show one. Newlines collapse so a stray title can't split the heading."""
+    name = " ".join(str(d.get("title") or d.get("label") or d.get("pane_id") or "").split())
+    return name + "".join(f"{sep}{d[k]}" for sep, k in ((" · ", "tool"), (" in ", "session"))
+                          if d.get(k))
 
 
 # Words that name the kind of thing, not which one: "the auth fix window".
@@ -289,10 +284,9 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
 
 def _pane_block(d: dict, screen: str | None) -> str:
     """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
-    leads with the user-facing identity (window number + title) and gives the internal
-    pane id only as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
-    head = f"{_pane_name(d)} (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
-    head += f" — {d.get('activity') or 'unknown'}"
+    leads with the user-facing identity (_pane_name) and gives the internal pane id only
+    as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
+    head = f"{_pane_name(d)} (id={d['pane_id']}) — {d.get('activity') or 'unknown'}"
     # Idle AGE, not just the state: "idle for 2d" and "idle for 40s" are different routing
     # candidates — the prompt tells the model a long-idle pane is rarely where a new
     # instruction is destined (see live_prompt's targeting ladder).
@@ -367,7 +361,7 @@ _TEXT_NOTE = (
     "user to approve first; a declined one did not happen, so don't retry it unless the user "
     "asks. Act first, then report the outcome briefly; don't narrate what you're about to "
     "do before calling a tool. Pasted images are numbered in the turn text; to give one to "
-    'an agent ("send this to window 3") use send_image_to_pane.'
+    'an agent ("send this to the auth fix") use send_image_to_pane.'
 )
 
 
@@ -454,10 +448,9 @@ async def _approved(
     pane_id = args.get("pane_id")
     d = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
     known, pane = d is not None, pane_id
-    if known:  # named as the prompt names it, so the card matches the reply above it, plus
-        # the list's label (a bare tmux address for an unnamed window) unless that IS the title
-        pane, label = _pane_name(d), d.get("label") or pane_id
-        pane += "" if pane.endswith(f'"{label}"') else f" ({label})"
+    if known:  # named as the prompt names it, so the card matches the reply above it; the
+        # tmux address it means goes to the audit alone
+        pane, rec["target"] = _pane_name(d), d.get("label") or pane_id
     # "" when the lookup finds no process: it matches no pane, so the send is refused
     # rather than going out unguarded (None would mean "don't check").
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
@@ -675,8 +668,8 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
     # Not published yet: a window resume_session just opened, before the watcher's next tick.
     if pane is None and isinstance(pane_id, str):
         with contextlib.suppress(subprocess.CalledProcessError, OSError):  # tmux unreachable
-            pane = next(({"window_index": p.window_index, "label": p.label,
-                          "title": p.display_title}
+            pane = next(({"label": p.label, "title": p.display_title,
+                          "session": p.session}
                          for p in await asyncio.to_thread(tmux.list_panes) if p.id == pane_id),
                         None)
     if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:

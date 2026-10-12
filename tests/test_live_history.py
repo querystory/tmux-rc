@@ -87,7 +87,7 @@ def test_resume_jumps_to_the_window_only_when_the_user_tapped_send(history, monk
     assert r.get("shown", False) == bool(consent)  # steers the model off a second button
     opens = [m for m in ws.sent if m["type"] == "open_pane"]
     assert opens == ([{"type": "open_pane", "pane_id": "%40", "auto": True,
-                       "label": 'window 7 "tmuxrc live mode"'}] if consent else [])
+                       "label": "tmuxrc live mode in work"}] if consent else [])
 
 
 def test_resume_is_idempotent_until_the_session_registers(history):

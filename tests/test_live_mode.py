@@ -98,9 +98,9 @@ def test_receiver_preserves_transcripts_and_debug_logging(monkeypatch, caplog, d
 def test_pane_context_carries_state_and_screens():
     w = _Watcher()
     ctx = L._pane_context(w, screens="all")
-    # User-facing identity (window number + name) leads; the %id is the tool-call handle.
-    # Name falls back to label here (stub has no self-published title).
-    assert 'window 3 "work" (id=%1) — claude — waiting' in ctx
+    # User-facing identity (name · tool, as the list row shows it) leads; the %id is the
+    # tool-call handle. Name falls back to label here (stub has no self-published title).
+    assert "work · claude (id=%1) — waiting" in ctx
     assert "ACTIVE" in ctx  # the focused pane is flagged for "here"/"this" resolution
     assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
     assert "PRs this pane has worked on: querystory/qs-app#4955" in ctx
@@ -116,17 +116,17 @@ def test_pane_context_carries_state_and_screens():
 
 
 def test_pane_block_names_window_prefers_title_hides_id_role():
-    # Heading leads with window number + best-first name (title over label), and the %id
-    # is present only as the tool-call handle — never as the spoken identity.
+    # Heading leads with the best-first name (title over label), tool and session, never
+    # the window number the phone doesn't show, and the %id only as the tool-call handle.
     titled = L._pane_block(
-        {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78",
+        {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78", "session": "qs",
          "label": "work", "tool": "claude", "activity": "idle"}, None)
-    assert 'window 9 "Resolve PR 78" (id=%16)' in titled
+    assert "## Resolve PR 78 · claude in qs (id=%16)" in titled
     # No self-published title ⇒ fall back to the window label.
     untitled = L._pane_block(
         {"pane_id": "%2", "window_index": "2", "title": None, "label": "shell",
          "tool": "shell", "activity": "running"}, None)
-    assert 'window 2 "shell" (id=%2)' in untitled
+    assert "## shell · shell (id=%2)" in untitled
 
 
 def test_pane_block_idle_age_suffix():
@@ -150,19 +150,19 @@ def test_pane_block_idle_age_suffix():
     assert L._fmt_age(3 * 3600 + 5) == "3h" and L._fmt_age(86400 * 2 + 30) == "2d"
 
 
-def test_pane_block_sanitizes_name_quotes_and_newlines():
-    # A title with quotes/newlines must not unbalance the heading's quoting or split it.
+def test_pane_block_collapses_name_newlines():
+    # A title with newlines must not split the heading.
     b = L._pane_block(
         {"pane_id": "%1", "window_index": "0", "title": 'fix "the" bug\nnow',
          "tool": "claude", "activity": "idle"}, None)
     head = b.splitlines()[0]
-    assert head == '## window 0 "fix the bug now" (id=%1) — claude — idle'
+    assert head == '## fix "the" bug now · claude (id=%1) — idle'
 
 
 def test_system_prompt_has_rules_and_panes():
     p = L._system_prompt(_Watcher())
     assert "type_in_pane" in p  # the tool contract is in the instructions
-    assert "# Panes (live state)" in p and 'window 3 "work" (id=%1)' in p
+    assert "# Panes (live state)" in p and "work · claude (id=%1)" in p
 
 
 def test_cwd_cannot_introduce_fake_pane_prompt_lines():
@@ -214,9 +214,9 @@ def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text)
         _FC(name="open_pane", args={"pane_id": "%1"}), monkeypatch,
         meter=L._Meter("s1", "tester", P._DEFAULT[0], text=text))
     assert ws.sent == [
-        {"type": "open_pane", "pane_id": "%1", "label": 'window 3 "work"', "auto": False}]
+        {"type": "open_pane", "pane_id": "%1", "label": "work · claude", "auto": False}]
     assert session.responses[0][1] == {  # "done" read as "opened" to the model
-        "status": "button_shown", "pane": 'window 3 "work"',
+        "status": "button_shown", "pane": "work · claude",
         "reason": "the user taps it to open; nothing is open yet"}
     assert typed == [] and w.reparsed == []
 
@@ -228,7 +228,7 @@ def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
     _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
                             panes=[fresh])
     assert ws.sent == [
-        {"type": "open_pane", "pane_id": "%40", "label": 'window 7 "auth fix"', "auto": False}]
+        {"type": "open_pane", "pane_id": "%40", "label": "auth fix in work", "auto": False}]
 
 
 @pytest.mark.parametrize(
@@ -317,7 +317,7 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
 
     assert ws.sent[0]["type"] == "propose"
     # Named as the list names it, with the id the card's Open button navigates to.
-    assert ws.sent[0]["text"] == 'Send to window 3 "work": rebase onto main'
+    assert ws.sent[0]["text"] == "Send to work · claude: rebase onto main"
     assert ws.sent[0]["pane_id"] == "%1"
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
@@ -360,7 +360,8 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
             if obj["type"] == "propose":
                 meter.approvals[obj["id"]].set_result(False)
 
-    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    audits = []
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
     class Titled(_Watcher):  # an unnamed window, whose list label is a bare tmux address
         def digest(self):
@@ -369,7 +370,8 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
     ws = Cancel()
     fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
     _run(L._handle_tool_call(ws, _Session(), fc, Titled(), meter))
-    assert ws.sent[0]["text"] == 'Type (no Enter) into window 3 "Prevent leaks" (misc-1:3): draft'
+    assert ws.sent[0]["text"] == "Type (no Enter) into Prevent leaks · claude: draft"
+    assert audits[-1]["target"] == "misc-1:3"  # the tmux address: the audit's alone
 
 
 def test_text_session_prompt_labels_relays_as_typed():
@@ -784,9 +786,9 @@ def test_connect_snapshot_screen_budget():
     assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400 + MARKER_SLACK
     # Priority: the ACTIVE pane always keeps its screen, however it sorts in digest
     # order; the longest-idle pane is the first to lose its own.
-    active_block = ctx.split("## window 29")[1]
+    active_block = ctx.split("## p29 ")[1]
     assert "screen:" in active_block.split("##")[0]
-    idlest_block = ctx.split("## window 28")[1]  # idle_seconds=2800, the stalest
+    idlest_block = ctx.split("## p28 ")[1]  # idle_seconds=2800, the stalest
     assert "screen:" not in idlest_block.split("##")[0]
 
 
@@ -896,7 +898,7 @@ def test_forwarding_an_image_waits_for_send_and_binds_to_the_pane(monkeypatch):
     assert _forward(meter, ws, image_number=1, caption="what is this?") == {
         "status": "done", "pane": "work"}
     card = ws.sent[0]
-    assert card["text"] == 'Send image 1 to window 3 "work": what is this?'
+    assert card["text"] == "Send image 1 to work · claude: what is this?"
     assert card["image"] == "data:image/png;base64,UE5H"  # the thumbnail the user approves
     assert events == [  # delivered once, bound to the pid the card showed, caption in the draft
         ("attach", "%1", "4242", b"PNG", "image/png", "what is this?")]
