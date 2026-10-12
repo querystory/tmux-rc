@@ -152,13 +152,19 @@ const SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect
 async function check(out) {
   const serve = (route) => route.fulfill({ headers: { "Content-Security-Policy": SANDBOX },
     path: path.join(out, new URL(route.request().url()).pathname.replace(/\/$/, "/index.html")) });
-  const second = JSON.parse(readFileSync(path.join(out, "data.js"), "utf8").replace(/^window.MOCK = |;\n$/g, "")).variants[1]?.name;
+  const data = JSON.parse(readFileSync(path.join(out, "data.js"), "utf8").replace(/^window.MOCK = |;\n$/g, ""));
+  const second = data.variants[1]?.name;
+  // Every frame the harness can ask for, not only the ones shot: a missing one would quietly
+  // render the "rebuild the mock" placeholder.
+  const missing = data.views.flatMap((v) => ["light", "dark"].flatMap((t) => data.widths.map((w) => snapFile(`${v.name}/${t}/${w}`))))
+    .filter((file) => !existsSync(path.join(out, file)));
+  const failures = missing.map((file) => `missing ${file}`);
   const shots = [
     ["desktop", DESKTOP, ""], ["desktop-note", DESKTOP, "note=1"], ["desktop-hidden", DESKTOP, "hide=1"],
     ["desktop-ab", DESKTOP, `w=${PHONE.width}&ab=1`],
     ["phone", PHONE, "hide=0"], ["phone-next", PHONE, `v=${second}&hide=0`], ["phone-hidden", PHONE, ""],
   ].filter(([name]) => second || !["phone-next", "desktop-ab"].includes(name)); // one variant: nothing to flip to
-  const dir = path.join(out, "shots"), browser = await launch(), failures = [];
+  const dir = path.join(out, "shots"), browser = await launch();
   mkdirSync(dir, { recursive: true });
   try {
     for (const [name, viewport, hash] of shots) {
