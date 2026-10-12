@@ -69,7 +69,8 @@ ROWS = """\
 7|shell|idle|zsh ~/src|41m||Idle at the prompt.
 7|claude|idle|rss digest|5h||Summarised 12 new posts.
 7|opencode|idle|invoice parser|2d||Parsed 31 invoices, 2 flagged.
-7|shell|idle|dotfiles sync|3d||Synced with origin."""
+7|shell|idle|dotfiles sync|3d||Synced with origin.
+7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1"""
 
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
@@ -206,6 +207,9 @@ MENU = {"dependency audit": {
     "ask": "The agent wants to upgrade React, Vite and ESLint to new major versions. "
            "Continue?",
 }}
+# A typed question that names list rows by number: the rows classify() reads off the screen.
+ITEMS = {"disk cleanup": {"items": ["1. Prune container images older than 14 days.",
+                                    "2. Archive the nightly log bundles."]}}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).
 EVENTS = {
@@ -249,7 +253,7 @@ def _pane(i: int, line: str, window: int) -> dict:
                  "waiting_on": "user",
                  "question": {"prompt": extra, "options": text.split(","),
                               "answer_style": "menu" if title in MENU else "text",
-                              **MENU.get(title, {})}}
+                              **MENU.get(title, {}), **ITEMS.get(title, {})}}
     return pane | DETAIL.get(title, {})
 
 

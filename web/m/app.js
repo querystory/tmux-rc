@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -123,9 +123,11 @@ const pendingAnswers = new Map();
 let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
 let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
+// CSPRNG-random or omitted, never guessed. getRandomValues, unlike randomUUID, needs no
+// secure context, and a reconnecting chat finds its parked cards by this id.
 const liveSession = (() => {
-  try { return crypto.randomUUID(); }
-  catch { return ""; } // CSPRNG-random or omitted, never guessed.
+  try { return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""); }
+  catch { return ""; }
 })();
 
 function draft(id = active) {
@@ -700,6 +702,7 @@ function render() {
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
   text($("prompt"), question?.ask || question?.prompt || "");
+  text($("question-items"), questionItems(question));
   // The widget's own rows, once and folded away: the restatement above is what to read.
   // Folded again for each new pane or command: an expanded one must not carry over.
   const command = $("question-command"), commandKey = `${active}\n${question?.context || ""}`;
@@ -1565,6 +1568,11 @@ $("expunge-pane").onclick = async () => {
   $("expunge-dialog").showModal();
 };
 window.addEventListener("hashchange", route);
+// A push tapped while the app is open: sw.js names the address to show, and it is routed
+// here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
+navigator.serviceWorker?.addEventListener("message", ({ data }) => {
+  if (data?.open) { history.pushState(null, "", data.open); route(); }
+});
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
 document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); fitViewport(); });

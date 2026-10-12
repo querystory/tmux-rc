@@ -161,7 +161,9 @@ change.
 ### The service-worker wrinkle
 
 `web/sw.js` handles `push` and `notificationclick` with **no fetch handler and no
-cache writes**. This replaced the old self-destructing tombstone, which existed
+asset caching**. Its one cache entry is the last "Chat needs you" tap, a small record
+the page reads back because iOS can lose the worker's message to a page it is waking
+(see live-mode.md); it holds no asset and nothing is ever served from it. This replaced the old self-destructing tombstone, which existed
 because a caching worker once served stale `app.js` and hid new UI. Asset requests
 still go to the network; activation clears old caches. `web/push.js` explicitly
 registers the worker and subscribes through its `pushManager`. The worker file is

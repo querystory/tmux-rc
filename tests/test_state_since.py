@@ -110,6 +110,13 @@ def test_state_since_resets_on_new_question_but_persists_on_same(monkeypatch):
     w._forced_this_tick = set()
     assert w._tick_pane(pane)["state_since"] == 1150.0, "a new context restarts the clock"
 
+    # As is the same "Do 1 now?" over a different row 1.
+    clock[0] = 1200.0
+    frame[0] = "Overwrite file? > (c)"
+    state[0] = {**state[0], "question": {**state[0]["question"], "items": ["1. c.txt"]}}
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["state_since"] == 1200.0, "new rows restart the clock"
+
 
 def test_restart_seeds_idle_clock_from_tmux_activity(monkeypatch):
     """A fresh daemon seeing an already-idle pane must seed state_since from tmux's
