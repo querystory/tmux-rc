@@ -15,6 +15,9 @@ const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring 
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
+// Where sw.js records a "Chat needs you" tap, and how long the page still acts on it.
+const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
+const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
 export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {} }) {
   const $ = (id) => document.getElementById(id);
@@ -554,17 +557,37 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   window.addEventListener("online", wake);
   // Switching apps is visibilitychange, not navigation: keep the microphone and
   // socket alive. pagehide still releases capture when leaving this document.
-  window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } });
+  window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } pullTaps(); });
   document.addEventListener("visibilitychange", () => {
     if (run) { resumeAudio(run); keepAwake(run); viewing(); }
-    if (!document.hidden) wake();
+    if (!document.hidden) { wake(); pullTaps(); }
   });
+  // A "Chat needs you" tap (sw.js) brings back the chat holding its card, even minimized;
+  // only that card's chat answers. Doing it twice is harmless, so it has two triggers: the
+  // worker's message, and the tap the worker recorded, pulled whenever the page comes back,
+  // since iOS can lose a message to the page it is waking. A tap is spent once acted on,
+  // so a later return to the app never reopens a chat minimized again since. iOS may show
+  // the page before the worker has even run, so each return reads again shortly after. A
+  // killed page has no chat left to bring back (it lived in the page): its boot does nothing.
+  const taps = async () => caches.open(TAP_CACHE);
+  function bringBack(id) {
+    const card = run?.proposals.get(id);
+    if (!card) return false;
+    show(); card.actions.scrollIntoView?.({ block: "nearest" });
+    taps().then((cache) => cache.delete(TAP_KEY)).catch(() => {});
+    return true;
+  }
+  async function pullTap() {
+    try {
+      const tap = await (await (await taps()).match(TAP_KEY))?.json();
+      if (tap && Date.now() - tap.at < TAP_FRESH_MS) bringBack(tap.chat);
+    } catch { /* no Cache Storage (an insecure context): the message is the only path */ }
+  }
+  const pullTaps = () => TAP_READS_MS.forEach((ms) => setTimeout(pullTap, ms));
   navigator.serviceWorker?.addEventListener("message", ({ data, ports }) => {
-    if (!data?.chat) return;
-    const card = run?.proposals.get(data.chat); // a "Chat needs you" tap: only its card's chat answers
-    if (card) { show(); card.actions.scrollIntoView?.({ block: "nearest" }); } // even minimized
-    ports[0]?.postMessage(!!card);
+    if (data?.chat) ports[0]?.postMessage(bringBack(data.chat));
   });
-  paint(); capabilities();
+  window.addEventListener("focus", pullTaps);
+  paint(); capabilities(); pullTaps();
   return { isActive: () => !!run, refresh: capabilities };
 }

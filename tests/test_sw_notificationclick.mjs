@@ -5,17 +5,25 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("../web/sw.js", import.meta.url), "utf8");
 
+// The tap a chat push recorded for the page to pull (live.js), and whether any window had
+// been focused by then.
+let recorded;
+
 // Runs sw.js against fake windows and taps a notification for `url` (a chat push also names
 // its card): what each window saw.
 async function tap(url, windows, chat) {
   const listeners = {}, opened = [];
+  recorded = undefined;
+  const caches = { open: async (name) => ({ put: async (key, response) => {
+    recorded = { name, key, ...(await response.json()), focused: windows.some((w) => w.focused) };
+  } }) };
   const clients = {
     claim: async () => {},
     matchAll: async () => windows,
     openWindow: async (target) => { opened.push(target); },
   };
   const self = { location: { origin: "https://host" }, addEventListener: (type, fn) => { listeners[type] = fn; } };
-  vm.runInNewContext(source, { self, clients, caches: {}, URL, MessageChannel: Channel, setTimeout });
+  vm.runInNewContext(source, { self, clients, caches, Response, URL, MessageChannel: Channel, setTimeout });
   let done;
   listeners.notificationclick({
     action: "",
@@ -74,6 +82,16 @@ test("a chat tap focuses a lone app window before asking it to bring the card ba
   assert.deepEqual(app.askedAfterFocus, [true]);
   assert.equal(app.focused, 1);
   assert.deepEqual(app.navigated, []);
+});
+
+test("a chat tap is recorded for the page to pull before any window is focused", async () => {
+  const start = Date.now();
+  await tap("/m", [fakeWindow("https://host/m", { silent: true })], "c1"); // the message is lost
+  const { at, ...rest } = recorded;
+  assert.deepEqual(rest, { name: "chat-tap", key: "/__tapped-chat", chat: "c1", focused: false });
+  assert.ok(at >= start && at <= Date.now());
+  await tap("/m", [fakeWindow("https://host/m")]); // a pane's push records nothing
+  assert.equal(recorded, undefined);
 });
 
 test("with several app windows, only the one holding the card is focused", async () => {

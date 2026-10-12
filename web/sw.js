@@ -1,5 +1,6 @@
-// Push-only service worker. Deliberately NO fetch handler and NO cache writes: every app
-// asset continues to come from the network, preserving tmux-rc's no-stale-UI contract.
+// Push-only service worker. Deliberately NO fetch handler and NO asset caching: every app
+// asset continues to come from the network, preserving tmux-rc's no-stale-UI contract. The
+// one cache entry is the last "Chat needs you" tap, for the page to pull (live.js).
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
@@ -46,6 +47,14 @@ self.addEventListener("notificationclick", (event) => {
           body: JSON.stringify({ nonce: data.nonce, option_index: Number(match[1]) }),
         });
         if (response.ok) return;
+      } catch {}
+    }
+    // iOS can lose the message below to the page it is waking, so a chat tap is recorded
+    // first, for the page to read when it comes back; before the focus, so it is there then.
+    if (data.chat) {
+      try {
+        const tap = new Response(JSON.stringify({ chat: data.chat, at: Date.now() }));
+        await (await caches.open("chat-tap")).put("/__tapped-chat", tap);
       } catch {}
     }
     const target = new URL(data.url || "/m", self.location.origin).href;
