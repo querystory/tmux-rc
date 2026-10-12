@@ -1027,7 +1027,10 @@ def classify(
         said = (asked := _question_prompt(question)) and _last_occurrence(asked, visible)
         if question.get("answer_style") == "menu" and (
                 not option or (said and said.start() > option[-1].start())):
+            # The menu's labels ("Yes") are no answer for a line prompt that reads "y":
+            # without buttons the user types exactly what the screen asks for.
             question["answer_style"] = "text"
+            question.pop("options", None)
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         asked = question.get("answer_style") == "menu" and _question_prompt(question)
         if context := asked and _widget_text(asked, visible):

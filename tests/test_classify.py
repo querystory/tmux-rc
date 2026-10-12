@@ -1041,8 +1041,9 @@ def test_cursor_search_binding_requires_visible_footer_evidence():
 def test_menu_without_a_digit_row_is_answered_as_text():
     for capture in ("Continue? [y/N] ", "1. Built\n2. Tested\nContinue? [y/N] "):
         result = classify(_pane(), capture, _llm({"question": {
-            "prompt": "Continue?", "answer_style": "menu", "options": ["y", "N"]}}))
+            "prompt": "Continue?", "answer_style": "menu", "options": ["Yes", "No"]}}))
         assert result["question"]["answer_style"] == "text"
+        assert "options" not in result["question"]  # "Yes" + Enter is no answer to [y/N]
 
 
 def test_menu_command_becomes_context_not_paste_action():
