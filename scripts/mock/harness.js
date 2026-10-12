@@ -148,7 +148,6 @@ function boot(M) {
   async function render() {
     const mine = ++renders; // frames load lazily: only the latest render may fill the stage
     const width = phone.matches ? PHONE_WIDTH : s.width, two = shown = sideBySide(), extra = once;
-    once = {};
     document.body.classList.toggle("phone", phone.matches);
     document.body.classList.toggle("hidden", s.hidden);
     document.documentElement.classList.toggle("light", s.theme === "light");
@@ -168,8 +167,9 @@ function boot(M) {
     $("#pill").hidden = !s.hidden;
     $("#pill").textContent = `${variant(s.v[0]).label} · h`;
     const frames = await Promise.all((two ? s.v : s.v.slice(0, 1)).map((v, i) => frame(v, i, width, extra)));
-    if (mine !== renders) return;
+    if (mine !== renders) return; // a superseded render leaves `once` for the one that lands
     $("#stage").replaceChildren(...frames);
+    if (once === extra) once = {};
     writeHash();
   }
   function set(change) {
