@@ -234,8 +234,10 @@ def _pane_name(d: dict, digest: list[dict] = ()) -> str:
     rungs: the agent's own title, else the window label), its tool and its session chip,
     `qs-app · codex in qs-app`. The prompt lists it and the model names it so, and the card
     and Open button read the same as the reply above them. The window number (the row's
-    small print) is added only when another pane in `digest` reads the same, so two
-    "tests" panes stay tellable apart. Newlines collapse so a stray title can't split it."""
+    small print, "Window 7") is added only when another pane in `digest` reads the same, so
+    two "tests" panes stay tellable apart. Splits of one window share even that, as their
+    rows do; the card's Open button shows which, and the audit has the pane id. Newlines
+    collapse so a stray title can't split the heading."""
     def base(p: dict) -> str:
         name = " ".join(str(p.get("title") or p.get("label") or p.get("pane_id") or "").split())
         return name + "".join(f"{sep}{p[k]}" for sep, k in ((" · ", "tool"), (" in ", "session"))
