@@ -604,7 +604,8 @@ const paintUsage = () => {
   show("usage-panel", board.length > 0);
   renderUsage($("usage-board"), board, { wide: true });
   if (page !== "usage") return;
-  renderUsage(cardView("Plan usage", usageView).firstChild, board, { wide: true, detail: true });
+  // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.
+  renderUsage(cardView("Plan usage", usageView).firstChild, board.length ? board : usage, { wide: true, detail: true });
 };
 const usageView = document.createElement("section");
 usageView.className = "atlas-panel";

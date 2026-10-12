@@ -555,12 +555,15 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #landing-main { container: dash / inline-size; }
 #landing-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(min(100%, 320px), calc((100% - 32px) / 3)), 1fr)); gap: 16px; margin-top: 16px; }
 #landing-cards .atlas-panel { height: 100%; margin-top: 0; }
-@container dash (min-width: 992px) { #usage-panel { grid-column: 1 / -1; } }
+@container dash (min-width: 992px) { #usage-panel { grid-column: 1 / -1; } #loops-card[hidden] ~ #usage-panel { grid-column: auto; } }
 /* Plan usage follows its own width: wide, its meters sit in one row with short trends. */
 #usage-panel { container-name: usage; }
 @container usage (min-width: 720px) { #usage-board .usage-spark { height: 28px; margin-top: 2px; } #usage-panel > .atlas-panel-heading { margin-bottom: 4px; } }
-/* Without Plan usage, two columns would leave the radar alone: it takes that row. */
-@container dash (min-width: 656px) and (max-width: 991.98px) { #radar-card:has(+ #usage-panel[hidden]) { grid-column: 1 / -1; } }
+/* With one card missing (Open loops still loading, or no plan meters), three are left: at
+   three columns they share the row, and at two the lone last card takes its row. */
+@container dash (min-width: 656px) and (max-width: 991.98px) {
+  #loops-card:not([hidden]) ~ #radar-card:has(+ #usage-panel[hidden]), #loops-card[hidden] ~ #usage-panel { grid-column: 1 / -1; }
+}
 /* Activity, last on the page: until its slot scrolls into view, a strip pinned to the bottom
    edge (atlas.js), growing into the full chart as the slot arrives. */
 .atlas-pulse .fleet-chart-axis { transition: height .25s; }
