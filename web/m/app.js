@@ -384,6 +384,7 @@ function landingRows(id, subset) {
 function renderLanding() {
   if (heatView) return renderHeatView($("heat-view"), $("session-atlas")._scope || {}, licon, () => heatFromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" }));
   const waiting = panes.filter(needsYou);
+  paintUsage(); // follows the tool chips
   show("landing-back", panes.some((p) => p.pane_id === returnPane));
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
   // only for the loading and empty states, and hides itself when blank (style.css).
@@ -605,8 +606,10 @@ const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
   renderUsage($("usage"), shownUsage(usage, WIDE.matches ? "on" : usageMode), { wide: WIDE.matches });
   // The dashboard's panel draws every meter as a trend whatever the mode; tapped, it opens up.
-  show("usage-panel", usage.length > 0);
-  renderUsage($("usage-board"), usage, { wide: true, detail: usageDetail });
+  // The dashboard's tool chips filter it too, and a tool with no plan meters hides it.
+  const tool = $("session-atlas")._scope?.tool, board = tool ? usage.filter((a) => a.provider === tool) : usage;
+  show("usage-panel", board.length > 0);
+  renderUsage($("usage-board"), board, { wide: true, detail: usageDetail });
   $("usage-detail").ariaExpanded = usageDetail;
   $("usage-detail").ariaLabel = $("usage-detail").title = usageDetail ? "Hide details" : "Show details";
   html($("usage-detail"), licon(usageDetail ? "chevronUp" : "chevronDown"));

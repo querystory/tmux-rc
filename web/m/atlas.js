@@ -158,7 +158,7 @@ function loadHeat(older) {
   request(`/api/history?window=24h&lead=13d${older ? `&before=${before}` : ''}`).then(data => {
     const fresh = older ? data.samples.filter(s => s.t < before) : data.samples, start = fresh[0]?.t ?? Infinity;
     const kept = heat ? heat.samples.filter(s => older || s.t < start) : [];
-    heat = { samples: older ? [...fresh, ...kept] : [...kept, ...fresh], done: !fresh.length || start <= data.first || (!older && !!heat?.done) };
+    heat = { step: data.step, samples: older ? [...fresh, ...kept] : [...kept, ...fresh], done: !fresh.length || start <= data.first || (!older && !!heat?.done) };
   }, () => { heat ||= false; }).finally(() => { heatLoading = false; changed(); });
 }
 function refreshHeat() {
@@ -171,8 +171,9 @@ const shade = (v, low, top) => v < 0.05 ? 'var(--raised)' : `color-mix(in oklab,
 const fig = (value, label) => { const node = el('span', 'heat-fig'); node.append(el('b', '', value), el('span', 'muted', label)); return node; };
 const heatUnit = () => fleet.metric === 'panes' ? 'pane-hours' : 'agent-hours';
 const heatWaiting = () => el('p', 'muted', heat === false ? 'History unavailable. Retrying automatically.' : 'Loading saved history…');
-// Local days, today first, each 24 hours. A cell is the mean running count over its observed
-// buckets, which is that hour's agent-hours; a day's total is the sum of its cells.
+// Local days, today first, each 24 hours. A cell sums its buckets' running counts times the
+// bucket length: the agent-hours recorded in that hour, so a DST fall-back hour holds both of
+// its hours and a half-observed hour counts what was seen. A day's total sums its cells.
 function heatDays(scope) {
   const days = new Map();
   scoped(scope, heat.samples).forEach(s => {
@@ -183,14 +184,15 @@ function heatDays(scope) {
     cell.sum += running(n); cell.seen++;
     (s.groups || []).forEach(g => { const c = countsOf(g); if (c) cell.tools[g.tool] = (cell.tools[g.tool] || 0) + running(c); });
   });
-  const all = [...days].reverse(), value = c => c.sum / c.seen;
+  // Until history runs out, the oldest day loaded may be cut by the chunk; it waits for the next.
+  const all = [...days].reverse().slice(0, heat.done ? undefined : -1), value = c => c.sum * heat.step / 3600000;
   // One scale for the card and the view, from the 3rd to the 97th percentile of the latest
   // two weeks (the first chunk): a fleet that never idles still shows its rhythm, a spike does
   // not wash it out, and loading older days never recolours the newer ones.
   const values = all.slice(0, 14).flatMap(([, cells]) => cells.filter(Boolean).map(value)).sort((a, b) => a - b);
   const low = values[Math.floor(values.length * 0.03)] || 0, top = Math.max(low + 1, values[Math.floor(values.length * 0.97)] || 0);
   const totals = all.map(([, cells]) => cells.reduce((t, c) => t + (c ? value(c) : 0), 0));
-  return { all, value, low, top, totals, most: totals.reduce((m, t) => Math.max(m, t), 1) };
+  return { all, value, low, top, totals, most: totals.reduce((m, t) => Math.max(m, t), 0) };
 }
 const today = () => new Date().setHours(0, 0, 0, 0);
 // A month's first day names its month, so a long scroll back stays anchored.
@@ -200,20 +202,22 @@ const dayName = day => day === today() ? 'Today' : new Date(day).toLocaleDateStr
 // meters draw a window. The card's compact grid is labelled every 12 hours, the view's every 6.
 function heatGrid({ all, value, low, top, totals, most }, days, compact) {
   const unit = heatUnit(), grid = el('div', compact ? 'heat-grid heat-compact' : 'heat-grid');
-  grid.setAttribute('role', 'img');
-  grid.setAttribute('aria-label', `Running ${unit} by hour for ${days} days; the busiest had ${Math.round(most)}.`);
+  grid.setAttribute('role', compact ? 'img' : 'group');
+  grid.setAttribute('aria-label', `Running ${unit} by hour for ${days} days; the busiest had ${Math.round(most)}.${compact ? '' : ' Arrow keys move between hours.'}`);
   grid.append(el('span'), ...Array.from({ length: 24 }, (_, h) => el('span', 'heat-hour', h % (compact ? 12 : 6) ? '' : `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`)),
     el('span', 'heat-hour heat-total', compact ? '' : unit === 'agent-hours' ? 'Agent-h' : 'Pane-h'));
   all.slice(0, days).forEach(([day, cells], i) => {
     grid.append(el('span', day === today() ? 'heat-day today' : 'heat-day', dayName(day)));
     for (let h = 0; h < 24; h++) {
-      const c = cells[h], cell = el('span', c ? 'heat-cell' : new Date(day).setHours(h) > Date.now() ? 'heat-cell heat-future' : 'heat-cell heat-gap');
+      // An hour a DST spring-forward skips is no hour at all; later today is not one yet.
+      const c = cells[h], slot = new Date(day), at = slot.setHours(h), real = slot.getHours() === h;
+      const cell = el('span', c ? 'heat-cell' : !real ? 'heat-cell heat-skip' : at > Date.now() ? 'heat-cell heat-future' : 'heat-cell heat-gap');
       if (c) cell.style.background = shade(value(c), low, top);
-      cell.hour = [day, h, c];
+      if (c || (real && at <= Date.now())) cell.hour = [day, h, c];
       grid.append(cell);
     }
     const total = el('span', 'heat-total'), bar = el('i', 'usage-bar'), fill = el('i');
-    fill.style.width = `${totals[i] / most * 100}%`;
+    fill.style.width = `${totals[i] / (most || 1) * 100}%`;
     bar.append(fill);
     total.append(bar, el('b', '', `${Math.round(totals[i])}h`));
     grid.append(total);
@@ -237,6 +241,7 @@ function heatCard(scope, open) {
 export function renderHeatView(root, scope, icon, back) {
   refreshHeat();
   if (unchanged(root, [heat, settings, scope.tool, scope.session])) return;
+  const focus = focusKey(root); // a page of older days keeps the keyboard on the grid
   root._older?.disconnect();
   const head = el('div', 'landing-head'), backButton = el('button', 'icon-button');
   backButton.innerHTML = icon('back', 18);
@@ -244,35 +249,57 @@ export function renderHeatView(root, scope, icon, back) {
   backButton.onclick = back;
   head.append(backButton, el('h2', '', 'Running by hour'));
   const panel = el('section', 'atlas-panel atlas-heat');
-  if (!heat) return root.replaceChildren(head, heatWaiting());
+  if (!heat) return rebuild(root, [head, heatWaiting()], focus);
   const data = heatDays(scope), { all, totals, most, low, top } = data, unit = heatUnit();
   const isToday = all[0]?.[0] === today(), done = totals.slice(isToday ? 1 : 0, isToday ? 15 : 14).sort((a, b) => a - b);
   const figs = el('div', 'heat-figs'), legend = el('div', 'heat-legend muted');
   figs.append(fig(`${Math.round(isToday ? totals[0] : 0)}h`, 'today so far'), fig(`${Math.round(done[Math.floor(done.length / 2)] || 0)}h`, 'typical day (median, 14d)'),
-    fig(`${Math.round(most)}h`, `busiest, ${new Date(all[totals.indexOf(most)]?.[0]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`));
+    fig(`${Math.round(most)}h`, most ? `busiest, ${new Date(all[totals.indexOf(most)][0]).toLocaleDateString([], { month: 'short', day: 'numeric' })}` : 'busiest'));
   const key = (...parts) => { const node = el('span'); node.append(...parts); return node; }; // a swatch never wraps from its label
   legend.append(key(`${unit} an hour: ${+low.toFixed(1)}`, el('i', 'heat-ramp'), `${+top.toFixed(1)}+`),
     key(el('i', 'heat-cell heat-gap'), 'not recorded'), key(el('i', 'heat-cell heat-future'), 'still to come'));
   const grid = heatGrid(data, all.length, false);
-  // One tip, placed under the cell a pointer is on or a tap picked.
-  const tip = el('div', 'heat-tip');
+  // Each hour on record is a button labelled with its detail, one tab stop for the grid (the
+  // arrow keys move it), and one tip shows the detail of the cell a pointer, tap or focus is on.
+  const tip = el('div', 'heat-tip'), cells = [...grid.querySelectorAll('.heat-cell')];
+  const hours = n => (n * heat.step / 3600000).toFixed(1);
+  const describe = ([day, h, c]) => {
+    const tools = c ? Object.entries(c.tools).filter(([, n]) => hours(n) >= 0.05).sort((x, y) => y[1] - x[1]) : [];
+    return [`${new Date(day).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${pad(h)}:00–${pad(h + 1)}:00`,
+      c ? `${data.value(c).toFixed(1)} ${unit}` : 'Not recorded', ...(tools.length > 1 ? tools.map(([tool, n]) => `${tool} ${hours(n)}`) : [])];
+  };
+  cells.forEach(cell => {
+    if (!cell.hour) return;
+    Object.assign(cell, { tabIndex: -1, role: 'button' });
+    cell.dataset.key = `heat:${cell.hour[0]}:${cell.hour[1]}`; // paging older days keeps focus here
+    cell.setAttribute('aria-label', describe(cell.hour).join(', '));
+  });
+  const first = cells.find(cell => cell.hour);
+  if (first) first.tabIndex = 0;
   tip.hidden = true;
   const show = cell => {
     grid.querySelector('.sel')?.classList.remove('sel');
-    if ((tip.hidden = !cell?.hour?.[2])) return;
-    const [day, h, c] = cell.hour, tools = Object.entries(c.tools).filter(([, n]) => n / c.seen >= 0.05).sort((a, b) => b[1] - a[1]);
+    if ((tip.hidden = !cell?.hour)) return;
     cell.classList.add('sel');
-    tip.textContent = [`${new Date(day).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${pad(h)}:00–${pad(h + 1)}:00`, `${data.value(c).toFixed(1)} ${unit}`,
-      ...(tools.length > 1 ? tools.map(([tool, n]) => `${tool} ${(n / c.seen).toFixed(1)}`) : [])].join('\n');
+    tip.textContent = describe(cell.hour).join('\n');
     tip.style.top = `${cell.offsetTop + cell.offsetHeight + 4}px`;
     tip.style.left = `${Math.max(0, Math.min(grid.clientWidth - tip.offsetWidth, cell.offsetLeft - tip.offsetWidth / 2))}px`;
   };
   grid.onclick = grid.onpointerover = event => show(event.target);
+  grid.addEventListener('focusin', event => show(event.target)); // no onfocusin property
   grid.onpointerleave = event => { if (event.pointerType === 'mouse') show(null); };
+  grid.onkeydown = event => {
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -24, ArrowDown: 24 }[event.key];
+    let i = cells.indexOf(event.target);
+    if (!step || i < 0) return;
+    event.preventDefault();
+    do i += step; while (cells[i] && !cells[i].hour); // over hours not yet, or skipped by DST
+    cells[i]?.focus();
+  };
   grid.append(tip);
   const foot = el('p', 'muted heat-foot', heat.done ? 'Start of saved history' : 'Loading older days…');
   panel.append(figs, legend, grid, foot);
-  root.replaceChildren(head, panel);
+  rebuild(root, [head, panel], focus);
   if (heat.done) return;
   // aria-busy until the load re-renders the view with a new foot.
   root._older = new IntersectionObserver(entries => { if (entries[0].isIntersecting) { foot.setAttribute('aria-busy', 'true'); loadHeat(true); } }, { rootMargin: '400px' });
@@ -487,7 +514,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     button.append(el('span', 'count', String(count)));
     button.dataset.key = `tool:${tool}`;
     button.setAttribute('aria-pressed', String(scope.tool === tool));
-    button.onclick = () => { scope.tool = tool; redraw(); };
+    button.onclick = () => { scope.tool = tool; setFleet({}); }; // through app.js, whose Plan usage it filters too
     controls.append(button);
   });
   const sessionPicker = el('select', 'atlas-session-picker');
@@ -581,7 +608,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     const head = el('span', 'atlas-multiple-head');
     head.append(el('b', '', key), el('span', 'fleet-gap'), el('b', '', String(running(liveCounts(members)))), el('span', 'muted', ' running'));
     const avg = latestAverage(slice);
-    card.append(head, chart.el, el('span', 'muted', avg == null ? 'No average yet' : `${fleet.average} avg ${avg.toFixed(1)}`));
+    // A slice with nothing on record draws no chart rather than a tall blank one.
+    card.append(head, ...(slice.some(r => r.n) ? [chart.el] : []), el('span', 'muted', avg == null ? 'No average yet' : `${fleet.average} avg ${avg.toFixed(1)}`));
     card.onclick = () => { scope[by] = scope[by] === key ? '' : key; redraw(); };
     grid.append(card);
     paints.push(() => chart.update(chartData(slice, { goal: null, max })));
