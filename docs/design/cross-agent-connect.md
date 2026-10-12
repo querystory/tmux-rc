@@ -137,12 +137,13 @@ Finding only reads, so it runs at once. Both are recorded by the same audit poin
 
 ## Who should be able to query it, and how
 
-Through tmux-rc's supported surfaces, only the human can today, from the phone and Live.
-That is the absence of an agent identity, not of access: an unsandboxed agent running as
-the same user can already read the index files, run the CLI, or call the daemon's
-unauthenticated loopback API (`/api/digest` is documented for agents and scripts). So
-Connect does not make agent reads possible. It gives them a supported, scoped identity,
-and makes them discoverable and audited.
+The two stores differ today. Live introspection already has a supported agent surface:
+`/api/digest` is documented for agents and scripts, but it is anonymous and its reads
+are not audited. Agent history has none: tmux-rc offers the index only to the human,
+from the phone and Live, though an unsandboxed agent running as the same user can read
+the index files or run the CLI itself. So the gap is a supported, scoped agent identity,
+not access. Connect does not make agent reads possible. It gives them that identity and
+makes them discoverable and audited.
 Agents have concrete reasons to ask:
 - an orchestrator needs the directory;
 - a stuck agent wants to know what a sibling found;
@@ -152,7 +153,8 @@ Agents have concrete reasons to ask:
 
 Four ways to let them:
 
-**(a) Human only.** This is today. It is safe and pure. The cost is the one the agent
+**(a) Human only.** This is today for history; live state is reachable only through the
+anonymous digest. It is safe and pure. The cost is the one the agent
 client measured: every cross-agent need goes through a person, or degrades to
 `send-keys` and `capture-pane`, which fail silently.
 
