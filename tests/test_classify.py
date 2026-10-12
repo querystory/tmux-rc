@@ -1339,14 +1339,14 @@ def test_question_naming_list_items_carries_them():
     # The parser's own copy of the rows, as buttons or a table keyed by them, goes; other
     # tables and replies stay.
     ask = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "text",
-           "options": ["1. Move the build cache to disk.", "1. Yes, both"]}
+           "options": ["1. Move the build cache to disk.", "1. Yes, move it now"]}
     echo = {"rows": [["1", "Move the build cache"], ["2.", "Close the sessions"]]}
     other = {"rows": [["1 min", "fast"], ["2 min", "slow"]]}
     ranking = {"rows": [["1", "Move staging"], ["2", "Close production"]]}  # one shared verb
     screen = _auto_screen(message).replace("auto mode on", "plan mode on")
     tables = [echo, other, ranking]
     result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": tables}))
-    assert result["question"]["options"] == ["1. Yes, both"]  # a reply, not the row
+    assert result["question"]["options"] == ["1. Yes, move it now"]  # a reply, not the row
     assert result["tables"] == [other, ranking]
     result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": [echo]}))
     assert result["tables"] is None

@@ -634,9 +634,14 @@ _COUNT_BEFORE_RE = re.compile(
 _WORD_RE = re.compile(r"[^\W\d_]{4,}")
 
 
-def _words(text: str) -> set[str]:
-    """The substantive words of a row or cell, for telling a copy of a row from other text."""
-    return set(_WORD_RE.findall(str(text).lower()))
+def _copies(text: object, row: str) -> bool:
+    """Whether text restates a row: quotes it ("2. Merge it" from "Merge it.") or has two
+    substantive words in common, so one shared verb ("1. Yes, move it now" beside "1. Move
+    the build cache") is not a copy."""
+    def words(value: object) -> set[str]:
+        return set(_WORD_RE.findall(str(value).lower()))
+    quoted = re.sub(r"^\s*\d{1,2}[.)]\s*", "", str(text)).strip(" .").lower()
+    return (bool(quoted) and quoted in row.lower()) or len(words(text) & words(row)) >= 2
 
 
 def _referenced_rows(prompt: str, visible: str) -> dict[str, str]:
@@ -670,17 +675,16 @@ def _item(number: str, text: str) -> str:
 
 def _restates(table: object, rows: dict[str, str]) -> bool:
     """Whether a parser table is its own copy of the referenced rows: every row keyed by a
-    bare referenced number, and most of them sharing at least two words with that row (the
-    parser paraphrases, so not all). A table that is merely numbered 1, 2 (a ranking, an
+    bare referenced number, and most of them copying that row (the parser paraphrases, so
+    not all). A table that is merely numbered 1, 2 (a ranking, an
     index) or shares one generic verb ("Update ...") with the rows stays."""
     body = table.get("rows") if isinstance(table, dict) else None
     keys = [str(r[0]).strip().rstrip(".)") if isinstance(r, list) and r else None
             for r in body] if isinstance(body, list) else []
     if not keys or not all(k in rows for k in keys):
         return False
-    shared = [len(_words(" ".join(map(str, r[1:]))) & _words(rows[k]))
-              for r, k in zip(body, keys, strict=True)]
-    return 2 * sum(n >= 2 for n in shared) > len(shared)
+    copied = [_copies(" ".join(map(str, r[1:])), rows[k]) for r, k in zip(body, keys, strict=True)]
+    return 2 * sum(copied) > len(copied)
 
 
 def _final_ask(visible: str, tool: str) -> dict | None:
@@ -1069,12 +1073,11 @@ def classify(
         if rows := style == "text" and asked and _referenced_rows(asked, visible):
             question["items"] = [_item(n, text) for n, text in rows.items()]
             # The parser's own copy of those rows would show them twice: as answer buttons
-            # (a row's number and one of its words: "1. Resolve the merge conflict", not
-            # "1. Yes, do both"; the reply call fills in when nothing else is left), or as
-            # a table.
+            # (a row's number and its words: "1. Resolve the merge conflict", not "1. Yes,
+            # move it now"; the reply call fills in when nothing else is left), or as a table.
             options = question.get("options")
             kept = [o for o in options if (n := _row_number(o)) not in rows
-                    or not _words(o) & _words(rows[n])] if isinstance(options, list) else options
+                    or not _copies(o, rows[n])] if isinstance(options, list) else options
             if kept != options:
                 question["options"] = kept or _reply_options(asked, replies_fn)
             if isinstance(result.get("tables"), list):
