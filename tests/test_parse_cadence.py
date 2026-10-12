@@ -580,16 +580,3 @@ def test_failed_forced_reparse_still_retries(monkeypatch):
     state = w._tick_pane(pane)
     assert calls["n"] == 3, "a failed forced reparse must leave the screen unread"
     assert state["question"] == {"prompt": "Proceed?"}, "and the card stays answerable"
-
-
-def test_a_cursor_walk_is_held_to_the_screen_its_card_was_read_from(monkeypatch):
-    """/send lets a cursor walk's key through only while the pane shows the exact screen
-    the published card was parsed from: any change since (a replacement picker, however
-    its highlight is drawn) means the card no longer describes what the key would hit."""
-    frame = ["Pick?\n❯ No\n  Yes"]
-    w, _ = _harness(monkeypatch, frame)
-    assert not w.shows_parsed_screen("%1"), "nothing read yet"
-    w._tick_pane(_Pane())
-    assert w.shows_parsed_screen("%1")
-    frame[0] = "Pick?\n❯ No\n  Yes\nOther?\n  Red\n  Blue"
-    assert not w.shows_parsed_screen("%1"), "a screen changed since its parse"

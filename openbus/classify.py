@@ -14,6 +14,7 @@ minimal dict (idle vs running) so the pipe never breaks.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import textwrap
@@ -100,8 +101,8 @@ def _widget_end(visible: str, start: int) -> int:
                 len(visible))
 
 
-def drawn_row(visible: str, prompt: str) -> str | None:
-    """The text of the live picker's highlighted row under prompt, as drawn, or None."""
+def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
+    """The live picker's prompt row, and where its widget ends, or None."""
     # A whole row only: a longer prompt ("… for deployment") is a different picker.
     found = prompt.strip() and _occurrences(prompt, visible, row=True)  # "" matches anywhere
     if not found:
@@ -112,8 +113,25 @@ def drawn_row(visible: str, prompt: str) -> str | None:
     end = _widget_end(visible, asked.end())
     if _HIGHLIGHT_RE.search(visible, end):  # a later picker, or the input box, is live:
         return None                         # this one is history in the scrollback
-    *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, asked.end(), end)]
+    return asked, end
+
+
+def drawn_row(visible: str, prompt: str) -> str | None:
+    """The text of the live picker's highlighted row under prompt, as drawn, or None."""
+    live = _live_prompt(visible, prompt)
+    *_, row = [None, *(_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1]) if live else ())]
     return row and row["label"]
+
+
+def picker_digest(text: str, prompt: str) -> str | None:
+    """A hash of a capture's live picker and everything drawn below it, as classify reads
+    the viewport (_visible) but otherwise verbatim: what a cursor
+    walk's keys are held to (/send). Any change since the parse that recorded it, be it a
+    replacement picker however its highlight is drawn or a row's "30s" now "60s", refuses
+    them until a reparse; heuristics over the new screen each had a case they missed."""
+    visible = _visible(text)
+    live = _live_prompt(visible, prompt)
+    return live and hashlib.sha256(visible[live[0].start():].encode()).hexdigest()
 
 
 def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
@@ -1045,7 +1063,10 @@ def classify(
         ) for line in footer):
             keymap["search"] = True
         rows, asked = question.get("options"), _question_prompt(question)
-        question.pop("highlight", None)  # read off the screen, never passed through
+        for key in ("highlight", "picker"):  # read off the screen, never passed through
+            question.pop(key, None)
+        if asked and (digest := picker_digest(text, asked)):
+            question["picker"] = digest  # the screen /send holds this walk's keys to
         if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
             question["highlight"] = drawn_row(visible, asked)  # grounded: /send may commit it

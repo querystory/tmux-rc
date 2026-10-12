@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import server, tmux
-from openbus.classify import classify, highlighted_row
+from openbus.classify import classify, highlighted_row, picker_digest
 from openbus.tmux import Pane
 
 # A user turn that starts with the target's own word, above a box highlighting No.
@@ -96,7 +96,18 @@ def test_classify_overrides_a_misread_anchor():
     }}
     result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{SCREEN}", lambda s, t: misread)
     assert result["question"]["selected"] == 0
-    assert result["question"]["highlight"] == "No"  # the row /send re-checks, off the screen
+    assert result["question"]["highlight"] == "No"  # grounded off the screen
+    assert result["question"]["picker"] == picker_digest(SCREEN, 'Permanently remove "Demo"?')
+
+
+def test_a_picker_digest_changes_with_anything_drawn_from_its_prompt_down():
+    """What /send holds a walk's keys to: the parse's own record of the picker."""
+    wait = "Delay?\n❯ Wait 30s\n  Now"
+    assert picker_digest(wait, "Delay?") == picker_digest("old output\n" + wait, "Delay?")
+    assert picker_digest(wait, "Delay?") != picker_digest(wait.replace("30s", "60s"), "Delay?")
+    # A replacement drawn with a colour highlight (no glyph) below the old picker.
+    assert picker_digest(wait, "Delay?") != picker_digest(wait + "\nNew?\n  Red", "Delay?")
+    assert picker_digest(wait, "Other?") is None
 
 
 def test_a_tabbed_panel_the_user_opened_is_not_a_question():
@@ -152,15 +163,12 @@ def test_select_is_refused_until_the_highlight_is_on_the_row(tmp_path, monkeypat
         parsed = {"pane_id": pane, "question": {
             "prompt": "Remove it?", "options": ["No", "Yes"], "selected": 0, "highlight": "No",
             "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
-        read = []  # the screen the server's parse read, as the watcher fingerprints it
+        def reparse():  # the watcher's parse records the picker as it is drawn now
+            screen = tmux.capture_pane(pane, mark_dim=True)
+            parsed["question"]["picker"] = picker_digest(screen, "Remove it?")
 
-        def reparse(**question):
-            read[:] = [tmux.capture_pane(pane, mark_dim=True)]
-            parsed["question"].update(question)
-
-        server.app.state.watcher = SimpleNamespace(
-            request_reparse=lambda p: None, states=[parsed],
-            shows_parsed_screen=lambda p: read == [tmux.capture_pane(p, mark_dim=True)])
+        server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
+                                                   states=[parsed])
         client = TestClient(server.app)
 
         def screen_until(text):

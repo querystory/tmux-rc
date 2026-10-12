@@ -75,6 +75,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import agent_history, expunge, telemetry, tmux  # noqa: E402
+from .classify import picker_digest  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -854,17 +855,19 @@ def send(pane_id: str, body: SendBody, request: Request):
 
     def on_row() -> None:
         # A cursor walk's send, checked under the send lock against the server's latest
-        # parse, never the request's: the pane must show, right now, the very screen that
-        # parse read, and the request must name that parse's picker. So a picker replaced
-        # or changed since (however its highlight is drawn) takes no key meant for the old
-        # one: the walk waits for the reparse. A select must also be that parse's highlight,
-        # grounded on the screen (classify's `highlight`), with its select key.
+        # parse, never the request's: the request must name that parse's picker, and the
+        # picker and all below it must be drawn exactly as that parse recorded them (its
+        # `picker` digest, captured as the watcher captures). So a picker replaced or
+        # changed since takes no key meant for the old one: the walk waits for the reparse.
+        # A select must also be that parse's grounded highlight, with its select key.
         state = next((s for s in app.state.watcher.states if s.get("pane_id") == pane.id), {})
         question = state.get("question") if isinstance(state.get("question"), dict) else {}
         rows, at = question.get("options"), question.get("selected")
         keymap = question.get("keymap") if isinstance(question.get("keymap"), dict) else {}
         prompt, row = body.on_row.prompt, body.on_row.row
-        if question.get("prompt") != prompt or not app.state.watcher.shows_parsed_screen(pane.id):
+        seen = question.get("picker")
+        screen = tmux.capture_pane(pane.id, mark_dim=True)
+        if question.get("prompt") != prompt or not seen or seen != picker_digest(screen, prompt):
             msg = f"The picker {prompt!r} changed since it was read; nothing was sent."
             raise tmux.PaneChangedError(msg)
         if row is not None and (
