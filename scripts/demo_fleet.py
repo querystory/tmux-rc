@@ -368,7 +368,8 @@ def seed_usage(usage, two: bool = False):
             rows += [(tool, name, window, seconds, t,
                       round(pct * ((t - start) / (NOW - start)) ** 1.2), start + seconds)
                      for t in range(int(last), int(start), -300)]
-        usage.accounts[(tool, name)] = {"homes": [name], "panes": [
+        # "short": what a base tree from before accounts.py labels a meter by.
+        usage.accounts[(tool, name)] = {"homes": [name], "short": PROFILES[name][0], "panes": [
             p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions],
             "error": "unavailable" if tool in STALE else None}
     usage.history.record_usage(rows)
