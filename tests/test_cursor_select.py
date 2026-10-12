@@ -173,6 +173,8 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
         return TestClient(server.app).post(f"/api/panes/{PANE.id}/send", json=body).status_code
 
     assert parse()["question"]["highlight"] == SESSIONS[0]
+    read["question"]["prompt"] = "Resume session (1 of 12)"  # as drawn: the count goes,
+    assert parse()["question"]["prompt"] == "Resume session"  # so moves keep one prompt
     assert send("Down") == 200
     assert any("Down" in args for args in sent)
     assert send("harbor", literal=True) == 200  # search text

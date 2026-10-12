@@ -92,6 +92,7 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 _HIGHLIGHT_RE = re.compile(
     rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
     r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
+_LIVE_COUNT_RE = re.compile(r"\s*\(\d+ of \d+\)\s*$")
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
 
 
@@ -1065,6 +1066,9 @@ def classify(
         ) for line in footer):
             keymap["search"] = True
         rows, asked = question.get("options"), _question_prompt(question)
+        if asked:  # a live count ("(1 of 47)") redraws with every move: it is no part of
+            # the picker's identity, which the walk and /send hold across moves
+            question["prompt"] = asked = _LIVE_COUNT_RE.sub("", asked)
         for key in ("highlight", "picker"):  # read off the screen, never passed through
             question.pop(key, None)
         if asked and (digest := picker_digest(text, asked)):
