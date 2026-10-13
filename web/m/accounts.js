@@ -35,11 +35,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   let asked = 0, newest;
   const refresh = () => newest = load(++asked);
   async function load(mine) {
-    try {
-      const data = await request("/api/accounts");
-      if (mine !== asked) return newest;
-      ({ profiles, sessions: defaults, shared } = data);
-    } catch { return false; }
+    const data = await request("/api/accounts").catch(() => null);
+    if (mine !== asked) return newest; // whether this one failed or not
+    if (!data) return false;
+    ({ profiles, sessions: defaults, shared } = data);
     paintMenu(); repaint();
     if (dlg.open && F.step === "list" && !F.renaming) render();
     return true;
