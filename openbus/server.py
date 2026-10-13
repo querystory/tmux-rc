@@ -1418,6 +1418,16 @@ _MOVES = threading.Lock()
 MOVE_START_S = 5.0  # how long a move holds _MOVES for its agent to show as running
 
 
+def _started(s, target: Path) -> bool:
+    """Whether the moved agent shows as running on `target` within MOVE_START_S."""
+    deadline = time.monotonic() + MOVE_START_S
+    while not accounts.running(s, target):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
 @app.post("/api/panes/{pane_id}/move")
 def move_session(pane_id: str, body: MoveBody, request: Request):
     """Copy the pane's agent session to another account and resume it there, in a new
@@ -1472,9 +1482,10 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
             raise HTTPException(500, "the session was copied, but its window could not be "
                                      "opened") from e
         # A window is not yet an agent: hold the next move until this one shows as running.
-        deadline = time.monotonic() + MOVE_START_S
-        while time.monotonic() < deadline and not accounts.running(s, target):
-            time.sleep(0.05)
+        if not _started(s, target):
+            _audit(request, "move_session", new, f"from={pane.id} {detail}",
+                   outcome="error: copied, agent did not start")
+            raise HTTPException(500, "the session was copied, but its agent did not start")
     _audit(request, "move_session", new, f"from={pane.id} {detail}")
     return {**_opened(new), "copied": copied}
 

@@ -15,6 +15,8 @@ import openbus.server as S
 import openbus.tmux as T
 from openbus import accounts, expunge, plan_usage
 
+STARTED = S._started  # before the moving fixture stubs it
+
 
 def _signed_in(path, uuid, **fields):
     """A Claude config dir whose .claude.json names its account (non-secret fields only)."""
@@ -335,10 +337,18 @@ def moving(client, home, monkeypatch):
             raise S.HTTPException(409, "the pane runs another session now")
         return pane, session, ([], [])
     monkeypatch.setattr(S, "_pane_session", identify)
-    monkeypatch.setattr(S, "MOVE_START_S", 0)  # no agent starts here: don't wait for one
+    monkeypatch.setattr(S, "_started", lambda s, target: True)  # no agent starts here
     return lambda account, **flags: client.post(
         "/api/panes/%9/move",
         json={"birth": "1", "session_id": SID, "dir": str(home / account), **flags})
+
+
+def test_a_move_whose_agent_never_starts_fails_but_keeps_the_copy(home, moving, monkeypatch):
+    monkeypatch.setattr(S, "MOVE_START_S", 0)
+    monkeypatch.setattr(S, "_started", STARTED)  # the real wait: nothing ever runs here
+    r = moving(".claude-personal")
+    assert r.status_code == 500 and "did not start" in r.text
+    assert (home / f".claude-personal/projects/-p/{SID}.jsonl").exists()
 
 
 def test_move_copies_the_session_and_resumes_it_on_the_other_account(client, home, moving):

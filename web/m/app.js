@@ -1635,6 +1635,8 @@ $("move-pane").onclick = async () => {
   if (!pane) return;
   // Which account each pane runs on, fresh: a stale list offers the pane its own.
   if (!await accounts.refresh()) return notice("Could not load the accounts.", 6000);
+  const targets = accounts.moveTargets(pane.pane_id, pane.tool);
+  if (!targets.length) return notice("No other signed-in account to move it to.", 6000);
   // The session it runs now, which every request below is bound to (Expunge's preview names it).
   let session_id;
   try { ({ session_id } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
@@ -1678,7 +1680,7 @@ $("move-pane").onclick = async () => {
     }
   };
   sheet(`Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
-    accounts.moveTargets(pane.pane_id, pane.tool).map((p) => [accounts.chip(p), p.tilde, () => move(p)]));
+    targets.map((p) => [accounts.chip(p), p.tilde, () => move(p)]));
   $("move-dialog").showModal();
 };
 window.addEventListener("hashchange", route);
