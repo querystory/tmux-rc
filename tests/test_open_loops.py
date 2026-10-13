@@ -231,7 +231,8 @@ def test_lanes():
     panes = [pane("%1", prs=[10, 20]),
              pane("%2", activity="waiting", waiting_on="user", question={"prompt": "Ship it?"}),
              pane("%3", cwd="/wt/solo", since=NOW - 2 * 86400),
-             pane("%4", cwd="/src/shop-api/sub", since=NOW - 2 * 86400)]
+             pane("%4", cwd="/src/shop-api/sub", since=NOW - 2 * 86400),
+             pane("%5", prs=[19])]
     trees = [wt("/src/shop-api", "main", dirty=3),
              wt("/wt/solo", "spike", dirty=1),
              wt("/wt/a13", "feat/13", dirty=2),
@@ -265,8 +266,9 @@ def test_lanes():
     assert built["older_worktrees"] == 1  # /wt/old; a landed branch is not counted either
     # Stacks group themselves under their root, merged links included.
     by_ws = {g["workstream"]["id"] if g["workstream"] else None: g for g in lanes["moving"]}
-    assert [(i["kind"], i["number"]) for i in by_ws[f"{REPO}#18"]["items"]] == [
-        ("committed", 19), ("merged", 18), ("reviewed", 19)]
+    assert [(i["kind"], i["number"], [p["pane_id"] for p in i["panes"]])
+            for i in by_ws[f"{REPO}#18"]["items"]] == [
+        ("committed", 19, ["%5"]), ("merged", 18, []), ("reviewed", 19, ["%5"])]
     group = next(g for g in lanes["dropped"] if any(i.get("path") == "/wt/a13" for i in g["items"]))
     assert group["workstream"] == {"id": f"{REPO}#13", "name": "Change 13"}
     assert next(g for g in lanes["dropped"] if g["workstream"] is None)

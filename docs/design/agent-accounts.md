@@ -20,6 +20,10 @@ Profiles are discovered, not configured: `~/.claude`, every `~/.claude-<name>`,
 `~/.codex*`, any dir a live pane uses, and any dir added through the UI. A dir is listed
 once someone is signed in there, or once it was added here (then it shows as "not signed
 in" until the sign-in finishes).
+A pane running on another HOME's default dir is not one of them: that is someone else's
+setup, whose name tmux-rc could not read (its `.claude.json` sits beside the dir, under that
+HOME) and which no launch could pin with the config variable alone, so it is left out
+rather than listed half-working.
 
 A profile is named by the user's label, else by the non-secret `oauthAccount` fields in
 the dir's `.claude.json`: the organisation name, with a personal plan's
@@ -66,7 +70,8 @@ the wide layout had no menu before.
 - **Filter** in ☰ (All, then each account), because it is a mode you set and forget, not a
   control every screen needs. While on, a "Filtered: Work ✕" pill shows under the header
   (in the sidebar on wide) and ☰ carries a dot. It applies to the list, the strip and the
-  dashboard.
+  dashboard, Open loops included: a loop shows only if a pane on the account holds it, so a
+  PR or worktree with no pane, which no account owns, is hidden while filtered.
 - **Consent card:** a chat action on a pane names the account the pane runs on, and says
   that sending never changes it.
 

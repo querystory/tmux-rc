@@ -389,7 +389,7 @@ function renderPhoneList(subset) {
 function renderLanding() {
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
-  if (page === "loops") return renderLoops(cardView("Open loops", loopsView), loops, navigate, licon);
+  if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
   paintUsage(); // follows the tool chips
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
   // only for the loading and empty states, and hides itself when blank (style.css).
@@ -404,7 +404,7 @@ function renderLanding() {
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
   }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"));
-  renderLoopsCard($("loops-card"), loops, openLane, licon);
+  renderLoopsCard($("loops-card"), accounts.loops(loops), openLane, licon);
 }
 
 // Drag the seam between the sidebar and the main column. Width is a CSS variable the

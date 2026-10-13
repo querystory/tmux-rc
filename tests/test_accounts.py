@@ -114,9 +114,9 @@ def test_only_a_personal_plans_own_organisation_is_shortened(home):
 
 
 def test_a_panes_dir_in_another_spelling_is_one_account(home):
-    alias = home / ".claude-personal" / ".." / ".claude-personal"
-    listed = [p["tilde"] for p in accounts.profiles([("claude", alias)])]
-    assert listed.count("~/.claude-personal") == 1
+    alias = f"/{home}/.claude-personal/../.claude-personal"  # "//" leading too
+    before = list(_by_dir(home))
+    assert [p["tilde"] for p in accounts.profiles([("claude", alias)])] == before
 
 
 def test_a_live_pane_says_its_dirs_provider(home):
@@ -165,12 +165,16 @@ def test_a_command_is_pinned_to_its_account(home):
 
 def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, monkeypatch):
     envs = {"1": {"HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude-personal")},
-            "2": {"HOME": str(home)}}
+            "2": {"HOME": str(home)},
+            "3": {"HOME": str(home.parent / "alice")}}  # another HOME's default: not ours
+    alice = _signed_in(home.parent / "alice" / ".claude", "u-alice", displayName="Alice")
+    (alice / ".claude.json").write_text((alice.parent / ".claude.json").read_text())  # both
     monkeypatch.setattr(plan_usage, "pane_env", lambda pid, tool: envs[pid])
     shown = {None: {"CLAUDE_CONFIG_DIR": str(home / ".claude-personal")}, "work": {}}
     monkeypatch.setattr(T, "show_env", lambda session=None: shown.get(session, {}))
     states = [{"pane_id": "%1", "tool": "claude", "session": "work"},
-              {"pane_id": "%2", "tool": "claude", "session": "work"}]
+              {"pane_id": "%2", "tool": "claude", "session": "work"},
+              {"pane_id": "%3", "tool": "claude", "session": "work"}]
     report = accounts.report(states, lambda pane_id: pane_id[1:])
     panes = {p["tilde"]: p["panes"] for p in report["profiles"]}
     assert panes == {"~/.claude": ["%2"], "~/.claude-personal": ["%1"], "~/.codex": [],
@@ -222,6 +226,20 @@ def test_a_new_window_launches_on_the_picked_account(client, home):
                               ("Shell", home / ".claude")):  # no account of its provider
         assert client.post("/api/windows", json={"session": "work", "launcher": launcher,
                                                  "account": str(account)}).status_code == 404
+
+
+def test_a_new_session_starts_on_the_picked_account(client, home, tmp_path, monkeypatch):
+    monkeypatch.setattr(T, "server_env", dict)
+    monkeypatch.setattr(T, "server_running", lambda: True)
+    for account, pin in ((".claude-personal", [f"CLAUDE_CONFIG_DIR={home}/.claude-personal"]),
+                         (".claude", ["-u", "CLAUDE_CONFIG_DIR"])):  # the default: unset
+        client.calls.clear()
+        body = {"name": "s", "cwd": str(tmp_path), "launcher": "Claude",
+                "account": str(home / account)}
+        r = client.post("/api/sessions", json=body)
+        assert r.status_code == 200, r.text
+        argv = next(a for a in client.calls if a[0] == "new-session")
+        assert argv[argv.index("env"):] == ["env", *pin, "sh", "-c", "claude"]
 
 
 def test_the_session_default_and_the_sign_in_window(client, home):
@@ -292,6 +310,10 @@ def test_a_custom_launcher_names_its_provider(client, home, monkeypatch):
     assert r.status_code == 200
     argv = next(a for a in client.calls if a[0] == "new-window")
     assert argv[argv.index("--") + 1:][:2] == ["env", f"CLAUDE_CONFIG_DIR={home}/.claude-personal"]
+    # A misspelt provider is malformed: the whole list falls back to the defaults.
+    monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps([
+        {"label": "Opus", "command": "claude", "icon": "/img/opus.png", "provider": "claud"}]))
+    assert "Opus" not in [e["label"] for e in client.get("/api/launchers").json()["launchers"]]
 
 
 SID = "0f1e2d3c-4b5a-4968-8776-655443322110"
@@ -361,6 +383,8 @@ def test_an_older_copy_is_replaced_or_resumed_only_when_asked(client, home, movi
     assert argv[-2:] == ["--resume", SID]
     _signed_in(home / ".claude-empty", "u-e")
     (home / f".claude-empty/file-history/{SID}").mkdir(parents=True)  # no transcript: no resume
+    (home / ".claude-empty/projects/-p").mkdir(parents=True)
+    (home / f".claude-empty/projects/-p/{SID}.jsonl").write_text('{"half')  # nor half a record
     assert moving(".claude-empty", resume_existing=True).status_code == 409
     assert moving(".claude-empty").json()["detail"]["resumable"] is False  # so it isn't offered
 
@@ -423,6 +447,16 @@ def test_a_move_writes_nothing_through_a_link_out_of_the_account(home, moving, t
     assert (tmp_path / f"elsewhere/-p/{SID}.jsonl").read_text() == "theirs\n"
 
 
+def test_a_link_inside_an_older_copy_refuses_its_resume(home, moving, tmp_path):
+    (tmp_path / "outside.jsonl").write_text("{}\n")
+    dst = home / f".claude-personal/projects/-p/{SID}/subagents"
+    dst.mkdir(parents=True)
+    (dst.parent.parent / f"{SID}.jsonl").write_text("{}\n")
+    (dst / "x.jsonl").symlink_to(tmp_path / "outside.jsonl")
+    r = moving(".claude-personal", resume_existing=True)
+    assert r.status_code == 409 and "links outside" in r.json()["detail"]
+
+
 def test_a_link_inside_the_session_refuses_the_move(home, moving, tmp_path):
     (tmp_path / "outside.jsonl").write_text('{"keep": 1')
     (home / f".claude/projects/-p/{SID}/subagents/x.jsonl").symlink_to(tmp_path / "outside.jsonl")
@@ -464,6 +498,8 @@ def test_a_move_refuses_nested_dirs_and_a_session_with_no_transcript(home, movin
     nested = _signed_in(home / ".claude/inner", "u-in")
     accounts.add("claude", str(nested), "Inner", [])
     assert moving(".claude/inner").status_code == 409  # copytree would chase its own copy
+    (home / f".claude/projects/-p/{SID}.jsonl").write_text('{"first rec')  # mid first write
+    assert moving(".claude-personal").status_code == 409
     (home / f".claude/projects/-p/{SID}.jsonl").unlink()  # registered, nothing written yet
     assert moving(".claude-personal").status_code == 409
     assert not (home / ".claude-personal/projects").exists()

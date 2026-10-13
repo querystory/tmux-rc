@@ -19,6 +19,7 @@ from pathlib import Path
 from . import plan_usage, tmux
 from .expunge import _FILES, Refused, Session, _home, _registration, _stat
 from .plan_usage import ENV
+from .plan_usage import canonical as _canonical
 
 COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
 # What a new account may share with the provider's default dir, one symlink each, and
@@ -59,12 +60,6 @@ def _save(data: dict) -> None:
     tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, indent=1))
     tmp.replace(path)
-
-
-def _canonical(config: str) -> str:
-    """One spelling per dir: ~ expanded and "..", "." and doubled slashes folded, so an
-    alias can't list one login twice."""
-    return os.path.normpath(os.path.expanduser(config))
 
 
 def default_dir(provider: str) -> Path:
@@ -181,8 +176,12 @@ def session_defaults(sessions) -> dict[str, dict[str, str | None]]:
 def report(states: list[dict], birth) -> dict:
     """GET /api/accounts: the profiles with the panes on each, and, once a provider has
     several (the only time the UI asks), each session's default account."""
+    # A pane on another HOME's default dir is outside this user's accounts: it could be
+    # neither read (its .claude.json sits beside that dir) nor launched on as one.
+    mine = str(Path.home())
     panes = {pane_id: (tool, plan_usage.home(tool, env))
-             for tool, env, pane_id in plan_usage.pane_envs(states, birth)}
+             for tool, env, pane_id in plan_usage.pane_envs(states, birth)
+             if env.get(ENV[tool]) or _canonical(env.get("HOME") or mine) == _canonical(mine)}
     listed = profiles(panes.values())
     by_dir = {p["dir"]: p for p in listed}
     for pane_id, (_, config) in panes.items():
@@ -269,16 +268,31 @@ def files(s: Session, root: Path) -> list[Path]:
     return [p for g in MOVED[s.harness] for p in root.glob(g.format(id=s.session_id))]
 
 
+def _tree(paths: list[Path]):
+    """Each path and everything under it."""
+    for p in paths:
+        yield p
+        yield from p.rglob("*")
+
+
+def _has_record(log: Path) -> bool:
+    """Whether the log holds one whole line yet, read a chunk at a time until it does."""
+    with log.open("rb") as f:
+        return any(b"\n" in chunk for chunk in iter(lambda: f.read(1 << 16), b""))
+
+
 def resumable(paths: list[Path]) -> bool:
-    """Whether a session's files (from files()) include its transcript, which a resume needs."""
-    return any(p.suffix == ".jsonl" for p in paths)
+    """Whether a session's files (from files()) include its transcript with at least one
+    whole record in it, which a resume needs."""
+    return any(p.suffix == ".jsonl" and p.is_file() and _has_record(p) for p in paths)
 
 
 def confined(paths: list[Path], target: Path) -> list[Path]:
-    """`paths`, refused if any resolves out of the account's dir: a symlinked projects/
-    (say) would carry a write, a delete or a resume to another account's files."""
+    """`paths`, refused if any, or anything under one, resolves out of the account's dir: a
+    symlinked projects/ (say) would carry a write, a delete or a resume to another
+    account's files."""
     dst = target.resolve()
-    if any(not p.resolve().is_relative_to(dst) for p in paths):
+    if any(not p.resolve().is_relative_to(dst) for p in _tree(paths)):
         raise ValueError("a path in that account's dir links outside it")
     return paths
 
@@ -350,7 +364,7 @@ def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str
     if not resumable(paths):  # a session only registered so far
         raise LookupError("this session has no transcript to resume yet")
     confined([*old, *(target / p.relative_to(s.root) for p in paths)], target)
-    if any(p.is_symlink() for src in paths for p in [src, *src.rglob("*")]):
+    if any(p.is_symlink() for p in _tree(paths)):
         raise ValueError("the session's files include a link, which could lead out of the account")
     if old and not replace:
         raise FileExistsError("that account already has this session")

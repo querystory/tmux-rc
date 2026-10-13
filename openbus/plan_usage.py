@@ -45,12 +45,19 @@ def _epoch(stamp: str) -> float:
     return datetime.fromisoformat(stamp).timestamp()
 
 
+def canonical(config: str) -> str:
+    """One spelling per dir: ~ expanded and "..", "." and doubled slashes folded, so an
+    alias can't list one login twice, or miss its profile (accounts.py). normpath keeps a
+    leading "//" (POSIX leaves its meaning to the system); on Linux it is just "/"."""
+    path = os.path.normpath(os.path.expanduser(config))
+    return "/" + path.lstrip("/") if path.startswith("//") else path
+
+
 def home(provider: str, env: dict) -> Path:
     """The config dir an agent with this environment reads: its override, else ~/.claude
     or ~/.codex under its HOME."""
-    if override := env.get(ENV[provider]):
-        return Path(override)
-    return Path(env.get("HOME") or Path.home()) / f".{provider}"
+    default = Path(env.get("HOME") or Path.home()) / f".{provider}"
+    return Path(canonical(env.get(ENV[provider]) or str(default)))
 
 
 def pane_env(pid: str, tool: str) -> dict:

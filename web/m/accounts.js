@@ -6,6 +6,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0
 const KEY = "tmuxrc-account", ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
+// A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
+const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
 const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
 export function setupAccounts({ request, post, licon, notice, repaint, sessions, paneAlive, openPane }) {
@@ -28,8 +30,16 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     return p?.signed_in ? p : null;
   };
 
-  async function refresh() {
-    try { ({ profiles, sessions: defaults, shared } = await request("/api/accounts")); } catch { return false; }
+  // Only the newest answer counts: an older one landing late would undo a change. A caller
+  // whose request was overtaken gets the newer one's outcome: true once the data is fresh.
+  let asked = 0, newest;
+  const refresh = () => newest = load(++asked);
+  async function load(mine) {
+    try {
+      const data = await request("/api/accounts");
+      if (mine !== asked) return newest;
+      ({ profiles, sessions: defaults, shared } = data);
+    } catch { return false; }
     paintMenu(); repaint();
     if (dlg.open && F.step === "list" && !F.renaming) render();
     return true;
@@ -120,6 +130,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
           // Always in view: the session's default, set with tmux set-environment on change.
           + (session ? `<label class="acct-default">Default for this session <select data-default-for="${provider}">`
             + `<option value="" ${set(session, provider) ? "" : "selected"}>Not set</option>`
+            // Set to a dir that is none of these: shown as it is, not as "Not set".
+            + (set(session, provider) && !def ? `<option selected disabled>${esc(defaults[session][provider])}</option>` : "")
             + mine.map((p) => `<option value="${esc(p.dir)}" ${set(session, provider) && p === def ? "selected" : ""}>${esc(p.name)}</option>`).join("") + "</select></label>" : "");
       }).join("");
       for (const b of choices.querySelectorAll("button[data-provider]")) {
@@ -156,7 +168,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const btns = (...b) => `<div class="acct-btns">${b.join("")}</div>`;
   const who = (p) => [esc(p.signed_in ? p.who || "signed in" : "not signed in"), esc(p.plan), `<code>${esc(p.tilde)}</code>`, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
   function render() {
-    const s = F.step, owner = s === "name" && profiles.find((p) => p.dir === F.dir || p.tilde === F.dir);
+    const s = F.step, owner = s === "name" && profiles.find((p) => [p.dir, p.tilde].includes(norm(F.dir)));
     if (s === "list") dlg.innerHTML = head("Accounts") + profiles.map((p) => F.renaming === p.dir
       ? `<div class="acct-row">${dot(p)}<input id="acct-rename" value="${esc(p.label || p.name)}" aria-label="Account name"><button class="primary" data-rename-save>Save</button><button data-goto="list">Cancel</button></div>`
       : F.removing === p.dir
@@ -227,9 +239,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     clearTimeout(poll);
     if (F.step !== "login" || !F.pane) return;
     await refresh();
+    if (!dlg.open && !F.away) return; // closed while that was in flight: the watch is over
     // Signed in, even while away in the sign-in window: back to the sheet, at Done.
     if (byDir(F.dir)?.signed_in) { F.away = false; go("done"); if (!dlg.open) dlg.showModal(); return; }
-    if (!dlg.open && !F.away) return;
     // Gone once seen, or never seen within a grace: the page's state can lag the new window.
     if (paneAlive(F.pane)) F.seen = true;
     else if (F.seen || Date.now() - F.openedAt > 15000) return go("abandoned");
@@ -251,7 +263,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
       if ("renameSave" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.renaming, label: dlg.querySelector("#acct-rename").value }) }); await refresh(); return go("list"); }
       // Leaving an unfinished sign-in: close the window it opened, if asked (that pane only).
       if (F.step === "abandoned" && dlg.querySelector("#acct-close")?.checked) {
-        await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }).catch(() => {});
+        await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); // a failed close stops the removal
         F.pane = null;
       }
       if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); if ((F.removing || F.dir) === filter) setFilter(null); await refresh(); return go("list"); }
@@ -276,9 +288,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   $("accounts-open").onclick = () => { $("more-menu").open = false; open("list"); };
   pill.hidden = true;
 
+  function matches(pane) { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; }
   return {
     refresh, usage, byUrgency, strip, groups, picker, pill, any,
-    matches: (pane) => { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; },
+    matches,
+    // Open loops under a filter: only what a pane on the account holds (a PR's or worktree's
+    // with no pane belongs to no account, so it is hidden with the rest).
+    loops: (report) => !active() || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
+      [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
     // The consent card: which account a chat action lands on.
     consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)} ${esc(p.tilde)}. Sending never changes a pane's account.</small>` : ""; },

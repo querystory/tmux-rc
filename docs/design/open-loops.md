@@ -26,7 +26,8 @@ is the one action that unsticks each", in three lanes:
 
 Rows carry reason codes rather than prose, so the view can word them and a test can pin
 them. Each PR row carries the panes that own it, so step 2's Open button has a target; a
-row with no pane says so by having none.
+row with no pane says so by having none. Moving's merged, committed and reviewed rows carry
+them too, though they draw no button, so the account filter can tell whose they are.
 
 ## The three sources and how each is read
 
