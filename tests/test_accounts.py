@@ -91,6 +91,8 @@ def test_adding_creates_a_private_dir_and_links_only_shared_files(home):
             accounts.add("claude", "~/.claude-other", "", bad)
     with pytest.raises(FileExistsError):
         accounts.add("claude", "~/.claude-personal", "", [])
+    with pytest.raises(FileExistsError):  # the same dir, spelled another way
+        accounts.add("claude", f"{home}//.claude-side/../.claude-personal/", "", [])
     # An old dir nobody signed in to is reused as it is.
     assert accounts.add("claude", "~/.claude-old", "Old", [])["existed"] is True
 
