@@ -79,7 +79,36 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-consent", PHONE, "light", "", two(chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge"))],
   ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await page.click("#more-button"); await page.click("#accounts-open"); })],
   ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await page.click("#more-button"); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
+  // Adding "Demo", step by step, each cropped to its sheet (docs/design/agent-accounts.md).
+  // Last, and in this order: opening the sign-in window changes the demo server's state.
+  ["accounts-add-1-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }), "#launch-dialog"],
+  ["accounts-add-2-name", PHONE, "light", "", two(addFlow("name")), "#acct-dialog"],
+  ["accounts-add-3-share", PHONE, "light", "", two(addFlow("share")), "#acct-dialog"],
+  ["accounts-add-4-sign-in", PHONE, "light", "", two(addFlow("login")), "#acct-dialog"],
+  ["accounts-add-5-waiting", PHONE, "light", "", two(addFlow("wait")), "#acct-dialog"],
+  ["accounts-add-5-sign-in-pane", PHONE, "dark", "#pane=%2590&view=terminal", two()],
+  ["accounts-add-6-done", PHONE, "light", "", two(addFlow("done")), "#acct-dialog"],
+  ["accounts-add-7-list", PHONE, "light", "", two((page) => page.fill("#search", "sign in"))],
 ];
+// The add flow up to `until`: name, share, login (its step before the window opens), wait
+// (the window open, signing in) or done.
+function addFlow(until) {
+  return async (page) => {
+    await page.click("#more-button"); await page.click("#accounts-open");
+    const added = page.locator('#acct-dialog [data-remove="~/.claude-demo"]'); // by an earlier shot
+    if (await added.count()) { await added.click(); await page.click("#acct-dialog [data-remove-ok]"); await added.waitFor({ state: "detached" }); }
+    await page.click("#acct-dialog [data-add]");
+    await page.fill("#acct-name", "Demo");
+    if (until === "name") return;
+    await page.click('#acct-dialog [data-goto="share"]');
+    if (until === "share") return;
+    await page.click('#acct-dialog [data-create="link"]'); await page.waitForSelector("#acct-session");
+    if (until === "login") return;
+    await page.click("#acct-dialog [data-login]"); await page.waitForSelector(".acct-wait");
+    if (until === "wait") return;
+    await page.waitForSelector("#acct-make-default", { timeout: 20000 });
+  };
+}
 // Once the accounts have arrived (after the panes), the step; a base from before accounts
 // draws no badge, and is shot as it is.
 function two(step) {
@@ -245,7 +274,7 @@ try {
   // than every other render of the same page. Unhinted metrics and grayscale antialiasing
   // leave nothing for that answer to change.
   browser = await chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none"] });
-  for (const [shots, base] of runs) for (const [name, viewport, colorScheme, hash, step] of shots) {
+  for (const [shots, base] of runs) for (const [name, viewport, colorScheme, hash, step, crop] of shots) {
     const context = await browser.newContext({ viewport, colorScheme, deviceScaleFactor: 2,
       reducedMotion: "reduce", locale: "en-US", timezoneId: "UTC", serviceWorkers: "block",
       isMobile: viewport === PHONE, hasTouch: viewport === PHONE });
@@ -270,7 +299,7 @@ try {
     for (let i = 0; i < 20 && !(shot && last?.equals(shot)); i++) {
       last = shot;
       await page.waitForTimeout(500);
-      shot = await page.screenshot();
+      shot = await (crop ? page.locator(crop) : page).screenshot(); // `crop`: just that sheet
     }
     // Never write a frame that did not settle: that is how nondeterminism slips in unseen.
     if (!last?.equals(shot)) throw new Error(`${name}: still changing after 10s`);

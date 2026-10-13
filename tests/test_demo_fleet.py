@@ -86,6 +86,11 @@ def test_the_two_account_state_is_fictional_and_splits_the_sessions(tmp_path):
                       for d in ("~/.claude-personal", "~/.claude"))
     assert personal["panes"] and work["panes"] and not set(personal["panes"]) & set(work["panes"])
     assert demo.accounts()["sessions"] == {}  # one account each: no session defaults asked
+    # The add-account shots: a stub sign-in screen, and Demo signing in a little later.
+    assert not PRIVATE.findall(demo.capture(demo.sign_in_pane()))
+    for since, signed_in in ((0, False), (99, True)):
+        listed = demo.accounts(two=True, signing_in=since)["profiles"]
+        assert [p["signed_in"] for p in listed if p["name"] == "Demo"] == [signed_in]
 
 
 def test_open_loops_fill_every_lane_and_grouping_signal():

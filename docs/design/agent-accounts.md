@@ -75,8 +75,10 @@ the wide layout had no menu before.
 The mechanism is a default account per tmux session:
 `tmux set-environment -t <session> CLAUDE_CONFIG_DIR <dir>`. tmux hands it to every window
 created there afterwards, a typed `prefix c` and a resume included. It is what a user
-would do by hand, and it stays visible in tmux. New window shows the session's default
-preselected and offers "Make X this session's default" when another account is picked.
+would do by hand, and it stays visible in tmux. New window preselects the session's
+default and always shows a "Default for this session" control. When nothing sets the
+variable (unset, or removed with `-VAR`), it says so ("no account default; new windows use
+Work, the standard dir") rather than implying a choice nobody made.
 
 Launching on an account wraps the launcher in `env CLAUDE_CONFIG_DIR=<dir>` (or
 `env -u CLAUDE_CONFIG_DIR` for the default dir), so the pick holds whatever the session's
@@ -87,6 +89,8 @@ way to the dir its transcript is in, since it resumes only under the account tha
 it; agent-history now indexes every `~/.claude*` dir so those sessions are offered at all.
 
 ## Adding an account
+
+![New window with two Claude accounts: Personal and Work as cards, "+ Add account", and the session's default shown and settable](../img/accounts-add-1-new-window.png)
 
 From ☰ → Accounts… → Add account, or "+ Add account" in New window's picker:
 
@@ -104,6 +108,11 @@ From ☰ → Accounts… → Add account, or "+ Add account" in New window's pic
    credential boundary exactly where the provider put it.
 4. **Done:** the identity read from that info, and a pre-ticked "make it the default for
    session X".
+
+![The last step: "Demo is ready", signed in as Demo Studio on ~/.claude-demo, with the session default ticked](../img/accounts-add-6-done.png)
+
+The whole sequence, each step cropped to its sheet, is the `accounts-add-*` set in
+`scripts/screenshots.mjs`, shot against the demo fleet with a stub sign-in screen.
 
 Edge cases: an abandoned sign-in (Cancel, or its window closed) adds nothing beyond the
 listed "not signed in" dir, with Finish sign-in and Remove. Rename changes only the label.
