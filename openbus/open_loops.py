@@ -348,7 +348,9 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
 
     lanes = {lane: defaultdict(list) for lane in ("waiting", "moving", "dropped")}
     for key, p in prs.items():
-        group, ref = ws(key), {k: p[k] for k in ("repo", "number", "title", "url")}
+        # Every item names its panes, so the account filter can tell whose it is (accounts.js).
+        group = ws(key)
+        ref = {**{k: p[k] for k in ("repo", "number", "title", "url")}, "panes": owners[key]}
         if p["state"] == "MERGED" and p["merged_at"] >= now - RECENT:
             lanes["moving"][group].append({**ref, "kind": "merged", "at": p["merged_at"]})
         if p["state"] != "OPEN" or p["updated_at"] < now - HORIZON:  # a pane's old reference
@@ -376,7 +378,7 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
         if waiting or dropped:
             lanes["waiting" if waiting else "dropped"][group].append(
                 {**ref, "kind": "pr", "reasons": waiting + dropped, "at": p["updated_at"],
-                 "draft": p["draft"], "panes": owners[key]})
+                 "draft": p["draft"]})
 
     for p in panes:
         w, row = tree(p.get("cwd")), {"kind": "pane", "pane": _pane(p), "at": p.get("state_since")}
