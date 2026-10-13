@@ -318,6 +318,14 @@ def running(s: Session, target: Path) -> bool:
     return False
 
 
+def _whole_records(log: Path) -> None:
+    """Cut a record the running agent was still appending when the log was copied, so the
+    copy ends on a whole JSON line. The agent appends, so everything before it is whole."""
+    data = log.read_bytes()
+    if not data.endswith(b"\n"):
+        log.write_bytes(data[:data.rfind(b"\n") + 1])
+
+
 def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str]:
     """Copy the session's files into another account's dir, at the same relative paths, so
     the agent there resumes it; the original stays. Refuses, copying nothing, when there
@@ -350,6 +358,8 @@ def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str
                 shutil.copytree(src, dst, symlinks=True)
             else:
                 shutil.copy2(src, dst)
+            for log in [dst] if dst.suffix == ".jsonl" else dst.rglob("*.jsonl"):
+                _whole_records(log)
     except OSError:
         for dst in made:
             if dst.is_dir():

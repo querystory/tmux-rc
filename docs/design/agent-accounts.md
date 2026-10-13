@@ -144,7 +144,11 @@ tool results) and `file-history/<id>/` (the /rewind snapshots) come along so the
 session is whole. Session env, tasks, todos and the process registry are rebuilt on start
 and are left behind. Codex needs only its rollout files, a resumed thread's later
 segments included; its sqlite index finds an unindexed rollout by scanning. The list is a
-subset of Expunge's per-session table, so one table says where a session's files are.
+subset of Expunge's per-session table, so one table says where a session's files are. The
+source keeps running while it is copied, so a record it was still appending is cut from
+the end of each copied log: the agent only appends, so the rest is whole, and a resume
+reads whole lines. Stopping the source first was rejected, since the move exists for an
+agent the user is still in the middle of.
 
 An older copy of the session already on the target (an earlier move, or one made by
 hand) is never overwritten silently. The API refuses with 409 and the copy's age, and the

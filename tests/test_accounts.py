@@ -453,6 +453,15 @@ def test_a_move_refuses_nested_dirs_and_a_session_with_no_transcript(home, movin
     assert not (home / ".claude-personal/projects").exists()
 
 
+def test_a_record_still_being_written_is_left_out_of_the_copy(home, moving):
+    (home / f".claude/projects/-p/{SID}.jsonl").write_text('{"type": "user"}\n{"type": "assi')
+    (home / f".claude/projects/-p/{SID}/subagents/agent-1.jsonl").write_text('{}\n{"par')
+    assert moving(".claude-personal").status_code == 200
+    dst = home / ".claude-personal/projects/-p"
+    assert (dst / f"{SID}.jsonl").read_text() == '{"type": "user"}\n'
+    assert (dst / f"{SID}/subagents/agent-1.jsonl").read_text() == "{}\n"
+
+
 def test_a_move_that_fails_partway_leaves_nothing_behind(home, moving, monkeypatch):
     def broken(*_a, **_k):
         raise OSError("disk full")
