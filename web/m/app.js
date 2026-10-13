@@ -23,6 +23,9 @@ const REQUEST_TIMEOUT_MS = 8000;
 // Long polls (/api/state, /live) must outlast the server's 25s hold, or every idle poll
 // would abort just before the server answers.
 const LONG_POLL_TIMEOUT_MS = 35000;
+// No client timeout (setTimeout's largest delay), for a request whose server run an abort
+// would not stop: the answer must be its own outcome, never a failure while it runs on.
+const NO_TIMEOUT = 2 ** 31 - 1;
 // How long "Answer sent" stays (and the option buttons stay disabled) before we trust
 // the pane's own state again — covers the round trip to the agent and back.
 const ANSWER_PENDING_MS = 10000;
@@ -1598,9 +1601,7 @@ $("expunge-pane").onclick = async () => {
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
     try {
-      // No client timeout (setTimeout's largest delay): aborting would not stop the server's
-      // run, so the answer must be its own outcome, never a failure while it deletes on.
-      const done = await endPane(pane, "expunge", "Expunging…", { session_id: plan.session_id, birth }, 2 ** 31 - 1);
+      const done = await endPane(pane, "expunge", "Expunging…", { session_id: plan.session_id, birth }, NO_TIMEOUT);
       notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
     } catch (error) { // a refusal (pane gone, 404; or 409) touched nothing and clears; a failure stays
       const refused = [404, 409].includes(error.status);
@@ -1615,7 +1616,9 @@ $("expunge-pane").onclick = async () => {
 // resume it there in a new window; this pane and the original are left alone
 // (docs/design/agent-accounts.md).
 html($("move-pane"), `${licon("users", 18)}<span>Move to another account…</span>`);
-$("close-move").onclick = () => $("move-dialog").close();
+// Not while a choice runs: the sheet is where its outcome shows.
+$("close-move").onclick = () => $("move-choices").inert || $("move-dialog").close();
+$("move-dialog").addEventListener("cancel", (e) => { if ($("move-choices").inert) e.preventDefault(); });
 $("move-pane").onclick = async () => {
   closePaneMenu();
   const pane = panes.find((p) => p.pane_id === active);
@@ -1638,8 +1641,7 @@ $("move-pane").onclick = async () => {
   const go = (id) => { $("move-dialog").close(); openLaunched(id); };
   const move = async (p, flags = {}) => {
     try {
-      // A long transcript takes a while to copy; giving up early would invite a retry of a move still under way.
-      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, ...flags }, 120000);
+      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, ...flags }, NO_TIMEOUT);
       sheet(`It is running on ${p.name} in a new window. This window still runs it on this account until it exits.`, [
         ["Go to the new window", "", () => go(r.pane_id)],
         ["Exit the old pane", "Types /exit here, then goes to the new window", async () => {
