@@ -264,25 +264,47 @@ def set_default(session: str, profile: dict) -> None:
                  session=session)
 
 
-def copy_session(s: Session, target: Path) -> list[str]:
+def files(s: Session, root: Path) -> list[Path]:
+    """The session's files (MOVED) under one account's dir."""
+    return [p for g in MOVED[s.harness] for p in root.glob(g.format(id=s.session_id))]
+
+
+def copied_at(s: Session, target: Path) -> float | None:
+    """When the account's copy of the session was made (its files' latest ctime: a copy
+    keeps the original's mtime), or None if it has none."""
+    return max((p.lstat().st_ctime for p in files(s, target)), default=None)
+
+
+def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str]:
     """Copy the session's files into another account's dir, at the same relative paths, so
     the agent there resumes it; the original stays. Refuses, copying nothing, when there
-    is no transcript yet, when either dir holds the other, or when the target already has
-    the session; undoes a copy that fails partway. One at a time, so two moves can never
-    both pass the check and then overwrite, or roll back, each other's copy."""
+    is no transcript yet, when either dir holds the other or a folder on the way links out
+    of the target, or when the target already has the session, unless `replace`: then that
+    session's files there, and nothing else, are deleted first. Undoes a copy that fails
+    partway. One at a time, so two moves can never both pass the check and then
+    overwrite, or roll back, each other's copy."""
     with _LOCK:
-        return _copy_session(s, target)
+        return _copy_session(s, target, replace)
 
 
-def _copy_session(s: Session, target: Path) -> list[str]:
+def _copy_session(s: Session, target: Path, replace: bool) -> list[str]:
     src, dst = s.root.resolve(), target.resolve()
     if src.is_relative_to(dst) or dst.is_relative_to(src):
         raise ValueError("one account's dir is inside the other's")
-    paths = [p for g in MOVED[s.harness] for p in s.root.glob(g.format(id=s.session_id))]
+    paths, old = files(s, s.root), files(s, target)
     if not any(p.suffix == ".jsonl" for p in paths):  # a session only registered so far
         raise LookupError("this session has no transcript to resume yet")
-    if any(next(target.glob(g.format(id=s.session_id)), None) for g in MOVED[s.harness]):
+    # A symlinked projects/ (say) would carry the writes, or the deletes, out of the account.
+    if any(not p.parent.resolve().is_relative_to(dst)
+           for p in [*old, *(target / p.relative_to(s.root) for p in paths)]):
+        raise ValueError("a folder in that account's dir links outside it")
+    if old and not replace:
         raise FileExistsError("that account already has this session")
+    for p in old:
+        if p.is_dir() and not p.is_symlink():
+            shutil.rmtree(p)
+        else:
+            p.unlink()
     made: list[Path] = []
     try:
         for src in paths:

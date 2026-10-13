@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -173,6 +173,7 @@ async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
       const error = new Error(`Request failed (${response.status})`);
       error.status = response.status;
       if (typeof detail === "string" && detail) error.detail = detail;
+      else if (typeof detail?.message === "string") Object.assign(error, detail, { detail: detail.message }); // a refusal with data (the move's older copy)
       throw error;
     }
     return await response.json();
@@ -1615,22 +1616,42 @@ $("expunge-pane").onclick = async () => {
 // (docs/design/agent-accounts.md).
 html($("move-pane"), `${licon("users", 18)}<span>Move to another account…</span>`);
 $("close-move").onclick = () => $("move-dialog").close();
-$("move-pane").onclick = () => {
+$("move-pane").onclick = async () => {
   closePaneMenu();
   const pane = panes.find((p) => p.pane_id === active);
   if (!pane) return;
-  text($("move-what"), `Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`);
-  $("move-choices").replaceChildren(...accounts.moveTargets(pane.pane_id, pane.tool).map((p) => {
-    const button = document.createElement("button");
-    html(button, `<span><strong>${accounts.chip(p)}</strong><small></small></span>${licon("chevron")}`);
-    text(button.querySelector("small"), p.tilde);
-    button.onclick = async () => {
+  await accounts.refresh(); // which account each pane runs on, fresh: a stale list offers the pane its own
+  const sheet = (what, choices) => {
+    text($("move-what"), what);
+    $("move-choices").replaceChildren(...choices.map(([label, sub, act]) => {
+      const button = document.createElement("button");
+      html(button, `<span><strong>${label}</strong><small></small></span>${licon("chevron")}`);
+      text(button.querySelector("small"), sub);
+      button.onclick = act;
+      return button;
+    }));
+  };
+  const go = (id) => { $("move-dialog").close(); openLaunched(id); };
+  const move = async (p, flags = {}) => {
+    try {
+      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, ...flags });
+      sheet(`It is running on ${p.name} in a new window. This window still runs it on this account until it exits.`, [
+        ["Go to the new window", "", () => go(r.pane_id)],
+        ["Exit the old pane", "Types /exit here, then goes to the new window", async () => {
+          try { await post(paneUrl(pane.pane_id, "exit"), { birth: pane.birth, session_id: r.session_id }); }
+          catch (error) { notice(`Could not exit the old pane: ${error.detail || error.message}`, 6000); }
+          go(r.pane_id);
+        }]]);
+    } catch (error) {
+      if (error.copied) return sheet(`An older copy exists on ${p.name} (copied ${since({ state_since: error.copied })} ago).`, [
+        ["Replace it", "Copies this session over that one's files, then resumes it", () => move(p, { replace: true })],
+        ["Resume that copy", "Opens it as it is", () => move(p, { resume_existing: true })]]);
       $("move-dialog").close();
-      try { openLaunched((await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth })).pane_id); }
-      catch (error) { notice(`Could not move the session: ${error.detail || error.message}`, 6000); }
-    };
-    return button;
-  }));
+      notice(`Could not move the session: ${error.detail || error.message}`, 6000);
+    }
+  };
+  sheet(`Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
+    accounts.moveTargets(pane.pane_id, pane.tool).map((p) => [accounts.chip(p), p.tilde, () => move(p)]));
   $("move-dialog").showModal();
 };
 window.addEventListener("hashchange", route);

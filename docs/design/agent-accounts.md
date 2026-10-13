@@ -146,9 +146,27 @@ and are left behind. Codex needs only its rollout files, a resumed thread's late
 segments included; its sqlite index finds an unindexed rollout by scanning. The list is a
 subset of Expunge's per-session table, so one table says where a session's files are.
 
-The target dir must not already hold that session id, so nothing is ever overwritten; a
-copy that fails partway is removed, and copies run one at a time so two requests cannot
-pass that check together. A session with no transcript yet (registered, nothing written)
+An older copy of the session already on the target (an earlier move, or one made by
+hand) is never overwritten silently. The API refuses with 409 and the copy's age, and the
+sheet asks: **Replace it** deletes that session id's transcript, `<id>/` folder and
+file-history there, and nothing else, then copies afresh; **Resume that copy** opens it
+as it is. Either is an explicit flag on the request, so a client that does not know about
+the choice still gets the refusal. Replacing gives up the older copy before the new one
+lands, which is acceptable because the original it came from is still on the source
+account. A copy that fails partway is removed, and copies run one at a time so two
+requests cannot pass the check together. Nothing is written or deleted through a folder
+in the target that links out of it, and the agent's command is checked to exist before
+anything is copied, so a resume that cannot start leaves no stray copy. The pane's own
+account is refused too, whatever the dir's spelling, and the sheet reloads the accounts
+before listing them, since a window the move itself just opened may not have been
+attributed to its account yet.
+
+Once the new window runs, the sheet offers **Exit the old pane**: it types the agent's own
+`/exit` into the source pane, bound to its incarnation and the session id, and is refused
+if either changed. It is a button, not automatic, and never a kill, so an agent mid-turn
+is not cut off without the user deciding to.
+
+A session with no transcript yet (registered, nothing written)
 is refused rather than opened as an empty resume, and so are two dirs where one sits
 inside the other, which would make the copy chase its own output. A dir that has never opened the folder shows the
 provider's own "trust this folder" prompt in the new window first. Answering it is left to

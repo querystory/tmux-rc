@@ -307,8 +307,8 @@ def moving(client, home, monkeypatch):
     session = expunge.Session("claude", SID, src, home / "agent-history", os.getpid(), "1")
     pane = T.Pane("work", "1", "w", "0", "%9", "claude", "t")
     monkeypatch.setattr(S, "_pane_session", lambda *_: (pane, session, ([], [])))
-    return lambda account: client.post("/api/panes/%9/move",
-                                       json={"birth": "1", "dir": str(home / account)})
+    return lambda account, **flags: client.post(
+        "/api/panes/%9/move", json={"birth": "1", "dir": str(home / account), **flags})
 
 
 def test_move_copies_the_session_and_resumes_it_on_the_other_account(client, home, moving):
@@ -327,7 +327,58 @@ def test_move_copies_the_session_and_resumes_it_on_the_other_account(client, hom
     assert moving(".claude-personal").status_code == 409  # already there: nothing overwritten
     for account in (".claude-old", ".codex2"):  # signed out, another provider's
         assert moving(account).status_code == 404
-    assert moving(".claude").status_code == 409  # its own account
+    r = moving(".claude")  # its own account
+    assert r.status_code == 409 and r.json()["detail"] == "the session is already on that account"
+
+
+def test_an_older_copy_is_replaced_or_resumed_only_when_asked(client, home, moving):
+    dst = home / ".claude-personal"
+    (dst / f"projects/-p/{SID}/subagents").mkdir(parents=True)
+    (dst / f"projects/-p/{SID}/subagents/stale.jsonl").write_text("{}\n")
+    (dst / f"projects/-p/{SID}.jsonl").write_text("old\n")
+    (dst / "projects/-p/other.jsonl").write_text("another session\n")
+    r = moving(".claude-personal")
+    assert r.status_code == 409 and r.json()["detail"]["copied"] > 0  # the sheet's choice
+    assert (dst / f"projects/-p/{SID}.jsonl").read_text() == "old\n"
+    r = moving(".claude-personal", resume_existing=True)
+    assert r.status_code == 200 and r.json()["copied"] == []
+    assert (dst / f"projects/-p/{SID}.jsonl").read_text() == "old\n"
+    assert moving(".claude-personal", replace=True).status_code == 200
+    assert (dst / f"projects/-p/{SID}.jsonl").read_text() == '{"type": "user"}\n'
+    assert not (dst / f"projects/-p/{SID}/subagents/stale.jsonl").exists()
+    assert (dst / "projects/-p/other.jsonl").exists()  # only that session's files go
+    argv = [a for a in client.calls if a[0] == "new-window"][-1]
+    assert argv[-2:] == ["--resume", SID]
+    _signed_in(home / ".claude-empty", "u-e")
+    assert moving(".claude-empty", resume_existing=True).status_code == 409  # no copy there
+
+
+def test_a_move_writes_nothing_through_a_link_out_of_the_account(home, moving, tmp_path):
+    (tmp_path / "elsewhere").mkdir()
+    (home / ".claude-personal/projects").symlink_to(tmp_path / "elsewhere")
+    r = moving(".claude-personal")
+    assert r.status_code == 409 and "links outside" in r.json()["detail"]
+    assert not list((tmp_path / "elsewhere").iterdir())
+
+
+def test_a_move_whose_agent_cannot_start_copies_nothing(home, moving, monkeypatch):
+    monkeypatch.setattr(S.shutil, "which", lambda *_a, **_k: None)
+    assert moving(".claude-personal").status_code == 400
+    assert not (home / ".claude-personal/projects").exists()
+
+
+def test_exit_types_the_agents_own_exit_into_that_pane_only(client, moving, monkeypatch):
+    sent = []
+    monkeypatch.setattr(T, "send_keys", lambda *a, **k: sent.append((a, k)))
+    def exit_():
+        return client.post("/api/panes/%9/exit", json={"birth": "1", "session_id": SID})
+    assert exit_().status_code == 200
+    assert sent == [(("%9", "/exit"), {"expected_pid": ""})]
+    def changed(*_a, **_k):
+        raise T.PaneChangedError("Pane changed")
+    monkeypatch.setattr(T, "send_keys", changed)
+    assert exit_().status_code == 409
+    assert "kill" not in str(client.calls)
 
 
 def test_a_move_refuses_nested_dirs_and_a_session_with_no_transcript(home, moving):

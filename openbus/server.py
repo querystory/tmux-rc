@@ -223,6 +223,8 @@ class ExpungeBody(BaseModel):
 class MoveBody(BaseModel):
     dir: str  # the target profile's config dir
     birth: str  # as in ExpungeBody
+    replace: bool = False  # the account has an older copy of the session: copy over it
+    resume_existing: bool = False  # ...or resume that copy as it is
 
 
 class NewWindowBody(BaseModel):
@@ -1061,9 +1063,9 @@ def _on_account(entry: dict, account: str | None) -> str | list[str] | None:
     return profile and accounts.command(profile["provider"], profile["dir"], entry["command"])
 
 
-def _refuse(request: Request, action: str, detail: str, status: int, why: str):
+def _refuse(request: Request, action: str, detail: str, status: int, why: str, **extra):
     _audit(request, action, "-", detail, outcome=f"rejected: {why}"[:80])
-    raise HTTPException(status, why)
+    raise HTTPException(status, {"message": why, **extra} if extra else why)
 
 
 @app.get("/api/accounts")
@@ -1378,14 +1380,25 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
     if not (profile and profile["signed_in"]):
         _refuse(request, "move_session", detail, 404, "not a signed-in account")
     detail = f"session={s.session_id} {detail}"
+    target, argv = Path(profile["dir"]), [*accounts.RESUME[s.harness], s.session_id]
+    if target.resolve() == s.root.resolve():
+        _refuse(request, "move_session", detail, 409, "the session is already on that account")
+    if why := _unavailable(argv[0], tmux.server_path()):  # before copying anything
+        _refuse(request, "move_session", detail, 400, why)
+    copied = []
     try:
-        copied = accounts.copy_session(s, Path(profile["dir"]))
-    except (FileExistsError, LookupError, ValueError) as e:
+        if not body.resume_existing:
+            copied = accounts.copy_session(s, target, replace=body.replace)
+        elif accounts.copied_at(s, target) is None:
+            _refuse(request, "move_session", detail, 409, "that account has no copy of it")
+    except FileExistsError as e:  # the sheet offers to replace or resume it
+        _refuse(request, "move_session", detail, 409, str(e),
+                copied=accounts.copied_at(s, target))
+    except (LookupError, ValueError) as e:
         _refuse(request, "move_session", detail, 409, str(e))
     except OSError as e:  # only the type: the message can carry a path
         _audit(request, "move_session", pane_id, detail, outcome=f"error: {type(e).__name__}")
         raise HTTPException(500, "the session could not be copied: nothing was kept") from e
-    argv = [*accounts.RESUME[s.harness], s.session_id]
     try:  # the copy stays: the session can still be resumed there by hand
         new = tmux.new_window(pane.session, f"{argv[0]} on {profile['name']}"[:40],
                               accounts.command(s.harness, profile["dir"], argv), cwd=cwd)
@@ -1394,7 +1407,24 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         raise HTTPException(500, "the session was copied, but its window could not be "
                                  "opened") from e
     _audit(request, "move_session", new, f"from={pane.id} {detail}")
-    return {**_opened(new), "copied": copied}
+    return {**_opened(new), "copied": copied, "session_id": s.session_id}
+
+
+@app.post("/api/panes/{pane_id}/exit")
+def exit_agent(pane_id: str, body: ExpungeBody, request: Request):
+    """Type the agent's own /exit (Claude Code's and Codex's alike) into the pane a move
+    left behind: only while it is the incarnation and runs the session the client names.
+    Never a kill: the agent ends as if the user had typed it."""
+    detail = f"session={body.session_id[:64]}"
+    try:
+        pane, _, _ = _pane_session(pane_id, body.birth, body.session_id)
+        tmux.send_keys(pane.id, "/exit", expected_pid=pane.pid)
+    except HTTPException as e:
+        _refuse(request, "exit_agent", detail, e.status_code, e.detail)
+    except tmux.PaneChangedError as e:
+        _refuse(request, "exit_agent", detail, 409, str(e))
+    _audit(request, "exit_agent", pane.id, detail)
+    return {"ok": True}
 
 
 @app.post("/api/client-error")
