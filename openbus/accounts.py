@@ -317,7 +317,7 @@ def running(s: Session, target: Path) -> bool:
         if (reg.get("sessionId") == s.session_id and reg["pid"] != s.pid
                 and _stat(reg["pid"])[19:20] == [reg["procStart"]]):
             return True
-    dst, held = target.resolve(), {str(p.resolve()) for p in files(s, target)}
+    dst, held = target.resolve(), {str(p.resolve()) for p in _tree(files(s, target))}
     for pid in filter(str.isdigit, os.listdir("/proc")):
         if int(pid) == s.pid:
             continue

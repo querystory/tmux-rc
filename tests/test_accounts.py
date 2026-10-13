@@ -393,10 +393,11 @@ def test_an_older_copy_is_replaced_or_resumed_only_when_asked(client, home, movi
 def test_a_copy_running_on_the_target_is_never_replaced_or_resumed_twice(home, moving, sign):
     assert moving(".claude-personal").status_code == 200
     dst = home / ".claude-personal"
+    held = dst / f"projects/-p/{SID}/subagents/agent-1.jsonl"  # under the session's folder
     code = {"command line": "import time; time.sleep(30)",
             "registration": "import time; time.sleep(30)",
             "unreadable": "import time; time.sleep(30)",
-            "open file": f"import time; f = open({str(dst / f'projects/-p/{SID}.jsonl')!r}); "
+            "open file": f"import time; f = open({str(held)!r}); "
                          "print(flush=True); time.sleep(30)"}[sign]
     argv = [sys.executable, "-c", code, *([SID] if sign == "command line" else [])]
     env = {**os.environ, "CLAUDE_CONFIG_DIR": str(dst)}
