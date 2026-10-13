@@ -388,7 +388,11 @@ def _unavailable(command: str, path: str | None = None, *,
 def _launcher(e: dict) -> dict:
     if not (e.get("label") and e.get("command")):
         raise ValueError("launcher needs label and command")
-    return {"label": str(e["label"]), "command": str(e["command"]), "icon": str(e.get("icon", ""))}
+    icon = str(e.get("icon", ""))
+    # Which agent's accounts it can launch on: explicit, else read from a built-in icon.
+    provider = str(e.get("provider") or (icon if icon in accounts.ENV else ""))
+    return {"label": str(e["label"]), "command": str(e["command"]), "icon": icon,
+            "provider": provider}
 
 
 def _launchers() -> list[dict]:
@@ -399,7 +403,7 @@ def _launchers() -> list[dict]:
     # has visibly reverted sends you to the config and the log line waiting there. The Live
     # model table needs the same rule for a stronger reason (a mis-parsed entry must never
     # be offered at a made-up price), and one rule for both is one thing to know.
-    return json_list("TMUXRC_LAUNCHERS", _DEFAULT_LAUNCHERS, _launcher)
+    return json_list("TMUXRC_LAUNCHERS", [_launcher(e) for e in _DEFAULT_LAUNCHERS], _launcher)
 
 
 class ClientErrorBody(BaseModel):
@@ -998,7 +1002,7 @@ def launchers():
     out = []
     path = tmux.server_path()  # once: the same answer for every entry
     for e in _launchers():
-        item = {"label": e["label"], "icon": e["icon"]}
+        item = {"label": e["label"], "icon": e["icon"], "provider": e.get("provider", "")}
         why = _unavailable(e["command"], path)
         if why:
             item["unavailable"] = why
@@ -1047,7 +1051,8 @@ def _on_account(entry: dict, account: str | None) -> str | list[str] | None:
     asked for; None when that is no account of the launcher's provider."""
     if account is None:
         return entry["command"]
-    profile = accounts.find(account, entry["icon"]) if entry["icon"] in accounts.ENV else None
+    provider = entry.get("provider")
+    profile = accounts.find(account, provider) if provider in accounts.ENV else None
     return profile and accounts.command(profile["provider"], profile["dir"], entry["command"])
 
 

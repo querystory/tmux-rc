@@ -121,8 +121,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
             + `<option value="" ${set(session, provider) ? "" : "selected"}>Not set</option>`
             + mine.map((p) => `<option value="${esc(p.dir)}" ${set(session, provider) && p === def ? "selected" : ""}>${esc(p.name)}</option>`).join("") + "</select></label>" : "");
       }).join("");
-      for (const b of choices.querySelectorAll("button[data-icon]")) {
-        const p = several(b.dataset.icon) && byDir(picks[b.dataset.icon]), small = b.querySelector(".acct-on") || b.querySelector("span").appendChild(Object.assign(document.createElement("small"), { className: "acct-on" }));
+      for (const b of choices.querySelectorAll("button[data-provider]")) {
+        const p = several(b.dataset.provider) && byDir(picks[b.dataset.provider]), small = b.querySelector(".acct-on") || b.querySelector("span").appendChild(Object.assign(document.createElement("small"), { className: "acct-on" }));
         small.hidden = !p; small.innerHTML = p ? `on ${badge(p)} ${esc(p.tilde)}` : "";
       }
     };
@@ -140,7 +140,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     select.addEventListener("change", () => { for (const k of Object.keys(picks)) delete picks[k]; paint(); }, { signal: done.signal });
     choices.before(box); paint();
     return {
-      account: (icon) => several(icon) ? picks[icon] : undefined,
+      account: (provider) => several(provider) ? picks[provider] : undefined,
       remove: () => { done.abort(); box.remove(); },
     };
   }
@@ -195,7 +195,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
       const p = byDir(F.dir) || { name: F.name, color: 0, who: "", plan: "", tilde: F.dir };
       dlg.innerHTML = head(`${F.name} is ready`, 4)
         + `<div class="acct-row">${dot(p)}<div class="who"><b>${esc(p.name)}</b> <span class="muted">${F.provider}</span><small>${esc([p.who && `signed in as ${p.who}`, p.plan].filter(Boolean).join(" · "))} · <code>${esc(p.tilde)}</code></small></div></div>`
-        + `<p class="acct-note">Read from the dir's non-secret account info. The sign-in window stays open as a normal ${title(F.provider)} pane on ${esc(F.name)}.</p>`
+        + `<p class="acct-note">Read from the dir's non-secret account info.${F.pane ? ` The sign-in window stays open as a normal ${title(F.provider)} pane on ${esc(F.name)}.` : " It was signed in already."}</p>`
         + (F.session ? `<label class="acct-check"><input type="checkbox" id="acct-make-default" checked><span>Make ${esc(F.name)} the default for session <b>${esc(F.session)}</b><small>New windows there start on ${esc(F.name)}; running panes keep their account.</small></span></label>` : "")
         + btns('<button class="primary" data-done>Done</button>');
     }
@@ -249,7 +249,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         const link = d.create ? [...dlg.querySelectorAll("[data-link]:checked")].map((i) => i.dataset.link) : [];
         const added = await post("/api/accounts", { provider: F.provider, dir: F.dir, label: F.name, link });
         await refresh();
-        return go("login", { dir: added.dir || F.dir, existed: added.existed, pane: null });
+        const dir = added.dir || F.dir; // a dir already signed in needs no sign-in window
+        return go(byDir(dir)?.signed_in ? "done" : "login", { dir, existed: added.existed, pane: null });
       }
       if ("login" in d) { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session })); F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
       if ("retry" in d) return go("login", { pane: null });

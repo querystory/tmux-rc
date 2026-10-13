@@ -277,3 +277,15 @@ def test_only_the_sign_in_window_it_opened_can_be_closed(client, home, monkeypat
     [kill] = [c for c in client.calls if c[0] == "if-shell"]
     assert kill[:4] == ["if-shell", "-F", "-t", "%42"] and "#{pane_pid},4242" in kill[4]
     assert "kill-session" not in str(kill) and "kill-server" not in str(kill)
+
+
+def test_a_custom_launcher_names_its_provider(client, home, monkeypatch):
+    monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps([
+        {"label": "Opus", "command": "claude --model opus", "icon": "/img/opus.png",
+         "provider": "claude"}]))
+    assert client.get("/api/launchers").json()["launchers"][0]["provider"] == "claude"
+    r = client.post("/api/windows", json={"session": "work", "launcher": "Opus",
+                                          "account": str(home / ".claude-personal")})
+    assert r.status_code == 200
+    argv = next(a for a in client.calls if a[0] == "new-window")
+    assert argv[argv.index("--") + 1:][:2] == ["env", f"CLAUDE_CONFIG_DIR={home}/.claude-personal"]

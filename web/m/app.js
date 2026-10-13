@@ -1466,7 +1466,7 @@ async function openLaunch(fresh) {
       button.append(logo, label);
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !!launcher.unavailable;
-      button.dataset.icon = launcher.icon;
+      button.dataset.provider = launcher.provider || "";
       button.onclick = () => launchWindow(launcher.label, button);
       return button;
     }));
@@ -1496,7 +1496,7 @@ async function launchWindow(launcher, button) {
   launching = true; text($("launch-error"), session ? "Creating window..." : "Starting session...");
   $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = true; });
   try {
-    const account = launchPick?.account(button?.dataset.icon);
+    const account = launchPick?.account(button?.dataset.provider);
     const data = await (session ? post("/api/windows", { session, launcher, account })
       : post("/api/sessions", { name, cwd: $("launch-dir").value.trim() || "~", launcher, account }));
     if (!session) try { localStorage.setItem(LAST_DIR, $("launch-dir").value.trim()); } catch {}
