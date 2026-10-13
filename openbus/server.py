@@ -249,6 +249,7 @@ class AccountEditBody(BaseModel):
 class AccountSessionBody(BaseModel):
     dir: str
     session: str
+    provider: Literal["claude", "codex"] | None = None  # with dir "": clear its default
 
 
 class SignInWindowBody(BaseModel):
@@ -1134,8 +1135,15 @@ def account_login_close(body: SignInWindowBody, request: Request):
 
 @app.post("/api/accounts/default")
 def account_default(body: AccountSessionBody, request: Request):
-    """Make an account the session's default (tmux set-environment)."""
-    accounts.set_default(body.session, _session_account(body, request, "account_default"))
+    """Make an account the session's default (tmux set-environment), or with an empty dir
+    clear the provider's (marked removed: nothing sets it, so the standard dir applies)."""
+    if body.dir or not body.provider:
+        profile = _session_account(body, request, "account_default")
+    elif not any(p.session == body.session for p in tmux.list_panes()):
+        _refuse(request, "account_default", body.session[:80], 404, "session not found")
+    else:
+        profile = {"provider": body.provider, "default": True}
+    accounts.set_default(body.session, profile)
     _audit(request, "account_default", "-", f"session={body.session[:80]!r} dir={body.dir[:120]!r}")
     return {"ok": True}
 

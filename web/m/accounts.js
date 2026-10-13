@@ -118,7 +118,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
           + `<p class="acct-hint">${hint(session, provider, def)}</p>`
           // Always in view: the session's default, set with tmux set-environment on change.
           + (session ? `<label class="acct-default">Default for this session <select data-default-for="${provider}">`
-            + (set(session, provider) ? "" : '<option value="" selected>Not set</option>')
+            + `<option value="" ${set(session, provider) ? "" : "selected"}>Not set</option>`
             + mine.map((p) => `<option value="${esc(p.dir)}" ${set(session, provider) && p === def ? "selected" : ""}>${esc(p.name)}</option>`).join("") + "</select></label>" : "");
       }).join("");
       for (const b of choices.querySelectorAll("button[data-icon]")) {
@@ -133,8 +133,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     };
     box.onchange = async (e) => {
       const provider = e.target.dataset.defaultFor;
-      if (!provider || !e.target.value) return;
-      try { await post("/api/accounts/default", { session: select.value, dir: e.target.value }); } catch { notice("The session default could not be set.", 6000); }
+      if (!provider) return;
+      try { await post("/api/accounts/default", { session: select.value, dir: e.target.value, provider }); } catch { notice("The session default could not be set.", 6000); }
       delete picks[provider]; await refresh(); paint();
     };
     select.addEventListener("change", () => { for (const k of Object.keys(picks)) delete picks[k]; paint(); }, { signal: done.signal });

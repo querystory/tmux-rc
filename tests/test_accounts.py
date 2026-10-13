@@ -225,6 +225,12 @@ def test_the_session_default_and_the_sign_in_window(client, home):
             str(home / ".claude-personal")] in client.calls
     client.post("/api/accounts/default", json={"session": "work", "dir": str(home / ".claude")})
     assert ["set-environment", "-t", "=work", "-r", "CLAUDE_CONFIG_DIR"] in client.calls
+    client.calls.clear()  # "Not set": cleared even with no standard account listed
+    assert client.post("/api/accounts/default", json={"session": "work", "dir": "",
+                                                      "provider": "codex"}).status_code == 200
+    assert ["set-environment", "-t", "=work", "-r", "CODEX_HOME"] in client.calls
+    assert client.post("/api/accounts/default", json={"session": "nope", "dir": "",
+                                                      "provider": "codex"}).status_code == 404
     added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-work",
                                                "label": "Work"}).json()
     assert client.post("/api/accounts/login",
