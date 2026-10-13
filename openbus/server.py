@@ -254,6 +254,7 @@ class AccountEditBody(BaseModel):
 class AccountSessionBody(BaseModel):
     dir: str
     session: str
+    provider: Literal["claude", "codex"] | None = None  # with dir "": clear its default
 
 
 class SignInWindowBody(BaseModel):
@@ -392,7 +393,11 @@ def _unavailable(command: str, path: str | None = None, *,
 def _launcher(e: dict) -> dict:
     if not (e.get("label") and e.get("command")):
         raise ValueError("launcher needs label and command")
-    return {"label": str(e["label"]), "command": str(e["command"]), "icon": str(e.get("icon", ""))}
+    icon = str(e.get("icon", ""))
+    # Which agent's accounts it can launch on: explicit, else read from a built-in icon.
+    provider = str(e.get("provider") or (icon if icon in accounts.ENV else ""))
+    return {"label": str(e["label"]), "command": str(e["command"]), "icon": icon,
+            "provider": provider}
 
 
 def _launchers() -> list[dict]:
@@ -403,7 +408,7 @@ def _launchers() -> list[dict]:
     # has visibly reverted sends you to the config and the log line waiting there. The Live
     # model table needs the same rule for a stronger reason (a mis-parsed entry must never
     # be offered at a made-up price), and one rule for both is one thing to know.
-    return json_list("TMUXRC_LAUNCHERS", _DEFAULT_LAUNCHERS, _launcher)
+    return json_list("TMUXRC_LAUNCHERS", [_launcher(e) for e in _DEFAULT_LAUNCHERS], _launcher)
 
 
 class ClientErrorBody(BaseModel):
@@ -1002,7 +1007,7 @@ def launchers():
     out = []
     path = tmux.server_path()  # once: the same answer for every entry
     for e in _launchers():
-        item = {"label": e["label"], "icon": e["icon"]}
+        item = {"label": e["label"], "icon": e["icon"], "provider": e.get("provider", "")}
         why = _unavailable(e["command"], path)
         if why:
             item["unavailable"] = why
@@ -1051,7 +1056,8 @@ def _on_account(entry: dict, account: str | None) -> str | list[str] | None:
     asked for; None when that is no account of the launcher's provider."""
     if account is None:
         return entry["command"]
-    profile = accounts.find(account, entry["icon"]) if entry["icon"] in accounts.ENV else None
+    provider = entry.get("provider")
+    profile = accounts.find(account, provider) if provider in accounts.ENV else None
     return profile and accounts.command(profile["provider"], profile["dir"], entry["command"])
 
 
@@ -1139,8 +1145,15 @@ def account_login_close(body: SignInWindowBody, request: Request):
 
 @app.post("/api/accounts/default")
 def account_default(body: AccountSessionBody, request: Request):
-    """Make an account the session's default (tmux set-environment)."""
-    accounts.set_default(body.session, _session_account(body, request, "account_default"))
+    """Make an account the session's default (tmux set-environment), or with an empty dir
+    clear the provider's (marked removed: nothing sets it, so the standard dir applies)."""
+    if body.dir or not body.provider:
+        profile = _session_account(body, request, "account_default")
+    elif not any(p.session == body.session for p in tmux.list_panes()):
+        _refuse(request, "account_default", body.session[:80], 404, "session not found")
+    else:
+        profile = {"provider": body.provider, "default": True}
+    accounts.set_default(body.session, profile)
     _audit(request, "account_default", "-", f"session={body.session[:80]!r} dir={body.dir[:120]!r}")
     return {"ok": True}
 

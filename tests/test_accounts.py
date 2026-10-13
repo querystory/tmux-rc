@@ -103,6 +103,20 @@ def test_a_removed_variable_reads_as_empty(monkeypatch):
     assert T.show_env("work") == {"CLAUDE_CONFIG_DIR": "", "PATH": "/bin"}
 
 
+def test_only_a_personal_plans_own_organisation_is_shortened(home):
+    _signed_in(home / ".claude-team", "u-team", organizationName="Jane's Organization",
+               emailAddress="dev@example.org")
+    names = {p["tilde"]: p["name"] for p in accounts.profiles()}
+    assert names["~/.claude-team"] == "Jane's Organization"
+    assert names["~/.claude-personal"] == "sam@example.net"
+
+
+def test_a_panes_dir_in_another_spelling_is_one_account(home):
+    alias = home / ".claude-personal" / ".." / ".claude-personal"
+    listed = [p["tilde"] for p in accounts.profiles([("claude", alias)])]
+    assert listed.count("~/.claude-personal") == 1
+
+
 def test_a_live_pane_says_its_dirs_provider(home):
     (home / ".claude-work").mkdir()
     (home / ".claude-work" / "auth.json").touch()  # a Codex home named like a Claude one
@@ -162,6 +176,9 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
     # The global environment applies where the session sets nothing.
     assert report["sessions"]["work"]["claude"] == str(home / ".claude-personal")
     assert report["sessions"][""]["claude"] == str(home / ".claude-personal")  # a new session
+    shown["work"] = {"CLAUDE_CONFIG_DIR": f"{home}/.claude//../.claude-personal/"}  # an alias
+    work = accounts.report(states, lambda pane_id: pane_id[1:])["sessions"]["work"]
+    assert work["claude"] == str(home / ".claude-personal")
     # A session that removed it (-CLAUDE_CONFIG_DIR) sets nothing, like one that never set it.
     shown["work"] = {"CLAUDE_CONFIG_DIR": ""}  # how show_env reads "-CLAUDE_CONFIG_DIR"
     assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"]["work"] == {
@@ -212,6 +229,12 @@ def test_the_session_default_and_the_sign_in_window(client, home):
             str(home / ".claude-personal")] in client.calls
     client.post("/api/accounts/default", json={"session": "work", "dir": str(home / ".claude")})
     assert ["set-environment", "-t", "=work", "-r", "CLAUDE_CONFIG_DIR"] in client.calls
+    client.calls.clear()  # "Not set": cleared even with no standard account listed
+    assert client.post("/api/accounts/default", json={"session": "work", "dir": "",
+                                                      "provider": "codex"}).status_code == 200
+    assert ["set-environment", "-t", "=work", "-r", "CODEX_HOME"] in client.calls
+    assert client.post("/api/accounts/default", json={"session": "nope", "dir": "",
+                                                      "provider": "codex"}).status_code == 404
     added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-work",
                                                "label": "Work"}).json()
     assert client.post("/api/accounts/login",
@@ -255,6 +278,18 @@ def test_only_the_sign_in_window_it_opened_can_be_closed(client, home, monkeypat
     [kill] = [c for c in client.calls if c[0] == "if-shell"]
     assert kill[:4] == ["if-shell", "-F", "-t", "%42"] and "#{pane_pid},4242" in kill[4]
     assert "kill-session" not in str(kill) and "kill-server" not in str(kill)
+
+
+def test_a_custom_launcher_names_its_provider(client, home, monkeypatch):
+    monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps([
+        {"label": "Opus", "command": "claude --model opus", "icon": "/img/opus.png",
+         "provider": "claude"}]))
+    assert client.get("/api/launchers").json()["launchers"][0]["provider"] == "claude"
+    r = client.post("/api/windows", json={"session": "work", "launcher": "Opus",
+                                          "account": str(home / ".claude-personal")})
+    assert r.status_code == 200
+    argv = next(a for a in client.calls if a[0] == "new-window")
+    assert argv[argv.index("--") + 1:][:2] == ["env", f"CLAUDE_CONFIG_DIR={home}/.claude-personal"]
 
 
 SID = "0f1e2d3c-4b5a-4968-8776-655443322110"

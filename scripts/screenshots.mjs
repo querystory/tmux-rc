@@ -125,7 +125,8 @@ function moveMenu(item) {
 
 function two(step) {
   return async (page) => {
-    if (await page.locator(".acct-badge").first().waitFor({ timeout: 5000 }).then(() => true, () => false)) await step?.(page);
+    // Attached, not visible: a phone's dashboard has its badged rows hidden.
+    if (await page.locator(".acct-badge").first().waitFor({ state: "attached", timeout: 5000 }).then(() => true, () => false)) await step?.(page);
   };
 }
 

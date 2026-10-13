@@ -158,7 +158,11 @@ the menu was drawn for, and it is audited with the session id and the target dir
 
 ## Safety
 
-- No credentials file is ever shared, copied, linked or read by this feature.
+- No credentials file is ever shared, copied or linked, and discovering, naming or adding
+  an account never reads one. The Plan usage meter is the exception it always was: it
+  reads each metered account's OAuth token in-process to fetch its limits
+  ([plan usage](plan-usage.md)), now for every listed account rather than only those a
+  pane uses.
 - Nothing switches accounts automatically, and nothing routes work to "the plan with
   headroom". A full plan is shown, never worked around.
 - Login and logout stay in the provider's own UI.
