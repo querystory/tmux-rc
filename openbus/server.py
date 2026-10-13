@@ -1389,15 +1389,16 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
     if why := _unavailable(argv[0], tmux.server_path()):  # before copying anything
         _refuse(request, "move_session", detail, 400, why)
     with _MOVES:  # through the launch, so a second request sees the first one's agent
-        if (body.replace or body.resume_existing) and accounts.running(s, target):
+        if accounts.running(s, target):  # so its copy is neither offered nor touched
             _refuse(request, "move_session", detail, 409,
-                    "that copy is running there now: exit it first")
+                    "it is already running on that account: go to that window")
         copied = []
         try:
             if not body.resume_existing:
                 copied = accounts.copy_session(s, target, replace=body.replace)
-            elif accounts.copied_at(s, target) is None:
-                _refuse(request, "move_session", detail, 409, "that account has no copy of it")
+            elif not accounts.resumable(s, target):
+                _refuse(request, "move_session", detail, 409,
+                        "that account has no transcript of it to resume")
         except FileExistsError as e:  # the sheet offers to replace or resume it
             _refuse(request, "move_session", detail, 409, str(e),
                     copied=accounts.copied_at(s, target))

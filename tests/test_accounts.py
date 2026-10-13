@@ -352,7 +352,8 @@ def test_an_older_copy_is_replaced_or_resumed_only_when_asked(client, home, movi
     argv = [a for a in client.calls if a[0] == "new-window"][-1]
     assert argv[-2:] == ["--resume", SID]
     _signed_in(home / ".claude-empty", "u-e")
-    assert moving(".claude-empty", resume_existing=True).status_code == 409  # no copy there
+    (home / f".claude-empty/file-history/{SID}").mkdir(parents=True)  # no transcript: no resume
+    assert moving(".claude-empty", resume_existing=True).status_code == 409
 
 
 def test_a_copy_running_on_the_target_is_never_replaced_or_resumed_twice(home, moving):
@@ -360,9 +361,9 @@ def test_a_copy_running_on_the_target_is_never_replaced_or_resumed_twice(home, m
     env = {**os.environ, "CLAUDE_CONFIG_DIR": str(home / ".claude-personal")}
     agent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", SID], env=env)
     try:
-        for flag in ("replace", "resume_existing"):
-            r = moving(".claude-personal", **{flag: True})
-            assert r.status_code == 409 and "running there" in r.json()["detail"]
+        for flags in ({}, {"replace": True}, {"resume_existing": True}):
+            r = moving(".claude-personal", **flags)  # the sheet's first tap included
+            assert r.status_code == 409 and "already running" in r.json()["detail"]
     finally:
         agent.kill()
         agent.wait()

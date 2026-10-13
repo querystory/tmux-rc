@@ -153,7 +153,8 @@ file-history there, and nothing else, then copies afresh; **Resume that copy** o
 as it is. Either is an explicit flag on the request, so a client that does not know about
 the choice still gets the refusal. Replacing gives up the older copy before the new one
 lands, which is acceptable because the original it came from is still on the source
-account. Neither choice is offered for a copy that an agent is running on the target right
+account. Resume needs that copy's transcript, not just any of its files. No move at all,
+and so neither choice, is offered for a copy that an agent is running on the target right
 now (one started with the session id on its command line, as every move's is): replacing
 files under a live agent strands its later writes, and resuming it twice puts two agents
 on one transcript. Moves run one at a time, through the new window's launch, so two

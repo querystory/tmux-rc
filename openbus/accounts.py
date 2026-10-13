@@ -269,6 +269,11 @@ def files(s: Session, root: Path) -> list[Path]:
     return [p for g in MOVED[s.harness] for p in root.glob(g.format(id=s.session_id))]
 
 
+def resumable(s: Session, root: Path) -> bool:
+    """Whether the account's dir holds the session's transcript, which a resume needs."""
+    return any(p.suffix == ".jsonl" for p in files(s, root))
+
+
 def copied_at(s: Session, target: Path) -> float | None:
     """When the account's copy of the session was made (its files' latest ctime: a copy
     keeps the original's mtime), or None if it has none."""
@@ -300,7 +305,7 @@ def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str
     if src.is_relative_to(dst) or dst.is_relative_to(src):
         raise ValueError("one account's dir is inside the other's")
     paths, old = files(s, s.root), files(s, target)
-    if not any(p.suffix == ".jsonl" for p in paths):  # a session only registered so far
+    if not resumable(s, s.root):  # a session only registered so far
         raise LookupError("this session has no transcript to resume yet")
     # A symlinked projects/ (say) would carry the writes, or the deletes, out of the account.
     if any(not p.parent.resolve().is_relative_to(dst)
