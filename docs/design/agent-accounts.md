@@ -74,7 +74,8 @@ the wide layout had no menu before.
   just the window: a name in the title was truncated first, read as part of the window
   ("7d QSI"), and left a one-account provider's meter looking unnamed beside it.
 - **Dashboard Plan usage:** wide, one row of 180px meters grouped per account, each group
-  labelled with its chip and the details (who, plan, dir, panes) in its tooltip; it wraps
+  labelled with its chip and the details (who, plan, dir, panes) in its tooltip. The chips sit
+  on the card's heading line, centred over their groups, so the labels add no row. The row wraps
   only when the groups do not fit. The label names the account once over its meters, so
   they carry no chip: repeating it in every 180px meter is noise. A phone's dashboard
   uses the strip, chips included.
