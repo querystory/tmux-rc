@@ -478,9 +478,12 @@ def test_a_link_inside_the_session_refuses_the_move(home, moving, tmp_path):
 
 def test_a_move_whose_agent_cannot_start_copies_nothing(home, moving, monkeypatch):
     # On the daemon's PATH, not tmux's: the window would still fail to start it.
-    monkeypatch.setattr(S.shutil, "which", lambda c, path=None: None if path else c)
+    monkeypatch.setattr(S.shutil, "which", lambda c, path=None: c if path == "/s" else None)
     assert moving(".claude-personal").status_code == 400
     assert not (home / ".claude-personal/projects").exists()
+    # A session's own PATH, which the window inherits, wins over the server's.
+    monkeypatch.setattr(T, "show_env", lambda session=None: {"PATH": "/s"} if session else {})
+    assert moving(".claude-personal").status_code == 200
 
 
 def test_exit_types_the_agents_own_exit_into_that_pane_only(client, moving, monkeypatch):
