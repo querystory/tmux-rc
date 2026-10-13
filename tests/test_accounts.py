@@ -306,3 +306,7 @@ def test_a_custom_launcher_names_its_provider(client, home, monkeypatch):
     assert r.status_code == 200
     argv = next(a for a in client.calls if a[0] == "new-window")
     assert argv[argv.index("--") + 1:][:2] == ["env", f"CLAUDE_CONFIG_DIR={home}/.claude-personal"]
+    # A misspelt provider is malformed: the whole list falls back to the defaults.
+    monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps([
+        {"label": "Opus", "command": "claude", "icon": "/img/opus.png", "provider": "claud"}]))
+    assert "Opus" not in [e["label"] for e in client.get("/api/launchers").json()["launchers"]]

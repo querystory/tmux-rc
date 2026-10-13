@@ -391,6 +391,8 @@ def _launcher(e: dict) -> dict:
     icon = str(e.get("icon", ""))
     # Which agent's accounts it can launch on: explicit, else read from a built-in icon.
     provider = str(e.get("provider") or (icon if icon in accounts.ENV else ""))
+    if provider and provider not in accounts.ENV:
+        raise ValueError(f"launcher provider must be one of {', '.join(accounts.ENV)}")
     return {"label": str(e["label"]), "command": str(e["command"]), "icon": icon,
             "provider": provider}
 

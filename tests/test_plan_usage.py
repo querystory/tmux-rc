@@ -162,7 +162,7 @@ def test_two_claude_config_dirs_are_two_accounts_fetched_once_each(tmp_path, mon
     monkeypatch.setattr(plan_usage.os, "environ", {"HOME": str(home)})  # the daemon's own
     envs = {"1": {"HOME": str(home), "CLAUDE_CONFIG_DIR": str(work)},
             "2": {"HOME": str(home), "CLAUDE_CONFIG_DIR": f"{work}/../{work.name}/"},  # an alias
-            "3": {"HOME": str(home)}}
+            "3": {"HOME": f"{home}/../{home.name}"}}  # an alias too
     monkeypatch.setattr(plan_usage, "pane_env", lambda pid, tool: envs[pid])
     fetched = []
 

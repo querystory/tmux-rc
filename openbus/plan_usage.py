@@ -56,9 +56,8 @@ def canonical(config: str) -> str:
 def home(provider: str, env: dict) -> Path:
     """The config dir an agent with this environment reads: its override, else ~/.claude
     or ~/.codex under its HOME."""
-    if override := env.get(ENV[provider]):
-        return Path(canonical(override))
-    return Path(env.get("HOME") or Path.home()) / f".{provider}"
+    default = Path(env.get("HOME") or Path.home()) / f".{provider}"
+    return Path(canonical(env.get(ENV[provider]) or str(default)))
 
 
 def pane_env(pid: str, tool: str) -> dict:
