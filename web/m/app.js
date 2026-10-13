@@ -1633,7 +1633,10 @@ $("move-pane").onclick = async () => {
       button.onclick = async () => { // one choice at a time: a second tap waits out the first
         if ($("move-choices").inert) return;
         $("move-choices").inert = true;
-        try { await act(); } finally { $("move-choices").inert = false; }
+        try { await act(); } finally { // and the tapped choice is gone: focus stays in the sheet
+          $("move-choices").inert = false;
+          $("move-choices").firstElementChild?.focus();
+        }
       };
       return button;
     }));

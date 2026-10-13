@@ -1398,7 +1398,7 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         try:
             if not body.resume_existing:
                 copied = accounts.copy_session(s, target, replace=body.replace)
-            elif not accounts.resumable(accounts.files(s, target)):
+            elif not accounts.resumable(accounts.confined(accounts.files(s, target), target)):
                 _refuse(request, "move_session", detail, 409,
                         "that account has no transcript of it to resume")
         except FileExistsError as e:  # the sheet offers to replace or resume it

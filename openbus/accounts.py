@@ -274,6 +274,15 @@ def resumable(paths: list[Path]) -> bool:
     return any(p.suffix == ".jsonl" for p in paths)
 
 
+def confined(paths: list[Path], target: Path) -> list[Path]:
+    """`paths`, refused if any resolves out of the account's dir: a symlinked projects/
+    (say) would carry a write, a delete or a resume to another account's files."""
+    dst = target.resolve()
+    if any(not p.resolve().is_relative_to(dst) for p in paths):
+        raise ValueError("a path in that account's dir links outside it")
+    return paths
+
+
 def copied_at(s: Session, target: Path) -> float | None:
     """When the account's copy of the session was made (its files' latest ctime: a copy
     keeps the original's mtime), or None if it has none."""
@@ -320,10 +329,7 @@ def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str
     paths, old = files(s, s.root), files(s, target)
     if not resumable(paths):  # a session only registered so far
         raise LookupError("this session has no transcript to resume yet")
-    # A symlinked projects/ (say) would carry the writes, or the deletes, out of the account.
-    if any(not p.parent.resolve().is_relative_to(dst)
-           for p in [*old, *(target / p.relative_to(s.root) for p in paths)]):
-        raise ValueError("a folder in that account's dir links outside it")
+    confined([*old, *(target / p.relative_to(s.root) for p in paths)], target)
     if old and not replace:
         raise FileExistsError("that account already has this session")
     for p in old:

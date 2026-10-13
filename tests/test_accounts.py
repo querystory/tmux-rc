@@ -391,6 +391,12 @@ def test_a_move_writes_nothing_through_a_link_out_of_the_account(home, moving, t
     r = moving(".claude-personal")
     assert r.status_code == 409 and "links outside" in r.json()["detail"]
     assert not list((tmp_path / "elsewhere").iterdir())
+    (tmp_path / "elsewhere/-p").mkdir()  # another account's copy, seen through the link
+    (tmp_path / f"elsewhere/-p/{SID}.jsonl").write_text("theirs\n")
+    for flags in ({"replace": True}, {"resume_existing": True}):
+        r = moving(".claude-personal", **flags)
+        assert r.status_code == 409 and "links outside" in r.json()["detail"]
+    assert (tmp_path / f"elsewhere/-p/{SID}.jsonl").read_text() == "theirs\n"
 
 
 def test_a_move_whose_agent_cannot_start_copies_nothing(home, moving, monkeypatch):
