@@ -111,9 +111,9 @@ def test_only_a_personal_plans_own_organisation_is_shortened(home):
 
 
 def test_a_panes_dir_in_another_spelling_is_one_account(home):
-    alias = home / ".claude-personal" / ".." / ".claude-personal"
-    listed = [p["tilde"] for p in accounts.profiles([("claude", alias, None)])]
-    assert listed.count("~/.claude-personal") == 1
+    alias = f"/{home}/.claude-personal/../.claude-personal"  # "//" leading too
+    before = list(_by_dir(home))
+    assert [p["tilde"] for p in accounts.profiles([("claude", alias, None)])] == before
 
 
 def test_a_live_pane_says_its_dirs_provider(home):

@@ -47,8 +47,10 @@ def _epoch(stamp: str) -> float:
 
 def canonical(config: str) -> str:
     """One spelling per dir: ~ expanded and "..", "." and doubled slashes folded, so an
-    alias can't list one login twice, or miss its profile (accounts.py)."""
-    return os.path.normpath(os.path.expanduser(config))
+    alias can't list one login twice, or miss its profile (accounts.py). normpath keeps a
+    leading "//" (POSIX leaves its meaning to the system); on Linux it is just "/"."""
+    path = os.path.normpath(os.path.expanduser(config))
+    return "/" + path.lstrip("/") if path.startswith("//") else path
 
 
 def home(provider: str, env: dict) -> Path:
