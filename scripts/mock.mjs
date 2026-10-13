@@ -175,8 +175,10 @@ async function check(out) {
   const shots = [
     ["desktop", DESKTOP, ""], ["desktop-note", DESKTOP, "note=1"], ["desktop-hidden", DESKTOP, "hide=1"],
     ["desktop-ab", DESKTOP, `w=${PHONE.width}&ab=1`],
-    ["phone", PHONE, "hide=0"], ["phone-next", PHONE, `v=${second}&hide=0`], ["phone-hidden", PHONE, ""],
-  ].filter(([name]) => second || !["phone-next", "desktop-ab"].includes(name)); // one variant: nothing to flip to
+    ["phone", PHONE, "hide=0"], ["phone-hidden", PHONE, ""],
+    // Every other variant once, so each one's script runs; with one variant, nothing to flip to.
+    ...data.variants.slice(1).map((v) => [`phone-${v.name}`, PHONE, `v=${v.name}&hide=0`]),
+  ].filter(([name]) => second || name !== "desktop-ab");
   const dir = path.join(out, "shots"), browser = await launch();
   rmSync(dir, { recursive: true, force: true }); // only this check's shots, none left over from an older mock
   mkdirSync(dir, { recursive: true });
