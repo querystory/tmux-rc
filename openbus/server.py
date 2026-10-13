@@ -1387,8 +1387,10 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         _refuse(request, "move_session", detail, 409, "the session is already on that account")
     if body.replace and body.resume_existing:
         _refuse(request, "move_session", detail, 400, "replace or resume, not both")
-    if why := _unavailable(argv[0], tmux.server_path()):  # before copying anything
-        _refuse(request, "move_session", detail, 400, why)
+    # Before copying anything, and on tmux's PATH alone: the window runs it from there.
+    if (path := tmux.server_path()) is not None and not shutil.which(argv[0], path=path):
+        _refuse(request, "move_session", detail, 400,
+                f"{argv[0]} is not on the tmux server's PATH, so no window could start it")
     with _MOVES:  # through the launch, so a second request sees the first one's agent
         if accounts.running(s, target):  # so its copy is neither offered nor touched
             _refuse(request, "move_session", detail, 409,

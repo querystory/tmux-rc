@@ -431,7 +431,8 @@ def test_a_link_inside_the_session_refuses_the_move(home, moving, tmp_path):
 
 
 def test_a_move_whose_agent_cannot_start_copies_nothing(home, moving, monkeypatch):
-    monkeypatch.setattr(S.shutil, "which", lambda *_a, **_k: None)
+    # On the daemon's PATH, not tmux's: the window would still fail to start it.
+    monkeypatch.setattr(S.shutil, "which", lambda c, path=None: None if path else c)
     assert moving(".claude-personal").status_code == 400
     assert not (home / ".claude-personal/projects").exists()
 

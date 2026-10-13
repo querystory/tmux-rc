@@ -113,9 +113,11 @@ function addFlow(until) {
   };
 }
 // The pane's "…" menu once the pane's account has loaded (the list's badges are hidden
-// behind the pane on a phone, so two() can't wait on those), then `item` in it.
+// behind the pane on a phone, so two() can't wait on those), then `item` in it. A base
+// from before accounts, or before the item, is shot as it is.
 function moveMenu(item, done) {
   return async (page) => {
+    if (!await page.locator('link[href="/m/accounts.js"]').count() || (item && !await page.locator(item).count())) return;
     await page.locator("#pane-location .acct-badge").waitFor();
     await page.click("#pane-menu-button");
     if (item) { await page.click(item); await page.waitForSelector("#move-dialog[open]"); }
