@@ -54,6 +54,91 @@ CASES = [
         {"sent": [], "selected": 2, "notes": 1},
     ),
     (
+        # A different ask with the same rows replaced the tapped one mid-walk: its Enter
+        # would answer a question nobody tapped.
+        "a replacement question with the same rows is never committed",
+        {"options": ["No", "Yes"], "selected": 0, "keymap": NO_SEARCH_KM, "reask_after": 1},
+        "Yes", 1,
+        {"sent": ["Down"], "selected": 1, "notes": 1},
+    ),
+    (
+        # The tap beat the reparse of the last change: /send refuses the step unsent and asks
+        # for a reparse, and the walk goes again from that frame instead of giving up.
+        "a step refused as stale is planned again off the next frame",
+        {"options": ROWS, "selected": 0, "keymap": NO_SEARCH_KM, "refuse_first": True},
+        "beta", 1,
+        {"sent": ["Down", "Enter"], "selected": 1, "notes": []},
+    ),
+    (
+        # Live on /resume: the reparse after the Down dropped the group header the previous
+        # one listed, so the moved highlight came back on the same index. A new row list is
+        # a new reading, not a move that did nothing.
+        "a move whose reparse renumbers the rows onto the old index still lands",
+        {"options": ["qs", "alpha", "beta", "gamma"], "selected": 1, "keymap": NO_SEARCH_KM,
+         "drop_header_after": 1},
+        "beta", 2,
+        {"sent": ["Down", "Enter"], "selected": 1, "notes": []},
+    ),
+    (
+        # A refusal sends nothing, so it is not charged to the move budget.
+        "a stale refusal does not spend one of the budgeted moves",
+        {"options": [f"r{i}" for i in range(40)], "selected": 0, "keymap": NO_SEARCH_KM,
+         "reads": True, "refuse_first": True},
+        "r30", 30,
+        {"sent": ["Down"] * 30 + ["Enter"], "selected": 30, "notes": []},
+    ),
+    (
+        # A far row's filter refused as stale: walk there from the reparsed frame instead.
+        "a far row whose filter is refused is walked to instead",
+        {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM,
+         "reads": True, "refuse_text": True},
+        "r13", 13,
+        {"sent": ["Down"] * 13 + ["Enter"], "selected": 13, "notes": []},
+    ),
+    (
+        # A duplicated title can't be filtered for, however far: walk to the tapped index.
+        # Its read-back can't say which "beta" it is, so the walk takes the parse there.
+        "a far duplicate title is walked to by its index, not searched for",
+        {"options": ["beta", "a", "b", "c", "d", "e", "beta"], "selected": 5,
+         "keymap": FULL_KM},
+        "beta", 0,
+        {"sent": ["Up"] * 5 + ["Enter"], "selected": 0, "notes": []},
+    ),
+    (
+        # The filter for "r1" lands on "r1  x", which a value column could make look like
+        # "r1": named against the whole list it is ambiguous, so it is never committed.
+        "a filter landing on a row that only looks like the target is not committed",
+        {"options": [f"r{i}" for i in range(2, 9)] + ["r1  x", "r1"], "selected": 0,
+         "keymap": FULL_KM, "reads": True, "filters_to": "r1  x"},
+        "r1", 8,
+        {"sent": ["r1"], "selected": 0, "notes": 1},
+    ),
+    (
+        # Each key jumps two rows, so a Down from "Start" lands on "Fix  login bug": the
+        # read-back names exactly that row, and is never taken for the "Fix" it starts with
+        # (which would commit the wrong row). The walk never gets there, so it never commits.
+        "a read-back exactly naming a row is never taken for its prefix",
+        {"options": ["Start", "Fix", "Fix  login bug"], "selected": 0, "keymap": NO_SEARCH_KM,
+         "reads": True, "stride": 2},
+        "Fix", 1,
+        {"sent": ["Down", "Up"] * 15, "selected": 0, "notes": 1},
+    ),
+    (
+        # A row whose title carries a control character is never typed into the box.
+        "a far row with a control character is not filtered for",
+        {"options": [f"r{i}" for i in range(19)] + ["r\u001b"], "selected": 0,
+         "keymap": FULL_KM, "reads": True},
+        "r\u001b", 19,
+        {"sent": ["Down"] * 19 + ["Enter"], "selected": 19, "notes": []},
+    ),
+    (
+        # A misread keymap: Enter as `next` would commit the highlighted row, not move.
+        "a direction bound to the select key is no direction",
+        {"options": ROWS, "selected": 0, "keymap": {"next": "Enter", "select": "Enter"}},
+        "beta", 1,
+        {"sent": [], "selected": 0, "notes": 1},
+    ),
+    (
         "no advertised direction: says so instead of inventing an arrow",
         {"options": ROWS, "selected": 0, "keymap": {"select": "Enter"}},
         "gamma", 2,
@@ -78,18 +163,34 @@ CASES = [
         # move — a row exactly CURSOR_MAX_STEPS away used to be reached by the last move
         # and then reported as a failure, with the highlight sitting on it.
         "a row exactly CURSOR_MAX_STEPS away is still committed",
-        {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM},
-        "r12", 12,
-        {"sent": ["Down"] * 12 + ["Enter"], "selected": 12, "notes": []},
+        {"options": [f"r{i}" for i in range(40)], "selected": 0, "keymap": NO_SEARCH_KM},
+        "r30", 30,
+        {"sent": ["Down"] * 30 + ["Enter"], "selected": 30, "notes": []},
     ),
     (
         # Regression, Copilot: the extra pass that lets a row CURSOR_MAX_STEPS away be
-        # noticed must only look. Allowing it to move too made the real budget 13.
-        "a row beyond the step budget hands over without spending a 13th move",
+        # noticed must only look. Allowing it to move too made the real budget one more.
+        "a row beyond the step budget gives up without spending one more move",
+        {"options": [f"r{i}" for i in range(40)], "selected": 0, "keymap": NO_SEARCH_KM},
+        "r31", 31,
+        {"sent": ["Down"] * 30, "selected": 30, "notes": 1},
+    ),
+    (
+        # Each key is read back by /send, so a long walk never waits on the model's parse
+        # (parsed_at never moves here): eighteen rows down is eighteen quick round trips.
+        "a long walk completes off /send's read-backs without any parse",
+        {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": NO_SEARCH_KM,
+         "reads": True},
+        "r18", 18,
+        {"sent": ["Down"] * 18 + ["Enter"], "selected": 18, "notes": []},
+    ),
+    (
+        # Far, with a search box: filter for the row and commit it off the box's read-back.
+        "a far row is filtered for and committed off the read-back",
         {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM,
-         "filters": True},
+         "filters": True, "reads": True},
         "r13", 13,
-        {"sent": ["Down"] * 12 + ["r13", "Enter"], "selected": 12, "notes": []},
+        {"sent": ["r13", "Enter"], "selected": 0, "notes": []},
     ),
     (
         # Regression, Copilot: indexOf resolves both duplicates to the first one, so
@@ -264,7 +365,7 @@ CASES = [
 def render_script() -> str:
     return f"""
 import assert from "node:assert/strict";
-import {{ pickCursorRow }} from {json.dumps(MODULE)};
+import {{ pickCursorRow, STALE }} from {json.dumps(MODULE)};
 
 // A picker that answers exactly like the daemon does: parsed_at only advances on a
 // DELIVERED send, and Up/Down move the highlight the way the real widget would.
@@ -281,7 +382,7 @@ function fake(spec) {{
       if (spec.tick_on_fail) p.parsed_at += 1;
       return false;
     }}
-    p.parsed_at += 1;
+    if (!spec.reads) p.parsed_at += 1; // with reads, /send's read-back is the only news
     if (spec.close_after === p.sends) p.open = false;
     if (spec.morph_after === p.sends) p.style = "text";
     // A filter that renumbers the list without resolving the ambiguity: both rows sharing
@@ -290,6 +391,7 @@ function fake(spec) {{
     // A scroll: the window onto the list moves, so the rows renumber while a row with the
     // tapped text still happens to sit at the tapped index — a DIFFERENT session, though.
     if (spec.scroll_after === p.sends) p.options = ["beta", "gamma", "beta"];
+    if (spec.drop_header_after === p.sends) {{ p.options = p.options.slice(1); p.selected -= 1; }}
     // The same list, now advertising a different commit key.
     if (spec.keymap_after && p.sends === 1) p.keymap = spec.keymap_after;
     return true;
@@ -300,12 +402,14 @@ function fake(spec) {{
       return p.open
       ? {{
         answer_style: p.style, selected: p.selected, keymap: p.keymap,
+        prompt: spec.reask_after !== undefined && p.sends >= spec.reask_after ? "B?" : "A?",
         options: spec.no_options ? undefined : p.options,
       }}
       : null;
     }},
     parsedAt: () => p.parsed_at,
     sendKey: async (k) => {{
+      if (spec.refuse_first && !p.refused) {{ p.refused = true; p.parsed_at += 1; return STALE; }}
       const moved = deliver(k);
       if (!moved) return false;
       const km = typeof p.keymap === "object" ? p.keymap : {{}};
@@ -315,20 +419,22 @@ function fake(spec) {{
       // frames have been read — so "newer" is true well before the move has happened.
       if (step && p.selected !== null) {{
         if (spec.stale_frames) p.lag = {{ step, left: spec.stale_frames }};
-        else p.selected += step;
+        else p.selected += step * (spec.stride || 1);
       }}
       // A committed picker goes away, which is what lets the post-commit hold end. The
       // exception models the real lag the hold exists for: the pane is still publishing
       // the old frame for a beat after Enter lands.
       if (k === km.select && !spec.hold_open) p.open = false;
-      return true;
+      return spec.reads ? {{ picker: `f${{p.sends}}`, row: p.options[p.selected] }} : true;
     }},
     sendText: async (t) => {{
+      if (spec.refuse_text && !p.refused) {{ p.refused = true; p.parsed_at += 1; return STALE; }}
       const ok = deliver(t);
       // "filters" models a widget that narrows to the typed row and lands the highlight
       // on it; without it the typed text merely re-reads the same list.
       if (ok && spec.filters) {{ p.options = [t]; p.selected = 0; }}
-      return ok;
+      if (ok && spec.filters_to) {{ p.options = [spec.filters_to, t]; p.selected = 0; }}
+      return ok && spec.reads ? {{ picker: `f${{p.sends}}`, row: p.options[p.selected] }} : ok;
     }},
     note: (m) => p.notes.push(m),
   }};

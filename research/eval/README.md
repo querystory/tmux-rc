@@ -72,6 +72,8 @@ strictness is correct:
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
+- `question.items` — opt-in exact list: the numbered rows above a typed question that
+  its prompt names ("do 1 now?"), which classify() reads off the screen.
 - `question.context` — opt-in exact string: the widget rows classify() reads around a
   menu's prompt (deterministic, so pinned exactly).
 - `copyable_texts` — opt-in exact list of copyable texts, for payloads lifted from the
@@ -96,9 +98,7 @@ strictness is correct:
 All supplied tables must have string-valued cells in array rows and array headers
 (or omitted/null headers);
 one valid table cannot hide malformed siblings or rows that break the desktop renderer.
-A boolean `tables` expectation checks presence only. An expected table list also
-sends the expected and candidate tables to the prose judge, which must confirm every
-referenced edit is represented. Sample 16 uses this to reject unrelated tables.
+A `tables` expectation checks presence only.
 
 A single structured mismatch fails the sample.
 
@@ -158,7 +158,7 @@ actually hit:
 | `13_gemini_idle` | Gemini CLI's own chrome → tool=gemini |
 | `14_copyable_commit_and_command` | drafted commit text and a command to run elsewhere → copyables |
 | `15_codex_thread_title` | Codex status-bar thread title → session name, not model/mode/cwd |
-| `16_question_refers_to_list` | question naming "edits 1-4" → the list travels with it (`tables`) |
+| `16_question_refers_to_list` | question naming "edits 1-4" → the four rows travel with it (`question.items`), no table |
 | `17_claude_resume_cursor_picker` | `/resume` cursor picker → user-wait with selected row and keymap |
 | `18_claude_done_marker_with_draft` | completed turn plus unsent draft → idle, not running |
 | `19_codex_orchestrating_claude` | Claude chrome inside Codex capture output → tool=codex |
@@ -185,12 +185,17 @@ actually hit:
 | `67_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
 | `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
 | `88_claude_wrapped_login_link_beside_options` | a wrapped OSC 8 login URL beside a prose option list → the whole URL in `links`, even though grounding rejects the misread question |
+| `90_claude_question_names_list_items` | a closing "do 1 now and prepare the list for 2?" under a numbered list → those two rows in `question.items`, not the unnamed third |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
-The parser now carries the four referenced numbered edits as rows, while excluding
-skipped recommendations and outgoing user queues. The content judge checks that all
-four edits retain their meaning.
+Rewording that helped for a while, but the parser kept dropping the list (sample 90 is
+a live case where it returned no table at all), so classify() now reads the rows off the
+screen into `question.items`, and drops the parser's own copy of them (a table keyed by
+their numbers, or the rows offered as answer buttons): which rows a prompt names is a
+fact about the screen, not a judgement. Deleting the prompt's table instruction was
+tried and rejected: the parser then filed the list as `tasks`, and the reworded prompt
+flipped the unrelated sample 47.
 
 ### Committed vs local — what's repo-safe
 
