@@ -7,6 +7,8 @@ test("every addressable state round-trips", () => {
     { pane: "%12", view: "terminal", filter: "attention", sort: "session" },
     { pane: "%3", view: "summary", filter: "running" },
     { dashboard: true, filter: "recent" },
+    { dashboard: true, page: "usage" },
+    { dashboard: true, page: "loops" },
     {},
   ]) {
     const hash = formatHash(state);
@@ -19,7 +21,7 @@ test("every addressable state round-trips", () => {
 
 test("unknown fields and bad values are ignored", () => {
   const state = parseHash("#from=push&pane=%254&filter=bogus&sort=weird&view=nope&x=1");
-  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, filter: "all", sort: "updated", compose: false });
+  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: "all", sort: "updated", compose: false });
   assert.equal(parseHash("#pane=%254&compose=1").compose, true);
   assert.equal(formatHash(parseHash("#pane=%254&from=push&compose=1")), "pane=%254");
   assert.equal(parseHash("").pane, null);
@@ -37,6 +39,12 @@ test("a dashboard view only exists without a pane", () => {
   assert.equal(parseHash("#view=dashboard").dashboard, true);
   assert.equal(parseHash("#pane=%251&view=dashboard").dashboard, false);
   assert.equal(formatHash({ pane: "%1", dashboard: true }), "pane=%251");
+  // A card's own view is a page of the dashboard, and a screen of its own for Back.
+  assert.equal(parseHash("#view=heat").dashboard, true);
+  assert.equal(parseHash("#view=usage").page, "usage");
+  assert.equal(parseHash("#pane=%251&view=heat").page, null);
+  assert.equal(historyMode("view=dashboard", "view=heat"), "push");
+  assert.equal(historyMode("view=heat", "view=loops"), "push");
 });
 
 test("old desktop hashes still land", () => {

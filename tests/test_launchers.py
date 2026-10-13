@@ -143,7 +143,7 @@ def test_launchers_endpoint_omits_commands(monkeypatch):
     _resolves(monkeypatch)
     client = TestClient(S.app)
     got = client.get("/api/launchers").json()["launchers"]
-    assert got and all(set(e) == {"label", "icon"} for e in got)
+    assert got and all(set(e) == {"label", "icon", "provider"} for e in got)  # never "command"
 
 
 # A launcher whose command isn't on the DAEMON's PATH used to create a window that died

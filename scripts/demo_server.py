@@ -16,16 +16,17 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
 
 # Before openbus.server loads .env: an existing variable wins over the file, so an empty
 # one keeps a checkout's real telemetry endpoint from receiving demo traffic and its own
-# launcher menu (labels, icons) out of the shots — empty means the shipped defaults. The
-# agent-history root points nowhere so New session's directory suggestions never carry
-# real paths.
-os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="",
+# launcher menu (labels, icons) and keyword map out of the shots — empty means the shipped
+# defaults. The agent-history root points nowhere so New session's directory suggestions
+# never carry real paths.
+os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="", TMUXRC_WORKSTREAMS="",
                   AGENT_HISTORY_DIR="/nonexistent-demo-agent-history")
 
 import uvicorn
@@ -37,6 +38,14 @@ try:  # absent on a base that predates plan limits: screenshots_diff runs these 
     from openbus.plan_usage import PlanUsage
 except ImportError:
     PlanUsage = None
+try:  # likewise for agent accounts
+    from openbus import accounts
+except ImportError:
+    accounts = None
+try:  # likewise for open loops
+    from openbus.open_loops import OpenLoops
+except ImportError:
+    OpenLoops = None
 
 from . import demo_fleet as demo
 
@@ -46,9 +55,17 @@ def _no_tmux(args, *_a, **_kw):
 
 
 FLEET = {p["pane_id"]: p for p in demo.fleet()}
+# The add-account shots: once one opens the sign-in window, its pane joins the fleet and the
+# new account signs in a few seconds later (demo_fleet.accounts).
+SIGN_IN = demo.sign_in_pane() if hasattr(demo, "sign_in_pane") else None
+_signing_in: dict[str, float] = {}
+# The two-account screenshot state (scripts/screenshots.mjs); unset, one account each.
+TWO_ACCOUNTS = os.environ.get("TMUXRC_DEMO_ACCOUNTS") == "2"
 
 
 def _capture(pane_id, **_):
+    if SIGN_IN and pane_id == SIGN_IN["pane_id"]:
+        return demo.capture(SIGN_IN)
     if pane_id not in FLEET:
         _no_tmux(["capture-pane", "-t", pane_id])
     return demo.capture(FLEET[pane_id])
@@ -58,12 +75,16 @@ class DemoWatcher:
     """The slice of openbus.watcher.Watcher the HTTP routes read, over a frozen fleet."""
 
     def __init__(self):
-        self.states = list(FLEET.values())
         self.events_log = demo.events_log()
         self.snapshots = {}
         self.tmux_running = True
 
+    @property
+    def states(self):
+        return list(FLEET.values()) + ([SIGN_IN] if _signing_in else [])
+
     def state_version(self): return 1
+    def pane_birth(self, _pane_id): return None
     def is_stale(self): return False
     def booted(self): return True
     def snapshot_text(self, *_): return None
@@ -79,7 +100,9 @@ class DemoWatcher:
 
 class DemoHistory(demo.History):
     def query(self, *args, **kwargs):
-        return super().query(*args, **{**kwargs, "now": demo.NOW})
+        now = kwargs.get("now")  # a `before` pages back from NOW
+        now = demo.NOW if now is None else min(now, demo.NOW)
+        return super().query(*args, **{**kwargs, "now": now})
 
 
 def _expunge_demo(root: Path):
@@ -107,14 +130,24 @@ async def lifespan(app):
         app.state.history = demo.seed_history(DemoHistory(Path(tmp) / "history.sqlite3"))
         app.state.watcher, app.state.push = DemoWatcher(), None
         if PlanUsage:
-            app.state.usage = demo.seed_usage(PlanUsage(app.state.history))
+            app.state.usage = demo.seed_usage(PlanUsage(app.state.history), TWO_ACCOUNTS)
             app.state.usage.report = partial(app.state.usage.report, demo.NOW)
+        if OpenLoops:
+            app.state.loops = demo.seed_loops(OpenLoops())
+            app.state.loops.report = partial(app.state.loops.report, now=demo.NOW)
         yield
+
+
+def _since_sign_in() -> float | None:
+    return time.time() - _signing_in["at"] if _signing_in else None
 
 
 def install() -> None:
     """Swap the live seams for the demo ones. Separate from main() so a test can use it."""
     tmux._run = _no_tmux  # noqa: SLF001 - the one seam every tmux call goes through
+    if accounts:  # the fleet's own accounts, never a scan of this machine's config dirs
+        accounts.report = lambda *_: {**demo.accounts(TWO_ACCOUNTS, _since_sign_in()),
+                                      "shared": accounts.SHARED}
     tmux.capture_pane = _capture
     # A fixed model menu, so the chat button shows on every machine whatever keys it holds;
     # the socket itself is dropped (the screenshot browser stubs it), so no provider is called.
@@ -130,6 +163,13 @@ def install() -> None:
     async def read_only(request, call_next):
         if request.method in ("GET", "HEAD"):
             return await call_next(request)
+        if request.url.path == "/api/accounts" and request.method == "POST":  # the add flow
+            return JSONResponse({"dir": (await request.json())["dir"], "existed": False})
+        if request.url.path == "/api/accounts" and request.method == "PUT":  # Remove: undo it
+            _signing_in.clear()
+        if request.url.path == "/api/accounts/login" and SIGN_IN:
+            _signing_in.setdefault("at", time.time())
+            return JSONResponse({"ok": True, "pane_id": SIGN_IN["pane_id"], "pid": "1"})
         return JSONResponse({"ok": True})
 
 
