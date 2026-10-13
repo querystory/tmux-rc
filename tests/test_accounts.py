@@ -347,6 +347,7 @@ def test_an_older_copy_is_replaced_or_resumed_only_when_asked(client, home, movi
     (dst / "projects/-p/other.jsonl").write_text("another session\n")
     r = moving(".claude-personal")
     assert r.status_code == 409 and r.json()["detail"]["copied"] > 0  # the sheet's choice
+    assert r.json()["detail"]["resumable"]
     assert (dst / f"projects/-p/{SID}.jsonl").read_text() == "old\n"
     r = moving(".claude-personal", resume_existing=True)
     assert r.status_code == 200 and r.json()["copied"] == []
@@ -360,6 +361,7 @@ def test_an_older_copy_is_replaced_or_resumed_only_when_asked(client, home, movi
     _signed_in(home / ".claude-empty", "u-e")
     (home / f".claude-empty/file-history/{SID}").mkdir(parents=True)  # no transcript: no resume
     assert moving(".claude-empty", resume_existing=True).status_code == 409
+    assert moving(".claude-empty").json()["detail"]["resumable"] is False  # so it isn't offered
 
 
 @pytest.mark.parametrize("sign", ["command line", "registration", "unreadable", "open file"])
@@ -463,7 +465,8 @@ def test_a_move_refuses_nested_dirs_and_a_session_with_no_transcript(home, movin
 
 def test_a_record_still_being_written_is_left_out_of_the_copy(home, moving):
     (home / f".claude/projects/-p/{SID}.jsonl").write_text('{"type": "user"}\n{"type": "assi')
-    (home / f".claude/projects/-p/{SID}/subagents/agent-1.jsonl").write_text('{}\n{"par')
+    (home / f".claude/projects/-p/{SID}/subagents/agent-1.jsonl").write_text(
+        "{}\n" + "x" * 70000)  # a cut record longer than the chunk read back
     assert moving(".claude-personal").status_code == 200
     dst = home / ".claude-personal/projects/-p"
     assert (dst / f"{SID}.jsonl").read_text() == '{"type": "user"}\n'

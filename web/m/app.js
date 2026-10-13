@@ -1661,7 +1661,7 @@ $("move-pane").onclick = async () => {
     } catch (error) {
       if (error.copied) return sheet(`An older copy exists on ${p.name} (copied ${since({ state_since: error.copied })} ago).`, [
         ["Replace it", "Copies this session over that one's files, then resumes it", () => move(p, { replace: true })],
-        ["Resume that copy", "Opens it as it is", () => move(p, { resume_existing: true })]]);
+        ...error.resumable ? [["Resume that copy", "Opens it as it is", () => move(p, { resume_existing: true })]] : []]);
       $("move-dialog").close();
       failed("move the session", "the move may have completed. Look for its new window before trying again.", error);
     }

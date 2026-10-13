@@ -1402,7 +1402,8 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
                         "that account has no transcript of it to resume")
         except FileExistsError as e:  # the sheet offers to replace or resume it
             _refuse(request, "move_session", detail, 409, str(e),
-                    copied=accounts.copied_at(s, target))
+                    copied=accounts.copied_at(s, target),
+                    resumable=accounts.resumable(accounts.files(s, target)))
         except (LookupError, ValueError) as e:
             _refuse(request, "move_session", detail, 409, str(e))
         except OSError as e:  # only the type: the message can carry a path

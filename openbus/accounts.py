@@ -320,10 +320,19 @@ def running(s: Session, target: Path) -> bool:
 
 def _whole_records(log: Path) -> None:
     """Cut a record the running agent was still appending when the log was copied, so the
-    copy ends on a whole JSON line. The agent appends, so everything before it is whole."""
-    data = log.read_bytes()
-    if not data.endswith(b"\n"):
-        log.write_bytes(data[:data.rfind(b"\n") + 1])
+    copy ends on a whole JSON line. The agent appends, so everything before it is whole.
+    Read backwards a chunk at a time: a Codex rollout can run to hundreds of MB."""
+    with log.open("r+b") as f:
+        pos = f.seek(0, os.SEEK_END)
+        cut = 0
+        while pos:
+            n = min(pos, 1 << 16)
+            pos -= n
+            f.seek(pos)
+            if (i := f.read(n).rfind(b"\n")) >= 0:
+                cut = pos + i + 1
+                break
+        f.truncate(cut)
 
 
 def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str]:
