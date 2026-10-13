@@ -1362,7 +1362,7 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
     except OSError:
         _refuse(request, "move_session", detail, 409, "the agent's working directory can't be read")
     profile = accounts.find(body.dir, s.harness)
-    if not (profile and profile["signed_in"]) or Path(profile["dir"]) == s.root:
+    if not (profile and profile["signed_in"]) or Path(profile["dir"]).resolve() == s.root.resolve():
         _refuse(request, "move_session", detail, 404, "not another signed-in account")
     detail = f"session={s.session_id} {detail}"
     try:
