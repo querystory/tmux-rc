@@ -116,5 +116,5 @@ mock-check: $(PLAYWRIGHT)
 	node scripts/mock.mjs check $(MOCK_OUT)
 
 mock-live: $(PLAYWRIGHT) # mock.mjs loads the shared browser module even here
-	node scripts/mock.mjs live $(MOCKS_DIR)/$(NAME)
+	node scripts/mock.mjs live $(MOCKS_DIR)/$(NAME) $(MOCK_OUT)
 	TMUXRC_MOCK_DIR=$(MOCKS_DIR)/$(NAME) uv run python -m scripts.demo_server 18039

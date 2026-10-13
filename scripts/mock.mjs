@@ -3,7 +3,7 @@
 //
 //   node scripts/mock.mjs build <src> <out>   snapshot /m into a self-contained folder   (make mock)
 //   node scripts/mock.mjs check <out>         shoot the harness at desktop and phone size (make mock-check)
-//   node scripts/mock.mjs live <src>          the harness over the live demo app        (make mock-live)
+//   node scripts/mock.mjs live <src> [<out>]  the harness over the live demo app        (make mock-live)
 //
 // <src> holds variants.json and the files it names. A build boots the demo server, opens
 // each view at each width in both themes, and keeps the finished DOM with its stylesheet
@@ -106,6 +106,8 @@ async function inliner(base) {
 // loaded only when shown, so a phone never downloads the desktop ones.
 const snapFile = (key) => `snaps/${key.replaceAll("/", "-")}.js`;
 
+const readData = (out) => JSON.parse(readFileSync(path.join(out, "data.js"), "utf8").replace(/^window.MOCK = |;\n$/g, ""));
+
 function write(out, { snaps = {}, recordImages = [], ...data }) {
   rmSync(path.join(out, "snaps"), { recursive: true, force: true }); // no frame outlives its build
   mkdirSync(path.join(out, "snaps"), { recursive: true });
@@ -151,10 +153,18 @@ async function build(src, out) {
 
 // The same harness over the running app: make mock-live serves <src> at /mock/ from the
 // demo server, so frames are same-origin with /m and the harness patches them after boot.
-// Variant scripts are fetched fresh on every render, so an edit shows on reload.
-function live(src) {
+// Variant scripts are fetched fresh on every render, so an edit shows on reload. The harness
+// captures fragments itself, except a chat one, which needs the build's canned socket: that
+// comes from the last build in `built` (images and all), or is missing, said so here.
+function live(src, built) {
   const { scripts, ...data } = manifest(src);
-  write(path.join(src, "live"), { ...data, fragments: {}, fragmentSteps: data.fragments, live: true }); // the harness captures them
+  const prior = built && existsSync(path.join(built, "data.js")) ? readData(built) : { fragments: {} }, fragments = {};
+  for (const [name, step] of Object.entries(data.fragments)) {
+    if (!step.chat) continue;
+    if (prior.fragments[name]) fragments[name] = prior.fragments[name].replace(/@@IMG(\d+)@@/g, (_, i) => prior.imgs[i]);
+    else console.warn(`fragment ${name} needs the canned chat: run make mock first`);
+  }
+  write(path.join(src, "live"), { ...data, fragments, fragmentSteps: data.fragments, live: true });
   console.log("open http://127.0.0.1:18039/mock/live/");
 }
 
@@ -165,7 +175,7 @@ const SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect
 async function check(out) {
   const serve = (route) => route.fulfill({ headers: { "Content-Security-Policy": SANDBOX },
     path: path.join(out, new URL(route.request().url()).pathname.replace(/\/$/, "/index.html")) });
-  const data = JSON.parse(readFileSync(path.join(out, "data.js"), "utf8").replace(/^window.MOCK = |;\n$/g, ""));
+  const data = readData(out);
   const second = data.variants[1]?.name;
   // Every frame the harness can ask for, not only the ones shot: a missing one would quietly
   // render the "rebuild the mock" placeholder.
@@ -210,7 +220,7 @@ async function check(out) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [cmd, dir, out] = process.argv.slice(2);
-  const run = { build: () => build(dir, out), check: () => check(dir), live: () => live(dir) }[cmd];
+  const run = { build: () => build(dir, out), check: () => check(dir), live: () => live(dir, out) }[cmd];
   if (run) await run();
-  else { console.error("usage: node scripts/mock.mjs build <src> <out> | check <out> | live <src>"); process.exitCode = 2; }
+  else { console.error("usage: node scripts/mock.mjs build <src> <out> | check <out> | live <src> [<built>]"); process.exitCode = 2; }
 }

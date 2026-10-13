@@ -107,7 +107,7 @@ function boot(M) {
     return doc;
   }
   // Fragments, captured once from an off-screen phone-sized app the way a build does. A chat
-  // fragment needs the build's canned socket, so it comes from snapshots only.
+  // fragment needs the build's canned socket, so mock.mjs live takes it from the last build.
   let fragmentsReady;
   const liveFragments = () => fragmentsReady ||= Promise.all(Object.entries(M.fragmentSteps || {}).filter(([, step]) => !step.chat).map(async ([name, step]) => {
     const iframe = Object.assign(document.createElement("iframe"), { ariaHidden: "true", tabIndex: -1 });
