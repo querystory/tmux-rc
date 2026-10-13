@@ -14,6 +14,39 @@ the reset (colours below).
 
 The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So each meter now says "used", the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. That case adds a "full in" line, in the meter's colour, above the reset countdown rather than in place of it: the reset is still when the room comes back, and a forecast without it left no way to plan around the stall. All meters share one flat grid, two to a row, instead of a block per account under a header. The windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, "7d Fable"; a weekly-only Codex plan has one), so per-account rows with fixed 5h and 7d columns left holes and spent a whole row on each header. Packed, Claude's three and Codex's one make a 2×2. Each label carries its provider's icon instead of a header, and the order (provider, then 5h, 7d, per-model) keeps an account's meters together. In the sidebar's narrowest cells the word "used" drops out so the window name and percentage still fit; the trend line already shows direction there.
 
+### When the phone shows it
+
+Even packed, the strip takes two rows above the list, and most of the time nothing in it
+asks for anything. So the phone's "…" menu has a Usage item that cycles Auto, On and Off,
+remembered per browser like the theme. On is the full strip and Off hides it. Auto, the
+default, shows only the meters that call for a decision and hides the strip when none do.
+A meter qualifies when the projection has it full before the reset (the same `limit_at`
+that draws "full in", so phone and server cannot disagree), or when it is at 70% used or
+more. The threshold is needed because the fit lags a sudden burst (see Projection): a
+sweep started late in a window can burn the last 30% before the line catches up, and 70%
+is where that remainder gets small enough to matter. Lower and a steady week's ordinary
+pace would keep the strip up most of the time, which is what Auto exists to avoid. An
+account that can't be read drops out under Auto too, because there is nothing to act on.
+The desktop sidebar has no "…" menu and room to spare, so it keeps every meter.
+
+### The dashboard panel
+
+A phone's bar says where a window stands but not how it got there, and the sidebar's trend
+is a thumbnail. So the dashboard has a Plan usage panel, right under the activity chart:
+every meter, whatever the Usage setting, as a trend tall enough to read. It sits under the
+chart, not above it, because the activity chart is what the dashboard is for; above it, the
+panel pushed the page's main subject below the fold on a phone. Tapping the strip, on the phone or in the
+sidebar, opens the dashboard at that panel rather than a sheet of its own, so there is one
+larger view to maintain and it sits beside the fleet history it is usually read against.
+Tapping the panel opens it up: wider trends (one to a row on a phone, two on desktop), the clock times behind each
+countdown, and the pace's forecast as a number. Those come from the same response the strip
+draws, so the detail costs no request. A longer range was considered and left out: samples
+are pruned to eight days (see Polling and storage), enough for the current weekly window and
+no more, so a range past the last reset would mean keeping history nothing else reads.
+
+The sidebar strip stays. It is the only place the limits show while a pane is open, and both
+draw from one renderer (`renderUsage`), so the panel is a size and a flag, not a copy.
+
 ## Accounts, not providers
 
 One person often runs several Claude or Codex logins side by side, each with its own plan.
@@ -22,22 +55,23 @@ Claude Code picks its config dir from `CLAUDE_CONFIG_DIR` (else `~/.claude`), Co
 agent process under the pane and reads just those variables (plus `HOME`) from its
 `/proc/<pid>/environ`; every other variable is discarded unread. The agent process, not
 the pane's shell, because an inline `CLAUDE_CONFIG_DIR=… claude` sets it only there. The
-daemon user's own defaults are always included, so the strip works with no panes open.
+signed-in accounts tmux-rc lists ([agent accounts](agent-accounts.md)) are always included,
+so the strip works with no panes open; the daemon's own environment no longer adds one.
 
 Accounts are deduplicated before anything is fetched, so ten panes on one login cost one
 request:
 
 - **Claude** is keyed by `oauthAccount.accountUuid` from the config's `.claude.json`
-  (inside an overridden config dir, else `~/.claude.json`), and labelled by the email's
-  local part. Two config dirs logged into one account collapse to one row.
-- **Codex** is keyed by its home directory and labelled by the directory's name. Its
+  (inside an overridden config dir, else `~/.claude.json`). Two config dirs logged into
+  one account collapse to one row.
+- **Codex** is keyed by its home directory. Its
   account id lives only inside `auth.json`'s tokens, and keeping the Codex path entirely
   credential-free was worth more than merging the rare case of two homes on one login.
 
-A meter shows just its provider's icon while there is one account per provider; with
-several, each meter label and each pane's heading carries the short account name, so you
-can tell which limit a pane is drawing on. The name follows the window, so a narrow cell
-truncates the name rather than the window.
+Each row reports the config dirs it was read from, and the UI names it after the account
+those dirs belong to. A meter shows just its provider's icon while there is one account
+per provider; with several, each meter carries the account's chip in its corner, and the
+strip becomes one swipeable row ordered by urgency (see [agent accounts](agent-accounts.md)).
 
 ## Sources, and why each
 
@@ -61,8 +95,13 @@ a file. Nothing else on disk holds the numbers. So the daemon calls
 `GET https://api.anthropic.com/api/oauth/usage` (`anthropic-beta: oauth-2025-04-20`) with
 the account's access token from `.credentials.json`. This is undocumented and may change
 shape or disappear; the parser reads only `five_hour` / `seven_day` →
-`utilization` and `resets_at`, treats a null window as 0% (not yet opened), and any
-failure shows as "unavailable" rather than stale numbers. Per-model weekly limits come
+`utilization` and `resets_at`, and treats a null window as 0% (not yet opened). A failed
+read keeps showing the last reading, marked "as of 6m ago", while it is at most three polls
+(15 minutes) old: the endpoint drops the odd request, and a meter that blanks for five
+minutes over one dropped request is worse than one a few points behind. Past that the
+account reads "unavailable", since older numbers would mislead. A network error (no
+HTTP status) is retried once after 2s; an HTTP status is not, as a 401 or 429 will not
+change in that time. Per-model weekly limits come
 from the `limits` list: each `weekly_scoped` entry naming a model becomes "7d <model>",
 with its `percent` and `resets_at`. The response also has `seven_day_opus`-style keys,
 but they are null on current plans while `limits` carries the number Claude Code's own

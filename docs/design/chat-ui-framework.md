@@ -85,7 +85,7 @@ pane-identity check happens entirely in the daemon, so it is unaffected as long 
 replacement renderer keeps that contract, but the "image, caption and Enter as one locked draft" client logic
 would have to be redone on the library's composer.
 
-Not provided, and still ours: the pane-bound consent semantics and expiry on disconnect,
+Not provided, and still ours: the pane-bound consent semantics and cards that outlive a reconnect,
 the minimize bubble with unread and pending badges, scroll restore on reopen, the native
 dialog sheet and standalone viewport rules, voice mode and its audio recovery, the
 websocket protocol and audit, the model switcher, and our status-color rules. The island

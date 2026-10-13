@@ -176,17 +176,23 @@ def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
     assert r["working"] == {"verb": "Delegating", "elapsed": "1m 3s"}
 
 
-@pytest.mark.parametrize(("child", "tool"), [
-    ("bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash` wrapper
-    ("/usr/local/bin/omp\0", "omp"),
-    ("vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+@pytest.mark.parametrize(("command", "title", "child", "tool"), [
+    # omp behind a shell is proven by its title plus a live omp process
+    ("bash", "π ⠧ x", "bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash`
+    ("bash", "π ⠧ x", "/usr/local/bin/omp\0", "omp"),
+    ("bash", "π ⠧ x", "vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+    ("bash", "x", "/usr/local/bin/codex\0", "opencode"),  # no title: a stopped agent proves nothing
+    # an npm-installed agent's foreground is `node`; the script it runs names the agent
+    ("node", "x", "node\0/opt/nvm/bin/codex\0", "codex"),
+    ("node", "x", "node\0/opt/nvm/bin/claude\0--resume\0", "claude"),
+    ("node", "x", "node\0server.js\0", "opencode"),  # not an agent: the model decides
 ])
-def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, tool):
+def test_host_tool_from_the_process_tree(monkeypatch, command, title, child, tool):
     proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
             ("11", "cmdline"): child}
     for module in (classify_mod, tmux):  # the process walk lives in tmux
         monkeypatch.setattr(module, "proc_read", lambda pid, name: proc.get((pid, name), ""))
-    pane = Pane("work", "0", "bash", "0", "%0", "bash", "π ⠧ agent-history-omp", "/x", pid="10")
+    pane = Pane("work", "0", "bash", "0", "%0", command, title, "/x", pid="10")
     r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
     assert r["tool"] == tool
 
@@ -829,6 +835,17 @@ def test_failed_question_retry_does_not_retire_the_screen():
         assert result["parse_ok"] is False
 
 
+def test_failed_question_retry_keeps_only_the_viewport_links():
+    now, old = {"href": "https://auth.example.com/now"}, {"href": "https://example.com/old"}
+    for retry_links, want in (([now], [now]), (None, None), (3, None)):
+        replies = iter([{"tool": "codex", "question": {"prompt": "Old approval?"},
+                         "links": [old, now]},
+                        {"question": {"prompt": "Still old?"}, "links": retry_links}])
+        result = classify(_pane("codex"), "Old approval?\n\x1e[visible screen]\x1f\n› Ready",
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert result["parse_ok"] is False and result.get("links") == want
+
+
 def test_question_retry_cannot_resurrect_stale_rewind():
     replies = iter([
         {"tool": "codex", "question": {"prompt": "Old approval?"}},
@@ -1290,6 +1307,66 @@ def test_wrapped_closing_question_is_read_whole(message):
     assert "options" not in result["question"]  # no replies_fn: no buttons
 
 
+def test_question_naming_list_items_carries_them():
+    message = ("Old plan:\n  1. Rewrite the cache layer.\n\n  Two ways to free memory, in order:\n"
+               "  1. Move the build cache to disk. This is the biggest win and loses\n"
+               "     nothing; every tool keeps working.\n"
+               "  2. Close idle worker sessions. 40 of them hold 12 GB.\n"
+               "  3. Optional: point caches at ~/.cache.\n\n"
+               "  Want me to do 1 now and prepare the list for 2?")
+    question = classify(_pane("claude"), _auto_screen(message), _llm({}))["question"]
+    assert question["items"] == ["1. Move the build cache to disk.",
+                                 "2. Close idle worker sessions."]
+    for ask in ("Want me to do 1 please?", "Start with 2 tomorrow?", "Make edit 2 immediately?",
+                "Do Item 2 first?", "Do 1 urgently?", "Could you handle 2 separately?",
+                "Do 1 and 2 on staging?", "Do task 1 now?", "Apply fix 2 first?",
+                "Implement recommendation 2 next?", "Should I implement Recommendation 2 next?"):
+        screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
+        assert len(classify(_pane("claude"), screen, _llm({}))["question"]["items"]) == len(
+            [c for c in ask if c.isdigit()])
+    long = classify(_pane("claude"), _auto_screen(message.replace(
+        "Close idle worker sessions.", "Close " + "idle worker " * 20 + "sessions.")), _llm({}))
+    capped = long["question"]["items"][1]
+    assert len(capped) <= 120 and capped.endswith("…")
+    ranged = classify(_pane("claude"), _auto_screen(message.replace(
+        "do 1 now and prepare the list for 2", "make edits 1–3")), _llm({}))["question"]
+    assert [i[:2] for i in ranged["items"]] == ["1.", "2.", "3."]
+    # A count, a PR number or a menu's own option numbers name no list item.
+    for ask in ("Want me to fix the 7 failing tests?", "Should I merge #2?",
+                "There are 2 failing tests; should I fix them?", "Shall I fix 2 bugs?",
+                "Want me to fix 2 PRs?", "Should I start at 2 pm?", "Start in 2 minutes?",
+                "Should I upgrade to Python 3?", "Should I fix 1 failing test?",
+                "Python 3 support?", "Do we have 2?", "Set retries to 2?", "Set timeout 2?",
+                "The API returned 2. Should I retry?", "Should I run 2-3 tests?"):
+        screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
+        assert "items" not in classify(_pane("claude"), screen, _llm({}))["question"]
+    # The parser's own copy of the rows, as buttons or a table keyed by them, goes; other
+    # tables and replies stay.
+    ask = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "text",
+           "options": ["1. Move the build cache to disk.", "1. Yes, move it now"]}
+    echo = {"rows": [["1", "Move the build cache"], ["2.", "Close the sessions"]]}
+    other = {"rows": [["1 min", "fast"], ["2 min", "slow"]]}
+    ranking = {"rows": [["1", "Move staging"], ["2", "Close production"]]}  # one shared verb
+    screen = _auto_screen(message).replace("auto mode on", "plan mode on")
+    tables = [echo, other, ranking]
+    result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": tables}))
+    assert result["question"]["options"] == ["1. Yes, move it now"]  # a reply, not the row
+    assert result["tables"] == [other, ranking]
+    result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": [echo]}))
+    assert result["tables"] is None
+    styleless = {"prompt": ask["prompt"]}  # answered as text, so it names rows too
+    assert classify(_pane("claude"), screen, _llm({"question": styleless}))["question"]["items"]
+    kept = ["2. Check with me before closing them", "2. Yes, but check with me first"]
+    check = {**ask, "options": ["2. Close idle worker sessions", *kept]}
+    result = classify(_pane("claude"), screen, _llm({"question": check}))
+    assert result["question"]["options"] == kept
+    menu = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "menu",
+            "options": ["Yes", "No"]}
+    widget = _auto_screen(message + "\n  ❯ 1. Yes\n    2. No").replace("auto mode", "plan mode")
+    held = classify(_pane("claude"), widget, _llm({"question": menu}))["question"]
+    assert held["answer_style"] == "menu" and "items" not in held
+
+
 @pytest.fixture
 def replies():
     classify_mod._replies.clear()
@@ -1341,6 +1418,13 @@ def test_model_options_for_the_same_question_skip_the_extra_call(replies):
     other = {"prompt": "Pick a color", "options": ["red"]}
     assert _ask(make({"options": ["Yes", "No"]}), other)["options"] == ["Yes", "No"]
     assert calls == [ASK]
+    # Numbered options are replies unless they are the rows the question names: then they
+    # are context, and the reply call is asked instead.
+    choice = {"prompt": "Which backend?", "options": ["1. PostgreSQL", "2. Redis"]}
+    assert _ask(make({}), choice, "Which backend?")["options"] == choice["options"]
+    named = "Ways forward:\n  1. Send it to Copilot.\n  2. Merge it.\n\n  Do 1 then 2?"
+    rows = {"prompt": "Do 1 then 2?", "options": ["1. Send it to Copilot", "2. Merge it"]}
+    assert _ask(make({"options": ["Yes", "No"]}), rows, named)["options"] == ["Yes", "No"]
 
 
 def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):

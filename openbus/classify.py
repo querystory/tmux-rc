@@ -14,6 +14,7 @@ minimal dict (idle vs running) so the pipe never breaks.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import textwrap
@@ -78,6 +79,90 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
+# A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
+# the frame, a radio and a digit. The model reads the highlight too but can misplace it
+# (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
+# Yes pressed Enter on No), so the screen decides wherever it shows one. Only between the
+# prompt and the widget's bottom edge (a ─── rule or a ╰ corner), so neither a turn in the
+# scrollback nor the input box under a picker that has closed is ever the cursor. A box
+# with no highlight in it is the search field above the list (/resume, /config), not its
+# edge, so it is passed over. Returns the one option the row names: itself, or itself
+# ahead of a value column ("Auto-compact      true"). Only a row that opens with a frame
+# loses one closing bar: a label's own bar is content.
+_HIGHLIGHT_RE = re.compile(
+    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
+    r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
+# A picker heading's live count ("Resume session (1 of 47)"): it redraws with every move
+# and filter while the picker stays the same, so it is never part of the prompt.
+_LIVE_COUNT = r"\(\d+ of \d+\)"
+_LIVE_COUNT_RE = re.compile(rf"\s*{_LIVE_COUNT}\s*$")
+_WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
+
+
+def _widget_end(visible: str, start: int) -> int:
+    return next((edge.start() for edge in _WIDGET_END_RE.finditer(visible, start)
+                 if edge["rule"] or _HIGHLIGHT_RE.search(visible, start, edge.start())),
+                len(visible))
+
+
+def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
+    """The live picker's prompt row, and where its widget ends, or None."""
+    # A whole row only: a longer prompt ("… for deployment") is a different picker.
+    found = prompt.strip() and _occurrences(prompt, visible, row=True)  # "" matches anywhere
+    if not found:
+        return None
+    # The last match's widget is the live one, but the prompt is its first match there: a
+    # later one inside the same widget is an option or footer repeating the prompt's words.
+    asked = next(m for m in found if _widget_end(visible, m.end()) > found[-1].start())
+    end = _widget_end(visible, asked.end())
+    # Past an unframed picker's end nothing is drawn: a supported agent erases or redraws
+    # a picker once it is answered, so no later one ever sits below it in its range.
+    if _HIGHLIGHT_RE.search(visible, end):  # a later picker, or the input box, is live:
+        return None                         # this one is history in the scrollback
+    return asked, end
+
+
+# A dialog's own top edge, drawn from column 0 (▔▔▔, ───, ╭): a command's rule-like row
+# inside a dialog is indented, so it never stands in for the edge.
+_DIALOG_TOP_RE = re.compile(r"^(?:[─━▔]{3,}|╭)", re.MULTILINE)
+
+
+def _drawn_row(visible: str, live: tuple[re.Match, int]) -> str | None:
+    *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1])]
+    return row and row["label"]
+
+
+def picker_read(text: str, prompt: str) -> tuple[str, str | None] | None:
+    """A capture's live picker, as a walk is held to it: its digest and its highlighted
+    row as drawn, or None. The digest hashes from the dialog's top edge (so the command a
+    generic "Do you want to proceed?" approves is part of it) down to the screen's end, as
+    classify reads the viewport (_visible) but otherwise verbatim. Any change since the
+    frame a step was computed from, be it a replacement picker, a moved highlight or a
+    row's "30s" now "60s", refuses the step (/send), and /send hands both back after each
+    key, so the next step is planned off the screen itself with no parse in between."""
+    visible = _visible(text)
+    live = _live_prompt(visible, prompt)
+    if not live:
+        return None
+    *_, top = [live[0].start(), *(m.start() for m in
+                                  _DIALOG_TOP_RE.finditer(visible, 0, live[0].start()))]
+    return hashlib.sha256(visible[top:].encode()).hexdigest(), _drawn_row(visible, live)
+
+
+def picker_digest(text: str, prompt: str) -> str | None:
+    read = picker_read(text, prompt)
+    return read and read[0]
+
+
+def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
+    """The one option the live picker's highlighted row under prompt names, or None."""
+    live = _live_prompt(visible, prompt)
+    label = live and _drawn_row(visible, live)
+    named = label is not None and [option for option in options if isinstance(option, str)
+                                   and (label == option or label.startswith(f"{option}  "))]
+    return named[0] if named and len(named) == 1 else None
+
+
 # The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
 # at its input box, so every row under it is status/footer chrome (Claude's welcome
 # session list included), never a question. A real picker replaces the box with a ❯ cursor.
@@ -105,31 +190,37 @@ _PROCESS_TOOLS = {
     "opencode": "opencode",
     "omp": "omp",
 }
-# omp installed through bun runs as `bun`, so its executable proves nothing; its title
-# (OMP_TITLE_RE) does. Launched behind a wrapper (`omp …; exec bash`, a script, `uv run`)
-# the foreground is a shell, and the title alone can't be trusted there because it
-# outlives omp, but the title plus a live omp process under the pane can.
-_OMP_PROC_LIMIT = 64  # processes walked under one pane, bounding a pathological tree
+# An agent installed through npm or bun runs as `node`/`bun`, so the foreground executable
+# proves nothing; the agent that interpreter runs, found under the pane, does. omp's title
+# (OMP_TITLE_RE) proves it outright under bun. Launched behind a wrapper (`omp …; exec
+# bash`, a script, `uv run`) the foreground is a shell, and the title alone can't be
+# trusted there because it outlives omp, but the title plus a live omp process under the
+# pane can. Other agents get no such shell walk: without a title to corroborate it, a
+# suspended or backgrounded agent under an idle shell would claim the pane.
+_INTERPRETERS = ("bun", "node")
 
 
-def _runs(pid: str, name: str) -> bool:
-    """Is `name` among `pid` and its descendants: argv[0], or bun/node running it?"""
-    for p in processes(pid, _OMP_PROC_LIMIT):
+def _programs(pid: str) -> set[str]:
+    """Programs among `pid` and its descendants: argv[0], or the script bun/node runs."""
+    names = set()
+    for p in processes(pid):
         argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
-        if argv[0] == name or (argv[0] in ("bun", "node") and argv[1:] == [name]):
-            return True
-    return False
+        names.add(argv[-1] if argv[0] in _INTERPRETERS else argv[0])
+    return names
 
 
 def _host_tool(pane: Pane) -> str | None:
     """The agent the pane's process or title proves it is running, else None."""
     if tool := _PROCESS_TOOLS.get(pane.current_command):
         return tool
-    if OMP_TITLE_RE.match(pane.title) and (
-        pane.current_command in ("bun", "node") or (pane.pid and _runs(pane.pid, "omp"))
-    ):
+    omp_title = OMP_TITLE_RE.match(pane.title)
+    hosted = pane.current_command in _INTERPRETERS
+    if hosted and omp_title:
         return "omp"
-    return None
+    if not pane.pid or not (hosted or omp_title):
+        return None
+    found = _programs(pane.pid) & (_PROCESS_TOOLS.keys() if hosted else {"omp"})
+    return _PROCESS_TOOLS[found.pop()] if len(found) == 1 else None
 
 
 # omp's status row is fixed-format chrome (status-line/metrics.ts), read here rather than
@@ -314,11 +405,13 @@ def _question_prompt(question) -> str | None:
 
 
 def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Match]:
-    """The prompt's matches; with row, only those that are a whole row bar the frame, so
-    the same words inside a command (`printf "Proceed?"; rm …`) never stand in for it."""
+    """The prompt's matches; with row, only those that are a whole row bar the frame (and
+    a search field's ⌕), so the same words inside a command (`printf "Proceed?"; rm …`)
+    never stand in for it. The row may close on a live count, which the model drops; any
+    other words after the prompt ("… for deployment", "(production)") are another one."""
     words = r"\s+".join(map(re.escape, prompt.split()))
     if row:
-        words = rf"^[ \t│┃╎]*{words}(?=[ \t│┃╎]*$)"
+        words = rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?(?=[ \t│┃╎]*$)"
     return list(re.finditer(words, visible, re.IGNORECASE | re.MULTILINE))
 
 
@@ -445,6 +538,11 @@ def _ground_visible_fields(
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
     if bad_action:
+        # Only the viewport re-read vouches for a link: the first read also saw history.
+        # Links survive a failed re-read, which the watcher publishes on the kept card.
+        result.pop("links", None)
+        if retry and isinstance(retry.get("links"), list) and retry["links"]:
+            result["links"] = retry["links"]
         state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
@@ -601,6 +699,114 @@ def _final_paragraph(message: str) -> str:
     return " ".join(r.strip() for r in reversed(rows))
 
 
+# A numbered list row (inside any frame), and a number a prompt names: "do 1 please",
+# "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A reference is preceded
+# by what takes one (_REF_BEFORE_RE, so "Set timeout 2?" and "it returned 2." are not) and
+# followed by punctuation, the end, or a word that cannot be counted: "now", "please", "and", a
+# preposition opening a modifier ("1 and 2 on staging"), an -ly adverb ("separately"). Any
+# other word is what a count counts ("1 failing test", "2 PRs", "2 pm", "Python 3
+# support"). A determiner, copula, verb of having, time preposition, assignment ("to",
+# "="), name or "version" before it marks a count, value, time or version too ("there are
+# 2", "the 7", "do we have 2?", "at 2", "set retries to 2?", "upgrade to Python 3?").
+# Precision beats recall: a missed reference leaves the bare question the card showed
+# before, while a count read as a reference would show an unrelated row as what the
+# question means.
+_NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
+_ITEM_REF_RE = re.compile(
+    # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
+    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)(?=\s*(?:[^\w\s]|$|"
+    r"(?i:and|or|now|first|then|next|too|also|only|but|before|after|later|today|tomorrow|"
+    r"tonight|instead|together|please|right|again|as|asap|soon|yet|on|in|for|with|without|"
+    r"into|onto|via|using|across|against|under|over|here|there|(?!(?:family|supply|reply|"
+    r"ally|rally|assembly|anomaly|daily|weekly|monthly|yearly)\b)[a-z]+ly)\b))")
+# The nouns an agent numbers what it proposes by ("edit 2", "Recommendation 2").
+_ITEM_LABEL = (
+    r"(?i:items?|edits?|steps?|options?|choices?|points?|rows?|tasks?|fix(?:es)?|"
+    r"recommendations?|suggestions?|changes?|ideas?|approach(?:es)?|plans?|proposals?|"
+    r"actions?|issues?|findings?|comments?|bullets?|entry|entries|parts?|phases?|stages?|"
+    r"number|no\.?)")
+_COUNT_BEFORE_RE = re.compile(
+    r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
+    r"had|got|need|needs|want|wants|own|owns|keep|keeps|to|from|equals?)\s+$|=\s*$"
+    rf"|(?<=\s)(?!{_ITEM_LABEL}(?!\w))[A-Z][\w.+-]*\s+$")
+# What a reference takes before it, positively: an item noun or a preposition ("edits 1",
+# "for 2"), a verb in command position ("Do 1", "want me to do 1", "could you handle 2"),
+# or a conjunction after another reference ("1 and 2", "2, then 3").
+_REF_BEFORE_RE = re.compile(
+    rf"\b(?:{_ITEM_LABEL}|(?i:for|with|after|before))\s+$"
+    r"|(?:^|[.?!;:]\s+|\b(?i:to|I|you|we|me|let's|please)\s+)[A-Za-z']+\s+$")
+_REF_CHAIN_RE = re.compile(r"\s*(?:,\s*)?(?:(?i:and|or|then)\s+|&\s*)?|\s*,\s*")
+_WORD_RE = re.compile(r"[^\W\d_]{4,}")
+# Four-letter-plus words too common to tell a copy of a row from a reply to it.
+_FUNCTION_WORDS = frozenset((
+    "with", "before", "after", "from", "that", "this", "then", "them", "they", "their",
+    "there", "into", "onto", "about", "also", "just", "only", "will", "would", "could",
+    "should", "have", "been", "were", "what", "when", "which", "while", "your", "yours",
+    "first", "next", "please"))
+# A reply, whatever row number it carries: "1. Yes, but check with me before sending".
+_REPLY_RE = re.compile(r"(?i)\s*(?:\d{1,2}[.)]\s*)?(?:yes|no|ok|okay|sure|go|skip|hold)\b")
+
+
+def _copies(text: object, row: str) -> bool:
+    """Whether text restates a row: quotes it ("2. Merge it" from "Merge it.") or has two
+    substantive words in common, so one shared verb ("1. Yes, move it now" beside "1. Move
+    the build cache") is not a copy, and neither is anything phrased as a reply."""
+    if _REPLY_RE.match(str(text)):
+        return False
+
+    def words(value: object) -> set[str]:
+        return set(_WORD_RE.findall(str(value).lower())) - _FUNCTION_WORDS
+    quoted = re.sub(r"^\s*\d{1,2}[.)]\s*", "", str(text)).strip(" .").lower()
+    return (bool(quoted) and quoted in row.lower()) or len(words(text) & words(row)) >= 2
+
+
+def _referenced_rows(prompt: str, visible: str) -> dict[str, str]:
+    """The numbered rows above a typed-answer question that its prompt names by number
+    ("Want me to do 1 now and prepare 2?"), whole and in the prompt's order, so the card
+    can say what 1 and 2 are. Read off the screen: the parser, told to carry them, did not
+    reliably. The nearest row wins a number, so an older list above loses to the one the
+    question closes; numbers with no row (a count, a time) name nothing here."""
+    found = _last_occurrence(prompt, visible)
+    rows: dict[str, list[str]] = {}
+    item, indent = None, 0
+    for row in visible[:found.start() if found else 0].splitlines():
+        if m := _NUMBERED_ROW_RE.match(row):
+            item, indent = rows.setdefault(m[1], []), _indent(row)
+            item[:] = [m[2]]
+        elif item is not None and row.strip() and _indent(row) > indent:
+            item.append(row.strip())  # the item's wrapped continuation
+        else:
+            item = None
+    refs, last = [], None
+    for m in _ITEM_REF_RE.finditer(prompt):
+        chained = last is not None and _REF_CHAIN_RE.fullmatch(prompt, last, m.start())
+        if (chained or _REF_BEFORE_RE.search(prompt, 0, m.start())) and not (
+                _COUNT_BEFORE_RE.search(prompt, 0, m.start())):
+            refs += map(str, range(int(m[1]), int(m[2] or m[1]) + 1))
+            last = m.end()
+    return {n: " ".join(rows[n]) for n in dict.fromkeys(refs) if n in rows}
+
+
+def _item(number: str, text: str) -> str:
+    """A referenced row on the card: its number and first sentence, at most 120 characters."""
+    first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0]
+    return textwrap.shorten(f"{number}. {first}", 120, placeholder="…")
+
+
+def _restates(table: object, rows: dict[str, str]) -> bool:
+    """Whether a parser table is its own copy of the referenced rows: every row keyed by a
+    bare referenced number, and most of them copying that row (the parser paraphrases, so
+    not all). A table that is merely numbered 1, 2 (a ranking, an
+    index) or shares one generic verb ("Update ...") with the rows stays."""
+    body = table.get("rows") if isinstance(table, dict) else None
+    keys = [str(r[0]).strip().rstrip(".)") if isinstance(r, list) and r else None
+            for r in body] if isinstance(body, list) else []
+    if not keys or not all(k in rows for k in keys):
+        return False
+    copied = [_copies(" ".join(map(str, r[1:])), rows[k]) for r, k in zip(body, keys, strict=True)]
+    return 2 * sum(copied) > len(copied)
+
+
 def _final_ask(visible: str, tool: str) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
@@ -626,6 +832,12 @@ def _final_ask(visible: str, tool: str) -> dict | None:
     if handoff is None:
         return None
     return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
+
+
+def _row_number(option: object) -> str | None:
+    """The number of an option written as a list row ("1. Fix the cache"), else None."""
+    m = isinstance(option, str) and re.match(r"\s*(\d{1,2})[.)]\s", option)
+    return m[1] if m else None
 
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
@@ -973,12 +1185,36 @@ def classify(
             r"(?:^|[·│])\s*Type to search(?:\s*[·│]|$)", line, re.IGNORECASE,
         ) for line in footer):
             keymap["search"] = True
+        rows, asked = question.get("options"), _question_prompt(question)
+        if asked:  # the walk and /send hold the prompt across moves, which redraw the count
+            question["prompt"] = asked = _LIVE_COUNT_RE.sub("", asked)
+        # The screen /send holds a walk's keys to, read off it and never passed through, and
+        # only where it shows which row is highlighted: a colour-only highlight is invisible
+        # to the digest, so no walk is held to a screen that hashes alike whichever row it is.
+        question.pop("picker", None)
+        if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
+            question["selected"] = rows.index(row)
+            question["picker"] = picker_digest(text, asked)
     if isinstance(question, dict):  # read off the screen, never passed through from the model
-        for key in ("context", "ask"):
+        for key in ("context", "ask", "items"):
             question.pop(key, None)
+        # A question with no style is answered as text (models.py), so it may name rows.
+        style, asked = question.get("answer_style", "text"), _question_prompt(question)
+        # A menu's own numbers are its options, so only a typed answer names list items.
+        if rows := style == "text" and asked and _referenced_rows(asked, visible):
+            question["items"] = [_item(n, text) for n, text in rows.items()]
+            # The parser's own copy of those rows would show them twice: as answer buttons
+            # (a row's number and its words: "1. Resolve the merge conflict", not "1. Yes,
+            # move it now"; the reply call fills in when nothing else is left), or as a table.
+            options = question.get("options")
+            kept = [o for o in options if (n := _row_number(o)) not in rows
+                    or not _copies(o, rows[n])] if isinstance(options, list) else options
+            if kept != options:
+                question["options"] = kept or _reply_options(asked, replies_fn)
+            if isinstance(result.get("tables"), list):
+                result["tables"] = [t for t in result["tables"] if not _restates(t, rows)] or None
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
-        asked = question.get("answer_style") == "menu" and _question_prompt(question)
-        if context := asked and _widget_text(asked, visible):
+        if context := style == "menu" and asked and _widget_text(asked, visible):
             question["context"] = context
             # Only an approval is restated: a numbered choice such as "Which environment?"
             # keeps its own question.

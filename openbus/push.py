@@ -320,6 +320,8 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         # The same "Do you want to proceed?" over a different command is a different ask:
         # a notification describing one must not approve the other.
         "context": question.get("context") if question else None,
+        # Likewise "Do 1 now?" over a different row 1: the body shows the rows it names.
+        "items": question.get("items") if question else None,
         # The body is the restatement: one that arrives late (a retried call) re-notifies.
         "ask": question.get("ask") if question else None,
     }
@@ -341,6 +343,9 @@ def option_keys(question: dict, index: int) -> str:
         yes_no = len(options) == 2 and option.lower() in {"yes", "no"}
         return option[0].lower() if yes_no else str(index + 1)
     return option
+
+
+PUSH_BODY_MAX = 400
 
 
 def _push_text(value, limit: int) -> str:
@@ -399,6 +404,13 @@ class PushManager:
         self.store.upsert({"endpoint": endpoint, "keys": {
             "p256dh": keys["p256dh"], "auth": keys["auth"],
         }})
+
+    def chat(self, card: str, text: str) -> bool:
+        """The chat assistant's card waits on a user who isn't looking (live._nudge). The tap
+        brings back the chat holding that card id in the open page (sw.js); approving stays
+        in the app. False when it was not queued (a full queue): the caller tries again."""
+        return self.sender.send({"title": "Chat needs you", "body": _push_text(text, 400),
+                          "tag": "chat", "url": "/m", "chat": card, "actions": []})
 
     def answer(self, nonce: str, option_index: int) -> tuple[str, str]:
         now = self.clock()
@@ -500,13 +512,23 @@ class PushManager:
             if len(rate) >= RATE_MAX:
                 continue
             offered = renderable_options(question)[:2] if question else []
+            # A widget's plain restatement ("Do you want to proceed?" alone says
+            # nothing; classify._restate), else the prompt itself, then the list rows
+            # it names by number ("Do 1 now?" alone says nothing either).
+            items = (question or {}).get("items") or []
+            # str(): raw model fields are unvalidated, and one bad headline must not stall
+            # every pane's notifications.
+            body = "\n".join(map(str, [(question or {}).get("ask") or (question or {}).get(
+                "prompt") or pane.get("headline") or "Needs your attention", *items]))
             # A menu with no widget rows (one taller than classify reads, or none) can't
             # tell one "Do you want to proceed?" from the next, so its nonce could approve
             # a later command; an approval not yet restated (a failed call, retried) would
-            # be approved blind. Either way the notification only opens the app.
+            # be approved blind. Nor is one whose named rows the body cannot fit. Either
+            # way the notification only opens the app.
             style = (question or {}).get("answer_style")
             if (style == "cursor" or (style == "menu" and not question.get("context"))
                     or (style == "menu" and is_approval(question) and not question.get("ask"))
+                    or (items and len(body) > PUSH_BODY_MAX)
                     or not self.watcher.pane_birth(pane_id)):
                 offered = []
             nonce = secrets.token_urlsafe(24) if offered else None
@@ -527,14 +549,7 @@ class PushManager:
                 "title": _push_text(
                     pane.get("title") or pane.get("label") or pane_id, 100
                 ),
-                # A widget's plain restatement ("Do you want to proceed?" alone says
-                # nothing; classify._restate), else the prompt itself.
-                "body": _push_text((
-                    (question or {}).get("ask")
-                    or (question or {}).get("prompt")
-                    or pane.get("headline")
-                    or "Needs your attention"
-                ), 400),
+                "body": _push_text(body, PUSH_BODY_MAX),
                 "tag": f"block:{pane_id}",
                 "url": url,
                 "nonce": nonce,

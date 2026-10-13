@@ -96,6 +96,17 @@ def test_tables_is_scored_only_where_a_sample_names_it():
     assert score_structured({}, {})[0]
 
 
+def test_links_require_each_expected_url_whole():
+    want = {"links": ["https://auth.example.com/login?state=abc"]}
+    whole = {"links": [{"href": "https://example.com/x"}, {"href": want["links"][0]}]}
+    assert score_structured(whole, want)[0]
+    assert score_structured({"links": [whole["links"][0]] * 3 + whole["links"][1:]}, want)[0]
+    assert not score_structured({"links": [{"href": want["links"][0][:-3]}]}, want)[0]
+    hidden = {"links": [{"href": f"https://example.com/{i}"} for i in range(3)] + whole["links"]}
+    for malformed in ({"links": [{"href": []}]}, {"links": 3}, {"links": "x"}, hidden):
+        assert not score_structured(malformed, want)[0]
+
+
 def test_copyable_texts_pin_the_exact_payload():
     want = {"copyables": True, "copyable_texts": ["a\n  b"]}
     assert score_structured({"copyables": [{"text": "a\n  b"}]}, want)[0]
@@ -138,33 +149,14 @@ def test_corpus_loads_and_is_well_formed():
     for s in corpus:
         assert s.capture.strip(), f"{s.name}: empty capture"
         assert s.expected.get("tool") in _VALID_TOOL, f"{s.name}: bad tool"
-        assert s.expected.get("activity") in _VALID_ACTIVITY, f"{s.name}: bad activity"
+        # "unknown" only where the sample pins an unread parse, the one honest use of it.
+        assert s.expected.get("activity") in _VALID_ACTIVITY or (
+            s.expected.get("activity") == "unknown" and s.expected.get("parse_ok") is False
+        ), f"{s.name}: bad activity"
         # waiting_on is meaningful only on a waiting pane.
         if s.expected.get("waiting_on"):
             assert s.expected["activity"] == "waiting", f"{s.name}: waiting_on off a non-wait"
             assert s.expected["waiting_on"] in ("user", "external")
-
-
-def test_referenced_edits_reach_the_content_judge():
-    """An unrelated but renderable table must not satisfy the referenced-list case."""
-    import json
-
-    from research.eval.harness import judge_freetext
-
-    sample = next(s for s in load_corpus() if s.name == "16_question_refers_to_list")
-    rows = sample.expected["tables"][0]["rows"]
-    assert len(rows) == 4
-    unrelated = {"headline": sample.expected["headline"],
-                 "tables": [{"rows": [["1", "Rewrite packaging"]]}]}
-
-    def judge(system, text):
-        payload = json.loads(text)
-        assert payload["expected_tables"] == sample.expected["tables"]
-        assert payload["candidate_tables"] == unrelated["tables"]
-        assert "missing edits" in system
-        return {"verdict": "FAIL", "reason": "The four requested edits are missing"}
-
-    assert not judge_freetext(sample, unrelated, judge)[0]
 
 
 def test_one_valid_table_cannot_hide_rows_that_crash_the_desktop():

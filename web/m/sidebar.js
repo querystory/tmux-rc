@@ -10,7 +10,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, questionItems, activityLabel, activityClass, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -39,7 +39,7 @@ function groups(subset, query) {
     });
   list.unshift({ id: "need", label: "Needs you", panes: subset.filter(needsYou), alert: true });
   for (const g of list) {
-    g.panes.sort((a, b) => rank(a) - rank(b) || lastActivity(b) - lastActivity(a));
+    g.panes.sort((a, b) => rank(a) - rank(b) || newestFirst(a, b));
     g.cards = prefs.cards[g.id] ?? g.id === "need";
     g.open = !!query || !prefs.fold[g.id]; // open unless the user folded it (only explicit folds are stored)
   }
@@ -120,7 +120,7 @@ export function setupSidebar(ctx) {
     const node = document.createElement("div"), open = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
     open.className = "sb-open";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? "<p></p>" : "");
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span><span class="sb-acct"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><p class="sb-items"></p>' : "");
     node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
     if (card) addAnswers(node);
     open.onclick = () => ctx.navigate(node._p.pane_id);
@@ -154,6 +154,7 @@ export function setupSidebar(ctx) {
     // By state the session is context; by session it is the group heading already.
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
+    ctx.html(node.querySelector(".sb-acct"), ctx.badge(p.pane_id));
     text(node.querySelector(".a"), p.ending || age(p));
     // Needs you is about the question and its answers, so its cards only count sub-agents.
     const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents"), lines = prefs.subagents && g.id !== "need";
@@ -163,6 +164,7 @@ export function setupSidebar(ctx) {
     renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
       text(node.querySelector("p"), paneActivity(p) || "No recent activity");
+      text(node.querySelector(".sb-items"), needsYou(p) ? questionItems(p.question) : "");
       replies(node, p);
     }
   }

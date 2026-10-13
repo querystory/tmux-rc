@@ -46,7 +46,7 @@ SNAPSHOT_HISTORY = 200
 CHECKPOINT_EVENTS = 100
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 11
+CARD_VERSION = 12
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -282,6 +282,9 @@ class Watcher:
         self._parsed_reply: dict[str, str | None] = {}  # pane_id -> agent reply at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
         self._collection_failed = False
+        # Last tick's answer to "is a tmux server running at all?" — lets the UI tell a
+        # host after a reboot (no server) from a server with nothing in it.
+        self.tmux_running = True
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
         self._input_generation_lock = threading.Lock()
@@ -355,7 +358,7 @@ class Watcher:
         # deck (tmux down / no panes), whose fingerprint is "". Otherwise version would
         # stay 0 through a prolonged empty state and the long-poll (which only engages at
         # version > 0) would never kick in.
-        self._state_fp: str | None = None
+        self._state_fp: tuple | None = None
         self._state_changed = asyncio.Event()
         self._publish_lock = threading.Lock()  # deck writers vs. drop_panes (a request thread)
 
@@ -581,7 +584,8 @@ class Watcher:
 
     def _tick(self) -> None:
         self._delete_forgotten()
-        if not tmux.server_running():
+        self.tmux_running = tmux.server_running()
+        if not self.tmux_running:
             self._collection_failed = False
             self._gc(set())  # confirmed server absence ends every pane lifetime
             self._publish_states([])
@@ -791,11 +795,11 @@ class Watcher:
     @staticmethod
     def _pending_key(state: dict) -> tuple:
         """What the waiting clock is keyed on: the activity and the pending question, by
-        prompt AND widget context (the same "Do you want to proceed?" over a different
-        command is a new ask)."""
-        q = state.get("question")
-        return (state.get("activity"), Watcher._question_prompt(state),
-                q.get("context") if isinstance(q, dict) else None)
+        prompt AND widget context AND the rows it names (the same "Do you want to proceed?"
+        over a different command, or "Do 1 now?" over a different row 1, is a new ask)."""
+        q = state.get("question") if isinstance(state.get("question"), dict) else {}
+        return (state.get("activity"), Watcher._question_prompt(state), q.get("context"),
+                tuple(q.get("items") or ()))
 
     @staticmethod
     def _deck_fp(states: list[dict]) -> str:
@@ -826,7 +830,9 @@ class Watcher:
         return "\n".join(parts)
 
     def _bump_state_if_changed(self, states: list[dict]) -> None:
-        fp = self._deck_fp(states)
+        # tmux_running is in the fingerprint: an empty deck whose server stops (or starts)
+        # changes nothing else, and the phone would hold a stale empty state for a poll.
+        fp = (self.tmux_running, self._deck_fp(states))
         if fp == self._state_fp:
             return
         self._state_fp = fp
@@ -1453,13 +1459,16 @@ class Watcher:
             # is worse than a stale card. We failed to read the screen, so the honest
             # card is the last one we actually read: keep it whole and retry next tick.
             # Identity, timers and the snapshot id are re-stamped below from live tmux.
+            # Links are the exception: a parse fails when its question or rewind is
+            # rejected, yet the URLs it read off the screen still stand, and a login
+            # link printed in that turn would otherwise never reach the card.
             replacement_tool = state.get("identity_tool")
             previous_tool = previous.get("identity_tool", previous.get("tool"))
             known_replacement = (
                 replacement_tool not in (None, "unknown")
                 and replacement_tool != previous_tool
             )
-            state = dict(previous)
+            state = {**previous, "links": state.get("links") or previous.get("links")}
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)

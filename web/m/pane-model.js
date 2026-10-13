@@ -40,10 +40,14 @@ export function markWorking(img, pane, logos) {
   if (!badge) img.after(badge = Object.assign(document.createElement("img"), { className: "model-badge" }));
   if (badge.getAttribute("src") !== provider[1]) Object.assign(badge, { src: provider[1], alt: provider[0] });
 }
+// The time a row's age label counts from.
+export const shownAt = (p) => Number(p.state_since) || lastActivity(p);
+// List order matches the ages shown: "now" rows first, then the youngest age.
+export const newestFirst = (a, b) => isRunning(b) - isRunning(a) || shownAt(b) - shownAt(a);
 // How long the pane has been in its current state; a row shows "now" while it works.
 // No timestamp at all reads as no age, not as time since the epoch.
 export const since = (p, nowMs = Date.now()) => {
-  const t = Number(p.state_since) || lastActivity(p);
+  const t = shownAt(p);
   if (!(t > 0)) return "";
   const s = Math.max(0, nowMs / 1000 - t);
   return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
@@ -103,7 +107,7 @@ export const LAUNCH_GRACE_MS = 30000;
 export const awaitingLaunch = (launched, id, nowMs = Date.now()) =>
   !!id && launched?.id === id && nowMs - launched.at < LAUNCH_GRACE_MS;
 
-// Sort key for "Sort by updated": the parser's timestamp when it has one, else the moment
+// shownAt's fallback without state_since: the parser's timestamp when it has one, else the moment
 // the pane's state last changed, never later than when an idle pane went idle.
 export function lastActivity(pane) {
   if (Number.isFinite(pane.last_activity_at)) return pane.last_activity_at;
@@ -123,6 +127,8 @@ export function lastActivity(pane) {
 export function paneName(pane) {
   return pane.title || pane.label || pane.window_name || pane.pane_id;
 }
+// The list rows a question names by number ("do 1 now?"), one per line, so it reads alone.
+export const questionItems = (question) => Array.isArray(question?.items) ? question.items.join("\n") : "";
 // The line a list shows under the name: the question it is stuck on, else what it is doing.
 // A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare
 // "Do you want to proceed?" says nothing on a card.
@@ -150,7 +156,7 @@ export function matchesSearch(pane, query) {
         `${repo} ${pr.number}`, `${repo} PR ${pr.number}`, `${repo} PR #${pr.number}`])];
   });
   const text = [pane.session, pane.title, pane.label, pane.window_name, pane.pane_id, pane.tool, pane.model,
-    pane.question?.prompt, pane.question?.ask, pane.question?.context, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
+    pane.question?.prompt, pane.question?.ask, pane.question?.context, questionItems(pane.question), pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
     pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : "", ...refs]
     .filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "); // context keeps its rows and runs of spaces
   return text.includes(String(query).trim().toLowerCase().replace(/\s+/g, " "));
