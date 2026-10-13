@@ -773,9 +773,11 @@ class Watcher:
             if history_server is None or current == history_server:
                 # An unread screen is recorded as unknown, not as its last card: one pane
                 # whose parse keeps failing must not stop the whole fleet's history, which
-                # froze it for days when an idle pane's screen never changed again.
-                self.history.record([{**s, "activity": "unknown"} if s.get("pane_id") in unread
-                                     else s for s in self.states], current, births=self._birth)
+                # froze it for days when an idle pane's screen never changed again. Its
+                # workers are the old card's too, so none of them count as observed.
+                self.history.record([{**s, "activity": "unknown", "subagents": [], "agents": 0}
+                                     if s.get("pane_id") in unread else s
+                                     for s in self.states], current, births=self._birth)
             else:
                 self._collection_failed = True
 

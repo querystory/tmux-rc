@@ -336,12 +336,16 @@ def test_unread_screen_records_unknown_without_stopping_history(inventory, monke
     monkeypatch.setattr(W, "backing_off", lambda: False)
     monkeypatch.setattr(W, "classify", lambda pane, *args, **kwargs: {
         "pane_id": pane.id, "activity": "idle", "tool": "claude", "parse_ok": False,
+        "subagents": [{"name": "w", "state": "running"}], "agents": 2,
     })
     for _ in range(W.PARSE_RETRIES + 2):
         w._tick()
     # The heartbeat keeps going, with the unread pane as unknown rather than its last card.
     assert w.history.record.call_count == W.PARSE_RETRIES + 2
-    assert w.history.record.call_args.args[0][0]["activity"] == "unknown"
+    recorded = w.history.record.call_args.args[0][0]
+    assert recorded["activity"] == "unknown"
+    assert (recorded["subagents"], recorded["agents"]) == ([], 0)  # the old card's workers
+    assert w.states[0]["subagents"]  # the phone still shows the last card
     assert not w.pane_parse_valid("%0")
     assert w.is_stale()
     frame[0] = "successfully read screen"
