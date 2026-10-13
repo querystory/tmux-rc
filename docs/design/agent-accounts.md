@@ -61,8 +61,9 @@ the wide layout had no menu before.
   end. Every place that names an account draws this one chip, so the same account never
   looks two ways on one screen; a long name truncates inside it.
 - **Session cards** on the dashboard carry the chip of the session's own default (the
-  dir its tmux environment sets), and nothing when it sets none: a session that starts
-  new windows on another account is worth seeing at a glance, the standard dir is not.
+  dir its tmux environment sets), and nothing when it sets none or sets what the global
+  environment already does: a session that starts new windows on an account other
+  sessions do not is worth seeing at a glance; a default every session shares is not.
 - **Usage strip:** with several accounts the meters become one row that swipes sideways
   and snaps per meter, most urgent first (full soonest, then the highest pace at the
   reset). Two meters fit on a phone with a third of the next peeking in under a fade, so

@@ -298,8 +298,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     loops: (report) => !active() || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
       [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
-    // A session's own default (its tmux environment sets it), per provider with several.
-    sessionBadge: (session) => Object.keys(ENV).filter((pr) => several(pr) && set(session, pr)).map((pr) => defaultOf(session, pr)).filter(Boolean).map((p) => badge(p)).join(""),
+    // A session's own default, per provider with several: where its dir differs from the
+    // global environment's (under "", which the server folds into every session).
+    sessionBadge: (session) => Object.keys(ENV).filter((pr) => several(pr) && set(session, pr) && defaults[session][pr] !== defaults[""]?.[pr]).map((pr) => defaultOf(session, pr)).filter(Boolean).map((p) => badge(p)).join(""),
     // The consent card: which account a chat action lands on.
     consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)} ${esc(p.tilde)}. Sending never changes a pane's account.</small>` : ""; },
     // For the fast-follow "Move pane to another account": the profile by config dir.
