@@ -909,7 +909,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #pane-location .acct-badge { vertical-align: 1px; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
 .acct-pill { display: flex; flex: none; align-items: center; gap: 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
-.acct-pill .acct-badge { font-size: 12px; padding: 1px 2px 1px 8px; }
+.acct-pill .acct-badge { flex-shrink: 1; min-width: 0; font-size: 12px; padding: 1px 2px 1px 8px; }
 .acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
 #more-menu.filtered > summary { position: relative; }
 #more-menu.filtered > summary::before { content: ""; position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--a); box-shadow: 0 0 0 2px var(--bg); }
