@@ -70,9 +70,8 @@ request:
 
 Each row reports the config dirs it was read from, and the UI names it after the account
 those dirs belong to. A meter shows just its provider's icon while there is one account
-per provider; with several, each meter label carries the account's name, and the strip
-becomes one swipeable row ordered by urgency (see [agent accounts](agent-accounts.md)).
-The name follows the window, so a narrow cell truncates the name rather than the window.
+per provider; with several, each meter carries the account's chip in its corner, and the
+strip becomes one swipeable row ordered by urgency (see [agent accounts](agent-accounts.md)).
 
 ## Sources, and why each
 

@@ -751,14 +751,18 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
-.usage-cell :is(span, em, small), .usage-cell.none { color: var(--muted); }
+.usage-cell > span, .usage-cell :is(em, small), .usage-cell.none { color: var(--muted); } /* not the chip */
 .usage-cell em { font-style: normal; font-size: 11px; }
 @container (max-width: 130px) { .usage-cell em { display: none; } } /* the sidebar's narrowest cells keep the window and %, not the word */
 .usage-cell > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* account names are user-chosen: truncate, never push the % out */
 .usage-cell img { vertical-align: -2px; margin-right: 5px; border-radius: 3px; }
 .usage-cell b { font-variant-numeric: tabular-nums; margin-left: 2px; }
 .usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast stacks over the reset, which always shows */
-.usage-cell small { grid-column: 1 / -1; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage-cell small { display: block; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The notes on the left, the account's chip (several only) in the corner across from them. */
+.usage-foot { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
+.usage-foot > div { flex: 1; min-width: 0; }
+.usage-foot .acct-badge { margin-bottom: 1px; }
 .usage-bar, .usage-spark { grid-column: 1 / -1; }
 .usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
@@ -916,12 +920,16 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #acct-filter .acct-opt[aria-pressed="true"] svg { visibility: visible; }
 #sb-head #more-menu { margin-left: auto; }
 #app.rail :is(#sb-head #more-menu, .acct-pill) { display: none; }
-/* The strip: one row, swiped sideways, snapping per meter, two to a phone's width. */
+/* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third
+   of the next peeks in under the fade, so the row reads as one that scrolls: two on a phone,
+   one in a narrow sidebar, three where there is room. */
 :is(#usage, #usage-board).acct-strip:not([hidden]) { display: flex; }
-.acct-strip { gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; }
+.acct-strip { container: strip / inline-size; gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; }
 #usage-board.acct-strip { scroll-padding-inline: 0; }
 .acct-strip::-webkit-scrollbar { display: none; }
-.acct-strip > .usage-cell { flex: 0 0 calc(50% - 8px); scroll-snap-align: start; }
+.acct-strip > .usage-cell { --n: 1; flex: 0 0 calc((100% - var(--n) * 16px) / (var(--n) + .3)); scroll-snap-align: start; }
+@container strip (min-width: 320px) { .acct-strip > .usage-cell { --n: 2; } }
+@container strip (min-width: 480px) { .acct-strip > .usage-cell { --n: 3; } }
 .acct-strip.more-r { mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
 .acct-strip.more-l { mask-image: linear-gradient(90deg, transparent, #000 36px); }
 .acct-strip.more-l.more-r { mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); }

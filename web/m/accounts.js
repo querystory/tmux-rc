@@ -75,7 +75,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     // A row's dirs can be several profiles of one login: the filtered one, if it is among them.
     return list.map((a) => { const mine = (a.dirs || []).map(byDir).filter((p) => p?.signed_in); return { ...a, acct: mine.includes(on) ? on : mine[0] }; })
       .filter((a) => a.acct && (!on || a.acct === on))
-      .map((a) => ({ ...a, label: several(a.provider) ? a.acct.name : null }));
+      .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null });
   }
   // Already full first, then full soonest, then the highest pace at the reset; unreadable last.
   const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
@@ -91,15 +91,16 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     el.onscroll = edge; edge();
   }
   // The wide dashboard: one row of capped meters, each account's group labelled, details in
-  // its tooltip; it wraps only when they don't fit.
+  // its tooltip; it wraps only when they don't fit. The label names the account once over
+  // its meters, so they drop the chip.
   function groups(el, list, render) {
-    el.className = "usage-groups";
+    el.className = "usage-groups"; el.hidden = !list.length; // a board drawn before the accounts came may have hidden it
     const markup = list.map((a, i) => {
       const p = a.acct, tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
       return `<div class="ug" data-i="${i}"><div class="ug-label" title="${esc(tip)}">${several(p.provider) ? dot(p) : ""}<b>${esc(p.name)}</b></div><div class="ug-cells"></div></div>`;
     }).join("");
     if (el._groups !== markup) { el.innerHTML = markup; el._groups = markup; }
-    el.querySelectorAll(".ug").forEach((g) => render(g.lastChild, [{ ...list[g.dataset.i], label: null }]));
+    el.querySelectorAll(".ug").forEach((g) => render(g.lastChild, [{ ...list[g.dataset.i], label: null, chip: null }]));
   }
 
   // ---- New window: an account per provider with several, preset to the session's default ----
