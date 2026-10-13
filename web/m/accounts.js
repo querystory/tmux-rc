@@ -29,9 +29,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   };
 
   async function refresh() {
-    try { ({ profiles, sessions: defaults, shared } = await request("/api/accounts")); } catch { return; }
+    try { ({ profiles, sessions: defaults, shared } = await request("/api/accounts")); } catch { return false; }
     paintMenu(); repaint();
     if (dlg.open && F.step === "list" && !F.renaming) render();
+    return true;
   }
   function setFilter(dir) {
     filter = dir || null;

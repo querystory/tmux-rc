@@ -1363,6 +1363,7 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
 
 
 _MOVES = threading.Lock()
+MOVE_START_S = 5.0  # how long a move holds _MOVES for its agent to show as running
 
 
 @app.post("/api/panes/{pane_id}/move")
@@ -1418,6 +1419,10 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
             _audit(request, "move_session", pane_id, detail, outcome="error: copied, no window")
             raise HTTPException(500, "the session was copied, but its window could not be "
                                      "opened") from e
+        # A window is not yet an agent: hold the next move until this one shows as running.
+        deadline = time.monotonic() + MOVE_START_S
+        while time.monotonic() < deadline and not accounts.running(s, target):
+            time.sleep(0.05)
     _audit(request, "move_session", new, f"from={pane.id} {detail}")
     return {**_opened(new), "copied": copied}
 

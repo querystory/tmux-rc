@@ -164,7 +164,8 @@ this session), a process holding one of its files open (Codex's
 app-server keeps the rollout open), or, in the moment before either exists, the session
 id on a command line, as a move's resume has: replacing
 files under a live agent strands its later writes, and resuming it twice puts two agents
-on one transcript. Moves run one at a time, through the new window's launch, so two
+on one transcript. Moves run one at a time, through the new window's launch until its agent shows as
+running, so two
 requests cannot pass these checks together, and the sheet takes one tap at a time. A copy
 that fails partway is removed. Nothing is written or deleted through a folder
 in the target that links out of it, a session whose own files include a link is refused, and the agent's command is checked to exist before

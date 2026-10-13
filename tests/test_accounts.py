@@ -313,6 +313,7 @@ def moving(client, home, monkeypatch):
             raise S.HTTPException(409, "the pane runs another session now")
         return pane, session, ([], [])
     monkeypatch.setattr(S, "_pane_session", identify)
+    monkeypatch.setattr(S, "MOVE_START_S", 0)  # no agent starts here: don't wait for one
     return lambda account, **flags: client.post(
         "/api/panes/%9/move",
         json={"birth": "1", "session_id": SID, "dir": str(home / account), **flags})

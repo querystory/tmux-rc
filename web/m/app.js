@@ -1623,7 +1623,8 @@ $("move-pane").onclick = async () => {
   closePaneMenu();
   const pane = panes.find((p) => p.pane_id === active);
   if (!pane) return;
-  await accounts.refresh(); // which account each pane runs on, fresh: a stale list offers the pane its own
+  // Which account each pane runs on, fresh: a stale list offers the pane its own.
+  if (!await accounts.refresh()) return notice("Could not load the accounts.", 6000);
   // The session it runs now, which every request below is bound to (Expunge's preview names it).
   let session_id;
   try { ({ session_id } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
