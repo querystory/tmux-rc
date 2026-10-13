@@ -22,7 +22,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const ofPane = (id) => { const p = profiles.find((a) => a.panes.includes(id)); return p && several(p.provider) ? p : null; };
   const active = () => { const p = any() && byDir(filter); return p?.signed_in ? p : null; };
   const dot = (p) => `<i class="acct-dot" style="--a:var(--acct-${p.color})"></i>`;
-  const badge = (p, inner = esc(p.name)) => `<span class="acct-badge" style="--a:var(--acct-${p.color})" title="${esc(`${p.name}: ${p.tilde}`)}">${dot(p)}${inner}</span>`;
+  const badge = (p, inner = `<span>${esc(p.name)}</span>`) => `<span class="acct-badge" style="--a:var(--acct-${p.color})" title="${esc(`${p.name}: ${p.tilde}`)}">${dot(p)}${inner}</span>`;
   // The account a new window in this session starts on: the dir its tmux environment sets,
   // else (nothing sets it) the provider's standard dir; null if that is no signed-in account.
   const defaultOf = (session, provider) => {
@@ -75,7 +75,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     // A row's dirs can be several profiles of one login: the filtered one, if it is among them.
     return list.map((a) => { const mine = (a.dirs || []).map(byDir).filter((p) => p?.signed_in); return { ...a, acct: mine.includes(on) ? on : mine[0] }; })
       .filter((a) => a.acct && (!on || a.acct === on))
-      .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct, `<span>${esc(a.acct.name)}</span>`) } : { ...a, label: null });
+      .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null });
   }
   // Already full first, then full soonest, then the highest pace at the reset; unreadable last.
   const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
@@ -97,7 +97,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     el.className = "usage-groups"; el.hidden = !list.length; // a board drawn before the accounts came may have hidden it
     const markup = list.map((a, i) => {
       const p = a.acct, tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
-      return `<div class="ug" data-i="${i}"><div class="ug-label" title="${esc(tip)}">${several(p.provider) ? dot(p) : ""}<b>${esc(p.name)}</b></div><div class="ug-cells"></div></div>`;
+      return `<div class="ug" data-i="${i}"><div class="ug-label" title="${esc(tip)}">${several(p.provider) ? badge(p) : `<b>${esc(p.name)}</b>`}</div><div class="ug-cells"></div></div>`;
     }).join("");
     if (el._groups !== markup) { el.innerHTML = markup; el._groups = markup; }
     el.querySelectorAll(".ug").forEach((g) => render(g.lastChild, [{ ...list[g.dataset.i], label: null, chip: null }]));
@@ -295,6 +295,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     loops: (report) => !active() || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
       [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
+    // A session's own default (its tmux environment sets it), per provider with several.
+    sessionBadge: (session) => Object.keys(ENV).filter((pr) => several(pr) && set(session, pr)).map((pr) => defaultOf(session, pr)).filter(Boolean).map((p) => badge(p)).join(""),
     // The consent card: which account a chat action lands on.
     consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)} ${esc(p.tilde)}. Sending never changes a pane's account.</small>` : ""; },
     // For the fast-follow "Move pane to another account": the profile by config dir.

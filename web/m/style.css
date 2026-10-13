@@ -763,7 +763,6 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .usage-foot { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
 .usage-foot > div { flex: 1; min-width: 0; }
 .usage-foot .acct-badge { flex-shrink: 1; min-width: 0; max-width: 60%; margin-bottom: 1px; } /* a long name truncates, the reset keeps the rest */
-.usage-foot .acct-badge span { overflow: hidden; text-overflow: ellipsis; }
 .usage-bar, .usage-spark { grid-column: 1 / -1; }
 .usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
@@ -904,6 +903,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .acct-dot.none { background: none; border: 1px solid var(--muted); }
 .acct-badge { --a: var(--muted); display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 0 6px 0 5px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.45; white-space: nowrap; color: var(--a); border: 1px solid color-mix(in srgb, var(--a) 45%, transparent); background: color-mix(in srgb, var(--a) 10%, transparent); }
 .acct-badge .acct-dot { width: 6px; height: 6px; }
+.acct-badge > span { overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: where the chip may shrink, they truncate */
 .row-acct:empty, .sb-acct:empty { display: none; }
 .sb-acct .acct-badge { margin-left: 4px; font-size: 10.5px; vertical-align: 1px; }
 #pane-location .acct-badge { vertical-align: 1px; }

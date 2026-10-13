@@ -65,7 +65,7 @@ const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NA
 // back to its window's start.
 export function renderUsage(el, accounts, { wide = false, detail = false, now = Date.now() } = {}) {
   el.hidden = !accounts.length;
-  const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, [a.label, a.error].filter(Boolean).join(': '))}</div>`
+  const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, a.error)}${a.chip || ''}</div>`
     : a.windows.map(w => cell(w, a, wide, detail, now)).join('')).join(''); // a plan without a window shows none
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
 }
