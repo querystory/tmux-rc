@@ -25,6 +25,41 @@ The daemon is in the right place to fix both. It watches every pane, knows each 
 tool and when it last changed, can learn through agent-history which conversation a pane
 holds, and keeps running when tmux does not.
 
+### A second loss, restored by hand
+
+On 2026-10-13 the machine rebooted with one small session of five panes: three Claude
+Code agents and two shells. An agent restored it by hand, from what the daemon had left
+in `history.sqlite3`. It worked, narrowly, and each step that nearly didn't is now a
+requirement below.
+
+- **The data survived by luck of timing.** The daemon came back with the machine, but it
+  prunes checkpoints only on its first sight of a tmux server. While no tmux ran, the
+  dead server's rows sat intact for three hours; the moment a server started, they were
+  gone. A terminal profile or login script that starts tmux would have erased them
+  before anyone looked. Hence retention by consent, not by sight (*Retention*).
+- **The activity clock lied about staleness.** Two agents' checkpoints said "active
+  yesterday"; their transcripts had been idle for four days. Screen churn, not work,
+  moved the clock. Hence staleness from the transcript (*Defaults*).
+- **The death time was four days early.** The inventory's last-seen stamp had stopped
+  advancing days before the reboot, while the daemon ran without a break: one pane's
+  parse failed during a network blip, and every tick after that skipped history until
+  the pane's screen next changed, which an idle agent's never did. Panes opened after
+  that were never recorded at all. Hence a last-seen stamp that does not depend on
+  parsing (*The new record*).
+- **Matching panes to conversations after the fact was guesswork.** Pane titles are not
+  in transcripts, and agent-history's search by title returned unrelated sessions. What
+  worked was directory plus each transcript's last write; what confirmed it was the
+  saved card's cost matching the resumed session's to the cent. One pane had no card at
+  all and was placed only because its transcript was last written at shutdown, alongside
+  the other two. Hence binding while live, and those two signals (*Binding*, *The
+  Restore card*).
+- **Consent has to hold for agents too.** The user asked an agent to "try" a restore; it
+  started the tmux server and three agents without confirming. That is the unattended
+  restore this design forbids, reached through a loose request (*Safety*).
+
+What went smoothly validates the mechanics: a server started in its own systemd scope,
+as step zero does, and each resume typed into a shell, which survives the agent exiting.
+
 ## Goals and non-goals
 
 Goals:
@@ -63,8 +98,10 @@ Non-goals:
   hold each pane's activity clocks and last card. They are the right *signal* for
   staleness but the wrong *store*: they are pruned once their tmux server is provably
   gone, and after a reboot the first tick that sees any new server does exactly that,
-  including the server the empty-state button just started. An offer built on them would
-  vanish the moment the user opened a fresh shell.
+  including the server the empty-state button just started, or one a login script started
+  before anyone looked. An offer built on them would vanish the moment the user opened a
+  fresh shell. Until the snapshot below exists, they are kept for 30 days instead of
+  pruned on sight, so a manual restore has something to read.
 
 Everything else is already read on every tick: `list-panes` returns session, window index
 and name, pane index, current path, current command, title and pid. Missing are a few more format fields (the window's
@@ -117,7 +154,10 @@ registry) closes both.
 The payload is rewritten only when it changes. Its **last-seen** stamp is refreshed every
 minute regardless, the cadence the inventory heartbeat already keeps, because it is the
 proxy for when the server died: an unchanged server can run for days, and staleness must
-be measured from its end, not from its last layout change. Fifty panes are a few tens of
+be measured from its end, not from its last layout change. That refresh must not ride on
+the inventory write: the inventory skips any tick with a pane whose screen went unread,
+and one such pane froze its stamp for days (above). The snapshot refreshes last-seen on
+every successful `list-panes`, whatever the classifier made of the screens. Fifty panes are a few tens of
 kilobytes; the cost is one small update a minute.
 
 **Retention.** When a server dies its row stays as the restore candidate, stamped with
@@ -148,6 +188,8 @@ app-server have no pane (agent-history's README explains why); for them the watc
 back to the status-bar `session-id` match Live Mode already uses ([agent-setup](../agent-setup.md)).
 A Codex pane with neither stays *unbound*: restore still knows it was Codex in that
 directory and offers a picker of that directory's recent threads instead of guessing.
+The picker ranks first the threads whose transcript was last written within a minute of
+the server's death: a harness flushes on shutdown, so those were almost certainly live.
 
 A binding is dropped when the agent exits and the pane returns to a shell. An agent the
 user closed is finished by definition.
@@ -204,7 +246,10 @@ wherever its target was restored (below).
 agent was working, waiting on the user, or active in the last 24 hours; unchecked when
 idle longer, or a shell with nothing running. Staleness is measured **from when the
 server died, not from now**: a machine powered off all weekend should still treat Friday
-afternoon's work as recent.
+afternoon's work as recent. For an agent pane, "active" means the transcript's last
+message, from agent-history, not the checkpoint's activity clock: the clock moves with
+anything on screen, and in the field it showed four-day-idle agents as active yesterday.
+The clock remains the measure for shells and for agents with no binding.
 
 Panes that cannot be restored are shown disabled, with the reason: the directory is gone;
 the transcript is gone (agent-history's `source_missing`); or the session is already
@@ -212,6 +257,10 @@ running, say because the user resumed it by hand, using the same running check a
 resume; or whether it is running cannot be established (agent-history's
 `running_unknown`). Live Mode's resume refuses that last case rather than risk two processes
 writing one transcript, so the card must not offer a restore the executor would reject.
+
+Each agent pane also shows the cost and context the saved card last displayed. A resumed
+harness reports the same figures, so a mismatch after restore is a cheap check that the
+binding pointed at the wrong conversation, worth a warning on the pane.
 
 **Restore selected** states the count ("Restore 11 agents in 4 sessions"). **Start
 fresh** marks the snapshot consumed and, when no tmux server is running, hands off to the
@@ -353,7 +402,11 @@ waits for input rather than continuing its last turn, but harnesses can be confi
 approve on their own (auto mode, bypass settings), and a person may start a restore and
 walk away. So restore is an explicit, confirmed action whose button states the count, and
 the daemon never restores anything on its own, not even "just the layout": a daemon that
-rebuilds unprompted will one day rebuild the wrong thing.
+rebuilds unprompted will one day rebuild the wrong thing. The same holds for an agent
+asked to "restore my workspace": it opens the Restore card, or lists what it would start
+and waits, rather than starting a server and resuming sessions on a loose request. In
+the field one did exactly that, and the prune it triggered destroyed the evidence it
+had just read.
 
 **No command line or environment is persisted.** The snapshot stores directories, titles,
 tool names and session ids: never a pane's command line, `/proc` cmdline or environment,
@@ -464,6 +517,8 @@ Acceptance:
   unbound Codex pane records tool and directory with no id.
 - An unchanged fleet rewrites no payload, only the minute last-seen stamp; resizing a
   pane rewrites it once.
+- A pane whose parse keeps failing does not stop the last-seen stamp, and a pane opened
+  meanwhile still enters the snapshot.
 - After the test server is stopped by its own socket, the endpoint returns its snapshot as
   a candidate, even after a second test server has written a newer row; a daemon restart
   with the server alive returns none.
