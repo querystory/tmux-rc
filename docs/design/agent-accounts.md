@@ -66,7 +66,8 @@ the wide layout had no menu before.
 - **Filter** in ☰ (All, then each account), because it is a mode you set and forget, not a
   control every screen needs. While on, a "Filtered: Work ✕" pill shows under the header
   (in the sidebar on wide) and ☰ carries a dot. It applies to the list, the strip and the
-  dashboard.
+  dashboard, Open loops included: a loop shows only if a pane on the account holds it, so a
+  PR or worktree with no pane, which no account owns, is hidden while filtered.
 - **Consent card:** a chat action on a pane names the account the pane runs on, and says
   that sending never changes it.
 

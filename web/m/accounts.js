@@ -6,6 +6,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0
 const KEY = "tmuxrc-account", ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
+// A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
+const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
 const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
 export function setupAccounts({ request, post, licon, notice, repaint, sessions, paneAlive, openPane }) {
@@ -161,7 +163,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const btns = (...b) => `<div class="acct-btns">${b.join("")}</div>`;
   const who = (p) => [esc(p.signed_in ? p.who || "signed in" : "not signed in"), esc(p.plan), `<code>${esc(p.tilde)}</code>`, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
   function render() {
-    const s = F.step, owner = s === "name" && profiles.find((p) => p.dir === F.dir || p.tilde === F.dir);
+    const s = F.step, owner = s === "name" && profiles.find((p) => [p.dir, p.tilde].includes(norm(F.dir)));
     if (s === "list") dlg.innerHTML = head("Accounts") + profiles.map((p) => F.renaming === p.dir
       ? `<div class="acct-row">${dot(p)}<input id="acct-rename" value="${esc(p.label || p.name)}" aria-label="Account name"><button class="primary" data-rename-save>Save</button><button data-goto="list">Cancel</button></div>`
       : F.removing === p.dir
@@ -281,9 +283,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   $("accounts-open").onclick = () => { $("more-menu").open = false; open("list"); };
   pill.hidden = true;
 
+  function matches(pane) { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; }
   return {
     refresh, usage, byUrgency, strip, groups, picker, pill, any,
-    matches: (pane) => { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; },
+    matches,
+    // Open loops under a filter: only what a pane on the account holds (a PR's or worktree's
+    // with no pane belongs to no account, so it is hidden with the rest).
+    loops: (report) => !active() || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
+      [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
     // The consent card: which account a chat action lands on.
     consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)} ${esc(p.tilde)}. Sending never changes a pane's account.</small>` : ""; },
