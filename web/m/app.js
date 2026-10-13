@@ -1639,6 +1639,8 @@ $("move-pane").onclick = async () => {
     }));
   };
   const go = (id) => { $("move-dialog").close(); openLaunched(id); };
+  // No status means no answer at all: the server may have done it, so never just "could not".
+  const failed = (what, maybe, error) => notice(error.status === undefined ? `Connection lost; ${maybe}` : `Could not ${what}: ${error.detail || error.message}`, 6000);
   const move = async (p, flags = {}) => {
     try {
       const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, ...flags }, NO_TIMEOUT);
@@ -1646,7 +1648,7 @@ $("move-pane").onclick = async () => {
         ["Go to the new window", "", () => go(r.pane_id)],
         ["Exit the old pane", "Types /exit here, then goes to the new window", async () => {
           try { await post(paneUrl(pane.pane_id, "exit"), { birth: pane.birth, session_id: r.session_id }); }
-          catch (error) { notice(`Could not exit the old pane: ${error.detail || error.message}`, 6000); }
+          catch (error) { failed("exit the old pane", "the old pane may have exited.", error); }
           go(r.pane_id);
         }]]);
     } catch (error) {
@@ -1654,7 +1656,7 @@ $("move-pane").onclick = async () => {
         ["Replace it", "Copies this session over that one's files, then resumes it", () => move(p, { replace: true })],
         ["Resume that copy", "Opens it as it is", () => move(p, { resume_existing: true })]]);
       $("move-dialog").close();
-      notice(`Could not move the session: ${error.detail || error.message}`, 6000);
+      failed("move the session", "the move may have completed. Look for its new window before trying again.", error);
     }
   };
   sheet(`Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
