@@ -20,7 +20,7 @@
 <a class="skip" href="#content">Skip to content</a>
 <header class="nav wrap">
   <a class="brand" href="{{ .Site.Home.RelPermalink }}" aria-label="tmux-rc home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 6 6 6-6 6m9 0h5"/></svg>tmux-rc</a>
-  <nav aria-label="Main navigation"><a href="{{ "documentation/" | relURL }}">Docs</a><a href="https://github.com/querystory/tmux-rc">GitHub <span aria-hidden="true">↗</span></a><a class="nav-start" href="#get-started">Get started</a><button class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode" aria-pressed="false"><svg class="theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.463.402.807a6.25 6.25 0 0 0 8.268 8.268c.344-.215.829-.004.803.397"/></svg><svg class="theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg></button></nav>
+  <nav aria-label="Main navigation"><a href="{{ "documentation/" | relURL }}">Docs</a><a href="https://github.com/querystory/tmux-rc">GitHub <span aria-hidden="true">↗</span></a><a class="nav-start" href="#get-started">Get started</a><button class="theme-toggle" id="theme-toggle" aria-label="Dark mode" title="Switch to dark mode" aria-pressed="false"><svg class="theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.463.402.807a6.25 6.25 0 0 0 8.268 8.268c.344-.215.829-.004.803.397"/></svg><svg class="theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg></button></nav>
 </header>
 <main id="content">
   <section class="hero wrap">
@@ -51,7 +51,7 @@
         <div class="panel-heading"><h3>Give your devices a private route</h3><span class="badge">TAILSCALE</span></div>
         <p>Install and sign in to Tailscale on the host and your devices. Before exposing the daemon, review your tailnet ACLs: every permitted member can read pane data and control terminals. Then run on the host:</p>
         <div class="command"><pre><code id="tunnel-command">tailscale serve --bg http://127.0.0.1:18030</code></pre><button class="copy" data-copy="tunnel-command" aria-label="Copy Tailscale command">Copy</button></div>
-        <p class="panel-note">Open the HTTPS address printed by Tailscale. Keep the daemon on loopback. It has no built-in login; Serve access follows your tailnet ACLs, so restrict access to trusted operators, especially on shared tailnets.</p>
+        <p class="panel-note">Open the HTTPS address printed by Tailscale. Keep the daemon on loopback, on a machine only you use: loopback does not keep out other accounts on the same host. It has no built-in login; Serve access follows your tailnet ACLs, so restrict access to trusted operators, especially on shared tailnets.</p>
         <div class="panel-links"><a href="{{ "deploy/other-tunnels/" | relURL }}">Tailscale setup <span aria-hidden="true">→</span></a><a href="{{ "deploy/cloudflare-tunnel/" | relURL }}">Cloudflare Tunnel + Access <span aria-hidden="true">→</span></a></div>
       </div>
       <div id="client-setup" class="install-panel" role="tabpanel" aria-labelledby="client-tab" hidden>

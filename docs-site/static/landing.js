@@ -3,7 +3,7 @@ const themeToggle = document.getElementById('theme-toggle');
 function updateThemeControl() {
   const dark = document.documentElement.dataset.theme === 'dark';
   themeToggle.setAttribute('aria-pressed', String(dark));
-  themeToggle.title = themeToggle.ariaLabel = `Switch to ${dark ? 'light' : 'dark'} mode`;
+  themeToggle.title = `Switch to ${dark ? 'light' : 'dark'} mode`; // its name stays "Dark mode": aria-pressed says which
   document.querySelector('meta[name="theme-color"]').content = dark ? '#101312' : '#fafcfb';
 }
 themeToggle.addEventListener('click', () => {

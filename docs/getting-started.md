@@ -40,7 +40,8 @@ For configuration, service installation, and development from a checkout, see th
 
 ## Connect your phone
 
-The daemon binds to loopback and has no built-in login. Put an authenticating front end
+The daemon binds to loopback and has no built-in login, so run it only on a machine you
+alone use: every other account on the host can reach a loopback port. Put an authenticating front end
 in front of it before making it reachable remotely. Follow the [remote access guides](deploy/_index.md)
 for Tailscale, Cloudflare Tunnel with Access, and other options.
 
