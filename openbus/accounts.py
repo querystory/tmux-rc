@@ -17,6 +17,7 @@ from pathlib import Path
 
 from . import plan_usage, tmux
 from .plan_usage import ENV
+from .plan_usage import canonical as _canonical
 
 COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
 # What a new account may share with the provider's default dir, one symlink each, and
@@ -52,12 +53,6 @@ def _save(data: dict) -> None:
     tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, indent=1))
     tmp.replace(path)
-
-
-def _canonical(config: str) -> str:
-    """One spelling per dir: ~ expanded and "..", "." and doubled slashes folded, so an
-    alias can't list one login twice."""
-    return os.path.normpath(os.path.expanduser(config))
 
 
 def default_dir(provider: str) -> Path:
