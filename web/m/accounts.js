@@ -213,13 +213,16 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     if (e.target.id === "acct-dir") { F.dir = e.target.value.trim(); F.dirTouched = true; typed("acct-dir"); }
   });
   dlg.addEventListener("change", (e) => { if (e.target.id === "acct-session") F.session = e.target.value; });
-  dlg.addEventListener("close", () => { clearTimeout(poll); refresh(); });
+  // Closing stops the sign-in watch, unless the user left for the sign-in window (Go to window).
+  dlg.addEventListener("close", () => { if (!F.away) clearTimeout(poll); refresh(); });
   // Sign-in is detected, never driven: the dir's account info appearing, or its window gone.
   async function wait() {
     clearTimeout(poll);
-    if (!dlg.open || F.step !== "login" || !F.pane) return;
+    if (F.step !== "login" || !F.pane) return;
     await refresh();
-    if (byDir(F.dir)?.signed_in) return go("done");
+    // Signed in, even while away in the sign-in window: back to the sheet, at Done.
+    if (byDir(F.dir)?.signed_in) { F.away = false; go("done"); if (!dlg.open) dlg.showModal(); return; }
+    if (!dlg.open && !F.away) return;
     // Gone once seen, or never seen within a grace: the page's state can lag the new window.
     if (paneAlive(F.pane)) F.seen = true;
     else if (F.seen || Date.now() - F.openedAt > 15000) return go("abandoned");
@@ -256,7 +259,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
       if ("retry" in d) return go("login", { pane: null });
       if ("later" in d) return go("list");
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }
-      if ("go" in d) { dlg.close(); return openPane(F.pane); }
+      if ("go" in d) { F.away = true; dlg.close(); return openPane(F.pane); }
       if ("done" in d) {
         if (dlg.querySelector("#acct-make-default")?.checked) await post("/api/accounts/default", { session: F.session, dir: F.dir });
         dlg.close(); return notice(`${F.name} added.`, 4000);
