@@ -1624,6 +1624,10 @@ $("move-pane").onclick = async () => {
   const pane = panes.find((p) => p.pane_id === active);
   if (!pane) return;
   await accounts.refresh(); // which account each pane runs on, fresh: a stale list offers the pane its own
+  // The session it runs now, which every request below is bound to (Expunge's preview names it).
+  let session_id;
+  try { ({ session_id } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
+  catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
   const sheet = (what, choices) => {
     text($("move-what"), what);
     $("move-choices").replaceChildren(...choices.map(([label, sub, act]) => {
@@ -1646,11 +1650,11 @@ $("move-pane").onclick = async () => {
   const failed = (what, maybe, error) => notice(error.status === undefined ? `Connection lost; ${maybe}` : `Could not ${what}: ${error.detail || error.message}`, 6000);
   const move = async (p, flags = {}) => {
     try {
-      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, ...flags }, NO_TIMEOUT);
+      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, session_id, ...flags }, NO_TIMEOUT);
       sheet(`It is running on ${p.name} in a new window. This window still runs it on this account until it exits.`, [
         ["Go to the new window", "", () => go(r.pane_id)],
         ["Exit the old pane", "Types /exit here, then goes to the new window", async () => {
-          try { await post(paneUrl(pane.pane_id, "exit"), { birth: pane.birth, session_id: r.session_id }); }
+          try { await post(paneUrl(pane.pane_id, "exit"), { birth: pane.birth, session_id }); }
           catch (error) { failed("exit the old pane", "the old pane may have exited.", error); }
           go(r.pane_id);
         }]]);

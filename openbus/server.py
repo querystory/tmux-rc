@@ -220,9 +220,8 @@ class ExpungeBody(BaseModel):
     birth: str  # the pane incarnation the menu was drawn for (its `birth` in /api/state)
 
 
-class MoveBody(BaseModel):
+class MoveBody(ExpungeBody):  # bound to the pane incarnation and session, likewise
     dir: str  # the target profile's config dir
-    birth: str  # as in ExpungeBody
     replace: bool = False  # the account has an older copy of the session: copy over it
     resume_existing: bool = False  # ...or resume that copy as it is
 
@@ -1373,7 +1372,7 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
     See docs/design/agent-accounts.md."""
     detail = f"dir={body.dir[:120]!r}"
     try:
-        pane, s, _ = _pane_session(pane_id, body.birth)
+        pane, s, _ = _pane_session(pane_id, body.birth, body.session_id)
         cwd = os.readlink(f"/proc/{s.pid}/cwd")
     except HTTPException as e:
         _refuse(request, "move_session", detail, e.status_code, e.detail)
@@ -1417,7 +1416,7 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
             raise HTTPException(500, "the session was copied, but its window could not be "
                                      "opened") from e
     _audit(request, "move_session", new, f"from={pane.id} {detail}")
-    return {**_opened(new), "copied": copied, "session_id": s.session_id}
+    return {**_opened(new), "copied": copied}
 
 
 @app.post("/api/panes/{pane_id}/exit")

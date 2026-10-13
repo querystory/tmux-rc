@@ -308,9 +308,14 @@ def moving(client, home, monkeypatch):
     (src / f"session-env/{SID}").mkdir(parents=True)  # rebuilt on start: not copied
     session = expunge.Session("claude", SID, src, home / "agent-history", os.getpid(), "1")
     pane = T.Pane("work", "1", "w", "0", "%9", "claude", "t")
-    monkeypatch.setattr(S, "_pane_session", lambda *_: (pane, session, ([], [])))
+    def identify(_pane, _birth, expected):  # as Expunge's, bound to the session named
+        if expected != SID:
+            raise S.HTTPException(409, "the pane runs another session now")
+        return pane, session, ([], [])
+    monkeypatch.setattr(S, "_pane_session", identify)
     return lambda account, **flags: client.post(
-        "/api/panes/%9/move", json={"birth": "1", "dir": str(home / account), **flags})
+        "/api/panes/%9/move",
+        json={"birth": "1", "session_id": SID, "dir": str(home / account), **flags})
 
 
 def test_move_copies_the_session_and_resumes_it_on_the_other_account(client, home, moving):
@@ -329,6 +334,7 @@ def test_move_copies_the_session_and_resumes_it_on_the_other_account(client, hom
     assert moving(".claude-personal").status_code == 409  # already there: nothing overwritten
     for account in (".claude-old", ".codex2"):  # signed out, another provider's
         assert moving(account).status_code == 404
+    assert moving(".claude-personal", session_id="another").status_code == 409
     r = moving(".claude")  # its own account
     assert r.status_code == 409 and r.json()["detail"] == "the session is already on that account"
 
