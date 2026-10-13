@@ -127,6 +127,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
           // Always in view: the session's default, set with tmux set-environment on change.
           + (session ? `<label class="acct-default">Default for this session <select data-default-for="${provider}">`
             + `<option value="" ${set(session, provider) ? "" : "selected"}>Not set</option>`
+            // Set to a dir that is none of these: shown as it is, not as "Not set".
+            + (set(session, provider) && !def ? `<option selected disabled>${esc(defaults[session][provider])}</option>` : "")
             + mine.map((p) => `<option value="${esc(p.dir)}" ${set(session, provider) && p === def ? "selected" : ""}>${esc(p.name)}</option>`).join("") + "</select></label>" : "");
       }).join("");
       for (const b of choices.querySelectorAll("button[data-provider]")) {

@@ -113,13 +113,13 @@ def test_only_a_personal_plans_own_organisation_is_shortened(home):
 def test_a_panes_dir_in_another_spelling_is_one_account(home):
     alias = f"/{home}/.claude-personal/../.claude-personal"  # "//" leading too
     before = list(_by_dir(home))
-    assert [p["tilde"] for p in accounts.profiles([("claude", alias, None)])] == before
+    assert [p["tilde"] for p in accounts.profiles([("claude", alias)])] == before
 
 
 def test_a_live_pane_says_its_dirs_provider(home):
     (home / ".claude-work").mkdir()
     (home / ".claude-work" / "auth.json").touch()  # a Codex home named like a Claude one
-    listed = accounts.profiles([("codex", home / ".claude-work", None)])
+    listed = accounts.profiles([("codex", home / ".claude-work")])
     found = {p["tilde"]: p["provider"] for p in listed}
     assert found["~/.claude-work"] == "codex"
 
@@ -163,8 +163,9 @@ def test_a_command_is_pinned_to_its_account(home):
 def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, monkeypatch):
     envs = {"1": {"HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude-personal")},
             "2": {"HOME": str(home)},
-            "3": {"HOME": str(home.parent / "alice")}}  # another HOME's default dir
-    _signed_in(home.parent / "alice" / ".claude", "u-alice", displayName="Alice")
+            "3": {"HOME": str(home.parent / "alice")}}  # another HOME's default: not ours
+    alice = _signed_in(home.parent / "alice" / ".claude", "u-alice", displayName="Alice")
+    (alice / ".claude.json").write_text((alice.parent / ".claude.json").read_text())  # both
     monkeypatch.setattr(plan_usage, "pane_env", lambda pid, tool: envs[pid])
     shown = {None: {"CLAUDE_CONFIG_DIR": str(home / ".claude-personal")}, "work": {}}
     monkeypatch.setattr(T, "show_env", lambda session=None: shown.get(session, {}))
@@ -174,7 +175,7 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
     report = accounts.report(states, lambda pane_id: pane_id[1:])
     panes = {p["tilde"]: p["panes"] for p in report["profiles"]}
     assert panes == {"~/.claude": ["%2"], "~/.claude-personal": ["%1"], "~/.codex": [],
-                     "~/.codex2": [], str(home.parent / "alice" / ".claude"): ["%3"]}
+                     "~/.codex2": []}
     # The global environment applies where the session sets nothing.
     assert report["sessions"]["work"]["claude"] == str(home / ".claude-personal")
     assert report["sessions"][""]["claude"] == str(home / ".claude-personal")  # a new session
@@ -185,8 +186,8 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
     shown["work"] = {"CLAUDE_CONFIG_DIR": ""}  # how show_env reads "-CLAUDE_CONFIG_DIR"
     assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"]["work"] == {
         "claude": None, "codex": None}
-    for extra in (home / ".claude-personal", home / ".codex2", home.parent / "alice" / ".claude"):
-        accounts.edit(str(extra), forget=True)
+    for extra in (".claude-personal", ".codex2"):
+        accounts.edit(str(home / extra), forget=True)
     assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"] == {}
 
 

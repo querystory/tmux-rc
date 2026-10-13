@@ -20,6 +20,10 @@ Profiles are discovered, not configured: `~/.claude`, every `~/.claude-<name>`,
 `~/.codex*`, any dir a live pane uses, and any dir added through the UI. A dir is listed
 once someone is signed in there, or once it was added here (then it shows as "not signed
 in" until the sign-in finishes).
+A pane running on another HOME's default dir is not one of them: that is someone else's
+setup, whose name tmux-rc could not read (its `.claude.json` sits beside the dir, under that
+HOME) and which no launch could pin with the config variable alone, so it is left out
+rather than listed half-working.
 
 A profile is named by the user's label, else by the non-secret `oauthAccount` fields in
 the dir's `.claude.json`: the organisation name, with a personal plan's

@@ -64,14 +64,12 @@ def _tilde(path: str) -> str:
     return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
 
 
-def identity(provider: str, config: Path, env: dict | None = None) -> dict | None:
+def identity(provider: str, config: Path) -> dict | None:
     """Who is signed in to this dir, from non-secret files only; None when nobody is.
-    Codex keeps no such file, so only its login's presence is checked, never read. `env`:
-    a pane's own, so a default dir under another HOME is read as the default it is."""
+    Codex keeps no such file, so only its login's presence is checked, never read."""
     if provider == "codex":
         return {"who": "", "plan": ""} if (config / "auth.json").exists() else None
-    env = plan_usage.env_for("claude", config) if env is None else env
-    account = plan_usage.oauth_account(config, env)
+    account = plan_usage.oauth_account(config, plan_usage.env_for("claude", config))
     if not account.get("accountUuid"):
         return None
     # A personal plan's organisation is named for its owner's email: show just the email.
@@ -95,15 +93,14 @@ def _profiles(pane_dirs) -> list[dict]:
     store, home = _load(), Path.home()
     found = {str(d): t for t in ENV for d in [default_dir(t), *sorted(home.glob(MORE[t]))]
              if d.is_dir()}
-    envs = {}
-    for tool, config, env in pane_dirs:  # what runs there says the provider, not the dir's name
-        found[path := _canonical(str(config))], envs[path] = tool, env
+    for tool, config in pane_dirs:  # what runs there says the provider, not the dir's name
+        found[_canonical(str(config))] = tool
     for config, entry in store.items():  # an added dir's provider was chosen, not guessed
         if entry.get("provider") in ENV:
             found[config] = entry["provider"]
     used, dirty, out = {e.get("color") for e in store.values()}, False, []
     for config, provider in found.items():
-        entry, ident = store.get(config, {}), identity(provider, Path(config), envs.get(config))
+        entry, ident = store.get(config, {}), identity(provider, Path(config))
         if entry.get("hidden") or not (ident or config in store):
             continue
         if "color" not in entry:
@@ -172,11 +169,15 @@ def session_defaults(sessions) -> dict[str, dict[str, str | None]]:
 def report(states: list[dict], birth) -> dict:
     """GET /api/accounts: the profiles with the panes on each, and, once a provider has
     several (the only time the UI asks), each session's default account."""
-    panes = {pane_id: (tool, plan_usage.home(tool, env), env)
-             for tool, env, pane_id in plan_usage.pane_envs(states, birth)}
+    # A pane on another HOME's default dir is outside this user's accounts: it could be
+    # neither read (its .claude.json sits beside that dir) nor launched on as one.
+    mine = str(Path.home())
+    panes = {pane_id: (tool, plan_usage.home(tool, env))
+             for tool, env, pane_id in plan_usage.pane_envs(states, birth)
+             if env.get(ENV[tool]) or _canonical(env.get("HOME") or mine) == _canonical(mine)}
     listed = profiles(panes.values())
     by_dir = {p["dir"]: p for p in listed}
-    for pane_id, (_, config, _) in panes.items():
+    for pane_id, (_, config) in panes.items():
         if profile := by_dir.get(_canonical(str(config))):
             profile["panes"].append(pane_id)
     several = any(sum(p["provider"] == t and p["signed_in"] for p in listed) > 1 for t in ENV)
