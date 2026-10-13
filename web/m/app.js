@@ -1016,7 +1016,7 @@ async function pollState(signal) {
       // A pane opened, closed or started an agent: which account each runs on may have changed
       // (accounts.js). An agent restarted on another account changes nothing here, so at least
       // every 20s as well.
-      const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.tool}`).join();
+      const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
