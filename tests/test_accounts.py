@@ -390,9 +390,13 @@ def test_exit_types_the_agents_own_exit_into_that_pane_only(client, moving, monk
     def exit_():
         return client.post("/api/panes/%9/exit", json={"birth": "1", "session_id": SID})
     assert exit_().status_code == 200
-    assert sent == [(("%9", "/exit"), {"expected_pid": ""})]
-    def changed(*_a, **_k):
-        raise T.PaneChangedError("Pane changed")
+    (args, kw), = sent
+    assert args == ("%9", "/exit") and kw["expected_pid"] == ""
+    def gone(*_a):
+        raise S.HTTPException(409, "the agent exited")
+    def changed(*_a, **k):  # the agent exited while the send waited for the pane's lock
+        monkeypatch.setattr(S, "_pane_session", gone)
+        k["guard"]()
     monkeypatch.setattr(T, "send_keys", changed)
     assert exit_().status_code == 409
     assert "kill" not in str(client.calls)

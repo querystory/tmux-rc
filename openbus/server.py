@@ -1396,7 +1396,7 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         try:
             if not body.resume_existing:
                 copied = accounts.copy_session(s, target, replace=body.replace)
-            elif not accounts.resumable(s, target):
+            elif not accounts.resumable(accounts.files(s, target)):
                 _refuse(request, "move_session", detail, 409,
                         "that account has no transcript of it to resume")
         except FileExistsError as e:  # the sheet offers to replace or resume it
@@ -1425,8 +1425,10 @@ def exit_agent(pane_id: str, body: ExpungeBody, request: Request):
     Never a kill: the agent ends as if the user had typed it."""
     detail = f"session={body.session_id[:64]}"
     try:
+        def same():  # again under the pane's send lock: the agent may have exited while it waited
+            _pane_session(pane_id, body.birth, body.session_id)
         pane, _, _ = _pane_session(pane_id, body.birth, body.session_id)
-        tmux.send_keys(pane.id, "/exit", expected_pid=pane.pid)
+        tmux.send_keys(pane.id, "/exit", expected_pid=pane.pid, guard=same)
     except HTTPException as e:
         _refuse(request, "exit_agent", detail, e.status_code, e.detail)
     except tmux.PaneChangedError as e:
