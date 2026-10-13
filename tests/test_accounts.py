@@ -102,6 +102,20 @@ def test_a_removed_variable_reads_as_empty(monkeypatch):
     assert T.show_env("work") == {"CLAUDE_CONFIG_DIR": "", "PATH": "/bin"}
 
 
+def test_only_a_personal_plans_own_organisation_is_shortened(home):
+    _signed_in(home / ".claude-team", "u-team", organizationName="Jane's Organization",
+               emailAddress="dev@example.org")
+    names = {p["tilde"]: p["name"] for p in accounts.profiles()}
+    assert names["~/.claude-team"] == "Jane's Organization"
+    assert names["~/.claude-personal"] == "sam@example.net"
+
+
+def test_a_panes_dir_in_another_spelling_is_one_account(home):
+    alias = home / ".claude-personal" / ".." / ".claude-personal"
+    listed = [p["tilde"] for p in accounts.profiles([("claude", alias)])]
+    assert listed.count("~/.claude-personal") == 1
+
+
 def test_a_live_pane_says_its_dirs_provider(home):
     (home / ".claude-work").mkdir()
     (home / ".claude-work" / "auth.json").touch()  # a Codex home named like a Claude one

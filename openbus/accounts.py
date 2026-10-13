@@ -11,7 +11,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import re
 import subprocess
 import threading
 from pathlib import Path
@@ -79,9 +78,9 @@ def identity(provider: str, config: Path) -> dict | None:
     if not account.get("accountUuid"):
         return None
     # A personal plan's organisation is named for its owner's email: show just the email.
-    org = re.sub(r"'s Organi[sz]ation$", "", account.get("organizationName") or "")
+    email, org = account.get("emailAddress") or "", account.get("organizationName") or ""
+    org = email if email and org in (f"{email}'s Organization", f"{email}'s Organisation") else org
     plan = (account.get("organizationType") or "").removeprefix("claude_").replace("_", " ")
-    email = account.get("emailAddress") or ""
     return {"who": org or account.get("displayName") or email, "plan": plan.title(),
             # Tell apart two people of one organisation: the display name, else the email's
             # local part; the full email only if those clash too (see _distinguish).
@@ -100,7 +99,7 @@ def _profiles(pane_dirs) -> list[dict]:
     found = {str(d): t for t in ENV for d in [default_dir(t), *sorted(home.glob(MORE[t]))]
              if d.is_dir()}
     for tool, config in pane_dirs:  # what runs there says the provider, not the dir's name
-        found[str(config)] = tool
+        found[_canonical(str(config))] = tool
     for config, entry in store.items():  # an added dir's provider was chosen, not guessed
         if entry.get("provider") in ENV:
             found[config] = entry["provider"]
@@ -181,7 +180,7 @@ def report(states: list[dict], birth) -> dict:
     listed = profiles(panes.values())
     by_dir = {p["dir"]: p for p in listed}
     for pane_id, (_, config) in panes.items():
-        if profile := by_dir.get(str(config)):
+        if profile := by_dir.get(_canonical(str(config))):
             profile["panes"].append(pane_id)
     several = any(sum(p["provider"] == t and p["signed_in"] for p in listed) > 1 for t in ENV)
     sessions = sorted({s["session"] for s in states if s.get("session")})
