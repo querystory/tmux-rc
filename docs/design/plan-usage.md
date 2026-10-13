@@ -55,22 +55,23 @@ Claude Code picks its config dir from `CLAUDE_CONFIG_DIR` (else `~/.claude`), Co
 agent process under the pane and reads just those variables (plus `HOME`) from its
 `/proc/<pid>/environ`; every other variable is discarded unread. The agent process, not
 the pane's shell, because an inline `CLAUDE_CONFIG_DIR=… claude` sets it only there. The
-daemon user's own defaults are always included, so the strip works with no panes open.
+signed-in accounts tmux-rc lists ([agent accounts](agent-accounts.md)) are always included,
+so the strip works with no panes open; the daemon's own environment no longer adds one.
 
 Accounts are deduplicated before anything is fetched, so ten panes on one login cost one
 request:
 
 - **Claude** is keyed by `oauthAccount.accountUuid` from the config's `.claude.json`
-  (inside an overridden config dir, else `~/.claude.json`), and labelled by the email's
-  local part. Two config dirs logged into one account collapse to one row.
-- **Codex** is keyed by its home directory and labelled by the directory's name. Its
+  (inside an overridden config dir, else `~/.claude.json`). Two config dirs logged into
+  one account collapse to one row.
+- **Codex** is keyed by its home directory. Its
   account id lives only inside `auth.json`'s tokens, and keeping the Codex path entirely
   credential-free was worth more than merging the rare case of two homes on one login.
 
-A meter shows just its provider's icon while there is one account per provider; with
-several, each meter label and each pane's heading carries the short account name, so you
-can tell which limit a pane is drawing on. The name follows the window, so a narrow cell
-truncates the name rather than the window.
+Each row reports the config dirs it was read from, and the UI names it after the account
+those dirs belong to. A meter shows just its provider's icon while there is one account
+per provider; with several, each meter carries the account's chip in its corner, and the
+strip becomes one swipeable row ordered by urgency (see [agent accounts](agent-accounts.md)).
 
 ## Sources, and why each
 
@@ -94,8 +95,13 @@ a file. Nothing else on disk holds the numbers. So the daemon calls
 `GET https://api.anthropic.com/api/oauth/usage` (`anthropic-beta: oauth-2025-04-20`) with
 the account's access token from `.credentials.json`. This is undocumented and may change
 shape or disappear; the parser reads only `five_hour` / `seven_day` →
-`utilization` and `resets_at`, treats a null window as 0% (not yet opened), and any
-failure shows as "unavailable" rather than stale numbers. Per-model weekly limits come
+`utilization` and `resets_at`, and treats a null window as 0% (not yet opened). A failed
+read keeps showing the last reading, marked "as of 6m ago", while it is at most three polls
+(15 minutes) old: the endpoint drops the odd request, and a meter that blanks for five
+minutes over one dropped request is worse than one a few points behind. Past that the
+account reads "unavailable", since older numbers would mislead. A network error (no
+HTTP status) is retried once after 2s; an HTTP status is not, as a 401 or 429 will not
+change in that time. Per-model weekly limits come
 from the `limits` list: each `weekly_scoped` entry naming a model becomes "7d <model>",
 with its `percent` and `resets_at`. The response also has `seven_day_opus`-style keys,
 but they are null on current plans while `limits` carries the number Claude Code's own

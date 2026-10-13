@@ -9,32 +9,37 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
 
-def fetch_pr(repo: str, number: int, stopping: Event | None = None) -> dict | None:
+def run_gh(args: list[str], timeout: float, stopping: Event | None = None) -> str | None:
+    """gh's stdout whatever its exit status (a GraphQL reply with partial errors still
+    carries data); None when gh is missing, times out, or ``stopping`` is set."""
     try:
-        with subprocess.Popen(
-            ["gh", "pr", "view", str(number), "--repo", repo, "--json", "title,state"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        ) as process:
-            deadline = time.monotonic() + 8
+        with subprocess.Popen(["gh", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True) as process:
+            deadline = time.monotonic() + timeout
             while True:
                 if (stopping is not None and stopping.is_set()) or time.monotonic() >= deadline:
                     process.kill()
                     process.communicate()
                     return None
                 try:
-                    stdout, _ = process.communicate(timeout=0.1)
-                    break
+                    return process.communicate(timeout=0.1)[0]
                 except subprocess.TimeoutExpired:
                     continue
-            if process.returncode:
-                return None
-        data = json.loads(stdout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def fetch_pr(repo: str, number: int, stopping: Event | None = None) -> dict | None:
+    stdout = run_gh(["pr", "view", str(number), "--repo", repo, "--json", "title,state"], 8,
+                    stopping)
+    try:
+        data = json.loads(stdout or "")
         title, state = data.get("title"), data.get("state")
         return {
             "title": title.strip()[:300] if isinstance(title, str) and title.strip() else None,
             "state": state if state in ("OPEN", "MERGED", "CLOSED") else None,
         }
-    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+    except (ValueError, AttributeError):
         return None
 
 
