@@ -341,6 +341,8 @@ def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str
     if not resumable(paths):  # a session only registered so far
         raise LookupError("this session has no transcript to resume yet")
     confined([*old, *(target / p.relative_to(s.root) for p in paths)], target)
+    if any(p.is_symlink() for src in paths for p in [src, *src.rglob("*")]):
+        raise ValueError("the session's files include a link, which could lead out of the account")
     if old and not replace:
         raise FileExistsError("that account already has this session")
     for p in old:

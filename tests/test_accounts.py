@@ -420,6 +420,14 @@ def test_a_move_writes_nothing_through_a_link_out_of_the_account(home, moving, t
     assert (tmp_path / f"elsewhere/-p/{SID}.jsonl").read_text() == "theirs\n"
 
 
+def test_a_link_inside_the_session_refuses_the_move(home, moving, tmp_path):
+    (tmp_path / "outside.jsonl").write_text('{"keep": 1')
+    (home / f".claude/projects/-p/{SID}/subagents/x.jsonl").symlink_to(tmp_path / "outside.jsonl")
+    assert moving(".claude-personal").status_code == 409
+    assert (tmp_path / "outside.jsonl").read_text() == '{"keep": 1'
+    assert not (home / ".claude-personal/projects").exists()
+
+
 def test_a_move_whose_agent_cannot_start_copies_nothing(home, moving, monkeypatch):
     monkeypatch.setattr(S.shutil, "which", lambda *_a, **_k: None)
     assert moving(".claude-personal").status_code == 400

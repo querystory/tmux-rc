@@ -167,7 +167,7 @@ files under a live agent strands its later writes, and resuming it twice puts tw
 on one transcript. Moves run one at a time, through the new window's launch, so two
 requests cannot pass these checks together, and the sheet takes one tap at a time. A copy
 that fails partway is removed. Nothing is written or deleted through a folder
-in the target that links out of it, and the agent's command is checked to exist before
+in the target that links out of it, a session whose own files include a link is refused, and the agent's command is checked to exist before
 anything is copied, so a resume that cannot start leaves no stray copy. The pane's own
 account is refused too, compared by identity so no spelling, link or bind mount slips by, and the sheet reloads the accounts
 before listing them, since a window the move itself just opened may not have been
