@@ -108,18 +108,20 @@ def test_prunes_gone_panes_and_expired_dead_servers(monkeypatch, tmp_path):
     now = W.DEAD_SERVER_RETENTION + 10_000.0
     live = f"boot:{os.getpid()}"
     history.save_checkpoints([{
-        "uid": f"{server}:%1:5", "server": server, "fp": "x", "idle_since": None,
+        "uid": f"{server}:{pane}:5", "server": server, "fp": "x", "idle_since": None,
         "card": None, "last_activity_at": at,
-    } for server, at in (
-        ("boot:1", now),             # this server: its %1:5 pane is gone
-        ("oldboot:77", 1.0),         # previous boot, idle past retention
-        ("boot:999999999", 1.0),     # this boot, pid not running, idle past retention
-        ("oldboot:78", now - 3600),  # previous boot, recent: kept for a restore
-        (live, 1.0),                 # this boot, still running: kept however long it sits still
+    } for server, pane, at in (
+        ("boot:1", "%1", now),             # this server: its %1:5 pane is gone
+        ("oldboot:77", "%1", 1.0),         # previous boot, idle past retention
+        ("boot:999999999", "%1", 1.0),     # this boot, pid not running, idle past retention
+        ("oldboot:78", "%1", now - 3600),  # previous boot, recent: kept for a restore
+        ("oldboot:78", "%2", 1.0),         # ...with its long-idle sibling
+        (live, "%1", 1.0),                 # this boot, still running: kept however long
     )])
-    daemon(monkeypatch, db, history=history, now=now, activity=str(int(now)))
+    w, _ = daemon(monkeypatch, db, history=history, now=now, activity=str(int(now)))
     assert set(History(db).load_checkpoints()) == {
-        f"{live}:%1:5", "oldboot:78:%1:5", "boot:1:%1:101"}
+        f"{live}:%1:5", "oldboot:78:%1:5", "oldboot:78:%2:5", "boot:1:%1:101"}
+    assert all(r["server"] == "boot:1" for r in w._checkpoints.values())
 
 
 def test_migrates_old_schema_and_refuses_newer(tmp_path):
