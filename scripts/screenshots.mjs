@@ -350,12 +350,14 @@ try {
       await route.fulfill({ response, json: data });
     });
     // The landing page shows a quieter fictional fleet so the compact session and
-    // sub-agent rows fit below one actionable card. Other shots keep all states.
+    // sub-agent rows fit below one actionable card. Other shots keep all states. As in
+    // noTmux: no timeout on what may be a long poll, and a page gone under it is dropped.
     if (name.startsWith("website-")) await page.route("**/api/state*", async (route) => {
-      const response = await route.fetch();
-      const data = await response.json();
-      data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "api contract diff");
-      await route.fulfill({ response, json: data });
+      try {
+        const response = await route.fetch({ timeout: 0 }), data = await response.json();
+        data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "api contract diff");
+        await route.fulfill({ response, json: data });
+      } catch { /* page gone */ }
     });
     // Wait on the API rather than a selector, so a UI that renames its markup still gets
     // shot and the diff shows the change instead of the run failing.
