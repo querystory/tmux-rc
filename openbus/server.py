@@ -1362,12 +1362,12 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
     except OSError:
         _refuse(request, "move_session", detail, 409, "the agent's working directory can't be read")
     profile = accounts.find(body.dir, s.harness)
-    if not (profile and profile["signed_in"]) or Path(profile["dir"]).resolve() == s.root.resolve():
-        _refuse(request, "move_session", detail, 404, "not another signed-in account")
+    if not (profile and profile["signed_in"]):
+        _refuse(request, "move_session", detail, 404, "not a signed-in account")
     detail = f"session={s.session_id} {detail}"
     try:
         copied = accounts.copy_session(s, Path(profile["dir"]))
-    except FileExistsError as e:
+    except (FileExistsError, LookupError, ValueError) as e:
         _refuse(request, "move_session", detail, 409, str(e))
     except OSError as e:  # only the type: the message can carry a path
         _audit(request, "move_session", pane_id, detail, outcome=f"error: {type(e).__name__}")

@@ -290,8 +290,18 @@ def test_move_copies_the_session_and_resumes_it_on_the_other_account(client, hom
         "env", f"CLAUDE_CONFIG_DIR={dst}", "claude", "--resume", SID]
     assert "kill" not in str(client.calls)  # the source pane is never touched
     assert moving(".claude-personal").status_code == 409  # already there: nothing overwritten
-    for account in (".claude", ".claude-old", ".codex2"):  # itself, signed out, other provider
+    for account in (".claude-old", ".codex2"):  # signed out, another provider's
         assert moving(account).status_code == 404
+    assert moving(".claude").status_code == 409  # its own account
+
+
+def test_a_move_refuses_nested_dirs_and_a_session_with_no_transcript(home, moving):
+    nested = _signed_in(home / ".claude/inner", "u-in")
+    accounts.add("claude", str(nested), "Inner", [])
+    assert moving(".claude/inner").status_code == 409  # copytree would chase its own copy
+    (home / f".claude/projects/-p/{SID}.jsonl").unlink()  # registered, nothing written yet
+    assert moving(".claude-personal").status_code == 409
+    assert not (home / ".claude-personal/projects").exists()
 
 
 def test_a_move_that_fails_partway_leaves_nothing_behind(home, moving, monkeypatch):

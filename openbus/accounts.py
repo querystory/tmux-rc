@@ -268,9 +268,21 @@ def set_default(session: str, profile: dict) -> None:
 
 def copy_session(s: Session, target: Path) -> list[str]:
     """Copy the session's files into another account's dir, at the same relative paths, so
-    the agent there resumes it; the original stays. Refuses, copying nothing, if the target
-    already has the session; undoes a copy that fails partway."""
+    the agent there resumes it; the original stays. Refuses, copying nothing, when there
+    is no transcript yet, when either dir holds the other, or when the target already has
+    the session; undoes a copy that fails partway. One at a time, so two moves can never
+    both pass the check and then overwrite, or roll back, each other's copy."""
+    with _LOCK:
+        return _copy_session(s, target)
+
+
+def _copy_session(s: Session, target: Path) -> list[str]:
+    src, dst = s.root.resolve(), target.resolve()
+    if src.is_relative_to(dst) or dst.is_relative_to(src):
+        raise ValueError("one account's dir is inside the other's")
     paths = [p for g in MOVED[s.harness] for p in s.root.glob(g.format(id=s.session_id))]
+    if not any(p.suffix == ".jsonl" for p in paths):  # a session only registered so far
+        raise LookupError("this session has no transcript to resume yet")
     if any(next(target.glob(g.format(id=s.session_id)), None) for g in MOVED[s.harness]):
         raise FileExistsError("that account already has this session")
     made: list[Path] = []

@@ -147,7 +147,10 @@ segments included; its sqlite index finds an unindexed rollout by scanning. The 
 subset of Expunge's per-session table, so one table says where a session's files are.
 
 The target dir must not already hold that session id, so nothing is ever overwritten; a
-copy that fails partway is removed. A dir that has never opened the folder shows the
+copy that fails partway is removed, and copies run one at a time so two requests cannot
+pass that check together. A session with no transcript yet (registered, nothing written)
+is refused rather than opened as an empty resume, and so are two dirs where one sits
+inside the other, which would make the copy chase its own output. A dir that has never opened the folder shows the
 provider's own "trust this folder" prompt in the new window first. Answering it is left to
 the user rather than copied over from the old account, because it is a security decision
 the provider asks per account. Like Expunge, the request is bound to the pane incarnation
