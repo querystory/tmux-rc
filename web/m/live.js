@@ -19,7 +19,7 @@ const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the
 const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
-export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {} }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "" }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -192,6 +192,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function propose(current, { id, text, image, pane_id, session }) {
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
     if (session) row.lastChild.append(sessionMeta(session));
+    if (pane_id) row.lastChild.insertAdjacentHTML("beforeend", account(pane_id)); // which account it lands on, with several
     actions.className = "voice-actions";
     for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
       const button = document.createElement("button"); button.type = "button"; button.textContent = label;

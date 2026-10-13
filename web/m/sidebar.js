@@ -120,7 +120,7 @@ export function setupSidebar(ctx) {
     const node = document.createElement("div"), open = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
     open.className = "sb-open";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><p class="sb-items"></p>' : "");
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span><span class="sb-acct"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><p class="sb-items"></p>' : "");
     node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
     if (card) addAnswers(node);
     open.onclick = () => ctx.navigate(node._p.pane_id);
@@ -154,6 +154,7 @@ export function setupSidebar(ctx) {
     // By state the session is context; by session it is the group heading already.
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
+    ctx.html(node.querySelector(".sb-acct"), ctx.badge(p.pane_id));
     text(node.querySelector(".a"), p.ending || age(p));
     // Needs you is about the question and its answers, so its cards only count sub-agents.
     const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents"), lines = prefs.subagents && g.id !== "need";

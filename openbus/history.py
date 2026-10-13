@@ -415,7 +415,7 @@ class History:
                                 "groups": groups, "source": source,
                                 **{key: sum_counts(groups, key) if panes or versioned else None
                                    for key in ("foreground", "background")}})
-        return {"samples": samples, "step": step * 1000, "first": first * 1000,
+        return {"samples": samples, "step": step * 1000, "first": first * 1000, "now": now * 1000,
                 "goal": int(goal[0]) if goal else None,
                 "states": STATES, "backfill_ttl": BACKFILL_TTL,
                 "backfill_note": ("Log reconstruction (lighter bars) is partial; "

@@ -74,6 +74,20 @@ def test_resume_opens_the_indexed_command_in_its_directory(history, argv):
     assert any(m["type"] == "typed" and m["pane_id"] == "%40" for m in ws.sent)
 
 
+def test_a_claude_resume_runs_on_the_account_its_transcript_is_under(history, monkeypatch):
+    # Whatever the tmux session's default: ~/.claude unsets the variable, a second dir sets it.
+    sessions, opened = history
+    monkeypatch.setenv("HOME", "/home/dev")
+    personal = "/home/dev/.claude-personal"
+    for config, pin in (("/home/dev/.claude", ["-u", "CLAUDE_CONFIG_DIR"]),
+                        (personal, [f"CLAUDE_CONFIG_DIR={personal}"])):
+        opened.clear()
+        L._resumed.clear()
+        sessions["live-1"] = {**LIVE, "source": f"{config}/projects/-repo/live-1.jsonl"}
+        assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "opened"
+        assert opened[0][2] == ["env", *pin, "claude", "--resume", "live-1"]
+
+
 @pytest.mark.parametrize("consent", ["approved", None])
 def test_resume_jumps_to_the_window_only_when_the_user_tapped_send(history, monkeypatch, consent):
     # A tapped Send asked to go there: the client gets open_pane with auto, which also

@@ -41,9 +41,13 @@ func LiveSessions() (map[string]Running, map[string]error) {
 // liveness is unknown, which callers must not read as "nothing is running".
 func RunningClaude() (map[string]Running, error) {
 	out := map[string]Running{}
-	files, err := find(filepath.Join(claudeDir(), "sessions"), ".json", 1)
-	if err != nil {
-		return nil, err
+	var files []string
+	for _, dir := range claudeDirs() {
+		found, err := find(filepath.Join(dir, "sessions"), ".json", 1)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, found...)
 	}
 	for _, f := range files {
 		var reg struct {
