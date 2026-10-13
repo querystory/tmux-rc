@@ -21,7 +21,7 @@ test("the first look is the widest preset that fits, else the narrowest", () => 
   assert.equal(widest([390, 1440, 1280, 1920], 1500), 1440); // a manifest's order is its own
 });
 
-test("a frame's document inlines its stylesheet and images and runs the variant last", () => {
+test("a frame's document inlines its stylesheet and images and runs the variant before restoring", () => {
   const M = { css: ["a{background:url(@@IMG0@@)}"], imgs: ["data:image/png;base64,AA"] };
   const doc = srcdoc(M, { html: '<html><head></head><body><img src="@@IMG0@@"></body></html>', css: 0 },
     { variant: "a" }, 'x("</script>", "</SCRIPT>")');
@@ -29,5 +29,5 @@ test("a frame's document inlines its stylesheet and images and runs the variant 
   assert.equal(doc.match(/data:image\/png;base64,AA/g).length, 2);
   assert.match(doc, /<style>a\{background:url\(data:/);
   assert.match(doc, /window\.MOCK = \{"variant":"a"\};/);
-  assert.match(doc, /x\("<\\\/script>", "<\\\/SCRIPT>"\)<\/script><\/body>/); // a script's own </script> cannot end the tag, in any case
+  assert.match(doc, /x\("<\\\/script>", "<\\\/SCRIPT>"\)\n;\(function restore\(\) \{[\s\S]*\}\)\(\);<\/script><\/body>/); // a script's own </script> cannot end the tag, in any case; restore() runs over what it added
 });

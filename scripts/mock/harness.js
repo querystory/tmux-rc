@@ -17,15 +17,6 @@ function bridge() {
   const fit = () => root.style.setProperty("--app-height", `${innerHeight}px`); // the snapshot froze its own
   fit();
   addEventListener("resize", fit);
-  // A snapshot keeps a dialog's `open` but not its modality; reopen the modal ones (marked
-  // by scripts/mock.mjs) in the top layer, and leave a non-modal one, like the desktop chat
-  // column, where it is.
-  for (const d of document.querySelectorAll("dialog[data-mock-modal]")) {
-    d.close();
-    d.showModal();
-    d.addEventListener("cancel", (e) => e.preventDefault());
-  }
-  for (const el of document.querySelectorAll("[data-mock-scroll]")) [el.scrollTop, el.scrollLeft] = el.dataset.mockScroll.split(",").map(Number);
   // Keys and swipes never leave a frame, so hand the harness's own to the page that owns it.
   addEventListener("keydown", (e) => {
     if (["h", "ArrowLeft", "ArrowRight"].includes(e.key) && !e.target.closest("input, textarea, select, [contenteditable]")) parent.postMessage({ mockKey: e.key }, "*");
@@ -42,13 +33,26 @@ function bridge() {
   }, { passive: true });
 }
 
+// Runs after the variant's script, so the fragments it dropped in are restored too. A
+// snapshot keeps a dialog's `open` but not its modality; reopen the modal ones (marked by
+// scripts/mock.mjs, or by a live fragment's capture) still open in the top layer, and leave
+// a non-modal one, like the desktop chat column, where it is.
+function restore() {
+  for (const d of document.querySelectorAll("dialog[data-mock-modal][open]")) {
+    d.close();
+    d.showModal();
+    d.addEventListener("cancel", (e) => e.preventDefault());
+  }
+  for (const el of document.querySelectorAll("[data-mock-scroll]")) [el.scrollTop, el.scrollLeft] = el.dataset.mockScroll.split(",").map(Number);
+}
+
 const fits = (width, room) => 2 * width + GAP <= room;
 // The widest preset that fits the screen, so a first look is the real thing with no scroll.
 const widest = (widths, room) => [...widths].sort((a, b) => b - a).find((w) => w <= room) ?? Math.min(...widths);
-const inject = (cfg, script) => `window.MOCK = ${JSON.stringify(cfg)};\n(${bridge})();\n${script || ""}`;
+const inject = (cfg, script) => `window.MOCK = ${JSON.stringify(cfg)};\n(${bridge})();\n${script || ""}\n;(${restore})();`;
 
 // A snapshot as a frame's document: its stylesheet and images inlined, the bridge and the
-// variant's script run last, over the finished DOM.
+// variant's script run last, over the finished DOM, then restore().
 function srcdoc(M, snap, cfg, script) {
   const html = snap.html.replace("</head>", () => `<style>${M.css[snap.css]}</style></head>`)
     .replace("</body>", () => `<script>${inject(cfg, script).replace(/<\/(script)/gi, "<\\/$1")}</script></body>`);
@@ -113,7 +117,9 @@ function boot(M) {
     const iframe = Object.assign(document.createElement("iframe"), { ariaHidden: "true", tabIndex: -1 });
     iframe.style.cssText = `position:fixed; left:-10000px; width:${PHONE_WIDTH}px; height:844px`;
     document.body.append(iframe);
-    M.fragments[name] = (await liveApp(iframe, step)).querySelector(step.selector).outerHTML;
+    const el = (await liveApp(iframe, step)).querySelector(step.selector);
+    for (const d of [el, ...el.querySelectorAll("dialog")]) if (d.matches("dialog:modal")) d.dataset.mockModal = "";
+    M.fragments[name] = el.outerHTML;
     iframe.remove();
   }));
 
