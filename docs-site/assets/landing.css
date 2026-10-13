@@ -45,6 +45,12 @@ a {
 a:hover {
   text-decoration:underline
 }
+/* A link inside prose is told apart by more than its colour; chrome links stay bare. */
+p a,
+figcaption a {
+  text-decoration:underline;
+  text-underline-offset:2px
+}
 button {
   font:inherit;
   cursor:pointer
