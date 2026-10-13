@@ -303,12 +303,13 @@ def copied_at(s: Session, target: Path) -> float | None:
     return max((p.lstat().st_ctime for p in files(s, target)), default=None)
 
 
-def running(s: Session, target: Path) -> bool:
+def running(s: Session, target: Path, pids: list[str] | None = None) -> bool:
     """Whether an agent other than `s` runs this session on `target`, or may: by any of three
     signs: Claude's registration of it there (a live pid with the start time it recorded,
     or a registration that can't be read, which could be it); a
     process holding one of its files there open (Codex's app-server keeps the rollout open);
-    or, before either exists, the session id on a command line, as a move's resume has."""
+    or, before either exists, the session id on a command line, as a move's resume has.
+    `pids`: look only at these processes (a move's own window), not every one."""
     for path in target.glob("sessions/*.json"):
         try:
             reg = _registration(path)
@@ -318,7 +319,7 @@ def running(s: Session, target: Path) -> bool:
                 and _stat(reg["pid"])[19:20] == [reg["procStart"]]):
             return True
     dst, held = target.resolve(), {str(p.resolve()) for p in _tree(files(s, target))}
-    for pid in filter(str.isdigit, os.listdir("/proc")):
+    for pid in filter(str.isdigit, os.listdir("/proc") if pids is None else pids):
         if int(pid) == s.pid:
             continue
         if s.session_id in tmux.proc_read(pid, "cmdline").split("\0"):
