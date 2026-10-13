@@ -220,6 +220,11 @@ class ExpungeBody(BaseModel):
     birth: str  # the pane incarnation the menu was drawn for (its `birth` in /api/state)
 
 
+class MoveBody(BaseModel):
+    dir: str  # the target profile's config dir
+    birth: str  # as in ExpungeBody
+
+
 class NewWindowBody(BaseModel):
     session: str
     launcher: str  # label of a configured launcher — never a raw command
@@ -1341,6 +1346,42 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
                                  "delete its own stored card for the pane yet")
     _audit(request, "expunge", pane_id, detail)
     return {"ok": True, **result, "killed": killed}
+
+
+@app.post("/api/panes/{pane_id}/move")
+def move_session(pane_id: str, body: MoveBody, request: Request):
+    """Copy the pane's agent session to another account and resume it there, in a new
+    window of the same session and cwd. The source pane and its files are left as they are.
+    See docs/design/agent-accounts.md."""
+    detail = f"dir={body.dir[:120]!r}"
+    try:
+        pane, s, _ = _pane_session(pane_id, body.birth)
+        cwd = os.readlink(f"/proc/{s.pid}/cwd")
+    except HTTPException as e:
+        _refuse(request, "move_session", detail, e.status_code, e.detail)
+    except OSError:
+        _refuse(request, "move_session", detail, 409, "the agent's working directory can't be read")
+    profile = accounts.find(body.dir, s.harness)
+    if not (profile and profile["signed_in"]) or Path(profile["dir"]) == s.root:
+        _refuse(request, "move_session", detail, 404, "not another signed-in account")
+    detail = f"session={s.session_id} {detail}"
+    try:
+        copied = accounts.copy_session(s, Path(profile["dir"]))
+    except FileExistsError as e:
+        _refuse(request, "move_session", detail, 409, str(e))
+    except OSError as e:  # only the type: the message can carry a path
+        _audit(request, "move_session", pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise HTTPException(500, "the session could not be copied: nothing was kept") from e
+    argv = [*accounts.RESUME[s.harness], s.session_id]
+    try:  # the copy stays: the session can still be resumed there by hand
+        new = tmux.new_window(pane.session, f"{argv[0]} on {profile['name']}"[:40],
+                              accounts.command(s.harness, profile["dir"], argv), cwd=cwd)
+    except subprocess.CalledProcessError as e:
+        _audit(request, "move_session", pane_id, detail, outcome="error: copied, no window")
+        raise HTTPException(500, "the session was copied, but its window could not be "
+                                 "opened") from e
+    _audit(request, "move_session", new, f"from={pane.id} {detail}")
+    return {**_opened(new), "copied": copied}
 
 
 @app.post("/api/client-error")

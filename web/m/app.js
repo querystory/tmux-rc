@@ -701,6 +701,7 @@ function render() {
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   // Expunge is offered only where it can work: a Claude Code or Codex pane (the server refuses the rest anyway).
   for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
+  show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
   markEnding($("detail"), pane);
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   // Which account it runs on, when that needs saying: first on a phone, which ellipsizes the end.
@@ -1172,7 +1173,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "menu", sort: "arrowUpDown", "usage-mode": "gauge", "accounts-open": "users", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "menu", sort: "arrowUpDown", "usage-mode": "gauge", "accounts-open": "users", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1603,6 +1604,29 @@ $("expunge-pane").onclick = async () => {
     }
   };
   $("expunge-dialog").showModal();
+};
+// Move to another account: copy the pane's agent session into another account's dir and
+// resume it there in a new window; this pane and the original are left alone
+// (docs/design/agent-accounts.md).
+html($("move-pane"), `${licon("users", 18)}<span>Move to another account…</span>`);
+$("close-move").onclick = () => $("move-dialog").close();
+$("move-pane").onclick = () => {
+  closePaneMenu();
+  const pane = panes.find((p) => p.pane_id === active);
+  if (!pane) return;
+  text($("move-what"), `Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`);
+  $("move-choices").replaceChildren(...accounts.moveTargets(pane.pane_id, pane.tool).map((p) => {
+    const button = document.createElement("button");
+    html(button, `<span><strong>${accounts.chip(p)}</strong><small></small></span>${licon("chevron")}`);
+    text(button.querySelector("small"), p.tilde);
+    button.onclick = async () => {
+      $("move-dialog").close();
+      try { openLaunched((await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth })).pane_id); }
+      catch (error) { notice(`Could not move the session: ${error.detail || error.message}`, 6000); }
+    };
+    return button;
+  }));
+  $("move-dialog").showModal();
 };
 window.addEventListener("hashchange", route);
 // A push tapped while the app is open: sw.js names the address to show, and it is routed

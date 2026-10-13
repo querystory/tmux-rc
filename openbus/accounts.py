@@ -12,11 +12,13 @@ import contextlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import threading
 from pathlib import Path
 
 from . import plan_usage, tmux
+from .expunge import _FILES, Session
 from .plan_usage import ENV
 
 COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
@@ -28,6 +30,11 @@ SHARED = {"claude": {"CLAUDE.md": True, "skills": True, "hooks": True, "statusli
                      "settings.json": False},
           "codex": {"AGENTS.md": True, "prompts": True, "config.toml": False}}
 LOGIN = {"claude": ["claude"], "codex": ["codex", "login"]}  # the provider's own sign-in
+RESUME = {"claude": ["claude", "--resume"], "codex": ["codex", "resume"]}
+# What a session needs to resume on another account: of the files Expunge knows it by,
+# Claude's transcript, its subagents' and tool results' folder and its /rewind snapshots;
+# Codex's rollouts. The rest is per process or rebuilt when the agent starts.
+MOVED = {"claude": _FILES["claude"][:3], "codex": _FILES["codex"][:4]}
 MORE = {"claude": ".claude-*", "codex": ".codex?*"}  # each provider's other config dirs in HOME
 # One store transaction at a time: the PlanUsage thread and the API's worker threads all
 # read-modify-write it. Re-entrant, since add() and edit() look profiles up inside theirs.
@@ -251,3 +258,30 @@ def set_default(session: str, profile: dict) -> None:
     every window created there afterwards (prefix c included) starts on it."""
     tmux.set_env(ENV[profile["provider"]], None if profile["default"] else profile["dir"],
                  session=session)
+
+
+def copy_session(s: Session, target: Path) -> list[str]:
+    """Copy the session's files into another account's dir, at the same relative paths, so
+    the agent there resumes it; the original stays. Refuses, copying nothing, if the target
+    already has the session; undoes a copy that fails partway."""
+    paths = [p for g in MOVED[s.harness] for p in s.root.glob(g.format(id=s.session_id))]
+    if any(next(target.glob(g.format(id=s.session_id)), None) for g in MOVED[s.harness]):
+        raise FileExistsError("that account already has this session")
+    made: list[Path] = []
+    try:
+        for src in paths:
+            dst = target / src.relative_to(s.root)
+            dst.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            made.append(dst)
+            if src.is_dir():
+                shutil.copytree(src, dst, symlinks=True)
+            else:
+                shutil.copy2(src, dst)
+    except OSError:
+        for dst in made:
+            if dst.is_dir():
+                shutil.rmtree(dst)
+            else:
+                dst.unlink(missing_ok=True)
+        raise
+    return [p.name for p in paths]

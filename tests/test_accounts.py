@@ -2,6 +2,7 @@
 add flow's dir and links, and launching a pane on an account. Every config dir here is a
 fictional one under tmp_path; no credentials file is ever written or read."""
 import json
+import os
 import stat
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ from fastapi.testclient import TestClient
 
 import openbus.server as S
 import openbus.tmux as T
-from openbus import accounts, plan_usage
+from openbus import accounts, expunge, plan_usage
 
 
 def _signed_in(path, uuid, **fields):
@@ -252,3 +253,58 @@ def test_only_the_sign_in_window_it_opened_can_be_closed(client, home, monkeypat
     [kill] = [c for c in client.calls if c[0] == "if-shell"]
     assert kill[:4] == ["if-shell", "-F", "-t", "%42"] and "#{pane_pid},4242" in kill[4]
     assert "kill-session" not in str(kill) and "kill-server" not in str(kill)
+
+
+SID = "0f1e2d3c-4b5a-4968-8776-655443322110"
+
+
+@pytest.fixture
+def moving(client, home, monkeypatch):
+    """A fictional Claude session on ~/.claude, as Expunge's identify would find it."""
+    src = home / ".claude"
+    (src / f"projects/-p/{SID}/subagents").mkdir(parents=True)
+    (src / f"projects/-p/{SID}.jsonl").write_text('{"type": "user"}\n')
+    (src / f"projects/-p/{SID}/subagents/agent-1.jsonl").write_text("{}\n")
+    (src / f"file-history/{SID}").mkdir(parents=True)
+    (src / f"session-env/{SID}").mkdir(parents=True)  # rebuilt on start: not copied
+    session = expunge.Session("claude", SID, src, home / "agent-history", os.getpid(), "1")
+    pane = T.Pane("work", "1", "w", "0", "%9", "claude", "t")
+    monkeypatch.setattr(S, "_pane_session", lambda *_: (pane, session, ([], [])))
+    return lambda account: client.post("/api/panes/%9/move",
+                                       json={"birth": "1", "dir": str(home / account)})
+
+
+def test_move_copies_the_session_and_resumes_it_on_the_other_account(client, home, moving):
+    r = moving(".claude-personal")
+    assert r.status_code == 200, r.text
+    dst = home / ".claude-personal"
+    assert (dst / f"projects/-p/{SID}.jsonl").read_text() == '{"type": "user"}\n'
+    assert (dst / f"projects/-p/{SID}/subagents/agent-1.jsonl").exists()
+    assert (dst / f"file-history/{SID}").is_dir() and not (dst / "session-env").exists()
+    assert (home / f".claude/projects/-p/{SID}.jsonl").exists()  # a copy: the original stays
+    argv = next(a for a in client.calls if a[0] == "new-window")
+    assert argv[argv.index("-c") + 1] == os.getcwd() and argv[argv.index("-t") + 1] == "work:"
+    assert argv[argv.index("--") + 1:] == [
+        "env", f"CLAUDE_CONFIG_DIR={dst}", "claude", "--resume", SID]
+    assert "kill" not in str(client.calls)  # the source pane is never touched
+    assert moving(".claude-personal").status_code == 409  # already there: nothing overwritten
+    for account in (".claude", ".claude-old", ".codex2"):  # itself, signed out, other provider
+        assert moving(account).status_code == 404
+
+
+def test_a_move_that_fails_partway_leaves_nothing_behind(home, moving, monkeypatch):
+    def broken(*_a, **_k):
+        raise OSError("disk full")
+    monkeypatch.setattr(accounts.shutil, "copytree", broken)
+    assert moving(".claude-personal").status_code == 500
+    assert not list((home / ".claude-personal").glob(f"**/{SID}*"))
+
+
+def test_a_codex_thread_moves_with_its_resumed_segments(home):
+    day = home / ".codex/sessions/2026/10/09"
+    day.mkdir(parents=True)
+    for name in (f"T09-00-00-{SID}.jsonl", f"T10-00-00-{SID}_2.jsonl"):
+        (day / f"rollout-2026-10-09{name}").write_text("{}\n")
+    session = expunge.Session("codex", SID, home / ".codex", home / "agent-history", 0, "")
+    assert len(accounts.copy_session(session, home / ".codex2")) == 2
+    assert len(list((home / ".codex2/sessions/2026/10/09").iterdir())) == 2

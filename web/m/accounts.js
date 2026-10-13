@@ -271,7 +271,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
     // The consent card: which account a chat action lands on.
     consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)} ${esc(p.tilde)}. Sending never changes a pane's account.</small>` : ""; },
-    // For the fast-follow "Move pane to another account": the profile by config dir.
-    profile: byDir, list: () => profiles,
+    profile: byDir, list: () => profiles, chip: (p) => badge(p),
+    // Where "Move to another account" can take a pane: its provider's other signed-in
+    // accounts, once it has several.
+    moveTargets: (paneId, provider) => several(provider) ? signedIn().filter((p) => p.provider === provider && !p.panes.includes(paneId)) : [],
   };
 }

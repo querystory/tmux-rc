@@ -75,6 +75,8 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { await page.click("#more-button"); await page.click('#acct-filter [data-dir="~/.claude-personal"]'); })],
   ["accounts-mobile-dashboard", PHONE, "light", "#view=dashboard", two((page) => page.locator("#usage-panel").scrollIntoViewIfNeeded())],
   ["accounts-mobile-pane", PHONE, "light", "#pane=%2513", two()],
+  ["accounts-mobile-pane-menu", PHONE, "dark", "#pane=%2513", moveMenu()],
+  ["accounts-mobile-move", PHONE, "light", "#pane=%2513", moveMenu("#move-pane"), "#move-dialog"],
   ["accounts-mobile-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); })],
   ["accounts-mobile-consent", PHONE, "light", "", two(chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge"))],
   ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await page.click("#more-button"); await page.click("#accounts-open"); })],
@@ -111,6 +113,16 @@ function addFlow(until) {
 }
 // Once the accounts have arrived (after the panes), the step; a base from before accounts
 // draws no badge, and is shot as it is.
+// The pane's "…" menu once the pane's account has loaded (the list's badges are hidden
+// behind the pane on a phone, so two() can't wait on those), then `item` in it.
+function moveMenu(item) {
+  return async (page) => {
+    await page.locator("#pane-location .acct-badge").waitFor();
+    await page.click("#pane-menu-button");
+    if (item) { await page.click(item); await page.waitForSelector("#move-dialog[open]"); }
+  };
+}
+
 function two(step) {
   return async (page) => {
     if (await page.locator(".acct-badge").first().waitFor({ timeout: 5000 }).then(() => true, () => false)) await step?.(page);

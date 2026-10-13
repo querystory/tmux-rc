@@ -686,7 +686,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
    boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
    the visible glyphs come out even and the X's ink lines up with the right gutter. */
 #close-pane { margin: 0 -12px; }
-#kill-pane, #expunge-pane { width: 100%; white-space: nowrap; }
+#kill-pane, #move-pane, #expunge-pane { width: 100%; white-space: nowrap; }
 /* Expunge sits last, under a rule, and is the menu's one red item: killing a window ends a
    process, expunging also deletes the session's files for good. */
 #pane-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }

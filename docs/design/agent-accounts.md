@@ -120,6 +120,39 @@ Remove takes the account off tmux-rc's list; the dir, its login and its transcri
 on disk and running panes keep running. The default `~/.claude` and `~/.codex` cannot be
 removed.
 
+## Moving a session to another account
+
+A plan runs out mid-task, or work started on the wrong account. Pane "…" → **Move to
+another account…** (shown only when the pane's provider has two or more signed-in
+accounts) lists the provider's other accounts. Picking one copies the session into that
+account's dir and opens a new window in the same tmux session and cwd running
+`CLAUDE_CONFIG_DIR=<dir> claude --resume <id>` (`codex resume <id>` under `CODEX_HOME`).
+
+It is a copy, never a move. The source pane keeps running and is never killed, and the
+original transcript stays readable on the old account; the user exits the old pane when
+they choose. Moving files out from under a running agent would break it, and a copy
+that turns out wrong costs nothing to delete, while a lost transcript cannot come back.
+From then on the two diverge under one session id, each in its own dir, which is the
+same thing as resuming one session twice and confuses nothing that looks a session up
+by its dir.
+
+What is copied is decided by testing what `--resume` needs, not by copying the whole
+session's footprint. The transcript alone is enough: a second, logged-in account given
+only the `.jsonl` answered from the conversation's context, with nothing tying the session
+to the account that started it. The `<id>/` folder (subagent transcripts, externalised
+tool results) and `file-history/<id>/` (the /rewind snapshots) come along so the resumed
+session is whole. Session env, tasks, todos and the process registry are rebuilt on start
+and are left behind. Codex needs only its rollout files, a resumed thread's later
+segments included; its sqlite index finds an unindexed rollout by scanning. The list is a
+subset of Expunge's per-session table, so one table says where a session's files are.
+
+The target dir must not already hold that session id, so nothing is ever overwritten; a
+copy that fails partway is removed. A dir that has never opened the folder shows the
+provider's own "trust this folder" prompt in the new window first. Answering it is left to
+the user rather than copied over from the old account, because it is a security decision
+the provider asks per account. Like Expunge, the request is bound to the pane incarnation
+the menu was drawn for, and it is audited with the session id and the target dir.
+
 ## Safety
 
 - No credentials file is ever shared, copied, linked or read by this feature.
@@ -133,4 +166,4 @@ removed.
 - Linking whole dirs between accounts: rejected, it silently shares the login.
 - A login form or token paste in tmux-rc: rejected, it moves the credential boundary into tmux-rc.
 - Per-account rows in the strip: rejected, several accounts push the list off a phone.
-- Copying a transcript to move a session between accounts: deferred, it forks the session and moves work content across accounts.
+- Moving (not copying) a session between accounts: rejected, see "Moving a session" above.
