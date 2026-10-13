@@ -100,8 +100,10 @@ Non-goals:
   gone, and after a reboot the first tick that sees any new server does exactly that,
   including the server the empty-state button just started, or one a login script started
   before anyone looked. An offer built on them would vanish the moment the user opened a
-  fresh shell. Until the snapshot below exists, they are kept for 30 days instead of
-  pruned on sight, so a manual restore has something to read.
+  fresh shell. Until the snapshot below takes over as the restore record, a dead server's
+  checkpoints are kept for 30 days instead of pruned on sight, so a manual restore has
+  something to read. The first PR leaves that in place: a snapshot covers only servers
+  that ran after it shipped.
 
 Everything else is already read on every tick: `list-panes` returns session, window index
 and name, pane index, current path, current command, title and pid. Missing are a few more format fields (the window's
@@ -118,9 +120,10 @@ by tmux's automatic renaming, tmux layout string, zoomed); and each
 pane (index, active, directory, title, classified tool, the basename of the program in
 its foreground (never its arguments), and for agents the **binding**: harness and
 session id). Each pane also carries a **copy** of its last
-activity time, coarse to the minute, and its classified state as the watcher reports it
-(`activity` and, for a wait, `waiting_on`), which the card's defaults and the launch
-order read and a timestamp alone cannot recover once the server is gone. They normalize
+activity time, coarse to the minute, its classified state as the watcher reports it
+(`activity` and, for a wait, `waiting_on`), and the cost and context its card last
+showed. The card's defaults, its binding check and the launch order read these, and a
+timestamp alone cannot recover them once the server is gone. They normalize
 it one way: `running` and `compacting` are working; `waiting` on the user is waiting on
 the user; a wait on something external, `idle` and `unknown` are judged by recency
 alone. The copy keeps the snapshot meaningful
@@ -163,7 +166,8 @@ kilobytes; the cost is one small update a minute.
 **Retention.** When a server dies its row stays as the restore candidate, stamped with
 when it was last seen. Only the newest dead server's snapshot is offered; older ones are
 dropped after 30 days, enough to get back from a long weekend. Unlike inventory intervals
-they are not kept forever, because nobody restores a month-old layout. A **consumed**
+they are not kept forever, because nobody restores a month-old layout. A new server
+appearing never removes one; that is the checkpoint table's failure (above). A **consumed**
 mark (restored or dismissed) keeps the offer from reappearing.
 
 ### Binding a pane to its conversation
@@ -186,9 +190,10 @@ with that process's pid and start time, and dropped when the foreground process 
 so a swap never carries the old conversation forward. Codex sessions behind the shared
 app-server have no pane (agent-history's README explains why); for them the watcher falls
 back to the status-bar `session-id` match Live Mode already uses ([agent-setup](../agent-setup.md)).
-A Codex pane with neither stays *unbound*: restore still knows it was Codex in that
-directory and offers a picker of that directory's recent threads instead of guessing.
-The picker ranks first the threads whose transcript was last written within a minute of
+A pane left without a binding (a Codex pane with neither, or any agent pane whose
+foreground was ambiguous) stays *unbound*: restore still knows its tool and directory
+and offers a picker of that directory's recent sessions instead of guessing.
+The picker ranks first the sessions whose transcript was last written within a minute of
 the server's death: a harness flushes on shutdown, so those were almost certainly live.
 
 A binding is dropped when the agent exits and the pane returns to a shell. An agent the
@@ -258,7 +263,8 @@ resume; or whether it is running cannot be established (agent-history's
 `running_unknown`). Live Mode's resume refuses that last case rather than risk two processes
 writing one transcript, so the card must not offer a restore the executor would reject.
 
-Each agent pane also shows the cost and context the saved card last displayed. A resumed
+Each agent pane also shows the cost and context its card last displayed (the snapshot's
+copy). A resumed
 harness reports the same figures, so a mismatch after restore is a cheap check that the
 binding pointed at the wrong conversation, worth a warning on the pane.
 
@@ -487,7 +493,7 @@ new agent in a recycled pane id does not inherit them.
   executor.
 - **P2: smarter defaults.** A pane whose PR merged is finished
   ([pr-association-lifecycle.md](pr-association-lifecycle.md)); a pane the user was
-  viewing is active; agent-history's last-active time fills in a missing clock. OpenCode
+  viewing is active. OpenCode
   and Gemini resume as agent-history gains readers.
 - **P3: hosted boxes.** Manifest autostart, restore as the fallback after a suspend past
   its cap, surfaced as a box-level attention item.
