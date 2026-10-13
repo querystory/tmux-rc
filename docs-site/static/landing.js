@@ -21,7 +21,9 @@ for (const group of document.querySelectorAll('[data-tabs]')) {
       const active = other === tab;
       other.setAttribute('aria-selected', String(active));
       other.tabIndex = active ? 0 : -1;
-      document.getElementById(other.dataset.panel).hidden = !active;
+      const panel = document.getElementById(other.dataset.panel);
+      panel.hidden = !active;
+      if (active) panel.querySelector('source[data-defer]')?.remove(); // its real image, now wanted
     }
   }
   for (const [index, tab] of tabs.entries()) {

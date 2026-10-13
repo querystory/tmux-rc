@@ -74,7 +74,8 @@
       <button id="voice-tab" role="tab" aria-selected="false" aria-controls="voice-preview" data-panel="voice-preview" tabindex="-1">Voice</button>
     </div></div>
     <figure id="desktop-preview" role="tabpanel" aria-labelledby="desktop-tab">
-      <div class="screen"><img src="{{ "img/website-desktop.png" | relURL }}" width="2880" height="1800" alt="Desktop agent manager: one agent needs attention, with working sessions and subagents below, alongside the live terminal and agent overview" fetchpriority="high"></div>
+      <!-- A phone opens on the Phone tab: an empty source keeps it from fetching this until Desktop is chosen (landing.js). -->
+      <div class="screen"><picture style="display:contents"><source media="(max-width:700px)" srcset="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-defer><img src="{{ "img/website-desktop.png" | relURL }}" width="2880" height="1800" alt="Desktop agent manager: one agent needs attention, with working sessions and subagents below, alongside the live terminal and agent overview" fetchpriority="high"></picture></div>
       <figcaption>Your fleet in the sidebar. The live terminal and agent overview together.</figcaption>
     </figure>
     <figure id="phone-preview" role="tabpanel" aria-labelledby="phone-tab" hidden>
