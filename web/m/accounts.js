@@ -75,7 +75,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     // A row's dirs can be several profiles of one login: the filtered one, if it is among them.
     return list.map((a) => { const mine = (a.dirs || []).map(byDir).filter((p) => p?.signed_in); return { ...a, acct: mine.includes(on) ? on : mine[0] }; })
       .filter((a) => a.acct && (!on || a.acct === on))
-      .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null });
+      .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct, `<span>${esc(a.acct.name)}</span>`) } : { ...a, label: null });
   }
   // Already full first, then full soonest, then the highest pace at the reset; unreadable last.
   const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;

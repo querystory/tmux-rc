@@ -762,7 +762,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* The notes on the left, the account's chip (several only) in the corner across from them. */
 .usage-foot { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
 .usage-foot > div { flex: 1; min-width: 0; }
-.usage-foot .acct-badge { margin-bottom: 1px; }
+.usage-foot .acct-badge { flex-shrink: 1; min-width: 0; max-width: 60%; margin-bottom: 1px; } /* a long name truncates, the reset keeps the rest */
+.usage-foot .acct-badge span { overflow: hidden; text-overflow: ellipsis; }
 .usage-bar, .usage-spark { grid-column: 1 / -1; }
 .usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
