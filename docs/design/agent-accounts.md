@@ -155,7 +155,9 @@ the choice still gets the refusal. Replacing gives up the older copy before the 
 lands, which is acceptable because the original it came from is still on the source
 account. Resume needs that copy's transcript, not just any of its files. No move at all,
 and so neither choice, is offered for a copy that an agent is running on the target right
-now (one started with the session id on its command line, as every move's is): replacing
+now: Claude's registration of it there, a process holding one of its files open (Codex's
+app-server keeps the rollout open), or, in the moment before either exists, the session
+id on a command line, as a move's resume has: replacing
 files under a live agent strands its later writes, and resuming it twice puts two agents
 on one transcript. Moves run one at a time, through the new window's launch, so two
 requests cannot pass these checks together, and the sheet takes one tap at a time. A copy

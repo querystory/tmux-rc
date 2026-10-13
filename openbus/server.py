@@ -1386,6 +1386,8 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
     target, argv = Path(profile["dir"]), [*accounts.RESUME[s.harness], s.session_id]
     if target.resolve() == s.root.resolve():
         _refuse(request, "move_session", detail, 409, "the session is already on that account")
+    if body.replace and body.resume_existing:
+        _refuse(request, "move_session", detail, 400, "replace or resume, not both")
     if why := _unavailable(argv[0], tmux.server_path()):  # before copying anything
         _refuse(request, "move_session", detail, 400, why)
     with _MOVES:  # through the launch, so a second request sees the first one's agent
@@ -1410,7 +1412,7 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         try:  # the copy stays: the session can still be resumed there by hand
             new = tmux.new_window(pane.session, f"{argv[0]} on {profile['name']}"[:40],
                                   accounts.command(s.harness, profile["dir"], argv), cwd=cwd)
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, OSError) as e:
             _audit(request, "move_session", pane_id, detail, outcome="error: copied, no window")
             raise HTTPException(500, "the session was copied, but its window could not be "
                                      "opened") from e

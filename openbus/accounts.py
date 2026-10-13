@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 
 from . import plan_usage, tmux
-from .expunge import _FILES, Refused, Session, _home
+from .expunge import _FILES, Refused, Session, _home, _registration, _stat
 from .plan_usage import ENV
 
 COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
@@ -281,15 +281,28 @@ def copied_at(s: Session, target: Path) -> float | None:
 
 
 def running(s: Session, target: Path) -> bool:
-    """Whether an agent other than `s` runs this session on `target`: one started with its
-    id on the command line, as a move's resume is (a session picked inside the agent's own
-    menu goes unseen)."""
-    dst = target.resolve()
+    """Whether an agent other than `s` runs this session on `target`, by any of three signs:
+    Claude's registration of it there (a live pid with the start time it recorded); a
+    process holding one of its files there open (Codex's app-server keeps the rollout open);
+    or, before either exists, the session id on a command line, as a move's resume has."""
+    for path in target.glob("sessions/*.json"):
+        with contextlib.suppress(Refused):
+            reg = _registration(path)
+            if (reg.get("sessionId") == s.session_id and reg["pid"] != s.pid
+                    and _stat(reg["pid"])[19:20] == [reg["procStart"]]):
+                return True
+    dst, held = target.resolve(), {str(p.resolve()) for p in files(s, target)}
     for pid in filter(str.isdigit, os.listdir("/proc")):
-        if int(pid) != s.pid and s.session_id in tmux.proc_read(pid, "cmdline").split("\0"):
+        if int(pid) == s.pid:
+            continue
+        if s.session_id in tmux.proc_read(pid, "cmdline").split("\0"):
             with contextlib.suppress(Refused):
                 if _home(int(pid), ENV[s.harness], f".{s.harness}").resolve() == dst:
                     return True
+        with contextlib.suppress(OSError):
+            fds = Path(f"/proc/{pid}/fd")
+            if any(os.readlink(fds / fd) in held for fd in os.listdir(fds)):
+                return True
     return False
 
 

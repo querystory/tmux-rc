@@ -356,11 +356,25 @@ def test_an_older_copy_is_replaced_or_resumed_only_when_asked(client, home, movi
     assert moving(".claude-empty", resume_existing=True).status_code == 409
 
 
-def test_a_copy_running_on_the_target_is_never_replaced_or_resumed_twice(home, moving):
+@pytest.mark.parametrize("sign", ["command line", "registration", "open file"])
+def test_a_copy_running_on_the_target_is_never_replaced_or_resumed_twice(home, moving, sign):
     assert moving(".claude-personal").status_code == 200
-    env = {**os.environ, "CLAUDE_CONFIG_DIR": str(home / ".claude-personal")}
-    agent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", SID], env=env)
+    dst = home / ".claude-personal"
+    code = {"command line": "import time; time.sleep(30)",
+            "registration": "import time; time.sleep(30)",
+            "open file": f"import time; f = open({str(dst / f'projects/-p/{SID}.jsonl')!r}); "
+                         "print(flush=True); time.sleep(30)"}[sign]
+    argv = [sys.executable, "-c", code, *([SID] if sign == "command line" else [])]
+    env = {**os.environ, "CLAUDE_CONFIG_DIR": str(dst)}
+    agent = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE)
     try:
+        if sign == "registration":  # Claude's own record of the session, under the agent's pid
+            start = expunge._stat(agent.pid)[19]
+            (dst / "sessions").mkdir()
+            (dst / f"sessions/{agent.pid}.json").write_text(json.dumps(
+                {"pid": agent.pid, "sessionId": SID, "procStart": start}))
+        if sign == "open file":
+            agent.stdout.readline()  # open by now
         for flags in ({}, {"replace": True}, {"resume_existing": True}):
             r = moving(".claude-personal", **flags)  # the sheet's first tap included
             assert r.status_code == 409 and "already running" in r.json()["detail"]
@@ -368,6 +382,7 @@ def test_a_copy_running_on_the_target_is_never_replaced_or_resumed_twice(home, m
         agent.kill()
         agent.wait()
     assert moving(".claude-personal", resume_existing=True).status_code == 200
+    assert moving(".claude-personal", replace=True, resume_existing=True).status_code == 400
 
 
 def test_a_move_writes_nothing_through_a_link_out_of_the_account(home, moving, tmp_path):
