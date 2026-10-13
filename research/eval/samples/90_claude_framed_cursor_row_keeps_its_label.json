@@ -1,0 +1,22 @@
+{
+  "description": "A Claude Code cursor picker drawn inside a │ frame, the highlight on the second row. classify() reads `selected` off the highlighted row, stripping the frame's closing bar only because the row opens with one: an unframed row's trailing bar is part of its label (tests/test_cursor_select.py proves that half). This sample guards that the framed case still grounds `selected` (1) and the arrow keymap. Fictional screen (tmux-rc, 2026-10-12).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n\n ▐▛███▛█   Claude Code ⟪dim⟫v2.1.295\n⟪/dim⟫▝▜██████▀  ⟪dim⟫Opus 5.5 · Claude Team\n⟪/dim⟫ ▝▝   ▝▝   ⟪dim⟫~/src/shop-api\n\n\n❯ ⟪/dim⟫pick a log level for the worker                                      \n\n╭──────────────────────────────────────────────────────────────╮\n│ Which log level should the worker use?                       │\n│                                                              │\n│   info                                                       │\n│ ❯ debug                                                      │\n│   warn                                                       │\n╰──────────────────────────────────────────────────────────────╯\n ⟪dim⟫Enter to confirm · Esc to cancel⟪/dim⟫\n\n\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "cursor",
+      "selected": 1,
+      "keymap": {
+        "next": "Down",
+        "prev": "Up",
+        "select": "Enter",
+        "search": false
+      }
+    },
+    "headline": "Asking which log level the worker should use"
+  }
+}

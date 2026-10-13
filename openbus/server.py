@@ -77,6 +77,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import accounts, agent_history, expunge, telemetry, tmux  # noqa: E402
+from .classify import picker_digest, picker_read  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -160,6 +161,10 @@ IMG_MAX_BYTES = (
 # anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
 # telemetry too — this bounds the READ so a huge body can't balloon memory).
 CLIENT_ERROR_MAX_BYTES = 8 * 2**10
+# After a cursor walk's key, how often and how long /send waits for the screen to redraw
+# before it reads the picker back: a terminal redraws in milliseconds, a key that moved
+# nothing never redraws, so a second bounds it.
+PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 20
 # A boot failure (web/m/index.html's watchdog) also goes to the journal, at most this often,
 # so a reload loop can't flood it; one line is enough to see what broke.
 BOOT_WARN_INTERVAL_S = 10.0
@@ -176,6 +181,10 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+    # A cursor walk's step: the picker digest of the frame it was computed from (classify's
+    # `picker`) and the prompt that locates that picker. Sent only to that very screen.
+    picker: str | None = None
+    prompt: str = ""
 
 
 class PushKeysBody(BaseModel):
@@ -934,13 +943,37 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise HTTPException(404, "pane not found")
     _invalidate_input_actions(pane.id)
+
+    def same_picker() -> None:
+        # The whole guard on a cursor walk, under the send lock: the picker, from its
+        # dialog's top edge down (the command a generic "Proceed?" approves included), must
+        # hash exactly as in the frame the step was computed from. That frame's highlight
+        # was read off the screen (classify), so the step is right for that screen and
+        # for no other: a replaced or redrawn picker, a moved highlight, another pane under
+        # a recycled id all change it. A screen that hashes the same takes the key as the
+        # walk meant it, which is why nothing about the key, row or pane is checked apart.
+        # The check and the key are two tmux calls: a keystroke at the desk landing between
+        # them is beyond any remote send's reach, and the walk rereads after every step.
+        try:
+            screen = tmux.capture_pane(pane.id, mark_dim=True)
+        except subprocess.CalledProcessError as e:  # closed since find_pane: refuse, reread
+            raise tmux.PaneChangedError(f"The pane closed; nothing was sent: {e}") from e
+        if not body.picker or picker_digest(screen, body.prompt) != body.picker:
+            msg = f"The picker {body.prompt!r} changed since it was read; nothing was sent."
+            raise tmux.PaneChangedError(msg)
+
     try:
-        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
+        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
+                       guard=None if body.picker is None else same_picker)
     except Exception as e:
         # Keys refused at a password prompt are probably the password: never recorded.
         keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
         _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
         if isinstance(e, tmux.PaneChangedError):
+            # The watcher reuses a card while its fingerprint holds, and that ignores
+            # repaints (a timer, a cost) the picker digest counts: reread, so a refused
+            # walk can go again on the next parse instead of staying refused.
+            app.state.watcher.request_reparse(pane.id)
             raise HTTPException(409, str(e)) from e
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)
@@ -950,7 +983,24 @@ def send(pane_id: str, body: SendBody, request: Request):
     # queued under an alias would simply never fire and the card would go stale until the
     # next poll.
     app.state.watcher.request_reparse(pane.id)
-    return {"ok": True}
+    return {"ok": True} if body.picker is None else {"ok": True, **_picker_after(pane.id, body)}
+
+
+def _picker_after(pane_id: str, body: SendBody) -> dict:
+    """The screen a walk's key made, read off a capture as soon as it redraws (or a second
+    on, for a key that moved nothing): the digest the next step is held to and the row
+    now highlighted. The walk plans its next step off this at once instead of waiting
+    seconds for the model's parse; null where the picker can no longer be found."""
+    read = None
+    for _ in range(PICKER_SETTLE_POLLS):
+        time.sleep(PICKER_SETTLE_S)
+        try:
+            read = picker_read(tmux.capture_pane(pane_id, mark_dim=True), body.prompt)
+        except subprocess.CalledProcessError:  # the pane closed: nothing to read
+            return {"picker": None, "row": None}
+        if not read or read[0] != body.picker:  # redrawn, or the picker is gone
+            break
+    return {"picker": read and read[0], "row": read and read[1]}
 
 
 @app.post("/api/panes/{pane_id}/click")

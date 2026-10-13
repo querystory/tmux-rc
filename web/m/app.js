@@ -3,7 +3,7 @@ import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCa
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
-import { answerBody, pickCursorRow } from "/cursor-pick.js";
+import { answerBody, pickCursorRow, STALE } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
@@ -1090,15 +1090,19 @@ async function sendKeys(body, answer = false, id = active) {
   let delivered = false;
   sending = true; notice(); render();
   try {
-    await paneInput.run(id, () => post(paneUrl(id, "send"), body));
-    delivered = true;
+    const sent = await paneInput.run(id, () => post(paneUrl(id, "send"), body));
+    delivered = sent && "picker" in sent ? sent : true; // a walk's step: the screen it made
     if (answer) {
       pendingAnswers.set(id, signature);
       setTimeout(() => { if (pendingAnswers.get(id) === signature) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
     }
     if (active === id) text($("draft-status"), "Sent");
     startState();
-  } catch { notice("Delivery could not be confirmed. Check the terminal before retrying."); }
+  } catch (error) {
+    // 409 on a cursor walk's step: nothing was sent, and the walk rereads and goes again.
+    if ("picker" in body && error.status === 409) delivered = STALE;
+    else notice("Delivery could not be confirmed. Check the terminal before retrying.");
+  }
   finally { sending = false; render(); }
   return delivered;
 }
@@ -1132,11 +1136,17 @@ function cursorIO(id) {
   // pane, which STOPS the walk: a picker the user has navigated away from should not go on
   // being driven, let alone committed, out of sight.
   const pane = () => (active === id ? panes.find((p) => p.pane_id === id) : null);
+  // What /send holds a step to: the picker screen q was read off. No pane birth is needed:
+  // another pane under a recycled id refuses unless it shows that very screen, and then
+  // the key does exactly what the walk computed. With no digest (classify grounded no
+  // highlight) there is nothing to hold a key to, so none is sent and the walk stops here.
+  const send = (body, q) => q.picker
+    && sendKeys({ ...body, enter: false, prompt: q.prompt ?? "", picker: q.picker }, false, id);
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,
-    sendKey: (k) => sendKeys({ keys: k, enter: false, literal: false }, false, id),
-    sendText: (t) => sendKeys({ keys: t, enter: false, literal: true }, false, id),
+    sendKey: (k, q) => send({ keys: k, literal: false }, q),
+    sendText: (t, q) => send({ keys: t, literal: true }, q),
     note: notice,
   };
 }
