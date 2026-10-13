@@ -429,7 +429,8 @@ def test_a_bare_yes_with_nothing_asked_never_reaches_a_pane(monkeypatch):
 
 
 @pytest.mark.parametrize(("text", "bare"), [
-    ("Yes, that's fine", True), ("that’s right, go ahead", True), ("let's go", True), ("yes, please do that", True),
+    ("Yes, that's fine", True), ("that’s right, go ahead", True), ("let's go", True),
+    ("yes, please do that", True),
     ("yes, that's the auth fix", False), ("yes, rebase it", False)])
 def test_agreement_is_matched_on_its_words(text, bare):
     assert C.only_agrees(text) is bare
