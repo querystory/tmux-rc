@@ -44,6 +44,9 @@ SNAPSHOT_HISTORY = 200
 # Restart checkpoints (docs/design/activity-clock-persistence.md): the tail of the
 # activity log stored with each card.
 CHECKPOINT_EVENTS = 100
+# A dead tmux server's checkpoints are the only record of what it ran, until the snapshot
+# in docs/design/reboot-restore.md exists. Keep them this long past their last activity.
+DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
 CARD_VERSION = 12
@@ -1089,15 +1092,18 @@ class Watcher:
     def _load_checkpoints(self, server: str, panes) -> None:
         """Read every checkpoint once, at startup. Given the FULL listing (not a
         TMUXRC_TARGET watch list), also prune: this server's preloaded rows whose pane
-        is gone, and rows of other tmux servers that are provably gone. Any
+        is gone, and rows of other tmux servers that are provably gone and idle past
+        DEAD_SERVER_RETENTION. Any
         failure leaves the preload empty, which is today's seed-from-tmux behavior."""
         self._checkpoints = {}
         try:
             self._checkpoints = self.history.load_checkpoints()
             if panes is not None:
                 alive = {pane_key(server, p.id, p.pid) for p in panes}
+                expired = time.time() - DEAD_SERVER_RETENTION
                 gone = [u for u, r in self._checkpoints.items() if u not in alive and (
-                    r["server"] == server or not _server_alive(r["server"], server))]
+                    r["server"] == server or (r["last_activity_at"] < expired
+                                              and not _server_alive(r["server"], server)))]
                 self.history.delete_checkpoints(gone)
         except Exception:
             logger.warning("pane checkpoints unavailable; seeding clocks from tmux",
