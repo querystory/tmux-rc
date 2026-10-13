@@ -167,8 +167,7 @@ def session_defaults(sessions) -> dict[str, dict[str, str | None]]:
     out = {}
     for session in ["", *sessions]:
         env = {**glob, **(tmux.show_env(session) if session else {})}
-        out[session] = {t: str(Path(os.path.expanduser(v))) if (v := env.get(ENV[t])) else None
-                        for t in ENV}
+        out[session] = {t: _canonical(v) if (v := env.get(ENV[t])) else None for t in ENV}
     return out
 
 

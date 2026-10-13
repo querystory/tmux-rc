@@ -175,6 +175,9 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
     # The global environment applies where the session sets nothing.
     assert report["sessions"]["work"]["claude"] == str(home / ".claude-personal")
     assert report["sessions"][""]["claude"] == str(home / ".claude-personal")  # a new session
+    shown["work"] = {"CLAUDE_CONFIG_DIR": f"{home}/.claude//../.claude-personal/"}  # an alias
+    work = accounts.report(states, lambda pane_id: pane_id[1:])["sessions"]["work"]
+    assert work["claude"] == str(home / ".claude-personal")
     # A session that removed it (-CLAUDE_CONFIG_DIR) sets nothing, like one that never set it.
     shown["work"] = {"CLAUDE_CONFIG_DIR": ""}  # how show_env reads "-CLAUDE_CONFIG_DIR"
     assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"]["work"] == {
