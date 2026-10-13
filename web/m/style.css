@@ -751,7 +751,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
-.usage-cell > span, .usage-cell :is(em, small), .usage-cell.none { color: var(--muted); } /* not the chip */
+.usage-cell > span:not(.acct-badge), .usage-cell :is(em, small), .usage-cell.none { color: var(--muted); } /* not the chip */
 .usage-cell em { font-style: normal; font-size: 11px; }
 @container (max-width: 130px) { .usage-cell em { display: none; } } /* the sidebar's narrowest cells keep the window and %, not the word */
 .usage-cell > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* account names are user-chosen: truncate, never push the % out */
@@ -901,9 +901,9 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* Agent accounts (accounts.js): drawn only for a provider with two or more. */
 .acct-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--a); }
 .acct-dot.none { background: none; border: 1px solid var(--muted); }
-.acct-badge { --a: var(--muted); display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 0 6px 0 5px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.45; white-space: nowrap; color: var(--a); border: 1px solid color-mix(in srgb, var(--a) 45%, transparent); background: color-mix(in srgb, var(--a) 10%, transparent); }
+.acct-badge { --a: var(--muted); display: inline-flex; align-items: center; gap: 4px; flex: none; max-width: 100%; padding: 0 6px 0 5px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.45; white-space: nowrap; color: var(--a); border: 1px solid color-mix(in srgb, var(--a) 45%, transparent); background: color-mix(in srgb, var(--a) 10%, transparent); }
 .acct-badge .acct-dot { width: 6px; height: 6px; }
-.acct-badge > span { overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: where the chip may shrink, they truncate */
+.acct-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: the chip stays in its box */
 .row-acct:empty, .sb-acct:empty { display: none; }
 .sb-acct .acct-badge { margin-left: 4px; font-size: 10.5px; vertical-align: 1px; }
 #pane-location .acct-badge { vertical-align: 1px; }
