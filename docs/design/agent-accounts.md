@@ -153,8 +153,12 @@ file-history there, and nothing else, then copies afresh; **Resume that copy** o
 as it is. Either is an explicit flag on the request, so a client that does not know about
 the choice still gets the refusal. Replacing gives up the older copy before the new one
 lands, which is acceptable because the original it came from is still on the source
-account. A copy that fails partway is removed, and copies run one at a time so two
-requests cannot pass the check together. Nothing is written or deleted through a folder
+account. Neither choice is offered for a copy that an agent is running on the target right
+now (one started with the session id on its command line, as every move's is): replacing
+files under a live agent strands its later writes, and resuming it twice puts two agents
+on one transcript. Moves run one at a time, through the new window's launch, so two
+requests cannot pass these checks together, and the sheet takes one tap at a time. A copy
+that fails partway is removed. Nothing is written or deleted through a folder
 in the target that links out of it, and the agent's command is checked to exist before
 anything is copied, so a resume that cannot start leaves no stray copy. The pane's own
 account is refused too, whatever the dir's spelling, and the sheet reloads the accounts

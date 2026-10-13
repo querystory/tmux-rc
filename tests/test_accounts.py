@@ -4,6 +4,8 @@ fictional one under tmp_path; no credentials file is ever written or read."""
 import json
 import os
 import stat
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -351,6 +353,20 @@ def test_an_older_copy_is_replaced_or_resumed_only_when_asked(client, home, movi
     assert argv[-2:] == ["--resume", SID]
     _signed_in(home / ".claude-empty", "u-e")
     assert moving(".claude-empty", resume_existing=True).status_code == 409  # no copy there
+
+
+def test_a_copy_running_on_the_target_is_never_replaced_or_resumed_twice(home, moving):
+    assert moving(".claude-personal").status_code == 200
+    env = {**os.environ, "CLAUDE_CONFIG_DIR": str(home / ".claude-personal")}
+    agent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", SID], env=env)
+    try:
+        for flag in ("replace", "resume_existing"):
+            r = moving(".claude-personal", **{flag: True})
+            assert r.status_code == 409 and "running there" in r.json()["detail"]
+    finally:
+        agent.kill()
+        agent.wait()
+    assert moving(".claude-personal", resume_existing=True).status_code == 200
 
 
 def test_a_move_writes_nothing_through_a_link_out_of_the_account(home, moving, tmp_path):

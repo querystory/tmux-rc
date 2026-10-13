@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 
 from . import plan_usage, tmux
-from .expunge import _FILES, Session
+from .expunge import _FILES, Refused, Session, _home
 from .plan_usage import ENV
 
 COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
@@ -275,19 +275,27 @@ def copied_at(s: Session, target: Path) -> float | None:
     return max((p.lstat().st_ctime for p in files(s, target)), default=None)
 
 
+def running(s: Session, target: Path) -> bool:
+    """Whether an agent other than `s` runs this session on `target`: one started with its
+    id on the command line, as a move's resume is (a session picked inside the agent's own
+    menu goes unseen)."""
+    dst = target.resolve()
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        if int(pid) != s.pid and s.session_id in tmux.proc_read(pid, "cmdline").split("\0"):
+            with contextlib.suppress(Refused):
+                if _home(int(pid), ENV[s.harness], f".{s.harness}").resolve() == dst:
+                    return True
+    return False
+
+
 def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str]:
     """Copy the session's files into another account's dir, at the same relative paths, so
     the agent there resumes it; the original stays. Refuses, copying nothing, when there
     is no transcript yet, when either dir holds the other or a folder on the way links out
     of the target, or when the target already has the session, unless `replace`: then that
     session's files there, and nothing else, are deleted first. Undoes a copy that fails
-    partway. One at a time, so two moves can never both pass the check and then
-    overwrite, or roll back, each other's copy."""
-    with _LOCK:
-        return _copy_session(s, target, replace)
-
-
-def _copy_session(s: Session, target: Path, replace: bool) -> list[str]:
+    partway. The caller runs one at a time (server._MOVES), so two moves can never both
+    pass the check and then overwrite, or roll back, each other's copy."""
     src, dst = s.root.resolve(), target.resolve()
     if src.is_relative_to(dst) or dst.is_relative_to(src):
         raise ValueError("one account's dir is inside the other's")

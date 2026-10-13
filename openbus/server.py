@@ -1363,6 +1363,9 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
     return {"ok": True, **result, "killed": killed}
 
 
+_MOVES = threading.Lock()
+
+
 @app.post("/api/panes/{pane_id}/move")
 def move_session(pane_id: str, body: MoveBody, request: Request):
     """Copy the pane's agent session to another account and resume it there, in a new
@@ -1385,27 +1388,31 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         _refuse(request, "move_session", detail, 409, "the session is already on that account")
     if why := _unavailable(argv[0], tmux.server_path()):  # before copying anything
         _refuse(request, "move_session", detail, 400, why)
-    copied = []
-    try:
-        if not body.resume_existing:
-            copied = accounts.copy_session(s, target, replace=body.replace)
-        elif accounts.copied_at(s, target) is None:
-            _refuse(request, "move_session", detail, 409, "that account has no copy of it")
-    except FileExistsError as e:  # the sheet offers to replace or resume it
-        _refuse(request, "move_session", detail, 409, str(e),
-                copied=accounts.copied_at(s, target))
-    except (LookupError, ValueError) as e:
-        _refuse(request, "move_session", detail, 409, str(e))
-    except OSError as e:  # only the type: the message can carry a path
-        _audit(request, "move_session", pane_id, detail, outcome=f"error: {type(e).__name__}")
-        raise HTTPException(500, "the session could not be copied: nothing was kept") from e
-    try:  # the copy stays: the session can still be resumed there by hand
-        new = tmux.new_window(pane.session, f"{argv[0]} on {profile['name']}"[:40],
-                              accounts.command(s.harness, profile["dir"], argv), cwd=cwd)
-    except subprocess.CalledProcessError as e:
-        _audit(request, "move_session", pane_id, detail, outcome="error: copied, no window")
-        raise HTTPException(500, "the session was copied, but its window could not be "
-                                 "opened") from e
+    with _MOVES:  # through the launch, so a second request sees the first one's agent
+        if (body.replace or body.resume_existing) and accounts.running(s, target):
+            _refuse(request, "move_session", detail, 409,
+                    "that copy is running there now: exit it first")
+        copied = []
+        try:
+            if not body.resume_existing:
+                copied = accounts.copy_session(s, target, replace=body.replace)
+            elif accounts.copied_at(s, target) is None:
+                _refuse(request, "move_session", detail, 409, "that account has no copy of it")
+        except FileExistsError as e:  # the sheet offers to replace or resume it
+            _refuse(request, "move_session", detail, 409, str(e),
+                    copied=accounts.copied_at(s, target))
+        except (LookupError, ValueError) as e:
+            _refuse(request, "move_session", detail, 409, str(e))
+        except OSError as e:  # only the type: the message can carry a path
+            _audit(request, "move_session", pane_id, detail, outcome=f"error: {type(e).__name__}")
+            raise HTTPException(500, "the session could not be copied: nothing was kept") from e
+        try:  # the copy stays: the session can still be resumed there by hand
+            new = tmux.new_window(pane.session, f"{argv[0]} on {profile['name']}"[:40],
+                                  accounts.command(s.harness, profile["dir"], argv), cwd=cwd)
+        except subprocess.CalledProcessError as e:
+            _audit(request, "move_session", pane_id, detail, outcome="error: copied, no window")
+            raise HTTPException(500, "the session was copied, but its window could not be "
+                                     "opened") from e
     _audit(request, "move_session", new, f"from={pane.id} {detail}")
     return {**_opened(new), "copied": copied, "session_id": s.session_id}
 

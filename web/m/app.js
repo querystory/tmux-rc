@@ -1627,14 +1627,19 @@ $("move-pane").onclick = async () => {
       const button = document.createElement("button");
       html(button, `<span><strong>${label}</strong><small></small></span>${licon("chevron")}`);
       text(button.querySelector("small"), sub);
-      button.onclick = act;
+      button.onclick = async () => { // one choice at a time: a second tap waits out the first
+        if ($("move-choices").inert) return;
+        $("move-choices").inert = true;
+        try { await act(); } finally { $("move-choices").inert = false; }
+      };
       return button;
     }));
   };
   const go = (id) => { $("move-dialog").close(); openLaunched(id); };
   const move = async (p, flags = {}) => {
     try {
-      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, ...flags });
+      // A long transcript takes a while to copy; giving up early would invite a retry of a move still under way.
+      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, ...flags }, 120000);
       sheet(`It is running on ${p.name} in a new window. This window still runs it on this account until it exits.`, [
         ["Go to the new window", "", () => go(r.pane_id)],
         ["Exit the old pane", "Types /exit here, then goes to the new window", async () => {
