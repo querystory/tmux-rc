@@ -307,11 +307,13 @@ try {
     await page.evaluate(() => document.fonts.ready);
     // Long polls never let the network idle, so wait for the pixels instead: shoot until two
     // frames in a row agree (charts and the live frame are still settling before that).
+    // `crop`: just that sheet, when it is open (a base without it is shot whole).
+    const target = crop && await page.locator(crop).isVisible() ? page.locator(crop) : page;
     let last, shot;
     for (let i = 0; i < 20 && !(shot && last?.equals(shot)); i++) {
       last = shot;
       await page.waitForTimeout(500);
-      shot = await (crop ? page.locator(crop) : page).screenshot(); // `crop`: just that sheet
+      shot = await target.screenshot();
     }
     // Never write a frame that did not settle: that is how nondeterminism slips in unseen.
     if (!last?.equals(shot)) throw new Error(`${name}: still changing after 10s`);

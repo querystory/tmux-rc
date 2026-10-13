@@ -62,6 +62,12 @@ def _save(data: dict) -> None:
     tmp.replace(path)
 
 
+def _canonical(config: str) -> str:
+    """One spelling per dir: ~ expanded and "..", "." and doubled slashes folded, so an
+    alias can't list one login twice."""
+    return os.path.normpath(os.path.expanduser(config))
+
+
 def default_dir(provider: str) -> Path:
     return Path.home() / f".{provider}"
 
@@ -142,7 +148,7 @@ def _distinguish(unlabelled: list[dict]) -> None:
 
 def find(config: str, provider: str | None = None) -> dict | None:
     """The listed profile for this config dir (and provider, if given), or None."""
-    path = str(Path(os.path.expanduser(config)))
+    path = _canonical(config)
     return next((p for p in profiles() if p["dir"] == path
                  and provider in (None, p["provider"])), None)
 
@@ -198,7 +204,7 @@ def add(provider: str, config: str, label: str, link: list[str]) -> dict:
 
 
 def _add(provider: str, config: str, label: str, link: list[str]) -> dict:
-    path = Path(os.path.expanduser(config))
+    path = Path(_canonical(config))
     if not path.is_absolute():
         raise ValueError("the config dir must be an absolute path")
     if (listed := find(str(path))) and listed["signed_in"]:  # a sign-in never finished: resumed

@@ -915,7 +915,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #acct-filter .acct-opt[aria-checked="true"] { font-weight: 600; }
 #acct-filter .acct-opt[aria-checked="true"] svg { visibility: visible; }
 #sb-head #more-menu { margin-left: auto; }
-#app.rail #sb-head #more-menu { display: none; }
+#app.rail :is(#sb-head #more-menu, .acct-pill) { display: none; }
 /* The strip: one row, swiped sideways, snapping per meter, two to a phone's width. */
 :is(#usage, #usage-board).acct-strip:not([hidden]) { display: flex; }
 .acct-strip { gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; }
