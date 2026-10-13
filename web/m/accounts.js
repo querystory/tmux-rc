@@ -234,9 +234,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     clearTimeout(poll);
     if (F.step !== "login" || !F.pane) return;
     await refresh();
+    if (!dlg.open && !F.away) return; // closed while that was in flight: the watch is over
     // Signed in, even while away in the sign-in window: back to the sheet, at Done.
     if (byDir(F.dir)?.signed_in) { F.away = false; go("done"); if (!dlg.open) dlg.showModal(); return; }
-    if (!dlg.open && !F.away) return;
     // Gone once seen, or never seen within a grace: the page's state can lag the new window.
     if (paneAlive(F.pane)) F.seen = true;
     else if (F.seen || Date.now() - F.openedAt > 15000) return go("abandoned");

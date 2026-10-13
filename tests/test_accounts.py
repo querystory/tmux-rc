@@ -224,6 +224,20 @@ def test_a_new_window_launches_on_the_picked_account(client, home):
                                                  "account": str(account)}).status_code == 404
 
 
+def test_a_new_session_starts_on_the_picked_account(client, home, tmp_path, monkeypatch):
+    monkeypatch.setattr(T, "server_env", dict)
+    monkeypatch.setattr(T, "server_running", lambda: True)
+    for account, pin in ((".claude-personal", [f"CLAUDE_CONFIG_DIR={home}/.claude-personal"]),
+                         (".claude", ["-u", "CLAUDE_CONFIG_DIR"])):  # the default: unset
+        client.calls.clear()
+        body = {"name": "s", "cwd": str(tmp_path), "launcher": "Claude",
+                "account": str(home / account)}
+        r = client.post("/api/sessions", json=body)
+        assert r.status_code == 200, r.text
+        argv = next(a for a in client.calls if a[0] == "new-session")
+        assert argv[argv.index("env"):] == ["env", *pin, "sh", "-c", "claude"]
+
+
 def test_the_session_default_and_the_sign_in_window(client, home):
     personal = {"session": "work", "dir": str(home / ".claude-personal")}
     assert client.post("/api/accounts/default", json=personal).status_code == 200
