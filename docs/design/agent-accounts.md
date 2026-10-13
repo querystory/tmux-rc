@@ -155,7 +155,8 @@ the choice still gets the refusal. Replacing gives up the older copy before the 
 lands, which is acceptable because the original it came from is still on the source
 account. Resume needs that copy's transcript, not just any of its files. No move at all,
 and so neither choice, is offered for a copy that an agent is running on the target right
-now: Claude's registration of it there, a process holding one of its files open (Codex's
+now: Claude's registration of it there (one that can't be read counts, since it could be
+this session), a process holding one of its files open (Codex's
 app-server keeps the rollout open), or, in the moment before either exists, the session
 id on a command line, as a move's resume has: replacing
 files under a live agent strands its later writes, and resuming it twice puts two agents
@@ -164,7 +165,7 @@ requests cannot pass these checks together, and the sheet takes one tap at a tim
 that fails partway is removed. Nothing is written or deleted through a folder
 in the target that links out of it, and the agent's command is checked to exist before
 anything is copied, so a resume that cannot start leaves no stray copy. The pane's own
-account is refused too, whatever the dir's spelling, and the sheet reloads the accounts
+account is refused too, compared by identity so no spelling, link or bind mount slips by, and the sheet reloads the accounts
 before listing them, since a window the move itself just opened may not have been
 attributed to its account yet.
 

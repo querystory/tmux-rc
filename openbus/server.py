@@ -1384,7 +1384,7 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         _refuse(request, "move_session", detail, 404, "not a signed-in account")
     detail = f"session={s.session_id} {detail}"
     target, argv = Path(profile["dir"]), [*accounts.RESUME[s.harness], s.session_id]
-    if target.resolve() == s.root.resolve():
+    if target.samefile(s.root):  # whatever the spelling, link or mount
         _refuse(request, "move_session", detail, 409, "the session is already on that account")
     if body.replace and body.resume_existing:
         _refuse(request, "move_session", detail, 400, "replace or resume, not both")
@@ -1393,7 +1393,7 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
     with _MOVES:  # through the launch, so a second request sees the first one's agent
         if accounts.running(s, target):  # so its copy is neither offered nor touched
             _refuse(request, "move_session", detail, 409,
-                    "it is already running on that account: go to that window")
+                    "it is running on that account, or may be: go to that window")
         copied = []
         try:
             if not body.resume_existing:

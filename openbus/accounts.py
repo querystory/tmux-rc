@@ -290,16 +290,19 @@ def copied_at(s: Session, target: Path) -> float | None:
 
 
 def running(s: Session, target: Path) -> bool:
-    """Whether an agent other than `s` runs this session on `target`, by any of three signs:
-    Claude's registration of it there (a live pid with the start time it recorded); a
+    """Whether an agent other than `s` runs this session on `target`, or may: by any of three
+    signs: Claude's registration of it there (a live pid with the start time it recorded,
+    or a registration that can't be read, which could be it); a
     process holding one of its files there open (Codex's app-server keeps the rollout open);
     or, before either exists, the session id on a command line, as a move's resume has."""
     for path in target.glob("sessions/*.json"):
-        with contextlib.suppress(Refused):
+        try:
             reg = _registration(path)
-            if (reg.get("sessionId") == s.session_id and reg["pid"] != s.pid
-                    and _stat(reg["pid"])[19:20] == [reg["procStart"]]):
-                return True
+        except Refused:
+            return True
+        if (reg.get("sessionId") == s.session_id and reg["pid"] != s.pid
+                and _stat(reg["pid"])[19:20] == [reg["procStart"]]):
+            return True
     dst, held = target.resolve(), {str(p.resolve()) for p in files(s, target)}
     for pid in filter(str.isdigit, os.listdir("/proc")):
         if int(pid) == s.pid:
@@ -324,7 +327,7 @@ def copy_session(s: Session, target: Path, *, replace: bool = False) -> list[str
     partway. The caller runs one at a time (server._MOVES), so two moves can never both
     pass the check and then overwrite, or roll back, each other's copy."""
     src, dst = s.root.resolve(), target.resolve()
-    if src.is_relative_to(dst) or dst.is_relative_to(src):
+    if src.is_relative_to(dst) or dst.is_relative_to(src) or src.samefile(dst):  # a bind mount
         raise ValueError("one account's dir is inside the other's")
     paths, old = files(s, s.root), files(s, target)
     if not resumable(paths):  # a session only registered so far
