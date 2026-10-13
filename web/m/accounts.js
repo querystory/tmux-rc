@@ -199,7 +199,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         + (F.session ? `<label class="acct-check"><input type="checkbox" id="acct-make-default" checked><span>Make ${esc(F.name)} the default for session <b>${esc(F.session)}</b><small>New windows there start on ${esc(F.name)}; running panes keep their account.</small></span></label>` : "")
         + btns('<button class="primary" data-done>Done</button>');
     }
-    if (F.error) dlg.querySelector(".acct-btns")?.insertAdjacentHTML("beforebegin", `<p class="acct-msg err">${esc(F.error)}</p>`);
+    // Above the buttons, or under the rename row, which has none.
+    const b = dlg.querySelector(".acct-btns"), at = b || dlg.querySelector("#acct-rename")?.parentElement;
+    if (F.error) at?.insertAdjacentHTML(b ? "beforebegin" : "afterend", `<p class="acct-msg err" role="alert">${esc(F.error)}</p>`);
   }
   function open(step) {
     F = { step, name: "", provider: "claude", dir: "~/.claude-new", session: sessions()[0] || "" };
