@@ -109,12 +109,15 @@ function addFlow(until) {
     await page.waitForSelector("#acct-make-default", { timeout: 20000 });
   };
 }
-// Once the accounts have arrived (after the panes), the step; a base from before accounts
-// draws no badge, and is shot as it is.
+// Once the accounts have arrived (after the panes), the step. A base from before accounts
+// (no accounts.js preload) is shot as it is; on any other, a missing badge fails the shot.
 function two(step) {
   return async (page) => {
+    if (!await page.locator('link[href="/m/accounts.js"]').count()) return;
     // Attached, not visible: a phone's dashboard has its badged rows hidden.
-    if (await page.locator(".acct-badge").first().waitFor({ state: "attached", timeout: 5000 }).then(() => true, () => false)) await step?.(page);
+    await page.locator(".acct-badge").first().waitFor({ state: "attached" })
+      .catch((e) => { throw Object.assign(new Error(`no account badge: ${e.message}`), { loud: true }); });
+    await step?.(page);
   };
 }
 
@@ -291,8 +294,8 @@ try {
     await page.goto(`${base}/m/${hash}`);
     await page.addStyleTag({ content: STILL });
     await state;
-    // A step written against one UI may not fit another; shoot what is there either way.
-    await step?.(page).catch((e) => console.warn(`${name}: step failed, shooting as is: ${e.message}`));
+    // A step written against one UI may not fit another; shoot what is there, unless it says otherwise.
+    await step?.(page).catch((e) => { if (e.loud) throw e; console.warn(`${name}: step failed, shooting as is: ${e.message}`); });
     await page.evaluate(() => document.fonts.ready);
     // Long polls never let the network idle, so wait for the pixels instead: shoot until two
     // frames in a row agree (charts and the live frame are still settling before that).
