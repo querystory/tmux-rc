@@ -10,7 +10,7 @@ import (
 
 func TestRunningClaude(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	dir := filepath.Join(claudeDir(), "sessions")
+	dir := filepath.Join(claudeDirs()[0], "sessions")
 	must(t, os.MkdirAll(dir, 0o700))
 	register := func(name string, pid int, start, tmux string) {
 		body := fmt.Sprintf(`{"pid":%d,"sessionId":%q,"procStart":%q,"tmux":%q,"status":"idle"}`, pid, name, start, tmux)
@@ -68,7 +68,7 @@ func TestRunningClaudeUnreadableIsAnError(t *testing.T) {
 		t.Skip("root reads anything")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	dir := filepath.Join(claudeDir(), "sessions")
+	dir := filepath.Join(claudeDirs()[0], "sessions")
 	must(t, os.MkdirAll(dir, 0o000))
 	defer os.Chmod(dir, 0o700)
 	if _, err := RunningClaude(); err == nil {

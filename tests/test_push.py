@@ -245,6 +245,37 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     with_option = push.contract(pane, "123")[0]
     pane["activity"] = "running"
     assert push.contract(pane, "123")[0] != with_option
+    with_option = push.contract(pane, "123")[0]
+    pane["question"]["items"] = ["1. Prune old images."]
+    assert push.contract(pane, "123")[0] != with_option
+
+
+def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting({"prompt": "Do 1 now?", "answer_style": "text",
+                               "options": ["Yes", "No"], "items": ["1. Prune old images."]})]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert sender.payloads[0]["body"] == "Do 1 now?\n1. Prune old images."
+    assert [a["title"] for a in sender.payloads[0]["actions"]] == ["Yes", "No"]
+    # Rows the body cannot fit would be approved unseen: the notification only opens the app.
+    watcher.states = [waiting({"prompt": "Do 1-4 now?", "answer_style": "text",
+                               "options": ["Yes", "No"],
+                               "items": [f"{n}. " + "x" * 115 for n in range(1, 5)]})]
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert sender.payloads[1]["actions"] == [] and sender.payloads[1]["nonce"] is None
+    # Raw model fields are unvalidated: a numeric headline still notifies, as text.
+    watcher.states = [{**waiting(), "headline": 42}]
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert sender.payloads[2]["body"] == "42"
 
 
 def test_subscription_only_accepts_known_push_relays(tmp_path):
@@ -598,3 +629,14 @@ def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkey
         service.answer(nonce, 0)
     with pytest.raises(ValueError, match="already used"):
         service.answer(nonce, 0)
+
+
+def test_chat_card_notifies_without_answer_actions(tmp_path: Path):
+    """A chat proposal is approved in the app, never from the notification: no nonce, no
+    actions, and the chat flag tells sw.js to bring the chat back rather than navigate."""
+    value, sender = manager(tmp_path, Watcher(), [0.0])
+    assert value.chat("p1", "Send to window 3: " + "x" * 500)
+    (payload,) = sender.payloads
+    assert payload["title"] == "Chat needs you" and payload["chat"] == "p1"  # its card
+    assert payload["body"].startswith("Send to window 3: ") and len(payload["body"]) == 400
+    assert payload["actions"] == [] and "nonce" not in payload

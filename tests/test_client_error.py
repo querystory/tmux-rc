@@ -109,3 +109,15 @@ def test_untrusted_ua_class_ignores_client_claim(monkeypatch):
         headers={"user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17)"},
     )
     assert seen["attrs"]["ua_class"] == "ios"
+
+
+def test_boot_failure_logs_a_rate_limited_warning(monkeypatch, caplog):
+    _capture(monkeypatch)
+    monkeypatch.setattr(server, "_boot_warn_after", [0.0])
+    c = TestClient(server.app)
+    for msg in ("failed to load /m/app.js", "second"):
+        c.post("/api/client-error", json={"kind": "boot", "message": msg},
+               headers={"user-agent": "iPhone Safari"})
+    c.post("/api/client-error", json={"kind": "mic", "message": "denied"})
+    warned = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert warned == ["client boot failed: 'failed to load /m/app.js' ['iPhone Safari']"]

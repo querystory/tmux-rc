@@ -190,7 +190,7 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 	lock.Close()
 
 	// A run that could not handle every transcript is not recorded either.
-	project := filepath.Join(claudeDir(), "projects", "p")
+	project := filepath.Join(claudeDirs()[0], "projects", "p")
 	must(t, os.MkdirAll(project, 0o700))
 	unreadable := filepath.Join(project, "s.jsonl")
 	must(t, os.WriteFile(unreadable, nil, 0o000))
@@ -271,5 +271,22 @@ func check(t *testing.T, name, got, want string) {
 	t.Helper()
 	if got != want {
 		t.Errorf("%s = %q, want %q", name, got, want)
+	}
+}
+
+func TestEveryAccountInHomeIsIndexed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	for _, dir := range []string{".claude", ".claude-personal"} {
+		project := filepath.Join(home, dir, "projects", "p")
+		must(t, os.MkdirAll(project, 0o700))
+		must(t, os.WriteFile(filepath.Join(project, dir[1:]+".jsonl"), nil, 0o600))
+	}
+	must(t, os.WriteFile(filepath.Join(home, ".claude-backup"), nil, 0o600)) // a file, not an account
+	sessions, err := claudeSessions()
+	must(t, err)
+	if len(sessions) != 2 {
+		t.Fatalf("want a session from each config dir, got %v", sessions)
 	}
 }
