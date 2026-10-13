@@ -444,6 +444,10 @@ def test_exit_types_the_agents_own_exit_into_that_pane_only(client, moving, monk
     assert exit_().status_code == 200
     (args, kw), = sent
     assert args == ("%9", "/exit") and kw["expected_pid"] == ""
+    def broken(*_a, **_k):
+        raise OSError("no tmux")
+    monkeypatch.setattr(T, "send_keys", broken)
+    assert exit_().status_code == 500
     def gone(*_a):
         raise S.HTTPException(409, "the agent exited")
     def changed(*_a, **k):  # the agent exited while the send waited for the pane's lock

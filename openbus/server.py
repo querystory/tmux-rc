@@ -1435,6 +1435,9 @@ def exit_agent(pane_id: str, body: ExpungeBody, request: Request):
         _refuse(request, "exit_agent", detail, e.status_code, e.detail)
     except tmux.PaneChangedError as e:
         _refuse(request, "exit_agent", detail, 409, str(e))
+    except (OSError, subprocess.CalledProcessError) as e:
+        _audit(request, "exit_agent", pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise HTTPException(500, "tmux could not type /exit into the pane") from e
     _audit(request, "exit_agent", pane.id, detail)
     return {"ok": True}
 
