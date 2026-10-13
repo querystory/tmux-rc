@@ -96,7 +96,10 @@ function addFlow(until) {
   return async (page) => {
     await page.click("#more-button"); await page.click("#accounts-open");
     const added = page.locator('#acct-dialog [data-remove="~/.claude-demo"]'); // by an earlier shot
-    if (await added.count()) { await added.click(); await page.click("#acct-dialog [data-remove-ok]"); await added.waitFor({ state: "detached" }); }
+    if (await added.count()) { // remove it, and wait for the list to come back without it
+      await added.click(); await page.click("#acct-dialog [data-remove-ok]");
+      await page.locator("#acct-dialog [data-remove-ok]").waitFor({ state: "detached" });
+    }
     await page.click("#acct-dialog [data-add]");
     await page.fill("#acct-name", "Demo");
     if (until === "name") return;

@@ -28,8 +28,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     return p?.signed_in ? p : null;
   };
 
+  let asked = 0; // only the newest answer counts: an older one landing late would undo a change
   async function refresh() {
-    try { ({ profiles, sessions: defaults, shared } = await request("/api/accounts")); } catch { return; }
+    const mine = ++asked;
+    try {
+      const data = await request("/api/accounts");
+      if (mine !== asked) return;
+      ({ profiles, sessions: defaults, shared } = data);
+    } catch { return; }
     paintMenu(); repaint();
     if (dlg.open && F.step === "list" && !F.renaming) render();
   }
@@ -250,7 +256,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
       if ("renameSave" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.renaming, label: dlg.querySelector("#acct-rename").value }) }); await refresh(); return go("list"); }
       // Leaving an unfinished sign-in: close the window it opened, if asked (that pane only).
       if (F.step === "abandoned" && dlg.querySelector("#acct-close")?.checked) {
-        await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }).catch(() => {});
+        await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); // a failed close stops the removal
         F.pane = null;
       }
       if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); if ((F.removing || F.dir) === filter) setFilter(null); await refresh(); return go("list"); }
