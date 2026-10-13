@@ -80,7 +80,7 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
 # A tab strip under a dialog's top rule ("Settings  Status  Config  Usage  Stats") is a
-# panel the user opened and is browsing (/config, /plugin). The agent is not asking: a row
+# panel the user opened and is browsing (/config). The agent is not asking: a row
 # there toggles a setting or opens a page and the panel stays, so it is no question. Only
 # while it is still open: the screen's last row is its own footer ("… ↑ to tabs · Esc to
 # clear"), not that of any later dialog, framed or ruled, drawn below a lookalike.
