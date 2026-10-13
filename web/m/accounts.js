@@ -81,14 +81,17 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
   const byUrgency = (list) => list.flatMap((a) => a.windows?.length ? a.windows.map((w) => ({ ...a, windows: [w] })) : [a])
     .sort((a, b) => urgency(b.windows?.[0]) - urgency(a.windows?.[0]));
-  // One swipeable row: the edge fades only while there is more that way.
+  // One swipeable row: the edge fades only while there is more that way, rechecked on a
+  // resize too (a wider strip fits more meters: style.css).
   function strip(el, on) {
     el.classList.toggle("acct-strip", on);
-    const edge = () => {
+    el.onscroll ||= () => { // reads the class: the board's groups() may since have dropped it
+      const on = el.classList.contains("acct-strip");
       el.classList.toggle("more-r", on && el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
       el.classList.toggle("more-l", on && el.scrollLeft > 2);
     };
-    el.onscroll = edge; edge();
+    el.onscroll();
+    (el._resize ||= new ResizeObserver(() => el.onscroll())).observe(el);
   }
   // The wide dashboard: one row of capped meters, each account's group labelled, details in
   // its tooltip; it wraps only when they don't fit. The label names the account once over
