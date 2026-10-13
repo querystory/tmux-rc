@@ -49,7 +49,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     const on = active(), opts = [[null, "All accounts"], ...signedIn().map((p) => [p, p.name])];
     menuFilter.hidden = !any();
     menuFilter.innerHTML = any() ? '<div class="menu-sec">Filter</div>' + opts.map(([p, name]) =>
-      `<button type="button" class="acct-opt" role="menuitemradio" data-dir="${esc(p?.dir || "")}" aria-checked="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${esc(name)}</span>${licon("check", 16)}</button>`).join("") + "<hr>" : "";
+      `<button type="button" class="acct-opt" data-dir="${esc(p?.dir || "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${esc(name)}</span>${licon("check", 16)}</button>`).join("") + "<hr>" : "";
     $("more-menu").classList.toggle("filtered", !!on);
     $("more-menu").style.setProperty("--a", on ? `var(--acct-${on.color})` : "");
     pill.hidden = !on;
@@ -112,8 +112,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         const def = defaultOf(session, provider), mine = signedIn().filter((p) => p.provider === provider);
         const pick = byDir(picks[provider]) || def || mine[0];
         picks[provider] = pick.dir;
-        return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"}</label><div class="acct-pick" role="radiogroup">`
-          + mine.map((p) => `<button type="button" role="radio" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-checked="${p === pick}" style="--a:var(--acct-${p.color})">${dot(p)}<span><strong>${esc(p.name)}</strong><small>${esc([p.who !== p.name && p.who, p.tilde].filter(Boolean).join(" · "))}</small></span></button>`).join("")
+        return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"}</label><div class="acct-pick">`
+          + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})">${dot(p)}<span><strong>${esc(p.name)}</strong><small>${esc([p.who !== p.name && p.who, p.tilde].filter(Boolean).join(" · "))}</small></span></button>`).join("")
           + `<button type="button" class="add" data-add>+ Add account</button></div>`
           + `<p class="acct-hint">${hint(session, provider, def)}</p>`
           // Always in view: the session's default, set with tmux set-environment on change.
@@ -208,10 +208,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const go = (step, extra = {}) => { Object.assign(F, { renaming: null, removing: null, error: null, ...extra, step }); render(); };
   const fail = (error) => { F.error = error.detail || "That did not work. Try again."; render(); };
   const typed = (id) => { const at = dlg.querySelector(`#${id}`).selectionStart; render(); const i = dlg.querySelector(`#${id}`); i.focus(); i.setSelectionRange(at, at); };
-  dlg.addEventListener("input", (e) => {
+  // Not mid-composition: re-rendering would detach an IME's input; compositionend catches up.
+  const onType = (e) => {
+    if (e.isComposing) return;
     if (e.target.id === "acct-name") { F.name = e.target.value; if (!F.dirTouched) F.dir = `~/.${F.provider}-${slug(F.name)}`; typed("acct-name"); }
     if (e.target.id === "acct-dir") { F.dir = e.target.value.trim(); F.dirTouched = true; typed("acct-dir"); }
-  });
+  };
+  dlg.addEventListener("input", onType);
+  dlg.addEventListener("compositionend", onType);
   dlg.addEventListener("change", (e) => { if (e.target.id === "acct-session") F.session = e.target.value; });
   // Closing stops the sign-in watch, unless the user left for the sign-in window (Go to window).
   dlg.addEventListener("close", () => { if (!F.away) clearTimeout(poll); refresh(); });
@@ -247,7 +251,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }).catch(() => {});
         F.pane = null;
       }
-      if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); await refresh(); return go("list"); }
+      if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); if ((F.removing || F.dir) === filter) setFilter(null); await refresh(); return go("list"); }
       if ("create" in d) {
         const link = d.create ? [...dlg.querySelectorAll("[data-link]:checked")].map((i) => i.dataset.link) : [];
         const added = await post("/api/accounts", { provider: F.provider, dir: F.dir, label: F.name, link });

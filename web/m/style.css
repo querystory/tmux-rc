@@ -912,8 +912,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #acct-filter hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 #acct-filter .acct-opt { width: 100%; gap: 10px; padding: 6px 14px 6px 12px; white-space: nowrap; }
 #acct-filter .acct-opt svg { margin-left: auto; color: var(--accent); visibility: hidden; }
-#acct-filter .acct-opt[aria-checked="true"] { font-weight: 600; }
-#acct-filter .acct-opt[aria-checked="true"] svg { visibility: visible; }
+#acct-filter .acct-opt[aria-pressed="true"] { font-weight: 600; }
+#acct-filter .acct-opt[aria-pressed="true"] svg { visibility: visible; }
 #sb-head #more-menu { margin-left: auto; }
 #app.rail :is(#sb-head #more-menu, .acct-pill) { display: none; }
 /* The strip: one row, swiped sideways, snapping per meter, two to a phone's width. */
@@ -936,7 +936,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* New window's picker and the Accounts dialog. */
 .acct-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 6px; }
 .acct-pick button { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 12px; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
-.acct-pick button[aria-checked="true"] { border-color: var(--a); box-shadow: inset 0 0 0 1px var(--a); background: color-mix(in srgb, var(--a) 8%, var(--surface)); }
+.acct-pick button[aria-pressed="true"] { border-color: var(--a); box-shadow: inset 0 0 0 1px var(--a); background: color-mix(in srgb, var(--a) 8%, var(--surface)); }
 .acct-pick button.add { grid-column: 1 / -1; justify-content: center; min-height: 40px; border-style: dashed; color: var(--muted); }
 .acct-pick span { min-width: 0; }
 .acct-pick small, .acct-hint { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
