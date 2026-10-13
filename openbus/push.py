@@ -16,6 +16,7 @@ import os
 import queue
 import re
 import secrets
+import subprocess
 import tempfile
 import threading
 import time
@@ -364,7 +365,10 @@ def claim_question(watcher, pane_id: str, fingerprint: str, generation: int, fra
     question, _ = held_question(watcher, pane_id, fingerprint)
     # The frame hashes the normalized screen plus the question's own rows verbatim, so
     # neither animation nor "sleep 10s" becoming "sleep 20s" fools it.
-    text = tmux.capture_pane(pane_id, mark_dim=True)
+    try:
+        text = tmux.capture_pane(pane_id, mark_dim=True)
+    except subprocess.CalledProcessError as e:  # closed or timed out: nothing was sent
+        raise ValueError("the pane has changed") from e
     if watcher.frame_fp(text, question) != frame:
         raise ValueError("the pending question has changed")
     watcher.consume_answer(pane_id, watcher.frame_fp(text), frame)

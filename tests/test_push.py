@@ -1,5 +1,6 @@
 import json
 import queue
+import subprocess
 import threading
 from pathlib import Path
 
@@ -889,3 +890,23 @@ def test_chat_card_notifies_without_answer_actions(tmp_path: Path):
     assert payload["title"] == "Chat needs you" and payload["chat"] == "p1"  # its card
     assert payload["body"].startswith("Send to window 3: ") and len(payload["body"]) == 400
     assert payload["actions"] == [] and "nonce" not in payload
+
+
+def test_a_pane_gone_at_the_claim_refuses_it_as_changed(tmp_path, monkeypatch):
+    """The claim's own capture failing (the pane closed, tmux timed out) is a refusal like
+    any other, a 409 at /send, not a 500 after nothing was sent."""
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting(held())]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    monkeypatch.setattr(push.tmux, "send_keys", lambda *_a, **kw: kw["guard"]())
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+
+    def gone(*_a, **_kw):
+        raise subprocess.CalledProcessError(1, "tmux")
+    monkeypatch.setattr(push.tmux, "capture_pane", gone)
+    with pytest.raises(ValueError, match="pane has changed"):
+        service.answer(sender.payloads[0]["nonce"], 0)

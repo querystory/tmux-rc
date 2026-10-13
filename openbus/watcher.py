@@ -1032,7 +1032,6 @@ class Watcher:
             self._state,
             self._recent_events,
             self._last_dropped,
-            self._answered,
             self.snapshots,
             self._burst,
             self._summary,
@@ -1074,8 +1073,9 @@ class Watcher:
         )
         for store in self._stores():
             store.pop(pane_id, None)
-        with self._input_generation_lock:
+        with self._input_generation_lock:  # its answer marker with it, never apart
             self._input_generation.pop(pane_id, None)
+            self._answered.pop(pane_id, None)
 
     def _gc(self, alive: set[str]) -> None:
         """Drop per-pane state for panes that no longer exist, so closing windows
