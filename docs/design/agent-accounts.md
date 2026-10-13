@@ -58,7 +58,11 @@ the wide layout had no menu before.
 
 - **Badges** ("● Work") on the phone's rows, the sidebar's rows and the pane header, in
   the account's colour. The pane header puts it first on a phone, which ellipsizes the
-  end.
+  end. Every place that names an account draws this one chip, so the same account never
+  looks two ways on one screen; a long name truncates inside it.
+- **Session cards** on the dashboard carry the chip of the session's own default (the
+  dir its tmux environment sets), and nothing when it sets none: a session that starts
+  new windows on another account is worth seeing at a glance, the standard dir is not.
 - **Usage strip:** with several accounts the meters become one row that swipes sideways
   and snaps per meter, most urgent first (full soonest, then the highest pace at the
   reset). Two meters fit on a phone with a third of the next peeking in under a fade, so
@@ -69,7 +73,7 @@ the wide layout had no menu before.
   just the window: a name in the title was truncated first, read as part of the window
   ("7d QSI"), and left a one-account provider's meter looking unnamed beside it.
 - **Dashboard Plan usage:** wide, one row of 180px meters grouped per account, each group
-  labelled with its name and the details (who, plan, dir, panes) in its tooltip; it wraps
+  labelled with its chip and the details (who, plan, dir, panes) in its tooltip; it wraps
   only when the groups do not fit. The label names the account once over its meters, so
   they carry no chip: repeating it in every 180px meter is noise. A phone's dashboard
   uses the strip, chips included.

@@ -939,6 +939,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .ug { display: flex; flex-direction: column; gap: 6px; padding: 0 22px; border-left: 1px solid var(--line); }
 .ug:first-child { padding-left: 0; border-left: 0; }
 .ug-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: default; }
+.ug-label .acct-badge { pointer-events: none; } /* hover reads the label's fuller tooltip, not the chip's */
 .ug-cells { display: flex; gap: 20px; }
 .ug-cells .usage-cell { flex: 0 0 180px; }
 .ug-cells .usage-spark { height: 56px; margin-top: 6px; }
