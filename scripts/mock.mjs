@@ -26,10 +26,20 @@ export function manifest(src) {
   const doc = m.doc && path.join(ROOT, "docs/design", `${m.doc}.md`);
   // The record links GitHub-style to sibling .md files; point those at the docs site's
   // pretty URLs (as docs-site/layouts/_markup/render-link.html does), not at the mock.
+  // Its images (../img/…) travel with the mock, as record-img/<name>, since a scratch page
+  // can reach nothing outside its own folder.
+  const recordImages = [];
   const record = doc && existsSync(doc) && read(doc).replace(/\]\((?![a-z]+:|\/|#)([^)\s#]+)\.md(#[^)\s]*)?\)/g,
-    (_, rel, frag = "") => `](/docs/${path.posix.join("design", rel)}/${frag})`);
+    (_, rel, frag = "") => `](/docs/${path.posix.join("design", rel)}/${frag})`)
+    .replace(/(!\[[^\]]*\]\()(?![a-z]+:|\/|#)([^)\s]+)\)/g,
+      (_, open, rel) => {
+        const file = path.resolve(path.dirname(doc), rel);
+        recordImages.push(file);
+        return `${open}record-img/${path.basename(file)})`;
+      });
   const note = [m.note && read(m.note), record].filter(Boolean).join("\n\n---\n\n");
   return {
+    recordImages,
     title: m.title || path.basename(src),
     note: note && markdownit().render(note),
     views: m.views || [{ name: "app", label: "App" }],
@@ -96,9 +106,11 @@ async function inliner(base) {
 // loaded only when shown, so a phone never downloads the desktop ones.
 const snapFile = (key) => `snaps/${key.replaceAll("/", "-")}.js`;
 
-function write(out, { snaps = {}, ...data }) {
+function write(out, { snaps = {}, recordImages = [], ...data }) {
   rmSync(path.join(out, "snaps"), { recursive: true, force: true }); // no frame outlives its build
   mkdirSync(path.join(out, "snaps"), { recursive: true });
+  if (recordImages.length) mkdirSync(path.join(out, "record-img"), { recursive: true });
+  for (const file of recordImages) copyFileSync(file, path.join(out, "record-img", path.basename(file)));
   for (const [key, snap] of Object.entries(snaps)) writeFileSync(path.join(out, snapFile(key)), `MOCK.snaps[${JSON.stringify(key)}] = ${JSON.stringify(snap)};\n`);
   copyFileSync(path.join(ROOT, "scripts/mock/harness.html"), path.join(out, "index.html"));
   copyFileSync(path.join(ROOT, "scripts/mock/harness.js"), path.join(out, "harness.js"));

@@ -219,7 +219,8 @@ mkdirSync(out, { recursive: true });
 // One demo per account state: the demo fleet's accounts are fixed when it starts.
 const demos = [];
 try {
-  demos.push([SHOTS, await startDemo(tree)], [TWO_ACCOUNTS, await startDemo(tree, { TMUXRC_DEMO_ACCOUNTS: "2" })]);
+  demos.push([SHOTS, await startDemo(tree)]); // each pushed as it starts, so a later failure closes it
+  demos.push([TWO_ACCOUNTS, await startDemo(tree, { TMUXRC_DEMO_ACCOUNTS: "2" })]);
   for (const [shots, demo] of demos) for (const [name, viewport, colorScheme, hash, step, crop] of shots) {
     const page = await demo.open(viewport, colorScheme, hash);
     // A step written against one UI may not fit another; shoot what is there, unless it says otherwise.
