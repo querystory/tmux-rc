@@ -95,6 +95,19 @@ def test_adding_creates_a_private_dir_and_links_only_shared_files(home):
     assert accounts.add("claude", "~/.claude-old", "Old", [])["existed"] is True
 
 
+def test_a_removed_variable_reads_as_empty(monkeypatch):
+    monkeypatch.setattr(T, "_run", lambda argv, **_: "-CLAUDE_CONFIG_DIR\nPATH=/bin\n")
+    assert T.show_env("work") == {"CLAUDE_CONFIG_DIR": "", "PATH": "/bin"}
+
+
+def test_a_live_pane_says_its_dirs_provider(home):
+    (home / ".claude-work").mkdir()
+    (home / ".claude-work" / "auth.json").touch()  # a Codex home named like a Claude one
+    listed = accounts.profiles([("codex", home / ".claude-work")])
+    found = {p["tilde"]: p["provider"] for p in listed}
+    assert found["~/.claude-work"] == "codex"
+
+
 def test_an_added_dirs_provider_is_kept_whatever_its_name(home):
     accounts.add("codex", "~/.claude-work", "Work", [])
     (home / ".claude-work" / "auth.json").touch()
@@ -146,6 +159,10 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
     # The global environment applies where the session sets nothing.
     assert report["sessions"]["work"]["claude"] == str(home / ".claude-personal")
     assert report["sessions"][""]["claude"] == str(home / ".claude-personal")  # a new session
+    # A session that removed it (-CLAUDE_CONFIG_DIR) sets nothing, like one that never set it.
+    shown["work"] = {"CLAUDE_CONFIG_DIR": ""}  # how show_env reads "-CLAUDE_CONFIG_DIR"
+    assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"]["work"] == {
+        "claude": None, "codex": None}
     for extra in (".claude-personal", ".codex2"):
         accounts.edit(str(home / extra), forget=True)
     assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"] == {}

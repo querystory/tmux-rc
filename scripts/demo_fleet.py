@@ -113,8 +113,9 @@ def accounts(two: bool = False) -> dict:
                  "default": "-" not in d,
                  "panes": [p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in ss]}
                 for tool, d, ss, _ in plans(two)]
-    sessions = {s: {"claude": PERSONAL[1] if s in PERSONAL[2] else "~/.claude",
-                    "codex": "~/.codex"} for s in SESSIONS} if two else {}
+    # Personal's sessions set it in their tmux environment; the rest set nothing.
+    sessions = {s: {"claude": PERSONAL[1] if s in PERSONAL[2] else None, "codex": None}
+                for s in SESSIONS} if two else {}
     return {"profiles": profiles, "sessions": sessions}
 
 

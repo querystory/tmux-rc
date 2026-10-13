@@ -93,8 +93,8 @@ def _profiles(pane_dirs) -> list[dict]:
     store, home = _load(), Path.home()
     found = {str(d): t for t in ENV for d in [default_dir(t), *sorted(home.glob(MORE[t]))]
              if d.is_dir()}
-    for tool, config in pane_dirs:
-        found.setdefault(str(config), tool)
+    for tool, config in pane_dirs:  # what runs there says the provider, not the dir's name
+        found[str(config)] = tool
     for config, entry in store.items():  # an added dir's provider was chosen, not guessed
         if entry.get("provider") in ENV:
             found[config] = entry["provider"]
@@ -153,15 +153,16 @@ def command(provider: str, config: str, cmd: str | list[str]) -> list[str]:
     return ["env", *pin, *(cmd if isinstance(cmd, list) else ["sh", "-c", cmd])]
 
 
-def session_defaults(sessions) -> dict[str, dict[str, str]]:
-    """Each session's account per provider: what a new window there inherits from tmux,
-    the session's environment over the global one, else the provider's default dir. Under
-    "": a new session's, from the global environment alone."""
+def session_defaults(sessions) -> dict[str, dict[str, str | None]]:
+    """Each session's account per provider: the dir a new window there inherits from tmux,
+    the session's environment over the global one; None when nothing sets it (unset, or
+    removed with -r), so it falls back to the provider's default dir. Under "": a new
+    session's, from the global environment alone."""
     glob = tmux.show_env()
     out = {}
     for session in ["", *sessions]:
         env = {**glob, **(tmux.show_env(session) if session else {})}
-        out[session] = {t: str(Path(os.path.expanduser(env.get(ENV[t]) or default_dir(t))))
+        out[session] = {t: str(Path(os.path.expanduser(v))) if (v := env.get(ENV[t])) else None
                         for t in ENV}
     return out
 

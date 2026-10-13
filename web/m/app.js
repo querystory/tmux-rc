@@ -1494,7 +1494,6 @@ async function launchWindow(launcher, button) {
     const account = launchPick?.account(button?.dataset.icon);
     const data = await (session ? post("/api/windows", { session, launcher, account })
       : post("/api/sessions", { name, cwd: $("launch-dir").value.trim() || "~", launcher, account }));
-    await launchPick?.commit(session || name);
     if (!session) try { localStorage.setItem(LAST_DIR, $("launch-dir").value.trim()); } catch {}
     $("launch-dialog").close(); openLaunched(data.pane_id);
   } catch (error) {
