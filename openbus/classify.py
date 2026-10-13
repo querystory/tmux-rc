@@ -14,6 +14,7 @@ minimal dict (idle vs running) so the pipe never breaks.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import textwrap
@@ -78,6 +79,90 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
+# A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
+# the frame, a radio and a digit. The model reads the highlight too but can misplace it
+# (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
+# Yes pressed Enter on No), so the screen decides wherever it shows one. Only between the
+# prompt and the widget's bottom edge (a ─── rule or a ╰ corner), so neither a turn in the
+# scrollback nor the input box under a picker that has closed is ever the cursor. A box
+# with no highlight in it is the search field above the list (/resume, /config), not its
+# edge, so it is passed over. Returns the one option the row names: itself, or itself
+# ahead of a value column ("Auto-compact      true"). Only a row that opens with a frame
+# loses one closing bar: a label's own bar is content.
+_HIGHLIGHT_RE = re.compile(
+    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
+    r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
+# A picker heading's live count ("Resume session (1 of 47)"): it redraws with every move
+# and filter while the picker stays the same, so it is never part of the prompt.
+_LIVE_COUNT = r"\(\d+ of \d+\)"
+_LIVE_COUNT_RE = re.compile(rf"\s*{_LIVE_COUNT}\s*$")
+_WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
+
+
+def _widget_end(visible: str, start: int) -> int:
+    return next((edge.start() for edge in _WIDGET_END_RE.finditer(visible, start)
+                 if edge["rule"] or _HIGHLIGHT_RE.search(visible, start, edge.start())),
+                len(visible))
+
+
+def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
+    """The live picker's prompt row, and where its widget ends, or None."""
+    # A whole row only: a longer prompt ("… for deployment") is a different picker.
+    found = prompt.strip() and _occurrences(prompt, visible, row=True)  # "" matches anywhere
+    if not found:
+        return None
+    # The last match's widget is the live one, but the prompt is its first match there: a
+    # later one inside the same widget is an option or footer repeating the prompt's words.
+    asked = next(m for m in found if _widget_end(visible, m.end()) > found[-1].start())
+    end = _widget_end(visible, asked.end())
+    # Past an unframed picker's end nothing is drawn: a supported agent erases or redraws
+    # a picker once it is answered, so no later one ever sits below it in its range.
+    if _HIGHLIGHT_RE.search(visible, end):  # a later picker, or the input box, is live:
+        return None                         # this one is history in the scrollback
+    return asked, end
+
+
+# A dialog's own top edge, drawn from column 0 (▔▔▔, ───, ╭): a command's rule-like row
+# inside a dialog is indented, so it never stands in for the edge.
+_DIALOG_TOP_RE = re.compile(r"^(?:[─━▔]{3,}|╭)", re.MULTILINE)
+
+
+def _drawn_row(visible: str, live: tuple[re.Match, int]) -> str | None:
+    *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1])]
+    return row and row["label"]
+
+
+def picker_read(text: str, prompt: str) -> tuple[str, str | None] | None:
+    """A capture's live picker, as a walk is held to it: its digest and its highlighted
+    row as drawn, or None. The digest hashes from the dialog's top edge (so the command a
+    generic "Do you want to proceed?" approves is part of it) down to the screen's end, as
+    classify reads the viewport (_visible) but otherwise verbatim. Any change since the
+    frame a step was computed from, be it a replacement picker, a moved highlight or a
+    row's "30s" now "60s", refuses the step (/send), and /send hands both back after each
+    key, so the next step is planned off the screen itself with no parse in between."""
+    visible = _visible(text)
+    live = _live_prompt(visible, prompt)
+    if not live:
+        return None
+    *_, top = [live[0].start(), *(m.start() for m in
+                                  _DIALOG_TOP_RE.finditer(visible, 0, live[0].start()))]
+    return hashlib.sha256(visible[top:].encode()).hexdigest(), _drawn_row(visible, live)
+
+
+def picker_digest(text: str, prompt: str) -> str | None:
+    read = picker_read(text, prompt)
+    return read and read[0]
+
+
+def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
+    """The one option the live picker's highlighted row under prompt names, or None."""
+    live = _live_prompt(visible, prompt)
+    label = live and _drawn_row(visible, live)
+    named = label is not None and [option for option in options if isinstance(option, str)
+                                   and (label == option or label.startswith(f"{option}  "))]
+    return named[0] if named and len(named) == 1 else None
+
+
 # The last prompt row, when empty (its greyed suggestion already stripped): an agent idle
 # at its input box, so every row under it is status/footer chrome (Claude's welcome
 # session list included), never a question. A real picker replaces the box with a ❯ cursor.
@@ -320,11 +405,13 @@ def _question_prompt(question) -> str | None:
 
 
 def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Match]:
-    """The prompt's matches; with row, only those that are a whole row bar the frame, so
-    the same words inside a command (`printf "Proceed?"; rm …`) never stand in for it."""
+    """The prompt's matches; with row, only those that are a whole row bar the frame (and
+    a search field's ⌕), so the same words inside a command (`printf "Proceed?"; rm …`)
+    never stand in for it. The row may close on a live count, which the model drops; any
+    other words after the prompt ("… for deployment", "(production)") are another one."""
     words = r"\s+".join(map(re.escape, prompt.split()))
     if row:
-        words = rf"^[ \t│┃╎]*{words}(?=[ \t│┃╎]*$)"
+        words = rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?(?=[ \t│┃╎]*$)"
     return list(re.finditer(words, visible, re.IGNORECASE | re.MULTILINE))
 
 
@@ -1098,6 +1185,16 @@ def classify(
             r"(?:^|[·│])\s*Type to search(?:\s*[·│]|$)", line, re.IGNORECASE,
         ) for line in footer):
             keymap["search"] = True
+        rows, asked = question.get("options"), _question_prompt(question)
+        if asked:  # the walk and /send hold the prompt across moves, which redraw the count
+            question["prompt"] = asked = _LIVE_COUNT_RE.sub("", asked)
+        # The screen /send holds a walk's keys to, read off it and never passed through, and
+        # only where it shows which row is highlighted: a colour-only highlight is invisible
+        # to the digest, so no walk is held to a screen that hashes alike whichever row it is.
+        question.pop("picker", None)
+        if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
+            question["selected"] = rows.index(row)
+            question["picker"] = picker_digest(text, asked)
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask", "items"):
             question.pop(key, None)

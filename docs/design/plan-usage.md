@@ -68,22 +68,23 @@ Claude Code picks its config dir from `CLAUDE_CONFIG_DIR` (else `~/.claude`), Co
 agent process under the pane and reads just those variables (plus `HOME`) from its
 `/proc/<pid>/environ`; every other variable is discarded unread. The agent process, not
 the pane's shell, because an inline `CLAUDE_CONFIG_DIR=… claude` sets it only there. The
-daemon user's own defaults are always included, so the strip works with no panes open.
+signed-in accounts tmux-rc lists ([agent accounts](agent-accounts.md)) are always included,
+so the strip works with no panes open; the daemon's own environment no longer adds one.
 
 Accounts are deduplicated before anything is fetched, so ten panes on one login cost one
 request:
 
 - **Claude** is keyed by `oauthAccount.accountUuid` from the config's `.claude.json`
-  (inside an overridden config dir, else `~/.claude.json`), and labelled by the email's
-  local part. Two config dirs logged into one account collapse to one row.
-- **Codex** is keyed by its home directory and labelled by the directory's name. Its
+  (inside an overridden config dir, else `~/.claude.json`). Two config dirs logged into
+  one account collapse to one row.
+- **Codex** is keyed by its home directory. Its
   account id lives only inside `auth.json`'s tokens, and keeping the Codex path entirely
   credential-free was worth more than merging the rare case of two homes on one login.
 
-A meter shows just its provider's icon while there is one account per provider; with
-several, each meter label and each pane's heading carries the short account name, so you
-can tell which limit a pane is drawing on. The name follows the window, so a narrow cell
-truncates the name rather than the window.
+Each row reports the config dirs it was read from, and the UI names it after the account
+those dirs belong to. A meter shows just its provider's icon while there is one account
+per provider; with several, each meter carries the account's chip in its corner, and the
+strip becomes one swipeable row ordered by urgency (see [agent accounts](agent-accounts.md)).
 
 ## Sources, and why each
 

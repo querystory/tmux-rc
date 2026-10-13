@@ -72,7 +72,25 @@ def test_plan_usage_reads_like_a_typical_day(tmp_path):
                        ("codex", "7d")}  # weekly-only Codex
     assert 90 <= by["claude", "7d"]["projected"] < 100  # amber, not out before the reset
     assert by["codex", "7d"]["limit_at"]  # red: out before the reset, which still shows
-    assert {a["label"] for a in report} == {None}  # one account each: provider names
+    assert [a["dirs"] for a in report] == [["~/.claude"], ["~/.codex"]]  # one account each
+
+
+def test_the_two_account_state_is_fictional_and_splits_the_sessions(tmp_path):
+    tmp_path.chmod(0o700)
+    report = demo.seed_usage(PlanUsage(History(tmp_path / "h.sqlite3")), two=True).report(demo.NOW)
+    profiles = demo.accounts(two=True)
+    assert not PRIVATE.findall(json.dumps([report, profiles]))
+    dirs = sorted(p["dir"] for p in profiles["profiles"])
+    assert sorted(d for a in report for d in a["dirs"]) == dirs
+    personal, work = (next(p for p in profiles["profiles"] if p["dir"] == d)
+                      for d in ("~/.claude-personal", "~/.claude"))
+    assert personal["panes"] and work["panes"] and not set(personal["panes"]) & set(work["panes"])
+    assert demo.accounts()["sessions"] == {}  # one account each: no session defaults asked
+    # The add-account shots: a stub sign-in screen, and Demo signing in a little later.
+    assert not PRIVATE.findall(demo.capture(demo.sign_in_pane()))
+    for since, signed_in in ((0, False), (99, True)):
+        listed = demo.accounts(two=True, signing_in=since)["profiles"]
+        assert [p["signed_in"] for p in listed if p["name"] == "Demo"] == [signed_in]
 
 
 def test_open_loops_fill_every_lane_and_grouping_signal():

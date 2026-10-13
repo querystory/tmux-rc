@@ -196,7 +196,7 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
     assert "!active && (WIDE.matches || dashboard)" in app
     assert "renderLanding()" in app
     # The same helpers the tabs count with — not a parallel definition that can drift.
-    assert "panes.filter(needsYou)" in app and "panes.filter(isRunning)" in app
+    assert "mine.filter(needsYou)" in app and "mine.filter(isRunning)" in app
 
     # The drag handle writes a variable the grid clamps; the clamp is the real guard.
     assert "--sidebar" in css and "clamp(260px" in css

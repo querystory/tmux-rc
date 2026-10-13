@@ -23,11 +23,12 @@ import time
 import unicodedata
 import uuid
 from collections import deque
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import agent_history, live_providers, llm, push, telemetry, tmux
+from . import accounts, agent_history, live_providers, llm, push, telemetry, tmux
 from .classify import _load_prompt
 from .expunge import codex_status_segments
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
@@ -1000,6 +1001,10 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     if not os.path.isdir(cwd):
         return {"status": "rejected", "reason": "session directory is gone"}
 
+    source = Path(entry.get("source") or "/")
+    if argv[0] == "claude" and source.parent.parent.name == "projects":
+        # Its transcript is under one account's dir, and resumes only there.
+        argv = accounts.command("claude", str(source.parents[2]), argv)
     title = entry.get("title") or entry["session_id"][:8]
     name = title[:24]
     try:  # tmux can fail here too; report, don't kill the session

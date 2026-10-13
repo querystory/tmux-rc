@@ -45,12 +45,19 @@ def _epoch(stamp: str) -> float:
     return datetime.fromisoformat(stamp).timestamp()
 
 
+def canonical(config: str) -> str:
+    """One spelling per dir: ~ expanded and "..", "." and doubled slashes folded, so an
+    alias can't list one login twice, or miss its profile (accounts.py). normpath keeps a
+    leading "//" (POSIX leaves its meaning to the system); on Linux it is just "/"."""
+    path = os.path.normpath(os.path.expanduser(config))
+    return "/" + path.lstrip("/") if path.startswith("//") else path
+
+
 def home(provider: str, env: dict) -> Path:
     """The config dir an agent with this environment reads: its override, else ~/.claude
     or ~/.codex under its HOME."""
-    if override := env.get(ENV[provider]):
-        return Path(override)
-    return Path(env.get("HOME") or Path.home()) / f".{provider}"
+    default = Path(env.get("HOME") or Path.home()) / f".{provider}"
+    return Path(canonical(env.get(ENV[provider]) or str(default)))
 
 
 def pane_env(pid: str, tool: str) -> dict:
@@ -61,6 +68,12 @@ def pane_env(pid: str, tool: str) -> dict:
                  pid)
     pairs = (v.partition("=") for v in tmux.proc_read(agent, "environ").split("\0"))
     return {k: v for k, _, v in pairs if k in ("HOME", ENV[tool])}
+
+
+def pane_envs(panes: list[dict], birth) -> list[tuple[str, dict, str]]:
+    """(tool, pane_env, pane id) for each live Claude or Codex pane."""
+    return [(p["tool"], pane_env(pid, p["tool"]), p["pane_id"]) for p in panes
+            if p.get("tool") in ENV and (pid := birth(p["pane_id"]))]
 
 
 def codex_samples(event: dict) -> list[dict]:
@@ -133,17 +146,21 @@ def claude_samples(data: dict, now: float) -> list[dict]:
              "resets_at": resets and _epoch(resets)} for name, seconds, pct, resets in windows]
 
 
-def claude_account(config: Path, env: dict) -> dict | None:
+def env_for(provider: str, config: Path) -> dict:
+    """The environment that points the agent at this config dir: none for the provider's
+    default (~/.claude keeps its .claude.json beside it, not in it), else the override."""
+    return {} if config == Path.home() / f".{provider}" else {ENV[provider]: str(config)}
+
+
+def oauth_account(config: Path, env: dict) -> dict:
     """The non-secret identity Claude Code keeps beside its credentials: .claude.json
-    inside an overridden config dir, else next to the default one."""
+    inside an overridden config dir, else next to the default one. {} when signed out."""
     meta = config / ".claude.json" if env.get(ENV["claude"]) else config.parent / ".claude.json"
     try:
-        account = json.loads(meta.read_text()).get("oauthAccount") or {}
-    except (OSError, ValueError):
-        return None
-    short = (account.get("emailAddress") or "?").split("@")[0]
-    return account.get("accountUuid") and {"key": account["accountUuid"], "short": short,
-                                           "long": account.get("emailAddress") or short}
+        account = json.loads(meta.read_text()).get("oauthAccount")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return account if isinstance(account, dict) else {}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -199,27 +216,26 @@ def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
 class PlanUsage:
     """Discovers accounts from the panes, samples them into History, reports for the UI."""
 
-    def __init__(self, history, fetch=fetch_claude, read=read_codex):
+    def __init__(self, history, fetch=fetch_claude, read=read_codex, profiles=None):
         self.history, self.fetch, self.read = history, fetch, read
+        # The config dirs worth metering with no pane on them: the daemon passes the listed
+        # accounts; alone, each provider's default dir.
+        self.profiles = profiles or (lambda: [(t, Path.home() / f".{t}") for t in ENV])
         self.accounts: dict[tuple[str, str], dict] = {}
         self._fetched: dict[str, float] = {}
         self._errors: dict[tuple[str, str], str | None] = {}
 
     def discover(self, panes: list[dict], birth) -> dict[tuple[str, str], dict]:
-        """Every account a live agent pane uses, plus the daemon user's own defaults."""
+        """Every account a live agent pane uses, plus the known profiles' (accounts.py)."""
         found: dict[tuple[str, str], dict] = {}
-        sources = [(t, {k: os.environ[k] for k in ("HOME", ENV[t]) if k in os.environ}, None)
-                   for t in ENV]
-        sources += [(p["tool"], pane_env(pid, p["tool"]), p["pane_id"]) for p in panes
-                    if p.get("tool") in ENV and (pid := birth(p["pane_id"]))]
+        sources = [(t, env_for(t, d), None) for t, d in self.profiles()] + pane_envs(panes, birth)
         for tool, env, pane_id in sources:
             config = home(tool, env)
             if tool == "codex":
-                tilde = str(config).replace(str(Path.home()), "~")
-                ident = (config / "sessions").is_dir() and {
-                    "key": str(config), "short": config.name.lstrip("."), "long": tilde}
+                ident = (config / "sessions").is_dir() and {"key": str(config)}
             else:
-                ident = claude_account(config, env)
+                uuid = oauth_account(config, env).get("accountUuid")
+                ident = uuid and {"key": uuid}
             if ident:
                 account = found.setdefault((tool, ident["key"]), {**ident, "homes": [],
                                                                   "panes": []})
@@ -287,8 +303,6 @@ class PlanUsage:
     def report(self, now: float | None = None) -> list[dict]:
         now = time.time() if now is None else now
         accounts = self.accounts  # one snapshot: poll() swaps it from a worker thread
-        count = {t: sum(k[0] == t for k in accounts) for t in ENV}
-        shorts = [(k[0], a["short"]) for k, a in accounts.items()]
         out = []
         for (tool, key), account in accounts.items():
             # A failed read keeps showing the last reading while it is recent (STALE_OK),
@@ -299,12 +313,9 @@ class PlanUsage:
                 rows = []
             error = None if rows else account["error"] or (
                 "no data yet" if self.history else "unavailable")  # not "no limits": unknown
-            # One account: the provider's name. Several: short names, the full one on a clash.
-            short = account["short"]
-            label = (None if count[tool] < 2 else short if shorts.count((tool, short)) < 2
-                     else account["long"])
-            out.append({"provider": tool, "label": label,
+            # Named by the UI, from the profile its dirs belong to (accounts.py).
+            out.append({"provider": tool, "dirs": [str(h) for h in account.get("homes", [])],
                         "panes": account["panes"], "error": error,
                         "as_of": newest * 1000 if rows and account["error"] else None,
                         "windows": [self._window(tool, key, row, now) for row in rows]})
-        return sorted(out, key=lambda a: (a["provider"], a["label"] or ""))
+        return sorted(out, key=lambda a: (a["provider"], a["dirs"]))

@@ -71,12 +71,12 @@ docs-clean:
 # Screenshots of /m against the fictional fleet in scripts/demo_fleet.py — never real
 # panes or history. `demo` serves it to browse by hand on http://127.0.0.1:18039/m.
 # `screenshots` shoots the full set into .screenshots/ and refreshes the few the README
-# shows (README_SHOTS) in docs/img/; `screenshots-diff` shoots BASE and this tree and
+# and the design notes show (README_SHOTS) in docs/img/; `screenshots-diff` shoots BASE and this tree and
 # writes per-shot diff images plus a summary table (see AGENTS.md, "UI screenshots").
 # Playwright lives in a cache dir rather than package.json: only these targets need a
 # browser, and the pinned version is what keeps renders comparable between machines.
 PLAYWRIGHT_DIR ?= $(HOME)/.cache/tmux-rc/playwright
-README_SHOTS = hero mobile-list mobile-pane mobile-terminal
+README_SHOTS = hero mobile-list mobile-pane mobile-terminal accounts-add-1-new-window accounts-add-6-done
 BASE ?= origin/main
 export PLAYWRIGHT_DIR
 

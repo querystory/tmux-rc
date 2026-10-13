@@ -3,15 +3,16 @@ import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCa
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
-import { answerBody, pickCursorRow } from "/cursor-pick.js";
+import { answerBody, pickCursorRow, STALE } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, markEnding } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar } from "/m/sidebar.js";
-import { renderUsage, paneAccount, shownUsage } from "/m/usage.js";
+import { renderUsage, shownUsage } from "/m/usage.js";
+import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
@@ -22,6 +23,9 @@ const REQUEST_TIMEOUT_MS = 8000;
 // Long polls (/api/state, /live) must outlast the server's 25s hold, or every idle poll
 // would abort just before the server answers.
 const LONG_POLL_TIMEOUT_MS = 35000;
+// No client timeout (setTimeout's largest delay), for a request whose server run an abort
+// would not stop: the answer must be its own outcome, never a failure while it runs on.
+const NO_TIMEOUT = 2 ** 31 - 1;
 // How long "Answer sent" stays (and the option buttons stay disabled) before we trust
 // the pane's own state again — covers the round trip to the agent and back.
 const ANSWER_PENDING_MS = 10000;
@@ -74,6 +78,7 @@ const LUCIDE = {
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
   gauge: '<path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/>',
   arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
@@ -113,7 +118,7 @@ const drafts = new Map();
 let dashboard = false, page = null;
 const CARDS = { heat: "heat-card", usage: "usage-panel", loops: "loops-card" };
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
-let panes = [], statePanes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false, tmuxRunning = true;
+let panes = [], statePanes = [], paneIds = null, accountsAt = 0, active = null, view = "summary", filter = "all", loaded = false, booted = false, tmuxRunning = true;
 let focusPushComposer = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
@@ -171,6 +176,7 @@ async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
       const error = new Error(`Request failed (${response.status})`);
       error.status = response.status;
       if (typeof detail === "string" && detail) error.detail = detail;
+      else if (typeof detail?.message === "string") Object.assign(error, detail, { detail: detail.message }); // a refusal with data (the move's older copy)
       throw error;
     }
     return await response.json();
@@ -208,6 +214,10 @@ function notice(message = "", ms = 0) {
   clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
   if (message && ms) noticeTimer = setTimeout(() => { if ($("notice").textContent === message) notice(); }, ms);
 }
+
+const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { paintUsage(); render(); },
+  sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
+  paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id) });
 
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
@@ -289,7 +299,7 @@ function route() {
 function makeRow(pane) {
   const button = document.createElement("button");
   button.className = "pane-row";
-  button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span><span class="badge"></span></span></span>`;
+  button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-acct"></span><span class="row-details"></span><span class="badge"></span></span></span>`;
   button.onclick = () => navigate(pane.pane_id);
   return button;
 }
@@ -311,9 +321,10 @@ function updateRow(button, pane) {
   sessionChip.hidden = sort !== "updated" || !pane.session; // a session label already says it
   text(sessionChip, pane.session || "");
   sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
+  html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
-const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice,
+const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
   setFilter: (value) => { filter = value; stayPut(); }, repaint: () => renderList() });
 function emptyMessage(query) {
@@ -326,7 +337,8 @@ function emptyMessage(query) {
 function renderList() {
   show("clear-search", !!$("search").value);
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
+  const mine = panes.filter(accounts.matches); // the account filter (accounts.js), else every pane
+  const subset = mine.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
   // One composer per pane, in either layout: an open pane takes over its sidebar Reply draft.
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
@@ -335,11 +347,10 @@ function renderList() {
   else renderPhoneList(subset);
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
-  const waiting = panes.filter(needsYou).length;
-  text($("all-count"), panes.length);
-  text($("attention-count"), waiting);
-  text($("running-count"), panes.filter(isRunning).length);
-  text($("recent-count"), panes.filter((pane) => isRecent(pane)).length);
+  text($("all-count"), mine.length);
+  text($("attention-count"), mine.filter(needsYou).length);
+  text($("running-count"), mine.filter(isRunning).length);
+  text($("recent-count"), mine.filter((pane) => isRecent(pane)).length);
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
@@ -378,7 +389,7 @@ function renderPhoneList(subset) {
 function renderLanding() {
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
-  if (page === "loops") return renderLoops(cardView("Open loops", loopsView), loops, navigate, licon);
+  if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
   paintUsage(); // follows the tool chips
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
   // only for the loading and empty states, and hides itself when blank (style.css).
@@ -386,14 +397,14 @@ function renderLanding() {
   text($("landing-sub"), !booted ? "Saved history is available while the current inventory loads." : panes.length
     ? "" : tmuxRunning ? "No tmux panes are open. Start a session and it will appear here."
       : `${NO_TMUX} Start a session to bring it back.`);
-  renderAtlas($("session-atlas"), panes, navigate, LOGOS, term => {
+  renderAtlas($("session-atlas"), panes.filter(accounts.matches), navigate, LOGOS, term => {
     $("search").value = term;
     filter = "all";
     renderList();
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
-  }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"));
-  renderLoopsCard($("loops-card"), loops, openLane, licon);
+  }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge);
+  renderLoopsCard($("loops-card"), accounts.loops(loops), openLane, licon);
 }
 
 // Drag the seam between the sidebar and the main column. Width is a CSS variable the
@@ -596,16 +607,23 @@ let usage = [], loops = null, cachedAt = 0, usageMode = "auto";
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
-  renderUsage($("usage"), shownUsage(usage, WIDE.matches ? "on" : usageMode), { wide: WIDE.matches });
+  // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
+  const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
+  renderUsage($("usage"), order(shownUsage(all, WIDE.matches ? "on" : usageMode)), { wide: WIDE.matches });
+  accounts.strip($("usage"), several);
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
   // adds the clock times and the forecast. The dashboard's tool chips filter both, and a
-  // tool with no plan meters hides the card.
-  const tool = $("session-atlas")._scope?.tool, board = tool ? usage.filter((a) => a.provider === tool) : usage;
+  // tool with no plan meters hides the card. Several accounts: a labelled group each when
+  // wide, the strip on a phone.
+  const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
+  const el = $("usage-board"), mode = several && WIDE.matches ? "groups" : "board";
+  if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
   show("usage-panel", board.length > 0);
-  renderUsage($("usage-board"), board, { wide: true });
+  if (mode === "groups") accounts.groups(el, board, (cells, list) => renderUsage(cells, list, { wide: true }));
+  else { renderUsage(el, order(board), { wide: true }); accounts.strip(el, several); }
   if (page !== "usage") return;
   // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.
-  renderUsage(cardView("Plan usage", usageView).firstChild, board.length ? board : usage, { wide: true, detail: true });
+  renderUsage(cardView("Plan usage", usageView).firstChild, board.length ? board : all, { wide: true, detail: true });
 };
 const usageView = document.createElement("section");
 usageView.className = "atlas-panel";
@@ -633,6 +651,7 @@ async function refreshCached() {
   const [u, l] = await Promise.allSettled([request("/api/usage"), request("/api/open-loops")]);
   if (u.status === "fulfilled") usage = u.value.accounts || [];
   if (l.status === "fulfilled") loops = l.value;
+  accounts.refresh();
   paintUsage(); render();
 }
 
@@ -653,7 +672,7 @@ function render() {
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
-  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list); show("usage-mode", list);
+  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list && !wide); show("usage-mode", list && !wide);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -686,9 +705,12 @@ function render() {
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   // Expunge is offered only where it can work: a Claude Code or Codex pane (the server refuses the rest anyway).
   for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
-  const account = pane && paneAccount(usage, pane.pane_id); // which plan's limits it draws on
+  show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
   markEnding($("detail"), pane);
-  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}${account ? ` · ${account}` : ""}` : "Waiting for session state");
+  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
+  // Which account it runs on, when that needs saying: first on a phone, which ellipsizes the end.
+  const account = pane && accounts.badge(pane.pane_id);
+  if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
   const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
@@ -996,6 +1018,11 @@ async function pollState(signal) {
       const data = await request(stateUrl(version || null), { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
+      // A pane opened, closed or started an agent: which account each runs on may have changed
+      // (accounts.js). An agent restarted on another account changes nothing here, so at least
+      // every 20s as well.
+      const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
+      if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       refreshHistory(); refreshCached();
@@ -1063,15 +1090,19 @@ async function sendKeys(body, answer = false, id = active) {
   let delivered = false;
   sending = true; notice(); render();
   try {
-    await paneInput.run(id, () => post(paneUrl(id, "send"), body));
-    delivered = true;
+    const sent = await paneInput.run(id, () => post(paneUrl(id, "send"), body));
+    delivered = sent && "picker" in sent ? sent : true; // a walk's step: the screen it made
     if (answer) {
       pendingAnswers.set(id, signature);
       setTimeout(() => { if (pendingAnswers.get(id) === signature) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
     }
     if (active === id) text($("draft-status"), "Sent");
     startState();
-  } catch { notice("Delivery could not be confirmed. Check the terminal before retrying."); }
+  } catch (error) {
+    // 409 on a cursor walk's step: nothing was sent, and the walk rereads and goes again.
+    if ("picker" in body && error.status === 409) delivered = STALE;
+    else notice("Delivery could not be confirmed. Check the terminal before retrying.");
+  }
   finally { sending = false; render(); }
   return delivered;
 }
@@ -1105,11 +1136,17 @@ function cursorIO(id) {
   // pane, which STOPS the walk: a picker the user has navigated away from should not go on
   // being driven, let alone committed, out of sight.
   const pane = () => (active === id ? panes.find((p) => p.pane_id === id) : null);
+  // What /send holds a step to: the picker screen q was read off. No pane birth is needed:
+  // another pane under a recycled id refuses unless it shows that very screen, and then
+  // the key does exactly what the walk computed. With no digest (classify grounded no
+  // highlight) there is nothing to hold a key to, so none is sent and the walk stops here.
+  const send = (body, q) => q.picker
+    && sendKeys({ ...body, enter: false, prompt: q.prompt ?? "", picker: q.picker }, false, id);
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,
-    sendKey: (k) => sendKeys({ keys: k, enter: false, literal: false }, false, id),
-    sendText: (t) => sendKeys({ keys: t, enter: false, literal: true }, false, id),
+    sendKey: (k, q) => send({ keys: k, literal: false }, q),
+    sendText: (t, q) => send({ keys: t, literal: true }, q),
     note: notice,
   };
 }
@@ -1155,7 +1192,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "menu", sort: "arrowUpDown", "usage-mode": "gauge", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "menu", sort: "arrowUpDown", "usage-mode": "gauge", "accounts-open": "users", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1412,7 +1449,9 @@ $("launch-dir").oninput = () => { $("launch-name").placeholder = sessionName($("
 document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => openLaunch(true); });
 $("new-window").onclick = () => openLaunch(false);
 const LAST_DIR = "tmuxrc-last-dir";
+let launchPick = null; // the account picker (accounts.js), with several accounts
 async function openLaunch(fresh) {
+  launchPick?.remove(); launchPick = null;
   $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
   const sessions = [...new Set(panes.map((p) => p.session).filter(Boolean))];
   $("launch-session").replaceChildren(...sessions.map((s) => new Option(s, s)), new Option("New session…", ""));
@@ -1423,7 +1462,8 @@ async function openLaunch(fresh) {
   // Suggestions only (open panes' and past agent sessions' directories); any path works.
   request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
-    const data = await request("/api/launchers");
+    // The accounts too: the picker below draws from them, and on a first load they may not be in yet.
+    const [data] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
     text($("launch-error"), "");
     $("launch-choices").replaceChildren(...data.launchers.map((launcher) => {
       const button = document.createElement("button");
@@ -1441,9 +1481,11 @@ async function openLaunch(fresh) {
       button.append(logo, label);
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !!launcher.unavailable;
+      button.dataset.provider = launcher.provider || "";
       button.onclick = () => launchWindow(launcher.label, button);
       return button;
     }));
+    launchPick = accounts.picker($("launch-choices"), $("launch-session"));
   } catch { text($("launch-error"), "Could not load launchers. Close and try again."); }
 }
 $("close-launch").onclick = () => $("launch-dialog").close();
@@ -1469,8 +1511,9 @@ async function launchWindow(launcher, button) {
   launching = true; text($("launch-error"), session ? "Creating window..." : "Starting session...");
   $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = true; });
   try {
-    const data = await (session ? post("/api/windows", { session, launcher })
-      : post("/api/sessions", { name, cwd: $("launch-dir").value.trim() || "~", launcher }));
+    const account = launchPick?.account(button?.dataset.provider);
+    const data = await (session ? post("/api/windows", { session, launcher, account })
+      : post("/api/sessions", { name, cwd: $("launch-dir").value.trim() || "~", launcher, account }));
     if (!session) try { localStorage.setItem(LAST_DIR, $("launch-dir").value.trim()); } catch {}
     $("launch-dialog").close(); openLaunched(data.pane_id);
   } catch (error) {
@@ -1521,13 +1564,15 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // The wide sidebar takes the header's controls into its slots, in this order; a phone
 // gets them back where index.html put them (a comment marks each home), so every control
 // is one element with one set of listeners, whichever layout it is in.
-const CHROME = { "sb-head": ["brand", "collapse"], "sb-nav": ["new-window", "dash-nav", "chat", "live-mode", "push"], "sb-foot": ["connection", "theme", "docs"] };
+const CHROME = { "sb-head": ["brand", "more-menu", "collapse"], "sb-nav": ["new-window", "dash-nav", "chat", "live-mode", "push"], "sb-foot": ["connection", "theme", "docs"] };
 const homes = {};
 function placeChrome() {
   for (const [slot, ids] of Object.entries(CHROME)) for (const id of ids) {
     if (!homes[id]) $(id).before(homes[id] = document.createComment(id));
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
+  // The account filter's pill: under the phone's header, in the wide sidebar under search.
+  (WIDE.matches ? document.querySelector("#sessions .search") : document.querySelector(".app-header")).after(accounts.pill);
 }
 placeChrome();
 // route() again, not just render(): a pane URL without a view opens on a different tab once wide.
@@ -1566,9 +1611,7 @@ $("expunge-pane").onclick = async () => {
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
     try {
-      // No client timeout (setTimeout's largest delay): aborting would not stop the server's
-      // run, so the answer must be its own outcome, never a failure while it deletes on.
-      const done = await endPane(pane, "expunge", "Expunging…", { session_id: plan.session_id, birth }, 2 ** 31 - 1);
+      const done = await endPane(pane, "expunge", "Expunging…", { session_id: plan.session_id, birth }, NO_TIMEOUT);
       notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
     } catch (error) { // a refusal (pane gone, 404; or 409) touched nothing and clears; a failure stays
       const refused = [404, 409].includes(error.status);
@@ -1578,6 +1621,67 @@ $("expunge-pane").onclick = async () => {
     }
   };
   $("expunge-dialog").showModal();
+};
+// Move to another account: copy the pane's agent session into another account's dir and
+// resume it there in a new window; this pane and the original are left alone
+// (docs/design/agent-accounts.md).
+html($("move-pane"), `${licon("users", 18)}<span>Move to another account…</span>`);
+// Not while a choice runs: the sheet is where its outcome shows.
+$("close-move").onclick = () => $("move-choices").inert || $("move-dialog").close();
+$("move-dialog").addEventListener("cancel", (e) => { if ($("move-choices").inert) e.preventDefault(); });
+$("move-pane").onclick = async () => {
+  closePaneMenu();
+  const pane = panes.find((p) => p.pane_id === active);
+  if (!pane) return;
+  // Which account each pane runs on, fresh: a stale list offers the pane its own.
+  if (!await accounts.refresh()) return notice("Could not load the accounts.", 6000);
+  const targets = accounts.moveTargets(pane.pane_id, pane.tool);
+  if (!targets.length) return notice("No other signed-in account to move it to.", 6000);
+  // The session it runs now, which every request below is bound to (Expunge's preview names it).
+  let session_id;
+  try { ({ session_id } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
+  catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
+  const sheet = (what, choices) => {
+    text($("move-what"), what);
+    $("move-choices").replaceChildren(...choices.map(([label, sub, act]) => {
+      const button = document.createElement("button");
+      html(button, `<span><strong>${label}</strong><small></small></span>${licon("chevron")}`);
+      text(button.querySelector("small"), sub);
+      button.onclick = async () => { // one choice at a time: a second tap waits out the first
+        if ($("move-choices").inert) return;
+        $("move-choices").inert = true;
+        try { await act(); } finally { // and the tapped choice is gone: focus stays in the sheet
+          $("move-choices").inert = false;
+          $("move-choices").firstElementChild?.focus();
+        }
+      };
+      return button;
+    }));
+  };
+  const go = (id) => { $("move-dialog").close(); openLaunched(id); };
+  // No status means no answer at all: the server may have done it, so never just "could not".
+  const failed = (what, maybe, error) => notice(error.status === undefined ? `Connection lost; ${maybe}` : `Could not ${what}: ${error.detail || error.message}`, 6000);
+  const move = async (p, flags = {}) => {
+    try {
+      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, session_id, ...flags }, NO_TIMEOUT);
+      sheet(`It is running on ${p.name} in a new window. This window still runs it on this account until it exits.`, [
+        ["Go to the new window", "", () => go(r.pane_id)],
+        ["Exit the old pane", "Types /exit here, then goes to the new window", async () => {
+          try { await post(paneUrl(pane.pane_id, "exit"), { birth: pane.birth, session_id }); }
+          catch (error) { failed("exit the old pane", "the old pane may have exited.", error); }
+          go(r.pane_id);
+        }]]);
+    } catch (error) {
+      if (error.copied) return sheet(`An older copy exists on ${p.name} (copied ${since({ state_since: error.copied })} ago).`, [
+        ["Replace it", "Copies this session over that one's files, then resumes it", () => move(p, { replace: true })],
+        ...error.resumable ? [["Resume that copy", "Opens it as it is", () => move(p, { resume_existing: true })]] : []]);
+      $("move-dialog").close();
+      failed("move the session", "the move may have completed. Look for its new window before trying again.", error);
+    }
+  };
+  sheet(`Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
+    targets.map((p) => [accounts.chip(p), p.tilde, () => move(p)]));
+  $("move-dialog").showModal();
 };
 window.addEventListener("hashchange", route);
 // A push tapped while the app is open: sw.js names the address to show, and it is routed
@@ -1597,7 +1701,7 @@ setupPush($("push"), notice, licon("bell"));
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion });
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, account: accounts.consent });
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {

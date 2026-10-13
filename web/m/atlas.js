@@ -515,7 +515,7 @@ const STOP = new Set(('the a an and or to of in on for with from is are was were
 // `after` is the caller's nodes to place under the filters (app.js: the grid of cards);
 // `foot` and `radar` are the slots in it for the heatmap card and the word cloud, and
 // `openHeat` opens the heatmap's own view.
-export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after, foot, openHeat, radar) {
+export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after, foot, openHeat, radar, chip = () => '') {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
   // The session cards chart the last week (the heatmap's history, the chart's until it loads)
@@ -528,7 +528,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // Preserve focus and pointer targets across unchanged long polls.
   // draft too: the goal editor is shared, so an edit on one surface refreshes the other.
   refreshHeat();
-  if (unchanged(root, [heat, scope.tool, scope.session, history, historyData, historyError, settings, goal, draft, draftInvalid, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
+  if (unchanged(root, [heat, ...sessions.map(chip), scope.tool, scope.session, history, historyData, historyError, settings, goal, draft, draftInvalid, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
     p.waiting_on, p.tool, p.model, p.session_summary, p.status_line, p.agents, JSON.stringify(p.subagents)])])) return;
   const focus = focusKey(root);
   const charts = root._charts ||= atlasCharts();
@@ -655,7 +655,9 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     const members = panes.filter(p => p.session === key), need = members.filter(needsYou).length;
     const card = el('div', 'atlas-multiple'), head = el('span', 'atlas-multiple-head'), dots = el('div', 'atlas-dots');
     Object.assign(card, { role: 'group', ariaLabel: `Session ${key}` }); // its panes' buttons are grouped under its name
-    head.append(el('b', '', key), el('span', 'fleet-gap'), el('b', '', String(running(liveCounts(members)))), el('span', 'muted', ' running'),
+    head.append(el('b', '', key));
+    head.insertAdjacentHTML('beforeend', chip(key)); // its default account (accounts.js)
+    head.append(el('span', 'fleet-gap'), el('b', '', String(running(liveCounts(members)))), el('span', 'muted', ' running'),
       ...(need ? [el('span', 'atlas-need', `${need} need you`)] : []));
     members.forEach(p => {
       const dot = el('button', `atlas-dot s${stateOf(p)}`);

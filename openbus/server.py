@@ -29,6 +29,7 @@ import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Literal
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
@@ -75,7 +76,8 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import agent_history, expunge, telemetry, tmux  # noqa: E402
+from . import accounts, agent_history, expunge, telemetry, tmux  # noqa: E402
+from .classify import picker_digest, picker_read  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -159,6 +161,10 @@ IMG_MAX_BYTES = (
 # anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
 # telemetry too — this bounds the READ so a huge body can't balloon memory).
 CLIENT_ERROR_MAX_BYTES = 8 * 2**10
+# After a cursor walk's key, how often and how long /send waits for the screen to redraw
+# before it reads the picker back: a terminal redraws in milliseconds, a key that moved
+# nothing never redraws, so a second bounds it.
+PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 20
 # A boot failure (web/m/index.html's watchdog) also goes to the journal, at most this often,
 # so a reload loop can't flood it; one line is enough to see what broke.
 BOOT_WARN_INTERVAL_S = 10.0
@@ -175,6 +181,10 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+    # A cursor walk's step: the picker digest of the frame it was computed from (classify's
+    # `picker`) and the prompt that locates that picker. Sent only to that very screen.
+    picker: str | None = None
+    prompt: str = ""
 
 
 class PushKeysBody(BaseModel):
@@ -219,15 +229,47 @@ class ExpungeBody(BaseModel):
     birth: str  # the pane incarnation the menu was drawn for (its `birth` in /api/state)
 
 
+class MoveBody(ExpungeBody):  # bound to the pane incarnation and session, likewise
+    dir: str  # the target profile's config dir
+    replace: bool = False  # the account has an older copy of the session: copy over it
+    resume_existing: bool = False  # ...or resume that copy as it is
+
+
 class NewWindowBody(BaseModel):
     session: str
     launcher: str  # label of a configured launcher — never a raw command
+    account: str | None = None  # a listed profile's config dir (accounts.py); None = inherit
 
 
 class NewSessionBody(BaseModel):
     name: str  # checked in new_session, not here, so a refusal is audited
     cwd: str = "~"
     launcher: str | None = None  # a configured label as above; None = a plain shell
+    account: str | None = None  # as in NewWindowBody
+
+
+class AccountBody(BaseModel):
+    provider: Literal["claude", "codex"]
+    dir: str = Field(min_length=1, max_length=400)
+    label: str = Field("", max_length=40)
+    link: list[str] = []  # names from accounts.SHARED
+
+
+class AccountEditBody(BaseModel):
+    dir: str
+    label: str | None = Field(None, max_length=40)  # None: unchanged
+    forget: bool = False
+
+
+class AccountSessionBody(BaseModel):
+    dir: str
+    session: str
+    provider: Literal["claude", "codex"] | None = None  # with dir "": clear its default
+
+
+class SignInWindowBody(BaseModel):
+    pane_id: str
+    pid: str
 
 
 # Agent launchers offered by the dock's "+" menu. Configurable so a fleet can offer
@@ -361,7 +403,13 @@ def _unavailable(command: str, path: str | None = None, *,
 def _launcher(e: dict) -> dict:
     if not (e.get("label") and e.get("command")):
         raise ValueError("launcher needs label and command")
-    return {"label": str(e["label"]), "command": str(e["command"]), "icon": str(e.get("icon", ""))}
+    icon = str(e.get("icon", ""))
+    # Which agent's accounts it can launch on: explicit, else read from a built-in icon.
+    provider = str(e.get("provider") or (icon if icon in accounts.ENV else ""))
+    if provider and provider not in accounts.ENV:
+        raise ValueError(f"launcher provider must be one of {', '.join(accounts.ENV)}")
+    return {"label": str(e["label"]), "command": str(e["command"]), "icon": icon,
+            "provider": provider}
 
 
 def _launchers() -> list[dict]:
@@ -372,7 +420,7 @@ def _launchers() -> list[dict]:
     # has visibly reverted sends you to the config and the log line waiting there. The Live
     # model table needs the same rule for a stronger reason (a mis-parsed entry must never
     # be offered at a made-up price), and one rule for both is one thing to know.
-    return json_list("TMUXRC_LAUNCHERS", _DEFAULT_LAUNCHERS, _launcher)
+    return json_list("TMUXRC_LAUNCHERS", [_launcher(e) for e in _DEFAULT_LAUNCHERS], _launcher)
 
 
 class ClientErrorBody(BaseModel):
@@ -452,7 +500,7 @@ async def lifespan(app: FastAPI):
     _advertise_scratch()
     app.state.push = PushManager(app.state.watcher)
     app.state.push.start()
-    app.state.usage = PlanUsage(app.state.history)
+    app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered)
     app.state.loops = OpenLoops()
     tasks = [asyncio.create_task(app.state.usage.run(app.state.watcher)),
              asyncio.create_task(app.state.loops.run(app.state.watcher))]
@@ -895,13 +943,37 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise HTTPException(404, "pane not found")
     _invalidate_input_actions(pane.id)
+
+    def same_picker() -> None:
+        # The whole guard on a cursor walk, under the send lock: the picker, from its
+        # dialog's top edge down (the command a generic "Proceed?" approves included), must
+        # hash exactly as in the frame the step was computed from. That frame's highlight
+        # was read off the screen (classify), so the step is right for that screen and
+        # for no other: a replaced or redrawn picker, a moved highlight, another pane under
+        # a recycled id all change it. A screen that hashes the same takes the key as the
+        # walk meant it, which is why nothing about the key, row or pane is checked apart.
+        # The check and the key are two tmux calls: a keystroke at the desk landing between
+        # them is beyond any remote send's reach, and the walk rereads after every step.
+        try:
+            screen = tmux.capture_pane(pane.id, mark_dim=True)
+        except subprocess.CalledProcessError as e:  # closed since find_pane: refuse, reread
+            raise tmux.PaneChangedError(f"The pane closed; nothing was sent: {e}") from e
+        if not body.picker or picker_digest(screen, body.prompt) != body.picker:
+            msg = f"The picker {body.prompt!r} changed since it was read; nothing was sent."
+            raise tmux.PaneChangedError(msg)
+
     try:
-        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
+        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
+                       guard=None if body.picker is None else same_picker)
     except Exception as e:
         # Keys refused at a password prompt are probably the password: never recorded.
         keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
         _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
         if isinstance(e, tmux.PaneChangedError):
+            # The watcher reuses a card while its fingerprint holds, and that ignores
+            # repaints (a timer, a cost) the picker digest counts: reread, so a refused
+            # walk can go again on the next parse instead of staying refused.
+            app.state.watcher.request_reparse(pane.id)
             raise HTTPException(409, str(e)) from e
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)
@@ -911,7 +983,24 @@ def send(pane_id: str, body: SendBody, request: Request):
     # queued under an alias would simply never fire and the card would go stale until the
     # next poll.
     app.state.watcher.request_reparse(pane.id)
-    return {"ok": True}
+    return {"ok": True} if body.picker is None else {"ok": True, **_picker_after(pane.id, body)}
+
+
+def _picker_after(pane_id: str, body: SendBody) -> dict:
+    """The screen a walk's key made, read off a capture as soon as it redraws (or a second
+    on, for a key that moved nothing): the digest the next step is held to and the row
+    now highlighted. The walk plans its next step off this at once instead of waiting
+    seconds for the model's parse; null where the picker can no longer be found."""
+    read = None
+    for _ in range(PICKER_SETTLE_POLLS):
+        time.sleep(PICKER_SETTLE_S)
+        try:
+            read = picker_read(tmux.capture_pane(pane_id, mark_dim=True), body.prompt)
+        except subprocess.CalledProcessError:  # the pane closed: nothing to read
+            return {"picker": None, "row": None}
+        if not read or read[0] != body.picker:  # redrawn, or the picker is gone
+            break
+    return {"picker": read and read[0], "row": read and read[1]}
 
 
 @app.post("/api/panes/{pane_id}/click")
@@ -971,7 +1060,7 @@ def launchers():
     out = []
     path = tmux.server_path()  # once: the same answer for every entry
     for e in _launchers():
-        item = {"label": e["label"], "icon": e["icon"]}
+        item = {"label": e["label"], "icon": e["icon"], "provider": e.get("provider", "")}
         why = _unavailable(e["command"], path)
         if why:
             item["unavailable"] = why
@@ -1002,13 +1091,124 @@ def new_window(body: NewWindowBody, request: Request):
     if why:
         _audit(request, "new_window", "-", detail, outcome="rejected: command not found")
         raise HTTPException(400, why)
+    command = _on_account(entry, body.account)
+    if command is None:
+        _audit(request, "new_window", "-", detail, outcome="rejected: unknown account")
+        raise HTTPException(404, "unknown account")
     try:
-        pane_id = tmux.new_window(body.session, entry["label"], entry["command"])
+        pane_id = tmux.new_window(body.session, entry["label"], command)
     except Exception as e:
         _audit(request, "new_window", "-", detail, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "new_window", pane_id, detail)
     return _opened(pane_id)
+
+
+def _on_account(entry: dict, account: str | None) -> str | list[str] | None:
+    """The launcher's command, pinned to `account` (a listed profile's dir) if one is
+    asked for; None when that is no account of the launcher's provider."""
+    if account is None:
+        return entry["command"]
+    provider = entry.get("provider")
+    profile = accounts.find(account, provider) if provider in accounts.ENV else None
+    return profile and accounts.command(profile["provider"], profile["dir"], entry["command"])
+
+
+def _refuse(request: Request, action: str, detail: str, status: int, why: str, **extra):
+    _audit(request, action, "-", detail, outcome=f"rejected: {why}"[:80])
+    raise HTTPException(status, {"message": why, **extra} if extra else why)
+
+
+@app.get("/api/accounts")
+def get_accounts():
+    """The agent accounts (accounts.py), the panes on each, and sessions' defaults."""
+    watcher = app.state.watcher
+    return accounts.report(list(watcher.states), watcher.pane_birth)
+
+
+@app.post("/api/accounts")
+def add_account(body: AccountBody, request: Request):
+    """Create or reuse a config dir and list it; the sign-in is the provider's own, in a
+    window opened by /api/accounts/login."""
+    detail = f"provider={body.provider} dir={body.dir[:120]!r} link={body.link!r}"[:240]
+    try:
+        added = accounts.add(body.provider, body.dir, body.label, body.link)
+    except FileExistsError as e:
+        _refuse(request, "add_account", detail, 409, str(e))
+    except (ValueError, OSError) as e:
+        _refuse(request, "add_account", detail, 422, str(e))
+    _audit(request, "add_account", "-", detail)
+    return added
+
+
+@app.put("/api/accounts")
+def edit_account(body: AccountEditBody, request: Request):
+    """Rename an account (its label only) or forget it (off the list; nothing deleted)."""
+    detail = f"dir={body.dir[:120]!r} label={body.label!r} forget={body.forget}"[:240]
+    try:
+        accounts.edit(body.dir, body.label, forget=body.forget)
+    except LookupError as e:
+        _refuse(request, "edit_account", detail, 404, str(e))
+    except ValueError as e:
+        _refuse(request, "edit_account", detail, 422, str(e))
+    _audit(request, "edit_account", "-", detail)
+    return {"ok": True}
+
+
+def _session_account(body: AccountSessionBody, request: Request, action: str) -> dict:
+    detail = f"session={body.session[:80]!r} dir={body.dir[:120]!r}"
+    profile = accounts.find(body.dir)
+    if profile is None:
+        _refuse(request, action, detail, 404, "unknown account")
+    if not any(p.session == body.session for p in tmux.list_panes()):
+        _refuse(request, action, detail, 404, "session not found")
+    return profile
+
+
+@app.post("/api/accounts/login")
+def account_login(body: AccountSessionBody, request: Request):
+    """Open a window running the provider's own sign-in on this account's dir. The user
+    signs in there; the daemon never sees a password or a token."""
+    profile = _session_account(body, request, "account_login")
+    argv = accounts.LOGIN[profile["provider"]]
+    if why := _unavailable(argv[0], tmux.server_path()):
+        _refuse(request, "account_login", body.dir[:120], 400, why)
+    pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
+                              accounts.command(profile["provider"], profile["dir"], argv))
+    _audit(request, "account_login", pane_id, f"dir={body.dir[:120]!r}")
+    _SIGN_IN[pane_id] = pid = tmux.pane_pid(pane_id) or ""
+    return {**_opened(pane_id), "pid": pid}
+
+
+# The sign-in windows this daemon opened, pane id -> pid: the only ones its close may end.
+_SIGN_IN: dict[str, str] = {}
+
+
+@app.post("/api/accounts/login/close")
+def account_login_close(body: SignInWindowBody, request: Request):
+    """Close a sign-in window that /api/accounts/login opened, by its exact pane and while
+    that same process still owns it; any other pane is refused untouched."""
+    if not body.pid or _SIGN_IN.get(body.pane_id) != body.pid:
+        _refuse(request, "account_login_close", body.pane_id, 404, "not a sign-in window")
+    _kill_window(request, body.pane_id, "account_login_close", pid=body.pid)
+    _SIGN_IN.pop(body.pane_id)
+    _audit(request, "account_login_close", body.pane_id)
+    return {"ok": True}
+
+
+@app.post("/api/accounts/default")
+def account_default(body: AccountSessionBody, request: Request):
+    """Make an account the session's default (tmux set-environment), or with an empty dir
+    clear the provider's (marked removed: nothing sets it, so the standard dir applies)."""
+    if body.dir or not body.provider:
+        profile = _session_account(body, request, "account_default")
+    elif not any(p.session == body.session for p in tmux.list_panes()):
+        _refuse(request, "account_default", body.session[:80], 404, "session not found")
+    else:
+        profile = {"provider": body.provider, "default": True}
+    accounts.set_default(body.session, profile)
+    _audit(request, "account_default", "-", f"session={body.session[:80]!r} dir={body.dir[:120]!r}")
+    return {"ok": True}
 
 
 def _opened(pane_id: str) -> dict:
@@ -1078,8 +1278,11 @@ def new_session(body: NewSessionBody, request: Request):
     why = entry and _unavailable(entry["command"], path, daemon_path=running)
     if why:
         refuse(400, why)
+    command = entry and _on_account(entry, body.account)
+    if entry and command is None:
+        refuse(404, "unknown account")
     try:
-        pane_id = tmux.new_session(body.name, cwd, entry and entry["command"],
+        pane_id = tmux.new_session(body.name, cwd, command,
                                    entry["label"] if entry else "", env=env)
     except subprocess.CalledProcessError as e:
         if "duplicate session" in (e.stderr or ""):
@@ -1209,6 +1412,109 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
                                  "delete its own stored card for the pane yet")
     _audit(request, "expunge", pane_id, detail)
     return {"ok": True, **result, "killed": killed}
+
+
+_MOVES = threading.Lock()
+MOVE_START_S = 5.0  # how long a move holds _MOVES for its agent to show as running
+
+
+def _started(s, target: Path, pane_id: str) -> bool:
+    """Whether the moved agent shows as running on `target` within MOVE_START_S: in the
+    window's own process alone, so a slow start never rescans every process on the box."""
+    pids = [pid] if (pid := tmux.pane_pid(pane_id)) else []
+    deadline = time.monotonic() + MOVE_START_S
+    while not accounts.running(s, target, pids):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+@app.post("/api/panes/{pane_id}/move")
+def move_session(pane_id: str, body: MoveBody, request: Request):
+    """Copy the pane's agent session to another account and resume it there, in a new
+    window of the same session and cwd. The source pane and its files are left as they are.
+    See docs/design/agent-accounts.md."""
+    detail = f"dir={body.dir[:120]!r}"
+    try:
+        pane, s, _ = _pane_session(pane_id, body.birth, body.session_id)
+        cwd = os.readlink(f"/proc/{s.pid}/cwd")
+    except HTTPException as e:
+        _refuse(request, "move_session", detail, e.status_code, e.detail)
+    except OSError:
+        _refuse(request, "move_session", detail, 409, "the agent's working directory can't be read")
+    profile = accounts.find(body.dir, s.harness)
+    if not (profile and profile["signed_in"]):
+        _refuse(request, "move_session", detail, 404, "not a signed-in account")
+    detail = f"session={s.session_id} {detail}"
+    target, argv = Path(profile["dir"]), [*accounts.RESUME[s.harness], s.session_id]
+    if target.samefile(s.root):  # whatever the spelling, link or mount
+        _refuse(request, "move_session", detail, 409, "the session is already on that account")
+    if body.replace and body.resume_existing:
+        _refuse(request, "move_session", detail, 400, "replace or resume, not both")
+    # Before copying anything, and on the PATH the window inherits: its session's own, if
+    # it sets one, else the tmux server's.
+    env = tmux.show_env(pane.session)
+    path = env["PATH"] if "PATH" in env else tmux.server_path()
+    if path is not None and not shutil.which(argv[0], path=path):
+        _refuse(request, "move_session", detail, 400,
+                f"{argv[0]} is not on the tmux session's PATH, so no window could start it")
+    with _MOVES:  # through the launch, so a second request sees the first one's agent
+        if accounts.running(s, target):  # so its copy is neither offered nor touched
+            _refuse(request, "move_session", detail, 409,
+                    "it is running on that account, or may be: go to that window")
+        copied = []
+        try:
+            if not body.resume_existing:
+                copied = accounts.copy_session(s, target, replace=body.replace)
+            elif not accounts.resumable(accounts.confined(accounts.files(s, target), target)):
+                _refuse(request, "move_session", detail, 409,
+                        "that account has no transcript of it to resume")
+        except FileExistsError as e:  # the sheet offers to replace or resume it
+            _refuse(request, "move_session", detail, 409, str(e),
+                    copied=accounts.copied_at(s, target),
+                    resumable=accounts.resumable(accounts.files(s, target)))
+        except (LookupError, ValueError) as e:
+            _refuse(request, "move_session", detail, 409, str(e))
+        except OSError as e:  # only the type: the message can carry a path
+            _audit(request, "move_session", pane_id, detail, outcome=f"error: {type(e).__name__}")
+            raise HTTPException(500, "the session could not be copied: nothing was kept") from e
+        try:  # the copy stays: the session can still be resumed there by hand
+            new = tmux.new_window(pane.session, f"{argv[0]} on {profile['name']}"[:40],
+                                  accounts.command(s.harness, profile["dir"], argv), cwd=cwd)
+        except (subprocess.CalledProcessError, OSError) as e:
+            _audit(request, "move_session", pane_id, detail, outcome="error: copied, no window")
+            raise HTTPException(500, "the session was copied, but its window could not be "
+                                     "opened") from e
+        # A window is not yet an agent: hold the next move until this one shows as running.
+        if not _started(s, target, new):
+            _audit(request, "move_session", new, f"from={pane.id} {detail}",
+                   outcome="error: copied, agent did not start")
+            raise HTTPException(500, "the session was copied, but its agent did not start")
+    _audit(request, "move_session", new, f"from={pane.id} {detail}")
+    return {**_opened(new), "copied": copied}
+
+
+@app.post("/api/panes/{pane_id}/exit")
+def exit_agent(pane_id: str, body: ExpungeBody, request: Request):
+    """Type the agent's own /exit (Claude Code's and Codex's alike) into the pane a move
+    left behind: only while it is the incarnation and runs the session the client names.
+    Never a kill: the agent ends as if the user had typed it."""
+    detail = f"session={body.session_id[:64]}"
+    try:
+        def same():  # again under the pane's send lock: the agent may have exited while it waited
+            _pane_session(pane_id, body.birth, body.session_id)
+        pane, _, _ = _pane_session(pane_id, body.birth, body.session_id)
+        tmux.send_keys(pane.id, "/exit", expected_pid=pane.pid, guard=same)
+    except HTTPException as e:
+        _refuse(request, "exit_agent", detail, e.status_code, e.detail)
+    except tmux.PaneChangedError as e:
+        _refuse(request, "exit_agent", detail, 409, str(e))
+    except (OSError, subprocess.CalledProcessError) as e:
+        _audit(request, "exit_agent", pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise HTTPException(500, "tmux could not type /exit into the pane") from e
+    _audit(request, "exit_agent", pane.id, detail)
+    return {"ok": True}
 
 
 @app.post("/api/client-error")
@@ -1550,7 +1856,7 @@ def _advertise_scratch() -> None:
            "TMUXRC_SCRATCH_LOCAL_URL": f"http://{host}:{port}/scratch"}
     try:
         for name, value in env.items():
-            tmux.set_global_env(name, value if _scratch_dir else None)
+            tmux.set_env(name, value if _scratch_dir else None)
     except (subprocess.CalledProcessError, OSError):  # no server yet, or no tmux binary
         logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 

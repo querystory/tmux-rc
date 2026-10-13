@@ -5,7 +5,9 @@ Live Mode can find past work across projects and resume it. It is independent of
 tmux-rc daemon: it indexes sessions that never ran in a pane (subagents, IDE sessions,
 headless runs), and runs whether or not the daemon is up.
 
-Status: Claude Code, Codex and omp. An OpenCode reader and summaries follow.
+Status: Claude Code, Codex and omp. An OpenCode reader and summaries follow. Claude
+sessions are read from every account in HOME (`~/.claude` and each `~/.claude-<name>`),
+or from `CLAUDE_CONFIG_DIR` alone when it is set; Codex reads `CODEX_HOME` only.
 
 ## Why an index and not a copy
 

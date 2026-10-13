@@ -79,14 +79,57 @@ MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("G
 # Plan limits, one Claude and one weekly-only Codex account, as a typical day reads: a
 # light 5h window behind its even pace, a 7d window on pace to end in the 90s (amber), a
 # per-model weekly limit, and Codex on pace to run out before its reset (red), with no 5h
-# window at all. provider | name | the sessions whose panes draw on it | per window: name,
-# seconds, share of it gone at NOW, % used at NOW.
+# window at all. provider | config dir | the sessions whose panes draw on it | per window:
+# name, seconds, share of it gone at NOW, % used at NOW.
 PLANS = [
-    ("claude", "claude", SESSIONS, [("5h", 5 * 3600, 1 - 160 / 300, 16),
-                                    ("7d", 7 * 86400, 1 - 7.5 / 168, 89),
-                                    ("7d Fable", 7 * 86400, 1 - 7.5 / 168, 52)]),
-    ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 40)]),
+    ("claude", "~/.claude", SESSIONS, [("5h", 5 * 3600, 1 - 160 / 300, 16),
+                                       ("7d", 7 * 86400, 1 - 7.5 / 168, 89),
+                                       ("7d Fable", 7 * 86400, 1 - 7.5 / 168, 52)]),
+    ("codex", "~/.codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 40)]),
 ]
+# The two-account state (TMUXRC_DEMO_ACCOUNTS=2): a personal Claude plan beside the work
+# one, its default in two sessions. Named by label, as accounts.profiles() names them.
+PERSONAL = ("claude", "~/.claude-personal", ["research", "docs"],
+            [("5h", 5 * 3600, 1 - 185 / 300, 34), ("7d", 7 * 86400, 1 - 74 / 168, 22),
+             ("7d Fable", 7 * 86400, 1 - 74 / 168, 9)])
+PROFILES = {"~/.claude": ("Work", "Example Org", "Team", 0),
+            "~/.claude-personal": ("Personal", "Sam Rivera", "Max", 1),
+            "~/.codex": ("Codex", "", "", 2)}
+
+
+# The add-account flow's new account (its sign-in window is sign_in_pane()).
+SIGNED_IN_AFTER = 6  # seconds from opening the sign-in window to the stub "signing in"
+DEMO_ACCOUNT = {"dir": "~/.claude-demo", "tilde": "~/.claude-demo", "provider": "claude",
+                "name": "Demo", "label": "Demo", "who": "Demo Studio", "plan": "Pro", "color": 3,
+                "default": False, "panes": ["%90"]}
+
+
+def plans(two: bool = False) -> list[tuple]:
+    if not two:
+        return PLANS
+    work = [s for s in SESSIONS if s not in PERSONAL[2]]
+    return [PERSONAL, (*PLANS[0][:2], work, PLANS[0][3]), PLANS[1]]
+
+
+def accounts(two: bool = False, signing_in: float | None = None) -> dict:
+    """GET /api/accounts as accounts.report() answers it for this fleet; with
+    `signing_in` (seconds since the add flow opened its sign-in window), Demo too, signed in
+    after SIGNED_IN_AFTER."""
+    panes = fleet()
+    profiles = [{"dir": d, "tilde": d, "provider": tool, "name": PROFILES[d][0],
+                 "label": PROFILES[d][0] if two else None, "who": PROFILES[d][1],
+                 "plan": PROFILES[d][2], "color": PROFILES[d][3], "signed_in": True,
+                 "default": "-" not in d,
+                 "panes": [p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in ss]}
+                for tool, d, ss, _ in plans(two)]
+    # Personal's sessions set it in their tmux environment; the rest set nothing.
+    sessions = {s: {"claude": PERSONAL[1] if s in PERSONAL[2] else None, "codex": None}
+                for s in SESSIONS} if two else {}
+    if signing_in is not None:
+        profiles.append({**DEMO_ACCOUNT, "signed_in": signing_in >= SIGNED_IN_AFTER})
+    return {"profiles": profiles, "sessions": sessions}
+
+
 STALE = {"claude": 360}  # a failed last read: the meter shows the reading from 6m before
 
 
@@ -109,6 +152,14 @@ RULE = dim("─" * 78)
 
 # Hand-made terminal screens for the panes the screenshots open; the rest get a plain one.
 CAPTURES = {
+    # The add-account shots' sign-in window: a stub of the provider's own sign-in, never a
+    # real login screen (scripts/screenshots.mjs, demo_server's sign-in state).
+    "sign in: Demo": "\n".join([
+        dim("$ CLAUDE_CONFIG_DIR=~/.claude-demo claude"), "",
+        f"{mag('*')} {b('Welcome to Claude Code')} {dim('(demo stub)')}", "",
+        "Not signed in on ~/.claude-demo.", "", "> /login", "  Select login method:",
+        grn("  > 1. Claude account with subscription"), "    2. Anthropic Console account", "",
+        dim("  Opening the browser to sign in...")]),
     "e2e triage": "\n".join([
         f"{b('●')} The checkout flake reproduces only when the payment iframe loads after the",
         "  coupon request, so I added tracing and am re-running the spec 20 times.",
@@ -268,6 +319,11 @@ def fleet() -> list[dict]:
     return panes
 
 
+def sign_in_pane() -> dict:
+    """The add flow's sign-in window, in the first session, as tmux-rc opens it."""
+    return _pane(90, "0|claude|idle|sign in: Demo|2m||Waiting for /login in the browser.", 9)
+
+
 def events_log() -> dict[str, list[dict]]:
     ids = {p["title"]: p["pane_id"] for p in fleet()}
     return {ids[title]: [{"ts": NOW - m * 60, "text": t} for m, t in rows]
@@ -325,19 +381,20 @@ def seed_history(history: History) -> History:
     return history
 
 
-def seed_usage(usage):
+def seed_usage(usage, two: bool = False):
     """Five-minute samples of each PLANS window, rising a little faster late in it, ending
     at its share at NOW; and the accounts the panes draw on, as discovery would find them.
     Claude's last read failed, so its samples stop STALE seconds short of NOW."""
     rows, panes = [], fleet()
-    for tool, name, sessions, windows in PLANS:
+    for tool, name, sessions, windows in plans(two):
         last = NOW - STALE.get(tool, 0)
         for window, seconds, share, pct in windows:
             start = NOW - share * seconds
             rows += [(tool, name, window, seconds, t,
                       round(pct * ((t - start) / (NOW - start)) ** 1.2), start + seconds)
                      for t in range(int(last), int(start), -300)]
-        usage.accounts[(tool, name)] = {"short": name, "panes": [
+        # "short": what a base tree from before accounts.py labels a meter by.
+        usage.accounts[(tool, name)] = {"homes": [name], "short": PROFILES[name][0], "panes": [
             p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions],
             "error": "unavailable" if tool in STALE else None}
     usage.history.record_usage(rows)

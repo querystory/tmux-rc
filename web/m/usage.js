@@ -46,15 +46,15 @@ function cell(w, a, wide, detail, now) {
   const pace = w.resets_at && Math.min(100, Math.max(0, (now - w.start) / (w.resets_at - w.start) * 100));
   const bar = `<i class="usage-bar"><i style="width:${projected}%" class="ahead"></i><i style="width:${used}%"></i>`
     + (pace ? `<i class="pace" style="left:${pace.toFixed(1)}%"></i>` : '') + '</i>';
-  return `<div class="usage-cell ${level}" title="${esc(title)}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${label(a.provider, [w.window, a.label].filter(Boolean).join(' '))}<b>${Math.round(w.pct)}%</b><em>used</em>`
-    + `${wide && w.resets_at ? spark(w, now) : bar}${note}</div>`;
+  return `<div class="usage-cell ${level}" title="${esc(title)}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${label(a.provider, w.window)}<b>${Math.round(w.pct)}%</b><em>used</em>`
+    + `${wide && w.resets_at ? spark(w, now) : bar}<div class="usage-foot"><div>${note}</div>${a.chip || ''}</div></div>`;
 }
 
 // One flat grid of meters, two to a row, rather than a block per account: a weekly-only
 // Codex beside Claude's three windows would leave holes. So each label carries its
-// provider's icon, and after the window (so a narrow cell truncates the name, not the
-// window) the account's short name when a provider has several. Accounts come
-// sorted by provider, windows by name (5h, 7d, then per-model "7d Fable").
+// provider's icon, and when a provider has several accounts the meter's foot carries the
+// account's chip (accounts.js), across from the reset. Accounts come sorted by provider,
+// windows by name (5h, 7d, then per-model "7d Fable").
 const who = a => a.label ? `${NAMES[a.provider]} ${a.label}` : NAMES[a.provider];
 const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NAMES[provider]}" width="14" height="14">${esc(text)}</span>`;
 
@@ -65,7 +65,7 @@ const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NA
 // back to its window's start.
 export function renderUsage(el, accounts, { wide = false, detail = false, now = Date.now() } = {}) {
   el.hidden = !accounts.length;
-  const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, [a.label, a.error].filter(Boolean).join(': '))}</div>`
+  const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, a.error)}${a.chip || ''}</div>`
     : a.windows.map(w => cell(w, a, wide, detail, now)).join('')).join(''); // a plan without a window shows none
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
 }
@@ -76,6 +76,3 @@ export function renderUsage(el, accounts, { wide = false, detail = false, now = 
 export const HIGH_PCT = 70;
 export const shownUsage = (accounts, mode) => mode === 'on' ? accounts : mode === 'off' ? []
   : accounts.map(a => ({ ...a, windows: (a.windows || []).filter(w => w.limit_at || w.pct >= HIGH_PCT) })).filter(a => !a.error && a.windows.length);
-
-// The account a pane draws on, named only when its provider has several to tell apart.
-export const paneAccount = (accounts, paneId) => accounts.find(a => a.label && a.panes.includes(paneId))?.label;

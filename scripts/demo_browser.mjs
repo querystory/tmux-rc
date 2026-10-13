@@ -1,8 +1,9 @@
 // The demo fleet in a browser, shared by scripts/screenshots.mjs and scripts/mock.mjs.
 //
-// startDemo(tree) boots scripts/demo_server.py from `tree` on a free port and a headless
-// Chromium whose renders are reproducible: the clock starts at the fleet's NOW, motion is
-// off, the pixel ratio is fixed, fonts are awaited and the chat socket is a canned stub.
+// startDemo(tree, env) boots scripts/demo_server.py from `tree` on a free port, `env` added
+// to its environment, and a headless Chromium whose renders are reproducible: the clock
+// starts at the fleet's NOW, motion is off, the pixel ratio is fixed, fonts are awaited and
+// the chat socket is a canned stub.
 // Playwright resolves from $PLAYWRIGHT_DIR (default: the Makefile's install dir) so the
 // repo's own package.json stays browser-free.
 import { spawn, execFileSync } from "node:child_process";
@@ -109,11 +110,11 @@ export async function settle(page, name, shoot = () => page.screenshot()) {
   return shot;
 }
 
-export async function startDemo(tree = process.cwd()) {
+export async function startDemo(tree = process.cwd(), env = {}) {
   const python = (...args) => ["uv", ["run", "--directory", tree, "python", ...args]];
   const now = Number(execFileSync(...python("-c", "from scripts.demo_fleet import NOW; print(NOW)"), { encoding: "utf8" }));
   const port = await freePort();
-  const server = spawn(...python("-m", "scripts.demo_server", String(port)), { stdio: "inherit" });
+  const server = spawn(...python("-m", "scripts.demo_server", String(port)), { stdio: "inherit", env: { ...process.env, ...env } });
   const base = `http://127.0.0.1:${port}`;
   let browser;
   const close = async () => { await browser?.close(); server.kill(); };
