@@ -25,3 +25,9 @@ updates:
       browser-deps:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # Pinned only for its license text: it must match the runtime version
+      # embedded in markdown-it's prebuilt browser bundle, which only an
+      # upstream markdown-it rebuild changes (vendor:check enforces this).
+      # Bump it by hand alongside markdown-it.
+      - dependency-name: "@oxc-project/runtime"

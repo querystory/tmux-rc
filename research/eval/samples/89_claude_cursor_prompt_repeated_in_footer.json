@@ -1,0 +1,22 @@
+{
+  "description": "A Claude Code cursor picker whose footer repeats the prompt's words below the rows. classify() reads `selected` off the highlighted row under the prompt, and /send re-reads it before a select; both used to anchor on the LAST match of the prompt text, here the footer, found no highlight below it, and so refused every row of a valid picker. The anchor is now the first match within the live widget. The model reads the highlight right on this fictional copy with or without the fix, so tests/test_cursor_select.py is what proves the anchor; this sample guards the shape (answer_style=cursor, selected=0, arrow keymap). Fictional screen (tmux-rc, 2026-10-11).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n\n ▐▛███▛█   Claude Code ⟪dim⟫v2.1.295\n⟪/dim⟫▝▜██████▀  ⟪dim⟫Opus 5.5 · Claude Team\n⟪/dim⟫ ▝▝   ▝▝   ⟪dim⟫~/src/shop-api\n\n\n❯ ⟪/dim⟫ship the coupon fix                                                  \n\n● Bash(make build)\n⟪dim⟫  ⎿  built shop-api 3.4.1\n\n⟪/dim⟫────────────────────────────────────────────────────────────────────────────\n Which environment should I deploy to?\n\n ❯ staging\n   production\n\n ⟪dim⟫Which environment should I deploy to? · Enter to confirm · Esc to cancel⟪/dim⟫\n\n\n\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "cursor",
+      "selected": 0,
+      "keymap": {
+        "next": "Down",
+        "prev": "Up",
+        "select": "Enter",
+        "search": false
+      }
+    },
+    "headline": "Asking which environment to deploy the coupon fix to"
+  }
+}
