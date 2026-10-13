@@ -153,7 +153,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const head = (text, step) => `<div class="sheet-handle"></div><div class="dialog-heading"><h2 id="acct-title">${esc(text)}</h2><button type="button" class="icon-button" data-x aria-label="Close" title="Close">${licon("x")}</button></div>`
     + (step ? `<div class="acct-steps" aria-label="Step ${step} of 4">${[1, 2, 3, 4].map((i) => `<i class="${i <= step ? "on" : ""}"></i>`).join("")}</div>` : "");
   const btns = (...b) => `<div class="acct-btns">${b.join("")}</div>`;
-  const who = (p) => [esc(p.signed_in ? p.who || "signed in" : "not signed in"), esc(p.plan), `<code>${esc(p.tilde)}</code>`, `${p.panes.length} panes`].filter(Boolean).join(" · ");
+  const who = (p) => [esc(p.signed_in ? p.who || "signed in" : "not signed in"), esc(p.plan), `<code>${esc(p.tilde)}</code>`, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
   function render() {
     const s = F.step, owner = s === "name" && profiles.find((p) => p.dir === F.dir || p.tilde === F.dir);
     if (s === "list") dlg.innerHTML = head("Accounts") + profiles.map((p) => F.renaming === p.dir
