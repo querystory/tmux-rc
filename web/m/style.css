@@ -931,8 +931,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .acct-badge .acct-dot { width: 6px; height: 6px; }
 .acct-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: the chip stays in its box */
 .row-acct:empty, .sb-acct:empty { display: none; }
-.sb-acct { flex: none; }
-.sb-acct .acct-badge { margin-left: 4px; font-size: 10.5px; }
+.sb-open .sb-acct { flex: none; max-width: 50%; padding-left: 4px; } /* a long label takes the badge's own ellipsis */
+.sb-acct .acct-badge { font-size: 10.5px; }
 #pane-location .acct-badge { vertical-align: 1px; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
 .acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
