@@ -208,6 +208,25 @@ def test_an_agent_with_no_saved_conversation_is_empty(monkeypatch, tmp_path, har
         expunge.identify("10", CODEX_SCREEN)
 
 
+def test_a_fresh_codex_without_session_id_configured_is_empty(monkeypatch, tmp_path):
+    # Without the id no thread can be named, so it refuses with the hint while any rollout
+    # was written since Codex started; with none written, a fresh one has no conversation.
+    fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
+    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model", "git-branch"]\n')
+    with pytest.raises(Refused, match="session-id"):
+        expunge.identify("10", CODEX_SCREEN)
+    for p in tmp_path.glob("sessions/*/*/*/*.jsonl"):
+        os.utime(p, (0, 0))  # all before Codex started (777 ticks after boot)
+    with pytest.raises(Empty, match="not saved a conversation"):
+        expunge.identify("10", CODEX_SCREEN)
+    read = tmux.proc_read  # a resume names a conversation it has not written to yet
+    monkeypatch.setattr(tmux, "proc_read", lambda pid, name: "codex\0resume"
+                        if name == "cmdline" else read(pid, name))
+    with pytest.raises(Refused, match="session-id") as e:
+        expunge.identify("10", CODEX_SCREEN)
+    assert not isinstance(e.value, Empty)
+
+
 def test_codex_sign_in_is_no_session(monkeypatch, tmp_path):
     # The search goes on past it: a conversation beside it is still found, and alone it is
     # nothing to expunge, whatever its screen shows.

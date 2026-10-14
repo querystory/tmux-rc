@@ -116,6 +116,17 @@ def _registration(path: Path) -> dict:
     return reg
 
 
+def _rollout_since(home: Path, start: str) -> bool:
+    """Whether any Codex rollout under `home` was written since a process with kernel start
+    time `start` (clock ticks after boot) began. Unknown counts as yes."""
+    if not start:
+        return True
+    btime = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
+                 if line.startswith("btime "))
+    began = btime + int(start) / os.sysconf("SC_CLK_TCK")
+    return any(p.stat().st_mtime >= began for p in home.glob("sessions/*/*/*/rollout-*.jsonl"))
+
+
 def _agent(pid: int, screen: str) -> Session | None:
     """The Claude or Codex session this process is, if it is one."""
     start = "".join(_stat(pid)[19:20])
@@ -128,9 +139,10 @@ def _agent(pid: int, screen: str) -> Session | None:
                        start)
     # Codex's sign-in, `codex login` (accounts.LOGIN), is no session: the search goes on
     # past it. Under npm, argv starts node and the wrapper script before the subcommand.
-    if tmux.proc_read(pid, "comm").strip() != "codex" or [
-            a for a in tmux.proc_read(pid, "cmdline").split("\0")[1:]
-            if not a.endswith("/codex")][:1] == ["login"]:
+    if tmux.proc_read(pid, "comm").strip() != "codex":
+        return None
+    args = [a for a in tmux.proc_read(pid, "cmdline").split("\0")[1:] if not a.endswith("/codex")]
+    if args[:1] == ["login"]:
         return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the
     # rollout open; the thread id is only on the pane's status line (see live._codex_pane).
@@ -145,6 +157,10 @@ def _agent(pid: int, screen: str) -> Session | None:
         tui = {}
     shown = tui.get("status_line", [])
     if "session-id" not in shown:
+        # No thread can be named, but a fresh Codex (not a resume) that has written no
+        # rollout since it started has none to name: its first turn creates one.
+        if args[:1] not in (["resume"], ["fork"]) and not _rollout_since(home, start):
+            raise Empty("this agent has not saved a conversation yet")
         raise Refused("Expunge can't tell which Codex conversation this is: Codex's status "
                       "line doesn't show its thread id. Add \"session-id\" to status_line "
                       "under [tui] in Codex's config.toml, then try again.")

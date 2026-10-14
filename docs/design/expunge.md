@@ -52,7 +52,11 @@ the status-line config hint, which was both jargon and beside the point. So the
 preview answers "nothing", the same way for both harnesses, and the sheet offers to
 kill the window instead, through the ordinary kill and its confirmation. Treating a
 missing transcript as nothing also means a configured but not-yet-started Codex
-thread is no longer refused as an unknown id. None of them falls back to anything broader. The UUID check
+thread is no longer refused as an unknown id. A Codex without `session-id` configured
+can't name its thread, but if it is not a resume and no rollout has been written since
+it started, it has no thread to name, so it is nothing too. Any rollout written since
+counts against that, even another pane's, because a wrong "nothing" would hide a real
+conversation, while a wrong hint only asks for a setting. None of them falls back to anything broader. The UUID check
 also means an id can never smuggle a path separator or glob character into a pattern.
 
 The confirmation is bound to the id the preview showed, and both preview and POST
