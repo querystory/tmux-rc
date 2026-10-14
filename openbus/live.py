@@ -485,10 +485,11 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
 # message an agent sitting at a permission prompt, the model pressed Escape or typed "3"
 # first, both of which decline the agent's pending command, and "no, the other one" said to
 # the assistant was once about to decline one too. A prompt rule did not hold, so in a text
-# session a key press, or a row number or yes/no typed into a pane with a pending
-# question, needs the user's message, or the question of the assistant's they answer, to ask
-# for it: the key's job by name, or an answer by verb; never a bare yes or no (which answers
-# the assistant) or number (as likely a window's). Refusing costs one more line of chat.
+# session a key press into any pane (Escape or C-c also stops a working agent), or a row
+# number or yes/no typed into a pane with a pending question, needs the user's message, or
+# the assistant's question it just agrees with, to ask for it: the key's job by name, or an
+# answer by verb; never a bare yes or no (which answers the assistant) or number (as likely
+# a window's). Refusing costs one more line of chat.
 _PRESS, _PICK = "press hit key keys", "select choose pick option"
 _KEY_ASKS = {k: frozenset(f"{_PRESS} {v}".split()) for k, v in {
     "Escape": "esc escape cancel decline reject dismiss deny",
