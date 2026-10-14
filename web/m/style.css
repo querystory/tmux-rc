@@ -459,10 +459,12 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* A row or card is its pane's button, then its sub-agent lines (and a card's answers). */
 .sb-row, .sb-card { margin: 0 6px; border-radius: 7px; }
 .sb-open { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 10px; border-radius: inherit; text-align: left; white-space: nowrap; }
-.sb-open .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-open .t { flex: 1; min-width: 0; display: flex; align-items: baseline; white-space: pre; }
+/* A long line gives way title first, then session (up to half the line); the account chip never. */
+.sb-open .t > :not(.sb-acct) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sb-open b { font-weight: 500; }
 .sb-card b { font-weight: 600; }
-.sb-open .s { color: var(--muted); font-size: 11.5px; }
+.sb-open .s { flex-shrink: 0; max-width: 50%; color: var(--muted); font-size: 11.5px; }
 .sb-open .a { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sb-n:not([hidden]) { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: -3px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sb-n svg { color: var(--accent); }
@@ -929,7 +931,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .acct-badge .acct-dot { width: 6px; height: 6px; }
 .acct-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: the chip stays in its box */
 .row-acct:empty, .sb-acct:empty { display: none; }
-.sb-acct .acct-badge { margin-left: 4px; font-size: 10.5px; vertical-align: 1px; }
+.sb-acct { flex: none; }
+.sb-acct .acct-badge { margin-left: 4px; font-size: 10.5px; }
 #pane-location .acct-badge { vertical-align: 1px; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
 .acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
