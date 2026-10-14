@@ -1004,6 +1004,11 @@ button.picked:disabled { opacity: 1; }
 .uv-read b.warn { color: var(--amber); }
 .uv-read :is(b.full, .out) { color: var(--red); }
 .uv-chart { flex: 1; min-height: 140px; }
+.uv-card.empty { padding-bottom: 10px; }
+.uv-card.empty .uv-chart { display: none; }
+.uv-none { color: var(--muted); font-size: 13px; }
+.uv-filter summary { min-height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; }
+.uv-filter summary::after { display: none; }
 @container dash-page (max-width: 699px) {
   #landing .usage-view { min-height: 460px; gap: 10px; padding: 12px 6px 4px; }
   .uv-card { border: 0; padding: 0; }

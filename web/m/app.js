@@ -80,6 +80,7 @@ const LUCIDE = {
   gauge: '<path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/>',
   arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  filter: '<path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
@@ -637,8 +638,12 @@ const paintUsage = () => {
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
   // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.
+  // Every window type read, filtered or not, so a chart the account filter empties says so.
   renderUsageView(cardView("Plan usage", usageView), board.length ? board : all, { chip: (a) => a.chip || (a.acct ? accounts.chip(a.acct) : ""),
-    refetch: () => refreshCached(true) });
+    refetch: () => refreshCached(true), types: [...new Set(usage.flatMap((a) => (a.windows || []).map((w) => w.window)))],
+    // The list's account filter itself (one acct= for the list and the charts), lent to the view's menu while it is open.
+    filter: { shown: accounts.any(), icon: licon("filter", 16),
+      place: (menu) => { if (!menu) return placeChrome(); menu.append(accounts.filter); accounts.strip(accounts.filter, false); } } });
 };
 const usageView = document.createElement("section");
 usageView.className = "atlas-panel usage-view";

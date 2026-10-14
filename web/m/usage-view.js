@@ -5,6 +5,7 @@
 // See docs/design/plan-usage.md.
 import { load } from './atlas-charts.js';
 import { segmented } from './atlas.js';
+import { dismissable } from './header-picker.js';
 import { countdown } from './usage.js';
 
 const H = 3600e3, D = 24 * H, NARROW = 700;
@@ -85,7 +86,7 @@ function readout(m, now, type, on) {
   const reset = w.resets_at > now ? `resets ${countdown(w.resets_at - now)}, ${clock(w.resets_at, now)}` : 'not started';
   // A reading kept through a failed read says how old it is on hover; the sidebar says it in words.
   // The chip picks the account the chart's bands follow.
-  return `<span class="uv-read"${m.as_of ? ` title="as of ${countdown(now - m.as_of)} ago"` : ''}><button type="button" class="uv-pick" data-type="${esc(type)}" data-name="${esc(m.name)}" aria-pressed="${on}" aria-label="Shade ${esc(m.name)}'s windows">${m.chip}</button><b class="${level}">${Math.round(w.pct)}%</b>`
+  return `<span class="uv-read"${m.as_of ? ` title="as of ${countdown(now - m.as_of)} ago"` : ''}><button type="button" class="uv-pick" data-type="${esc(type)}" data-id="${esc(m.id)}" aria-pressed="${on}" aria-label="Shade ${esc(m.name)}'s windows">${m.chip}</button><b class="${level}">${Math.round(w.pct)}%</b>`
     + (w.limit_at > now && w.resets_at > now ? `<span class="out">full ${clock(w.limit_at, now)}</span>` : '') + `<span>${reset}</span></span>`;
 }
 
@@ -93,7 +94,7 @@ function option(card, extent, now, slider, css) {
   const color = n => css.getPropertyValue(n).trim(), muted = color('--muted'), line = color('--line');
   const fg = color('--fg'), surface = color('--surface'), red = color('--red'), accent = color('--accent');
   const height = card.chartEl.clientHeight, narrow = view.narrow, bottom = slider ? (narrow ? 60 : 70) : 28;
-  const focused = card.meters.find(m => m.name === focusBy[card.type]);
+  const focused = card.meters.find(m => m.id === focusBy[card.type]);
   const fill = { grey: [color('--raised'), 0.6], now: [color('--amber-bg'), 1] };
   const series = card.meters.flatMap(m => {
     const base = { name: m.name, type: 'line', showSymbol: false, emphasis: { disabled: true }, itemStyle: { color: m.color } }, on = m === focused;
@@ -152,17 +153,18 @@ const windowOf = ({ min, max }, now) => {
 };
 
 // `accounts` as app.js names them (accounts.usage); `chip(a)` is an account's chip.
-export function renderUsageView(root, accounts, { now = Date.now(), chip, refetch }) {
-  if (!view) view = setup(root, refetch);
+export function renderUsageView(root, accounts, { now = Date.now(), chip, refetch, types: read = [], filter }) {
+  if (!view) view = setup(root, refetch, filter);
+  view.picker.hidden = !filter.shown; // one account: nothing to pick
   view.now = now;
   fit();
   const css = getComputedStyle(document.documentElement);
   // A meter per account and window, grouped by window type: Codex's week sits in Weekly.
   const byType = {};
   accounts.forEach((a, i) => (a.windows || []).forEach(w => (byType[w.window] ||= []).push({
-    w, as_of: a.as_of, chip: chip(a), name: a.acct?.name || NAMES[a.provider] || a.provider,
+    w, as_of: a.as_of, chip: chip(a), id: `${a.provider} ${a.dirs}`, name: a.acct?.name || NAMES[a.provider] || a.provider,
     color: css.getPropertyValue(`--acct-${a.acct?.color ?? i}`).trim(), ...teeth(w, now) })));
-  const types = Object.keys(byType).sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+  const types = [...new Set([...read, ...Object.keys(byType)])].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
   if (types.join() !== view.types.join()) build(types);
   shown = Math.max(0, Math.min(shown, types.length - 1));
   const all = Object.values(byType).flat(), times = all.flatMap(m => [m.past[0]?.[0], m.cur[0]?.[0], m.w.resets_at]).filter(Boolean);
@@ -172,20 +174,24 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
   // An account that cannot be read has no windows to draw; it says so rather than vanish.
   view.errs.innerHTML = accounts.filter(a => a.error).map(a => `<span class="uv-read">${chip(a) || esc(NAMES[a.provider] || a.provider)}<span>${esc(a.error)}</span></span>`).join('');
   for (const card of view.cards) {
-    card.meters = byType[card.type];
-    if (!card.meters.some(m => m.name === focusBy[card.type])) // the fullest, until a chip is picked
-      focusBy[card.type] = card.meters.reduce((a, b) => b.w.pct > a.w.pct ? b : a).name;
-    const head = `<h3>${esc(title(card.type))} <small>${esc(card.type)}</small></h3>${card.meters.map(m => readout(m, now, card.type, m.name === focusBy[card.type])).join('')}`;
+    card.meters = byType[card.type] || []; // none: the account filter hides every account with this window
+    card.el.classList.toggle('empty', !card.meters.length);
+    if (card.meters.length && !card.meters.some(m => m.id === focusBy[card.type])) // the fullest shown, until a chip is picked
+      focusBy[card.type] = card.meters.reduce((a, b) => b.w.pct > a.w.pct ? b : a).id; // by its dirs: names need not be unique
+    const head = `<h3>${esc(title(card.type))} <small>${esc(card.type)}</small></h3>${card.meters.map(m => readout(m, now, card.type, m.id === focusBy[card.type])).join('')
+      || '<span class="uv-none">No selected account has this window</span>'}`;
     if (card.headEl.innerHTML !== head) card.headEl.innerHTML = head;
     // The chart in words: what the canvas shows past the heading's numbers.
     card.chartEl.setAttribute('aria-label', `${title(card.type)} usage over time. ${card.meters.map(m => `${m.name}: ${(m.w.past || []).length} earlier windows loaded, `
       + `${m.hits.length ? `${m.hits.length} hit the limit, the last ${stamp(Math.max(...m.hits))}` : 'none hit the limit'}; now ${Math.round(m.w.pct)}%`
       + (m.w.projected != null ? `, ${Math.round(m.w.projected)}% by the reset at this pace` : '')).join('. ')}. Plus and minus zoom, left and right arrows pan.`);
   }
+  // A phone on a chart the filter just emptied moves to one with something to show.
+  if (!view.cards[shown]?.meters.length) shown = Math.max(0, view.cards.findIndex(c => c.meters.length));
   paint();
 }
 
-function setup(root, refetch) {
+function setup(root, refetch, filter) {
   root.innerHTML = '<div class="uv-bar"><div class="uv-errs"></div><span class="uv-span"></span></div><div class="uv-stack"></div>';
   const v = { root, types: [], cards: [], bar: root.firstChild, span: root.querySelector('.uv-span'), stack: root.querySelector('.uv-stack'), errs: root.querySelector('.uv-errs') };
   v.range = segmented('Time range', Object.keys(RANGES), rangeOf(), r => {
@@ -194,14 +200,21 @@ function setup(root, refetch) {
     if (usageDays() > more) refetch();
     paint();
   });
-  v.bar.append(v.range);
+  // The account filter: the list's own (app.js lends it while this menu is open), so one acct=
+  // in the URL scopes both, and picking here narrows the list too.
+  v.picker = document.createElement('details');
+  v.picker.className = 'header-picker uv-filter';
+  v.picker.innerHTML = `<summary title="Filter accounts" aria-label="Filter accounts">${filter.icon}</summary><div class="header-picker-menu"></div>`;
+  v.picker.addEventListener('toggle', () => filter.place(v.picker.open ? v.picker.lastChild : null));
+  dismissable(v.picker);
+  v.bar.append(v.range, v.picker);
   // A sideways swipe on a heading or the tabs moves a phone to the next chart; one
   // on the chart pans it.
   let from = null;
   root.addEventListener('click', e => {
     const pick = e.target.closest('.uv-pick');
     if (!pick) return;
-    focusBy[pick.dataset.type] = pick.dataset.name;
+    focusBy[pick.dataset.type] = pick.dataset.id;
     pick.closest('.uv-head').querySelectorAll('.uv-pick').forEach(b => b.setAttribute('aria-pressed', String(b === pick)));
     paint();
   });
@@ -226,7 +239,7 @@ function fit() {
 
 function build(types) {
   view.chart = null;
-  for (const c of view.cards) c.chart?.dispose();
+  for (const c of view.cards) { c.sized?.disconnect(); c.chart?.dispose(); }
   view.types = types;
   view.cards = types.map(type => {
     const el = document.createElement('section');
@@ -275,7 +288,7 @@ async function paint() {
   view.tabs.hidden = !narrow;
   view.tabs.querySelectorAll('button').forEach((b, k) => b.setAttribute('aria-pressed', String(k === shown)));
   view.range.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.textContent === rangeOf())));
-  view.stack.style.gridTemplateRows = narrow ? 'minmax(0, 1fr)' : `repeat(${view.types.length}, minmax(0, 1fr))`;
+  view.stack.style.gridTemplateRows = narrow ? 'minmax(0, 1fr)' : view.cards.map(c => c.meters?.length ? 'minmax(0, 1fr)' : 'auto').join(' '); // an emptied chart is its one line
   let echarts;
   try { echarts = await (painting ||= load('echarts', '/m/vendor/echarts.min.js')); } catch { painting = null; view.stack.textContent = 'Chart unavailable. Reload to retry.'; return; }
   const css = getComputedStyle(document.documentElement), on = view.cards.filter(c => !c.el.hidden && c.chartEl.clientWidth);
@@ -284,7 +297,7 @@ async function paint() {
       c.chart = echarts.init(c.chartEl);
       c.chart.group = 'usage'; // one zoom and one hover line for every chart (echarts.connect)
       c.chart.on('datazoom', () => { const z = c.chart.getOption().dataZoom[0]; zoom = { startValue: z.startValue, endValue: z.endValue }; spanText(); });
-      new ResizeObserver(() => c.chart.resize()).observe(c.chartEl);
+      (c.sized = new ResizeObserver(() => c.chart.resize())).observe(c.chartEl);
     }
     c.chart.setOption(option(c, view.extent, view.now, narrow || c === on[on.length - 1], css), true);
     c.chart.resize();

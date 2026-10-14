@@ -92,6 +92,16 @@ before the scheduled reset, the band ends at the fall and a fresh one starts the
 stretch with no known window (a 5h quota not yet opened, a gap in the history) is left
 unshaded rather than guessed at.
 
+**Which accounts, from the list's own filter.** A filter button beside the range opens
+the list's account filter itself, lent to the view while the menu is open, rather than a
+second picker. It writes the same `acct=` in the URL, so narrowing the list to Work narrows
+the charts to Work and the other way round. A separate selection was considered and
+rejected: two filters over the same accounts would disagree as soon as one was changed,
+and "why does the list show Personal but the charts don't?" has no good answer. A chart
+the filter empties (Weekly Fable with only Codex picked) collapses to one line saying so,
+rather than vanishing and shifting the others, and band focus picks among the shown
+accounts only.
+
 **A chart per window type, not per account.** A per-account chart overlays its 5h teeth
 on the weekly line they feed, which reads well for one account and badly for three; and
 the comparison people make is across accounts on the same limit ("which plan has room
