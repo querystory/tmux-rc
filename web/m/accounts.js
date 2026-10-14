@@ -385,7 +385,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (d.finish) { // back to its sign-in window, if one is still open
       const p = byDir(d.finish), w = await windowOf(`dir=${encodeURIComponent(p.dir)}`);
       go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: w?.pane_id || null, pid: w?.pid, window: w, session: w ? w.session : F.session, seen: false, goneAt: null, openedAt: Date.now() });
-      if (w) F.line = lineFor(withWay(cmdOf(F.provider), w.device)); // the way it runs, picked
+      if (w) { F.line = lineFor(withWay(cmdOf(F.provider), w.device)); render(); } // the way it runs, picked
       return w && wait();
     }
     t.disabled = true;
@@ -410,7 +410,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       if ("callback" in d) { // one at a time, across the polls' redraws: the code is single-use
         F.sending = true;
         try { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); } finally { F.sending = false; }
-        F.callback = ""; return wait();
+        F.callback = ""; render(); return wait(); // sent: off the screen
       }
       if ("retry" in d) return go("login", { pane: null, session: F.session || sessions()[0] });
       if ("later" in d) return go("list");
