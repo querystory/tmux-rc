@@ -91,7 +91,8 @@ function steppable(el) {
   };
   el.addEventListener('click', e => {
     const b = e.target.closest('.usage-nav button');
-    if (b) step(b.parentNode, +b.dataset.step)?.querySelector(`[data-step="${b.dataset.step}"]:not(:disabled), button:not(:disabled)`)?.focus();
+    const nav = b && step(b.parentNode, +b.dataset.step); // focus stays on the same arrow until it runs out
+    (nav?.querySelector(`[data-step="${b.dataset.step}"]:not(:disabled)`) || nav?.querySelector('button:not(:disabled)'))?.focus();
   });
   let from = null;
   el.addEventListener('pointerdown', e => { from = e.target.closest('.usage-spark') && e; });
