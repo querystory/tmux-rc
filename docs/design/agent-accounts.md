@@ -154,9 +154,9 @@ From ☰ → Accounts… → Add account, or "+ Add account" in New window's pic
    The command after the variable is editable (to add a flag the provider grows), but the
    server pins the variable to the account's dir, runs the command as argv with no shell,
    and accepts it only if it starts with the provider's own binary. Codex is signed in
-   when `codex login status` says so, not when `auth.json` exists: its login can live in
-   the OS keyring instead. tmux-rc never shows a password field, never handles a token and never drives the
-   login; it only polls the dir's non-secret account info until it appears. That keeps the
+   when `auth.json` exists or, failing that, when `codex login status` says so: its login
+   can live in the OS keyring instead, where no file shows it. tmux-rc never shows a
+   password field, never handles a token and never drives the login; it only polls the dir's non-secret account info until it appears. That keeps the
    credential boundary exactly where the provider put it.
 4. **Done:** the identity read from that info, and a pre-ticked "make it the default for
    session X".
