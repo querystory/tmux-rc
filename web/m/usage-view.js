@@ -53,7 +53,7 @@ function teeth(w, now) {
   if (w.hit_at) hits.push(w.hit_at);
   const cur = [[w.start, 0], ...w.samples, held];
   return { past, hits, cur, drawn: [...past, ...cur], // drawn: what the tooltip reads, built once
-    fc: [held, ...(w.limit_at ? [[w.limit_at, 100], [w.resets_at, 100]] : [[w.resets_at, Math.min(100, w.projected ?? w.pct)]])] };
+    fc: [held, ...(w.limit_at > held[0] ? [[w.limit_at, 100], [w.resets_at, 100]] : [[w.resets_at, Math.min(100, w.projected ?? w.pct)]])] };
 }
 
 // Usage at t, read off the points: the tooltip's one exact number per meter, rather than
@@ -191,7 +191,10 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
       + (m.w.projected != null ? `, ${Math.round(m.w.projected)}% by the reset at this pace` : '')).join('. ')}. Plus and minus zoom, left and right arrows pan.`);
   }
   // A phone on a chart the filter just emptied moves to one with something to show.
-  if (!view.cards[shown]?.meters.length) shown = Math.max(0, view.cards.findIndex(c => c.meters.length));
+  if (!view.cards[shown]?.meters.length) {
+    shown = Math.max(0, view.cards.findIndex(c => c.meters.length));
+    if (!picked) zoom = null; // as show() does: the range follows the chart
+  }
   paint();
 }
 
