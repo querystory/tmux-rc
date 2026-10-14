@@ -23,13 +23,13 @@ test("auto with nothing worth showing hides the strip", () => {
   assert.deepEqual(shownUsage([{ provider: "codex", windows: [w("7d", HIGH_PCT - 1)] }], "auto"), []);
 });
 
-test("countdowns and the trend run from the real clock unless told otherwise", () => {
+test("countdowns and the even-pace mark run from the real clock unless told otherwise", () => {
   const now = Date.now(), H = 3600e3, el = {};
   const win = { window: "5h", pct: 40, projected: 80, start: now - 2 * H, resets_at: now + 3 * H, samples: [[now - H, 20]] };
-  renderUsage(el, [{ provider: "claude", windows: [win] }], { wide: true });
+  renderUsage(el, [{ provider: "claude", windows: [win] }]);
   assert.match(el.innerHTML, /resets 3h0m</);
-  // The held point sits at now, 40% of the way across the 120-wide trend, not back at its start.
-  assert.match(el.innerHTML, /<polyline class="proj" points="48\.0,/);
+  // Two hours of five gone: the mark sits 40% of the way along, not back at the start.
+  assert.match(el.innerHTML, /class="pace" style="left:40\.0%"/);
 });
 
 test("a reading kept through a failed read says how old it is", () => {
@@ -47,10 +47,11 @@ test("a reading from before its window reset counts nothing down to zero", () =>
   assert.doesNotMatch(el.innerHTML, /resets|full in/);
 });
 
-test("a window not yet opened (no reset) draws a bar, not a trend", () => {
+test("a window not yet opened (no reset) draws a bar with no pace or reset", () => {
   const el = {};
-  renderUsage(el, [{ provider: "claude", windows: [{ window: "7d Fable", pct: 0, resets_at: null, samples: [] }] }], { wide: true });
-  assert.doesNotMatch(el.innerHTML, /usage-spark|Invalid|resets/);
+  renderUsage(el, [{ provider: "claude", windows: [{ window: "7d Fable", pct: 0, resets_at: null, samples: [] }] }]);
+  assert.match(el.innerHTML, /usage-bar/);
+  assert.doesNotMatch(el.innerHTML, /pace|NaN|Invalid|resets/);
 });
 
 test("each meter is named by its account and window", () => {

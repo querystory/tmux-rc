@@ -95,7 +95,7 @@ export function setupSidebar(ctx) {
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
   document.querySelector("#sb-sess b").after(count, subs);
-  // The URL's filters (wide has no tab bar to carry them) are a button beside the search box,
+  // The URL's filters are a button beside the search box, in both layouts,
   // since both narrow the list. Its menu: State (a union; none is All), Account (the
   // accounts, app.js adds them), then Group by and Sort by, how you like to read the list:
   // per-browser preferences the button does not count. It stays open as you pick.

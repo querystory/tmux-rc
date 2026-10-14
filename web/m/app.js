@@ -244,7 +244,7 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
   paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => { $("settings").close(); openLaunched(id); }, // a phone's Settings sheet would cover the pane
-  // A phone's list shows its search box, and its tab bar the state: those chips are wide only.
+  // A phone's list says its filters on the filter button and at the list's foot, not in chips.
   query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click(),
   // The wide list's state filters, each a chip that clears it (focus to the filter button).
   chips: () => !WIDE.matches ? [] : filter.map((f) => [f, SHOW[f]]),
@@ -303,9 +303,6 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, page } = state);
-  // A phone's tabs are one-of, and Idle has none: a link keeps the first state it has a tab
-  // for (Needs you first), so a pressed tab always says what the list shows.
-  if (!WIDE.matches && filter.length !== (filter = filter.filter((f) => $(`${f}-tab`)).slice(0, 1)).length) writeHash(formatHash({ ...state, filter })); // the URL says so too
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
@@ -399,17 +396,17 @@ function renderList() {
   text($("empty"), emptyMessage(query));
   // Empty, while panes the filter hides need you: say so, a click from them.
   const needing = subset.length ? [] : panes.filter(needsYou), hidden = needing.length, accts = accounts.on();
-  // A phone's list narrowed to some accounts says so at its foot too, a tap from all of them.
-  const scopedOn = !hidden && !WIDE.matches && accts.length > 0, scoped = subset.filter((p) => !outside.has(p.pane_id)).length; // not the pinned
+  // A phone's list narrowed by the filter menu says so at its foot too, a tap from all of them.
+  const scopedOn = !hidden && !WIDE.matches && accts.length + filter.length > 0, scoped = subset.filter((p) => !outside.has(p.pane_id)).length; // not the pinned
   show("empty-needs", hidden > 0 || scopedOn);
-  $("empty-needs").dataset.all = scopedOn ? "accounts" : "needs";
+  $("empty-needs").dataset.all = scopedOn ? "filters" : "needs";
   // "On other accounts" only when that is what hides every one of them.
-  text($("empty-needs"), scopedOn ? `${scoped} ${accts.join(" or ")} pane${scoped === 1 ? "" : "s"} · Show all accounts`
+  text($("empty-needs"), scopedOn ? `${scoped} ${accts.map((a) => `${a} `).join("or ")}pane${scoped === 1 ? "" : "s"} of ${panes.length} · Show all`
     : `${hidden} pane${hidden === 1 ? "" : "s"} ${needing.some(accounts.matches) || !accts.length ? "outside the filter" : "on other accounts"} need${hidden === 1 ? "s" : ""} you · Show`);
-  text($("all-count"), mine.length);
-  text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length);
-  for (const f of ["working", "finished"]) text($(`${f}-count`), mine.filter((p) => matchesFilter(p, [f])).length);
-  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && (filter.length ? String(filter) : "all") === button.dataset.filter));
+  text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length || "");
+  // Sessions is the list under whatever the filter menu says; Needs you, the list of just those.
+  const tab = String(filter) === "attention" ? "attention" : "all";
+  $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
   // The filter button counts each filter on, and its tooltip names them.
@@ -682,10 +679,10 @@ try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAG
 const paintUsage = steady(() => {
   // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
   const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
-  renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)), { wide: WIDE.matches });
+  renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)));
   accounts.strip($("usage"), several);
   $("usage-handle").hidden = $("usage").hidden;
-  // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
+  // The dashboard's card draws every meter whatever the mode; its view (#view=usage)
   // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
@@ -693,9 +690,9 @@ const paintUsage = steady(() => {
   show("usage-panel", board.length > 0);
   const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board";
   if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
-  if (grouped) accounts.groups(el, board, (cells, one) => renderUsage(cells, one, { wide: true }));
-  else renderUsage(el, order(board), { wide: true });
-  accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
+  if (grouped) accounts.groups(el, board, renderUsage);
+  else renderUsage(el, order(board));
+  accounts.strip(el, several); // grouped too: a line too narrow for its meters scrolls rather than wraps
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
   // Every account's meters, whatever the list's account filter: the view picks its own
@@ -1336,8 +1333,10 @@ enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
-for (const [id, label, glyph] of [["all", "All", "layers"], ["working", "Working", "terminal"], ["finished", "Just finished", "clock"], ["attention", "Needs you", "alert"]]) {
-  html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
+// The phone's tab bar (Chat and the mic between them are live.js's). The gauge is Dashboard's
+// everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
+for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
+  html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}${id === "attention" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
 }
 // The keys worth a thumb on a phone.
 //
@@ -1386,9 +1385,8 @@ function fadeKeys() {
 $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
-html($("dashboard-tab"), `<span class="nav-icon">${licon("gauge")}</span><span>Dashboard</span>`); // the gauge is Dashboard's everywhere; the 2×2 grid is the layout picker's
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-$("empty-needs").onclick = () => { if ($("empty-needs").dataset.all === "needs") { filter = ["attention"]; $("search").value = ""; } stayPut({ acct: [] }); };
+$("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
@@ -1400,13 +1398,13 @@ function setUsageMode(mode) {
   try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
   paintUsage(); paintSettings();
 }
-// Wide, the strip's top edge is a seam like the fleet chart's: drag it taller for taller
-// trends and, a row per USAGE_ROW, more rows of meters; a double-click restores its own
+// Wide, the strip's top edge is a seam like the fleet chart's: drag it taller for more rows
+// of meters, a row per USAGE_ROW; a double-click restores its own
 // height. Dragged under one row it closes, which turns the setting Off rather than keeping
 // a zero height, so the menu says why it is gone and the notice's Undo brings it back. The
 // height is per screen, like the sidebar's width; unset (the default) is the natural height,
 // and CSS caps it so the pane list keeps most of the column.
-const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72, USAGE_ROW = 100;
+const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72, USAGE_ROW = USAGE_MIN;
 let usageHeight = 0, usageDrag = 0;
 try { usageHeight = Number(localStorage.getItem(USAGE_KEY)) || 0; } catch {}
 function sizeUsage(px = usageHeight, persist = false) {
@@ -1455,7 +1453,8 @@ const openUsage = () => {
 };
 $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
-$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter === "all" ? [] : [button.dataset.filter]; stayPut(); }; });
+// Needs you is a one-of filter; Sessions leaves it for the list, keeping any the menu set.
+$("list-nav").querySelectorAll("[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter === "attention" ? ["attention"] : String(filter) === "attention" ? [] : filter; stayPut(); }; });
 // System follows the device, as index.html's boot script does with nothing stored.
 function setTheme(theme) {
   try { if (theme === "system") localStorage.removeItem("tmuxrc-theme"); else localStorage.setItem("tmuxrc-theme", theme); } catch {}
@@ -1827,8 +1826,9 @@ function placeChrome() {
   renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views);
   placePill();
 }
-// The active filters' chips: under search, but on a phone's dashboard (no search there) under
-// its header, so a filter is never on without saying so.
+// The active filters' chips: under search (a phone's list hides them there: its filter button
+// and the list's foot say it), and on a phone's dashboard under its header, so a filter is
+// never on without saying so.
 function placePill() {
   const at = !WIDE.matches && dashboard ? document.querySelector(".app-header") : $("find");
   if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);

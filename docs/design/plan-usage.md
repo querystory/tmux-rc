@@ -7,12 +7,20 @@ Status: **implemented** (`openbus/plan_usage.py`, `web/m/usage.js`, `web/m/usage
 A fleet of agents burns subscription limits much faster than one person typing. The
 moment that matters is not "you are at 100%", it is "at this pace you hit 100% an hour
 before the window resets": that is when you pause a sweep, move work to another account,
-or let a pane idle. So the UI shows each window's percentage all the time (a pinned strip
-on the phone's list, the sidebar foot on desktop; the collapsed rail leaves it out, as it
-leaves out every card's text), and on desktop a trend with a dashed projection to
-the reset (colours below).
+or let a pane idle. So the UI shows each window's percentage all the time (atop the phone's
+list, the sidebar foot on desktop; the collapsed rail leaves it out, as it leaves out every
+card's text), as one gauge per window (colours below), and the usage view draws the trends.
 
-The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So each meter now says "used", the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. That case adds a "full in" line, in the meter's colour, above the reset countdown rather than in place of it: the reset is still when the room comes back, and a forecast without it left no way to plan around the stall. All meters share one flat grid, two to a row, instead of a block per account under a header. The windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, "7d Fable"; a weekly-only Codex plan has one), so per-account rows with fixed 5h and 7d columns left holes and spent a whole row on each header. Packed, Claude's three and Codex's one make a 2×2. Each label carries its provider's icon instead of a header, and the order (provider, then 5h, 7d, per-model) keeps an account's meters together. In the sidebar's narrowest cells the word "used" drops out so the window name and percentage still fit; the trend line already shows direction there.
+Every small surface (the phone's strip, the sidebar's foot, the dashboard's card) draws the
+same gauge. The sidebar and the card used to draw a 24px sparkline with a dashed projection
+instead, but at that size the line said less than the gauge does: its slope is hard to read,
+it has no "full in" or reset times without the text beside it, and the even-pace tick the
+gauge carries answers "ahead or behind" at a glance. Once the usage view existed to show the
+history properly, the thumbnails were a second, weaker chart to maintain, so they went. One
+component everywhere also means a browser crossing the breakpoint never changes what a
+meter means.
+
+The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So each meter now says "used", the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. That case adds a "full in" line, in the meter's colour, above the reset countdown rather than in place of it: the reset is still when the room comes back, and a forecast without it left no way to plan around the stall. All meters share one flat grid, two to a row, instead of a block per account under a header. The windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, "7d Fable"; a weekly-only Codex plan has one), so per-account rows with fixed 5h and 7d columns left holes and spent a whole row on each header. Packed, Claude's three and Codex's one make a 2×2. Each label carries its provider's icon instead of a header, and the order (provider, then 5h, 7d, per-model) keeps an account's meters together. In the sidebar's narrowest cells the word "used" drops out so the window name and percentage still fit; the bar already shows direction there.
 
 ### When the phone shows it
 
@@ -33,10 +41,14 @@ Off. It is the one setting rather than a second, desktop-only one, so a browser 
 the breakpoint never shows a strip its other layout was told to hide; someone paying per
 token, with no plan limits at all, turns it off once.
 
-The strip's top edge is a seam, as the fleet chart's is: dragged taller, each trend takes
-the height and, a row per hundred pixels, several accounts' strip stacks more rows of
-meters while still swiping sideways, so a tall strip shows more meters rather than just
-bigger ones. The height is per browser, like the sidebar's width, and a double-click
+On a phone the strip scrolls away with the list instead of staying pinned over it, while the
+search row (search and the filter button) stays pinned. The meters are a glance on the way in,
+and once the list is scrolled two rows of them only cost room; search is what you reach for
+mid-list.
+
+The strip's top edge is a seam, as the fleet chart's is: dragged taller, several accounts'
+strip stacks more rows of meters (a row per meter's height) while still swiping sideways, so a
+tall strip shows more meters rather than just bigger ones. The height is per browser, like the sidebar's width, and a double-click
 restores the natural one. Dragged under one row it closes, which sets the switch Off with
 an Undo in the notice, rather than snapping back with a hint. Snapping back fights a
 gesture that plainly meant "away", and a zero height would hide the strip somewhere
@@ -48,9 +60,9 @@ reaching up the sidebar, then collapsed into their row.
 
 ### The dashboard panel
 
-A phone's bar says where a window stands but not how it got there, and the sidebar's trend
-is a thumbnail. So the dashboard has a Plan usage panel, right under the activity chart:
-every meter, whatever the Usage setting, as a trend tall enough to read. It sits under the
+The gauges say where a window stands but not how it got there. So the dashboard has a Plan
+usage panel, right under the activity chart: every meter, whatever the Usage setting, its
+Details opening the usage view where the history reads. It sits under the
 chart, not above it, because the activity chart is what the dashboard is for; above it, the
 panel pushed the page's main subject below the fold on a phone. Tapping the strip, on the phone or in the
 sidebar, opens the dashboard at that panel rather than a sheet of its own, so there is one
@@ -250,8 +262,6 @@ The anchor keeps a single sample meaningful (it becomes the window's average pac
 stops one noisy reading from swinging the line. A fit over the whole window lags a sudden
 burst, which we accept: it is meant to answer "at this rate", not to forecast. The server
 computes it, so it is tested in Python and phone and desktop agree. Only ~120 thinned
-samples per window are sent, the sparkline's width; the fit uses all of them.
+samples per window are sent; the fit uses all of them.
 
-The sidebar's and dashboard's sparklines are a few lines of inline SVG rather than ECharts:
-four 24px trends do not justify loading a chart library on screens that otherwise would
-not. The usage view, which is about the charts, loads it.
+Only the usage view, which is about the charts, loads ECharts; the gauges are plain markup.

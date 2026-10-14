@@ -99,12 +99,11 @@ alike; see [sidebar.md](sidebar.md).
   on wide, an "Account" group (All accounts, then each account, several at once) under
   "State" in the filter button's menu beside the search box, combining with it (Working +
   Work is Work's working panes), the button counting what is on. A phone has the same
-  button beside its search, opening the menu as a bottom sheet without State (its tab bar
-  is the state filter). While on, the account's chip shows under search, labelled "Account"
+  button beside its search, opening the menu as a bottom sheet. While on, the account's chip shows under search, labelled "Account"
   beside the "State" and "Search" chips (`State ● Working ✕  Account ● Work ✕  Search "api" ✕`,
-  the search in the URL as `q=api`), so one line says everything narrowing the list; on a
-  phone's dashboard (no search there) the chips sit under the header, and a phone leaves the
-  state and the search out of them, since its tab bar and its search box already show them. It applies to the list, the strip and the dashboard, Open loops included:
+  the search in the URL as `q=api`), so one line says everything narrowing the list; a phone's
+  list shows no chips (the button's count and the list's foot say it), and on its dashboard
+  (no search there) the account's chip sits under the header. It applies to the list, the strip and the dashboard, Open loops included:
   a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
   which no account owns, is hidden while filtered.
   It lives in the URL beside the state filter as comma lists
