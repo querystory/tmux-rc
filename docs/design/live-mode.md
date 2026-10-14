@@ -550,19 +550,31 @@ to that pane's pending permission prompt, so the next card would have declined i
 The history held everything needed both times; what the model lacked was the structure, so
 each turn now carries it rather than the prompt growing examples:
 
-- A turn starts with the pane the conversation is on: the last one a reply named (by title or
-  window number, as the prompt has it name panes) or an action reached. A declined action
-  reached nothing and moves nothing. Names in the user's own message were not used: "the
-  agent" names nothing, and a pane the user does name already wins outright.
+- A turn starts with the pane the conversation is on: the last one a reply named (by its
+  title; window numbers mean nothing in the UI) or an action reached, and says that "the
+  agent" or "it" in the message means that pane. A declined action reached nothing and moves
+  nothing. Names in the user's own message were not used: "the agent" names nothing, and a
+  pane the user does name already wins outright. A bare marker was not enough: the eval
+  showed Flash still offering the pane whose screen said "8 agents" every time, so the line
+  says what the reference means, next to the message it is about.
 - A turn sent right after the assistant asked something says so. A pane's pending question
   is in the pane state on every turn, so without the marker a "no" has two candidate
-  questions and the louder one wins. The prompt rule beside it says a pane's prompt is
-  answered only when the user points at it, and never declined on a guess.
+  questions and the louder one wins.
+- Answering a pane's prompt is gated in code. Once routed right, the model still pressed
+  Escape, or typed the "No" row's number, before relaying the message: clearing the prompt
+  out of the way, and declining the agent's command with it. So in a text session a key
+  press, or a row number or yes/no typed into a pane with a pending question, is refused
+  before any card unless the user's message, or the assistant's question it answers, asks
+  for it: the key's job by name ("decline it" for Escape, "approve" for Enter) or an answer
+  by verb or number. A bare yes or no never counts, since it answers the assistant. This is
+  a vocabulary, and it will refuse some phrasings it should allow; a refusal costs one more
+  line of chat, while a wrong decline loses the agent's work. Gating every send into a pane
+  with a pending question was rejected: "tell it to use main" answering "which branch?" is
+  the commonest relay there is.
 
-A code gate (refuse key presses on a pane with a pending question after the assistant asked)
-was rejected: "want me to approve window 3's command?" then "yes" is exactly that shape and
-is right. The consent card stays the backstop. The conversation is replayed against the real
-model in `research/eval/chat_routing.py`.
+The eval (`research/eval/chat_routing.py`) replays the conversation against the real
+model, through the same gate. Without the gate and the explicit line it routed the first
+turn to the wrong pane 5 times in 5; with them both turns reach the right pane in 10 of 10.
 
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session

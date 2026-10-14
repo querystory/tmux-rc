@@ -157,7 +157,7 @@ def test_a_new_message_supersedes_an_unanswered_card(monkeypatch):
 
     async def go():
         rx = asyncio.create_task(L._receiver(ws, s, _Watcher(), meter))
-        await s.send_text("tell work to rebase")
+        await s.send_text("tell work to rebase, then press enter")
         await asyncio.wait_for(ws.done.wait(), 5)
         rx.cancel()
 
@@ -377,7 +377,7 @@ def test_a_turn_past_the_queue_is_refused_not_held():
                            "message": "Still answering earlier turns; not sent"}
 
 
-_TYPE = ("", [("type_in_pane", {"pane_id": "%1", "text": "yes"})])
+_TYPE = ("", [("type_in_pane", {"pane_id": "%1", "text": "rebase"})])
 
 
 def test_a_reconnect_restores_the_screen_transcript_as_quoted_context(monkeypatch):
@@ -395,7 +395,7 @@ def test_a_reconnect_restores_the_screen_transcript_as_quoted_context(monkeypatc
     assert "Assistant: The rate-limit one. Want me to reopen it?" in first
     card = next(f for f in frames if f["type"] == "propose")
     assert card["warn"] == C.CAUTION_RESTORED
-    assert typed == [("%1", "yes", True, True)]
+    assert typed == [("%1", "rebase", True, True)]
     assert s.restore([{"role": "user", "text": "late"}]) == 0  # never over live history
 
 
@@ -460,7 +460,7 @@ def test_a_bare_yes_to_a_question_is_carded_with_a_warning(monkeypatch):
     s.asked = True  # the last reply asked something (set at turn end, as tested above)
     frames, _, typed = _turn(s, "ok", monkeypatch, ok=True)
     assert next(f for f in frames if f["type"] == "propose")["warn"] == C.CAUTION_BARE.format("ok")
-    assert typed == [("%1", "yes", True, True)]
+    assert typed == [("%1", "rebase", True, True)]
 
 
 def _users(s):
@@ -484,8 +484,7 @@ def test_the_pane_a_chat_is_on_leads_its_next_turn(monkeypatch):
                ("Ok.", [])])
     _talk(s, monkeypatch, ("what is work doing", None), ("ask the agent for its status", False),
           ("send it to the shell then", True), ("thanks", None))
-    work, shell = (f"[Current pane: {L._pane_name(d)} (id={d['pane_id']})]"
-                   for d in _Watcher().digest())
+    work, shell = (L._FOCUS.format(L._pane_name(d), d["pane_id"]) for d in _Watcher().digest())
     first, *rest = _users(s)
     assert "[Current pane" not in first
     assert [u.split("\n\n")[0] for u in rest if u != C._OUTCOME] == [work, work, shell]
@@ -508,8 +507,39 @@ _PANES = [{"pane_id": "%1", "title": "tmuxrc opus 5.5 main session", "window_ind
 
 @pytest.mark.parametrize(("reply", "pane"), [
     ("The fable session monitor is investigating a 500.", "%5"),
-    ("Window 12 is idle, and Fable Session Monitor waits on you.", "%5"),  # the last named
+    ("Main is idle, and Fable Session Monitor waits on you.", "%5"),  # the last named
     ("Sending to tmuxrc opus 5.5 main session.", "%1"),  # not "main", inside it
-    ("window 12 is idle", "%6"), ("window 1 is idle", None), ("Nothing to report.", None)])
-def test_a_reply_names_a_pane_by_title_or_number(reply, pane):
+    ("main is idle", "%6"), ("window 7 is idle", None), ("Nothing to report.", None)])
+def test_a_reply_names_a_pane_by_title(reply, pane):
     assert (L._named(_PANES, reply) or {}).get("pane_id") == pane
+
+
+_ASKING = {"pane_id": "%5", "question": "Run gcloud logging read? 1) Yes 2) Yes, always 3) No"}
+
+
+@pytest.mark.parametrize(("request_", "name", "args", "pane", "refused"), [
+    # Relaying a message never answers the pane's prompt on the way: no key, no menu row.
+    ("no for the fable one", "press_key", {"key": "Escape"}, _ASKING, True),
+    ("no for the fable one", "press_key", {"key": "Down"}, _ASKING, True),
+    ("no for the fable one", "type_in_pane", {"text": "3"}, _ASKING, True),
+    ("no for the fable one", "type_in_pane", {"text": "No"}, _ASKING, True),
+    ("no for the fable one", "type_in_pane", {"text": "From the user: status?"}, _ASKING, False),
+    ("ask the agent", "type_in_pane", {"text": "make test"}, {"pane_id": "%9"}, False),
+    # Asked for, by the key's job or the answer's verb or number, it goes to the card.
+    ("decline it", "press_key", {"key": "Escape"}, _ASKING, False),
+    ("decline it", "press_key", {"key": "Enter"}, _ASKING, True),  # the wrong key's job
+    ("pick 3", "type_in_pane", {"text": "3"}, _ASKING, False),
+    ("approve the command", "type_in_pane", {"text": "1"}, _ASKING, False),
+    # A yes to the assistant's own question carries that question's words.
+    ("Want me to cancel its command?\nyes", "press_key", {"key": "Escape"}, _ASKING, False)])
+def test_a_panes_prompt_is_answered_only_when_asked(request_, name, args, pane, refused):
+    s = Ns(unanchored=False, request=request_)
+    assert (L._refusal(s, name, args, pane) == "unasked_answer") is refused
+
+
+def test_a_turn_knows_the_question_it_answers(monkeypatch):
+    s = _Fake([("Want me to cancel its command?", []), ("Ok.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("status", None), ("yes", None))
+    assert s.request == "Want me to cancel its command?\nyes"
+    _talk(s, monkeypatch, ("and now", None))
+    assert s.request == "and now"

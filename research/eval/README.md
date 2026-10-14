@@ -258,7 +258,8 @@ The parse eval above scores screens; `chat_routing.py` scores the typed chat (li
 text sessions): given the panes and the turns before, does the turn under test reach the
 pane the user means without answering a pane's prompt they were not answering? Cases in
 `chat_routing/` are real conversations, anonymised; every turn is built by the production
-loop, and only the last reaches the model. Nothing is sent: calls are recorded and declined.
+loop, and only the last reaches the model. Nothing is sent: each call meets production's
+gate before any card (`live._refusal`), and one that passes is answered as a delivered send.
 Each case runs `--runs` times (default 5), since one pass proves little at nonzero
 temperature; the exit status is 1 if any run failed.
 

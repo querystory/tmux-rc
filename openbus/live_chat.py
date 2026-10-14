@@ -117,6 +117,8 @@ class _Chat:
         self.unanchored = False  # this turn only agrees, and nothing was asked
         self.caution: str | None = None  # this turn's warning for a consent card
         self.focus: str | None = None  # the pane the conversation is on (live._focus)
+        self._asking = ""  # the reply that asked, while self.asked
+        self.request = ""  # this turn's words and the question they answer (live._refusal)
 
     def restore(self, rows) -> int:
         """Take the client's transcript as quoted context for a session that has none yet.
@@ -132,6 +134,7 @@ class _Chat:
             self._restored = _RESTORED.format(text)
             last = rows[-1]["text"][-RESTORED_CHARS:]  # only what the model will see asks
             self.asked = rows[-1]["role"] == "model" and bool(_ASKS.search(last))
+            self._asking = last
         return len(rows)
 
     async def send_audio(self, _pcm: bytes) -> None:
@@ -161,6 +164,7 @@ class _Chat:
                 cut = self._starts[-TURNS_KEPT]
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
+            self.request = f"{self._asking}\n{text}" if anchored else text
             bare = only_agrees(text)
             self.unanchored = bare and not anchored
             self.caution = (CAUTION_RESTORED if self._restored
@@ -221,7 +225,7 @@ class _Chat:
                 self._answers = []
             else:  # quiet or still calling on the last step: closed, as a quiet turn is
                 self._model(_DONE)
-            self.asked = bool(_ASKS.search(said))
+            self.asked, self._asking = bool(_ASKS.search(said)), said
             yield Event("turn_complete")
 
 

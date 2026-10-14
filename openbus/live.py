@@ -292,17 +292,19 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
 
 
 def _named(digest: list[dict], text: str) -> dict | None:
-    """The pane a reply names last, by its title or "window N" (how the prompt has it say
-    them), or None. The longer name wins a tie, so "main" can't steal "tmuxrc main"."""
+    """The pane a reply names last, by its title (window numbers are never said), or None.
+    The longer name wins a tie, so "main" can't steal "tmuxrc main"."""
     said, best, pane = f" {' '.join(_words(text))} ", (-1, 0), None
     for d in digest:
-        win = d.get("window_index")
-        for name in (d.get("title") or d.get("label"), win not in (None, "") and f"window {win}"):
-            words = " ".join(_words(str(name))) if name else ""
-            at = said.rfind(f" {words} ") if words else -1
-            if at >= 0 and (at + len(words), len(words)) > best:
-                best, pane = (at + len(words), len(words)), d
+        words = " ".join(_words(str(d.get("title") or d.get("label") or "")))
+        at = said.rfind(f" {words} ") if words else -1
+        if at >= 0 and (at + len(words), len(words)) > best:
+            best, pane = (at + len(words), len(words)), d
     return pane
+
+
+_FOCUS = ("[Current pane: {} (id={}). If the message below says 'the agent' or 'it', it means "
+          "this pane: deliver there, and don't offer another pane.]")
 
 
 def _focus(session, d: dict | None) -> None:
@@ -310,7 +312,7 @@ def _focus(session, d: dict | None) -> None:
     Its next turn says so, so "ask the agent" stays with the pane just discussed instead of
     going to whichever pane's screen shares a word with the request."""
     if d:
-        session.focus = f"[Current pane: {_pane_name(d)} (id={d['pane_id']})]"
+        session.focus = _FOCUS.format(_pane_name(d), d["pane_id"])
 
 
 def _pane_block(d: dict, screen: str | None) -> str:
@@ -394,11 +396,9 @@ _TEXT_NOTE = (
     "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
     "about to do before calling a tool, and never say what a pane did unless an update "
     'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
-    "with none, ask what they mean instead of acting. A [Current pane] line names the window "
-    'this conversation is on: "the agent", "it" and follow-ups mean that window unless the '
-    "user names another. After [Open question: yours] the user is answering you, not a "
-    "pane's PENDING QUESTION: answer a pane's prompt only when they point at it, and never "
-    "decline one on a guess; ask. Pasted images are numbered in the "
+    "with none, ask what they mean instead of acting. After [Open question: yours] the user "
+    "is answering you, not a pane's PENDING QUESTION: answer a pane's prompt only when they "
+    "point at it, and never decline one on a guess; ask. Pasted images are numbered in the "
     'turn text; to give one to an agent ("send this to window 3") use send_image_to_pane.'
 )
 
@@ -473,6 +473,42 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
     )
 
 
+# Answering a pane's own prompt is never a side effect of relaying a message. Asked to
+# message an agent sitting at a permission prompt, the model pressed Escape or typed "3"
+# first, both of which decline the agent's pending command, and "no, the other one" said to
+# the assistant was once about to decline one too. A prompt rule did not hold, so in a text
+# session a key press, or a row number or yes/no typed into a pane with a pending
+# question, needs the user's message, or the question of the assistant's they answer, to ask
+# for it: the key's job by name, or an answer by verb or number; never a bare yes or no,
+# which answers the assistant. Erring towards refusing costs one more line of chat.
+_PRESS = "press hit key keys"
+_KEY_ASKS = {k: frozenset(f"{_PRESS} {v}".split()) for k, v in {
+    "Escape": "esc escape cancel decline reject dismiss deny", "Enter": "enter return accept "
+    "approve confirm submit continue", "Up": "up arrow select choose pick option",
+    "Down": "down arrow select choose pick option", "Left": "left arrow", "Right": "right arrow",
+    "PageUp": "page scroll", "PageDown": "page scroll", "Tab": "tab complete",
+    "C-c": "ctrl control interrupt stop abort kill", "C-d": "ctrl control eof exit quit"}.items()}
+_ROW = re.compile(r"\d+|y(es)?|no?")  # what picks a menu row (or answers y/n) when typed
+_ANSWERS = frozenset(f"{_PRESS} answer reply option choose pick select accept approve confirm "
+                     "allow decline reject deny cancel".split())
+
+
+def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
+    """Why a text session's pane change is refused before any card (a _DECLINED key), or None:
+    a bare agreement with nothing asked, or a pane's prompt answered unasked."""
+    if getattr(session, "unanchored", False):
+        return "unanchored"
+    asked = set(_words(getattr(session, "request", "")))
+    text = str(args.get("text", "")).strip().casefold()
+    if name == "press_key":
+        ok = bool(_KEY_ASKS.get(args.get("key"), frozenset()) & asked)
+    elif name == "type_in_pane" and pane and pane.get("question") and _ROW.fullmatch(text):
+        ok = bool(_ANSWERS & asked) or (text.isdigit() and text in asked)
+    else:
+        return None
+    return None if ok else "unasked_answer"
+
+
 _DONE = {"sent", "ok", "opened", "button_shown"}  # a call's outcomes that reached a pane
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
@@ -484,6 +520,9 @@ _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 _DECLINED = {"declined": "the user declined",
              "unanchored": "the user's message only agrees, and you asked them nothing: "
                            "nothing was sent; ask what they want",
+             "unasked_answer": "the user didn't ask you to answer that pane's prompt or press a "
+                               "key, so nothing was sent; to pass on a message, type the "
+                               "message alone, and ask the user before answering its prompt",
              "superseded": "the user sent a new message instead of answering; do not retry "
                            "this, answer their new message (it follows)"}
 # A card whose connection dropped before the user answered (iOS drops the socket on every
@@ -620,14 +659,15 @@ async def _approved(
     pane's pid when it was proposed: the card named THAT process, and tmux recycles %N, so
     an approval must not type into whatever holds the id by the time the user taps. A
     malformed call can be approved and is still refused by _dispatch: this gate only ever
-    removes actions. A turn that only agrees ("yes") with nothing asked is refused before any
-    card (live_chat.only_agrees); the session's caution, if any, rides on the card."""
-    if getattr(session, "unanchored", False):
-        rec["consent"] = "unanchored"
-        return False, None
+    removes actions. A turn that only agrees ("yes") with nothing asked, or a pane's prompt
+    answered unasked, is refused before any card (_refusal); the session's caution, if any,
+    rides on the card."""
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
     d = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
+    if refused := _refusal(session, fc.name, args, d):
+        rec["consent"] = refused
+        return False, None
     known, pane = d is not None, pane_id
     if known:  # named as the prompt names it, so the card matches the reply above it, plus
         # the list's label (a bare tmux address for an unnamed window) unless that IS the title
