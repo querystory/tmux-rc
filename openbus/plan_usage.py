@@ -35,7 +35,6 @@ ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
 TAIL = 1 << 20  # Codex session logs reach hundreds of MB; the newest limits sit at the end
 CODEX_FILES = 20  # bounds the scan when recent logs hold no limits event at all
 SPARK_POINTS = 120  # samples sent per window: a sidebar sparkline's width, not a week of polls
-PAST = 12  # ended windows the usage view can step back through: 12 weeks of a 7d window
 
 
 def window_name(minutes: int) -> str:
@@ -221,8 +220,8 @@ def thin(samples: list[tuple]) -> list[list[float]]:
 
 
 def ended(name: str, seconds: int, rows: list[tuple], now: float) -> list[dict]:
-    """The last PAST windows these (t, pct, resets_at) samples show ending by now, oldest
-    first, shaped like a current window: its final %, its trend, and when it reached 100%
+    """The windows these (t, pct, resets_at) samples show ending by now, oldest first,
+    shaped like a current window: its final %, its trend, and when it reached 100%
     (`limit_at`). A window is told by its reset; consecutive ones are at least 5h apart, so
     a reset an hour or less from the last is the same window read again, and its latest
     read stands for it."""
@@ -237,7 +236,7 @@ def ended(name: str, seconds: int, rows: list[tuple], now: float) -> list[dict]:
     return [{"window": name, "pct": max(p for _, p in samples), "resets_at": resets * 1000,
              "start": (resets - seconds) * 1000, "samples": thin(samples),
              "limit_at": next((t * 1000 for t, p in samples if p >= 100), None)}
-            for resets, samples in [w for w in windows if w[0] <= now][-PAST:]]
+            for resets, samples in windows if resets <= now]
 
 
 class PlanUsage:
@@ -258,8 +257,8 @@ class PlanUsage:
         sources = [(t, env_for(t, d), None) for t, d in self.profiles()] + pane_envs(panes, birth)
         for tool, env, pane_id in sources:
             config = home(tool, env)
-            if tool == "codex":
-                ident = (config / "sessions").is_dir() and {"key": str(config)}
+            if tool == "codex":  # a home that has logged nothing yet reads "no data yet"
+                ident = config.is_dir() and {"key": str(config)}
             else:
                 uuid = oauth_account(config, env).get("accountUuid")
                 ident = uuid and {"key": uuid}
@@ -312,19 +311,17 @@ class PlanUsage:
                 logger.warning("plan usage poll failed", exc_info=True)
             await asyncio.sleep(POLL)
 
-    def _window(self, tool: str, key: str, row: tuple, now: float, past: bool) -> dict:
+    def _window(self, tool: str, key: str, row: tuple, now: float, past: float) -> dict:
         """One window for the UI, in ms: its latest %, its trend thinned to SPARK_POINTS,
-        and the projection over every sample; with `past`, the windows before it too."""
+        and the projection over every sample; with `past` (days), the windows that ended
+        in that time too, for the usage view's sawtooth."""
         name, seconds, observed, pct, resets = row
         out = {"window": name}
-        if past:
-            # Back to the PAST-th last reset, however long ago (a 5h window opens only on
-            # use), so the read is bounded by windows, not by how old the history grows.
-            # Twice PAST, plus the current window: a reset read either side of an hour
-            # counts twice.
-            first = self.history.reset_back(tool, key, name, now, 2 * (PAST + 1))
-            recent = self.history.usage_between(tool, key, name, (first or now) - seconds, now)
-            out["past"] = ended(name, seconds, recent, now)
+        if past:  # from a window's length earlier, so the oldest tooth starts at its start
+            since = now - past * 86400
+            recent = self.history.usage_between(tool, key, name, since - seconds, now)
+            out["past"] = [w for w in ended(name, seconds, recent, now)
+                           if w["resets_at"] >= since * 1000]
         if resets is None or resets <= now:  # the window reset since: nothing used yet
             return {**out, "pct": 0.0, "resets_at": None, "samples": []}
         # Up to the row's own observation: a poll landing in between can't skew the trend.
@@ -334,9 +331,11 @@ class PlanUsage:
         return {**out, "pct": pct, "resets_at": resets * 1000,
                 "start": (resets - seconds) * 1000, "samples": thin(samples),
                 "projected": trend["projected"],
-                "limit_at": trend["limit_at"] and trend["limit_at"] * 1000}
+                "limit_at": trend["limit_at"] and trend["limit_at"] * 1000,
+                # When it reached 100%, from every sample: the thinned trend can miss it by hours.
+                "hit_at": next((t * 1000 for t, p in samples if p >= 100), None)}
 
-    def report(self, now: float | None = None, past: bool = False) -> list[dict]:
+    def report(self, now: float | None = None, past: float = 0) -> list[dict]:
         now = time.time() if now is None else now
         accounts = self.accounts  # one snapshot: poll() swaps it from a worker thread
         out = []

@@ -5,12 +5,13 @@
 // so they live in localStorage, not the URL. So does the one Sub-agents switch, which lists
 // every pane's running sub-agents under its row in either density (Needs you cards only
 // count them): seeing them is its own question, apart from how much of each pane's
-// activity to show. Folded, the sidebar is a rail of live agents.
+// activity to show. Folded, the sidebar is a rail: its actions and every listed pane as icons
+// (docs/design/sidebar.md).
 // Phones never draw this list (theirs is renderPhoneList in app.js), but their Needs-you rows
 // borrow its answers and inline Reply: render.answers, so there is one of each.
-import { headerPicker } from "/m/header-picker.js";
+import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -18,15 +19,17 @@ const prefs = { by: "state", rail: false, fold: {}, cards: {}, subagents: true }
 try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.fold && saved.cards) Object.assign(prefs, saved); } catch {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {} };
 
-const alive = (p) => p.activity !== "idle";
 const rank = (p) => needsYou(p) ? 0 : isRunning(p) ? 1 : isRecent(p) ? 2 : 3;
-const STATES = [["run", "Working", isRunning], ["done", "Just finished", (p) => isRecent(p)], ["idle", "Idle", () => true]];
-const FILTERS = [["all", "All"], ["running", "Running"], ["recent", "Recent"], ["attention", "Needs you"]];
+export const SHOW = { attention: "Needs you", working: "Working", finished: "Just finished", idle: "Idle" }; // the sections, by filter name
+const STATES = [["run", "working"], ["done", "finished"], ["idle", "idle"]].map(([id, f]) => [id, SHOW[f], (p) => FILTERS[f](p)]); // the filters' own sets (no index as nowMs)
+export const SORTS = { updated: "Last activity", session: "Session order" }; // app.js keeps the choice
 const HOVER_MS = 350;
 
 // Needs you first, then the groups; a group with nothing in it is not drawn.
-function groups(subset, query) {
-  const rest = subset.filter((p) => !needsYou(p));
+function groups(subset, query, sort) {
+  // Session order is the order the watcher publishes, tmux's own: a stable sort that ties keeps it.
+  const order = sort === "session" ? () => 0 : (a, b) => rank(a) - rank(b) || newestFirst(a, b);
+  const rest = subset.filter((p) => !needsYou(p)).sort(order); // in session order, the sessions are too
   const list = prefs.by === "session"
     ? [...new Set(rest.map((p) => p.session))].map((s) => {
       const panes = rest.filter((p) => p.session === s);
@@ -39,7 +42,7 @@ function groups(subset, query) {
     });
   list.unshift({ id: "need", label: "Needs you", panes: subset.filter(needsYou), alert: true });
   for (const g of list) {
-    g.panes.sort((a, b) => rank(a) - rank(b) || newestFirst(a, b));
+    g.panes.sort(order);
     g.cards = prefs.cards[g.id] ?? g.id === "need";
     g.open = !!query || !prefs.fold[g.id]; // open unless the user folded it (only explicit folds are stored)
   }
@@ -58,7 +61,9 @@ export function setupSidebar(ctx) {
   // which holds the last-clicked button's screen position (and its focus, which reconcile
   // drops when it moves the node). Folding near the end leaves too little list below to
   // scroll back by, so the shortfall is padded until the next control changes it.
+  // Expanded, the whole sidebar above the usage strip scrolls (#sb-scroll); the rail, its list.
   let anchor = null;
+  const wrap = document.getElementById("sb-scroll"), scroller = () => prefs.rail ? root : wrap;
   root.addEventListener("click", (e) => { anchor = e.target.closest("button"); }, true);
   const rerender = () => {
     save();
@@ -66,39 +71,64 @@ export function setupSidebar(ctx) {
     root.style.paddingBottom = "";
     repaint();
     if (!el?.isConnected) return;
-    const want = root.scrollTop + el.getBoundingClientRect().top - y;
-    root.scrollTop = want;
-    if (root.scrollTop < want - 1) { // pad a screen, scroll, then trim the padding to fit
-      root.style.paddingBottom = `${root.clientHeight}px`;
-      root.scrollTop = want;
-      root.style.paddingBottom = `${2 * root.clientHeight + want - root.scrollHeight}px`;
+    const sc = scroller(), want = sc.scrollTop + el.getBoundingClientRect().top - y;
+    sc.scrollTop = want;
+    if (sc.scrollTop < want - 1) { // pad a screen, scroll, then trim the padding to fit
+      root.style.paddingBottom = `${sc.clientHeight}px`;
+      sc.scrollTop = want;
+      root.style.paddingBottom = `${parseFloat(root.style.paddingBottom) + sc.clientHeight + want - sc.scrollHeight}px`;
     }
     if (focused) el.focus({ preventScroll: true });
   };
   const app = document.getElementById("app");
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
+  // The rail's search is the box's own icon: focusing the box (a click, or Tab) expands the sidebar.
+  const search = document.querySelector("#sessions .search"), input = search.querySelector("input");
+  search.addEventListener("click", () => input.focus());
+  input.addEventListener("focus", () => { if (prefs.rail) { prefs.rail = false; rerender(); } });
 
-  // One slim row of words: State / Session, the URL's filter (wide has no tab bar to carry
-  // it), and the Sub-agents toggle, whose count's colour says whether it is on.
-  const bar = document.createElement("div");
-  bar.className = "sb-bar";
-  bar.innerHTML = '<button data-by="state" aria-label="Group by state">State</button><i aria-hidden="true">/</i><button data-by="session" aria-label="Group by session">Session</button>';
-  bar.querySelectorAll("[data-by]").forEach((b) => { b.onclick = () => { prefs.by = b.dataset.by; rerender(); }; });
-  const pick = Object.assign(document.createElement("select"), { id: "side-filter" });
-  pick.setAttribute("aria-label", "Filter panes");
-  pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
-  pick.onchange = () => ctx.setFilter(pick.value);
+  // The Sessions title's counts: the panes listed, plain text beside it, and at the right their
+  // running sub-agents, a button with an eye (open while they are listed under their panes'
+  // rows, slashed while not).
+  const count = Object.assign(document.createElement("span"), { className: "sb-count" });
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
-  bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·", ariaHidden: "true" }), subs);
-  const refreshPick = headerPicker(pick), picker = pick.nextElementSibling, menu = picker.lastChild;
+  document.querySelector("#sb-sess b").after(count, subs);
+  // The URL's filters (wide has no tab bar to carry them) are a button beside the search box,
+  // since both narrow the list. Its menu: State (a union; none is All), Account (the
+  // accounts, app.js adds them), then Group by and Sort by, how you like to read the list:
+  // per-browser preferences the button does not count. It stays open as you pick.
+  const picker = document.createElement("details"), menu = document.createElement("div");
+  picker.id = "side-filter-picker"; picker.className = "header-picker"; // a phone has it too, beside its search
+  picker.innerHTML = `<summary title="Filter" aria-label="Filter panes" data-n="">${licon("filter", 16)}</summary>`;
+  menu.className = "header-picker-menu"; picker.append(menu);
+  dismissable(picker);
+  // A group of the menu: options are buttons whose aria-pressed draws the check (and, for the
+  // states, a dot in the state's colour, as their chips have).
+  const group = (label, opts, pick, rule = "<hr>", dot = "") => {
+    const el = document.createElement("div");
+    el.setAttribute("role", "group"); el.ariaLabel = label;
+    el.innerHTML = `${rule}<div class="menu-sec">${label}</div>${Object.entries(opts).map(([v, l]) => `<button type="button" class="acct-opt" data-v="${v}"${dot && ` data-s="${v}"`}>${dot && `<i class="acct-dot${v === "all" ? " none" : ""}"></i>`}<span>${l}</span></button>`).join("")}`;
+    el.onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) pick(b.dataset.v); };
+    el.mark = (on) => el.querySelectorAll("[data-v]").forEach((b) => b.setAttribute("aria-pressed", String(on(b.dataset.v))));
+    return el;
+  };
+  let filters = [];
+  const show = group("State", { all: "All", ...SHOW }, (v) => ctx.setFilter(v === "all" ? [] : filters.includes(v) ? filters.filter((f) => f !== v) : [...filters, v]), "", "dot"); // each state's dot in its colour
+  const by = group("Group by", { state: "State", session: "Session" }, (v) => { prefs.by = v; rerender(); });
+  const sortBy = group("Sort by", SORTS, ctx.setSort);
+  // Clear all, at the foot: what the chips' Clear all does (app.js disables it with nothing on).
+  const clearAll = Object.assign(document.createElement("button"), { type: "button", className: "acct-opt menu-clear", textContent: "Clear all" });
+  clearAll.onclick = ctx.clearAll;
+  menu.append(show);
+  document.getElementById("find").append(picker);
   // The menu opens beside the list it filters, never over it: past the sidebar's edge, level
   // with the trigger, so the list narrows in view. With no room there it drops under the
   // trigger, nudged in where a narrow sidebar would clip its left edge.
   picker.addEventListener("toggle", () => {
     Object.assign(menu.style, { position: "", left: "", top: "", right: "", maxHeight: "" });
-    if (!picker.open) return;
+    if (!picker.open || !root.getClientRects().length) return; // a phone's is a bottom sheet (style.css)
     const side = root.getBoundingClientRect(), top = picker.getBoundingClientRect().top;
     if (innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
       left: `${side.right + 8}px`, top: `${Math.max(8, Math.min(top, innerHeight - menu.offsetHeight - 8))}px` });
@@ -121,7 +151,8 @@ export function setupSidebar(ctx) {
     node._g = g;
     const fold = node.firstChild, density = node.lastChild, running = g.panes.filter(isRunning).length;
     fold.setAttribute("aria-expanded", String(g.open));
-    ctx.html(fold, `${licon(g.open ? "chevronDown" : "chevron", 14)}${g.alert ? licon("alert", 13) : ""}<span class="l"></span><span class="c">${running && g.id !== "run" ? `<i></i>${running} · ` : ""}${g.panes.length}</span>`);
+    ctx.html(fold, `${licon(g.open ? "chevronDown" : "chevron", 14)}${g.alert ? licon("alert", 13) : ""}<span class="l"></span><span class="c acct-badge">${running && g.id !== "run" ? `<i></i>${running} · ` : ""}${g.panes.length}</span>`);
+    fold.lastChild.dataset.s = g.id; // its state's colour; set as data, since a session's id holds its name
     text(fold.querySelector(".l"), g.label);
     density.setAttribute("aria-pressed", String(g.cards));
     density.title = density.ariaLabel = `${g.cards ? "Compact rows" : "Show the latest activity"} for ${g.label}`;
@@ -160,6 +191,7 @@ export function setupSidebar(ctx) {
     node._p = p;
     markEnding(node, p);
     node.classList.toggle("need", ctx.asks(p));
+    node.classList.toggle("outside", ctx.outside(p)); // needs you, shown though the filter leaves it out
     // On the card for its styling and on its button, which is what assistive tech lands on.
     for (const el of [node, node.firstChild]) {
       if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
@@ -218,26 +250,26 @@ export function setupSidebar(ctx) {
     repaint();
     draft().editor.focus();
   }
-  // Folded to the rail: what is alive, Needs you first; idle panes are one count.
+  // Folded to the rail: every pane the list shows, in its order, each with its state's dot
+  // (and, with several accounts, its account's); hovering one shows its card.
   function rail(subset) {
-    const live = subset.filter(alive).sort((a, b) => rank(a) - rank(b));
-    const idle = subset.length - live.length;
-    reconcile(root, [...live, ...(idle ? [{ more: idle }] : [])], (p) => p.more ? "more" : `rail:${p.pane_id}`, (p) => {
+    reconcile(root, groups(subset, "", ctx.sort()).flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
       const b = document.createElement("button");
-      b.className = p.more ? "sb-more" : "sb-rail";
-      b.innerHTML = p.more ? "" : '<span class="sb-logo"><img alt=""></span>';
-      b.onclick = () => p.more ? collapse.click() : ctx.navigate(b._p.pane_id);
+      b.className = "sb-rail";
+      b.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="sb-acct"></span>';
+      b.onclick = () => ctx.navigate(b._p.pane_id);
       return b;
     }, (b, p) => {
-      if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
       markEnding(b, p);
       const agents = subagentCount(p);
-      b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
+      b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}${ctx.outside(p) ? ", outside filter" : ""}`;
       b.classList.toggle("need", ctx.asks(p));
-      b.dataset.agents = agents || "";
+      b.dataset.state = ctx.asks(p) ? "need" : isRunning(p) ? "run" : "";
+      b.classList.toggle("outside", ctx.outside(p));
       if (p.pane_id === ctx.active()) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       markWorking(b.querySelector("img"), p, ctx.logos);
+      ctx.html(b.lastChild, ctx.badge(p.pane_id));
     });
   }
 
@@ -246,7 +278,7 @@ export function setupSidebar(ctx) {
   // Mouse only: a tap is a navigation, and phones never render this list anyway.
   const card = Object.assign(document.createElement("div"), { id: "side-hover", hidden: true });
   card.setAttribute("role", "tooltip");
-  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><p class="q-cmd"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
+  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="sb-acct"></span><span class="badge"></span><p class="x"></p><p class="q"></p><p class="q-cmd"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
   document.body.append(card);
   let hoverOn = null, pending = null, hoverTimer = 0;
   const paneOf = (el) => (el.closest(".sb-row, .sb-card") || el)._p;
@@ -256,6 +288,7 @@ export function setupSidebar(ctx) {
     text($c("b"), paneName(p));
     text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
     text($c(".w"), [p.session, p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
+    ctx.html($c(".sb-acct"), ctx.badge(p.pane_id));
     $c(".badge").className = `badge ${ctx.badgeOf(p).cls}`;
     text($c(".badge"), [ctx.badgeOf(p).label, since(p)].filter(Boolean).join(" · "));
     text($c(".x"), paneHeadline(p) || "No recent activity");
@@ -294,7 +327,10 @@ export function setupSidebar(ctx) {
   root.addEventListener("pointerout", (e) => { const el = target(e); if (el && !el.contains(e.relatedTarget)) unhover(); });
   root.addEventListener("focusin", (e) => { const el = target(e, ".sb-rail, .sb-open"); if (el?.matches(":focus-visible")) hover(el); });
   root.addEventListener("focusout", unhover);
-  root.addEventListener("scroll", unhover, { passive: true });
+  for (const el of [root, wrap]) el.addEventListener("scroll", unhover, { passive: true });
+  // The Sessions block sticks at the top of the scroll; a hairline shows once it has.
+  const sticky = document.getElementById("sb-sticky");
+  wrap.addEventListener("scroll", () => sticky.classList.toggle("stuck", wrap.scrollTop > sticky.offsetTop - wrap.offsetTop - 1 && wrap.scrollTop > 0), { passive: true });
   root.addEventListener("click", unhover);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") unhover(); });
   addEventListener("resize", unhover); // a breakpoint crossing hides the sidebar but not this
@@ -302,25 +338,35 @@ export function setupSidebar(ctx) {
   function render(subset, query, filter) {
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
-    if (prefs.rail) rail(subset); else list(subset, query, filter);
+    search.title = prefs.rail ? "Search" : "";
+    marks(filter);
+    if (prefs.rail) rail(subset); else list(subset, query);
     // Reconciling may have replaced the hovered row (a card that became a row, say).
     if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
   }
-  function list(subset, query, filter) {
-    shown = groups(subset, query);
+  function list(subset, query) {
+    shown = groups(subset, query, ctx.sort());
     // A folded group still shows the open pane, so the selection never disappears.
     const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards }))];
-    // The controls head the list, above everything they fold or expand (Needs you included).
-    const items = [{ bar: true }, ...shown.flatMap(of)];
-    reconcile(root, items, (i) => i.bar ? "bar" : i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
-      (i) => i.bar ? bar : i.p ? row(i.card) : head(i.g),
-      (node, i) => i.bar ? null : i.p ? updateRow(node, i) : updateHead(node, i.g));
-    bar.querySelectorAll("[data-by]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.by === prefs.by)));
-    if (pick.value !== filter) { pick.value = filter; refreshPick(); }
+    reconcile(root, shown.flatMap(of), (i) => i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
+      (i) => i.p ? row(i.card) : head(i.g), (node, i) => i.p ? updateRow(node, i) : updateHead(node, i.g));
+    const n = subset.reduce((n, p) => n + liveSubagents(p).length, 0);
     subs.setAttribute("aria-pressed", String(prefs.subagents));
-    ctx.html(subs, `Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span>`);
+    subs.ariaLabel = `${n} sub-agents: ${prefs.subagents ? "hide" : "list"} them under their panes`;
+    text(count, subset.length);
+    ctx.html(subs, `${n} sub-agent${n === 1 ? "" : "s"} ${licon(prefs.subagents ? "eye" : "eyeOff", 13)}`);
   }
-  render.picker = picker; // the filter dropdown: app.js adds the account filter
+  // The menu's checks, for either layout (a phone draws no sidebar, but has the menu).
+  function marks(filter) {
+    filters = filter;
+    show.mark((v) => v === "all" ? !filter.length : filter.includes(v));
+    by.mark((v) => v === prefs.by);
+    sortBy.mark((v) => v === ctx.sort());
+  }
+  render.marks = marks;
+  render.picker = picker; // the filter menu: app.js adds the account filter, then these
+  render.views = [by, sortBy, document.createElement("hr"), clearAll];
+  render.clearAll = clearAll;
   render.drafts = drafts; // for the app's unsent-draft guard on reload
   // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
   render.answers = { add: addAnswers, update: replies, prune: (subset) => {
