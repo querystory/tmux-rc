@@ -127,6 +127,27 @@ own rhetorical question — the distinction [#85](https://github.com/querystory/
 was about), `tables`, and the headline itself. `copyables` is the first that creates an
 *action* rather than describing state, which is why it feels different in the hand.
 
+### The counter-example: replies the agent hands back
+
+A copyable's destination is *somewhere else*. The sibling case is text whose destination
+is the same pane: Claude Code ending a turn with "run it yourself: `! gh pr merge …`" or
+"say "merge 415" and I'll queue it". Copying that, opening the composer, pasting and
+sending is four steps for what should be one tap, so a finished turn's offers render as
+Run/Send buttons above the composer, each a confirm away from the same send a typed
+answer uses.
+
+This one is deliberately *not* a model decision, and the reason is the test above run
+backwards. The judgment is easy to express as a rule — the agent marks the text itself,
+with the shell prefix or quotes after "say" — and the output is an action with side
+effects, so a hallucinated or re-typed command is the one failure worth paying code to
+rule out. Detection is a regex over the finished turn's last message, held to three
+conservative rules: only once the turn has ended and nothing has been typed since; a
+command the screen wraps is skipped rather than rejoined (a guessed join could run the
+wrong thing), unless the transcript holds it whole; and the transcript's copy counts only
+when the screen shows it too, so a stale transcript offers nothing. A missed offer costs
+the old copy-paste; a false one would cost a command the user never meant, which is why
+the confirm stays even though the text is exact.
+
 The broader bet: **any interface over content it doesn't control** has a backlog of
 affordances it never shipped because they couldn't be done generically. A thin semantic
 pass is how those become cheap.

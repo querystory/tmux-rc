@@ -894,21 +894,43 @@ def _restates(table: object, rows: dict[str, str]) -> bool:
     return 2 * sum(copied) > len(copied)
 
 
-def _final_ask(visible: str, tool: str) -> dict | None:
-    """What a finished turn leaves blocked on the user: a provider error to retry, or in
-    auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run. Anything typed after it means the user already acted."""
+def _final_message(visible: str, tool: str) -> str | None:
+    """A finished turn's final assistant message, up to its stamp or through the provider
+    error that stopped it, or None while it runs. Anything typed after: the user acted."""
     error_re = _TURN_ERROR_RE[tool]
     turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
     stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
     if stop is None or stop.groupdict().get("live") or _USER_ROW_RE.search(visible, stop.end()):
         return None
     end = stop.end() if stop.re is error_re else stop.start()
-    message = visible[:end].rsplit("\n● ", 1)[-1]  # the turn's final assistant message
+    return visible[:end].rsplit("\n● ", 1)[-1]
+
+
+# What a finished turn hands the user to type back, verbatim: a `! command` (Claude Code's
+# shell prefix) as inline code or on a row of its own, or a phrase it asks for ('Say "merge
+# 415"'). A row that wraps onto the next is no offer: a guessed join could run the wrong
+# command. A space after the ! keeps out code such as `!=` and `!important`.
+_OFFER_RE = re.compile(r"`(! [^`\n]+)`|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*[^\s`])"
+                       r"|\bsay[ \t]+[\"“]([^\"”\n]{1,60})[\"”]", re.MULTILINE | re.IGNORECASE)
+
+
+def _offers(message: str, reply: str | None) -> list[str]:
+    """The replies the final message offers, as tap-to-send buttons. The transcript's copy
+    comes first (inline code keeps its backticks there, and long rows are not wrapped), but
+    only what the screen shows too: a stale transcript offers nothing."""
+    shown = " ".join(message.split())
+    found = (m[1] or m[2] or m[3] for t in (reply or "", message) for m in _OFFER_RE.finditer(t))
+    return list(dict.fromkeys(o for o in found if " ".join(o.split())[:40] in shown))[:3]
+
+
+def _final_ask(visible: str, tool: str, message: str) -> dict | None:
+    """What a finished turn leaves blocked on the user: a provider error to retry, or in
+    auto mode (where the agent stops only when it needs the user) a closing question or a
+    `! command` handed over to run."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
-    if error := error_re.match(lines[-1]):
+    if error := _TURN_ERROR_RE[tool].match(lines[-1]):
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
         return None
@@ -1251,9 +1273,11 @@ def classify(
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
-    if result.get("tool") in _TURN_ERROR_RE and (
-        ask := _final_ask(visible, result["tool"])
-    ):
+    tool = result.get("tool")
+    final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
+    if final and (offers := _offers(final, reply)):
+        result["offers"] = offers
+    if final and (ask := _final_ask(visible, tool, final)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         if not ask.get("options") and (

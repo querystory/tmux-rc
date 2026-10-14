@@ -266,6 +266,10 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent); }
 #keys::-webkit-scrollbar { display: none; }
+#offers { display: grid; gap: 6px; padding-bottom: 6px; }
+#offers:empty { display: none; }
+#offers button { min-height: 44px; padding: 8px 12px; background: var(--raised); text-align: left; font: 13px/1.35 var(--mono); overflow-wrap: anywhere; }
+#offers button::before { content: attr(data-verb); margin-right: 8px; color: var(--accent); font-weight: 600; }
 #keys button { background: var(--raised); padding: 0 12px; flex: none; min-width: 44px; font-size: 13px; }
 #reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
 #reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }

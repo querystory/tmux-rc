@@ -1344,6 +1344,29 @@ def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 
 
+def test_finished_turn_offers_the_replies_it_hands_over():
+    command = "! gh pr update-branch 5269 && gh pr merge 5269 --squash --auto"
+    message = (f"Run it yourself with the ! prefix:\n\n  {command}\n\n  That updates the branch."
+               '\n\n  Say "merge 415" and I\'ll queue it.')
+    assert classify(_pane("claude"), _auto_screen(message), _llm({}))["offers"] == [
+        command, "merge 415"]
+    # Inline code only the transcript marks, and a command the screen wraps: the
+    # transcript's copy, held to what the screen shows.
+    shown = "Not logged in; type ! gh auth login --hostname\n  github.com to fix it."
+    reply = "Not logged in; type `! gh auth login --hostname github.com` to fix it."
+    assert classify(_pane("claude"), _auto_screen(shown), _llm({}), reply=reply)["offers"] == [
+        "! gh auth login --hostname github.com"]
+    for screen, reply in (
+        (_auto_screen(shown), None),  # inline code the screen does not mark
+        (_auto_screen("Run:\n\n  ! gh pr merge 5269\n  --squash"), None),  # a wrapped row
+        (_auto_screen("Edited `src/app.py`; `x != y` holds."), None),  # ordinary code
+        (_auto_screen("Done."), "Run `! make deploy` to ship."),  # a stale transcript
+        (_auto_screen(message).replace("\n❯\n", "\n❯ merge 415\n"), None),  # already typed
+        (_auto_screen(message).replace("Baked for 16s", "Baking… (3s · esc to interrupt)"), None),
+    ):
+        assert "offers" not in classify(_pane("claude"), screen, _llm({}), reply=reply)
+
+
 @pytest.mark.parametrize("message", [
     "Done.\n  Should I send this to\n  Copilot, then merge\n  after approval?",
     ("Done.\n\n  - first item\n  - second item\n\n  Should I send this to\n"

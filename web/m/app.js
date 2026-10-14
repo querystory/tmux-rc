@@ -844,6 +844,16 @@ function render() {
     button._option = option; text(button, option.option); button.disabled = sending || !!answered;
     button.classList.toggle("picked", picked(pane, option));
   });
+  // What the finished turn hands over to type back (classify.py's _offers): a tap and a
+  // confirm send it with Enter, the same body as a typed answer.
+  reconcile($("offers"), (Array.isArray(pane?.offers) ? pane.offers : []).filter((o) => typeof o === "string"), (o) => `${active}:${o}`, () => {
+    const button = document.createElement("button"); button.type = "button";
+    button.onclick = () => confirm(`Type this into the pane and press Enter?\n\n${button._offer}`) && sendKeys(answerBody({}, button._offer));
+    return button;
+  }, (button, offer) => {
+    button._offer = offer; button.dataset.verb = offer.startsWith("! ") ? "Run" : "Send";
+    text(button, offer); button.disabled = sending;
+  });
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
