@@ -102,6 +102,18 @@ function readout(m, now, type, on) {
     + `<span class="uv-status">${w.limit_at > now && live ? `<span class="out">full ${at(w.limit_at)}</span> · ` : ''}${reset}</span></span>`;
 }
 
+// Each meter's usage at t, read off its points: the tooltip's one exact number per meter.
+const readings = (card, t, now) => card.meters.map(m => ({ m, v: valueAt(t > now ? m.fc : m.drawn, t) })).filter(r => r.v != null);
+const dot = c => `<i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:4px"></i>`;
+// A phone's reading, in the strip over the chart touched (its linked charts move their lines
+// with it, but stay quiet): the time, short, and each account's % by its colour.
+function strip(c, e) {
+  const t = e.axesInfo?.[0]?.value, short = x => clock(x, view.now).replace(/ ([AP])M$/, (_, a) => a.toLowerCase());
+  const on = view.narrow && c === view.touched && t != null;
+  c.tipEl.hidden = !on;
+  if (on) c.tipEl.innerHTML = `<b>${short(t)}</b>${t > view.now ? ' forecast' : ''}${readings(c, t, view.now).map(({ m, v }) => ` <span>${dot(m.color)}${Math.round(v)}%</span>`).join('')}`;
+}
+
 function option(card, extent, now, slider, css) {
   const color = n => css.getPropertyValue(n).trim(), muted = color('--muted'), line = color('--line');
   const fg = color('--fg'), surface = color('--surface'), red = color('--red'), accent = color('--accent');
@@ -129,15 +141,14 @@ function option(card, extent, now, slider, css) {
   return {
     animation: false, textStyle: { color: muted, fontFamily: 'sans-serif', fontSize: 12 },
     grid: { left, right, top: 22, bottom },
-    tooltip: { trigger: 'axis', renderMode: 'html', appendTo: 'body', axisPointer: { type: 'line', lineStyle: { color: muted } },
+    // Wide, echarts' tooltip, kept inside the chart. A phone shows no box (it fell off the
+    // screen's edge, one per linked chart): the line, and readings() in a strip over the chart.
+    tooltip: { trigger: 'axis', renderMode: 'html', appendTo: 'body', confine: true, showContent: !narrow, axisPointer: { type: 'line', lineStyle: { color: muted } },
       backgroundColor: surface, borderColor: line, textStyle: { color: fg, fontSize: 13 },
       formatter: items => {
         const t = items[0].axisValue;
-        return [`<b>${stamp(t)}</b>${t > now ? ' · forecast' : ''}`, ...card.meters.map(m => {
-          const v = valueAt(t > now ? m.fc : m.drawn, t);
-          return v == null ? '' : `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${m.color};margin-right:6px"></span>${esc(m.name)}: <b>${Math.round(v)}%</b>`
-            + (t >= m.w.start && t <= m.w.resets_at ? ` <span style="color:${muted}">this window, resets ${clock(m.w.resets_at, now)}</span>` : '');
-        }).filter(Boolean)].join('<br>');
+        return [`<b>${stamp(t)}</b>${t > now ? ' · forecast' : ''}`, ...readings(card, t, now).map(({ m, v }) => `${dot(m.color)}${esc(m.name)}: <b>${Math.round(v)}%</b>`
+          + (t >= m.w.start && t <= m.w.resets_at ? ` <span style="color:${muted}">this window, resets ${clock(m.w.resets_at, now)}</span>` : ''))].join('<br>');
       } },
     dataZoom: [
       // Not on a phone: a drag on a chart there is the page scrolling, not a pan (a stray one
@@ -271,9 +282,11 @@ function build(types) {
   view.cards = types.map(type => {
     const el = document.createElement('section');
     el.className = 'uv-card';
-    el.innerHTML = '<div class="uv-head"></div><div class="uv-chart" role="img" tabindex="0"></div>';
-    el.lastChild.addEventListener('keydown', keys);
-    return { type, el, headEl: el.firstChild, chartEl: el.lastChild };
+    el.innerHTML = '<div class="uv-head"></div><div class="uv-chart" role="img" tabindex="0"></div><div class="uv-tip" hidden></div>';
+    const card = { type, el, headEl: el.firstChild, chartEl: el.children[1], tipEl: el.lastChild };
+    card.chartEl.addEventListener('keydown', keys);
+    card.chartEl.addEventListener('pointerdown', () => { view.touched = card; }, true); // capture: before echarts moves the line
+    return card;
   });
   view.stack.replaceChildren(...view.cards.map(c => c.el));
 }
@@ -319,8 +332,10 @@ async function paint() {
         if (zoom.startValue !== z.startValue) paint(); else spanText(); // held back from all-forecast
       });
       (c.sized = new ResizeObserver(() => c.chart.resize())).observe(c.chartEl);
+      c.chart.on('updateAxisPointer', e => strip(c, e));
     }
     c.el.classList.toggle('slid', c === on[on.length - 1]); // the slider's chart: a phone gives it the room
+    c.tipEl.style.top = `${c.chartEl.offsetTop}px`;
     // How it moves, as the layout has it: a phone's drag scrolls the page, so it zooms by the range and the slider.
     c.chartEl.title = `${narrow ? 'Pick a range above, or drag the slider under the last chart' : 'Scroll to zoom, drag to pan'}; touch or hover for the exact %. Keyboard: + or − to zoom, arrows to pan.`;
     c.chart.setOption(option(c, view.extent, view.now, c === on[on.length - 1], css), true);
