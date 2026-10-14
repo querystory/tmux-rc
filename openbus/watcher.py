@@ -437,7 +437,7 @@ class Watcher:
 
     async def stop(self) -> None:
         self._pr_titles.close()
-        self._pool.shutdown(wait=False, cancel_futures=True)
+        self._pool.shutdown(wait=False)  # queued panes drain: the tick waits on each
         if self._task:
             self._task.cancel()
 
@@ -1582,7 +1582,7 @@ class Watcher:
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)
-        state.pop("parse_ok", None)
+        read = state.pop("parse_ok", True)
         state["prs"] = list(self._prs.get(pane.id, []))
 
         # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
@@ -1619,7 +1619,9 @@ class Watcher:
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
-        state["parsed_at"] = now
+        # A pane never read successfully keeps no parsed_at: the phone shows it as pending.
+        if read or "parsed_at" in state:
+            state["parsed_at"] = now
         # The input generation and frame this question was read from, on the state itself
         # so they publish with it: input since (a menu answer above all) or a screen that
         # has moved on leaves the question unanswerable from the app (server.send).

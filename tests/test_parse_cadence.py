@@ -336,6 +336,22 @@ def test_forced_reparse_ignores_unchanged(monkeypatch):
     assert calls["n"] == 2
 
 
+def test_a_pane_never_read_stays_pending(monkeypatch):
+    """parsed_at is the phone's "Summarizing…" switch: a first read that failed must not
+    set it, or a still-unread card claims "No recent activity"."""
+    frame = ["agent finished · done 10:28 PM"]
+    w, _ = _harness(monkeypatch, frame)
+    oks = [False, True, False]
+    monkeypatch.setattr(W, "classify", lambda pane, text, **_kw: {
+        "activity": "idle", "tool": "claude", "events": [], "parse_ok": oks.pop(0)})
+    stamps = []
+    for _ in range(3):
+        w._forced_this_tick = {"%1"}
+        stamps.append(w._tick_pane(_Pane()).get("parsed_at"))
+    assert stamps[0] is None, "the failed first read leaves the card pending"
+    assert stamps[1] and stamps[2], "once read, a later failure keeps it read"
+
+
 def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch):
     """The permanent-"Running"-badge bug. A parse failure (a 429 returning None) used to
     advance the pane's fingerprint anyway, which marks the screen read — and since an

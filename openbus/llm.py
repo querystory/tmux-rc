@@ -11,8 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
 from functools import cache
 
 from .telemetry import emit_parse
@@ -112,18 +113,23 @@ _TIMEOUT_MS = int(os.environ.get("TMUXRC_LLM_TIMEOUT_MS", "20000"))
 # and one of those hanging held a restart's first parse — and every pane queued behind
 # it — for 10.5 minutes. So each call also gets an overall deadline, measured on a worker
 # thread; a call past it fails as a timeout, and its thread is left to finish on its own.
+# A thread per call, not a pool: hung calls must not use up the workers later calls need
+# (the timeout arms the backoff, so they cannot pile up either).
 _DEADLINE_S = _TIMEOUT_MS / 1000 + 10
-_calls = ThreadPoolExecutor(max_workers=8, thread_name_prefix="vertex")
 
 
 def _generate(**kwargs):
     """generate_content under the overall deadline (see _DEADLINE_S)."""
-    future = _calls.submit(lambda: _client().models.generate_content(**kwargs))
-    try:
-        return future.result(timeout=_DEADLINE_S)
-    except TimeoutError:
-        future.cancel()  # still queued behind hung calls: never send it late
-        raise
+    future = Future()
+
+    def call():
+        try:
+            future.set_result(_client().models.generate_content(**kwargs))
+        except BaseException as e:  # noqa: BLE001 - handed to the caller, raised there
+            future.set_exception(e)
+
+    threading.Thread(target=call, daemon=True, name="vertex").start()
+    return future.result(timeout=_DEADLINE_S)
 
 
 @cache
@@ -176,7 +182,7 @@ def _client():
 # which is true of an endpoint that is down, rate-limiting or refusing our credentials,
 # and false of a model that returned junk for one particular screen. A per-pane content
 # failure must not pause the other 26; see the JSONDecodeError branch below.
-_backoff = {"delay": 0.0, "until": 0.0}
+_backoff = {"delay": 0.0, "until": 0.0, "armed": 0.0}
 
 
 def _arm_backoff() -> float:
@@ -185,7 +191,7 @@ def _arm_backoff() -> float:
     minutes; any success resets it (see classify_text). Only for failures that would hit
     every pane alike — not a per-pane content failure like malformed JSON."""
     delay = min(_backoff["delay"] * 2, 120.0) or 15.0
-    _backoff.update(delay=delay, until=time.time() + delay)
+    _backoff.update(delay=delay, until=time.time() + delay, armed=time.time())
     return delay
 
 
@@ -313,7 +319,10 @@ def classify_text(
             kind,
         )  # OTLP benchmark record
         last_error["msg"] = None  # success clears any prior error
-        _backoff.update(delay=0.0, until=0.0)  # healthy again; forget the failure streak
+        # Healthy again; forget the failure streak. Unless it began after this call did:
+        # with panes read in parallel, a call already in flight must not lift that brake.
+        if _backoff.get("armed", 0.0) <= t0:
+            _backoff.update(delay=0.0, until=0.0)
         return result
     except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
         _trace.info("ERROR on IN: %r", text[-500:])
