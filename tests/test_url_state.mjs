@@ -5,7 +5,7 @@ import { formatHash, historyMode, parseHash } from "../web/m/url-state.js";
 test("every addressable state round-trips", () => {
   for (const state of [
     { pane: "%12", view: "terminal", filter: "attention", sort: "session" },
-    { pane: "%12", filter: "running", acct: "work" },
+    { pane: "%12", filter: "running", acct: "claude-work" },
     { dashboard: true, acct: "side-project" },
     { pane: "%3", view: "summary", filter: "running" },
     { dashboard: true, filter: "recent" },
@@ -58,11 +58,11 @@ test("old desktop hashes still land", () => {
 });
 
 test("the account filter rides along: in the URL only when set, and a change replaces", () => {
-  assert.equal(formatHash({ filter: "running", acct: "work" }), "filter=running&acct=work");
+  assert.equal(formatHash({ filter: "running", acct: "claude-work" }), "filter=running&acct=claude-work");
   assert.equal(formatHash({ acct: null }), "");
   assert.equal(parseHash("#acct=work").acct, "work");
   assert.equal(parseHash("#acct=").acct, null);
-  assert.equal(historyMode("filter=running", "filter=running&acct=work"), "replace");
+  assert.equal(historyMode("filter=running", "filter=running&acct=claude-work"), "replace");
   assert.equal(historyMode("pane=%251&acct=work", "pane=%251"), "replace");
 });
 

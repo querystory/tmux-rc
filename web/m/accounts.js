@@ -20,7 +20,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const byDir = (dir) => profiles.find((p) => p.dir === dir);
   // The account worth naming for a pane: only when its provider has several.
   const ofPane = (id) => { const p = profiles.find((a) => a.panes.includes(id)); return p && several(p.provider) ? p : null; };
-  const key = (p) => slug(p.name); // the URL's name for an account: readable in a shared link
+  const key = (p) => slug(p.tilde); // the URL's name for an account: its dir (unique, kept across a rename), readable
   const active = () => any() && signedIn().find((p) => key(p) === filter) || null;
   const dot = (p) => `<i class="acct-dot" style="--a:var(--acct-${p.color})"></i>`;
   const badge = (p, after = "") => `<span class="acct-badge" style="--a:var(--acct-${p.color})" title="${esc(`${p.name}: ${p.tilde}`)}">${dot(p)}<span>${esc(p.name)}</span>${after}</span>`;
@@ -49,8 +49,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (menu) menu.open = false;
     navigate(k || null); // writes the URL, which routes back to follow()
     // The button pressed was just redrawn or hidden: keep keyboard focus on the menu's trigger,
-    // else the chip, else (a phone's dashboard, clearing the pill) the current tab.
-    if (focused) [menu?.querySelector("summary"), filterGroup.querySelector('[aria-pressed="true"]'), document.querySelector('#list-nav [aria-pressed="true"]')]
+    // else the chip, else (clearing the pill on a phone) the dashboard's tab or a pane's Back.
+    if (focused) [menu?.querySelector("summary"), filterGroup.querySelector('[aria-pressed="true"]'), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")]
       .find((el) => el?.getClientRects().length)?.focus();
   }
 

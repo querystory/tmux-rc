@@ -93,11 +93,20 @@ export function setupSidebar(ctx) {
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
   bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·", ariaHidden: "true" }), subs);
   const refreshPick = headerPicker(pick), picker = pick.nextElementSibling, menu = picker.lastChild;
-  // A narrow sidebar would clip the menu at its left edge (the account filter widens it): nudge it in.
+  // The menu opens beside the list it filters, never over it: past the sidebar's edge, level
+  // with the trigger, so the list narrows in view. With no room there it drops under the
+  // trigger, nudged in where a narrow sidebar would clip its left edge.
   picker.addEventListener("toggle", () => {
-    menu.style.right = "";
-    const over = root.getBoundingClientRect().left + 8 - menu.getBoundingClientRect().left;
-    if (picker.open && over > 0) menu.style.right = `${-over}px`;
+    Object.assign(menu.style, { position: "", left: "", top: "", right: "", maxHeight: "" });
+    if (!picker.open) return;
+    const side = root.getBoundingClientRect(), top = picker.getBoundingClientRect().top;
+    if (innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
+      left: `${side.right + 8}px`, top: `${Math.max(8, Math.min(top, innerHeight - menu.offsetHeight - 8))}px` });
+    else {
+      const over = side.left + 8 - menu.getBoundingClientRect().left;
+      if (over > 0) menu.style.right = `${-over}px`;
+    }
+    menu.style.maxHeight = `${innerHeight - menu.getBoundingClientRect().top - 8}px`; // many accounts: it scrolls
   });
 
   function head(g) {
