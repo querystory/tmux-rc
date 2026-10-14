@@ -1207,9 +1207,9 @@ def account_login(body: SignInBody, request: Request):
     if [(k, canonical(v)) for k, v in (w.split("=", 1) for w in lead)] != [(var, profile["dir"])]:
         _refuse(request, "account_login", body.dir[:120], 400,
                 f"The command must keep {var}={profile['tilde']}")
-    if not argv or argv[0] != default[0]:
+    if argv[:len(default)] != default:  # `codex login …`: a sign-in, nothing else
         _refuse(request, "account_login", body.dir[:120], 400,
-                f"The sign-in command must run {default[0]}")
+                f"The sign-in command must run {' '.join(default)}")
     if why := _unavailable(argv[0], tmux.server_path()):
         _refuse(request, "account_login", body.dir[:120], 400, why)
     pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
@@ -1217,7 +1217,7 @@ def account_login(body: SignInBody, request: Request):
     _audit(request, "account_login", pane_id, f"dir={body.dir[:120]!r}")
     pid = tmux.pane_pid(pane_id) or ""
     _SIGN_IN.pop(pane_id, None)  # a recycled id goes last, as the newest window
-    _SIGN_IN[pane_id] = {"pid": pid, "dir": profile["dir"], "codex": argv[:2] == ["codex", "login"],
+    _SIGN_IN[pane_id] = {"pid": pid, "dir": profile["dir"], "codex": profile["provider"] == "codex",
                          "device": "--device-auth" in argv, "session": body.session}
     return {**_opened(pane_id), "pid": pid}
 

@@ -13,7 +13,6 @@ const CODEX_WAYS = [["codex login", "Browser sign-in", "sign in, then paste the 
 // the server still pins the dir and the binary. Kept here too, where storage is blocked.
 const cmds = {}, cmdKey = (p) => `tmuxrc-signin-${p}`;
 const cmdOf = (p) => cmds[p] ??= (() => { try { return localStorage.getItem(cmdKey(p)); } catch { return null; } })() || LOGIN[p];
-const LEAD = /^\s*(?:[A-Za-z_]\w*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\\.|[^\s'"\\])*\s+)*/; // the leading VAR=value words
 // A dir as one shell word, for the line (shlex.split reads it back whole).
 const shq = (s) => /^[\w@%+=:,./~-]+$/.test(s) ? s : `'${s.replace(/'/g, `'"'"'`)}'`;
 // Where a browser `codex login` is finished from afar: the sheet's waiting step and the
@@ -316,13 +315,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (!words) return "A quote or a backslash is left open";
     if (!words.length) return ""; // blank: the server runs the default
     const n = words.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w)), env = n < 0 ? words : words.slice(0, n);
-    const p = byDir(F.dir), bin = LOGIN[F.provider].split(" ")[0];
+    const p = byDir(F.dir), run = LOGIN[F.provider].split(" ");
     // ~ as the server expands it: the home the profile's own dir and ~-spelling share.
     const home = p?.tilde?.startsWith("~") ? p.dir.slice(0, p.dir.length - p.tilde.length + 1) : "";
     const canon = (d) => norm(home && /^~(\/|$)/.test(d) ? home + d.slice(1) : d);
     if (env.length !== 1 || !env[0].startsWith(`${v}=`) || ![F.dir, p?.dir].filter(Boolean).map(canon).includes(canon(env[0].slice(v.length + 1))))
       return `Must stay ${v}=${shq(p?.tilde || F.dir)}`;
-    return words[env.length] === bin ? "" : `Must run ${bin}`;
+    return run.every((w, i) => words[env.length + i] === w) ? "" : `Must run ${LOGIN[F.provider]}`;
   };
   const fail = (error) => { F.error = error.detail || "That did not work. Try again."; render(); };
   const typed = (id) => { const at = dlg.querySelector(`#${id}`).selectionStart; render(); const i = dlg.querySelector(`#${id}`); i.focus(); i.setSelectionRange(at, at); };
@@ -332,7 +331,12 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (e.target.id === "acct-name") { F.name = e.target.value; if (!F.dirTouched) F.dir = `~/.${F.provider}-${slug(F.name)}`; typed("acct-name"); }
     if (e.target.id === "acct-dir") { F.dir = e.target.value.trim(); F.dirTouched = true; typed("acct-dir"); }
     if (e.target.id === "acct-callback") { F.callback = e.target.value; typed("acct-callback"); }
-    if (e.target.id === "acct-cmd") { F.line = e.target.value; setCmd(F.provider, F.line.slice(F.line.match(LEAD)[0].length).trim() || LOGIN[F.provider]); typed("acct-cmd"); }
+    if (e.target.id === "acct-cmd") { // remember what follows the VAR=value words, as parsed
+      F.line = e.target.value;
+      const spans = [], words = shellWords(F.line, spans), n = words?.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w)) ?? -1;
+      if (n >= 0) setCmd(F.provider, F.line.slice(spans[n][0]).trim());
+      typed("acct-cmd");
+    }
   };
   dlg.addEventListener("input", onType);
   dlg.addEventListener("compositionend", onType);

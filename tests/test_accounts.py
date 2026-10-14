@@ -331,7 +331,8 @@ W = "CODEX_HOME=~/.codex-work"
     (f"{W} sh -c 'codex login'", 400, None),  # only the provider's own binary
     (f"{W} /tmp/codex login", 400, None),
     (W, 400, None),
-    (f"{W} codex login; rm -rf ~", 200, ["codex", "login;", "rm", "-rf", "~"]),  # argv
+    (f"{W} codex login -v; rm -rf ~", 200, ["codex", "login", "-v;", "rm", "-rf", "~"]),  # argv
+    (f"{W} codex -c a=b login", 400, None),  # `codex login` itself, nothing else
     (f"{W} codex 'login", 400, None),  # unbalanced quote
 ])
 def test_an_edited_sign_in_runs_the_providers_binary_as_argv(client, home, command, status, tail):
