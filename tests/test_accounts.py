@@ -16,6 +16,7 @@ import openbus.tmux as T
 from openbus import accounts, expunge, plan_usage
 
 STARTED = S._started  # before the moving fixture stubs it
+CODEX_LOGIN = accounts._codex_login  # before the home fixture stubs it
 
 
 def _signed_in(path, uuid, **fields):
@@ -141,6 +142,22 @@ def test_a_codex_login_in_the_keyring_is_signed_in(home, monkeypatch):
     (home / ".codex-kr").mkdir()  # no auth.json: the login is where only codex can see it
     monkeypatch.setattr(accounts, "_codex_login", lambda config: config.name == ".codex-kr")
     assert _by_dir(home)["~/.codex-kr"]["signed_in"]
+
+
+def test_codex_is_asked_about_that_dir_alone(tmp_path, monkeypatch):
+    # A stand-in codex, found on the tmux server's PATH: signed in only for `login status`
+    # run on the dir it was asked about, whatever CODEX_HOME the daemon itself has.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "codex").write_text(
+        '#!/bin/sh\n[ "$*" = "login status" ] && [ "$CODEX_HOME" = "$WANT" ]\n')
+    (bin_dir / "codex").chmod(0o755)
+    monkeypatch.setattr(T, "server_path", lambda: str(bin_dir))
+    monkeypatch.setenv("CODEX_HOME", "/elsewhere")
+    monkeypatch.setenv("WANT", str(tmp_path / "in"))
+    assert CODEX_LOGIN(tmp_path / "in") and not CODEX_LOGIN(tmp_path / "out")  # exit 1: no
+    monkeypatch.setattr(T, "server_path", lambda: str(tmp_path / "nowhere"))
+    assert not CODEX_LOGIN(tmp_path / "in")  # no codex at all
 
 
 def test_two_people_of_one_organisation_are_told_apart(home):
