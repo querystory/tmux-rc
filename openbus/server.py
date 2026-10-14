@@ -1434,6 +1434,28 @@ def account_login_close(body: SignInWindowBody, request: Request):
     return {"ok": True}
 
 
+class SignInCallbackBody(SignInWindowBody):
+    url: str
+
+
+@app.post("/api/accounts/login/callback")
+def account_login_callback(body: SignInCallbackBody, request: Request):
+    """Finish a browser `codex login` from afar: replay the localhost callback address the
+    user's browser landed on to the login waiting on this machine, for a sign-in window
+    this daemon opened. Only that callback is requested, and its code and state are never
+    logged."""
+    if not body.pid or _SIGN_IN.get(body.pane_id) != body.pid:
+        _refuse(request, "account_login_callback", body.pane_id, 404, "not a sign-in window")
+    if not (path := accounts.codex_callback(body.url)):
+        _refuse(request, "account_login_callback", body.pane_id, 400,
+                f"Not the http://localhost:{accounts.CODEX_CALLBACK_PORT}/auth/callback?… address")
+    ok = accounts.replay_codex_callback(path)
+    _audit(request, "account_login_callback", body.pane_id, outcome="ok" if ok else "failed")
+    if not ok:
+        raise HTTPException(502, "The sign-in window did not take it. Is it still waiting?")
+    return {"ok": True}
+
+
 @app.post("/api/accounts/default")
 def account_default(body: AccountSessionBody, request: Request):
     """Make an account the session's default (tmux set-environment), or with an empty dir

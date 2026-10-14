@@ -9,12 +9,15 @@ docs/design/agent-accounts.md.
 from __future__ import annotations
 
 import contextlib
+import http.client
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import plan_usage, tmux
 from .expunge import _FILES, Refused, Session, _home, _registration
@@ -29,9 +32,12 @@ COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
 SHARED = {"claude": {"CLAUDE.md": True, "skills": True, "hooks": True, "statusline.sh": True,
                      "settings.json": False},
           "codex": {"AGENTS.md": True, "prompts": True, "config.toml": False}}
-# The provider's own sign-in. tmux-rc users are remote, so Codex gets the device-code flow:
-# plain `codex login` waits on a localhost:1455 callback the remote browser cannot reach.
-LOGIN = {"claude": ["claude"], "codex": ["codex", "login", "--device-auth"]}
+# The provider's own sign-in. Plain `codex login` redirects the browser to a callback on
+# this machine's localhost, which a remote browser cannot reach: the sheet takes the address
+# it landed on and replays it here (codex_callback). `--device-auth` avoids that, where the
+# workspace allows device codes.
+LOGIN = {"claude": ["claude"], "codex": ["codex", "login"]}
+CODEX_CALLBACK_PORT = 1455  # where `codex login` waits for the browser's redirect
 RESUME = {"claude": ["claude", "--resume"], "codex": ["codex", "resume"]}
 # What a session needs to resume on another account: of the files Expunge knows it by,
 # Claude's transcript, its subagents' and tool results' folder and its /rewind snapshots;
@@ -107,6 +113,35 @@ def _codex_login(config: Path) -> bool:
                               capture_output=True, timeout=5, check=False).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
+
+
+def codex_callback(url: str) -> str | None:
+    """The path and query to replay here from the address a remote browser landed on after
+    `codex login`, or None unless it is exactly that callback: http on localhost or
+    127.0.0.1, Codex's port, /auth/callback, a printable query, no credentials or fragment.
+    Nothing else may be requested, so this is no proxy."""
+    try:
+        u = urlsplit(url.strip())
+        ok = (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
+              and u.port == CODEX_CALLBACK_PORT and u.path == "/auth/callback"
+              and re.fullmatch(r"[\x21-\x7e]+", u.query) and not (u.username or u.password)
+              and "#" not in url)
+    except ValueError:  # a port that is no number
+        return None
+    return f"{u.path}?{u.query}" if ok else None
+
+
+def replay_codex_callback(path: str) -> bool:
+    """GET a codex_callback path from the `codex login` listening on this machine, as the
+    browser would have; whether it took it. No redirect is followed."""
+    conn = http.client.HTTPConnection("127.0.0.1", CODEX_CALLBACK_PORT, timeout=15)
+    try:
+        conn.request("GET", path)
+        return conn.getresponse().status < 400
+    except OSError:
+        return False
+    finally:
+        conn.close()
 
 
 def profiles(pane_dirs=()) -> list[dict]:

@@ -319,7 +319,7 @@ def test_the_session_default_and_the_sign_in_window(client, home):
     argv = next(a for a in client.calls if a[0] == "new-window")
     assert argv[argv.index("-n") + 1] == "sign in: Work"
     assert argv[argv.index("--") + 1:] == [
-        "env", f"CODEX_HOME={home}/.codex-work", "codex", "login", "--device-auth"]
+        "env", f"CODEX_HOME={home}/.codex-work", "codex", "login"]
     assert client.post("/api/accounts", json={"provider": "claude",
                                               "dir": "~/.claude-personal"}).status_code == 409
 
@@ -332,7 +332,7 @@ W = "CODEX_HOME=~/.codex-work"
      ["codex", "login", "--device-auth", "-c", "a=b c"]),
     ("CODEX_HOME=$HOME/../home/./.codex-work/ codex login", 400, None),  # no shell: no $HOME
     ("CODEX_HOME=~/../home/./.codex-work/ codex login", 200, ["codex", "login"]),  # same dir
-    ("  ", 200, ["codex", "login", "--device-auth"]),  # blank: the default
+    ("  ", 200, ["codex", "login"]),  # blank: the default
     ("codex login", 400, None),  # the dir's variable is not optional
     ("CODEX_HOME=~/.codex codex login", 400, None),  # nor pointed at another account
     (f"{W} CLAUDE_CONFIG_DIR=/x codex login", 400, None),  # nor joined by another
@@ -350,6 +350,59 @@ def test_an_edited_sign_in_runs_the_providers_binary_as_argv(client, home, comma
     calls = [a for a in client.calls if a[0] == "new-window"]
     assert [a[a.index("--") + 1:] for a in calls] == (
         [["env", f"CODEX_HOME={home}/.codex-work", *tail]] if tail else [])
+
+
+CB = "http://localhost:1455/auth/callback?code=c-1&state=s-2"
+
+
+@pytest.mark.parametrize("url,ok", [
+    (CB, True), (f"  {CB}\n", True), (CB.replace("localhost", "127.0.0.1"), True),
+    (CB.replace("localhost", "LOCALHOST"), True),
+    (CB.replace("http:", "https:"), False), (CB.replace("1455", "1456"), False),
+    ("http://localhost/auth/callback?code=c", False),  # no port: 80
+    (CB.replace("localhost", "example.com"), False), (CB.replace("localhost", "[::1]"), False),
+    (CB.replace("localhost", "localhost.example.com"), False),
+    (CB.replace("//", "//u:p@"), False), (CB + "#x", False), (CB.replace("1455", "x"), False),
+    (CB.replace("/auth/callback", "/auth/callback/../x"), False), (CB.partition("?")[0], False),
+    (CB.replace("c-1", "c 1"), False), (CB.replace("c-1", "c%0d%0aX:1"), True),  # still escaped
+    ("javascript:alert(1)", False), ("", False),
+])
+def test_only_codex_s_own_callback_is_replayed(url, ok):
+    assert accounts.codex_callback(url) == ("/auth/callback?" + url.strip().split("?", 1)[1]
+                                            if ok else None)
+
+
+def test_a_pasted_callback_reaches_the_waiting_login(client, home, monkeypatch):
+    import http.server
+    import threading
+    got = []
+
+    class Login(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            got.append(self.path)
+            self.send_response(302)  # codex's success redirect: not followed
+            self.send_header("Location", "http://example.com/")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Login)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(accounts, "CODEX_CALLBACK_PORT", server.server_port)
+    monkeypatch.setattr(T, "pane_pid", lambda pane_id: "4242")
+    added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-x"}).json()
+    client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
+    url = CB.replace("1455", str(server.server_port))
+    post = lambda **b: client.post("/api/accounts/login/callback",  # noqa: E731
+                                   json={"pane_id": "%42", "pid": "4242", "url": url, **b})
+    assert post(pid="1").status_code == 404  # only a sign-in window this daemon opened
+    assert post(url=url.replace("/auth/callback", "/x")).status_code == 400
+    assert got == []  # refused before anything was requested
+    assert post().json() == {"ok": True} and got == ["/auth/callback?code=c-1&state=s-2"]
+    server.shutdown()
+    server.server_close()
+    assert post().status_code == 502  # nobody waiting any more
 
 
 def test_an_unfinished_sign_in_is_resumed_not_refused(home):
