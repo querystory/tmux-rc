@@ -8,6 +8,8 @@ const LOGIN = { claude: "claude", codex: "codex login" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
 const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
+// Markup's text, for a tooltip that says what the markup does.
+const plain = (html) => Object.assign(document.createElement("template"), { innerHTML: html }).content.textContent;
 const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
 export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery, state, clearState }) {
@@ -143,7 +145,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
           + `<button type="button" class="add" data-add>+ Add account</button></div>`
           // One line: what a new window here starts on (the whole story in its tooltip) and,
           // always in view, the session's default, set with tmux set-environment on change.
-          + `<div class="acct-default"><span class="acct-hint" title="${esc(hint(session, provider, def).replace(/<[^>]+>/g, ""))}">${session ? `Default for <b>${esc(session)}</b>` : hint(session, provider, def)}</span>`
+          + `<div class="acct-default"><span class="acct-hint" title="${esc(plain(hint(session, provider, def)))}">${session ? `Default for <b>${esc(session)}</b>` : hint(session, provider, def)}</span>`
           + (session ? `<select data-default-for="${provider}" aria-label="Default account for this session">`
             + `<option value="" ${set(session, provider) ? "" : "selected"}>Not set</option>`
             // Set to a dir that is none of these: shown as it is, not as "Not set".
