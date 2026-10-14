@@ -515,15 +515,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #find .search-clear { width: 24px; height: 24px; min-height: 24px; margin: 0; }
 #find .search-clear svg { width: 15px; height: 15px; }
 /* The filter: a bordered button the box's height; on, it is tinted and counts its filters. */
-#side-filter-picker summary { position: relative; width: 30px; height: 30px; min-height: 30px; padding: 0; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); }
-#side-filter-picker summary:hover, #side-filter-picker[open] summary { background: var(--raised); }
-#side-filter-picker summary > span { display: none; }
-#side-filter-picker summary:not([data-n=""]) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-bg); color: var(--accent); }
-#side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
-#side-filter-picker summary[data-n=""]::after { display: none; }
 #side-list { flex: none; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
-.empty-needs { align-self: center; margin: -8px auto 12px; padding: 4px 8px; font-size: 12.5px; color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
 #app.rail .empty-needs { display: none; }
 /* The Sessions title's counts, muted (green is the +'s): the panes beside the title, and the
    sub-agents with the eye that says whether those are listed, right-aligned just left of the +.
@@ -1076,14 +1069,25 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 /* The groups without dots line up with the dotted ones' names. */
 #side-filter-picker :is([data-v]:not(:has(.acct-dot)), .menu-clear) { padding-left: 26px; }
-/* A phone: one row of chips under search, while the pill under the header speaks for the
-   views without that list (the dashboard). */
+/* Under an empty or narrowed list, both layouts: the panes the filter hides, a click away. */
+.empty-needs { align-self: center; margin: -8px auto 12px; padding: 4px 8px; font-size: 12.5px; color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
+.empty-needs[data-all="accounts"] { margin-top: 8px; color: var(--muted); }
+/* The filter button, in both layouts: a bordered square that counts the filters on. */
+#side-filter-picker summary { position: relative; width: 30px; height: 30px; min-height: 30px; padding: 0; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); }
+#side-filter-picker summary:hover, #side-filter-picker[open] summary { background: var(--raised); }
+#side-filter-picker summary > span { display: none; }
+#side-filter-picker summary:not([data-n=""]) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-bg); color: var(--accent); }
+#side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
+#side-filter-picker summary[data-n=""]::after { display: none; }
+/* A phone: the button beside search opens the menu as a bottom sheet, its state left to the
+   tab bar (and its grouping to the wide list); the active filters' chips sit under search. */
 @media (max-width: 1099px) {
-  #acct-filter:not([hidden]) { display: flex; flex: none; gap: 6px; padding: 0 16px 10px; }
-  #acct-filter :is(hr, .menu-sec, .acct-dot.none, .acct-all) { display: none; }
-  #acct-filter .acct-opt { display: inline-flex; align-items: center; flex: none; gap: 5px; min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; white-space: nowrap; color: var(--fg); }
-  #acct-filter .acct-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
-  body:has(#sessions:not([hidden])) .acct-pill { display: none; }
+  #find { display: flex; align-items: center; padding-right: 16px; }
+  #find .search { flex: 1; min-width: 0; margin-right: 8px; }
+  #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
+  #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
+  #side-filter-picker :is([aria-label="State"], [aria-label="Group by"]) { display: none; }
+  #side-filter-picker .acct-opt { min-height: 44px; font-size: 15px; }
 }
 #app.rail .acct-pill { display: none; }
 /* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third

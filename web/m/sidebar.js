@@ -100,7 +100,7 @@ export function setupSidebar(ctx) {
   // accounts, app.js adds them), then Group by and Sort by, how you like to read the list:
   // per-browser preferences the button does not count. It stays open as you pick.
   const picker = document.createElement("details"), menu = document.createElement("div");
-  picker.id = "side-filter-picker"; picker.className = "header-picker sb-only";
+  picker.id = "side-filter-picker"; picker.className = "header-picker"; // a phone has it too, beside its search
   picker.innerHTML = `<summary title="Filter" aria-label="Filter panes" data-n="">${licon("filter", 16)}</summary>`;
   menu.className = "header-picker-menu"; picker.append(menu);
   dismissable(picker);
@@ -128,7 +128,7 @@ export function setupSidebar(ctx) {
   // trigger, nudged in where a narrow sidebar would clip its left edge.
   picker.addEventListener("toggle", () => {
     Object.assign(menu.style, { position: "", left: "", top: "", right: "", maxHeight: "" });
-    if (!picker.open) return;
+    if (!picker.open || !root.getClientRects().length) return; // a phone's is a bottom sheet (style.css)
     const side = root.getBoundingClientRect(), top = picker.getBoundingClientRect().top;
     if (innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
       left: `${side.right + 8}px`, top: `${Math.max(8, Math.min(top, innerHeight - menu.offsetHeight - 8))}px` });

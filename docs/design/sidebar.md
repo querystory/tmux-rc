@@ -86,8 +86,13 @@ choice, so nothing is forced in then. Settings › Appearance can turn it off. A
 says what was filtered ("No Personal panes need you") and, if panes it hides need you, offers
 them ("5 panes on other accounts need you · Show").
 
-The phone keeps its tab bar for the state, one at a time (tabs are one-of by nature); its
-account chips toggle like the menu's.
+The phone keeps its tab bar for the state, one at a time (tabs are one-of by nature), and has
+the same filter button beside its search, opening the menu as a bottom sheet with Account,
+Sort by and Clear all. It used to have a sideways-scrolling row of every account under search,
+which hid the one that was on: a list of one account's panes showed no sign of being
+filtered. Now the active filters' labelled chips sit under search as on the wide list (under
+the header on the dashboard), and a narrowed list ends with "8 Codex panes · Show all
+accounts".
 
 ## Panels dock beside the sidebar
 
@@ -129,5 +134,5 @@ The idle-count button ("+12") is gone: the rail lists every pane, as the list do
 
 The phone's places were already on screen (Dashboard in the tab bar, Chat and the mic in the
 header), so its ☰ became a gear that opens the same Settings. Its tab bar is still the state
-filter and its account chips stay under search, so the list's chips there leave the state
-out. Nothing else on the phone changed.
+filter, so the chips under its search leave the state out, and its filter button opens the
+rest of the menu (above).
