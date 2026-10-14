@@ -196,7 +196,7 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
     assert "!active && (WIDE.matches || dashboard)" in app
     assert "renderLanding()" in app
     # The same helpers the tabs count with — not a parallel definition that can drift.
-    assert "panes.filter(needsYou)" in app and "panes.filter(isRunning)" in app
+    assert "mine.filter(needsYou)" in app and "mine.filter(isRunning)" in app
 
     # The drag handle writes a variable the grid clamps; the clamp is the real guard.
     assert "--sidebar" in css and "clamp(260px" in css
@@ -205,6 +205,19 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
 
     # The heading moved out of the app-wide header and into the panel it names.
     assert html.index('id="detail"') < html.index('id="heading"'), "the title belongs over the pane"
+
+
+def test_wide_usage_strip_resizes_hides_and_draws_once():
+    """The sidebar's plan usage: its seam persists a height per screen, dragged under one row
+    it turns the one usage setting Off (which the wide menu toggles too, so a phone and a
+    desktop never disagree about what Off means) with an Undo, and the meters wait for the
+    accounts: drawn before them, several accounts' meters flashed as a tall grid on load."""
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "web/m/app.js").read_text()
+    assert 'seam($("usage-handle")' in app and '"tmuxrc-usage-height"' in app
+    assert 'setUsageMode("off")' in app and '["Undo", () => setUsageMode(was)]' in app
+    assert 'WIDE.matches && usageMode !== "off" ? "on" : usageMode' in app
+    assert 'request("/api/open-loops"), accounts.refresh()])' in app
 
 
 def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
@@ -272,3 +285,14 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     for needle in ('e.pointerType === "mouse"', ":focus-visible", "aria-describedby"):
         assert needle in side
     assert "node.title" not in side
+
+
+def test_agent_title_is_not_squeezed_by_its_meta():
+    """The meta ("idle · 3h 48m 17s · 318.3k tokens") never shrinks, so in a narrow column
+    it squeezed the title beside it to a word a line. The row wraps instead: the title
+    keeps the line by its icon and the meta drops under it. The sidebar's compact lines
+    stay one line, ellipsized."""
+    css = (Path(__file__).resolve().parents[1] / "web/m/style.css").read_text()
+    assert ".task, .agent { display: flex; flex-wrap: wrap;" in css
+    assert ".agent > span:nth-child(2) { max-width: calc(100% - 26px); }" in css
+    assert ".sb-agents .agent { min-width: 0; flex-wrap: nowrap;" in css
