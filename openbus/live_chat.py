@@ -96,7 +96,7 @@ CAUTION_BARE = 'Your reply was only "{}": check this is what you agreed to'
 # Leads a turn sent right after the assistant asked something. A pane's own pending question
 # sits in the pane state too, and "no, the other one" was once about to decline a pane's
 # command instead of answering the assistant: the model must see whose question is open.
-OPEN_QUESTION = "[Open question: yours, from your last reply]"
+OPEN_QUESTION = "[Open question: yours]"
 
 
 class _Chat:

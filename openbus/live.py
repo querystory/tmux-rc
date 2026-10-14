@@ -466,12 +466,18 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
             result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
-    if meter.text and result["status"] in _REACHED:  # not a declined call, nor a mere button
-        # A resumed pane is new to the watcher until its next parse: its result names it.
+    if meter.text:
+        _focus_reached(session, watcher, result, rec)
+    await session.send_tool_result(fc, result)
+
+
+def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
+    """Focus the pane an answered call reached: not a declined call, nor a mere button. A
+    resumed pane is new to the watcher until its next parse, so its result names it."""
+    if result["status"] in _REACHED:
         pane = result.get("pane_id") or rec.get("pane_id")
         _focus(session, next((d for d in watcher.digest() if d["pane_id"] == pane), None) or (
             pane and {"pane_id": pane, "title": result.get("window") or result.get("pane")}))
-    await session.send_tool_result(fc, result)
 
 
 async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, pid) -> dict:
@@ -692,10 +698,12 @@ async def _decide(
     await _tell(websocket, meter, proposal)
 
 
-async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool) -> None:
+async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool,
+                  session=None) -> None:
     """The user's answer to a parked card, run on the connection it came in on. The model
     that asked went with the old one, so the outcome reaches only the phone and the audit:
-    no session, so no post-type update tells the new model of an action it never took."""
+    no session, so no post-type update tells the new model of an action it never took. The
+    new `session` only learns which pane the conversation is now on."""
     _, call, pid, rec, meter, watcher = parked
     started, result = time.monotonic(), {"status": "error", "reason": "aborted"}
     try:
@@ -707,6 +715,8 @@ async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool) 
         result = await _act(websocket, None, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, call.name, result, started, rec)
+    if session is not None:
+        _focus_reached(session, watcher, result, rec)
 
 
 async def _approved(
@@ -1366,7 +1376,7 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter, watcher=
                 if not answer.done():
                     answer.set_result(ok)
             elif parked := _unpark(meter, proposal):
-                await _resume(websocket, proposal, parked[0][1], ok)
+                await _resume(websocket, proposal, parked[0][1], ok, session)
             else:
                 await _tell(websocket, meter, proposal)
         elif action == "sync":  # a reconnected phone's untapped cards: settled meanwhile?
