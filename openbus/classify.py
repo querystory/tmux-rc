@@ -1253,12 +1253,14 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    # An interrupt followed by no new turn and no typed row, above an empty input box, is
-    # Claude back at its prompt: idle, however the model or the closing message read it.
+    # An interrupt followed by no new turn, typed row or assistant output (a scheduled task
+    # starts without a typed row), above an empty input box, is Claude back at its prompt:
+    # idle, however the model or the closing message read it.
     *_, stop = [None, *_CLAUDE_INTERRUPTED_RE.finditer(visible)]
     box = stop and _EMPTY_INPUT_RE.search(visible, stop.end())
     if result.get("tool") == "claude" and box and not (
         _USER_ROW_RE.search(visible, stop.end())
+        or re.compile(r"^[ \t]*●", re.MULTILINE).search(visible, stop.end())
         or any(t["live"] for t in _CLAUDE_TURN_RE.finditer(visible, stop.end()))
     ):
         result["activity"] = "idle"
