@@ -85,7 +85,10 @@ function stepper(a, w, icon) {
 function steppable(el) {
   if (el._steppable) return;
   el._steppable = true;
-  const step = (nav, by) => {
+  // Once per event: a board drawn narrow keeps its handlers around the groups drawn wide.
+  const step = (e, nav, by) => {
+    if (e.stepped) return;
+    e.stepped = true;
     const k = nav.dataset.k, list = lists[k], at = Math.min(list.length - 1, Math.max(0, position(k) - by));
     back[k] = at < list.length - 1 ? list[at].resets_at : undefined;
     el._redraw();
@@ -93,14 +96,14 @@ function steppable(el) {
   };
   el.addEventListener('click', e => {
     const b = e.target.closest('.usage-nav button');
-    const nav = b && step(b.parentNode, +b.dataset.step); // focus stays on the same arrow until it runs out
+    const nav = b && step(e, b.parentNode, +b.dataset.step); // focus stays on the same arrow until it runs out
     (nav?.querySelector(`[data-step="${b.dataset.step}"]:not(:disabled)`) || nav?.querySelector('button:not(:disabled)'))?.focus();
   });
   let from = null;
   el.addEventListener('pointerdown', e => { from = e.target.closest('.usage-spark') && e; });
   el.addEventListener('pointerup', e => {
     const dx = from ? e.clientX - from.clientX : 0, nav = from?.target.closest('.usage-cell').querySelector('.usage-nav');
-    if (nav && Math.abs(dx) > 40 && Math.abs(dx) > 2 * Math.abs(e.clientY - from.clientY)) step(nav, dx > 0 ? 1 : -1);
+    if (nav && Math.abs(dx) > 40 && Math.abs(dx) > 2 * Math.abs(e.clientY - from.clientY)) step(e, nav, dx > 0 ? 1 : -1);
     from = null;
   });
 }

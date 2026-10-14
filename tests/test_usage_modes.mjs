@@ -47,11 +47,11 @@ test("the usage view keeps the past window being read across a refresh that adds
   const ended = (resets_at, pct) => ({ window: "5h", pct, start: resets_at - 5 * H, resets_at, samples: [], limit_at: null });
   const meter = (past) => [{ provider: "claude", dirs: ["~/.claude"], windows: [{ window: "5h", pct: 3, past, start: now - H, resets_at: now + 4 * H, samples: [] }] }];
   const draw = (past) => { renderUsage(el, meter(past), { wide: true, detail: true, now, icon: () => "" }); return el.innerHTML; };
-  draw([ended(now - 11 * H, 74), ended(now - H, 50)]);
-  for (const _ of [1, 2]) el.click({ target: { closest: () => earlier } }); // two windows back
-  assert.match(draw([ended(now - 11 * H, 74), ended(now - H, 50)]), /ended at 74%/);
-  assert.match(draw([ended(now - 11 * H, 74), ended(now - 6 * H, 50), ended(now - H, 20)]), /ended at 74%/);
-  assert.match(draw([ended(now - 11 * H + 60e3, 74), ended(now - H, 50)]), /ended at 74%/); // its reset re-read a minute on
+  draw([ended(now - 16 * H, 60), ended(now - 11 * H, 74), ended(now - H, 50)]);
+  for (const _ of [1, 2]) { const e = { target: { closest: () => earlier } }; el.click(e); el.click(e); } // two back, each once though seen twice
+  assert.match(draw([ended(now - 16 * H, 60), ended(now - 11 * H, 74), ended(now - H, 50)]), /ended at 74%/);
+  assert.match(draw([ended(now - 16 * H, 60), ended(now - 11 * H, 74), ended(now - 6 * H, 50), ended(now - H, 20)]), /ended at 74%/);
+  assert.match(draw([ended(now - 16 * H, 60), ended(now - 11 * H + 60e3, 74), ended(now - H, 50)]), /ended at 74%/); // its reset re-read a minute on
 });
 
 test("a window not yet opened (no reset) is not drawn as an ended one", () => {
