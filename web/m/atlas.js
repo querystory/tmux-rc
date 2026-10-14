@@ -565,7 +565,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   [...new Set([...sessions, ...(scope.session ? [scope.session] : [])])].forEach(session => sessionPicker.append(new Option(session, session)));
   sessionPicker.value = scope.session;
   sessionPicker.onchange = () => { scope.session = sessionPicker.value; redraw(); };
-  controls.append(sessionPicker); nodes.push(controls);
+  if (sessions.length > 1 || scope.session) controls.append(sessionPicker); // one session has nothing to pick
+  nodes.push(controls);
 
   // The big chart: the fleet over time, against the goal.
   const samples = scoped(scope), data = rows(samples);

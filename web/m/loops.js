@@ -3,7 +3,7 @@
 // and the full lanes on its own page. Panes blocked on you are the sidebar's and the Needs
 // you tab's, so they are not repeated here. A row's pane buttons open the window that owns
 // it. See docs/design/open-loops.md.
-import { since } from "/m/pane-model.js";
+import { since, paneName } from "/m/pane-model.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const LANES = { waiting: "Waiting on you", moving: "Moving", dropped: "Dropped" };
@@ -19,7 +19,7 @@ const ago = (t, now) => t ? `${since({ state_since: t }, now)} ago` : ""; // the
 
 function panes(list, licon, key) {
   return list.length ? list.map(p => `<button type="button" class="loop-pane" data-pane="${esc(p.pane_id)}" data-key="${esc(`${key} ${p.pane_id}`)}">`
-    + `${licon("terminal", 14)}${esc(p.label || `${p.session}:${p.window_index}`)}</button>`).join("")
+    + `${licon("terminal", 14)}${esc(paneName(p))}</button>`).join("")
     : '<span class="loop-orphan">no pane</span>';
 }
 
