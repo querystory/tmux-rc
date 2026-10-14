@@ -323,7 +323,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #push.active { background: var(--accent); }
 #push.active::after { left: 19px; }
 /* New window, compact: the session on one line, the accounts as a grid of small chips with
-   Add account as the next cell, the tools as 44px rows. */
+   Add account as the next cell, the tools as 52px rows with a line each. */
 .launch-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .launch-row label { margin: 0; flex: none; }
 #launch-dialog label { margin: 12px 0 6px; }

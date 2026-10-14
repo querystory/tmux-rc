@@ -411,7 +411,8 @@ function renderList() {
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), accounts.on().join(", "), $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
   const n = filter.length + accounts.on().length + !!query;
-  Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters" }).dataset.n = n || "";
+  // Named for screen readers too: in the rail the chips that say it are hidden.
+  Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters", ariaLabel: on.length ? `Filter panes: ${on.join(" · ")}` : "Filter panes" }).dataset.n = n || "";
   renderSidebar.clearAll.disabled = !n;
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
