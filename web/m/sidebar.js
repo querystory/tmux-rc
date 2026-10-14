@@ -263,7 +263,7 @@ export function setupSidebar(ctx) {
       b._p = p;
       markEnding(b, p);
       const agents = subagentCount(p);
-      b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
+      b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}${ctx.outside(p) ? ", outside filter" : ""}`;
       b.classList.toggle("need", ctx.asks(p));
       b.dataset.state = ctx.asks(p) ? "need" : isRunning(p) ? "run" : "";
       b.classList.toggle("outside", ctx.outside(p));
