@@ -18,5 +18,5 @@ node_modules/
 
 agent-history/bin/
 
-# make screenshots / screenshots-diff output; only README_SHOTS are committed (docs/img/).
+# make screenshots / screenshots-diff output; only README_SHOTS and website-* are committed (docs/img/).
 .screenshots/

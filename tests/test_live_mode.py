@@ -200,7 +200,8 @@ def test_typing_dispatches_and_logs(monkeypatch):
     w, ws, session, typed = _dispatch(fc, monkeypatch)
     assert typed == [("%1", "1", True, True)]  # literal send_keys, with Enter
     assert w.reparsed == ["%1"]  # the keystrokes trigger a fresh parse
-    assert any(m["type"] == "typed" and m["label"] == "work" for m in ws.sent)
+    assert any(m["type"] == "typed" and m["label"] == "work" and m["payload"] == "1"
+               for m in ws.sent)
     call, payload = session.responses[0]
     assert call.id == "call-1"  # the call (with its id) rides back to the provider
     assert payload == L._sent("work")
@@ -321,6 +322,8 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     # Named as the list names it, with the id the card's Open button navigates to.
     assert ws.sent[0]["text"] == 'Send to window 3 "work": rebase onto main'
     assert ws.sent[0]["pane_id"] == "%1"
+    assert (ws.sent[0]["payload"], ws.sent[0]["enter"]) == ("rebase onto main", True)  # drawn
+    assert ws.sent[0]["label"] == "work"  # its name until the page's pane list has it
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
     assert session.responses[0][1] == (
@@ -331,6 +334,36 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     # Bound to the pane incarnation the card showed, so a recycled %1 is refused.
     assert bound == ([{"expected_pid": "4242"}] if ok else [])
     assert meter.approvals == {}
+
+
+@pytest.mark.parametrize(("name", "args", "drawn"), [
+    ("press_key", {"key": "Escape"}, {"key": "Escape"}),
+    ("press_key", {"key": "C-x"}, {}),  # not a key _dispatch presses
+    ("type_in_pane", {"text": "ls", "press_enter": False}, {"payload": "ls", "enter": False}),
+    ("type_in_pane", {"text": "ls", "press_enter": "no"}, {}),  # _dispatch refuses it
+    ("type_in_pane", {"text": "  "}, {}),
+])
+def test_a_card_draws_only_a_call_that_would_run(monkeypatch, name, args, drawn):
+    """A card draws an action's parts (keycap, quoted text) only for a call _dispatch would
+    run; one it refuses keeps the sentence, so it never looks like a real keystroke."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Tap(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                client = _ScriptedWS([{"action": "approve", "id": obj["id"], "ok": False},
+                                      {"action": "stop"}])
+                await L._forward_client(client, None, meter)
+
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    ws, session = Tap(), _Session()
+    session.request = "press escape"  # asked, where unasked keys are refused before a card
+    fc = _FC(name=name, args={"pane_id": "%1", **args})
+    _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
+    for card in [m for m in ws.sent if m["type"] == "propose"] or [{}]:  # or refused first
+        assert {k: card[k] for k in ("key", "payload", "enter") if k in card} == drawn
 
 
 @pytest.mark.parametrize("viewing", [True, False])
@@ -713,7 +746,8 @@ def test_press_key_dispatches_named_key(monkeypatch):
     w, ws, session, typed = _dispatch(fc, monkeypatch)
     assert typed == [("%1", "Escape", False, False)]  # not literal, no trailing Enter
     assert w.reparsed == ["%1"]
-    assert any(m["type"] == "typed" and m["text"] == "[Escape]" for m in ws.sent)
+    assert any(m["type"] == "typed" and m["text"] == "[Escape]" and m["key"] == "Escape"
+               for m in ws.sent)
     assert session.responses[0][1] == L._sent("work")
     # The model sees readable names; tmux gets its canonical ones.
     fc = _FC(name="press_key", args={"pane_id": "%1", "key": "PageUp"})

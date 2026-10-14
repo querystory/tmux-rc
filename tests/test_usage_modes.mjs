@@ -40,3 +40,28 @@ test("a reading kept through a failed read says how old it is", () => {
   renderUsage(el, [{ provider: "claude", windows: [win] }], { now });
   assert.doesNotMatch(el.innerHTML, /as of/);
 });
+
+test("the usage view keeps the past window being read across a refresh that adds another", () => {
+  const now = Date.now(), H = 3600e3, el = { addEventListener(type, f) { this[type] = f; }, querySelectorAll: () => [] };
+  const nav = { dataset: { k: "claude ~/.claude 5h" } }, earlier = { dataset: { step: "1" }, parentNode: nav };
+  const ended = (resets_at, pct) => ({ window: "5h", pct, start: resets_at - 5 * H, resets_at, samples: [], limit_at: null });
+  const meter = (past) => [{ provider: "claude", dirs: ["~/.claude"], windows: [{ window: "5h", pct: 3, past, start: now - H, resets_at: now + 4 * H, samples: [] }] }];
+  const draw = (past) => { renderUsage(el, meter(past), { wide: true, detail: true, now, icon: () => "" }); return el.innerHTML; };
+  draw([ended(now - 16 * H, 60), ended(now - 11 * H, 74), ended(now - H, 50)]);
+  for (const _ of [1, 2]) { const e = { target: { closest: () => earlier } }; el.click(e); el.click(e); } // two back, each once though seen twice
+  assert.match(draw([ended(now - 16 * H, 60), ended(now - 11 * H, 74), ended(now - H, 50)]), /ended at 74%/);
+  assert.match(draw([ended(now - 16 * H, 60), ended(now - 11 * H, 74), ended(now - 6 * H, 50), ended(now - H, 20)]), /ended at 74%/);
+  assert.match(draw([ended(now - 16 * H, 60), ended(now - 11 * H + 60e3, 74), ended(now - H, 50)]), /ended at 74%/); // its reset re-read a minute on
+});
+
+test("a window not yet opened (no reset) is not drawn as an ended one", () => {
+  const el = {};
+  renderUsage(el, [{ provider: "claude", windows: [{ window: "7d Fable", pct: 0, resets_at: null, samples: [] }] }], { wide: true, detail: true });
+  assert.doesNotMatch(el.innerHTML, /ended|Invalid/);
+});
+
+test("each meter is named by its account and window", () => {
+  const el = {};
+  renderUsage(el, [{ provider: "claude", acct: { name: "Work" }, windows: [{ window: "5h", pct: 3, resets_at: null, samples: [] }] }]);
+  assert.match(el.innerHTML, /role="meter" aria-label="Claude Work 5h"/);
+});

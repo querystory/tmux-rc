@@ -5,6 +5,9 @@ import { formatHash, historyMode, parseHash } from "../web/m/url-state.js";
 test("every addressable state round-trips", () => {
   for (const state of [
     { pane: "%12", view: "terminal", filter: "attention", sort: "session" },
+    { pane: "%12", filter: "running", acct: "claude-work" },
+    { dashboard: true, acct: "side-project" },
+    { pane: "%12", acct: "claude-work", q: "api fix & more" },
     { pane: "%3", view: "summary", filter: "running" },
     { dashboard: true, filter: "recent" },
     { dashboard: true, page: "usage" },
@@ -21,7 +24,7 @@ test("every addressable state round-trips", () => {
 
 test("unknown fields and bad values are ignored", () => {
   const state = parseHash("#from=push&pane=%254&filter=bogus&sort=weird&view=nope&x=1");
-  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: "all", sort: "updated", compose: false });
+  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: "all", acct: null, q: "", sort: "updated", compose: false });
   assert.equal(parseHash("#pane=%254&compose=1").compose, true);
   assert.equal(formatHash(parseHash("#pane=%254&from=push&compose=1")), "pane=%254");
   assert.equal(parseHash("").pane, null);
@@ -53,6 +56,24 @@ test("old desktop hashes still land", () => {
   assert.equal(parseHash("#/list/waiting").filter, "attention");
   assert.equal(parseHash("#/list/running").filter, "running");
   assert.equal(parseHash("#/list/nonsense").filter, "all");
+});
+
+test("the account filter rides along: in the URL only when set, and a change replaces", () => {
+  assert.equal(formatHash({ filter: "running", acct: "claude-work" }), "filter=running&acct=claude-work");
+  assert.equal(formatHash({ acct: null }), "");
+  assert.equal(parseHash("#acct=work").acct, "work");
+  assert.equal(parseHash("#acct=").acct, null);
+  assert.equal(historyMode("filter=running", "filter=running&acct=claude-work"), "replace");
+  assert.equal(historyMode("pane=%251&acct=work", "pane=%251"), "replace");
+});
+
+test("the search rides along too: trimmed, absent when blank, and a change replaces", () => {
+  assert.equal(formatHash({ acct: "claude-work", q: " api " }), "acct=claude-work&q=api");
+  assert.equal(formatHash({ q: "   " }), "");
+  assert.equal(parseHash("#q=a%26b%20c").q, "a&b c");
+  assert.equal(parseHash("#q=%20").q, "");
+  assert.equal(historyMode("q=ap", "q=api"), "replace");
+  assert.equal(historyMode("pane=%251&q=api", "pane=%251"), "replace");
 });
 
 test("history: screens push, in-place changes replace", () => {
