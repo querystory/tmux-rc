@@ -1149,9 +1149,10 @@ function picked(pane, o) {
   return pending?.option === o.option && (pending.index === o.index || named.length === 1);
 }
 function asks(pane) { return needsYou(pane) && !isAnswered(pane); }
-// A pane's status badge: "Sent" while a tapped answer holds it, never "Needs you".
+// A pane's status badge: "Sending", then "Sent", while a tapped answer holds it, never "Needs you".
 function badgeOf(pane) {
-  return isAnswered(pane) ? { label: "Sent", cls: "running" } : { label: activityLabel(pane), cls: activityClass(pane) };
+  const pending = isAnswered(pane);
+  return pending ? { label: pending.sent ? "Sent" : "Sending", cls: "running" } : { label: activityLabel(pane), cls: activityClass(pane) };
 }
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
 // stops reading as Needs you, through the send and on until the pane's next state.
