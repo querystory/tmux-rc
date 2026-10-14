@@ -31,6 +31,8 @@ os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="", TMUXRC_WO
 
 import uvicorn
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.routing import Mount
 
 from openbus import live, live_providers, server, tmux
 
@@ -157,6 +159,10 @@ def install() -> None:
     server.app.router.routes[:] = [r for r in server.app.router.routes
                                    if getattr(r, "path", "") != "/api/live-mode"]
     server.app.router.lifespan_context = lifespan
+    # make mock-live: a mock's folder at /mock/, ahead of the "/" catch-all, so its harness
+    # is same-origin with /m and can patch the running app (scripts/mock.mjs).
+    if mock := os.environ.get("TMUXRC_MOCK_DIR"):
+        server.app.router.routes.insert(0, Mount("/mock", StaticFiles(directory=mock, html=True)))
 
     @server.app.middleware("http")
     async def read_only(request, call_next):

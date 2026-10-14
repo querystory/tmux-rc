@@ -1,0 +1,22 @@
+{
+  "description": "Claude Code's first-run trust dialog at 212 columns: a ─── rule, an \"Accessing workspace:\" heading, then a paragraph whose first sentence is the question, with digitless No/Yes rows and the highlight on \"No, exit\". The model reads the highlight as \"Yes\" here (selected 1) and quotes only the question sentence, the start of a longer row, so classify() must accept a whole sentence that runs on into its paragraph to find the prompt row and ground `selected` (0) off the ❯ row. Before it did, no prompt row matched: the misread anchor stood and no picker digest was published, so the phone refused the tap. The wrapped layout is in tests/test_cursor_select.py. Fictional screen (tmux-rc, 2026-10-12).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n Accessing workspace:\n\n /home/dev/src/harbor-notes\n\n Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first.\n\n Claude Code'll be able to read, edit, and execute files here.\n\n Security guide\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "cursor",
+      "selected": 0,
+      "keymap": {
+        "next": "Down",
+        "prev": "Up",
+        "select": "Enter",
+        "search": false
+      }
+    },
+    "headline": "Asking whether to trust the harbor-notes folder"
+  }
+}

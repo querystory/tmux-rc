@@ -27,9 +27,9 @@ const LONG_POLL_TIMEOUT_MS = 35000;
 // No client timeout (setTimeout's largest delay), for a request whose server run an abort
 // would not stop: the answer must be its own outcome, never a failure while it runs on.
 const NO_TIMEOUT = 2 ** 31 - 1;
-// How long "Answer sent" stays (and the option buttons stay disabled) before we trust
-// the pane's own state again — covers the round trip to the agent and back.
-const ANSWER_PENDING_MS = 10000;
+// How long a delivered answer holds its card (spinner, options disabled) when the pane's
+// question never changes — an ignored key — before we trust the pane's own state again.
+const ANSWER_PENDING_MS = 15000;
 // Being this close to the bottom of the terminal counts as following it, so a frame
 // keeps the view pinned to the tail; further up, the user is reading and we leave it.
 const FOLLOW_SLACK_PX = 48;
@@ -125,8 +125,8 @@ let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
-// Answers sent and not yet reflected, per pane (pane id -> question signature): the sidebar
-// can answer several panes inside one hold, and each keeps its own.
+// Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
+// sidebar can answer several panes inside one hold, and each keeps its own.
 const pendingAnswers = new Map();
 // Per-line nodes under #capture, in document order; each caches the markup last written
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
@@ -221,19 +221,22 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   // An account picked: this very screen, in a URL that names it (or none, for All).
   navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
-  paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id) });
+  paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id),
+  // A phone's list shows its search box, and nothing else there is searched: the chip is wide only.
+  query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click() });
 
+const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
 function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
   const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, sort });
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, q: $("search").value, sort });
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
     const how = mode || historyMode(current, next);
-    history[`${how}State`](how === "replace" ? history.state : null, "", next ? `#${next}` : location.pathname + location.search);
+    writeHash(next, how, how === "replace" ? history.state : null);
   }
   route();
 }
@@ -266,6 +269,7 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort, page } = state);
+  if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
@@ -311,7 +315,7 @@ function makeRow(pane) {
 function updateRow(button, pane) {
   if (pane.pane_id === active) button.setAttribute("aria-current", "true");
   else button.removeAttribute("aria-current");
-  button.classList.toggle("needs-you", needsYou(pane));
+  button.classList.toggle("needs-you", asks(pane));
   button.classList.toggle("fresh", pane.activity === "idle" && isRecent(pane));
   const logo = button.querySelector(".pane-icon img");
   logo.alt = pane.tool || "tmux";
@@ -319,8 +323,8 @@ function updateRow(button, pane) {
   text(button.querySelector("strong"), paneName(pane));
   text(button.querySelector(".row-age"), age(pane));
   const badge = button.querySelector(".badge");
-  badge.className = `badge ${activityClass(pane)}`;
-  text(badge, activityLabel(pane));
+  badge.className = `badge ${badgeOf(pane).cls}`;
+  text(badge, badgeOf(pane).label);
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
   sessionChip.hidden = sort !== "updated" || !pane.session; // a session label already says it
@@ -330,7 +334,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
+  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose,
   setFilter: (value) => { filter = value; stayPut(); }, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
@@ -341,6 +345,7 @@ function emptyMessage(query) {
 }
 function renderList() {
   show("clear-search", !!$("search").value);
+  accounts.paintFilter(); // the pill names the search
   const query = $("search").value.trim().toLowerCase();
   const mine = panes.filter(accounts.matches); // the account filter (accounts.js), else every pane
   const subset = mine.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
@@ -353,7 +358,7 @@ function renderList() {
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
   text($("all-count"), mine.length);
-  text($("attention-count"), mine.filter(needsYou).length);
+  text($("attention-count"), mine.filter(asks).length);
   text($("running-count"), mine.filter(isRunning).length);
   text($("recent-count"), mine.filter((pane) => isRecent(pane)).length);
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
@@ -739,8 +744,8 @@ function render() {
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
   if (wide) sizeFleet();
-  text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
-  $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
+  text($("activity"), pane ? badgeOf(pane).label : settled ? "Unavailable" : "Loading");
+  $("activity").className = `badge ${pane ? badgeOf(pane).cls : "unknown"}`;
   text($("tool"), pane?.tool || "");
   const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
   const headline = paneHeadline(pane) || missing;
@@ -766,14 +771,18 @@ function render() {
   if (command._key !== commandKey) { command._key = commandKey; command.open = false; }
   command.hidden = !question?.context;
   text(command.lastChild, question?.context || "");
-  const answered = !!pane && isAnswered(pane);
-  show("answer-status", answered);
-  text($("answer-status"), "Answer sent. Waiting for the pane...");
+  const answered = pane && isAnswered(pane);
+  $("question").classList.toggle("answered", !!answered);
+  show("answer-status", !!answered);
+  text($("answer-status"), answered?.note || "");
   reconcile($("options"), answerOptions(question), (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
     button.onclick = () => answer(active, button._option.option, button._option.index);
     return button;
-  }, (button, option) => { button._option = option; text(button, option.option); button.disabled = sending || answered; });
+  }, (button, option) => {
+    button._option = option; text(button, option.option); button.disabled = sending || !!answered;
+    button.classList.toggle("picked", picked(pane, option));
+  });
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
@@ -849,7 +858,7 @@ function renderItems(el, values, agents = false) {
     node.firstChild.ariaLabel = done ? "done" : agents ? value.state || "running" : "to do";
     text(node.children[1], value.text || value.label);
     node.title = value.text || value.label || "";
-    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.elapsed, value.tokens ? `${value.tokens} tokens` : ""].filter(Boolean).join(" · ") : "");
+    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.progress && `workflow ${value.progress}`, value.elapsed, value.tokens ? `${value.tokens} tokens` : ""].filter(Boolean).join(" · ") : "");
   });
 }
 
@@ -1097,26 +1106,22 @@ function updateComposer() {
 // Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
 // (web/cursor-pick.js) cannot — a move it wrongly believes happened leaves every later
 // step one row out and commits the wrong row.
-async function sendKeys(body, answer = false, id = active) {
+async function sendKeys(body, id = active) {
   if (sending || !panes.some((p) => p.pane_id === id)) return false;
-  const signature = JSON.stringify(panes.find((p) => p.pane_id === id)?.question);
   let delivered = false;
   sending = true; notice(); render();
   try {
     const sent = await paneInput.run(id, () => post(paneUrl(id, "send"), body));
     delivered = sent && "picker" in sent ? sent : true; // a walk's step: the screen it made
-    if (answer) {
-      pendingAnswers.set(id, signature);
-      setTimeout(() => { if (pendingAnswers.get(id) === signature) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
-    }
     if (active === id) text($("draft-status"), "Sent");
     startState();
   } catch (error) {
     // 409 on a cursor walk's step: nothing was sent, and the walk rereads and goes again.
     if ("picker" in body && error.status === 409) delivered = STALE;
+    // 409 on a menu answer: the pane holds a different question now, and nothing was sent.
+    else if (body.question && error.status === 409) { notice("This question changed — check the pane"); startState(); }
     else notice("Delivery could not be confirmed. Check the terminal before retrying.");
-  }
-  finally { sending = false; render(); }
+  } finally { sending = false; render(); }
   return delivered;
 }
 
@@ -1125,23 +1130,61 @@ async function sendKeys(body, answer = false, id = active) {
 function answerOptions(question) {
   return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
 }
-function isAnswered(pane) { return pendingAnswers.get(pane.pane_id) === JSON.stringify(pane.question); }
-function answer(id, option, index) {
+// What makes a question the same ask: its prompt, context and items, and its options unless
+// it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
+const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.answer_style === "cursor" ? null : q?.options]);
+// The tapped answer while its question is still the one on the card, else null. Once the
+// pane shows another question, or none, the answer has landed and is forgotten.
+function isAnswered(pane) {
+  const pending = pendingAnswers.get(pane.pane_id);
+  if (pending && pending.key !== questionKey(pane.question)) pendingAnswers.delete(pane.pane_id);
+  return pendingAnswers.get(pane.pane_id) || null;
+}
+// Whether a pane reads as Needs you: not while a tapped answer holds it. Its card keeps its
+// place (group, filter, list slot) for the hold, so the spinner stays under the finger.
+// Whether option `o` is the tapped one: its row by text, since a walk renumbers the list,
+// and by index too where two rows share the text.
+function picked(pane, o) {
+  const pending = isAnswered(pane), named = answerOptions(pane.question).filter((x) => x.option === o.option);
+  return pending?.option === o.option && (pending.index === o.index || named.length === 1);
+}
+function asks(pane) { return needsYou(pane) && !isAnswered(pane); }
+// A pane's status badge: "Sending", then "Sent", while a tapped answer holds it, never "Needs you".
+function badgeOf(pane) {
+  const pending = isAnswered(pane);
+  return pending ? { label: pending.sent ? "Sent" : "Sending", cls: "running" } : { label: activityLabel(pane), cls: activityClass(pane) };
+}
+// A tap holds its card at once: the tapped option spins, the rest go grey, and the card
+// stops reading as Needs you, through the send and on until the pane's next state.
+async function answer(id, option, index) {
   const current = panes.find((p) => p.pane_id === id);
-  if (!current?.question || !needsYou(current)) return;
+  if (!current?.question || !needsYou(current) || isAnswered(current) || sending) return;
+  const pending = { key: questionKey(current.question), option, index, note: "Sending…" };
+  pendingAnswers.set(id, pending); render();
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
-  if (current.question.answer_style === "cursor") { if (active !== id) navigate(id); pickCursorRow(cursorIO(id), option, index); }
-  else sendKeys(answerBody(current.question, option, index), true, id);
+  const cursor = current.question.answer_style === "cursor", body = !cursor && answerBody(current.question, option, index);
+  // Open the pane first, as the cursor walk does, so the keyboard reaches the right one.
+  if ((cursor || !body) && active !== id) navigate(id);
+  // Delivered: a walk says so as its select lands, before it waits on the picker to close.
+  const delivered = () => {
+    if (pendingAnswers.get(id) !== pending || pending.sent) return; // moved on, or said already
+    pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
+    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
+  };
+  const sent = cursor ? await pickCursorRow(cursorIO(id, delivered), option, index)
+    : body ? await sendKeys(body, id) : notice("Use the keyboard for this option.");
+  if (sent) delivered();
+  // Not sent: the notice says why, and the options are live again.
+  else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
 }
 
-// This surface's half of the shared cursor walk. No send here sets `pendingAnswers`:
-// gating the option buttons on the first Down would disable the very row the walk is
-// working toward. What keeps a second tap from starting a rival walk is not this surface
-// at all — `sending` is released between every step — but the module's own one-at-a-time
-// lock, which is where that belongs since both surfaces have the same gap.
-function cursorIO(id) {
+// This surface's half of the shared cursor walk. The tap's pending answer greys the
+// options for the walk's length, but what keeps a second walk from starting is the
+// module's own one-at-a-time lock — `sending` is released between every step — which is
+// where that belongs since both surfaces have the same gap.
+function cursorIO(id, committed) {
   // Two separate things, both needed. sendKeys takes the captured id, so no move can ever
   // be posted to a pane the walk was not started for — it defaults to `active` for every
   // other caller, but a default resolved at call time is exactly what a multi-second walk
@@ -1154,13 +1197,14 @@ function cursorIO(id) {
   // the key does exactly what the walk computed. With no digest (classify grounded no
   // highlight) there is nothing to hold a key to, so none is sent and the walk stops here.
   const send = (body, q) => q.picker
-    && sendKeys({ ...body, enter: false, prompt: q.prompt ?? "", picker: q.picker }, false, id);
+    && sendKeys({ ...body, enter: false, prompt: q.prompt ?? "", picker: q.picker }, id);
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,
     sendKey: (k, q) => send({ keys: k, literal: false }, q),
     sendText: (t, q) => send({ keys: t, literal: true }, q),
     note: notice,
+    committed,
   };
 }
 // Send a draft to pane `id`: the pane's own composer and a sidebar card's Reply both come
@@ -1272,8 +1316,10 @@ html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
-$("search").oninput = renderList;
-$("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
+// Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
+const searched = () => { writeHash(formatHash({ ...parseHash(location.hash), q: $("search").value })); renderList(); };
+$("search").oninput = searched;
+$("clear-search").onclick = () => { $("search").value = ""; searched(); $("search").focus(); };
 $("sort").onclick = () => { sort = sort === "updated" ? "session" : "updated"; stayPut(); };
 function setUsageMode(mode) {
   usageMode = mode;
