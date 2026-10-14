@@ -269,7 +269,7 @@ function build(types) {
   view.cards = types.map(type => {
     const el = document.createElement('section');
     el.className = 'uv-card';
-    el.innerHTML = '<div class="uv-head"></div><div class="uv-chart" role="img" tabindex="0" title="Scroll to zoom, drag to pan, hover for the exact %. Keyboard: + or − to zoom, arrows to pan."></div>';
+    el.innerHTML = '<div class="uv-head"></div><div class="uv-chart" role="img" tabindex="0"></div>';
     el.lastChild.addEventListener('keydown', keys);
     return { type, el, headEl: el.firstChild, chartEl: el.lastChild };
   });
@@ -319,6 +319,8 @@ async function paint() {
       (c.sized = new ResizeObserver(() => c.chart.resize())).observe(c.chartEl);
     }
     c.el.classList.toggle('slid', c === on[on.length - 1]); // the slider's chart: a phone gives it the room
+    // How it moves, as the layout has it: a phone's drag scrolls the page, so it zooms by the range and the slider.
+    c.chartEl.title = `${narrow ? 'Pick a range above, or drag the slider under the last chart' : 'Scroll to zoom, drag to pan'}; touch or hover for the exact %. Keyboard: + or − to zoom, arrows to pan.`;
     c.chart.setOption(option(c, view.extent, view.now, c === on[on.length - 1], css), true);
     c.chart.resize();
   }
