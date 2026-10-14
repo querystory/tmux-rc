@@ -89,7 +89,9 @@ the wide layout had no menu before.
   its dot on the dropdown's label; a phone has no dropdown (its tab bar is the state
   filter), so a row of chips under search. While on, a "Filtered: Work ✕" pill shows under
   search on wide, and under a phone's header on the views without the chips (the
-  dashboard). It applies to the list, the strip and the dashboard, Open loops included:
+  dashboard). On wide the pill also names a search (`"api" ✕`, in the URL as `q=api`), so
+  one line says everything narrowing the list; a phone's list shows its search box and
+  nothing else is searched, so a phone's pill leaves it out. It applies to the list, the strip and the dashboard, Open loops included:
   a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
   which no account owns, is hidden while filtered.
   It lives in the URL beside the state filter (`#filter=running&acct=claude-work`, the

@@ -10,7 +10,7 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g
 const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
 const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
-export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane }) {
+export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery }) {
   const $ = (id) => document.getElementById(id);
   // The filter is the URL's `acct` (url-state.js): app.js routes it here through follow().
   let profiles = [], defaults = {}, shared = {}, filter = null;
@@ -58,13 +58,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   }
 
   // ---- the filter: "Panes from" in the wide list's filter dropdown, chips under a phone's
-  // search (app.js places it); its pick's dot on the dropdown's label, and the "Filtered: X" pill.
+  // search (app.js places it); its pick's dot on the dropdown's label, and the "Filtered: X" pill,
+  // which also names the search box's text (query: app.js, a wide list's only).
   const filterGroup = document.createElement("div");
   filterGroup.id = "acct-filter"; filterGroup.setAttribute("role", "group"); filterGroup.ariaLabel = "Panes from";
   const tag = document.createElement("i");
   tag.className = "acct-dot";
   const pill = document.createElement("div");
-  pill.className = "acct-pill"; pill.setAttribute("role", "status");
+  pill.className = "acct-pill"; // no live region: it would read the whole line out on every keystroke in search
   filterGroup.hidden = tag.hidden = pill.hidden = true; // until the accounts arrive
   // Redrawn only when changed: the refresh every 20s would otherwise drop a focused button's focus.
   const draw = (el, markup) => { if (el._markup !== markup) el.innerHTML = el._markup = markup; };
@@ -74,13 +75,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     draw(filterGroup, any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
       `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
     filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
-    tag.hidden = pill.hidden = !on;
+    const q = query(), clear = (what) => `<button type="button" aria-label="Clear the ${what}" title="Clear">${licon("x", 14)}</button>`;
+    tag.hidden = !on; pill.hidden = !on && !q;
     tag.title = on ? `Panes from ${on.name}` : "";
     tag.style.setProperty("--a", on ? `var(--acct-${on.color})` : "");
-    draw(pill, on ? `Filtered: ${badge(on, `<button type="button" aria-label="Clear the account filter" title="Clear">${licon("x", 14)}</button>`)}` : "");
+    draw(pill, on || q ? `Filtered: ${on ? badge(on, clear("account filter")) : ""}${q ? `<span class="acct-badge" data-q><span>${esc(`"${q}"`)}</span>${clear("search")}</span>` : ""}` : "");
   }
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
-  pill.onclick = (e) => { if (e.target.closest("button")) setFilter(null); };
+  pill.onclick = (e) => { const b = e.target.closest("button"); if (b) b.closest("[data-q]") ? clearQuery() : setFilter(null); };
 
   // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
   // A meter's account is the profile of its first listed dir; one no longer listed (removed)
@@ -305,7 +307,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
 
   function matches(pane) { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, any, filter: filterGroup, tag,
+    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, tag,
     // The URL's account (or null) in, and out for the next URL; follow says whether it changed.
     key: () => filter, follow: (k) => { if (k === filter) return false; filter = k; paintFilter(); return true; },
     matches,

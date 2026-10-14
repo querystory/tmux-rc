@@ -220,19 +220,22 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   // An account picked: this very screen, in a URL that names it (or none, for All).
   navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
-  paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id) });
+  paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id),
+  // A phone's list shows its search box, and nothing else there is searched: the chip is wide only.
+  query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click() });
 
+const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
 function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
   const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, sort });
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, q: $("search").value, sort });
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
     const how = mode || historyMode(current, next);
-    history[`${how}State`](how === "replace" ? history.state : null, "", next ? `#${next}` : location.pathname + location.search);
+    writeHash(next, how, how === "replace" ? history.state : null);
   }
   route();
 }
@@ -265,6 +268,7 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort, page } = state);
+  if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
@@ -340,6 +344,7 @@ function emptyMessage(query) {
 }
 function renderList() {
   show("clear-search", !!$("search").value);
+  accounts.paintFilter(); // the pill names the search
   const query = $("search").value.trim().toLowerCase();
   const mine = panes.filter(accounts.matches); // the account filter (accounts.js), else every pane
   const subset = mine.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
@@ -1266,8 +1271,10 @@ html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
-$("search").oninput = renderList;
-$("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
+// Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
+const searched = () => { writeHash(formatHash({ ...parseHash(location.hash), q: $("search").value })); renderList(); };
+$("search").oninput = searched;
+$("clear-search").onclick = () => { $("search").value = ""; searched(); $("search").focus(); };
 $("sort").onclick = () => { sort = sort === "updated" ? "session" : "updated"; stayPut(); };
 function setUsageMode(mode) {
   usageMode = mode;
