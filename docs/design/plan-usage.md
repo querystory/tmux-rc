@@ -99,8 +99,9 @@ burn charts were not built**: it shipped as the dashboard's Running by hour card
 view (#378), drawn from pane history, which is kept for good. The hand-drawn charts were
 rejected as janky next to the app's own charts, and each would have been one more bespoke
 chart to maintain. So what the heatmap shows is when agents run, not what they cost: usage
-samples are still pruned after eight days, and cost per agent-hour, burn by tool and the
-"will this burst hit a limit" question stay open under #377. The dashboard as a whole is
+history is kept (thinned to hourly after eight days, below), but nothing draws burn from it
+yet, and cost per agent-hour, burn by tool and the "will this burst hit a limit" question
+stay open under #377. The dashboard as a whole is
 recorded in [its layout](dashboard-layout.md).
 
 ## Accounts, not providers
