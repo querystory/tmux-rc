@@ -215,8 +215,9 @@ source is a folder outside every checkout, by default
   plain view if left out.
 - `widths`: the desktop widths to offer (default 1280, 1440 and 1920; 390 is always there).
 - `states`: switches the design itself has, such as one account or two: each a `name`, a
-  `label` and `options` as value/label pairs. The harness shows them as controls and hands
-  the current values to the script as `MOCK.state`.
+  `label` and `options` as value/label pairs, plus an optional `default` value (else the
+  first option). The harness shows each as a menu under its label and hands the current
+  values to the script as `MOCK.state`.
 - `fragments`: single elements to capture once, such as a populated New window sheet,
   given as the same steps as a view plus a `selector`. The script can drop them into any
   frame (`MOCK.fragments`).
@@ -238,6 +239,13 @@ itself on `http://127.0.0.1:18039/mock/live/`, over the running app, and re-read
 variant scripts on every reload: that is the loop for writing a variant, on this machine.
 
 **The harness follows a few rules**, the ones the hand-built mocks kept breaking:
+
+- Every choice (option, view, each state, width) is one menu under its own small label,
+  ruled off from the next. A row of buttons per choice spread a mock with eight states
+  over three rows of unlabelled chips where nothing said which belonged together. The
+  menus shrink, ellipsised, to keep the bar to one line at 1440px, the option menu
+  keeping the most of its text, and wrap a whole choice at a time below that; the
+  theme, Note, Hide and A|B toggles stay small at the end.
 
 - On a desktop, a frame is the app at exactly the chosen width, at 100%, scrolling
   sideways if the window is narrower. Two options sit side by side only when both fit at

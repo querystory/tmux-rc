@@ -74,7 +74,7 @@ function boot(M) {
     theme: q.get("theme") || store(key("theme")) || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"),
     // A phone starts on the app alone, controls folded into the pill.
     hidden: (q.get("hide") ?? store(key("hidden")) ?? (phone.matches ? "1" : "0")) === "1",
-    state: Object.fromEntries((M.states || []).map((st) => [st.name, q.get(`s.${st.name}`) || st.options[0][0]])),
+    state: Object.fromEntries((M.states || []).map((st) => [st.name, q.get(`s.${st.name}`) || st.default || st.options[0][0]])),
   };
   let once = {}; // state a frame asked for its next render only (a toast, a sheet left open)
   const variant = (name) => M.variants.find((v) => v.name === name) || M.variants[0];
@@ -82,15 +82,15 @@ function boot(M) {
   // A frame's snapshot is its own script (scripts/mock.mjs), fetched the first time it shows.
   const loadSnap = (k) => M.snaps[k] || new Promise((resolve) => document.head.append(Object.assign(document.createElement("script"),
     { src: `snaps/${k.replaceAll("/", "-")}.js`, onload: () => resolve(M.snaps[k]), onerror: () => resolve() })));
-  // A row of buttons on a desktop; on a phone, a select, so every group fits on one row.
-  const seg = (el, items, pressed, pick, label) => {
-    if (!phone.matches || !items.length) {
-      return el.replaceChildren(...items.map(([value, text, title]) => Object.assign(document.createElement("button"), {
-        textContent: text, title: title || "", ariaPressed: String(value === pressed), onclick: () => pick(value) })));
-    }
+  // Every choice is its label and one menu, however many options it has: a row of chips per
+  // group ran into three rows where nothing said which chips belonged together. A phone drops
+  // the labels to keep one row. A choice of one shows nothing.
+  const choice = (el, label, items, current, pick) => {
+    if (items.length < 2) return el.replaceChildren();
     const sel = Object.assign(document.createElement("select"), { ariaLabel: label, onchange: () => pick(items[sel.selectedIndex][0]) });
-    sel.append(...items.map(([value, text]) => new Option(text, value, false, value === pressed)));
-    el.replaceChildren(sel);
+    sel.append(...items.map(([value, text, title]) => Object.assign(new Option(text, value, false, value === current), { title: title || "" })));
+    sel.title = sel.selectedOptions[0].text; // whole, where the menu is too narrow for it
+    el.replaceChildren(Object.assign(document.createElement("b"), { textContent: label }), sel);
   };
 
   // mock-live: the real app in `iframe`, booted and taken through a view's (or fragment's)
@@ -157,14 +157,14 @@ function boot(M) {
     document.body.classList.toggle("phone", phone.matches);
     document.body.classList.toggle("hidden", s.hidden);
     document.documentElement.classList.toggle("light", s.theme === "light");
-    seg($("#variants"), M.variants.length > 1 ? M.variants.map((v) => [v.name, phone.matches && v.short || v.label, v.description]) : [], s.v[0], (v) => set({ v: [v, s.v[1]] }), "Option");
-    seg($("#views"), M.views.length > 1 ? M.views.map((v) => [v.name, v.label]) : [], s.view, (view) => set({ view }), "View");
+    choice($("#variants"), "Variant", M.variants.map((v) => [v.name, phone.matches && v.short || v.label, v.description]), s.v[0], (v) => set({ v: [v, s.v[1]] }));
+    choice($("#views"), "View", M.views.map((v) => [v.name, v.label]), s.view, (view) => set({ view }));
     $("#states").replaceChildren(...(M.states || []).map((st) => {
-      const el = Object.assign(document.createElement("span"), { className: "seg", title: st.label });
-      seg(el, st.options, s.state[st.name], (value) => set({ state: { ...s.state, [st.name]: value } }), st.label);
+      const el = Object.assign(document.createElement("span"), { className: "ctl" });
+      choice(el, st.label, st.options, s.state[st.name], (value) => set({ state: { ...s.state, [st.name]: value } }));
       return el;
     }));
-    seg($("#widths"), M.widths.map((w) => [w, String(w)]), s.width, (w) => set({ width: w }));
+    choice($("#widths"), "Width", M.widths.map((w) => [w, `${w}px`]), s.width, (w) => set({ width: w }));
     $("#ab").hidden = M.variants.length < 2;
     $("#ab").disabled = !fits(width, innerWidth);
     $("#ab").ariaPressed = String(two);
