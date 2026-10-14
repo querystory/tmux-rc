@@ -181,7 +181,9 @@ process, since a pane id from another server would otherwise match by accident.
 
 The snapshot needs the inverse, every live session with its pane, in one call: a listing
 in agent-history in the shape `get` already returns. The daemon calls it once a minute,
-not per tick. The ancestry check proves a session belongs to this server, not that it
+not per tick. The listing also writes each live session's index entry: today an entry
+exists only once a hook or reconciliation has run, which a session started shortly
+before a crash may never have had, and restore can only `get` what is indexed. The ancestry check proves a session belongs to this server, not that it
 occupies the pane: a pane can hold a stopped background agent under a foreground one. So
 a pane is bound only to the one listed session whose process is in the pane's foreground
 process group (the terminal's `tpgid` in `/proc/<pane pid>/stat`); with none or several,
@@ -258,7 +260,9 @@ agent was working, waiting on the user, or active in the last 24 hours; unchecke
 idle longer, or a shell with nothing running. Staleness is measured **from when the
 server died, not from now**: a machine powered off all weekend should still treat Friday
 afternoon's work as recent. For an agent pane, "active" means the transcript's last
-message, from agent-history, not the checkpoint's activity clock: the clock moves with
+user or assistant message. That is a new agent-history field: its `last_active` moves with
+every transcript record, tool output and bookkeeping included, the same false recency
+again. Nor is it the checkpoint's activity clock: the clock moves with
 anything on screen, and in the field it showed four-day-idle agents as active yesterday.
 The clock remains the measure for shells and for agents with no binding.
 
@@ -525,8 +529,9 @@ the restore half lands with real data from the user's own fleet to test against.
 Scope: the snapshot table (a new schema migration), the new fields in the pane listing
 (window id, session group, session path, window layout, zoom, automatic rename; the
 foreground program is the `pane_current_command` already read, stored as a basename),
-agent-history's live-session listing and the once-a-minute binding, the consumed mark,
-and a read-only endpoint returning the latest dead-server snapshot with each pane's
+agent-history's live-session listing (which indexes what it lists) and last-message time,
+the once-a-minute binding, the consumed mark, and a read-only endpoint returning the
+unconsumed dead-server snapshots with each pane's
 computed default, so the card's data can be checked by hand before the card exists.
 With `TMUXRC_TARGET` set, the watcher lists only its one pane and agent-history features
 are off, so the recorder does not run and leaves any existing row untouched: a one-pane
@@ -539,6 +544,10 @@ Acceptance:
   strings, zoom, rename settings, pane order and directories exactly.
 - Bound Claude, Codex and omp panes record the session id agent-history reports; an
   unbound Codex pane records tool and directory with no id.
+- A session never indexed before (no hook run, no reconciliation) can be fetched with
+  `get` after one listing and after its server is gone.
+- Transcript records that are not user or assistant messages leave the last-message time,
+  and so a pane's default, unchanged.
 - An unchanged fleet rewrites no payload, only the minute last-seen stamp; resizing a
   pane rewrites it once.
 - A pane whose parse keeps failing does not stop the last-seen stamp, and a pane opened
