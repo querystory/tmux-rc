@@ -21,6 +21,9 @@
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 html, body { position: fixed; inset: 0; overflow: hidden; }
+/* iOS Safari's text autosizing boosts some blocks (long terminal lines in a wide scroller)
+   to about twice the set size after a layout change. The page sizes its own text. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 /* Until app.js runs, the markup is a skeleton: icon buttons ship empty and both brand rows
    show, since app.js picks the layout. Over a slow tunnel that lasts seconds, so show a
    plain loading line instead of the half-built chrome. If app.js never gets there, the
