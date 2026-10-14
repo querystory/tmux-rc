@@ -1356,6 +1356,10 @@ def test_finished_turn_offers_the_replies_it_hands_over():
     reply = "Not logged in; type `! gh auth login --hostname github.com` to fix it."
     assert classify(_pane("claude"), _auto_screen(shown), _llm({}), reply=reply)["offers"] == [
         "! gh auth login --hostname github.com"]
+    ticks = "Run ! gh pr merge `cat /tmp/pr` --squash."  # a span around a shell backtick
+    assert classify(_pane("claude"), _auto_screen(ticks), _llm({}), reply=ticks.replace(
+        "Run ! gh", "Run ``! gh").replace("--squash", "--squash``"))["offers"] == [
+        "! gh pr merge `cat /tmp/pr` --squash"]
     for screen, stale in (
         (_auto_screen(shown), None),  # inline code the screen does not mark
         (_auto_screen("Run:\n\n  ! gh pr merge 5269\n  --squash"), None),  # a wrapped row
@@ -1363,6 +1367,10 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen('It printed "connection refused" and stopped.'), None),  # just a quote
         (_auto_screen("Done."), "Run `! make deploy` to ship."),  # a stale transcript
         (_auto_screen(shown), reply.replace("github.com", "example.com")),  # stale, same start
+        (_auto_screen("Run ! gh pr merge 415 now."), "Run `! gh pr merge 41` now."),  # shorter
+        # A new turn that failed before any reply: the old ask is not live again.
+        (('\x1e[visible screen]\x1f\n● Say "merge 415" and I\'ll queue it.\n\n❯ check the logs\n'
+          "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ⏵⏵ auto mode on"), None),
         (_auto_screen(message).replace("\n❯\n", "\n❯ merge 415\n"), None),  # already typed
         (_auto_screen(message).replace("Baked for 16s", "Baking… (3s · esc to interrupt)"), None),
     ):

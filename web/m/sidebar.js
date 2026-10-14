@@ -223,13 +223,13 @@ export function setupSidebar(ctx) {
   function replies(node, p) {
     const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
     const options = needsYou(p) ? ctx.answers(p.question) : [];
-    // A finished turn's offers ride every card, Needs you or not (app.js sendOffer).
+    // A finished turn's offers ride every card, Needs you or not (app.js takeOffer).
     const items = [...options, ...ctx.offers(p).map((offer) => ({ offer })), ...(!needsYou(p) ? [] : answered ? [{ note: answered.note }] : [{ reply: true }])];
     reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.offer ? `offer:${o.offer}` : `${o.index}:${o.option}`, (o) => {
       if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : o.offer ? ctx.sendOffer(node._p.pane_id, o.offer) : ctx.answer(node._p.pane_id, o.option, o.index);
+      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : o.offer ? ctx.takeOffer(node._p.pane_id, o.offer) : ctx.answer(node._p.pane_id, o.option, o.index);
       return button;
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);

@@ -369,7 +369,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, sendOffer,
+  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, takeOffer,
   setFilter: (value) => { filter = value; stayPut(); }, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
@@ -846,12 +846,13 @@ function render() {
     button._option = option; text(button, option.option); button.disabled = sending || !!answered;
     button.classList.toggle("picked", picked(pane, option));
   });
-  reconcile($("offers"), offersOf(pane), (o) => `${active}:${o}`, () => {
+  // The chip above the composer is the phone's: wide, the overview's block sits beside it.
+  reconcile($("offers"), wide ? [] : offersOf(pane), (o) => `${active}:${o}`, () => {
     const button = document.createElement("button"); button.type = "button";
-    button.onclick = () => sendOffer(active, button._offer);
+    button.onclick = () => takeOffer(active, button._offer);
     return button;
   }, (button, value) => {
-    button._offer = value; button.dataset.verb = value.startsWith("! ") ? "Run" : "Send";
+    button._offer = value; button.dataset.verb = verbOf(value);
     text(button, value); button.disabled = sending;
   });
   renderTasks(pane);
@@ -900,19 +901,27 @@ function renderRichContent(pane) {
 }
 
 function renderTasks(pane) {
-  const tasks = records(pane?.tasks), agents = records(pane?.subagents), copyables = records(pane?.copyables);
+  // An offer is a block of its own, with Run/Send beside Copy, standing in for a copyable
+  // of the same text.
+  const offers = offersOf(pane), tasks = records(pane?.tasks), agents = records(pane?.subagents);
+  const copyables = [...offers.map((t) => ({ label: verbOf(t) === "Run" ? "Run it here" : "Reply with", text: t, offer: true })),
+    ...records(pane?.copyables).filter((c) => !offers.includes(String(c.text).trim()))];
   show("task-section", !!tasks.length); show("agent-section", !!agents.length); show("copy-section", !!copyables.length);
   text($("task-count"), `${tasks.filter((t) => t.done).length}/${tasks.length}`);
   renderItems($("tasks"), tasks); renderItems($("agents"), agents, true);
   reconcile($("copyables"), copyables, (value, i) => `${i}:${value.label}`, () => {
     const node = document.createElement("div"); node.className = "copyable";
-    node.innerHTML = '<div class="copy-heading"><strong></strong><button class="icon-button" aria-label="Copy text" title="Copy text">' + licon("clipboard") + '</button></div><pre></pre>';
-    node.querySelector("button").onclick = async () => {
+    node.innerHTML = '<div class="copy-heading"><strong></strong><button type="button" class="copy-offer primary"></button><button class="icon-button" aria-label="Copy text" title="Copy text">' + licon("clipboard") + '</button></div><pre></pre>';
+    node.querySelector(".copy-offer").onclick = () => takeOffer(active, node._value);
+    node.querySelector(".icon-button").onclick = async () => {
       try { await navigator.clipboard.writeText(node._value); notice("Copied to clipboard."); }
       catch { notice("Could not copy. Select the text to copy it."); }
     };
     return node;
-  }, (node, value) => { node._value = value.text; text(node.querySelector("strong"), value.label); text(node.querySelector("pre"), value.text); });
+  }, (node, value) => {
+    node._value = value.text; text(node.querySelector("strong"), value.label); text(node.querySelector("pre"), value.text);
+    const offer = node.querySelector(".copy-offer"); offer.hidden = !value.offer; text(offer, verbOf(value.text));
+  });
 }
 
 // One line per task or sub-agent: the pane overview's lists, and the sidebar's agent rows.
@@ -1254,11 +1263,16 @@ async function answer(id, option, index) {
 }
 
 // What a finished turn hands over to type back (classify.py's _offers), whatever the pane's
-// state: buttons above the composer and on the pane's list card. A tap and a confirm send it
-// with Enter, the same body as a typed answer.
+// state: buttons above the composer and on the pane's list card. A tap puts the exact text
+// in the pane's own composer, so its Send is the confirmation: no dialog, editable, and one
+// send path.
+function verbOf(value) { return value.startsWith("! ") ? "Run" : "Send"; }
 function offersOf(pane) { return (Array.isArray(pane?.offers) ? pane.offers : []).filter((o) => typeof o === "string"); }
-function sendOffer(id, value) {
-  if (!sending && confirm(`Type this into the pane and press Enter?\n\n${value}`)) sendKeys(answerBody({}, value), id);
+function takeOffer(id, value) {
+  if (active !== id) navigate(id);
+  draft(id).replace([{ text: value }]);
+  render();
+  const editor = $("reply"); editor.focus({ preventScroll: true }); getSelection().selectAllChildren(editor); getSelection().collapseToEnd();
 }
 
 // This surface's half of the shared cursor walk. The tap's pending answer greys the

@@ -912,19 +912,24 @@ def _final_message(visible: str, tool: str) -> str | None:
 # that wraps onto the next is no offer: a guessed join could run the wrong command. A space
 # after the ! keeps out code such as `!=` and `!important`.
 _QUOTE = r"[\"“]([^\"”\n]{1,60})[\"”]"
-_OFFER_RE = re.compile(
-    rf"`(! [^`\n]+)`|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*[^\s`])|\bsay[ \t]+{_QUOTE}"
+_OFFER_RE = re.compile(  # a span may open with several backticks, around one in the command
+    rf"(`+)(! [^\n]+?)\1(?!`)|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*[^\s`])|\bsay[ \t]+{_QUOTE}"
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
 
 def _offers(message: str, reply: str | None) -> list[str]:
     """The replies the final message offers, as tap-to-send buttons. The transcript's copy
     comes first (inline code keeps its backticks there, and long rows are not wrapped), but
-    only what the screen shows too, whole: a stale transcript offers nothing."""
+    only what the screen shows too, whole and bounded (a stale `merge 41` is not the `merge
+    415` on screen): a stale transcript offers nothing. A message with the user's own row
+    in it (a new turn that failed before any reply) offers nothing either."""
+    if _USER_ROW_RE.search(message):
+        return []
     shown = " ".join(message.split())
-    found = (next(filter(None, m.groups()))
+    found = (m[m.lastindex]  # the payload: each alternative's last group
              for t in (reply or "", message) for m in _OFFER_RE.finditer(t))
-    return list(dict.fromkeys(o for o in found if " ".join(o.split()) in shown))[:3]
+    return list(dict.fromkeys(o for o in found if re.search(
+        rf"(?<![^\s\"“`]){re.escape(' '.join(o.split()))}(?![^\s\"”`.,;:?!)])", shown)))[:3]
 
 
 def _final_ask(visible: str, tool: str, message: str) -> dict | None:

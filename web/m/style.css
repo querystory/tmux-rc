@@ -208,7 +208,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #events-empty { font-size: 13px; margin-top: 10px; }
 .copyable { margin-top: 12px; }
 .copy-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.copy-heading strong { font-weight: 500; overflow-wrap: anywhere; }
+.copy-heading strong { font-weight: 500; overflow-wrap: anywhere; margin-right: auto; }
+.copy-offer { min-height: 36px; padding: 0 16px; border-radius: 18px; }
 .copyable pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--raised); border-radius: 4px; margin: 0; font-size: 12px; max-height: 200px; overflow: auto; }
 #terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--term-bg); color: #edf2ef; --raised: #252b28; --accent: var(--term-accent); }
 .terminal-toolbar { display: flex; align-items: center; padding: 0 12px; gap: 2px; border-bottom: 1px solid #343d38; }

@@ -1532,7 +1532,10 @@ class Watcher:
             # Identity, timers and the snapshot id are re-stamped below from live tmux.
             # Links are the exception: a parse fails when its question or rewind is
             # rejected, yet the URLs it read off the screen still stand, and a login
-            # link printed in that turn would otherwise never reach the card.
+            # link printed in that turn would otherwise never reach the card. Offers are the
+            # other: buttons that send, read off this screen alone (classify's _offers),
+            # never the last card's, which the user may have answered since.
+            offers = state.get("offers")
             replacement_tool = state.get("identity_tool")
             previous_tool = previous.get("identity_tool", previous.get("tool"))
             known_replacement = (
@@ -1540,6 +1543,9 @@ class Watcher:
                 and replacement_tool != previous_tool
             )
             state = {**previous, "links": state.get("links") or previous.get("links")}
+            state.pop("offers", None)
+            if offers:
+                state["offers"] = offers
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)

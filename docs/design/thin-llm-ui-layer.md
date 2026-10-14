@@ -132,9 +132,14 @@ was about), `tables`, and the headline itself. `copyables` is the first that cre
 A copyable's destination is *somewhere else*. The sibling case is text whose destination
 is the same pane: Claude Code ending a turn with "run it yourself: `! gh pr merge …`" or
 "say "merge 415" and I'll queue it". Copying that, opening the composer, pasting and
-sending is four steps for what should be one tap, so a finished turn's offers render as
-Run/Send buttons above the composer and on the pane's list card, each a confirm away from
-the same send a typed answer uses. They are not tied to Needs you: an agent that finishes
+sending is four steps for what should be two taps, so a finished turn's offers render as
+Run/Send buttons: on the overview's grey block (where a copyable of the same text would
+sit, so the two never stack), on the pane's list card, and on a phone also as a chip above
+the composer, which on a wide screen would only repeat the overview beside it. A tap fills the pane's
+own composer with the exact text; its Send button is the confirmation. A native confirm
+dialog was tried first and dropped: it blocks the page, looks foreign on a phone, and
+leaves no way to edit the text, while the composer is editable, already familiar, and
+the one send path the pane has. They are not tied to Needs you: an agent that finishes
 with "if it looks fine, "merge all" queues 18 PRs" is idle, not asking, and the offer is
 still the fastest way on.
 
@@ -151,7 +156,7 @@ when the screen shows all of it, so a stale transcript offers nothing (a prefix 
 would let `merge 412` stand in for the `merge 415` on screen). The field is the screen's
 alone: whatever the model returns under that name is dropped first. A missed offer costs
 the old copy-paste; a false one would cost a command the user never meant, which is why
-the confirm stays even though the text is exact.
+the tap only fills the composer and never sends by itself.
 
 The broader bet: **any interface over content it doesn't control** has a backlog of
 affordances it never shipped because they couldn't be done generically. A thin semantic
