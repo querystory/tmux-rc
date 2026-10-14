@@ -22,4 +22,6 @@ test("picking a way toggles only a bare --device-auth word", () => {
   assert.equal(withWay("codex login -c 'x --device-auth y'", false), "codex login -c 'x --device-auth y'");
   assert.equal(withWay("codex login --device-auth", true), "codex login --device-auth");
   assert.equal(withWay('codex login "--device-auth" -v', false), "codex login -v"); // the same word, quoted
+  assert.equal(withWay("codex login -c n=1\\  --device-auth", false), "codex login -c 'n=1 '"); // an escaped space stays its argument's
+  assert.equal(withWay("codex login -c n=1\\ ", true), "codex login -c 'n=1 ' --device-auth");
 });
