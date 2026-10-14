@@ -20,26 +20,34 @@ const shq = (s) => /^[\w@%+=:,./~-]+$/.test(s) ? s : `'${s.replace(/'/g, `'"'"'`
 // sign-in pane's own card both offer it (server: /api/accounts/login/callback).
 const pasteForm = (id, value = "", busy = false) => `<label for="${id}">Paste the address your browser ended up on</label><div class="acct-paste"><input id="${id}" value="${esc(value)}" placeholder="http://127.0.0.1:1455/auth/callback?code=…" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" data-callback ${value.trim() && !busy ? "" : "disabled"}>Finish</button></div>`;
 // The line in words as the server's shlex.split reads it: quotes and backslashes, and null
-// for one left open, so the sheet refuses exactly what the server would.
-export const shellWords = (s) => {
-  const out = []; let word = null, q = "";
+// for one left open, so the sheet refuses exactly what the server would. `spans` gets each
+// word's [start, end) in the text.
+export const shellWords = (s, spans = []) => {
+  const out = []; let word = null, q = "", start = 0;
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
+    if (!q && word === null && !" \t\r\n".includes(c)) start = i;
     if (q === "'") { if (c === "'") q = ""; else word += c; continue; }
     if (c === "\\" && (!q || '"\\'.includes(s[i + 1]))) { if (i + 1 >= s.length) return null; word = (word ?? "") + s[++i]; continue; }
     if (q === '"') { if (c === '"') q = ""; else word += c; continue; }
-    if (" \t\r\n".includes(c)) { if (word !== null) out.push(word); word = null; continue; }
+    if (" \t\r\n".includes(c)) { if (word !== null) { out.push(word); spans.push([start, i]); } word = null; continue; }
     word ??= "";
     if (c === "'" || c === '"') q = c; else word += c;
   }
   if (q) return null;
-  if (word !== null) out.push(word);
+  if (word !== null) { out.push(word); spans.push([start, s.length]); }
   return out;
 };
 const CALLBACK_MS = 40000; // past the server's two 15 s local GETs: a slow exchange still lands
 // The command with or without Codex's device flag: the way in is picked each time, never
 // remembered, while the rest of an edited command is.
-const withWay = (cmd, device) => cmd.replace(/(^|[ \t])--device-auth(?=[ \t]|$)/g, "").trim() + (device ? " --device-auth" : "");
+// Only a bare --device-auth word is taken out; the same text inside a quoted argument stays.
+export const withWay = (cmd, device) => {
+  const spans = [];
+  if (!shellWords(cmd, spans)) return cmd;
+  for (const [a, b] of spans.reverse()) if (cmd.slice(a, b) === "--device-auth") cmd = cmd.slice(0, a).replace(/[ \t]+$/, "") + cmd.slice(b);
+  return cmd.trim() + (device ? " --device-auth" : "");
+};
 const setCmd = (p, v) => { v = withWay(v, false); cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
@@ -282,7 +290,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     F = { step, name: "", provider: "claude", dir: "~/.claude-new", session: sessions()[0] || "" };
     render(); if (!dlg.open) dlg.showModal();
   }
-  const go = (step, extra = {}) => { Object.assign(F, { renaming: null, removing: null, error: null, line: null, ...extra, step }); render(); };
+  const go = (step, extra = {}) => { Object.assign(F, { renaming: null, removing: null, error: null, line: null, callback: "", ...extra, step }); render(); };
   // The sign-in line: as edited in this flow, else VAR=<dir> and the remembered command.
   const lineFor = (cmd) => `${ENV[F.provider]}=${shq(F.dir)} ${cmd}`, lineOf = () => F.line ?? lineFor(cmdOf(F.provider));
   const ways = () => `<div class="acct-seg">${CODEX_WAYS.map(([cmd, name]) => `<button type="button" data-way="${cmd}" aria-pressed="${device() === cmd.includes("--device-auth")}">${name}</button>`).join("")}</div><p class="acct-note">${CODEX_WAYS.map(([, name, how]) => `<b>${name}</b>: ${how}.`).join(" ")}</p>`;
@@ -292,7 +300,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     const w = F.window, codex = F.provider === "codex", dev = w ? w.device : device(); // the line's, until the server says
     const other = codex && w && device() !== w.device;
     return `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open${F.session ? ` in <b>${esc(F.session)}</b>` : ""}. ${!codex ? "Finish <code>/login</code> there." : dev ? "Open the sign-in page and enter the code." : "Open the sign-in page and sign in. Your browser then lands on a <code>localhost</code> page that does not load: paste its address below. tmux-rc hands it to the sign-in waiting on this machine and keeps none of it."}</p>`
-      + (!codex ? "" : w?.url ? `<a class="acct-open" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">Open sign-in page ↗</a>` : '<p class="acct-wait"><i class="acct-spin"></i>Starting sign-in…</p>')
+      + (!codex ? "" : w?.url ? `<a class="acct-open" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">Open sign-in page ${licon("external", 16)}</a>` : '<p class="acct-wait"><i class="acct-spin"></i>Starting sign-in…</p>')
       + (w?.others?.length ? `<p class="acct-msg warn">${w.others.length} older sign-in window${w.others.length === 1 ? " is" : "s are"} open for ${esc(F.name)}; a link from ${w.others.length === 1 ? "it" : "them"} will not work here.</p><button type="button" data-close-others>Close the older ${w.others.length === 1 ? "window" : "windows"}</button>` : "")
       + (w?.device && w.code ? `<p class="acct-note">One-time code: <code class="acct-code">${esc(w.code)}</code></p>` : "")
       + (codex && !dev ? pasteForm("acct-callback", F.callback, F.sending) : "")
@@ -398,7 +406,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         try { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); } finally { F.sending = false; }
         F.callback = ""; return wait();
       }
-      if ("retry" in d) return go("login", { pane: null });
+      if ("retry" in d) return go("login", { pane: null, session: F.session || sessions()[0] });
       if ("later" in d) return go("list");
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }
       if ("go" in d) { F.away = true; dlg.close(); return openPane(F.pane); }
