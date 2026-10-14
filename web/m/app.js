@@ -1815,8 +1815,8 @@ function placeChrome() {
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
   $("sb-sticky").before($("sb-nav"));
-  // The account filter (accounts.js): wide, a group in the list's filter menu and its
-  // pill under search; on a phone, chips under search and the pill under the header.
+  // The account filter (accounts.js) is a group in the filter menu in both layouts (a phone's
+  // opens as a bottom sheet); the active filters' chips are placed by placePill().
   renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views);
   placePill();
 }
