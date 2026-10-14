@@ -11,7 +11,7 @@ import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
-import { renderUsage, shownUsage } from "/m/usage.js";
+import { renderUsage, shownUsage, inUse, inlineUsage } from "/m/usage.js";
 import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
@@ -682,7 +682,12 @@ try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAG
 const paintUsage = steady(() => {
   // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
   const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
-  renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)), { wide: WIDE.matches });
+  // The strip names only the accounts in use; the idle ones fold into a "+N" at its end (usage.js).
+  const meters = order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode));
+  const { shown, idle } = several ? inUse(meters, (p) => panes.filter((x) => p.panes.includes(x.pane_id))) : { shown: meters, idle: [] };
+  renderUsage($("usage"), shown, { wide: WIDE.matches });
+  $("usage").querySelector(".usage-more")?.remove();
+  $("usage").insertAdjacentHTML("beforeend", accounts.more(idle));
   accounts.strip($("usage"), several);
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
@@ -794,7 +799,7 @@ function render() {
   markEnding($("detail"), pane);
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   // Which account it runs on, when that needs saying: first on a phone, which ellipsizes the end.
-  const account = pane && accounts.badge(pane.pane_id);
+  const account = pane && accounts.badge(pane.pane_id, (p) => inlineUsage(usage.find((a) => a.dirs?.includes(p.dir))));
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();

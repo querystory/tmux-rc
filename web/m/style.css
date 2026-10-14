@@ -1083,6 +1083,11 @@ button.picked:disabled { opacity: 1; }
 .sb-open .sb-acct { flex: none; max-width: 50%; padding-left: 4px; } /* a long label takes the badge's own ellipsis */
 .sb-acct .acct-badge { font-size: 10.5px; }
 #pane-location .acct-badge { vertical-align: 1px; }
+#pane-location .acct-badge b { font-variant-numeric: tabular-nums; } /* its account's 5h and 7d (usage.js inlineUsage), coloured as the strip's meters */
+@media (max-width: 1099px) { #pane-location .acct-badge { display: flex; width: fit-content; margin-bottom: 2px; } } /* a phone's chip, meter and all, gets its own line: the path keeps the next */
+.acct-badge .warn { color: var(--amber); } .acct-badge .full { color: var(--red); }
+/* The strip's last item, a swipe past the meters: the accounts not in use, folded into a "+N" (usage.js inUse). */
+.usage-more { flex: none; align-self: center; display: inline-flex; align-items: center; gap: 3px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
 /* The active filters: each chip is the rows' account chip (.acct-badge) as is, with a small ×. */
 .acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 16px 6px; font-size: 11px; color: var(--muted); }
