@@ -92,8 +92,8 @@ export function setupSidebar(ctx) {
   pick.setAttribute("aria-label", "Filter panes");
   pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
   pick.onchange = () => ctx.setFilter(pick.value);
-  // The Sessions title's counts: the panes listed and their running sub-agents, whose colour
-  // says whether they are listed under their panes' rows (a click switches it).
+  // The Sessions title's counts: the panes listed and their running sub-agents, with an eye
+  // (open while they are listed under their panes' rows, slashed while not; a click switches it).
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
   document.querySelector("#sb-sess b").after(subs);
@@ -327,7 +327,7 @@ export function setupSidebar(ctx) {
     const n = subset.reduce((n, p) => n + liveSubagents(p).length, 0);
     subs.setAttribute("aria-pressed", String(prefs.subagents));
     subs.ariaLabel = `${subset.length} panes, ${n} sub-agents: ${prefs.subagents ? "hide" : "list"} sub-agents under their panes`;
-    ctx.html(subs, `${subset.length} · <span class="n">${n} sub-agent${n === 1 ? "" : "s"}</span>`);
+    ctx.html(subs, `${subset.length} · ${n} sub-agent${n === 1 ? "" : "s"} ${licon(prefs.subagents ? "eye" : "eyeOff", 13)}`);
   }
   render.picker = picker; // the filter menu: app.js adds the account filter and the grouping
   render.by = by;
