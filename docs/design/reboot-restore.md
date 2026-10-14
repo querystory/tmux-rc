@@ -398,11 +398,13 @@ built session as a name collision and suffixing it), creates what is missing, an
 launches what is pending. If that server died too, its ids and launch outcomes describe
 objects that no longer exist: they are discarded, every selected pane returns to pending
 (the running check below still skips what is live), and the run continues against the
-current server under its new identity. The dead destination's own snapshot is marked
-consumed by that run in the same step when everything in it carries the run's tag: a
-half-built copy of the same workspace, never to be offered as a second restore. One that
-also holds untagged sessions (a replacement server's own, or ones resumed by hand) stays a
-candidate, since only the run's part of it is rebuilt.
+current server under its new identity. The snapshot records each object's run tag with
+the rest of the inventory, so the mark outlives the server. In the dead destination's own
+snapshot the tagged objects are the run's half-built copy, which the run is rebuilding:
+they are never offered. Untagged sessions in it (a replacement server's own, or ones
+resumed by hand) remain a candidate of their own; a snapshot with none is consumed by the
+run in the same step. An object created after the last snapshot refresh is in no
+snapshot, so it has nothing to exclude.
 The audit trail is not this record: it is telemetry, for reconstruction afterwards,
 not state an executor can resume from. And right before each launch the running check
 runs again, so a session resumed by hand meanwhile is skipped. That check and its lock
@@ -411,9 +413,10 @@ one shared primitive, "start this session in this pane unless it is already runn
 that takes a target pane: Live Mode passes a pane it just opened, restore passes the prebuilt
 one, which the primitive respawns with the launch command. One path, not two.
 
-**Audit.** Each launch writes the record Live Mode's resume writes (actor, harness, session id,
-pane) minus the directory, which is private here (below) and which the session id leads
-back to; the restore writes one record of the selection, by id.
+**Audit.** Each launch writes a record of an explicit allowlist: actor, harness, session id,
+pane id and an outcome code. It is not Live Mode's resume record, which also carries window
+and session names, the directory and free-text failure detail, all private here (below);
+the session id leads back to them. The restore writes one record of the selection, by id.
 
 ## Safety
 
