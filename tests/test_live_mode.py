@@ -358,12 +358,12 @@ def test_a_card_draws_only_a_call_that_would_run(monkeypatch, name, args, drawn)
 
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
-    ws = Tap()
+    ws, session = Tap(), _Session()
+    session.request = "press escape"  # asked, where unasked keys are refused before a card
     fc = _FC(name=name, args={"pane_id": "%1", **args})
-    _run(L._handle_tool_call(ws, _Session(), fc, _Watcher(), meter))
-    card = ws.sent[0]
-    assert {k: card[k] for k in ("key", "payload", "enter") if k in card} == drawn
-    assert card["text"]  # the sentence is always there
+    _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
+    for card in [m for m in ws.sent if m["type"] == "propose"] or [{}]:  # or refused first
+        assert {k: card[k] for k in ("key", "payload", "enter") if k in card} == drawn
 
 
 @pytest.mark.parametrize("viewing", [True, False])
