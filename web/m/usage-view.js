@@ -40,11 +40,12 @@ function teeth(w, now) {
     past.push([p.start, 0], ...pts, [p.resets_at, last], [p.resets_at, 0]);
     if (p.limit_at >= p.start && p.limit_at <= p.resets_at) hits.push(p.limit_at);
   }
-  if (!(w.resets_at > now)) return { past, cur: [], fc: [], hits };
+  if (!(w.resets_at > now)) return { past, cur: [], fc: [], hits, drawn: past };
   const held = [Math.max(now, w.start), w.pct];
   past.push([w.start, 0]);
   if (w.pct >= 100) hits.push((w.samples.find(s => s[1] >= 100) || held)[0]);
-  return { past, hits, cur: [[w.start, 0], ...w.samples, held],
+  const cur = [[w.start, 0], ...w.samples, held];
+  return { past, hits, cur, drawn: [...past, ...cur], // drawn: what the tooltip reads, built once
     fc: [held, ...(w.limit_at ? [[w.limit_at, 100], [w.resets_at, 100]] : [[w.resets_at, Math.min(100, w.projected ?? w.pct)]])] };
 }
 
@@ -95,7 +96,7 @@ function option(card, extent, now, slider, css) {
       formatter: items => {
         const t = items[0].axisValue;
         return [`<b>${stamp(t)}</b>${t > now ? ' · forecast' : ''}`, ...card.meters.map(m => {
-          const v = valueAt(t > now ? m.fc : [...m.past, ...m.cur], t);
+          const v = valueAt(t > now ? m.fc : m.drawn, t);
           return v == null ? '' : `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${m.color};margin-right:6px"></span>${esc(m.name)}: <b>${Math.round(v)}%</b>`
             + (t >= m.w.start && t <= m.w.resets_at ? ` <span style="color:${muted}">this window, resets ${clock(m.w.resets_at, now)}</span>` : '');
         }).filter(Boolean)].join('<br>');
@@ -142,6 +143,7 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
   const all = Object.values(byType).flat(), times = all.flatMap(m => [m.past[0]?.[0], m.cur[0]?.[0], m.w.resets_at]).filter(Boolean);
   // At least the days loaded, so a new account's 30d still spans 30 days; All, what there is.
   view.extent = { min: Math.min(now - (usageDays() === Infinity ? D : usageDays() * D), ...times), max: Math.max(now + 6 * H, ...times) + H };
+  if (zoom) zoomTo(zoom.startValue, zoom.endValue - zoom.startValue); // within the new extent: a filter can narrow it
   // An account that cannot be read has no windows to draw; it says so rather than vanish.
   view.errs.innerHTML = accounts.filter(a => a.error).map(a => `<span class="uv-read">${chip(a) || esc(NAMES[a.provider] || a.provider)}<span>${esc(a.error)}</span></span>`).join('');
   for (const card of view.cards) {
@@ -215,9 +217,13 @@ function keys(e) {
     ArrowLeft: [s - span / 2, span], ArrowRight: [s + span / 2, span] }[e.key];
   if (!next) return;
   e.preventDefault();
-  const { min, max } = view.extent, width = Math.min(max - min, Math.max(H, next[1])), start = Math.max(min, Math.min(max - width, next[0]));
-  zoom = { startValue: start, endValue: start + width };
+  zoomTo(...next);
   paint();
+}
+// The span on screen, at least an hour and held within the loaded history.
+function zoomTo(from, span) {
+  const { min, max } = view.extent, width = Math.min(max - min, Math.max(H, span)), start = Math.max(min, Math.min(max - width, from));
+  zoom = { startValue: start, endValue: start + width };
 }
 
 function show(i) {
