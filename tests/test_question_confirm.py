@@ -76,3 +76,11 @@ def test_a_wait_on_others_and_a_standing_question_take_no_second_capture(monkeyp
     assert _tick(w)["question"] is None  # "b": a new user wait; its recapture moved on
     monkeypatch.setattr(W.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError(s)))
     assert _tick(w)["question"] == ASK["question"]  # "c": the same ask, already read
+
+
+def test_a_wait_on_others_turning_into_a_user_wait_is_confirmed(monkeypatch):
+    external = {**WORK, "activity": "waiting", "waiting_on": "external"}
+    user = {**WORK, "activity": "waiting", "waiting_on": "user"}  # the same key, no question
+    w = _harness(monkeypatch, ["a", "b", "c"], [external, user])
+    _tick(w)
+    assert _tick(w)["activity"] == "running"  # "b": its recapture moved on

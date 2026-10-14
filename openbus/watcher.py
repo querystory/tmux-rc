@@ -1615,9 +1615,9 @@ class Watcher:
         """The card for a parse: a NEW user wait only once a second capture still shows its
         screen, else the agent at work. _state keeps the read, so the next tick confirms it on
         an unchanged screen (the cached card) or on a parse that reads the same ask again."""
-        key = self._pending_key(state)
+        key, previous = self._pending_key(state), previous or {}
         if (key[0] != "waiting" or state.get("waiting_on") == "external"
-                or key == self._pending_key(previous or {})):
+                or (key == self._pending_key(previous) and previous.get("waiting_on") == "user")):
             return state
         time.sleep(max(0.0, captured + CONFIRM_SECONDS - time.monotonic()))
         if self.frame_fp(tmux.capture_pane(pane_id, mark_dim=True)) == fp:

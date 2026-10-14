@@ -1599,3 +1599,13 @@ def test_codex_reviewing_its_own_approval_is_working():
     result = classify(_pane("node"), capture, _llm(
         {"tool": "codex", "activity": "waiting", "waiting_on": "external"}))
     assert result["waiting_on"] == "external"
+
+
+def test_codex_live_row_needs_its_timer():
+    # Transcript text ending "(esc to interrupt)" is not Codex's status row.
+    menu = _sample("06_codex_permission_box").replace(
+        "  1. Yes", "  Documentation example (esc to interrupt)\n  1. Yes")
+    ask = {"prompt": "Would you like to run the following command?", "answer_style": "menu"}
+    result = classify(_pane("node"), menu, _llm(
+        {"tool": "codex", "activity": "waiting", "question": ask}))
+    assert result["activity"] == "waiting" and result["question"]

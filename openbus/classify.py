@@ -71,7 +71,7 @@ _CLAUDE_TURN_RE = re.compile(
 # own reviewer weighs an approval: "Reviewing approval request (17m 00s • esc to interrupt)".
 # Codex hides it while a menu waits on the user, so under it nothing is asking.
 _CODEX_LIVE_RE = re.compile(
-    r"^[ \t]*(?:•[ \t]+)?\w[^\n(]*\((?:[^()\n]*•[ \t]*)?esc to interrupt\)", re.MULTILINE)
+    r"^[ \t]*(?:•[ \t]+)?\w[^\n(]*\(\d+[hms][^()\n]*•[ \t]*esc to interrupt\)", re.MULTILINE)
 # A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
 # capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
 _TURN_ERROR_RE = {
