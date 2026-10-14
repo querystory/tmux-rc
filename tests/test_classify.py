@@ -1,6 +1,9 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
+import json
+from pathlib import Path
+
 import pytest
 
 from openbus import classify as classify_mod
@@ -1561,3 +1564,51 @@ def test_a_tabbed_panel_the_user_opened_is_not_a_question():
                                                 "options": ["No", "Yes"]}}
         text = f"{tmux.VISIBLE_SCREEN}\n{_PANEL}\n{dialog}"
         assert "question" in classify(_pane("claude"), text, lambda s, t, q=later: q)
+
+
+_SAMPLES = Path(__file__).parent.parent / "research/eval/samples"
+_PLUGIN_PANEL = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+ Plugins  Discover   Installed   Marketplaces   Errors
+
+ ╭──────────────────╮
+ │ ⌕ Search…        │
+ ╰──────────────────╯
+ ❯ code-review      claude-plugins-official
+   pr-tools         acme-marketplace
+
+ Space to toggle · Enter to details · Esc to back"""
+_NEW_CONFIG_PANEL = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Settings  Status   Config   Usage   Stats
+   ❯ Auto-compact                true
+     Theme                       Auto (match terminal) ›
+
+   Enter/Space to change · / to search · Esc to close"""
+
+
+@pytest.mark.parametrize("screen", [
+    json.loads((_SAMPLES / "97_claude_config_panel_search_footer.json").read_text())["capture"],
+    f"{tmux.VISIBLE_SCREEN}\n{_NEW_CONFIG_PANEL}",  # no search box: the ❯ name/value row
+    f"{tmux.VISIBLE_SCREEN}\n{_PLUGIN_PANEL}",
+])
+def test_a_tabbed_panel_is_read_by_its_shape_not_one_footer(screen):
+    asking = {"tool": "claude", "activity": "waiting", "waiting_on": "user", "question": {
+        "prompt": "Search settings…", "answer_style": "cursor", "options": ["Auto-compact"]}}
+    result = classify(_pane("claude"), screen, lambda s, t: asking)
+    assert ("question" in result, result["activity"]) == (False, "idle")
+
+
+def test_a_tabbed_question_is_still_a_question():
+    # Multi-question AskUserQuestion: its tab bar opens on an arrow and its Esc cancels.
+    screen = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+←  ☐ Scope  ☐ Approach  ✔ Submit  →
+
+Which scope?
+
+❯ 1. Whole repo        every package
+  2. One package       just web/
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel"""
+    asking = {"tool": "claude", "question": {"prompt": "Which scope?", "answer_style": "cursor",
+                                             "options": ["Whole repo", "One package"]}}
+    result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{screen}", lambda s, t: asking)
+    assert "question" in result
