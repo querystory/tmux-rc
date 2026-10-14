@@ -245,7 +245,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
   // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The
   // model's relay label ("From the user (via text):") is dimmed: how it came, not what goes in.
-  const drawn = ({ pane_id, key, payload }) => !!pane_id && (!!key || typeof payload === "string");
+  // Only a well-formed call is drawn: a malformed one keeps its sentence, as the daemon refuses it.
+  const drawn = ({ pane_id, key, payload }) => !!pane_id && (typeof key === "string" ? !!key : typeof payload === "string");
   function action({ pane_id, label, key, payload, enter }, done) {
     const [press, type, then] = done ? ["Pressed", "Typed into", ", then pressed"] : ["Press", "Type into", ", then press"];
     if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${paneTag(pane_id, label)}</div>`;

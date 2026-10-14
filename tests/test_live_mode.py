@@ -323,6 +323,7 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     assert ws.sent[0]["text"] == 'Send to window 3 "work": rebase onto main'
     assert ws.sent[0]["pane_id"] == "%1"
     assert (ws.sent[0]["payload"], ws.sent[0]["enter"]) == ("rebase onto main", True)  # drawn
+    assert ws.sent[0]["label"] == "work"  # its name until the page's pane list has it
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
     assert session.responses[0][1] == (

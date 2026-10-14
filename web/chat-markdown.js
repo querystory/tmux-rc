@@ -18,7 +18,7 @@ const pattern = (text) => markdown.utils.escapeHtml(text).replace(/[.*+?^${}()|[
 function markNames(html, names) {
   const alternatives = [...new Set(names.filter(Boolean))].sort((a, b) => b.length - a.length).map(pattern);
   if (!alternatives.length) return html;
-  const name = new RegExp(`(?<![\\p{L}\\p{N}&])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}])`, "giu");
+  const name = new RegExp(`(?<![\\p{L}\\p{N}\\p{M}\\p{Pc}&])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}\\p{M}\\p{Pc}])`, "giu");
   return html.split(/(<[^>]*>)/).map((part, i) => i % 2 ? part : part.replace(name, "<strong>$&</strong>")).join("");
 }
 export const renderChatMarkdown = (text, names = []) => markNames(markdown.render(text), names);

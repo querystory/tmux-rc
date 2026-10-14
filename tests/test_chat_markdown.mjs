@@ -15,6 +15,7 @@ test("pane names stand out: whole words, longest first, never inside a tag or an
   assert.ok(html.includes('href="https://e2e.example"')); // an attribute is never touched
   assert.ok(html.includes("><strong>e2e triage</strong></a>")); // the longer name wins
   assert.ok(html.includes(" &amp; e2e2 a-b ")); // not a part of a word, an entity, or a regex
+  assert.equal(renderChatText("feature_e2e e2e\u0301", names), "feature_e2e e2e\u0301"); // nor of an identifier
   assert.ok(html.includes("<strong>R&amp;D &lt;x&gt;</strong>"));
   assert.equal(renderChatText("Send to e2e triage · claude in ci: <b>", names), "Send to <strong>e2e triage</strong> · claude in ci: &lt;b&gt;");
   assert.equal(renderChatText("no names", []), "no names");

@@ -601,6 +601,8 @@ async def _approved(
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
     card = {"type": "propose", "pane_id": pane_id if known else None}  # Open
+    if known:  # what the card calls the pane until the page's own list has it
+        card["label"] = d.get("title") or d.get("label") or pane_id
     if fc.name == "resume_session":
         entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
             await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}
