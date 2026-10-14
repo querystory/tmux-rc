@@ -20,13 +20,18 @@ const stamp = t => new Date(t).toLocaleString([], { weekday: 'short', month: 'sh
 // A clock time: the weekday as well once it is not today.
 const clock = (t, now) => new Date(t).toLocaleString([], { ...(new Date(t).toDateString() !== new Date(now).toDateString() && { weekday: 'short' }), hour: 'numeric', minute: '2-digit' });
 
-// The view's choices outlive a visit: the range (until picked, 30 days wide, and on a phone
-// the one that suits the chart on screen: a day of 5h teeth, a month of weekly ones), the
-// chart a phone shows, and the span someone zoomed or panned to (null: the range's).
+// The view's choices outlive a visit: the range (a week until one is picked: enough 5h teeth
+// to compare days, and this weekly window whole), the chart a phone shows, and the span
+// someone zoomed or panned to (null: the range's).
 let picked = null, shown = 0, zoom = null, view = null;
 // The account each chart's bands follow, by window type: the one picked by its chip, else the fullest.
 const focusBy = {};
-const rangeOf = () => picked || (view?.narrow && view.types[shown] === '5h' ? '1d' : '30d');
+// The accounts this view shows, by id (provider and dirs); none is all. Its own, per browser:
+// the list's account filter scopes the list, and narrowing the charts should not hide panes.
+const KEY = 'tmuxrc-usage-accounts', idOf = a => `${a.provider} ${a.dirs}`;
+let chosen = [];
+try { chosen = JSON.parse(localStorage.getItem(KEY)) || []; } catch {}
+const rangeOf = () => picked || '7d';
 // How many days of ended windows the view asks the server for: a month covers every range
 // but All (every one, however old), so picking one does not wait on a fetch.
 export const usageDays = () => picked === 'All' ? Infinity : 30;
@@ -99,7 +104,7 @@ function option(card, extent, now, slider, css) {
   const fg = color('--fg'), surface = color('--surface'), red = color('--red'), accent = color('--accent');
   const height = card.chartEl.clientHeight, narrow = view.narrow, bottom = slider ? (narrow ? 60 : 70) : 28;
   const focused = card.meters.find(m => m.id === focusBy[card.type]);
-  const fill = { grey: [color('--raised'), 0.6], now: [color('--amber-bg'), 1] };
+  const fill = { grey: [color('--raised'), 0.6], now: [color('--chart-s5'), 0.16] };
   const series = card.meters.flatMap(m => {
     const base = { name: m.name, type: 'line', showSymbol: false, emphasis: { disabled: true }, itemStyle: { color: m.color } }, on = m === focused;
     return [
@@ -156,27 +161,42 @@ const windowOf = ({ min, max }, now) => {
   return { startValue: Math.max(min, now - span), endValue: Math.min(max, now + Math.max(6 * H, Math.min(span, 30 * D) / 5)) };
 };
 
-// `accounts` as app.js names them (accounts.usage); `chip(a)` is an account's chip.
-export function renderUsageView(root, accounts, { now = Date.now(), chip, refetch, types: read = [], filter }) {
-  if (!view) view = setup(root, refetch, filter);
-  view.picker.hidden = !filter.shown; // one account: nothing to pick
+// `all`: every account, named as app.js names them (acct, chip); the view shows `chosen`.
+export function renderUsageView(root, all, options) {
+  const { now = Date.now(), refetch, icon } = options;
+  if (!view) view = setup(root, refetch, icon);
+  view.again = () => renderUsageView(root, all, options);
+  const ids = [...new Set(all.map(idOf))], on = chosen.filter(k => ids.includes(k));
+  const accounts = on.length ? all.filter(a => on.includes(idOf(a))) : all;
+  // The menu, drawn as the list's account filter draws its own (accounts.js), on this view's state.
+  view.picker.hidden = ids.length < 2; // one account: nothing to pick
+  const menu = '<div role="group" aria-label="Account"><div class="menu-sec">Account</div>'
+    + '<button type="button" class="acct-opt" data-id=""><i class="acct-dot none"></i><span>All accounts</span></button>'
+    + ids.map(k => { const a = all.find(x => idOf(x) === k);
+      return `<button type="button" class="acct-opt" data-id="${esc(k)}"><i class="acct-dot" style="--a:var(--acct-${a.acct?.color ?? 0})"></i><span>${esc(a.acct?.name || NAMES[a.provider] || a.provider)}</span></button>`; }).join('') + '</div>';
+  // Redrawn only when the accounts change, and the picks marked in place: a click on a redrawn
+  // button would read as outside the menu, and close it.
+  if (view.menuHtml !== menu) view.menu.innerHTML = view.menuHtml = menu;
+  view.picker.firstChild.classList.toggle('on', on.length > 0); // a pick in force shows on the button
+  view.menu.querySelectorAll('[data-id]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id ? on.includes(b.dataset.id) : !on.length)));
   view.now = now;
   fit();
   const css = getComputedStyle(document.documentElement);
   // A meter per account and window, grouped by window type: Codex's week sits in Weekly.
   const byType = {};
   accounts.forEach((a, i) => (a.windows || []).forEach(w => (byType[w.window] ||= []).push({
-    w, as_of: a.as_of, chip: chip(a), id: `${a.provider} ${a.dirs}`, dirs: (a.dirs || []).join(', '), name: a.acct?.name || NAMES[a.provider] || a.provider,
+    w, as_of: a.as_of, chip: a.chip, id: idOf(a), dirs: (a.dirs || []).join(', '), name: a.acct?.name || NAMES[a.provider] || a.provider,
     color: css.getPropertyValue(`--acct-${a.acct?.color ?? i}`).trim(), ...teeth(w, now) })));
-  const types = [...new Set([...read, ...Object.keys(byType)])].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+  // Every window type of every account, picked or not, so a chart the pick empties says so.
+  const types = [...new Set([...all.flatMap(a => (a.windows || []).map(w => w.window)), ...Object.keys(byType)])].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
   if (types.join() !== view.types.join()) build(types);
   shown = Math.max(0, Math.min(shown, types.length - 1));
-  const all = Object.values(byType).flat(), times = all.flatMap(m => [m.past[0]?.[0], m.cur[0]?.[0], m.w.resets_at]).filter(Boolean);
+  const times = Object.values(byType).flat().flatMap(m => [m.past[0]?.[0], m.cur[0]?.[0], m.w.resets_at]).filter(Boolean);
   // At least the days loaded, so a new account's 30d still spans 30 days; All, what there is.
   view.extent = { min: Math.min(now - (usageDays() === Infinity ? D : usageDays() * D), ...times), max: Math.max(now + 6 * H, ...times) + H };
   if (zoom) zoomTo(zoom.startValue, zoom.endValue - zoom.startValue); // within the new extent: a filter can narrow it
   // An account that cannot be read has no windows to draw; it says so rather than vanish.
-  view.errs.innerHTML = accounts.filter(a => a.error).map(a => `<span class="uv-read">${chip(a) || esc(NAMES[a.provider] || a.provider)}<span>${esc(a.error)}</span></span>`).join('');
+  view.errs.innerHTML = accounts.filter(a => a.error).map(a => `<span class="uv-read">${a.chip || esc(NAMES[a.provider] || a.provider)}<span>${esc(a.error)}</span></span>`).join('');
   for (const card of view.cards) {
     card.meters = byType[card.type] || []; // none: the account filter hides every account with this window
     card.el.classList.toggle('empty', !card.meters.length);
@@ -191,14 +211,11 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
       + (m.w.projected != null ? `, ${Math.round(m.w.projected)}% by the reset at this pace` : '')).join('. ')}. Plus and minus zoom, left and right arrows pan.`);
   }
   // A phone on a chart the filter just emptied moves to one with something to show.
-  if (!view.cards[shown]?.meters.length) {
-    shown = Math.max(0, view.cards.findIndex(c => c.meters.length));
-    if (!picked) zoom = null; // as show() does: the range follows the chart
-  }
+  if (!view.cards[shown]?.meters.length) shown = Math.max(0, view.cards.findIndex(c => c.meters.length));
   paint();
 }
 
-function setup(root, refetch, filter) {
+function setup(root, refetch, icon) {
   root.innerHTML = '<div class="uv-bar"><div class="uv-errs"></div><span class="uv-span"></span></div><div class="uv-stack"></div>';
   const v = { root, types: [], cards: [], bar: root.firstChild, span: root.querySelector('.uv-span'), stack: root.querySelector('.uv-stack'), errs: root.querySelector('.uv-errs') };
   v.range = segmented('Time range', Object.keys(RANGES), rangeOf(), r => {
@@ -207,12 +224,19 @@ function setup(root, refetch, filter) {
     if (usageDays() > more) refetch();
     paint();
   });
-  // The account filter: the list's own (app.js lends it while this menu is open), so one acct=
-  // in the URL scopes both, and picking here narrows the list too.
+  // Which accounts to chart: the header-picker menu the list's filter uses, several at once,
+  // open while picking. None ticked is all.
   v.picker = document.createElement('details');
   v.picker.className = 'header-picker uv-filter';
-  v.picker.innerHTML = `<summary title="Filter accounts" aria-label="Filter accounts">${filter.icon}</summary><div class="header-picker-menu"></div>`;
-  v.picker.addEventListener('toggle', () => filter.place(v.picker.open ? v.picker.lastChild : null));
+  v.picker.innerHTML = `<summary title="Accounts to chart" aria-label="Accounts to chart">${icon}</summary><div class="header-picker-menu"></div>`;
+  v.menu = v.picker.lastChild;
+  v.menu.addEventListener('click', e => {
+    const k = e.target.closest('[data-id]')?.dataset.id;
+    if (k == null) return;
+    chosen = !k ? [] : chosen.includes(k) ? chosen.filter(x => x !== k) : [...chosen, k];
+    try { localStorage.setItem(KEY, JSON.stringify(chosen)); } catch {}
+    view.again();
+  });
   dismissable(v.picker);
   v.bar.append(v.range, v.picker);
   // A sideways swipe on a heading or the tabs moves a phone to the next chart; one
@@ -232,10 +256,7 @@ function setup(root, refetch, filter) {
     from = null;
   });
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  new ResizeObserver(() => {
-    if (!root.isConnected && v.picker.open) { v.picker.open = false; filter.place(null); } // left with the menu open (Back, say): the filter goes home
-    else if (root.clientWidth) { fit(); paint(); } // not while away: a detached view measures 0
-  }).observe(root);
+  new ResizeObserver(() => { if (root.isConnected && root.clientWidth) { fit(); paint(); } }).observe(root); // not while away: a detached view measures 0
   return v;
 }
 
@@ -285,7 +306,6 @@ function zoomTo(from, span) {
 
 function show(i) {
   shown = (i + view.types.length) % view.types.length;
-  if (!picked) zoom = null; // the range follows the chart until one is picked
   paint();
 }
 

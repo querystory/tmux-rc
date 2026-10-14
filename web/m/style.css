@@ -930,18 +930,19 @@ button.picked:disabled { opacity: 1; }
 .acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
 .acct-pill .acct-badge { flex-shrink: 1; min-width: 0; font-size: 12px; padding: 1px 2px 1px 8px; }
 .acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
-/* The account filter. Wide: "Panes from" under the list's own "Show" choices, in one
+/* An account menu's options (.acct-opt in any .header-picker-menu): a check for each pick. The
+   account filter. Wide: "Panes from" under the list's own "Show" choices, in one
    dropdown, each group's pick a check (no radios) and the account's dot on the label. */
 #side-filter-picker .header-picker-menu { min-width: 180px; max-width: calc(var(--side-w) - 16px); overflow-y: auto; font-weight: 400; }
-#side-filter-picker .acct-opt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen */
+.header-picker-menu .acct-opt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen */
 #side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden]))::before { content: "Show"; }
-#side-filter-picker .header-picker-menu::before, #acct-filter .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
-#side-filter-picker :is(label, .acct-opt) { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
+#side-filter-picker .header-picker-menu::before, .header-picker-menu .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
+#side-filter-picker label, .header-picker-menu .acct-opt { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
 #side-filter-picker label input { position: absolute; opacity: 0; pointer-events: none; }
-#side-filter-picker :is(label, .acct-opt)::after { content: ""; flex: none; width: 5px; height: 10px; margin: -4px 4px 0 auto; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); visibility: hidden; }
-#side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"]) { font-weight: 600; }
-#side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"])::after { visibility: visible; }
-#side-filter-picker .acct-opt:hover { background: var(--raised); }
+:is(#side-filter-picker label, .header-picker-menu .acct-opt)::after { content: ""; flex: none; width: 5px; height: 10px; margin: -4px 4px 0 auto; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); visibility: hidden; }
+:is(#side-filter-picker label:has(:checked), .header-picker-menu .acct-opt[aria-pressed="true"]) { font-weight: 600; }
+:is(#side-filter-picker label:has(:checked), .header-picker-menu .acct-opt[aria-pressed="true"])::after { visibility: visible; }
+.header-picker-menu .acct-opt:hover { background: var(--raised); }
 #acct-filter hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 #side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden])) label { padding-left: 26px; }
 #side-filter-picker summary .acct-dot { width: 7px; height: 7px; }
@@ -1009,7 +1010,8 @@ button.picked:disabled { opacity: 1; }
 .uv-none { color: var(--muted); font-size: 13px; }
 .uv-filter summary { min-height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; }
 .uv-filter summary::after { display: none; }
-.uv-filter #acct-filter > hr { display: none; } /* first in this menu: nothing above it to rule off */
+.uv-filter summary.on { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
+.uv-filter .header-picker-menu { min-width: 180px; }
 @container dash-page (max-width: 699px) {
   #landing .usage-view { min-height: 460px; gap: 10px; padding: 12px 6px 4px; }
   .uv-card { border: 0; padding: 0; }

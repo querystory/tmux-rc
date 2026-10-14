@@ -81,7 +81,7 @@ follow ("8 days shown"). Each range also runs on past now by a fifth of itself (
 six hours), so the forecasts show without a short range spending its width on the future.
 
 **Bands for one account's windows.** Behind the lines, the current window is shaded a
-light amber from its start to its reset, and the windows before it alternate grey and
+light blue from its start to its reset (not amber, which the app uses for "needs you"), and the windows before it alternate grey and
 clear, so "where we are in this window, and how it is going" reads before any line does.
 A chart holds several accounts whose windows start and end at different times, and bands
 for all of them overlapped into mush, so the bands follow one account per chart: the
@@ -92,15 +92,15 @@ before the scheduled reset, the band ends at the fall and a fresh one starts the
 stretch with no known window (a 5h quota not yet opened, a gap in the history) is left
 unshaded rather than guessed at.
 
-**Which accounts, from the list's own filter.** A filter button beside the range opens
-the list's account filter itself, lent to the view while the menu is open, rather than a
-second picker. It writes the same `acct=` in the URL, so narrowing the list to Work narrows
-the charts to Work and the other way round. A separate selection was considered and
-rejected: two filters over the same accounts would disagree as soon as one was changed,
-and "why does the list show Personal but the charts don't?" has no good answer. A chart
-the filter empties (Weekly Fable with only Codex picked) collapses to one line saying so,
-rather than vanishing and shifting the others, and band focus picks among the shown
-accounts only.
+**Which accounts: the view's own pick.** A filter button beside the range opens the same
+menu the list's account filter uses (its markup and styles: a check on each pick, "All
+accounts" when none is), several at once and open while picking. It keeps its own
+selection, per browser, rather than the list's `acct=`. Sharing it was tried first, so one
+choice scoped both, and it was wrong in use: narrowing the charts to one plan to read it
+also hid every other account's panes from the list, which is not what anyone picking a
+chart meant. A chart the pick empties (Weekly Fable with only Codex picked) collapses to
+one line saying so, rather than vanishing and shifting the others, and band focus picks
+among the shown accounts only.
 
 **A chart per window type, not per account.** A per-account chart overlays its 5h teeth
 on the weekly line they feed, which reads well for one account and badly for three; and
@@ -113,8 +113,8 @@ side. The tooltip interpolates each meter at the pointer's time instead.
 
 **A phone shows one chart at a time.** Three stacked charts at 390px are three slivers.
 The range sits on top, the window tabs under it (a sideways swipe on the heading moves
-between them too), and until a range is picked it follows the chart: a day of 5h teeth,
-a month of weekly ones.
+between them too). The range starts at a week on both: enough 5h teeth to compare days,
+and the current weekly window whole; a month of 5h teeth was a wall of spikes.
 
 **Data.** `/api/usage?past=<days>` adds, per window, the windows that ended in those days,
 each with its samples thinned to the same 120 points as a current window. The view asks

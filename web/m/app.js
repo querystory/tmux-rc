@@ -637,13 +637,14 @@ const paintUsage = () => {
   accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
-  // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.
-  // Every window type read, filtered or not, so a chart the account filter empties says so.
-  renderUsageView(cardView("Plan usage", usageView), board.length ? board : all, { chip: (a) => a.chip || (a.acct ? accounts.chip(a.acct) : ""),
-    refetch: () => refreshCached(true), types: [...new Set(usage.flatMap((a) => (a.windows || []).map((w) => w.window)))],
-    // The list's account filter itself (one acct= for the list and the charts), lent to the view's menu while it is open.
-    filter: { shown: accounts.any(), icon: licon("filter", 16),
-      place: (menu) => { if (!menu) return placeChrome(); menu.append(accounts.filter); accounts.strip(accounts.filter, false); } } });
+  // Every account's meters, whatever the list's account filter: the view picks its own
+  // (usage-view.js). Named and chipped as the list names them; a tool filter with no meters
+  // (reached by Forward, say) shows them all rather than a blank view.
+  const scoped = usage.filter((a) => a.provider === tool), list = (scoped.length ? scoped : usage).map((a) => {
+    const p = (a.dirs || []).map(accounts.profile).find((p) => p?.signed_in);
+    return { ...a, acct: p, chip: p ? accounts.chip(p) : "" };
+  }).filter((a) => a.acct || !accounts.list().length); // a removed account drops out, as in accounts.usage()
+  renderUsageView(cardView("Plan usage", usageView), list, { refetch: () => refreshCached(true), icon: licon("filter", 16) });
 };
 const usageView = document.createElement("section");
 usageView.className = "atlas-panel usage-view";
