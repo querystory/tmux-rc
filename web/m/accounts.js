@@ -327,7 +327,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // Settings' list: each account, who it is and where, its sheet a click away.
     rows: () => profiles.map((p) => `<div class="set-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></div>`).join(""),
     // The URL's accounts in, and out for the next URL; follow says whether they changed.
-    key: () => filter, follow: (k) => { if (String(k) === String(filter)) return false; filter = k; paintFilter(); return true; },
+    key: () => filter, follow: (k) => { if (JSON.stringify(k) === JSON.stringify(filter)) return false; filter = k; paintFilter(); return true; },
     matches,
     // Open loops under a filter: only what a pane on the account holds (a PR's or worktree's
     // with no pane belongs to no account, so it is hidden with the rest).

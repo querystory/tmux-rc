@@ -65,8 +65,6 @@ export function matchesFilter(pane, filters, nowMs = Date.now()) {
   const known = filters.filter((f) => Object.prototype.hasOwnProperty.call(FILTERS, f));
   return !known.length || known.some((f) => FILTERS[f](pane, nowMs));
 }
-// tmux's own order: session, then window, then pane.
-export const tmuxOrder = (a, b) => (a.session || "").localeCompare(b.session || "") || a.window_index - b.window_index || a.pane_index - b.pane_index;
 // Is the URL still on pane `id`? Nothing may pull the user out of a pane on the strength of
 // the app's own `active` alone: the involuntary exits (a state poll that no longer lists the
 // pane, its live stream or /select taking a 404) fire asynchronously, by which time the user

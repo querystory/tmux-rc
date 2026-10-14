@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, tmuxOrder, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -395,7 +395,7 @@ function renderList() {
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
 function renderPhoneList(subset) {
   const rows = sort === "updated" ? subset.sort(newestFirst)
-    : [...new Set(subset.sort(tmuxOrder).map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
+    : [...new Set(subset.map((p) => p.session))] // as the watcher lists them: tmux's order.flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
     if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
     if (!needsYou(p)) return makeRow(p);

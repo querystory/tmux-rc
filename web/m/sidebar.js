@@ -11,7 +11,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, newestFirst, tmuxOrder, paneActivity, paneHeadline, paneMeta, questionItems, activityLabel, activityClass, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, questionItems, activityLabel, activityClass, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -27,7 +27,8 @@ const HOVER_MS = 350;
 
 // Needs you first, then the groups; a group with nothing in it is not drawn.
 function groups(subset, query, sort) {
-  const order = sort === "session" ? tmuxOrder : (a, b) => rank(a) - rank(b) || newestFirst(a, b);
+  // Session order is the order the watcher publishes, tmux's own: a stable sort that ties keeps it.
+  const order = sort === "session" ? () => 0 : (a, b) => rank(a) - rank(b) || newestFirst(a, b);
   const rest = subset.filter((p) => !needsYou(p)).sort(order); // in session order, the sessions are too
   const list = prefs.by === "session"
     ? [...new Set(rest.map((p) => p.session))].map((s) => {
