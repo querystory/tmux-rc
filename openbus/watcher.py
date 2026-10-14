@@ -1530,6 +1530,7 @@ class Watcher:
         # the screen next changed. A finished agent's screen does not change again, so
         # the freeze was permanent. Leaving the mark unset on failure costs one re-read
         # of the same text on the next tick, which is exactly the retry this needs.
+        retired = False  # this screen given up on: no read is coming, so the card is not pending
         if state.get("parse_ok", True):
             self._prev_fp[pane.id] = fp
             self._parse_fails.pop(pane.id, None)
@@ -1551,6 +1552,7 @@ class Watcher:
             # next real content change clears the counter and tries again.
             self._parse_fails[pane.id] = 0
             self._prev_fp[pane.id] = fp
+            retired = True
             logger.warning("%s: parse failed %dx, leaving the screen unread",
                            pane.id, PARSE_RETRIES)
         else:
@@ -1624,7 +1626,9 @@ class Watcher:
         # reparse has actually landed — so it can stop spinning the answered control.
         # A pane never read successfully keeps no parsed_at: the phone shows it as pending.
         # This attempt's own outcome (_parse_valid): a failure's fallback copies `previous`.
-        if self._parse_valid[pane.id] or "parsed_at" in state:
+        # A first read retired unread stamps it too: nothing more is scheduled, so a spinner
+        # would promise a summary that never comes.
+        if self._parse_valid[pane.id] or retired or "parsed_at" in state:
             state["parsed_at"] = now
         # The input generation and frame this question was read from, on the state itself
         # so they publish with it: input since (a menu answer above all) or a screen that

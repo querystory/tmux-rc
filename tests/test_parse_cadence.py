@@ -352,6 +352,17 @@ def test_a_pane_never_read_stays_pending(monkeypatch):
     assert stamps[2] and stamps[3], "once read, a later failure keeps it read"
 
 
+
+def test_a_first_read_given_up_on_stops_pending(monkeypatch):
+    """Copilot: a screen that exhausts its retries is retired unread and never re-parsed
+    while it stays the same, so leaving parsed_at unset would spin "Summarizing…" forever."""
+    w, _ = _harness(monkeypatch, ["agent finished · done 10:28 PM"])
+    monkeypatch.setattr(W, "classify", lambda pane, text, **_kw: {
+        "activity": "idle", "tool": "claude", "events": [], "parse_ok": False})
+    stamps = [w._tick_pane(_Pane()).get("parsed_at") for _ in range(W.PARSE_RETRIES + 1)]
+    assert stamps[:W.PARSE_RETRIES - 1] == [None] * (W.PARSE_RETRIES - 1), "still retrying: pending"
+    assert stamps[-2] and stamps[-1], "retired: the card stops spinning and stays so"
+
 def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch):
     """The permanent-"Running"-badge bug. A parse failure (a 429 returning None) used to
     advance the pane's fingerprint anyway, which marks the screen read — and since an
