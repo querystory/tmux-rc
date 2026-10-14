@@ -754,7 +754,9 @@ function render() {
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   // A phone's Chat and mic ride its tab bar; a pane hides the bar, so its header takes them.
-  if (!wide) (inPane ? $("settings-open") : $("attention-tab")).before($("live-mode"), $("chat"));
+  // Moved only when they are elsewhere: a move on every repaint would drop their focus.
+  const callTo = inPane ? $("settings-open") : $("attention-tab");
+  if (!wide && $("chat").nextElementSibling !== callTo) callTo.before($("live-mode"), $("chat"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
   show("brand", wide || (!inPane && dashboard)); show("list-title", list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
