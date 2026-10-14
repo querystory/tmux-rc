@@ -201,7 +201,7 @@ export function setupSidebar(ctx) {
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
       text(el, o.reply ? "Reply" : o.option); el.title = o.reply ? "" : o.option; el.disabled = busy;
-      el.classList.toggle("picked", !o.reply && answered?.index === o.index);
+      el.classList.toggle("picked", !o.reply && answered?.option === o.option);
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;

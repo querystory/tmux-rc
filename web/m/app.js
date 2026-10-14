@@ -124,7 +124,7 @@ let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
-// Answers tapped and not yet reflected, per pane (pane id -> { prompt, index, note }): the
+// Answers tapped and not yet reflected, per pane (pane id -> { key, option, note }): the
 // sidebar can answer several panes inside one hold, and each keeps its own.
 const pendingAnswers = new Map();
 // Per-line nodes under #capture, in document order; each caches the markup last written
@@ -782,7 +782,7 @@ function render() {
     return button;
   }, (button, option) => {
     button._option = option; text(button, option.option); button.disabled = sending || !!answered;
-    button.classList.toggle("picked", answered?.index === option.index);
+    button.classList.toggle("picked", answered?.option === option.option); // a walk renumbers rows
   });
   renderTasks(pane);
   renderRichContent(pane);
@@ -1152,7 +1152,7 @@ function badgeOf(pane) {
 async function answer(id, option, index) {
   const current = panes.find((p) => p.pane_id === id);
   if (!current?.question || !needsYou(current) || isAnswered(current) || sending) return;
-  const pending = { key: questionKey(current.question), index, note: "Sending…" };
+  const pending = { key: questionKey(current.question), option, note: "Sending…" };
   pendingAnswers.set(id, pending); render();
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk

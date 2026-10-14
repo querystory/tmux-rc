@@ -1011,10 +1011,12 @@ def _picker_after(pane_id: str, body: SendBody) -> dict:
     if not read and prompt_gone(screen, body.prompt):
         time.sleep(PICKER_SETTLE_S * 3)
         try:
-            if prompt_gone(tmux.capture_pane(pane_id, mark_dim=True), body.prompt):
-                app.state.watcher.drop_question(pane_id, body.prompt)
+            screen = tmux.capture_pane(pane_id, mark_dim=True)
         except subprocess.CalledProcessError:  # closed: its card is going anyway
-            pass
+            return {"picker": None, "row": None}
+        read = picker_read(screen, body.prompt)  # repainted: the walk goes on from this
+        if not read and prompt_gone(screen, body.prompt):
+            app.state.watcher.drop_question(pane_id, body.prompt)
     return {"picker": read and read[0], "row": read and read[1]}
 
 
