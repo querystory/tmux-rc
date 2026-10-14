@@ -541,6 +541,54 @@ approved a card they read as the reopen, and the model then described work the p
 - A card carries a warning line when its turn followed a restore or was a bare agreement,
   the two cases where the user's intent and the model's reading most easily part.
 
+**Whose question, which pane.** One chat went wrong twice in a row. The user had just
+asked about one pane, then said "ask the agent for all 8 workstream status", and the model
+offered to type it into a different pane whose screen listed eight background agents: the
+keyword overlap beat a conversation that was plainly about the first pane. Declined, it asked
+"should I send that elsewhere?", and the user's "no, for the fable one" was read as the answer
+to that pane's pending permission prompt, so the next card would have declined its command.
+The history held everything needed both times; what the model lacked was the structure, so
+each turn now carries it rather than the prompt growing examples:
+
+- A turn starts with the pane the conversation is on: the last one a reply named (by its
+  title, or "window N" where a prompt still has the model say numbers; a name two panes
+  share names neither) or an action reached, and says that "the
+  agent" or "it" in the message means that pane. A declined action reached nothing and moves
+  nothing. Names in the user's own message were not used: "the agent" names nothing, and a
+  pane the user does name already wins outright. A bare marker was not enough: the eval
+  showed Flash still offering the pane whose screen said "8 agents" every time, so the line
+  says what the reference means, next to the message it is about.
+- A turn sent right after the assistant asked something says so. A pane's pending question
+  is in the pane state on every turn, so without the marker a "no" has two candidate
+  questions and the louder one wins.
+- Answering a pane's prompt is gated in code. Once routed right, the model still pressed
+  Escape, or typed the "No" row's number, before relaying the message: clearing the prompt
+  out of the way, and declining the agent's command with it. So in a text session a key
+  press, or a row number or yes/no typed into a pane with a pending question, is refused
+  before any card unless the user's message, or the assistant's question it answers, asks
+  for it: the key's job by name ("decline it" for Escape, "approve" for Enter) or an answer
+  by verb ("pick 3"). A bare yes or no never counts, since it answers the assistant, nor
+  does a bare number, which is as likely a window's. This is
+  a vocabulary, and it will refuse some phrasings it should allow; a refusal costs one more
+  line of chat, while a wrong decline loses the agent's work. Gating every send into a pane
+  with a pending question was rejected: "tell it to use main" answering "which branch?" is
+  the commonest relay there is.
+
+- A message is never typed into a menu. A pane whose pending question is a widget (a
+  numbered menu or a cursor list, as the parser reports it) takes keys, not prose: the
+  relay's Enter picks the highlighted row, which for a permission prompt is usually "1.
+  Yes", approving a command the user never saw. So text into such a pane is refused before
+  any card, and the model is told to say what the menu asks, list its options (now in the
+  pane state) and ask which to pick. A free-text question is unaffected: answering it is
+  exactly what a relay is for. A cursor list takes no typing at all, not even an asked-for
+  row number: it searches what is typed, so its rows are picked with the arrow keys.
+
+The eval (`research/eval/chat_routing.py`) replays the conversation against the real
+model, through the same gate. Without the gate and the explicit line it routed the first
+turn to the wrong pane 5 times in 5. With them, both turns go to the right pane, and with
+fable at a menu the right move is to ask: nothing reaches the pane in either case, and a
+third case checks a free-text question still gets its relay.
+
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
 starts. Switching mid-conversation, as the history doc asks, now means moving a

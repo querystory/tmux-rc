@@ -93,6 +93,10 @@ def only_agrees(text: str) -> bool:
 _ASKS = re.compile(r"\?(?=[\s*_)\"']|$)")
 CAUTION_RESTORED = "The chat reconnected and its context was restored: check this is what you meant"
 CAUTION_BARE = 'Your reply was only "{}": check this is what you agreed to'
+# Leads a turn sent right after the assistant asked something. A pane's own pending question
+# sits in the pane state too, and "no, the other one" was once about to decline a pane's
+# command instead of answering the assistant: the model must see whose question is open.
+OPEN_QUESTION = "[Open question: yours]"
 
 
 class _Chat:
@@ -112,6 +116,14 @@ class _Chat:
         self.asked = False  # whether the last reply asked the user something
         self.unanchored = False  # this turn only agrees, and nothing was asked
         self.caution: str | None = None  # this turn's warning for a consent card
+        # The pane the conversation is on, (pane id, the line that says so) (live._focus),
+        # and the one this turn was sent under (live._refusal).
+        self.focus: tuple[str, str] | None = None
+        self.turn_pane: str | None = None
+        self._asking = ""  # the reply that asked, while self.asked
+        self._replies: list[tuple[str, str]] = []  # restored (role, text): replies, sends
+        # The question this turn agrees with, if it only agrees, and its own words (live._refusal)
+        self.request = ("", "")
 
     def restore(self, rows) -> int:
         """Take the client's transcript as quoted context for a session that has none yet.
@@ -124,19 +136,28 @@ class _Chat:
         if len(text) > RESTORED_CHARS:
             text = "(earlier turns omitted)\n" + text[-RESTORED_CHARS:]
         if rows:
+            self._replies = [(r["role"], r["text"]) for r in rows if r["role"] != "user"]
             self._restored = _RESTORED.format(text)
             last = rows[-1]["text"][-RESTORED_CHARS:]  # only what the model will see asks
             self.asked = rows[-1]["role"] == "model" and bool(_ASKS.search(last))
+            self._asking = last
         return len(rows)
+
+    def restored_replies(self) -> list[tuple[str, str]]:
+        """The replies and sends a restore brought back, oldest first, as (role, text): each
+        can move the current pane (live._focus). Handed over once."""
+        replies, self._replies = self._replies, []
+        return replies
 
     async def send_audio(self, _pcm: bytes) -> None:
         """A text session has no mic; a stray frame is dropped."""
 
     async def send_text(self, text: str, images: list[tuple[str, bytes]] = ()) -> None:
         """A typed turn, with any pasted images as (mime, bytes) ahead of its text."""
-        # A question anchors only the message sent next: one queued behind a turn still
-        # running was written before that turn's reply, whatever the reply asks.
-        self._inbox.put_nowait((text, images, self.asked))
+        # A question anchors only the message sent next, and the pane is the one shown when
+        # it was sent: one queued behind a turn still running was written before that
+        # turn's reply, whatever the reply asks or names.
+        self._inbox.put_nowait((text, images, self.asked, self.focus))
         self.asked = False
 
     async def send_context(self, text: str) -> None:
@@ -150,17 +171,24 @@ class _Chat:
         """A turn the model did not finish (failed, empty) is closed in history with
         the note the user saw, so a later request cannot resume its request or tool chain."""
         while True:
-            text, images, anchored = await self._inbox.get()
+            text, images, anchored, focus = await self._inbox.get()
+            self.turn_pane = focus and focus[0]
             self._starts.append(len(self.history))
             if len(self._starts) > TURNS_KEPT:
                 cut = self._starts[-TURNS_KEPT]
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
+            # The question's words count only when the reply just agrees with it: after
+            # "cancel its command?", "no" must not leave "cancel" asking for Escape.
+            self.request = (self._asking if anchored and only_agrees(text) else "", text)
             bare = only_agrees(text)
             self.unanchored = bare and not anchored
             self.caution = (CAUTION_RESTORED if self._restored
                             else CAUTION_BARE.format(text.strip()) if bare else None)
-            self._user("\n\n".join(filter(None, [self._restored, *self._context, text])), images)
+            self._user("\n\n".join(filter(None, [
+                self._restored, *self._context, focus and focus[1], anchored and OPEN_QUESTION,
+                text,
+            ])), images)
             self._restored = ""
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim
@@ -214,7 +242,7 @@ class _Chat:
                 self._answers = []
             else:  # quiet or still calling on the last step: closed, as a quiet turn is
                 self._model(_DONE)
-            self.asked = bool(_ASKS.search(said))
+            self.asked, self._asking = bool(_ASKS.search(said)), said
             yield Event("turn_complete")
 
 

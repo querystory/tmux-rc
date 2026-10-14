@@ -291,6 +291,48 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     return [d for _, d in ranked[:5]], clear
 
 
+def _named(digest: list[dict], text: str) -> dict | None:
+    """The pane a reply names last, by its title or "window N" (where a prompt still has it
+    say numbers), or None. The longer name wins a tie, so "main" can't steal "tmuxrc main";
+    two panes still tied (a repeated title or number) are ambiguous, so None."""
+    said, spots = f" {' '.join(_words(text))} ", {}
+    for d in digest:
+        win = d.get("window_index")
+        for name in (d.get("title") or d.get("label"), win not in (None, "") and f"window {win}"):
+            words = " ".join(_words(str(name))) if name else ""
+            at = said.rfind(f" {words} ") if words else -1
+            if at >= 0:
+                spots.setdefault((at + len(words), len(words)), set()).add(d["pane_id"])
+    best = spots[max(spots)] if spots else ()
+    return next((d for d in digest if d["pane_id"] in best), None) if len(best) == 1 else None
+
+
+_FOCUS = ("[Current pane: {} (id={}). If the message below says 'the agent' or 'it', it means "
+          "this pane: deliver there, and don't offer another pane.]")
+
+
+def _restored_pane(digest: list[dict], role: str, text: str) -> dict | None:
+    """The pane a restored row moves focus to: a reply by the names in it, a send by the pane
+    its row leads with ("label (%N): text", or "name: text" where clients drop the id)."""
+    if role != "typed":
+        return _named(digest, text)
+    sent = re.match(r".*? \((%\d+)\)(?: \(not submitted\))?: ", text)  # a label may hold ":"
+    if sent:
+        return next((d for d in digest if d["pane_id"] == sent[1]), None)
+    head = " ".join(_words(text.split(": ", 1)[0]))  # the row's label (or title), whole
+    hits = [d for d in digest if head in {" ".join(_words(str(d.get(k) or ""))) for k in
+                                           ("label", "title")}]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _focus(session, d: dict | None) -> None:
+    """Point a chat at the pane it is now about: the one a reply named or an action reached.
+    Its next turn says so, so "ask the agent" stays with the pane just discussed instead of
+    going to whichever pane's screen shares a word with the request."""
+    if d:
+        session.focus = d["pane_id"], _FOCUS.format(_pane_name(d), d["pane_id"])
+
+
 def _pane_block(d: dict, screen: str | None) -> str:
     """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
     leads with the user-facing identity (window number + title) and gives the internal
@@ -317,7 +359,9 @@ def _pane_block(d: dict, screen: str | None) -> str:
         refs = ", ".join(f"{p['repo']}#{p['number']}" for p in d["prs"])
         parts.append(f"PRs this pane has worked on: {refs}")
     if d.get("question"):
-        parts.append(f"PENDING QUESTION: {d['question']}")
+        menu = d.get("menu")
+        parts.append(f"PENDING QUESTION: {d['question']}" + (
+            f" (a menu: {' / '.join(menu)})" if menu else " (a menu)" if menu is not None else ""))
     if screen:
         parts.append(f"screen:\n{screen}")
     return "\n".join(parts)
@@ -372,7 +416,9 @@ _TEXT_NOTE = (
     "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
     "about to do before calling a tool, and never say what a pane did unless an update "
     'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
-    "with none, ask what they mean instead of acting. Pasted images are numbered in the "
+    "with none, ask what they mean instead of acting. After [Open question: yours] the user "
+    "is answering you, not a pane's PENDING QUESTION: answer a pane's prompt only when they "
+    "point at it, and never decline one on a guess; ask. Pasted images are numbered in the "
     'turn text; to give one to an agent ("send this to window 3") use send_image_to_pane.'
 )
 
@@ -424,7 +470,18 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
             result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
+    if meter.text:
+        _focus_reached(session, watcher, result, rec)
     await session.send_tool_result(fc, result)
+
+
+def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
+    """Focus the pane an answered call reached: not a declined call, nor a mere button. A
+    resumed pane is new to the watcher until its next parse, so its result names it."""
+    if result["status"] in _REACHED:
+        pane = result.get("pane_id") or rec.get("pane_id")
+        _focus(session, next((d for d in watcher.digest() if d["pane_id"] == pane), None) or (
+            pane and {"pane_id": pane, "title": result.get("window") or result.get("pane")}))
 
 
 async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, pid) -> dict:
@@ -438,12 +495,117 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
     status, reason = result["status"], result.get("reason")
     _audit(
         meter, f"live_{name}",
-        outcome="ok" if status in {"sent", "ok", "opened", "button_shown"}
+        outcome="ok" if status in _DONE
         else f"{status}: {reason}" if reason else status,
         latency_ms=round((time.monotonic() - started) * 1000), **rec,
     )
 
 
+# Answering a pane's own prompt is never a side effect of relaying a message. Asked to
+# message an agent sitting at a permission prompt, the model pressed Escape or typed "3"
+# first, both of which decline the agent's pending command, and "no, the other one" said to
+# the assistant was once about to decline one too. A prompt rule did not hold, so in a text
+# session a key press into any pane (Escape or C-c also stops a working agent), or a row
+# number or yes/no typed into a pane with a pending question, needs the user's message, or
+# the assistant's question it just agrees with, to ask for it: the key's job by name, or an
+# answer by verb; never a bare yes or no (which answers the assistant) or number (as likely
+# a window's). Refusing costs one more line of chat.
+_PRESS, _PICK = "press hit key keys", "select choose pick option"
+# Per key, the words for its name or its job: "press" or "key" alone names no key.
+_KEY_ASKS = {k: frozenset(v.split()) for k, v in {
+    "Escape": "esc escape cancel decline reject dismiss deny",
+    "Enter": f"enter return accept approve confirm submit continue {_PICK}",
+    "Up": f"up arrow {_PICK}", "Down": f"down arrow {_PICK}", "Left": "left arrow",
+    "Right": "right arrow", "PageUp": "page scroll", "PageDown": "page scroll",
+    "Tab": "tab complete", "C-c": "ctrl control interrupt stop abort kill",
+    "C-d": "ctrl control eof exit quit"}.items()}
+# What sends into a pane. One the conversation isn't on, and the user didn't name (by title,
+# window number or a PR it worked on), is refused: with the current pane in front of it, the
+# model still sent "the agent" to the pane whose screen shared a word with the request about
+# one time in twenty, and only a check in code makes that never.
+_AIMED = {"type_in_pane", "press_key", "send_image_to_pane"}
+_NOT = frozenset({"not", "don", "dont", "never", "nope", "nah"})  # _words splits "don't"
+_ROW = re.compile(r"\d+|y(es)?|no?")  # what picks a menu row (or answers y/n) when typed
+# A typed row needs an answering verb, and must be the row asked for: its number, or the
+# side of a Yes/No row the words take ("decline it" never lets "1. Yes" through).
+_ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply".split())
+_SIDES = {k: frozenset(v.split()) for k, v in {  # each side of a Yes/No row, as words ask it
+    "yes": "yes accept approve confirm allow", "no": "no decline reject deny cancel"}.items()}
+
+
+def _side(text: str) -> str:
+    """Which side of a Yes/No a row or answer is on, by its first word: "yes", "no" or ""."""
+    word = (_words(text)[:1] or [""])[0]
+    return {"y": "yes", "n": "no"}.get(word, word) if word in ("y", "yes", "n", "no") else ""
+
+
+def _row_asked(row: str, asked: set[str], menu: list[str] | None) -> bool:
+    """Whether the words ask for this typed row (a number, or y/yes/n/no) of the pane's menu,
+    and the menu, when its rows are known, has it."""
+    if row.isdigit():
+        at = int(row) - 1
+        if menu is not None and not 0 <= at < len(menu):
+            return False  # no such row (or rows unknown): nothing to check the ask against
+        if row in asked and _ANSWERS & asked:
+            return True
+        row = menu[at] if menu else ""
+    elif menu is not None and _side(row) not in map(_side, menu):
+        return False  # a y/n for a menu with no such side
+    return bool(_SIDES.get(_side(row), frozenset()) & asked)
+
+
+def _meant(digest: list[dict], request: str) -> set[str]:
+    """The pane the user's words single out, against every pane, so a name or PR two panes
+    share singles out neither: the one they name (_named), which wins outright, else the one
+    pane that worked on a PR they cite as one ("PR 412", "#412"; "8 workstreams" is none)."""
+    if named := _named(digest, request):
+        return {named["pane_id"]}
+    cited = set(re.findall(r"(?:\bpr\s*#?|#)\s*(\d+)", request, re.IGNORECASE))
+    by_pr = [d["pane_id"] for d in digest
+             if any(str(p.get("number")) in cited for p in d.get("prs") or [])]
+    return set(by_pr[:len(by_pr) == 1])
+
+
+def _refusal(session, name: str, args: dict, digest: list[dict]) -> str | None:
+    """Why a text session's pane change is refused before any card (a _DECLINED key), or None:
+    a bare agreement with nothing asked, a pane the conversation isn't on and the user didn't
+    name, a message typed into a menu, or a pane's prompt answered unasked."""
+    if getattr(session, "unanchored", False):
+        return "unanchored"
+    pane = next((d for d in digest if d["pane_id"] == args.get("pane_id")), None)
+    request = getattr(session, "request", "")  # (question, own words), or just the words
+    question, own = request if isinstance(request, tuple) else ("", request)
+    request, said = f"{question}\n{own}", _words(own)
+    asked = set(_words(request))
+    # The pane the user named, else the one the conversation is on: the model's pick over
+    # either is refused (see _FOCUS).
+    meant = _meant(digest, request) or {getattr(session, "turn_pane", None)} - {None}
+    if name in _AIMED and pane and meant and pane["pane_id"] not in meant:
+        return "elsewhere"
+    text = str(args.get("text", "")).strip().casefold()
+    row = bool(_ROW.fullmatch(text))
+    # A widget menu takes no message (its Enter picks the highlighted row, "1. Yes"), and
+    # a row only as its one-key shortcut with no Enter, which would land on the next screen;
+    # a cursor picker searches anything typed.
+    shortcut = len(text) == 1 and args.get("press_enter") is False
+    if pane and pane.get("menu") is not None and (name == "send_image_to_pane" or (
+            name == "type_in_pane" and not (row and shortcut
+                                            and pane.get("answer_style") != "cursor"))):
+        return "menu"
+    if set(said) & _NOT or said[:1] == ["no"]:  # "don't decline it", "no, …" ask nothing,
+        # while "pick No" names a row
+        asked = set()
+    if name == "press_key":
+        ok = bool(_KEY_ASKS.get(args.get("key"), frozenset()) & asked)
+    elif name == "type_in_pane" and pane and pane.get("question") and row:
+        ok = _row_asked(text, asked, pane.get("menu"))  # a bare number may be a window's
+    else:
+        return None
+    return None if ok else "unasked_answer"
+
+
+_DONE = {"sent", "ok", "opened", "button_shown"}  # a call's outcomes that went as asked
+_REACHED = {"sent", "ok", "opened", "already_running"}  # ones that reached a pane
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
@@ -454,6 +616,16 @@ _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 _DECLINED = {"declined": "the user declined",
              "unanchored": "the user's message only agrees, and you asked them nothing: "
                            "nothing was sent; ask what they want",
+             "elsewhere": "that isn't the pane the user named, or, naming none, the one the "
+                          "conversation is on (the [Current pane] line), so nothing was sent; "
+                          "send it there, or ask which pane they mean",
+             "menu": "that pane is waiting on a menu (its PENDING QUESTION), and typing into it "
+                     "would pick a row, so nothing was typed; tell the user what it asks and "
+                     "its options, and ask which to pick (a row they pick goes as its one "
+                     "key with press_enter false; a cursor list is driven by arrow keys)",
+             "unasked_answer": "the user didn't ask you to answer that pane's prompt or press a "
+                               "key, so nothing was sent; to pass on a message, type the "
+                               "message alone, and ask the user before answering its prompt",
              "superseded": "the user sent a new message instead of answering; do not retry "
                            "this, answer their new message (it follows)"}
 # A card whose connection dropped before the user answered (iOS drops the socket on every
@@ -565,10 +737,12 @@ async def _decide(
     await _tell(websocket, meter, proposal)
 
 
-async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool) -> None:
+async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool,
+                  session=None) -> None:
     """The user's answer to a parked card, run on the connection it came in on. The model
     that asked went with the old one, so the outcome reaches only the phone and the audit:
-    no session, so no post-type update tells the new model of an action it never took."""
+    no session, so no post-type update tells the new model of an action it never took. The
+    new `session` only learns which pane the conversation is now on."""
     _, call, pid, rec, meter, watcher = parked
     started, result = time.monotonic(), {"status": "error", "reason": "aborted"}
     try:
@@ -580,6 +754,8 @@ async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool) 
         result = await _act(websocket, None, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, call.name, result, started, rec)
+    if session is not None:
+        _focus_reached(session, watcher, result, rec)
 
 
 async def _approved(
@@ -590,14 +766,16 @@ async def _approved(
     pane's pid when it was proposed: the card named THAT process, and tmux recycles %N, so
     an approval must not type into whatever holds the id by the time the user taps. A
     malformed call can be approved and is still refused by _dispatch: this gate only ever
-    removes actions. A turn that only agrees ("yes") with nothing asked is refused before any
-    card (live_chat.only_agrees); the session's caution, if any, rides on the card."""
-    if getattr(session, "unanchored", False):
-        rec["consent"] = "unanchored"
-        return False, None
+    removes actions. A turn that only agrees ("yes") with nothing asked, or a pane's prompt
+    answered unasked, is refused before any card (_refusal); the session's caution, if any,
+    rides on the card."""
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
-    d = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
+    digest = watcher.digest()
+    d = next((d for d in digest if d["pane_id"] == pane_id), None)
+    if refused := _refusal(session, fc.name, args, digest):
+        rec["consent"] = refused
+        return False, None
     known, pane = d is not None, pane_id
     if known:  # named as the prompt names it, so the card matches the reply above it, plus
         # the list's label (a bare tmux address for an unnamed window) unless that IS the title
@@ -701,20 +879,10 @@ def _keystrokes(fc, pane_id: str) -> tuple[tuple | None, str | None, bool]:
     raw_pane_id = args.get("pane_id")
     send_args = what = None
     submitted = False
-    if (
-        fc.name == "type_in_pane"
-        and isinstance(fc.args, dict)
-        and isinstance(raw_pane_id, str)
-        and isinstance(args.get("text"), str)
-        and not (set(args) - {"pane_id", "text", "press_enter"})
-    ):
-        text = args["text"]
-        raw_enter = args.get("press_enter", True)
-        # Never coerce press_enter: bool("false") is True and would submit an unsent
-        # command. A non-bool value is malformed.
-        if text.strip() and isinstance(raw_enter, bool):
-            send_args = (pane_id, text, raw_enter, True)  # literal text
-            what, submitted = text, raw_enter
+    if fc.name == "type_in_pane" and isinstance(fc.args, dict) and _typed(args):
+        text, raw_enter = _typed(args)
+        send_args = (pane_id, text, raw_enter, True)  # literal text
+        what, submitted = text, raw_enter
     elif (
         fc.name == "press_key"
         and isinstance(fc.args, dict)
@@ -801,6 +969,15 @@ async def _dispatch(
     if session is not None:  # none for a resumed card (_resume)
         _background(asyncio.create_task(refresh()))
     return _sent(label)
+
+
+def _typed(args: dict) -> tuple[str, bool] | None:
+    """A well-formed type_in_pane's (text, press_enter), else None. Never coerce press_enter:
+    bool("false") is True and would submit an unsent command, so a non-bool is malformed."""
+    text, enter = args.get("text"), args.get("press_enter", True)
+    ok = (isinstance(args.get("pane_id"), str) and isinstance(text, str) and text.strip()
+          and isinstance(enter, bool) and not set(args) - {"pane_id", "text", "press_enter"})
+    return (text, enter) if ok else None
 
 
 def _sent(label: str) -> dict:
@@ -1189,7 +1366,7 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
 
-async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
+async def _forward_client(websocket: WebSocket, session, meter: _Meter, watcher=None) -> None:
     """Client → model: base64 16kHz PCM frames and typed turns until the client says stop.
     A typed turn is echoed as the user's transcript, so both clients render it like speech."""
     while True:
@@ -1244,6 +1421,8 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
         elif action == "resume" and hasattr(session, "restore"):  # a chat's reconnect
             logger.info("[live] chat context restored: %d rows",
                         session.restore(data.get("transcript")))
+            for role, said in session.restored_replies() if watcher else ():
+                _focus(session, _restored_pane(watcher.digest(), role, said))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
             proposal, ok = str(data.get("id")), data.get("ok") is True
             answer = meter.approvals.get(proposal)
@@ -1251,7 +1430,7 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                 if not answer.done():
                     answer.set_result(ok)
             elif parked := _unpark(meter, proposal):
-                await _resume(websocket, proposal, parked[0][1], ok)
+                await _resume(websocket, proposal, parked[0][1], ok, session)
             else:
                 await _tell(websocket, meter, proposal)
         elif action == "sync":  # a reconnected phone's untapped cards: settled meanwhile?
@@ -1282,6 +1461,8 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         elif ev.kind == "audio":
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
+            if meter.text:
+                _focus(session, _named(watcher.digest(), ev.text))
             await _transcript(websocket, meter, ev.role, ev.text)
         elif ev.kind == "turn_complete":
             meter.superseded = False
@@ -1351,7 +1532,7 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
                 # and never entered. (The GPT-Live adapter already waits on all of its
                 # tasks together; this is the seam saying the same thing.)
                 pump = asyncio.create_task(
-                    _forward_client(websocket, session, meter), name="live-client"
+                    _forward_client(websocket, session, meter, watcher), name="live-client"
                 )
                 side.append(pump)  # so the drain below tears this one down too
                 try:

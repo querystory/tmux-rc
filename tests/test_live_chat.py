@@ -157,7 +157,7 @@ def test_a_new_message_supersedes_an_unanswered_card(monkeypatch):
 
     async def go():
         rx = asyncio.create_task(L._receiver(ws, s, _Watcher(), meter))
-        await s.send_text("tell work to rebase")
+        await s.send_text("tell work to rebase, then press enter")
         await asyncio.wait_for(ws.done.wait(), 5)
         rx.cancel()
 
@@ -377,7 +377,7 @@ def test_a_turn_past_the_queue_is_refused_not_held():
                            "message": "Still answering earlier turns; not sent"}
 
 
-_TYPE = ("", [("type_in_pane", {"pane_id": "%1", "text": "yes"})])
+_TYPE = ("", [("type_in_pane", {"pane_id": "%1", "text": "rebase"})])
 
 
 def test_a_reconnect_restores_the_screen_transcript_as_quoted_context(monkeypatch):
@@ -395,7 +395,7 @@ def test_a_reconnect_restores_the_screen_transcript_as_quoted_context(monkeypatc
     assert "Assistant: The rate-limit one. Want me to reopen it?" in first
     card = next(f for f in frames if f["type"] == "propose")
     assert card["warn"] == C.CAUTION_RESTORED
-    assert typed == [("%1", "yes", True, True)]
+    assert typed == [("%1", "rebase", True, True)]
     assert s.restore([{"role": "user", "text": "late"}]) == 0  # never over live history
 
 
@@ -461,4 +461,223 @@ def test_a_bare_yes_to_a_question_is_carded_with_a_warning(monkeypatch):
     s.asked = True  # the last reply asked something (set at turn end, as tested above)
     frames, _, typed = _turn(s, "ok", monkeypatch, ok=True)
     assert next(f for f in frames if f["type"] == "propose")["warn"] == C.CAUTION_BARE.format("ok")
-    assert typed == [("%1", "yes", True, True)]
+    assert typed == [("%1", "rebase", True, True)]
+
+
+def _users(s):
+    return [h[1] for h in s.history if h[0] == "user"]
+
+
+def _talk(s, monkeypatch, *turns):
+    """Typed turns in a row, each (text, the user's answer to any card)."""
+    for text, ok in turns:
+        s._inbox = asyncio.Queue()  # each turn runs on a new event loop in this harness
+        _turn(s, text, monkeypatch, ok=ok)
+
+
+def test_the_pane_a_chat_is_on_leads_its_next_turn(monkeypatch):
+    """"Ask the agent" right after talking about a pane means that pane, so each turn says which
+    pane the conversation is on: the last one a reply named or an action reached. A declined
+    action reached nothing, so it moves nothing."""
+    s = _Fake([("Work is waiting to run its tests.", []),
+               ("", [("type_in_pane", {"pane_id": "%2", "text": "status?"})]), ("Not sent.", []),
+               ("", [("type_in_pane", {"pane_id": "%2", "text": "status?"})]), ("Sent.", []),
+               ("Ok.", [])])
+    _talk(s, monkeypatch, ("what is work doing", None), ("ask the agent for its status", False),
+          ("send it to the shell then", True), ("thanks", None))
+    work, shell = (L._FOCUS.format(L._pane_name(d), d["pane_id"]) for d in _Watcher().digest())
+    first, *rest = _users(s)
+    assert "[Current pane" not in first
+    assert [u.split("\n\n")[0] for u in rest if u != C._OUTCOME] == [work, work, shell]
+
+
+def test_a_reply_to_the_assistants_question_is_marked_as_one(monkeypatch):
+    """With a pane's PENDING QUESTION also in view, "no, for the other one" was once read as
+    declining that pane's command: the turn says it follows the assistant's own question."""
+    s = _Fake([("Should I send it elsewhere?", []), ("Ok.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("status of all workstreams", None), ("no for the other one", None),
+          ("thanks", None))
+    assert [C.OPEN_QUESTION in u for u in _users(s)] == [False, True, False]
+    assert _users(s)[1].endswith(f"{C.OPEN_QUESTION}\n\nno for the other one")
+
+
+_PANES = [{"pane_id": "%1", "title": "tmuxrc opus 5.5 main session", "window_index": "2"},
+          {"pane_id": "%5", "title": "fable session monitor", "window_index": "7"},
+          {"pane_id": "%6", "label": "main", "window_index": "12"}]
+
+
+@pytest.mark.parametrize(("reply", "pane"), [
+    ("The fable session monitor is investigating a 500.", "%5"),
+    ("Main is idle, and Fable Session Monitor waits on you.", "%5"),  # the last named
+    ("Sending to tmuxrc opus 5.5 main session.", "%1"),  # not "main", inside it
+    ("main is idle", "%6"), ("window 7 is idle", "%5"), ("window 1 is idle", None),
+    ("Nothing to report.", None)])
+def test_a_reply_names_a_pane_by_title_or_number(reply, pane):
+    assert (L._named(_PANES, reply) or {}).get("pane_id") == pane
+
+
+_ASKING = {"pane_id": "%5", "question": "Run gcloud logging read? 1) Yes 2) Yes, always 3) No"}
+_MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
+
+
+@pytest.mark.parametrize(("request_", "name", "args", "pane", "refused"), [
+    # Relaying a message never answers the pane's prompt on the way: no key, no menu row.
+    ("no for the fable one", "press_key", {"key": "Escape"}, _ASKING, True),
+    ("no for the fable one", "press_key", {"key": "Down"}, _ASKING, True),
+    ("no for the fable one", "type_in_pane", {"text": "3"}, _ASKING, True),
+    ("no for the fable one", "type_in_pane", {"text": "No"}, _ASKING, True),
+    ("no for the fable one", "type_in_pane", {"text": "From the user: status?"}, _ASKING, False),
+    ("ask the agent", "type_in_pane", {"text": "make test"}, {"pane_id": "%9"}, False),
+    # Asked for, by the key's job or the answer's verb or number, it goes to the card.
+    ("decline it", "press_key", {"key": "Escape"}, _ASKING, False),
+    ("decline it", "press_key", {"key": "Enter"}, _ASKING, True),  # the wrong key's job
+    ("pick 3", "type_in_pane", {"text": "3"}, _ASKING, False),
+    ("ask window 3 for its status", "type_in_pane", {"text": "3"}, _ASKING, True),
+    ("approve the command", "type_in_pane", {"text": "1", "press_enter": False}, _MENU, False),
+    ("decline it", "type_in_pane", {"text": "1", "press_enter": False}, _MENU, True),
+    ("press enter", "press_key", {"key": "Escape"}, _ASKING, True),  # "press" names no key
+    ("pick 3", "type_in_pane", {"text": "2"}, _ASKING, True),  # not the row asked for
+    ("pick 4", "type_in_pane", {"text": "4", "press_enter": False}, _MENU, True),  # no such row
+    ("pick 1", "type_in_pane", {"text": "1", "press_enter": False}, {**_MENU, "menu": []},
+     True),  # rows unknown
+    ("approve it", "type_in_pane", {"text": "y", "press_enter": False},
+     {**_MENU, "menu": ["Staging", "Production"]}, True),  # no Yes side to pick
+    # A menu takes no message at all: its Enter would pick the highlighted row ("1. Yes").
+    ("ask it for status", "type_in_pane", {"text": "From the user: status?"}, _MENU, "menu"),
+    ("pick 3", "type_in_pane", {"text": "3", "press_enter": False}, _MENU, False),
+    ("pick 3", "type_in_pane", {"text": "3"}, _MENU, "menu"),  # its Enter hits the next screen
+    ("send it the screenshot", "send_image_to_pane", {"image_number": 1}, _MENU, "menu"),
+    ("no for the fable one", "type_in_pane", {"text": "3", "press_enter": False}, _MENU, True),
+    # A cursor list searches what's typed: even an asked-for row goes by keys.
+    ("pick 3", "type_in_pane", {"text": "3", "press_enter": False},
+     {**_MENU, "answer_style": "cursor"}, "menu"),
+    ("pick 3", "press_key", {"key": "Down"}, {**_MENU, "answer_style": "cursor"}, False),
+    ("pick 3", "press_key", {"key": "Enter"}, {**_MENU, "answer_style": "cursor"}, False),
+    # Negated, it asks for nothing; a No named with a verb is a row, not a negation.
+    ("don't decline it", "press_key", {"key": "Escape"}, _ASKING, True),
+    ("no, decline it", "press_key", {"key": "Escape"}, _ASKING, True),
+    ("pick No", "type_in_pane", {"text": "3", "press_enter": False}, _MENU, False),
+    # A yes to the assistant's own question carries that question's words.
+    (("Want me to cancel its command?", "yes"), "press_key", {"key": "Escape"}, _ASKING, False),
+    (("Pick 3. No in fable?", "yes"), "type_in_pane", {"text": "3"}, _ASKING, False)])
+def test_a_panes_prompt_is_answered_only_when_asked(request_, name, args, pane, refused):
+    s = Ns(unanchored=False, request=request_ if isinstance(request_, tuple) else ("", request_),
+           turn_pane=None)
+    want = refused if isinstance(refused, str) else "unasked_answer" if refused else None
+    assert L._refusal(s, name, {**args, "pane_id": pane["pane_id"]}, [pane]) == want
+
+
+def test_a_turn_knows_the_question_it_answers(monkeypatch):
+    s = _Fake([("Want me to cancel its command?", []), ("Ok.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("status", None), ("yes", None))
+    assert s.request == ("Want me to cancel its command?", "yes")
+    _talk(s, monkeypatch, ("and now", None))
+    assert s.request == ("", "and now")
+    s.script = [("Want me to cancel its command?", []), ("Ok.", [])]
+    _talk(s, monkeypatch, ("status", None), ("no", None))
+    assert s.request == ("", "no")  # a no carries none of the question's words
+
+
+def test_a_queued_message_keeps_the_pane_shown_when_it_was_sent():
+    async def go():
+        s = _Fake([])
+        s.focus = ("%1", "[Current pane: a]")
+        await s.send_text("first")
+        s.focus = ("%2", "[Current pane: b]")  # the first turn's reply moved it afterwards
+        await s.send_text("second")
+        return [s._inbox.get_nowait()[3] for _ in range(2)]
+    assert asyncio.run(go()) == [("%1", "[Current pane: a]"), ("%2", "[Current pane: b]")]
+
+
+def test_a_reconnect_restores_the_pane_the_replies_and_sends_were_about(monkeypatch):
+    s = _Fake([])
+    frames = [{"action": "resume", "transcript": [
+        {"role": "model", "text": "Shell is idle."}, {"role": "user", "text": "and work?"},
+        {"role": "model", "text": "Work is waiting to run its tests."},
+        {"role": "typed", "text": "shell (%2): make test"}, {"role": "model", "text": "Sent."}]},
+        {"action": "stop"}]
+    from tests.test_live_mode import _ScriptedWS
+    asyncio.run(L._forward_client(_ScriptedWS(frames), s, L._Meter("s", "a", _FLASH, text=True),
+                                  _Watcher()))
+    shell = _Watcher().digest()[1]  # the send came after the reply that named work
+    assert s.focus == ("%2", L._FOCUS.format(L._pane_name(shell), "%2"))
+    assert s.restored_replies() == []  # handed over once: a later resume replays nothing
+
+
+@pytest.mark.parametrize(("question", "menu"), [
+    ({"prompt": "Run it?", "answer_style": "menu", "options": ["Yes", "No"]}, ["Yes", "No"]),
+    ({"prompt": "Pick", "answer_style": "cursor"}, []),
+    ({"prompt": "Run it?", "answer_style": "menu", "options": 1}, []),
+    ({"prompt": "Run it?", "answer_style": "menu", "options": "Yes"}, []),
+    ({"prompt": "Run it?", "answer_style": "menu", "options": ["Yes", 2, "No"]}, []),
+    ({"prompt": "Which branch?", "answer_style": "text", "options": ["main"]}, None),
+    ("a bare string", None), (None, None)])
+def test_only_a_widget_question_is_a_menu(question, menu):
+    from openbus.watcher import Watcher
+    assert Watcher._question_menu({"question": question}) == menu
+
+
+def test_a_name_two_panes_share_moves_nothing():
+    twins = [{"pane_id": "%1", "title": "tests", "window_index": "1"},
+             {"pane_id": "%2", "title": "tests", "window_index": "1"}]
+    assert L._named(twins, "tests is waiting") is None
+    assert L._named(twins, "window 1 is waiting") is None
+
+
+def test_a_resumed_pane_becomes_the_current_one_before_the_watcher_sees_it(monkeypatch):
+    async def resume(*a, **k):
+        return {"status": "opened", "pane_id": "%9", "window": "auth fix"}
+    monkeypatch.setattr(L.agent_history, "offered", lambda: True)
+    monkeypatch.setitem(L._HISTORY_TOOLS, "resume_session", resume)
+    s = _Fake([("", [("resume_session", {"session_id": "x"})]), ("Reopened.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("resume the auth fix", True), ("tell it to rebase", None))
+    assert _users(s)[-1].startswith(L._FOCUS.format(L._pane_name({"title": "auth fix"}), "%9"))
+
+
+_FABLE = {"pane_id": "%7", "title": "fable session monitor", "window_index": "5",
+          "prs": [{"repo": "q/fable", "number": 412}]}
+
+
+@pytest.mark.parametrize(("request_", "turn_pane", "refused"), [
+    ("ask the agent for all 8 workstream status", "%3", True),  # the conversation is on %3
+    ("ask the agent for all 8 workstream status", "%7", False),
+    ("ask the agent for all 8 workstream status", None, False),  # no conversation yet
+    ("now tell fable session monitor to stop", "%3", False),  # named by title
+    ("and window 5?", "%3", False),  # or number
+    ("address review on PR 412", "%3", False),  # or a PR it worked on
+    ("all 412 workstreams", "%3", True),  # a bare number cites no PR
+    ("and the tmuxrc opus 5.5 main session?", "%3", True),  # naming another pane
+    ("ask window 2 about PR 412", "%3", True),  # a named pane wins over a PR number
+    ("ask window 2 about it", "%7", True)])  # even over the current pane
+def test_a_send_off_the_current_pane_needs_the_user_to_name_it(request_, turn_pane, refused):
+    s = Ns(unanchored=False, request=("", request_), turn_pane=turn_pane)
+    args = {"pane_id": "%7", "text": "From the user: status?"}
+    assert (L._refusal(s, "type_in_pane", args, [_FABLE, _PANES[0]]) == "elsewhere") is refused
+
+
+def test_an_open_button_moves_no_focus(monkeypatch):
+    s = _Fake([("", [("open_pane", {"pane_id": "%2"})]), ("Here.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("where's that one", None), ("and now", None))
+    assert "[Current pane" not in _users(s)[-1]
+
+
+@pytest.mark.parametrize("row", ["shell (%2): make test", "shell: make test",
+                                 "other:1 (%2) (not submitted): ls"])
+def test_a_restored_send_names_its_pane_by_id_or_name(row):
+    assert L._restored_pane(_Watcher().digest(), "typed", row)["pane_id"] == "%2"
+
+
+def test_a_name_or_pr_two_panes_share_unlocks_neither():
+    twins = [{"pane_id": "%1", "title": "main", "prs": [{"number": 7}]},
+             {"pane_id": "%2", "title": "tmuxrc main", "prs": [{"number": 7}]}]
+    s = Ns(unanchored=False, request=("", "tell tmuxrc main about PR 7"), turn_pane="%9")
+    assert L._meant(twins, "anything on PR 7?") == set()  # two panes worked on it
+    assert L._refusal(s, "type_in_pane", {"pane_id": "%1", "text": "hi"}, twins) == "elsewhere"
+    assert L._refusal(s, "type_in_pane", {"pane_id": "%2", "text": "hi"}, twins) is None
+
+
+def test_a_restored_send_finds_its_pane_by_label_under_a_title():
+    panes = [{"pane_id": "%1", "label": "work", "title": "auth fix"},
+             {"pane_id": "%2", "label": "shell", "title": "auth fix"}]
+    assert L._restored_pane(panes, "typed", "work: make test")["pane_id"] == "%1"
+    assert L._restored_pane(panes, "typed", "auth fix: make test") is None  # two panes
