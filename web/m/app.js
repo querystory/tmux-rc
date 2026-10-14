@@ -614,7 +614,6 @@ const paintUsage = () => {
   renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)), { wide: WIDE.matches });
   accounts.strip($("usage"), several);
   $("usage-handle").hidden = $("usage").hidden;
-  fitUsage();
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
   // adds the clock times and the forecast. The dashboard's tool chips filter both, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
@@ -1291,26 +1290,28 @@ function sizeUsage(px = usageHeight, persist = false) {
   el.classList.toggle("sized", !!h);
   el.classList.toggle("closing", !persist && px > 0 && px < USAGE_MIN); // a drag only: keys stop at the floor
   el.style.setProperty("--usage-h", `${h}px`);
-  fitUsage();
   if (persist) {
     usageHeight = h && el.offsetHeight; // what CSS let it be, not an over-drag
     try { if (usageHeight) localStorage.setItem(USAGE_KEY, String(usageHeight)); else localStorage.removeItem(USAGE_KEY); } catch {}
   }
 }
-// The rows, and the separator's value (a focusable one owes it), from the height CSS let the
-// strip be: capped, natural, or 0 while hidden. So it reruns as each paint shows or hides it.
-function fitUsage() {
+// The rows, and the separator's value and range (a focusable one owes them), from the height
+// CSS let the strip be: capped at 60% of the sidebar, natural, or 0 while hidden. Observed, so
+// they follow a paint showing or hiding it and a window resize moving the cap alike.
+const fitUsage = new ResizeObserver(() => {
   const shown = $("usage").offsetHeight;
   $("usage").style.setProperty("--rows", Math.max(1, Math.round(shown / USAGE_ROW)));
-  $("usage-handle").setAttribute("aria-valuenow", shown);
-}
+  for (const [key, value] of Object.entries({ min: USAGE_MIN, max: Math.round($("sessions").clientHeight * 0.6), now: shown })) $("usage-handle").setAttribute(`aria-value${key}`, value);
+});
+for (const el of ["usage", "sessions"]) fitUsage.observe($(el));
 sizeUsage(); // before the first meters arrive, so they draw at the chosen height
-seam($("usage-handle"), (e) => sizeUsage(usageDrag = Math.max(1, $("usage").getBoundingClientRect().bottom - e.clientY)), () => {
-  const was = usageMode, px = usageDrag;
+// Only a release commits: a cancelled or lost capture (crossing the breakpoint) puts it back.
+seam($("usage-handle"), (e) => sizeUsage(usageDrag = Math.max(1, $("usage").getBoundingClientRect().bottom - e.clientY)), (e) => {
+  const was = usageMode, px = e.type === "pointerup" && usageDrag;
   usageDrag = 0;
-  if (!px) return; // a click, not a drag
   if (px >= USAGE_MIN) return sizeUsage(px, true);
   sizeUsage();
+  if (!px) return; // a click, or no release
   setUsageMode("off");
   notice("Plan usage hidden. Turn it back on in ☰ › Plan usage.", 8000, ["Undo", () => setUsageMode(was)]);
 });
