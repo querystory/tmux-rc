@@ -546,7 +546,9 @@ def test_workflow_row_is_read_from_the_agent_list():
     assert r["agents"] == 2
     done = screen.replace("1/2 ·", "2/2 ·")
     assert classify(_pane(), done, _llm({"tool": "claude"}))["subagents"][0]["state"] == "done"
-    # Only Claude's own chrome: a shell printing the same row gains no worker.
+    # Only Claude's own agent list: a quoted row, or a shell printing one, gains no worker.
+    quoted = screen.replace(" ●  main\n", "")
+    assert "subagents" not in classify(_pane(), quoted, _llm({"tool": "claude"}))
     assert "subagents" not in classify(_pane(), screen, _llm({"tool": "shell"}))
 
 
