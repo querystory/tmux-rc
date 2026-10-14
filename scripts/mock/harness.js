@@ -103,7 +103,7 @@ function boot(M) {
       }
     };
     // As Playwright waits: a click target visible and enabled, a wait target only visible.
-    const shown = (sel) => doc.querySelector(sel)?.checkVisibility();
+    const shown = (sel) => doc.querySelector(sel)?.checkVisibility({ visibilityProperty: true });
     await until(() => doc.documentElement.classList.contains("booted"), "app boot");
     for (const sel of step.click || []) { await until(() => shown(sel) && !doc.querySelector(sel).disabled, `clickable ${sel}`); doc.querySelector(sel).click(); }
     if (step.wait) await until(() => shown(step.wait), `visible ${step.wait}`);
