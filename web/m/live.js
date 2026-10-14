@@ -1,6 +1,9 @@
 import { liveClose } from "/live-close.js";
 import { chatBubble, chatComposer, chatThumb } from "/live-chat.js";
 import { appendChatMarkdown, renderChatText } from "/chat-markdown.js";
+const esc = (text) => renderChatText(text); // no names: plain escaping
+const KEYCAPS = { Up: "↑", Down: "↓", Left: "←", Right: "→", Escape: "Esc", PageUp: "Page Up", PageDown: "Page Down", "C-c": "Ctrl C", "C-d": "Ctrl D" };
+const keycap = (key) => `<kbd>${esc(KEYCAPS[key] || key)}</kbd>`;
 import { chatStarters } from "/chat-starters.js";
 import { since, paneName } from "/m/pane-model.js";
 // Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
@@ -19,7 +22,7 @@ const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the
 const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
-export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "", panes = () => [] }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "", panes = () => [], logos = {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -157,7 +160,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       return button;
     }));
   }
-  function add(role, message, newSegment = false, images = [], named = []) {
+  function add(role, message, newSegment = false, images = []) {
     const previous = typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
     const follow = following();
     const grow = !newSegment && (role === "user" || role === "model") && previous?.dataset.role === role && !previous.dataset.done;
@@ -172,7 +175,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     }
     const body = row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
     if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; }, names());
-    else if (role === "typed" || role === "propose") body.innerHTML = renderChatText(message || "", [...names(), ...named]); // one line each, never grown
+    else if (role === "propose") body.innerHTML = renderChatText(message || "", names()); // one line, never grown
     else body.textContent += message || "";
     body.before(...images.map(chatThumb));
     if (!dialog.open && role !== "user") unread = true; // not the user's own echo
@@ -190,8 +193,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // the daemon keeps it for this chat a while, so a tap waits out the reconnect, hurried
   // along, and goes again on each new connection until answered (a socket can die with it
   // in flight); only a card the daemon no longer has comes back "expired".
-  function propose(current, { id, text, image, pane_id, session }) {
+  function propose(current, card) {
+    const { id, text, image, pane_id, session } = card;
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
+    if (drawn(card)) row.lastChild.innerHTML = action(card);
     if (session) row.lastChild.append(sessionMeta(session));
     if (pane_id) row.lastChild.insertAdjacentHTML("beforeend", account(pane_id)); // which account it lands on, with several
     actions.className = "voice-actions";
@@ -208,7 +213,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     }
     // Look before approving: opening leaves the card pending, and the bubble brings it back.
     if (pane_id) actions.append(openButton(pane_id, "Open"));
-    row.append(actions); current.proposals.set(id, { row, actions }); badge();
+    row.append(actions); current.proposals.set(id, { row, actions, card }); badge();
     actions.scrollIntoView?.({ block: "nearest" }); // a card waiting on the user is never left clipped
   }
   // A button to a pane, going exactly where its row in the list goes (the caller's
@@ -228,14 +233,25 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     (row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }))).append(button);
     if (auto) button.click();
   }
-  // A pane as the sidebar names it, never by tmux id; its session added when another pane
-  // reads the same. A pane the page has not seen yet keeps the daemon's label.
+  // A pane as its sidebar row shows it, never by tmux id: its tool's logo, its name, its
+  // session dimmed. A pane the page has not seen yet (one just opened) shows the daemon's label.
   const names = () => panes().map(paneName);
-  function shownName(id, fallback) {
-    const all = panes(), pane = all.find((p) => p.pane_id === id);
-    if (!pane) return fallback;
-    const name = paneName(pane);
-    return pane.session && all.some((p) => p !== pane && paneName(p) === name) ? `${name} · ${pane.session}` : name;
+  function paneTag(id, label) {
+    const pane = panes().find((p) => p.pane_id === id);
+    if (!pane) return `<strong>${esc(label || id)}</strong>`;
+    const logo = Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
+    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${pane.session ? `<span> · ${esc(pane.session)}</span>` : ""}</span>`;
+  }
+  // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
+  // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The
+  // model's relay label ("From the user (via text):") is dimmed: how it came, not what goes in.
+  const drawn = ({ pane_id, key, payload }) => !!pane_id && (!!key || typeof payload === "string");
+  function action({ pane_id, label, key, payload, enter }, done) {
+    const [press, type, then] = done ? ["Pressed", "Typed into", ", then pressed"] : ["Press", "Type into", ", then press"];
+    if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${paneTag(pane_id, label)}</div>`;
+    const via = /^From the user \(via \w+\):\s*/.exec(payload)?.[0] || "";
+    return `<div class="voice-act">${type} ${paneTag(pane_id, label)}${enter ? `${then} ${keycap("Enter")}` : ""}` +
+      `<blockquote>${via && `<span>${esc(via)}</span>`}${esc(payload.slice(via.length))}</blockquote></div>`;
   }
   // Which session a resume card means, past a title several can share (live._approved).
   function sessionMeta({ tool, cwd, last_active, id }) {
@@ -249,7 +265,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const card = current.proposals.get(id);
     if (!card) return;
     current.sending.delete(id);
-    card.row.firstChild.textContent = label; card.actions.remove(); current.proposals.delete(id); badge();
+    card.row.firstChild.textContent = label; card.actions.remove();
+    if (label === "Approved" && drawn(card.card)) card.row.querySelector(".voice-act").outerHTML = action(card.card, true); current.proposals.delete(id); badge();
   }
   function deliver(current, frames) {
     if (current.listening && current.ws?.readyState === WebSocket.OPEN) frames.forEach((frame) => current.ws.send(JSON.stringify(frame)));
@@ -451,10 +468,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         [...log.children].forEach((row) => { row.dataset.done = "true"; });
         current.turns = Math.max(0, current.turns - 1); badge(); // a queued turn may follow
       }
-      else if (message.type === "typed") { // a pane just opened may not be in the list yet: its name is bold anyway
-        const pane = shownName(message.pane_id, message.label);
-        add("typed", `${pane}${message.submitted ? "" : " (not submitted)"}: ${message.text}`, false, [], [pane]);
-      }
+      else if (message.type === "typed") add("typed", `${message.label}: ${message.text}`).lastChild.innerHTML = drawn(message)
+        ? action({ ...message, enter: message.submitted }, true) : `${paneTag(message.pane_id, message.label)}: ${esc(message.text)}`;
       else if (message.type === "error") {
         // A refused turn gets no answer; any other error ends the session's turns.
         if (message.refused) current.thumbs.shift();

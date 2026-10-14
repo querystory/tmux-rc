@@ -326,7 +326,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // global environment's (under "", which the server folds into every session).
     sessionBadge: (session) => Object.keys(ENV).filter((pr) => several(pr) && set(session, pr) && defaults[session][pr] !== defaults[""]?.[pr]).map((pr) => defaultOf(session, pr)).filter(Boolean).map((p) => badge(p)).join(""),
     // The consent card: which account a chat action lands on.
-    consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)} ${esc(p.tilde)}. Sending never changes a pane's account.</small>` : ""; },
+    consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)}</small>` : ""; },
     profile: byDir, list: () => profiles, chip: (p) => badge(p),
     // Where "Move to another account" can take a pane: its provider's other signed-in
     // accounts, once it has several, each with its line under the name: one on the pane's

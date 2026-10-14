@@ -1801,7 +1801,7 @@ setupPush($("push"), notice, licon("bell"));
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, account: accounts.consent, panes: () => panes });
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, account: accounts.consent, panes: () => panes, logos: LOGOS });
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {

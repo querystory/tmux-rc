@@ -611,6 +611,7 @@ async def _approved(
                 "last_active": entry.get("last_active"), "id": entry["session_id"][:8]}
     elif fc.name == "press_key":
         summary = f"Press {args.get('key')} in {pane}"
+        card["key"] = args.get("key")  # the card draws the parts: a keycap, the pane
     elif fc.name == "send_image_to_pane":
         image = meter.image(args.get("image_number"))
         caption = args.get("caption")
@@ -621,6 +622,7 @@ async def _approved(
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
+        card.update(payload=args.get("text"), enter=args.get("press_enter") is not False)
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
     card["text"] = summary
     proposal = uuid.uuid4().hex
@@ -760,7 +762,8 @@ async def _dispatch(
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,
-         "text": what, "submitted": submitted}
+         "text": what, "submitted": submitted,
+         **({"key": args["key"]} if fc.name == "press_key" else {"payload": what})}
     )
 
     # Let the pane react, then show the model what its keystrokes did — as ambient

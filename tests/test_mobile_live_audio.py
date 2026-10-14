@@ -255,7 +255,7 @@ const wide = Object.assign(new EventTarget(), {matches: false}); // app.js's WID
 const opened = []; // panes app.js was asked to navigate to
 const panes = []; // app.js's pane list
 const live = sandbox.setup({licon: (name) => name, wide, open: (id) => opened.push(id),
-  panes: () => panes,
+  panes: () => panes, logos: {claude: '/claude.png'},
   request: async () => { if (!version) throw Error('offline'); return version; }});
 const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
 const status = () => document.getElementById('voice-status').textContent;
@@ -609,14 +609,17 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   // Minimized, the bubble pulses while the reply is out, and says so beside unread.
   $('voice-close').onclick();
   assert.equal(bubble.classList.contains('working'), true);
-  // Named as the sidebar names it, never by tmux id; a name two panes share adds the session.
-  panes.push({pane_id: '%1', title: 'work', session: 'api'},
-             {pane_id: '%2', title: 'work', session: 'web'});
-  say({type: 'typed', label: 'api:1', pane_id: '%1', submitted: true, text: 'ls'});
+  // Drawn, never told by tmux id: the pane as its row shows it, a keycap, the text quoted.
+  panes.push({pane_id: '%1', title: 'work', session: 'api', tool: 'claude'});
+  say({type: 'typed', label: 'api:1', pane_id: '%1', submitted: true, text: 'ls',
+       payload: 'ls'});
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'typing']);
   const typed = document.getElementById('voice-log').children
-    .find((row) => row.dataset.role === 'typed');
-  assert.equal(typed.children[1].innerHTML, '<strong>work · api</strong>: ls');
+    .find((row) => row.dataset.role === 'typed').lastChild.innerHTML;
+  assert.equal(typed, '<div class="voice-act">Typed into <span class="voice-pane">'
+    + '<img src="/claude.png" alt="claude"><strong>work</strong><span> · api</span></span>'
+    + ', then pressed <kbd>Enter</kbd>'
+    + '<blockquote>ls</blockquote></div>');
   assert.match(bubble.title, /new messages, responding/);
   // A reply can come ahead of more work in the same turn: the row stays until it completes.
   say({type: 'transcript', role: 'model', text: 'Done.'});

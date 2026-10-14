@@ -312,6 +312,12 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .voice-entry.propose { align-self: stretch; max-width: none; background: transparent; border: 1px solid var(--accent); border-radius: 8px; font-size: 14px; }
 .voice-entry.propose strong { color: var(--accent); }
 .voice-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+/* What a card or a typed line does to a pane: the pane as its row shows it, keys as keycaps,
+   typed text quoted in italics under the line. */
+.voice-pane img { width: 1em; height: 1em; margin-right: 4px; vertical-align: -0.12em; object-fit: contain; }
+.voice-pane > span, .voice-act blockquote > span { color: var(--muted); font-style: normal; }
+.voice-act kbd { font: inherit; font-size: 0.85em; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); }
+.voice-act blockquote { margin: 6px 0 0 2px; padding: 1px 0 1px 10px; border-left: 3px solid var(--accent); font-style: italic; }
 .voice-actions, .voice-open { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .voice-actions button, .voice-entry button.open { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
 .voice-entry button.open { display: inline-flex; align-items: center; gap: 4px; padding-right: 12px; border-color: var(--accent); color: var(--accent); text-align: left; }

@@ -200,7 +200,8 @@ def test_typing_dispatches_and_logs(monkeypatch):
     w, ws, session, typed = _dispatch(fc, monkeypatch)
     assert typed == [("%1", "1", True, True)]  # literal send_keys, with Enter
     assert w.reparsed == ["%1"]  # the keystrokes trigger a fresh parse
-    assert any(m["type"] == "typed" and m["label"] == "work" for m in ws.sent)
+    assert any(m["type"] == "typed" and m["label"] == "work" and m["payload"] == "1"
+               for m in ws.sent)
     call, payload = session.responses[0]
     assert call.id == "call-1"  # the call (with its id) rides back to the provider
     assert payload == {"status": "done", "pane": "work"}
@@ -321,6 +322,7 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     # Named as the list names it, with the id the card's Open button navigates to.
     assert ws.sent[0]["text"] == 'Send to window 3 "work": rebase onto main'
     assert ws.sent[0]["pane_id"] == "%1"
+    assert (ws.sent[0]["payload"], ws.sent[0]["enter"]) == ("rebase onto main", True)  # drawn
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
     assert session.responses[0][1] == (
@@ -713,7 +715,8 @@ def test_press_key_dispatches_named_key(monkeypatch):
     w, ws, session, typed = _dispatch(fc, monkeypatch)
     assert typed == [("%1", "Escape", False, False)]  # not literal, no trailing Enter
     assert w.reparsed == ["%1"]
-    assert any(m["type"] == "typed" and m["text"] == "[Escape]" for m in ws.sent)
+    assert any(m["type"] == "typed" and m["text"] == "[Escape]" and m["key"] == "Escape"
+               for m in ws.sent)
     assert session.responses[0][1] == {"status": "done", "pane": "work"}
     # The model sees readable names; tmux gets its canonical ones.
     fc = _FC(name="press_key", args={"pane_id": "%1", "key": "PageUp"})
