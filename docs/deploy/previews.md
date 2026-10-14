@@ -242,10 +242,11 @@ variant scripts on every reload: that is the loop for writing a variant, on this
 
 - Every choice (option, view, each state, width) is one menu under its own small label,
   ruled off from the next. A row of buttons per choice spread a mock with eight states
-  over three rows of unlabelled chips where nothing said which belonged together. The
-  menus shrink, ellipsised, to keep the bar to one line at 1440px, the option menu
-  keeping the most of its text, and wrap a whole choice at a time below that; the
-  theme, Note, Hide and A|B toggles stay small at the end.
+  over three rows of unlabelled chips where nothing said which belonged together. Each
+  menu is as wide as its current value, never cut short: reading every choice at a
+  glance matters more than one line, so a busy mock wraps, a whole choice at a time.
+  The width menu and the theme, Note, Hide and A|B toggles stay small at the right end.
+  Option text need not repeat its label ("All", not "Show: All").
 
 - On a desktop, a frame is the app at exactly the chosen width, at 100%, scrolling
   sideways if the window is narrower. Two options sit side by side only when both fit at

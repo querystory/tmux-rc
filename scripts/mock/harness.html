@@ -15,21 +15,18 @@ body { display:flex; flex-direction:column; }
 button { font:inherit; color:inherit; border:1px solid var(--line); background:var(--bg); border-radius:6px; min-height:26px; padding:0 8px; cursor:pointer; white-space:nowrap; }
 button:disabled { opacity:.4; cursor:default; }
 button[aria-pressed=true] { background:var(--accent-bg); color:var(--accent); border-color:var(--accent); font-weight:600; }
-/* Drawn, not native, so a menu narrower than its text ends in an ellipsis, clear of the arrow. */
-select { font:inherit; color:var(--fg); appearance:none; text-overflow:ellipsis; padding:0 18px 0 6px; min-height:26px; border:1px solid var(--line); border-radius:6px;
+/* Each menu as wide as its current value, so every choice reads without opening it. */
+select { font:inherit; color:var(--fg); field-sizing:content; appearance:none; padding:0 18px 0 6px; min-height:26px; border:1px solid var(--line); border-radius:6px;
   background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%239aa5a1'/%3E%3C/svg%3E") no-repeat right 6px center / 8px 5px; }
 #bar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:6px 12px; border-bottom:1px solid var(--line); background:var(--surface); font-size:12px; }
 #bar h1 { font-size:14px; margin:0; }
 /* One choice: its label over its menu, ruled off from the next so groups never run together.
-   Each starts narrow and grows to its full text, so a row of them shrinks to one line before
-   it wraps, and wraps a whole group at a time. */
-.ctl { display:inline-flex; flex-direction:column; flex:1 1 6em; max-width:max-content; min-width:0; padding-left:8px; border-left:1px solid var(--line); }
+   The bar wraps a whole choice at a time. */
+.ctl { display:inline-flex; flex-direction:column; padding-left:8px; border-left:1px solid var(--line); }
 .ctl:empty { display:none; }
-#variants { flex-grow:4; } /* the option under review gets the room first */
-.ctl > b { font-size:10px; font-weight:600; line-height:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.ctl > select { width:100%; }
+.ctl > b { font-size:10px; font-weight:600; line-height:12px; color:var(--muted); white-space:nowrap; }
 #states { display:contents; }
-.gap { margin-left:auto; } /* after the menus have grown to their full text */
+#tools { display:flex; align-items:end; gap:inherit; margin-left:auto; } /* right-aligned, on whichever line */
 #stage { flex:1; min-height:0; display:flex; gap:16px; justify-content:safe center; overflow:auto; }
 figure { margin:0; display:flex; flex-direction:column; flex:none; }
 figcaption { height:28px; display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
@@ -43,9 +40,9 @@ body.hidden #bar, body.hidden figcaption { display:none; }
 #note-desc { color:var(--muted); margin-right:80px; } /* clear of the floating Close */
 /* A phone shows the app full screen, with one compact row at the foot: no widths, no A/B. */
 body.phone #bar { order:1; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; gap:6px; padding:6px 8px calc(6px + env(safe-area-inset-bottom)); border:0; border-top:1px solid var(--line); }
-body.phone #bar h1, body.phone .desktop, body.phone .gap, body.phone figcaption, body.phone .ctl > b { display:none; }
+body.phone #bar h1, body.phone .desktop, body.phone figcaption, body.phone .ctl > b { display:none; }
 body.phone :is(button, select) { flex:none; min-height:32px; font-size:13px; }
-body.phone .ctl { flex:1 0 6em; padding:0; border:0; }
+body.phone .ctl { flex:none; padding:0; border:0; }
 body.phone figure { flex:1; }
 </style>
 </head>
@@ -55,12 +52,13 @@ body.phone figure { flex:1; }
   <span class="ctl" id="variants"></span>
   <span class="ctl" id="views"></span>
   <span id="states"></span>
-  <span class="gap"></span>
+  <span id="tools">
   <span class="ctl desktop" id="widths"></span>
   <button class="desktop" id="ab" title="Two options side by side, when both fit at this width">A|B</button>
   <button id="theme">Theme</button>
   <button id="note-btn" aria-expanded="false">Note</button>
   <button id="hide" title="Hide the controls (h)">Hide</button>
+  </span>
 </header>
 <main id="stage"></main>
 <button id="pill" hidden title="Show the controls (h)"></button>

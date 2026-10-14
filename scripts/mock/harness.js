@@ -89,7 +89,6 @@ function boot(M) {
     if (items.length < 2) return el.replaceChildren();
     const sel = Object.assign(document.createElement("select"), { ariaLabel: label, onchange: () => pick(items[sel.selectedIndex][0]) });
     sel.append(...items.map(([value, text, title]) => Object.assign(new Option(text, value, false, value === current), { title: title || "" })));
-    sel.title = sel.selectedOptions[0].text; // whole, where the menu is too narrow for it
     el.replaceChildren(Object.assign(document.createElement("b"), { textContent: label }), sel);
   };
 
