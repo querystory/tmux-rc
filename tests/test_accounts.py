@@ -324,14 +324,23 @@ def test_the_session_default_and_the_sign_in_window(client, home):
                                               "dir": "~/.claude-personal"}).status_code == 409
 
 
+W = "CODEX_HOME=~/.codex-work"
+
+
 @pytest.mark.parametrize("command,status,tail", [
-    ("codex login --device-auth -c 'a=b c'", 200,
+    (f"{W} codex login --device-auth -c 'a=b c'", 200,
      ["codex", "login", "--device-auth", "-c", "a=b c"]),
+    ("CODEX_HOME=$HOME/../home/./.codex-work/ codex login", 400, None),  # no shell: no $HOME
+    ("CODEX_HOME=~/../home/./.codex-work/ codex login", 200, ["codex", "login"]),  # same dir
     ("  ", 200, ["codex", "login", "--device-auth"]),  # blank: the default
-    ("sh -c 'codex login'", 400, None),  # only the provider's own binary
-    ("/tmp/codex login", 400, None),
-    ("codex login; rm -rf ~", 200, ["codex", "login;", "rm", "-rf", "~"]),  # argv, no shell
-    ("codex 'login", 400, None),  # unbalanced quote
+    ("codex login", 400, None),  # the dir's variable is not optional
+    ("CODEX_HOME=~/.codex codex login", 400, None),  # nor pointed at another account
+    (f"{W} CLAUDE_CONFIG_DIR=/x codex login", 400, None),  # nor joined by another
+    (f"{W} sh -c 'codex login'", 400, None),  # only the provider's own binary
+    (f"{W} /tmp/codex login", 400, None),
+    (W, 400, None),
+    (f"{W} codex login; rm -rf ~", 200, ["codex", "login;", "rm", "-rf", "~"]),  # argv
+    (f"{W} codex 'login", 400, None),  # unbalanced quote
 ])
 def test_an_edited_sign_in_runs_the_providers_binary_as_argv(client, home, command, status, tail):
     added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-work"}).json()

@@ -5,10 +5,11 @@
 import { esc } from "./pane-model.js"; // relative, so node's tests can load this module
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login --device-auth" };
-// The sign-in command as last edited, per provider and per browser (the server still pins
-// the dir and the binary). Kept here too, so typing works where storage is blocked.
+// The sign-in command as last edited (what follows VAR=<dir>), per provider and per browser;
+// the server still pins the dir and the binary. Kept here too, where storage is blocked.
 const cmds = {}, cmdKey = (p) => `tmuxrc-signin-${p}`;
 const cmdOf = (p) => cmds[p] ??= (() => { try { return localStorage.getItem(cmdKey(p)); } catch { return null; } })() || LOGIN[p];
+const LEAD = /^\s*(?:[A-Za-z_]\w*=\S*\s+)*/; // the line's leading VAR=value words
 const setCmd = (p, v) => { cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
@@ -224,11 +225,12 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       + (F.existed ? `<p class="acct-msg warn"><code>${esc(F.dir)}</code> already existed; tmux-rc kept its files.</p>` : "")
       + (F.pane ? `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open in <b>${esc(F.session)}</b>. ${F.provider === "claude" ? "Finish <code>/login</code> there." : "Open the link and enter the code shown in the sign-in window."} tmux-rc only watches for the account to appear; it never sees the login itself.</p><p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
           + btns('<button class="ghost" data-abandon>Cancel sign-in</button>', "<button data-go>Go to window</button>")
-        : `<p class="acct-note">tmux-rc opens a new window that runs the provider's own sign-in on this dir:</p><label class="acct-cmd"><code class="muted">${ENV[F.provider]}=${esc(F.dir)}</code><input id="acct-cmd" value="${esc(cmdOf(F.provider))}" aria-label="Sign-in command" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`
-          + (cmdOf(F.provider) === LOGIN[F.provider] ? "" : `<button type="button" class="ghost" data-reset-cmd>Reset to <code>${LOGIN[F.provider]}</code></button>`)
+        : `<p class="acct-note">tmux-rc opens a new window that runs the provider's own sign-in on this dir:</p><input id="acct-cmd" class="acct-cmd" value="${esc(lineOf())}" aria-label="Sign-in command" autocomplete="off" autocapitalize="off" spellcheck="false">`
+          + (lineError() ? `<p class="acct-msg err">${esc(lineError())}</p>` : "")
+          + (lineOf() === lineFor(LOGIN[F.provider]) ? "" : `<button type="button" class="ghost" data-reset-cmd>Reset to <code>${LOGIN[F.provider]}</code></button>`)
           + `<label for="acct-session">Open it in session</label><select id="acct-session">${sessions().map((x) => `<option ${x === F.session ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`
           + `<p class="acct-note">You sign in there yourself, so your password and tokens never pass through tmux-rc.</p>`
-          + btns('<button class="ghost" data-goto="list">Later</button>', `<button class="primary" data-login ${sessions().length ? "" : "disabled"}>Open sign-in window</button>`));
+          + btns('<button class="ghost" data-goto="list">Later</button>', `<button class="primary" data-login ${sessions().length && !lineError() ? "" : "disabled"}>Open sign-in window</button>`));
     else if (s === "abandoned") dlg.innerHTML = head("Sign-in not finished")
       + `<p>${esc(F.name)} is not signed in yet, so it is listed as "not signed in" until you finish or remove it.</p><p class="acct-note"><code>${esc(F.dir)}</code> holds no login; any links you chose are in place and harmless.</p>`
       + (F.pane && paneAlive(F.pane) ? `<label class="acct-check"><input type="checkbox" id="acct-close" checked><span>Close the sign-in window<small>the window tmux-rc opened for this, and nothing else</small></span></label>` : "")
@@ -249,7 +251,17 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     F = { step, name: "", provider: "claude", dir: "~/.claude-new", session: sessions()[0] || "" };
     render(); if (!dlg.open) dlg.showModal();
   }
-  const go = (step, extra = {}) => { Object.assign(F, { renaming: null, removing: null, error: null, ...extra, step }); render(); };
+  const go = (step, extra = {}) => { Object.assign(F, { renaming: null, removing: null, error: null, line: null, ...extra, step }); render(); };
+  // The sign-in line: as edited in this flow, else VAR=<dir> and the remembered command.
+  const lineFor = (cmd) => `${ENV[F.provider]}=${F.dir} ${cmd}`, lineOf = () => F.line ?? lineFor(cmdOf(F.provider));
+  // What the server would refuse: another dir or variable, or another program.
+  const lineError = () => {
+    const line = lineOf(), env = line.match(LEAD)[0].trim().split(/\s+/).filter(Boolean), v = ENV[F.provider];
+    const p = byDir(F.dir), bin = LOGIN[F.provider].split(" ")[0];
+    if (env.length !== 1 || !env[0].startsWith(`${v}=`) || ![F.dir, p?.dir, p?.tilde].filter(Boolean).map(norm).includes(norm(env[0].slice(v.length + 1))))
+      return `Must stay ${v}=${p?.tilde || F.dir}`;
+    return line.slice(line.match(LEAD)[0].length).split(/\s+/)[0] === bin ? "" : `Must run ${bin}`;
+  };
   const fail = (error) => { F.error = error.detail || "That did not work. Try again."; render(); };
   const typed = (id) => { const at = dlg.querySelector(`#${id}`).selectionStart; render(); const i = dlg.querySelector(`#${id}`); i.focus(); i.setSelectionRange(at, at); };
   // Not mid-composition: re-rendering would detach an IME's input; compositionend catches up.
@@ -257,7 +269,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (e.isComposing) return;
     if (e.target.id === "acct-name") { F.name = e.target.value; if (!F.dirTouched) F.dir = `~/.${F.provider}-${slug(F.name)}`; typed("acct-name"); }
     if (e.target.id === "acct-dir") { F.dir = e.target.value.trim(); F.dirTouched = true; typed("acct-dir"); }
-    if (e.target.id === "acct-cmd") { setCmd(F.provider, e.target.value); typed("acct-cmd"); }
+    if (e.target.id === "acct-cmd") { F.line = e.target.value; setCmd(F.provider, F.line.slice(F.line.match(LEAD)[0].length).trim() || LOGIN[F.provider]); typed("acct-cmd"); }
   };
   dlg.addEventListener("input", onType);
   dlg.addEventListener("compositionend", onType);
@@ -284,7 +296,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (d.goto) return go(d.goto);
     // The dir follows the provider: ~/.claude-x becomes ~/.codex-x, typed or suggested.
     if (d.prov) { F.dir = F.dir.replace(new RegExp(`^~/\\.${F.provider}(?=-|$)`), `~/.${d.prov}`); F.provider = d.prov; return render(); }
-    if ("resetCmd" in d) { setCmd(F.provider, LOGIN[F.provider]); return render(); }
+    if ("resetCmd" in d) { setCmd(F.provider, LOGIN[F.provider]); F.line = null; return render(); }
     if ("add" in d) return open("name");
     if (d.rename) return go("list", { renaming: d.rename });
     if (d.remove) return go("list", { removing: d.remove });
@@ -306,7 +318,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         const dir = added.dir || F.dir; // a dir already signed in needs no sign-in window
         return go(byDir(dir)?.signed_in ? "done" : "login", { dir, existed: added.existed, pane: null });
       }
-      if ("login" in d) { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: cmdOf(F.provider) })); F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
+      if ("login" in d) { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() })); F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
       if ("retry" in d) return go("login", { pane: null });
       if ("later" in d) return go("list");
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }

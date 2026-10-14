@@ -152,9 +152,11 @@ From Settings → Manage accounts… → Add account, or "+ Add account" in New 
    remote: Codex's device-code flow shows a link and a one-time code (plain `codex login`
    waits on a localhost callback a remote browser cannot reach), and Claude's `/login` shows
    a link whose page hands back a code to paste into the window.
-   The command after the variable is editable (to add a flag the provider grows), but the
-   server pins the variable to the account's dir, runs the command as argv with no shell,
-   and accepts it only if it starts with the provider's own binary. Codex is signed in
+   The whole line is editable (to add a flag the provider grows), but the server accepts
+   it only if its one leading assignment is the provider's variable on this account's dir
+   and its program is the provider's own binary, and runs it as argv with no shell, so an
+   edit can neither inject a command nor sign a different dir in. The sheet checks the
+   same rules as you type, to say why before the server refuses. Codex is signed in
    when `auth.json` exists or, failing that, when `codex login status` says so: its login
    can live in the OS keyring instead, where no file shows it. tmux-rc never shows a
    password field, never handles a token and never drives the login; it only polls the dir's non-secret account info until it appears. That keeps the
