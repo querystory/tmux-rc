@@ -753,6 +753,20 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
 
+/* Wider than a phone, the agent chips are one hairline segmented control, and the row with
+   its session select stands one small control tall instead of a row of 44px boxes. */
+@media (min-width: 700px) {
+  .atlas-controls > select { min-height: 32px; padding: 2px 8px; font-size: 13px; border-radius: 6px; }
+  .atlas-controls > .atlas-filter { min-height: 32px; min-width: 0; padding: 0 10px; gap: 5px; border-radius: 0; }
+  .atlas-filter + .atlas-filter { margin-left: -9px; } /* the row's 8px gap and one shared hairline */
+  .atlas-controls-label + .atlas-filter { border-radius: 6px 0 0 6px; }
+  .atlas-filter:not(:has(+ .atlas-filter)) { border-radius: 0 6px 6px 0; }
+  .atlas-filter[aria-pressed=true] { position: relative; } /* its accent border over the neighbours' */
+  .atlas-filter img { width: 16px; height: 16px; }
+}
+/* Beside the sidebar, the filter row is the page's first line: centred on the sidebar's brand row. */
+@media (min-width: 1100px) { #landing-main:has(> #landing-sub:empty) { padding-top: 10px; } }
+
 .atlas-range { margin: 0 0 0 auto; min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 4px 8px; }
 
 .atlas-panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
