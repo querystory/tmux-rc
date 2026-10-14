@@ -336,6 +336,36 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     assert meter.approvals == {}
 
 
+@pytest.mark.parametrize(("name", "args", "drawn"), [
+    ("press_key", {"key": "Escape"}, {"key": "Escape"}),
+    ("press_key", {"key": "C-x"}, {}),  # not a key _dispatch presses
+    ("type_in_pane", {"text": "ls", "press_enter": False}, {"payload": "ls", "enter": False}),
+    ("type_in_pane", {"text": "ls", "press_enter": "no"}, {}),  # _dispatch refuses it
+    ("type_in_pane", {"text": "  "}, {}),
+])
+def test_a_card_draws_only_a_call_that_would_run(monkeypatch, name, args, drawn):
+    """A card draws an action's parts (keycap, quoted text) only for a call _dispatch would
+    run; one it refuses keeps the sentence, so it never looks like a real keystroke."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Tap(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                client = _ScriptedWS([{"action": "approve", "id": obj["id"], "ok": False},
+                                      {"action": "stop"}])
+                await L._forward_client(client, None, meter)
+
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    ws = Tap()
+    fc = _FC(name=name, args={"pane_id": "%1", **args})
+    _run(L._handle_tool_call(ws, _Session(), fc, _Watcher(), meter))
+    card = ws.sent[0]
+    assert {k: card[k] for k in ("key", "payload", "enter") if k in card} == drawn
+    assert card["text"]  # the sentence is always there
+
+
 @pytest.mark.parametrize("viewing", [True, False])
 def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     """A card the user isn't looking at (sheet minimized, page hidden) pushes "Chat needs
