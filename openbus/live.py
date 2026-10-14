@@ -316,7 +316,7 @@ def _focus(session, d: dict | None) -> None:
     Its next turn says so, so "ask the agent" stays with the pane just discussed instead of
     going to whichever pane's screen shares a word with the request."""
     if d:
-        session.focus = _FOCUS.format(_pane_name(d), d["pane_id"])
+        session.focus = d["pane_id"], _FOCUS.format(_pane_name(d), d["pane_id"])
 
 
 def _pane_block(d: dict, screen: str | None) -> str:
@@ -497,6 +497,11 @@ _KEY_ASKS = {k: frozenset(f"{_PRESS} {v}".split()) for k, v in {
     "Right": "right arrow", "PageUp": "page scroll", "PageDown": "page scroll",
     "Tab": "tab complete", "C-c": "ctrl control interrupt stop abort kill",
     "C-d": "ctrl control eof exit quit"}.items()}
+# What sends into a pane. One the conversation isn't on, and the user didn't name (by title,
+# window number or a PR it worked on), is refused: with the current pane in front of it, the
+# model still sent "the agent" to the pane whose screen shared a word with the request about
+# one time in twenty, and only a check in code makes that never.
+_AIMED = {"type_in_pane", "press_key", "send_image_to_pane"}
 _ROW = re.compile(r"\d+|y(es)?|no?")  # what picks a menu row (or answers y/n) when typed
 _ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply accept approve confirm allow decline reject "
                      "deny cancel".split())
@@ -504,11 +509,16 @@ _ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply accept approve confirm allo
 
 def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
     """Why a text session's pane change is refused before any card (a _DECLINED key), or None:
-    a bare agreement with nothing asked, a message typed into a menu, or a pane's prompt
-    answered unasked."""
+    a bare agreement with nothing asked, a pane the conversation isn't on and the user didn't
+    name, a message typed into a menu, or a pane's prompt answered unasked."""
     if getattr(session, "unanchored", False):
         return "unanchored"
-    asked = set(_words(getattr(session, "request", "")))
+    request = getattr(session, "request", "")
+    asked = set(_words(request))
+    if name in _AIMED and pane and getattr(session, "turn_pane", None) not in (
+            None, pane["pane_id"]) and not _named([pane], request) and not any(
+            str(p.get("number")) in asked for p in pane.get("prs") or []):
+        return "elsewhere"  # the model's pick over the conversation's: see _FOCUS
     text = str(args.get("text", "")).strip().casefold()
     row = bool(_ROW.fullmatch(text))
     if name == "type_in_pane" and pane and pane.get("menu") is not None and (
@@ -534,6 +544,9 @@ _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 _DECLINED = {"declined": "the user declined",
              "unanchored": "the user's message only agrees, and you asked them nothing: "
                            "nothing was sent; ask what they want",
+             "elsewhere": "the conversation is on another pane (the [Current pane] line) and the "
+                          "user didn't name this one, so nothing was sent; send it to the "
+                          "current pane, or ask which pane they mean",
              "menu": "that pane is waiting on a menu (its PENDING QUESTION), and typing into it "
                      "would pick a row, so nothing was typed; tell the user what it asks and "
                      "its options, and ask which to pick (a cursor list is driven by keys)",

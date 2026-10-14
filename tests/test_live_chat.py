@@ -544,7 +544,7 @@ _MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
     # A yes to the assistant's own question carries that question's words.
     ("Want me to cancel its command?\nyes", "press_key", {"key": "Escape"}, _ASKING, False)])
 def test_a_panes_prompt_is_answered_only_when_asked(request_, name, args, pane, refused):
-    s = Ns(unanchored=False, request=request_)
+    s = Ns(unanchored=False, request=request_, turn_pane=None)
     want = refused if isinstance(refused, str) else "unasked_answer" if refused else None
     assert L._refusal(s, name, args, pane) == want
 
@@ -560,12 +560,12 @@ def test_a_turn_knows_the_question_it_answers(monkeypatch):
 def test_a_queued_message_keeps_the_pane_shown_when_it_was_sent():
     async def go():
         s = _Fake([])
-        s.focus = "[Current pane: a]"
+        s.focus = ("%1", "[Current pane: a]")
         await s.send_text("first")
-        s.focus = "[Current pane: b]"  # the first turn's reply moved it after "second" was sent
+        s.focus = ("%2", "[Current pane: b]")  # the first turn's reply moved it afterwards
         await s.send_text("second")
         return [s._inbox.get_nowait()[3] for _ in range(2)]
-    assert asyncio.run(go()) == ["[Current pane: a]", "[Current pane: b]"]
+    assert asyncio.run(go()) == [("%1", "[Current pane: a]"), ("%2", "[Current pane: b]")]
 
 
 def test_a_reconnect_restores_the_pane_the_replies_were_about(monkeypatch):
@@ -577,7 +577,7 @@ def test_a_reconnect_restores_the_pane_the_replies_were_about(monkeypatch):
     asyncio.run(L._forward_client(_ScriptedWS(frames), s, L._Meter("s", "a", _FLASH, text=True),
                                   _Watcher()))
     work = _Watcher().digest()[0]
-    assert s.focus == L._FOCUS.format(L._pane_name(work), "%1")
+    assert s.focus == ("%1", L._FOCUS.format(L._pane_name(work), "%1"))
 
 
 @pytest.mark.parametrize(("question", "menu"), [
@@ -605,3 +605,20 @@ def test_a_resumed_pane_becomes_the_current_one_before_the_watcher_sees_it(monke
     s = _Fake([("", [("resume_session", {"session_id": "x"})]), ("Reopened.", []), ("Ok.", [])])
     _talk(s, monkeypatch, ("resume the auth fix", True), ("tell it to rebase", None))
     assert _users(s)[-1].startswith(L._FOCUS.format(L._pane_name({"title": "auth fix"}), "%9"))
+
+
+_FABLE = {"pane_id": "%7", "title": "fable session monitor", "window_index": "5",
+          "prs": [{"repo": "q/fable", "number": 412}]}
+
+
+@pytest.mark.parametrize(("request_", "turn_pane", "refused"), [
+    ("ask the agent for all 8 workstream status", "%3", True),  # the conversation is on %3
+    ("ask the agent for all 8 workstream status", "%7", False),
+    ("ask the agent for all 8 workstream status", None, False),  # no conversation yet
+    ("now tell fable session monitor to stop", "%3", False),  # named by title
+    ("and window 5?", "%3", False),  # or number
+    ("address review on PR 412", "%3", False)])  # or a PR it worked on
+def test_a_send_off_the_current_pane_needs_the_user_to_name_it(request_, turn_pane, refused):
+    s = Ns(unanchored=False, request=request_, turn_pane=turn_pane)
+    args = {"pane_id": "%7", "text": "From the user: status?"}
+    assert (L._refusal(s, "type_in_pane", args, _FABLE) == "elsewhere") is refused

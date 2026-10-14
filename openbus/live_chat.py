@@ -116,7 +116,10 @@ class _Chat:
         self.asked = False  # whether the last reply asked the user something
         self.unanchored = False  # this turn only agrees, and nothing was asked
         self.caution: str | None = None  # this turn's warning for a consent card
-        self.focus: str | None = None  # the pane the conversation is on (live._focus)
+        # The pane the conversation is on, (pane id, the line that says so) (live._focus),
+        # and the one this turn was sent under (live._refusal).
+        self.focus: tuple[str, str] | None = None
+        self.turn_pane: str | None = None
         self._asking = ""  # the reply that asked, while self.asked
         self._replies: list[str] = []  # the restored assistant rows, oldest first
         self.request = ""  # this turn's words and the question they answer (live._refusal)
@@ -166,6 +169,7 @@ class _Chat:
         the note the user saw, so a later request cannot resume its request or tool chain."""
         while True:
             text, images, anchored, focus = await self._inbox.get()
+            self.turn_pane = focus and focus[0]
             self._starts.append(len(self.history))
             if len(self._starts) > TURNS_KEPT:
                 cut = self._starts[-TURNS_KEPT]
@@ -177,7 +181,8 @@ class _Chat:
             self.caution = (CAUTION_RESTORED if self._restored
                             else CAUTION_BARE.format(text.strip()) if bare else None)
             self._user("\n\n".join(filter(None, [
-                self._restored, *self._context, focus, anchored and OPEN_QUESTION, text,
+                self._restored, *self._context, focus and focus[1], anchored and OPEN_QUESTION,
+                text,
             ])), images)
             self._restored = ""
             self._context.clear()
