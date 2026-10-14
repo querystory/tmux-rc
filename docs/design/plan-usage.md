@@ -47,7 +47,7 @@ and once the list is scrolled two rows of them only cost room; search is what yo
 mid-list.
 
 The strip's top edge is a seam, as the fleet chart's is: dragged taller, several accounts'
-strip stacks more rows of meters (a row per meter's height) while still swiping sideways, so a
+strip stacks more rows of meters (a row per hundred pixels) while still swiping sideways, so a
 tall strip shows more meters rather than just bigger ones. The height is per browser, like the sidebar's width, and a double-click
 restores the natural one. Dragged under one row it closes, which sets the switch Off with
 an Undo in the notice, rather than snapping back with a hint. Snapping back fights a

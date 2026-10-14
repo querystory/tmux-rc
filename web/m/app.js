@@ -1403,12 +1403,12 @@ function setUsageMode(mode) {
   paintUsage(); paintSettings();
 }
 // Wide, the strip's top edge is a seam like the fleet chart's: drag it taller for more rows
-// of meters, a row per USAGE_ROW; a double-click restores its own
+// of meters, a row per USAGE_ROW (room for a gauge's two notes); a double-click restores its own
 // height. Dragged under one row it closes, which turns the setting Off rather than keeping
 // a zero height, so the menu says why it is gone and the notice's Undo brings it back. The
 // height is per screen, like the sidebar's width; unset (the default) is the natural height,
 // and CSS caps it so the pane list keeps most of the column.
-const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72, USAGE_ROW = USAGE_MIN;
+const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72, USAGE_ROW = 100;
 let usageHeight = 0, usageDrag = 0;
 try { usageHeight = Number(localStorage.getItem(USAGE_KEY)) || 0; } catch {}
 function sizeUsage(px = usageHeight, persist = false) {
