@@ -111,10 +111,15 @@ for this sweep?"). Grouping by window keeps every y axis meaning the same thing.
 sample times, so echarts' per-series nearest point would show different instants side by
 side. The tooltip interpolates each meter at the pointer's time instead.
 
-**A phone shows one chart at a time.** Three stacked charts at 390px are three slivers.
-The range sits on top, the window tabs under it (a sideways swipe on the heading moves
-between them too). The range starts at a week on both: enough 5h teeth to compare days,
-and the current weekly window whole; a month of 5h teeth was a wall of spikes.
+**A phone scrolls, like the page it is.** The first phone layout showed one chart at a time
+behind window tabs. That was a control where none was needed, and each chart came out tall
+and thin, the wrong shape for time. Now the charts stack as they do on a wide screen and
+the page scrolls. Each chart is landscape, about 180px tall at 390px wide, with its
+legend as a small table above it: a row per account with the chip, the %, and one status.
+5-hour and Weekly fit on the first screen, and Weekly Fable is a scroll away. A drag on a
+phone's chart scrolls the page rather than panning it, because a stray pan once pushed
+the charts into the empty forecast. Zooming on a phone is the range control and the slider
+under the last chart.
 
 **Data.** `/api/usage?past=<days>` adds, per window, the windows that ended in those days,
 each with its samples thinned to the same 120 points as a current window. The view asks

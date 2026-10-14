@@ -21,9 +21,8 @@ const stamp = t => new Date(t).toLocaleString([], { weekday: 'short', month: 'sh
 const clock = (t, now) => new Date(t).toLocaleString([], { ...(new Date(t).toDateString() !== new Date(now).toDateString() && { weekday: 'short' }), hour: 'numeric', minute: '2-digit' });
 
 // The view's choices outlive a visit: the range (a week until one is picked: enough 5h teeth
-// to compare days, and this weekly window whole), the chart a phone shows, and the span
-// someone zoomed or panned to (null: the range's).
-let picked = null, shown = 0, zoom = null, view = null;
+// to compare days, and this weekly window whole), and the span someone zoomed or panned to (null: the range's).
+let picked = null, zoom = null, view = null;
 // The account each chart's bands follow, by window type: the one picked by its chip, else the fullest.
 const focusBy = {};
 // The accounts this view shows, by id (provider and dirs); none is all. Its own, per browser:
@@ -92,13 +91,15 @@ function bands(m, now) {
 // at", and the reset's countdown and clock time.
 function readout(m, now, type, on) {
   const w = m.w, level = w.limit_at || w.pct >= 100 ? 'full' : (w.projected ?? 0) >= 90 ? 'warn' : '', live = w.resets_at > now;
-  // The reset's clock time drops out on a phone (it stays in the row's tooltip), and so does the
-  // countdown when "full at" is there, so each account is one row: chip, %, one status.
+  // Both, when it fills first: "full" says the room runs out, "resets" when it comes back. On a
+  // phone each account is one row (chip, %, status), so its times are short ("Thu 10:10p") and
+  // the reset's clock time is left to the row's tooltip.
+  const at = t => view.narrow ? clock(t, now).replace(/ ([AP])M$/, (_, x) => x.toLowerCase()) : clock(t, now);
   const reset = live ? `resets ${countdown(w.resets_at - now)}<span class="uv-at">, ${clock(w.resets_at, now)}</span>` : 'not started';
   const tip = [live && `resets ${stamp(w.resets_at)}`, m.as_of && `as of ${countdown(now - m.as_of)} ago`].filter(Boolean).join(' · ');
   // The chip picks the account the chart's bands follow (on a phone, anywhere on its row).
   return `<span class="uv-read" title="${esc(tip)}"><button type="button" class="uv-pick" data-type="${esc(type)}" data-id="${esc(m.id)}" aria-pressed="${on}" aria-label="Shade ${esc(m.name)}'s windows (${esc(m.dirs)})">${m.chip}</button><b class="${level}">${Math.round(w.pct)}%</b>`
-    + (w.limit_at > now && live ? `<span class="out">full ${clock(w.limit_at, now)}</span>` : '') + `<span class="uv-reset">${reset}</span></span>`;
+    + `<span class="uv-status">${w.limit_at > now && live ? `<span class="out">full ${at(w.limit_at)}</span> · ` : ''}${reset}</span></span>`;
 }
 
 function option(card, extent, now, slider, css) {
@@ -139,7 +140,9 @@ function option(card, extent, now, slider, css) {
         }).filter(Boolean)].join('<br>');
       } },
     dataZoom: [
-      { type: 'inside', xAxisIndex: 0, ...range, filterMode: 'none', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
+      // Not on a phone: a drag on a chart there is the page scrolling, not a pan (a stray one
+      // had panned a phone's charts off into the empty forecast).
+      { type: 'inside', xAxisIndex: 0, ...range, filterMode: 'none', disabled: narrow, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
       { type: 'slider', xAxisIndex: 0, show: slider, ...range, filterMode: 'none', height: narrow ? 32 : 28, bottom: narrow ? 6 : 10, left, right, handleSize: narrow ? '140%' : '100%', moveHandleSize: narrow ? 10 : 7, // a thumb's worth on a phone
         borderColor: line, fillerColor: color('--accent-bg'), textStyle: { color: muted, fontSize: 12 }, showDetail: !narrow, handleLabel: { show: !narrow }, labelFormatter: day, // dated ends: it spans all the history loaded, not the axis above it
         handleStyle: { color: accent, borderColor: accent }, moveHandleStyle: { color: accent },
@@ -192,7 +195,6 @@ export function renderUsageView(root, all, options) {
   // Every window type of every account, picked or not, so a chart the pick empties says so.
   const types = [...new Set([...all.flatMap(a => (a.windows || []).map(w => w.window)), ...Object.keys(byType)])].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
   if (types.join() !== view.types.join()) build(types);
-  shown = Math.max(0, Math.min(shown, types.length - 1));
   const times = Object.values(byType).flat().flatMap(m => [m.past[0]?.[0], m.cur[0]?.[0], m.w.resets_at]).filter(Boolean);
   // At least the days loaded, so a new account's 30d still spans 30 days; All, what there is.
   view.extent = { min: Math.min(now - (usageDays() === Infinity ? D : usageDays() * D), ...times), max: Math.max(now + 6 * H, ...times) + H };
@@ -212,8 +214,6 @@ export function renderUsageView(root, all, options) {
       + `${m.hits.length ? `${m.hits.length} hit the limit, the last ${stamp(Math.max(...m.hits))}` : 'none hit the limit'}; now ${Math.round(m.w.pct)}%`
       + (m.w.projected != null ? `, ${Math.round(m.w.projected)}% by the reset at this pace` : '')).join('. ')}. Plus and minus zoom, left and right arrows pan.`);
   }
-  // A phone on a chart the filter just emptied moves to one with something to show.
-  if (!view.cards[shown]?.meters.length) shown = Math.max(0, view.cards.findIndex(c => c.meters.length));
   paint();
 }
 
@@ -241,9 +241,6 @@ function setup(root, refetch, icon) {
   });
   dismissable(v.picker);
   v.bar.append(v.range, v.picker);
-  // A sideways swipe on a heading or the tabs moves a phone to the next chart; one
-  // on the chart pans it.
-  let from = null;
   root.addEventListener('click', e => {
     const pick = e.target.closest('.uv-pick') || (view.narrow ? e.target.closest('.uv-read')?.querySelector('.uv-pick') : null);
     if (!pick) return;
@@ -251,23 +248,18 @@ function setup(root, refetch, icon) {
     pick.closest('.uv-head').querySelectorAll('.uv-pick').forEach(b => b.setAttribute('aria-pressed', String(b === pick)));
     paint();
   });
-  root.addEventListener('pointerdown', e => { from = e.target.closest('.uv-head, .uv-tabs') && e; });
-  root.addEventListener('pointerup', e => {
-    const dx = from ? e.clientX - from.clientX : 0;
-    if (view.narrow && Math.abs(dx) > 50 && Math.abs(dx) > 2 * Math.abs(e.clientY - from.clientY)) show(shown + (dx < 0 ? 1 : -1));
-    from = null;
-  });
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  new ResizeObserver(() => { if (root.isConnected && root.clientWidth) { fit(); paint(); } }).observe(root); // not while away: a detached view measures 0
+  new ResizeObserver(() => { if (root.isConnected && root.clientWidth) fit() ? view.again() : paint(); }).observe(root); // not while away: a detached view measures 0
   return v;
 }
 
-// One chart at a time below NARROW; crossing it starts the zoom over, as the layout changes.
+// A phone's layout below NARROW; crossing it starts the zoom over, as the layout changes.
 function fit() {
-  if (!view.root.clientWidth) return;
-  const narrow = view.root.clientWidth < NARROW;
-  if (narrow !== view.narrow && view.narrow != null) zoom = null;
+  if (!view.root.clientWidth) return false;
+  const narrow = view.root.clientWidth < NARROW, crossed = view.narrow != null && narrow !== view.narrow;
+  if (crossed) zoom = null;
   view.narrow = narrow;
+  return crossed; // the headings change too (readout), so they are redrawn
 }
 
 function build(types) {
@@ -282,10 +274,6 @@ function build(types) {
     return { type, el, headEl: el.firstChild, chartEl: el.lastChild };
   });
   view.stack.replaceChildren(...view.cards.map(c => c.el));
-  view.tabs?.remove();
-  view.tabs = segmented('Window', types.map(title), title(types[shown] ?? types[0] ?? ''), t => show(types.map(title).indexOf(t)));
-  view.tabs.classList.add('uv-tabs');
-  view.bar.append(view.tabs);
 }
 
 // The keyboard's zoom and pan, as the Activity chart's: + and − halve and double the span
@@ -300,38 +288,38 @@ function keys(e) {
   zoomTo(...next);
   paint();
 }
-// The span on screen, at least an hour and held within the loaded history.
+// The span on screen: at least an hour, within the loaded history, and starting at least an
+// hour before now. Past that it would be all forecast, an empty chart: a slider dragged to the
+// end once left a phone showing two days ahead and "0 hours shown".
 function zoomTo(from, span) {
-  const { min, max } = view.extent, width = Math.min(max - min, Math.max(H, span)), start = Math.max(min, Math.min(max - width, from));
+  const { min, max } = view.extent, width = Math.min(max - min, Math.max(H, span));
+  const start = Math.max(min, Math.min(max - width, view.now - H, from));
   zoom = { startValue: start, endValue: start + width };
 }
 
-function show(i) {
-  shown = (i + view.types.length) % view.types.length;
-  paint();
-}
-
-// Draw every chart on screen; a phone shows one at a time.
+// Draw every chart: stacked to fill the view, or on a phone stacked to scroll, each its own height.
 let painting = null;
 async function paint() {
   if (!view?.types.length) return;
   const narrow = view.narrow;
-  view.cards.forEach((c, k) => { c.el.hidden = narrow && k !== shown; });
-  view.tabs.hidden = !narrow;
-  view.tabs.querySelectorAll('button').forEach((b, k) => b.setAttribute('aria-pressed', String(k === shown)));
   view.range.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.textContent === rangeOf())));
-  view.stack.style.gridTemplateRows = narrow ? 'minmax(0, 1fr)' : view.cards.map(c => c.meters?.length ? 'minmax(0, 1fr)' : 'auto').join(' '); // an emptied chart is its one line
+  view.stack.style.gridTemplateRows = narrow ? '' : view.cards.map(c => c.meters?.length ? 'minmax(0, 1fr)' : 'auto').join(' '); // an emptied chart is its one line
   let echarts;
   try { echarts = await (painting ||= load('echarts', '/m/vendor/echarts.min.js')); } catch { painting = null; view.stack.textContent = 'Chart unavailable. Reload to retry.'; return; }
-  const css = getComputedStyle(document.documentElement), on = view.cards.filter(c => !c.el.hidden && c.chartEl.clientWidth);
+  const css = getComputedStyle(document.documentElement), on = view.cards.filter(c => c.chartEl.clientWidth);
   for (const c of on) {
     if (!c.chart) {
       c.chart = echarts.init(c.chartEl);
       c.chart.group = 'usage'; // one zoom and one hover line for every chart (echarts.connect)
-      c.chart.on('datazoom', () => { const z = c.chart.getOption().dataZoom[0]; zoom = { startValue: z.startValue, endValue: z.endValue }; spanText(); });
+      c.chart.on('datazoom', () => {
+        const z = c.chart.getOption().dataZoom[0];
+        zoomTo(z.startValue, z.endValue - z.startValue);
+        if (zoom.startValue !== z.startValue) paint(); else spanText(); // held back from all-forecast
+      });
       (c.sized = new ResizeObserver(() => c.chart.resize())).observe(c.chartEl);
     }
-    c.chart.setOption(option(c, view.extent, view.now, narrow || c === on[on.length - 1], css), true);
+    c.el.classList.toggle('slid', c === on[on.length - 1]); // the slider's chart: a phone gives it the room
+    c.chart.setOption(option(c, view.extent, view.now, c === on[on.length - 1], css), true);
     c.chart.resize();
   }
   echarts.connect('usage');
