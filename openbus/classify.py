@@ -880,7 +880,9 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
             # The next label in sequence at the same indent (B after A, 3 after 2)
             # continues its list and keeps the list's lead-in, across blank lines, a
             # nested list or a deeper note between rows. Any other row starts a list, led
-            # by the paragraph just above it or by nothing, never by an earlier list's.
+            # by the paragraph just above it or by nothing, never by an earlier list's. A
+            # row ends the lists nested deeper than it.
+            lists = {i: v for i, v in lists.items() if i <= indent}
             prev, lead = lists.get(indent, ("", ""))
             if label != _next_label(prev):
                 lead = " ".join(para)

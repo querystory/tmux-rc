@@ -1453,6 +1453,10 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
     screen = _auto_screen("Old:\n  A. Redis\n  B. SQLite\nNew decision:\n  C. Disk\n\n  Go with C?")
     renamed = classify(_pane("claude"), screen, _llm({}))["question"]
     assert (renamed["items"], renamed["subject"]) == (["C. Disk"], "New decision:")
+    # A parent row ends the list nested under it: the next nested 2 is a new list's.
+    screen = _auto_screen("Decision one:\n    1. Old nested.\n  A. Parent.\n    2. New nested."
+                          "\n\n  Do 2 now?")
+    assert "subject" not in classify(_pane("claude"), screen, _llm({}))["question"]
     store = message.partition("\n\n  Two")[0]
     labelled = classify(_pane("claude"), _auto_screen(store + "\n\n  Option A or B?"),
                         _llm({}))["question"]
