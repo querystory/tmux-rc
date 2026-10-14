@@ -427,10 +427,11 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // poll never wipes what is being typed.
     paneCard: async (pane, section) => {
       if (!pane || !/^sign in: /.test(pane.window_name || "")) { section.hidden = true; delete section.dataset.pane; return; }
-      if (section.dataset.pane === pane.pane_id) return;
-      section.dataset.pane = pane.pane_id; section.hidden = true;
+      const key = `${pane.pane_id}:${pane.birth}`; // tmux recycles pane ids; the pid tells them apart
+      if (section.dataset.pane === key) return;
+      section.dataset.pane = key; section.hidden = true;
       const w = await windowOf(`pane_id=${encodeURIComponent(pane.pane_id)}`);
-      if (!w?.codex || w.device || section.dataset.pane !== pane.pane_id) return;
+      if (!w?.codex || w.device || section.dataset.pane !== key) return;
       section.hidden = false;
       section.innerHTML = "<h2>Finish sign-in</h2>" + pasteForm("pane-callback");
       const input = section.querySelector("input"), button = section.querySelector("button");
