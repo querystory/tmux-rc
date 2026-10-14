@@ -316,9 +316,11 @@ class PlanUsage:
         name, seconds, observed, pct, resets = row
         out = {"window": name}
         if past:
-            # A few times what PAST back-to-back windows span: a 5h window opens only on use,
-            # so a dozen of them reach further back; still a bounded read as history grows.
-            recent = self.history.usage_between(tool, key, name, now - 4 * PAST * seconds, now)
+            # Back to the PAST-th last reset, however long ago (a 5h window opens only on
+            # use), so the read is bounded by windows, not by how old the history grows.
+            # Twice PAST: a reset read either side of an hour counts twice.
+            first = self.history.reset_back(tool, key, name, now, 2 * PAST)
+            recent = self.history.usage_between(tool, key, name, (first or now) - seconds, now)
             out["past"] = ended(name, seconds, recent, now)
         if resets is None or resets <= now:  # the window reset since: nothing used yet
             return {**out, "pct": 0.0, "resets_at": None, "samples": []}

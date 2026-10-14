@@ -55,9 +55,9 @@ cost in new chart code.
 
 Only the view asks for them (`/api/usage?past=1`): the strip polls the same endpoint every
 minute, and a dozen weeks of trends on every poll would multiply a phone's traffic for a
-view it rarely opens. The read is bounded too, to four times what twelve back-to-back
-windows span: a 5h window opens only on use, so twelve of them can reach well past 60 hours,
-but a view should not slow down as the history grows. Windows are told apart by their reset time rather than stored as
+view it rarely opens. The read is bounded by windows, not time: it reaches back to the
+twelfth-last reset, however long ago (a 5h window opens only on use, so a lightly used
+account's twelve can span months), and so it does not slow down as the history grows. Windows are told apart by their reset time rather than stored as
 records, so nothing new is written; a reset that moves by an hour or less between reads is
 the same window, since no two windows reset closer than five hours apart.
 

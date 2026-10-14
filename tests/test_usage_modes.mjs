@@ -51,3 +51,9 @@ test("the usage view keeps the past window being read across a refresh that adds
   assert.match(draw([ended(now - 11 * H, 74), ended(now - H, 50)]), /ended at 74%/);
   assert.match(draw([ended(now - 11 * H, 74), ended(now - 6 * H, 50), ended(now - H, 20)]), /ended at 74%/);
 });
+
+test("a window not yet opened (no reset) is not drawn as an ended one", () => {
+  const el = {};
+  renderUsage(el, [{ provider: "claude", windows: [{ window: "7d Fable", pct: 0, resets_at: null, samples: [] }] }], { wide: true, detail: true });
+  assert.doesNotMatch(el.innerHTML, /ended|Invalid/);
+});

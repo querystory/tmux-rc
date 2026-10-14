@@ -37,7 +37,7 @@ const at = (t, now) => new Date(t).toLocaleString([], { ...(new Date(t).toDateSt
 function cell(w, nav, a, wide, detail, now) {
   const projected = Math.min(100, w.projected ?? w.pct), used = Math.min(100, w.pct);
   const level = w.limit_at || w.pct >= 100 ? 'full' : projected >= 90 ? 'warn' : '';
-  const ended = w.resets_at <= now, span = ended ? `${at(w.start, now)} – ${at(w.resets_at, now)}` : '';
+  const ended = w.resets_at != null && w.resets_at <= now, span = ended ? `${at(w.start, now)} – ${at(w.resets_at, now)}` : '';
   const when = w.resets_at && !ended ? countdown(w.resets_at - now) : '';
   const full = !w.limit_at ? '' : ended ? `hit the limit ${at(w.limit_at, now)}` : `full in ${countdown(w.limit_at - now)}`;
   const stale = a.as_of && !ended ? `as of ${countdown(now - a.as_of)} ago` : ''; // the last read failed: an older reading

@@ -352,6 +352,15 @@ class History:
                               "AND account=? AND window=? AND t BETWEEN ? AND ? ORDER BY t",
                               (provider, account, window, since, until)).fetchall()
 
+    def reset_back(self, provider: str, account: str, window: str, until: float,
+                   n: int) -> float | None:
+        """The earliest of this meter's last n resets by `until`, counted by the hour."""
+        with self.connect() as db:
+            return db.execute("SELECT min(r) FROM (SELECT max(resets_at) AS r FROM plan_usage "
+                              "WHERE provider=? AND account=? AND window=? AND resets_at<=? "
+                              "GROUP BY CAST(resets_at / 3600 AS INT) ORDER BY r DESC LIMIT ?)",
+                              (provider, account, window, until, n)).fetchone()[0]
+
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""
         with self.connect() as db:
