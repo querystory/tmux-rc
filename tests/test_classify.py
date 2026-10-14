@@ -534,6 +534,14 @@ def test_agents_count_only_observed_busy_workers():
     assert r["agents"] == 2
 
 
+def test_workflow_row_keeps_its_progress_and_counts_as_a_worker():
+    # A workflow is one running background worker, like the agent rows beside it.
+    subs = [{"label": "Fix chart", "state": "running"},
+            {"label": "docs-sweep", "state": "running", "progress": "1/2", "tokens": "109.1k"}]
+    r = classify(_pane(), "…", _llm({"activity": "waiting", "subagents": subs}))
+    assert r["agents"] == 2 and r["subagents"][1]["progress"] == "1/2"
+
+
 def test_agents_count_defaults_zero_without_subagents():
     assert classify(_pane(), "…", _llm({"activity": "running"}))["agents"] == 0
     # A non-list subagents (model glitch) must not leak through as a count.

@@ -836,7 +836,7 @@ function renderItems(el, values, agents = false) {
     node.firstChild.ariaLabel = done ? "done" : agents ? value.state || "running" : "to do";
     text(node.children[1], value.text || value.label);
     node.title = value.text || value.label || "";
-    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.elapsed, value.tokens ? `${value.tokens} tokens` : ""].filter(Boolean).join(" · ") : "");
+    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.progress && `workflow ${value.progress}`, value.elapsed, value.tokens ? `${value.tokens} tokens` : ""].filter(Boolean).join(" · ") : "");
   });
 }
 
