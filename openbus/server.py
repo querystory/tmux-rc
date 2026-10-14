@@ -84,7 +84,7 @@ from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import PlanUsage  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
-from .watcher import Watcher  # noqa: E402
+from .watcher import Watcher, _fingerprint  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
 # passes log_config=None so its loggers propagate here instead of using its own):
@@ -1032,10 +1032,12 @@ def _screen(pane_id: str) -> str | None:
 
 
 def _redrawn(pane_id: str, before: str) -> bool:
-    """Whether the screen moves off `before` within the settle window."""
+    """Whether the screen moves off `before` within the settle window, past the timer
+    and spinner churn that redraws it with no answer at all."""
+    was = _fingerprint(before)
     for _ in range(PICKER_SETTLE_POLLS):
         time.sleep(PICKER_SETTLE_S)
-        if _screen(pane_id) != before:
+        if (now := _screen(pane_id)) is None or _fingerprint(now) != was:
             return True
     return False
 

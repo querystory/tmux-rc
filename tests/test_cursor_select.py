@@ -242,6 +242,11 @@ def test_a_menu_answer_the_screen_ignores_is_reported(monkeypatch):
         return TestClient(server.app).post(f"/api/panes/{CODEX_PANE.id}/send", json=body)
 
     assert send().json() == {"ok": True, "took": False}
+    # Only a timer ticking under the box is no answer either.
+    ticks = iter([f"{screens[0]}\nWorking ({n}s)" for n in range(99)])
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: next(ticks))
+    assert send().json() == {"ok": True, "took": False}
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens[-1])
     screens.append("Ask Codex to do anything")  # answered: the dialog is gone
     monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens.pop(0))
     assert send().json() == {"ok": True}
