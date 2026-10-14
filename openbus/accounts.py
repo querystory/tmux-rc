@@ -87,8 +87,10 @@ def identity(provider: str, config: Path) -> dict | None:
             # Tell apart two people of one organisation: the display name, else the email's
             # local part; the full email only if those clash too (see _distinguish).
             "_more": [account.get("displayName") or email.split("@")[0], email],
-            # The login itself: one person in one organisation, whatever either is called.
-            "_key": [account["accountUuid"], account.get("organizationUuid") or org]}
+            # The login itself: one person in one organisation, whatever either is called;
+            # without the organisation's id, no key, since a name may be shared.
+            "_key": account.get("organizationUuid") and [account["accountUuid"],
+                                                          account["organizationUuid"]]}
 
 
 def profiles(pane_dirs=()) -> list[dict]:

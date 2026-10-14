@@ -153,11 +153,13 @@ def test_two_people_of_one_organisation_are_told_apart(home):
 
 def test_two_dirs_on_one_login_flag_each_other(home):
     # A /login in the wrong dir: ~/.claude-demo now holds ~/.claude's login, under a label.
-    _signed_in(home / ".claude-demo", "u-work", organizationName="Example Org",
-               emailAddress="dev@example.com", organizationType="claude_team")
-    # One email in another organisation is another login, even under the same name.
-    _signed_in(home / ".claude-side", "u-work", organizationName="Side Org",
+    for d in (".claude", ".claude-demo"):
+        _signed_in(home / d, "u-work", organizationName="Example Org", organizationUuid="o-x",
+                   emailAddress="dev@example.com", organizationType="claude_team")
+    # Without an organisation id, a match is never asserted: names may be shared.
+    _signed_in(home / ".claude-side", "u-work", organizationName="Example Org",
                emailAddress="dev@example.com")
+    # One email in another organisation is another login, even under the same name.
     for d, org in (("a", "o-1"), ("b", "o-2")):
         _signed_in(home / f".claude-{d}", "u-work", organizationName="Twin Org",
                    organizationUuid=org, emailAddress="dev@example.com")

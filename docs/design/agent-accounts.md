@@ -40,7 +40,8 @@ text wherever an account is listed, and two dirs on one login (the same account 
 organisation ids) flag each other: the Accounts sheet warns on both rows, and the Move sheet keeps
 such a target listed but says the copy would stay on the same login and its limits. Hiding it instead would leave
 the user wondering where the account went. Neither the email nor the shown name is the key:
-one email in two organisations is two plans, and names are display values.
+one email in two organisations is two plans, and names are display values, so without an
+organisation id no match is claimed.
 The credentials file is never opened by this code: Codex keeps no non-secret identity
 file, so only the presence of its login file is checked. The old meter labels (the email's
 local part, or the full email on a clash) are gone: for one person with two plans they put
