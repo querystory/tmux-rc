@@ -118,6 +118,7 @@ class _Chat:
         self.caution: str | None = None  # this turn's warning for a consent card
         self.focus: str | None = None  # the pane the conversation is on (live._focus)
         self._asking = ""  # the reply that asked, while self.asked
+        self._replies: list[str] = []  # the restored assistant rows, oldest first
         self.request = ""  # this turn's words and the question they answer (live._refusal)
 
     def restore(self, rows) -> int:
@@ -131,20 +132,26 @@ class _Chat:
         if len(text) > RESTORED_CHARS:
             text = "(earlier turns omitted)\n" + text[-RESTORED_CHARS:]
         if rows:
+            self._replies = [r["text"] for r in rows if r["role"] == "model"]
             self._restored = _RESTORED.format(text)
             last = rows[-1]["text"][-RESTORED_CHARS:]  # only what the model will see asks
             self.asked = rows[-1]["role"] == "model" and bool(_ASKS.search(last))
             self._asking = last
         return len(rows)
 
+    def restored_replies(self) -> list[str]:
+        """The assistant's replies a restore brought back, oldest first (live._focus)."""
+        return self._replies
+
     async def send_audio(self, _pcm: bytes) -> None:
         """A text session has no mic; a stray frame is dropped."""
 
     async def send_text(self, text: str, images: list[tuple[str, bytes]] = ()) -> None:
         """A typed turn, with any pasted images as (mime, bytes) ahead of its text."""
-        # A question anchors only the message sent next: one queued behind a turn still
-        # running was written before that turn's reply, whatever the reply asks.
-        self._inbox.put_nowait((text, images, self.asked))
+        # A question anchors only the message sent next, and the pane is the one shown when
+        # it was sent: one queued behind a turn still running was written before that
+        # turn's reply, whatever the reply asks or names.
+        self._inbox.put_nowait((text, images, self.asked, self.focus))
         self.asked = False
 
     async def send_context(self, text: str) -> None:
@@ -158,7 +165,7 @@ class _Chat:
         """A turn the model did not finish (failed, empty) is closed in history with
         the note the user saw, so a later request cannot resume its request or tool chain."""
         while True:
-            text, images, anchored = await self._inbox.get()
+            text, images, anchored, focus = await self._inbox.get()
             self._starts.append(len(self.history))
             if len(self._starts) > TURNS_KEPT:
                 cut = self._starts[-TURNS_KEPT]
@@ -170,7 +177,7 @@ class _Chat:
             self.caution = (CAUTION_RESTORED if self._restored
                             else CAUTION_BARE.format(text.strip()) if bare else None)
             self._user("\n\n".join(filter(None, [
-                self._restored, *self._context, self.focus, anchored and OPEN_QUESTION, text,
+                self._restored, *self._context, focus, anchored and OPEN_QUESTION, text,
             ])), images)
             self._restored = ""
             self._context.clear()

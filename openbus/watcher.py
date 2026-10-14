@@ -444,6 +444,7 @@ class Watcher:
                     "headline": s.get("headline"),
                     "prs": list(self._prs.get(pid, [])),
                     "question": self._question_prompt(s),
+                    "menu": self._question_menu(s),
                     # LLM one-liner for the last activity burst (present once the pane
                     # has idled past the summary threshold; None while actively working).
                     "summary": (self._summary.get(pid) or {}).get("text"),
@@ -791,6 +792,15 @@ class Watcher:
         # (this runs in the worker thread, on the /api/state hot path).
         q = state.get("question")
         return q.get("prompt") if isinstance(q, dict) else None
+
+    @staticmethod
+    def _question_menu(state: dict) -> list[str] | None:
+        """The options of a pending question that is a widget (numbered menu or cursor list),
+        where Enter picks the highlighted row; None for a typed-reply question or none."""
+        q = state.get("question")
+        if not isinstance(q, dict) or q.get("answer_style") not in ("menu", "cursor"):
+            return None
+        return [str(o) for o in q.get("options") or [] if isinstance(o, str)]
 
     @staticmethod
     def _pending_key(state: dict) -> tuple:

@@ -1,5 +1,5 @@
 {
- "note": "Turn 4 of the same chat: 'no for the fable one' answers the assistant's own question, and was read as declining the fable pane's pending command (press Down).",
+ "note": "Turn 4 of the same chat: 'no for the fable one' answers the assistant's own question, and was read as declining the fable pane's pending command (press Down). Fable sits at a menu, so the right move is to say so and ask what to pick: typing would pick a row.",
  "panes": [
   {
    "pane_id": "%3",
@@ -27,7 +27,12 @@
    "headline": "Investigating a 500 from the sessions API",
    "summary": "Monitoring the fable rollout's workstreams; traced a 500 to the sessions endpoint and wants to query its logs.",
    "question": "Run `gcloud logging read 'resource.type=cloud_run_revision AND severity>=ERROR' --limit 50`? 1) Yes 2) Yes, and don't ask again 3) No",
-   "screen": "The 500 comes from /api/sessions. I'll pull the last errors from Cloud Run.\n\n Bash command\n   gcloud logging read 'resource.type=cloud_run_revision AND severity>=ERROR' --limit 50\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. Yes, and don't ask again for gcloud logging read commands\n   3. No, and tell Claude what to do differently (esc)"
+   "screen": "The 500 comes from /api/sessions. I'll pull the last errors from Cloud Run.\n\n Bash command\n   gcloud logging read 'resource.type=cloud_run_revision AND severity>=ERROR' --limit 50\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. Yes, and don't ask again for gcloud logging read commands\n   3. No, and tell Claude what to do differently (esc)",
+   "menu": [
+    "Yes",
+    "Yes, and don't ask again for gcloud logging read commands",
+    "No, and tell Claude what to do differently"
+   ]
   },
   {
    "pane_id": "%9",
@@ -57,6 +62,7 @@
  ],
  "then": "no for the fable one",
  "expect": {
-  "pane": "%7"
+  "pane": "%7",
+  "outcome": "asked"
  }
 }

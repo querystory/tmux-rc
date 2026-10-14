@@ -341,7 +341,9 @@ def _pane_block(d: dict, screen: str | None) -> str:
         refs = ", ".join(f"{p['repo']}#{p['number']}" for p in d["prs"])
         parts.append(f"PRs this pane has worked on: {refs}")
     if d.get("question"):
-        parts.append(f"PENDING QUESTION: {d['question']}")
+        menu = d.get("menu")
+        parts.append(f"PENDING QUESTION: {d['question']}" + (
+            f" (a menu: {' / '.join(menu)})" if menu else " (a menu)" if menu is not None else ""))
     if screen:
         parts.append(f"screen:\n{screen}")
     return "\n".join(parts)
@@ -495,14 +497,18 @@ _ANSWERS = frozenset(f"{_PRESS} answer reply option choose pick select accept ap
 
 def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
     """Why a text session's pane change is refused before any card (a _DECLINED key), or None:
-    a bare agreement with nothing asked, or a pane's prompt answered unasked."""
+    a bare agreement with nothing asked, a message typed into a menu, or a pane's prompt
+    answered unasked."""
     if getattr(session, "unanchored", False):
         return "unanchored"
     asked = set(_words(getattr(session, "request", "")))
     text = str(args.get("text", "")).strip().casefold()
+    row = bool(_ROW.fullmatch(text))
+    if name == "type_in_pane" and pane and pane.get("menu") is not None and not row:
+        return "menu"  # its Enter would pick the highlighted row, often "1. Yes"
     if name == "press_key":
         ok = bool(_KEY_ASKS.get(args.get("key"), frozenset()) & asked)
-    elif name == "type_in_pane" and pane and pane.get("question") and _ROW.fullmatch(text):
+    elif name == "type_in_pane" and pane and pane.get("question") and row:
         ok = bool(_ANSWERS & asked) or (text.isdigit() and text in asked)
     else:
         return None
@@ -520,6 +526,9 @@ _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 _DECLINED = {"declined": "the user declined",
              "unanchored": "the user's message only agrees, and you asked them nothing: "
                            "nothing was sent; ask what they want",
+             "menu": "that pane is waiting on a menu (its PENDING QUESTION), and typing into it "
+                     "would pick a row, so nothing was typed; tell the user what it asks and "
+                     "its options, and ask which to pick",
              "unasked_answer": "the user didn't ask you to answer that pane's prompt or press a "
                                "key, so nothing was sent; to pass on a message, type the "
                                "message alone, and ask the user before answering its prompt",
@@ -1244,7 +1253,7 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
 
-async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
+async def _forward_client(websocket: WebSocket, session, meter: _Meter, watcher=None) -> None:
     """Client → model: base64 16kHz PCM frames and typed turns until the client says stop.
     A typed turn is echoed as the user's transcript, so both clients render it like speech."""
     while True:
@@ -1299,6 +1308,8 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
         elif action == "resume" and hasattr(session, "restore"):  # a chat's reconnect
             logger.info("[live] chat context restored: %d rows",
                         session.restore(data.get("transcript")))
+            for said in session.restored_replies() if watcher else ():  # each names its pane
+                _focus(session, _named(watcher.digest(), said))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
             proposal, ok = str(data.get("id")), data.get("ok") is True
             answer = meter.approvals.get(proposal)
@@ -1408,7 +1419,7 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
                 # and never entered. (The GPT-Live adapter already waits on all of its
                 # tasks together; this is the seam saying the same thing.)
                 pump = asyncio.create_task(
-                    _forward_client(websocket, session, meter), name="live-client"
+                    _forward_client(websocket, session, meter, watcher), name="live-client"
                 )
                 side.append(pump)  # so the drain below tears this one down too
                 try:

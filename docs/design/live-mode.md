@@ -572,9 +572,19 @@ each turn now carries it rather than the prompt growing examples:
   with a pending question was rejected: "tell it to use main" answering "which branch?" is
   the commonest relay there is.
 
+- A message is never typed into a menu. A pane whose pending question is a widget (a
+  numbered menu or a cursor list, as the parser reports it) takes keys, not prose: the
+  relay's Enter picks the highlighted row, which for a permission prompt is usually "1.
+  Yes", approving a command the user never saw. So text into such a pane is refused before
+  any card, and the model is told to say what the menu asks, list its options (now in the
+  pane state) and ask which to pick. A free-text question is unaffected: answering it is
+  exactly what a relay is for.
+
 The eval (`research/eval/chat_routing.py`) replays the conversation against the real
 model, through the same gate. Without the gate and the explicit line it routed the first
-turn to the wrong pane 5 times in 5; with them both turns reach the right pane in 10 of 10.
+turn to the wrong pane 5 times in 5. With them, both turns go to the right pane, and with
+fable at a menu the right move is to ask: nothing reaches the pane in either case, and a
+third case checks a free-text question still gets its relay.
 
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session

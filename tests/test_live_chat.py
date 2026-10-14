@@ -515,6 +515,7 @@ def test_a_reply_names_a_pane_by_title(reply, pane):
 
 
 _ASKING = {"pane_id": "%5", "question": "Run gcloud logging read? 1) Yes 2) Yes, always 3) No"}
+_MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
 
 
 @pytest.mark.parametrize(("request_", "name", "args", "pane", "refused"), [
@@ -530,11 +531,16 @@ _ASKING = {"pane_id": "%5", "question": "Run gcloud logging read? 1) Yes 2) Yes,
     ("decline it", "press_key", {"key": "Enter"}, _ASKING, True),  # the wrong key's job
     ("pick 3", "type_in_pane", {"text": "3"}, _ASKING, False),
     ("approve the command", "type_in_pane", {"text": "1"}, _ASKING, False),
+    # A menu takes no message at all: its Enter would pick the highlighted row ("1. Yes").
+    ("ask it for status", "type_in_pane", {"text": "From the user: status?"}, _MENU, "menu"),
+    ("pick 3", "type_in_pane", {"text": "3"}, _MENU, False),
+    ("no for the fable one", "type_in_pane", {"text": "3"}, _MENU, True),
     # A yes to the assistant's own question carries that question's words.
     ("Want me to cancel its command?\nyes", "press_key", {"key": "Escape"}, _ASKING, False)])
 def test_a_panes_prompt_is_answered_only_when_asked(request_, name, args, pane, refused):
     s = Ns(unanchored=False, request=request_)
-    assert (L._refusal(s, name, args, pane) == "unasked_answer") is refused
+    want = refused if isinstance(refused, str) else "unasked_answer" if refused else None
+    assert L._refusal(s, name, args, pane) == want
 
 
 def test_a_turn_knows_the_question_it_answers(monkeypatch):
@@ -543,3 +549,36 @@ def test_a_turn_knows_the_question_it_answers(monkeypatch):
     assert s.request == "Want me to cancel its command?\nyes"
     _talk(s, monkeypatch, ("and now", None))
     assert s.request == "and now"
+
+
+def test_a_queued_message_keeps_the_pane_shown_when_it_was_sent():
+    async def go():
+        s = _Fake([])
+        s.focus = "[Current pane: a]"
+        await s.send_text("first")
+        s.focus = "[Current pane: b]"  # the first turn's reply moved it after "second" was sent
+        await s.send_text("second")
+        return [s._inbox.get_nowait()[3] for _ in range(2)]
+    assert asyncio.run(go()) == ["[Current pane: a]", "[Current pane: b]"]
+
+
+def test_a_reconnect_restores_the_pane_the_replies_were_about(monkeypatch):
+    s = _Fake([])
+    frames = [{"action": "resume", "transcript": [
+        {"role": "model", "text": "Shell is idle."}, {"role": "user", "text": "and work?"},
+        {"role": "model", "text": "Work is waiting to run its tests."}]}, {"action": "stop"}]
+    from tests.test_live_mode import _ScriptedWS
+    asyncio.run(L._forward_client(_ScriptedWS(frames), s, L._Meter("s", "a", _FLASH, text=True),
+                                  _Watcher()))
+    work = _Watcher().digest()[0]
+    assert s.focus == L._FOCUS.format(L._pane_name(work), "%1")
+
+
+@pytest.mark.parametrize(("question", "menu"), [
+    ({"prompt": "Run it?", "answer_style": "menu", "options": ["Yes", "No"]}, ["Yes", "No"]),
+    ({"prompt": "Pick", "answer_style": "cursor"}, []),
+    ({"prompt": "Which branch?", "answer_style": "text", "options": ["main"]}, None),
+    ("a bare string", None), (None, None)])
+def test_only_a_widget_question_is_a_menu(question, menu):
+    from openbus.watcher import Watcher
+    assert Watcher._question_menu({"question": question}) == menu

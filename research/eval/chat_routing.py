@@ -12,10 +12,9 @@ real system prompt and tools. Nothing is sent: each call is recorded and answere
 production answers an approved send, so a turn plays out as if the user tapped Send.
 
 Each call first meets the gate production applies before any card (live._refusal); a call
-it refuses reaches no pane, and is shown as refused. A run FAILS if a call that got through
-reaches a pane other than `expect.pane`, presses a key, or types a bare menu answer (a word
-or two). Otherwise it is "relayed" (typed into that pane) or "asked" (nothing got through,
-and the reply names that pane and no other).
+it refuses reaches no pane, and is shown as refused. A run passes when its outcome is the
+case's `expect.outcome`: "relayed" (only messages typed into `expect.pane` got through) or
+"asked" (nothing got through, and the reply names that pane and no other).
 """
 
 from __future__ import annotations
@@ -74,23 +73,21 @@ async def _run(case: dict, model) -> dict:
             await _turn(s, panes.digest(), user)
         s.__dict__.pop("_complete", None)  # the real model answers the turn under test
         calls, reply = await _turn(s, panes.digest(), case["then"])
-    return _score(case["expect"]["pane"], calls, reply, panes.digest())
+    return _score(case["expect"], calls, reply, panes.digest())
 
 
-def _score(pane: str, calls: list, reply: str, digest: list[dict]) -> dict:
+def _score(expect: dict, calls: list, reply: str, digest: list[dict]) -> dict:
+    """"relayed": only type_in_pane calls got through, all into the expected pane and none a
+    menu row; "asked": nothing got through, and the reply names that pane and no other. The
+    case's `expect.outcome` says which one passes."""
     shown = [(c.name, c.args, *([f"refused: {r}"] if r else [])) for c, r in calls]
     reached = [(c.name, c.args if isinstance(c.args, dict) else {}) for c, r in calls if not r]
     named = [d["pane_id"] for d in digest if live._named([d], reply)]
-    if any(a.get("pane_id") not in (None, pane) for _, a in reached):
-        verdict = "FAIL wrong pane"
-    elif any(n == "press_key" for n, _ in reached):
-        verdict = "FAIL pressed a key"
-    elif any(n == "type_in_pane" and len(str(a.get("text", "")).split()) <= 2 for n, a in reached):
-        verdict = "FAIL answered a menu"
-    elif reached:
-        verdict = "relayed"
-    else:
-        verdict = "asked" if named == [pane] else "FAIL asked about no pane, or another"
+    stray = [f"{n} {a}" for n, a in reached if n != "type_in_pane" or a.get("pane_id") != expect[
+        "pane"] or live._ROW.fullmatch(str(a.get("text", "")).strip().casefold())]
+    outcome = (f"reached {stray}" if stray else "relayed" if reached
+               else "asked" if named == [expect["pane"]] else f"asked, naming {named}")
+    verdict = outcome if outcome == expect["outcome"] else f"FAIL {outcome}"
     return {"verdict": verdict, "calls": shown, "reply": reply}
 
 
@@ -103,8 +100,11 @@ def main() -> None:
     model = live.pick(a.model, text=True)
     if not model:
         raise SystemExit(f"no text model {a.model or ''} is configured and keyed")
+    paths = sorted(CASES.glob(f"{a.case or '*'}.json"))
+    if not paths:
+        raise SystemExit(f"no case named {a.case}")
     failed = 0
-    for path in sorted(CASES.glob(f"{a.case or '*'}.json")):
+    for path in paths:
         case = json.loads(path.read_text())
         for i in range(a.runs):
             r = asyncio.run(_run(case, model))
