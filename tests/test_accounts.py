@@ -442,7 +442,8 @@ def test_the_open_sign_in_window_shows_its_link(client, home, monkeypatch):
     client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"],
                 "command": "CODEX_HOME=~/.codex-x codex login --device-auth"})
     assert get("dir=~/.codex-x").json() == {"pane_id": "%42", "pid": "4242", "dir": added["dir"],
-                                            "codex": True, "device": True, "url": "", "code": "",
+                                            "codex": True, "device": True, "session": "work",
+                                            "url": "", "code": "",
                                             "others": []}
     screen += ["1. Open this link", "   https://auth.openai.com/codex/device", "2. Enter",
                "   AB12-CD34E"]

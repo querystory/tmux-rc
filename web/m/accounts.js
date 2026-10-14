@@ -379,7 +379,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (d.resume) { const p = byDir(d.resume); return go("abandoned", { dir: p.dir, name: p.name, provider: p.provider, pane: null }); }
     if (d.finish) { // back to its sign-in window, if one is still open
       const p = byDir(d.finish), w = await windowOf(`dir=${encodeURIComponent(p.dir)}`);
-      go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: w?.pane_id || null, pid: w?.pid, window: w, session: w ? null : F.session, seen: false, goneAt: null, openedAt: Date.now() });
+      go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: w?.pane_id || null, pid: w?.pid, window: w, session: w ? w.session : F.session, seen: false, goneAt: null, openedAt: Date.now() });
       return w && wait();
     }
     t.disabled = true;
