@@ -91,18 +91,20 @@ function bands(m, now) {
 // A meter's current window as numbers, for its chart's heading: the chip, the %, any "full
 // at", and the reset's countdown and clock time.
 function readout(m, now, type, on) {
-  const w = m.w, level = w.limit_at || w.pct >= 100 ? 'full' : (w.projected ?? 0) >= 90 ? 'warn' : '';
-  const reset = w.resets_at > now ? `resets ${countdown(w.resets_at - now)}, ${clock(w.resets_at, now)}` : 'not started';
-  // A reading kept through a failed read says how old it is on hover; the sidebar says it in words.
-  // The chip picks the account the chart's bands follow.
-  return `<span class="uv-read"${m.as_of ? ` title="as of ${countdown(now - m.as_of)} ago"` : ''}><button type="button" class="uv-pick" data-type="${esc(type)}" data-id="${esc(m.id)}" aria-pressed="${on}" aria-label="Shade ${esc(m.name)}'s windows (${esc(m.dirs)})">${m.chip}</button><b class="${level}">${Math.round(w.pct)}%</b>`
-    + (w.limit_at > now && w.resets_at > now ? `<span class="out">full ${clock(w.limit_at, now)}</span>` : '') + `<span>${reset}</span></span>`;
+  const w = m.w, level = w.limit_at || w.pct >= 100 ? 'full' : (w.projected ?? 0) >= 90 ? 'warn' : '', live = w.resets_at > now;
+  // The reset's clock time drops out on a phone (it stays in the row's tooltip), and so does the
+  // countdown when "full at" is there, so each account is one row: chip, %, one status.
+  const reset = live ? `resets ${countdown(w.resets_at - now)}<span class="uv-at">, ${clock(w.resets_at, now)}</span>` : 'not started';
+  const tip = [live && `resets ${stamp(w.resets_at)}`, m.as_of && `as of ${countdown(now - m.as_of)} ago`].filter(Boolean).join(' · ');
+  // The chip picks the account the chart's bands follow (on a phone, anywhere on its row).
+  return `<span class="uv-read" title="${esc(tip)}"><button type="button" class="uv-pick" data-type="${esc(type)}" data-id="${esc(m.id)}" aria-pressed="${on}" aria-label="Shade ${esc(m.name)}'s windows (${esc(m.dirs)})">${m.chip}</button><b class="${level}">${Math.round(w.pct)}%</b>`
+    + (w.limit_at > now && live ? `<span class="out">full ${clock(w.limit_at, now)}</span>` : '') + `<span class="uv-reset">${reset}</span></span>`;
 }
 
 function option(card, extent, now, slider, css) {
   const color = n => css.getPropertyValue(n).trim(), muted = color('--muted'), line = color('--line');
   const fg = color('--fg'), surface = color('--surface'), red = color('--red'), accent = color('--accent');
-  const height = card.chartEl.clientHeight, narrow = view.narrow, bottom = slider ? (narrow ? 60 : 70) : 28;
+  const height = card.chartEl.clientHeight, narrow = view.narrow, bottom = slider ? (narrow ? 66 : 70) : 28;
   const focused = card.meters.find(m => m.id === focusBy[card.type]);
   const fill = { grey: [color('--raised'), 0.6], now: [color('--chart-s5'), 0.16] };
   const series = card.meters.flatMap(m => {
@@ -138,7 +140,7 @@ function option(card, extent, now, slider, css) {
       } },
     dataZoom: [
       { type: 'inside', xAxisIndex: 0, ...range, filterMode: 'none', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
-      { type: 'slider', xAxisIndex: 0, show: slider, ...range, filterMode: 'none', height: narrow ? 24 : 28, bottom: narrow ? 6 : 10, left, right,
+      { type: 'slider', xAxisIndex: 0, show: slider, ...range, filterMode: 'none', height: narrow ? 32 : 28, bottom: narrow ? 6 : 10, left, right, handleSize: narrow ? '140%' : '100%', moveHandleSize: narrow ? 10 : 7, // a thumb's worth on a phone
         borderColor: line, fillerColor: color('--accent-bg'), textStyle: { color: muted, fontSize: 12 }, showDetail: !narrow, handleLabel: { show: !narrow }, labelFormatter: day, // dated ends: it spans all the history loaded, not the axis above it
         handleStyle: { color: accent, borderColor: accent }, moveHandleStyle: { color: accent },
         dataBackground: { lineStyle: { color: muted, width: 1 }, areaStyle: { color: muted, opacity: 0.25 } },
@@ -243,7 +245,7 @@ function setup(root, refetch, icon) {
   // on the chart pans it.
   let from = null;
   root.addEventListener('click', e => {
-    const pick = e.target.closest('.uv-pick');
+    const pick = e.target.closest('.uv-pick') || (view.narrow ? e.target.closest('.uv-read')?.querySelector('.uv-pick') : null);
     if (!pick) return;
     focusBy[pick.dataset.type] = pick.dataset.id;
     pick.closest('.uv-head').querySelectorAll('.uv-pick').forEach(b => b.setAttribute('aria-pressed', String(b === pick)));
