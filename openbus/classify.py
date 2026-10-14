@@ -263,7 +263,8 @@ def _read_workflow_rows(result: dict, visible: str) -> None:
     if rows:
         subs, names = result.get("subagents"), {r["label"] for r in rows}
         def theirs(a):  # the model's read of a workflow row: its exact name, or the bar
-            return isinstance(a, dict) and (str(a.get("label")) in names or "▰" in str(a.get("label")))
+            label = str(a.get("label")) if isinstance(a, dict) else ""
+            return label in names or "▰" in label
         result["subagents"] = [a for a in (subs if isinstance(subs, list) else [])
                                if not theirs(a)] + rows
 
