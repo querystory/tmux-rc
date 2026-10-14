@@ -5,11 +5,13 @@ globalThis.matchMedia = () => ({ matches: false, addEventListener() {} }); // at
 const { heatWeek } = await import("../web/m/atlas.js");
 
 const DAY = 86400000, today = new Date().setHours(0, 0, 0, 0);
-// heatDays' shape, newest first: [day, cells] with a cell { sum } per recorded hour (sparse),
-// and each day's total.
-function data(days, first = today) {
-  const all = days.map((cells, i) => [first - i * DAY, cells.map((v) => (v == null ? undefined : { sum: v }))]);
-  return { all, value: (c) => c.sum, totals: all.map(([, cells]) => cells.reduce((t, c) => t + (c ? c.sum : 0), 0)) };
+// heatDays' shape, newest first: [day, cells] with a cell per recorded hour (sparse) holding
+// its running-hours and the hours recorded, each day's total, and when history starts. A
+// number is a whole hour at that many running; [sum, seen] a part-recorded one.
+function data(days, newest = today, first = 0) {
+  const cell = (v) => v == null ? undefined : Array.isArray(v) ? { sum: v[0], seen: v[1] } : { sum: v, seen: 1 };
+  const all = days.map((cells, i) => [newest - i * DAY, cells.map(cell)]);
+  return { all, first, totals: all.map(([, cells]) => cells.reduce((t, c) => t + (c ? c.sum : 0), 0)) };
 }
 const flat = (v, hours = 24) => Array(hours).fill(v);
 
@@ -21,6 +23,15 @@ test("peak hour averages each hour over the days that recorded it", () => {
   const w = heatWeek(data([busyAt3, gapAt3, flat(1)]));
   assert.equal(w.peak, 3);
   assert.equal(w.peakAvg, 5);
+});
+
+test("a part-recorded hour averages over the time seen, not the whole hour", () => {
+  const day = flat(10);
+  day[2] = [5, 0.25]; // 20 running for the quarter hour recorded
+  const w = heatWeek(data([day]));
+  assert.equal(w.peak, 2);
+  assert.equal(w.peakAvg, 20);
+  assert.equal(w.avg, (230 + 5) / 23.25);
 });
 
 test("average running counts only recorded hours, and the busiest day is an index into the week", () => {
@@ -40,5 +51,8 @@ test("without today, the week starts at the newest day; short history has no com
   const days = Array.from({ length: 14 }, (_, i) => flat(i < 7 ? 3 : 1));
   assert.deepEqual([heatWeek(data(days, today - DAY)).now, heatWeek(data(days, today - DAY)).before], [7 * 72, 7 * 24]);
   assert.equal(heatWeek(data(days)).before, null); // today plus 13: one full day short
+  const fifteen = [flat(1), ...days], oldest = today - 14 * DAY;
+  assert.equal(heatWeek(data(fifteen, today, oldest + DAY / 2)).before, null); // history began mid-day on the oldest
+  assert.equal(heatWeek(data(fifteen, today, oldest)).before, 7 * 24);
   assert.equal(heatWeek(data([])).busy, -1);
 });

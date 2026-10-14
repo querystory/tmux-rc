@@ -1037,6 +1037,7 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 .atlas-heat-card > .heat-grid { flex: 1 1 auto; contain: size; min-height: calc(14px + 7 * (var(--rh) + 2px)); grid-template-rows: 14px; grid-auto-rows: minmax(0, 1fr); }
 .atlas-heat-card .heat-cell { height: auto; align-self: stretch; }
 .heat-kpis { --c: var(--accent); grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 12px 0 0; }
+.heat-kpis .kpi span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @container (min-width: 600px) { .heat-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .atlas-detail-card { cursor: pointer; }
 .atlas-detail-card:hover { border-color: var(--muted); }

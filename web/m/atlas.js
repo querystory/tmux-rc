@@ -170,10 +170,11 @@ function heatDays(scope) {
     const t = new Date(s.t), day = new Date(s.t).setHours(0, 0, 0, 0), n = countsOf(s);
     if (!days.has(day)) days.set(day, []);
     if (!n) return;
-    const cell = days.get(day)[t.getHours()] ||= { sum: 0, tools: {} };
+    const cell = days.get(day)[t.getHours()] ||= { sum: 0, seen: 0, tools: {} };
     // Each bucket covers its step, the newest only to the query's now, the oldest only from the first record.
     const hours = Math.max(0, Math.min(s.t + heat.step, heat.now) - Math.max(s.t, heat.first)) / 3600000;
     cell.sum += running(n) * hours;
+    cell.seen += hours; // how much of the hour was recorded, for an average running in it
     (s.groups || []).forEach(g => { const c = countsOf(g); if (c) cell.tools[g.tool] = (cell.tools[g.tool] || 0) + running(c) * hours; });
   });
   // Until history runs out, the oldest day loaded may be cut by the chunk; it waits for the next.
@@ -185,7 +186,7 @@ function heatDays(scope) {
   const low = values[Math.floor(values.length * 0.03)] || 0, top = Math.max(low + 1, values[Math.floor(values.length * 0.97)] || 0);
   const totals = all.map(([, cells]) => cells.reduce((t, c) => t + (c ? value(c) : 0), 0));
   // Meters share the latest fortnight's longest day, so older pages never rescale the rows above.
-  return { all, value, low, top, totals, most: totals.reduce((m, t) => Math.max(m, t), 0), meter: Math.max(1, ...totals.slice(0, 15)) };
+  return { all, value, low, top, totals, first: heat.first, most: totals.reduce((m, t) => Math.max(m, t), 0), meter: Math.max(1, ...totals.slice(0, 15)) };
 }
 const today = () => new Date().setHours(0, 0, 0, 0);
 // A month's first day names its month, so a long scroll back stays anchored.
@@ -261,15 +262,16 @@ function heatCard(scope, open) {
   return card;
 }
 // The card's figures, over the last 7 days (today too): the hour of day with the most running
-// on average and that average (hours not recorded left out), the busiest day (its index), and
-// the average running in any recorded hour; then the 7 full days before today against the 7
-// before those (`before` null until history holds both).
-export function heatWeek({ all, value, totals }) {
-  const add = v => v.reduce((a, b) => a + b, 0), mean = v => v.length ? add(v) / v.length : 0;
+// on average and that average, the busiest day (its index), and the average running in any
+// hour, each average over the time recorded (gaps and part-recorded hours weigh only what was
+// seen); then the 7 full days before today against the 7 before those (`before` null until
+// history, which starts at `first`, holds both whole).
+export function heatWeek({ all, totals, first }) {
+  const add = v => v.reduce((a, b) => a + b, 0), avg = cells => add(cells.map(c => c.sum)) / add(cells.map(c => c.seen)) || 0;
   const week = all.slice(0, 7).map(([, cells]) => cells), seven = totals.slice(0, 7), full = all[0]?.[0] === today() ? 1 : 0;
-  const hours = Array.from({ length: 24 }, (_, h) => mean(week.filter(c => c[h]).map(c => value(c[h])))), peak = hours.indexOf(Math.max(...hours));
-  return { peak, peakAvg: hours[peak], busy: seven.indexOf(Math.max(...seven)), avg: mean(week.flatMap(c => c.filter(Boolean).map(value))),
-    now: add(totals.slice(full, full + 7)), before: totals.length >= full + 14 ? add(totals.slice(full + 7, full + 14)) : null };
+  const hours = Array.from({ length: 24 }, (_, h) => avg(week.map(c => c[h]).filter(Boolean))), peak = hours.indexOf(Math.max(...hours));
+  return { peak, peakAvg: hours[peak], busy: seven.indexOf(Math.max(...seven)), avg: avg(week.flatMap(c => c.filter(Boolean))),
+    now: add(totals.slice(full, full + 7)), before: all[full + 13]?.[0] >= first ? add(totals.slice(full + 7, full + 14)) : null };
 }
 
 function heatFigs({ all, totals, most }) {
