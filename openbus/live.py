@@ -514,7 +514,8 @@ def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
     name, a message typed into a menu, or a pane's prompt answered unasked."""
     if getattr(session, "unanchored", False):
         return "unanchored"
-    question, own = getattr(session, "request", ("", ""))
+    request = getattr(session, "request", "")  # (question, own words), or just the words
+    question, own = request if isinstance(request, tuple) else ("", request)
     request, said = f"{question}\n{own}", set(_words(own))
     asked = set(_words(request))
     if name in _AIMED and pane and getattr(session, "turn_pane", None) not in (
