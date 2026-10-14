@@ -93,6 +93,10 @@ def only_agrees(text: str) -> bool:
 _ASKS = re.compile(r"\?(?=[\s*_)\"']|$)")
 CAUTION_RESTORED = "The chat reconnected and its context was restored: check this is what you meant"
 CAUTION_BARE = 'Your reply was only "{}": check this is what you agreed to'
+# Leads a turn sent right after the assistant asked something. A pane's own pending question
+# sits in the pane state too, and "no, the other one" was once about to decline a pane's
+# command instead of answering the assistant: the model must see whose question is open.
+OPEN_QUESTION = "[Open question: yours, from your last reply]"
 
 
 class _Chat:
@@ -112,6 +116,7 @@ class _Chat:
         self.asked = False  # whether the last reply asked the user something
         self.unanchored = False  # this turn only agrees, and nothing was asked
         self.caution: str | None = None  # this turn's warning for a consent card
+        self.focus: str | None = None  # the pane the conversation is on (live._focus)
 
     def restore(self, rows) -> int:
         """Take the client's transcript as quoted context for a session that has none yet.
@@ -160,7 +165,9 @@ class _Chat:
             self.unanchored = bare and not anchored
             self.caution = (CAUTION_RESTORED if self._restored
                             else CAUTION_BARE.format(text.strip()) if bare else None)
-            self._user("\n\n".join(filter(None, [self._restored, *self._context, text])), images)
+            self._user("\n\n".join(filter(None, [
+                self._restored, *self._context, self.focus, anchored and OPEN_QUESTION, text,
+            ])), images)
             self._restored = ""
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim

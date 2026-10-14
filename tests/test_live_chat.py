@@ -461,3 +461,55 @@ def test_a_bare_yes_to_a_question_is_carded_with_a_warning(monkeypatch):
     frames, _, typed = _turn(s, "ok", monkeypatch, ok=True)
     assert next(f for f in frames if f["type"] == "propose")["warn"] == C.CAUTION_BARE.format("ok")
     assert typed == [("%1", "yes", True, True)]
+
+
+def _users(s):
+    return [h[1] for h in s.history if h[0] == "user"]
+
+
+def _talk(s, monkeypatch, *turns):
+    """Typed turns in a row, each (text, the user's answer to any card)."""
+    for text, ok in turns:
+        s._inbox = asyncio.Queue()  # each turn runs on a new event loop in this harness
+        _turn(s, text, monkeypatch, ok=ok)
+
+
+def test_the_pane_a_chat_is_on_leads_its_next_turn(monkeypatch):
+    """"Ask the agent" right after talking about a pane means that pane, so each turn says which
+    pane the conversation is on: the last one a reply named or an action reached. A declined
+    action reached nothing, so it moves nothing."""
+    s = _Fake([("Work is waiting to run its tests.", []),
+               ("", [("type_in_pane", {"pane_id": "%2", "text": "status?"})]), ("Not sent.", []),
+               ("", [("type_in_pane", {"pane_id": "%2", "text": "status?"})]), ("Sent.", []),
+               ("Ok.", [])])
+    _talk(s, monkeypatch, ("what is work doing", None), ("ask the agent for its status", False),
+          ("send it to the shell then", True), ("thanks", None))
+    first, *rest = _users(s)
+    assert "[Current pane" not in first
+    assert [u.split("\n\n")[0] for u in rest if u != C._OUTCOME] == [
+        '[Current pane: window 3 "work" (id=%1)]', '[Current pane: window 3 "work" (id=%1)]',
+        '[Current pane: window 4 "shell" (id=%2)]']
+
+
+def test_a_reply_to_the_assistants_question_is_marked_as_one(monkeypatch):
+    """With a pane's PENDING QUESTION also in view, "no, for the other one" was once read as
+    declining that pane's command: the turn says it follows the assistant's own question."""
+    s = _Fake([("Should I send it elsewhere?", []), ("Ok.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("status of all workstreams", None), ("no for the other one", None),
+          ("thanks", None))
+    assert [C.OPEN_QUESTION in u for u in _users(s)] == [False, True, False]
+    assert _users(s)[1].endswith(f"{C.OPEN_QUESTION}\n\nno for the other one")
+
+
+_PANES = [{"pane_id": "%1", "title": "tmuxrc opus 5.5 main session", "window_index": "2"},
+          {"pane_id": "%5", "title": "fable session monitor", "window_index": "7"},
+          {"pane_id": "%6", "label": "main", "window_index": "12"}]
+
+
+@pytest.mark.parametrize(("reply", "pane"), [
+    ("The fable session monitor is investigating a 500.", "%5"),
+    ("Window 12 is idle, and Fable Session Monitor waits on you.", "%5"),  # the last named
+    ("Sending to tmuxrc opus 5.5 main session.", "%1"),  # not "main", inside it
+    ("window 12 is idle", "%6"), ("window 1 is idle", None), ("Nothing to report.", None)])
+def test_a_reply_names_a_pane_by_title_or_number(reply, pane):
+    assert (L._named(_PANES, reply) or {}).get("pane_id") == pane

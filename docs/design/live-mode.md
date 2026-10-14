@@ -541,6 +541,29 @@ approved a card they read as the reopen, and the model then described work the p
 - A card carries a warning line when its turn followed a restore or was a bare agreement,
   the two cases where the user's intent and the model's reading most easily part.
 
+**Whose question, which pane.** One chat went wrong twice in a row. The user had just
+asked about one pane, then said "ask the agent for all 8 workstream status", and the model
+offered to type it into a different pane whose screen listed eight background agents: the
+keyword overlap beat a conversation that was plainly about the first pane. Declined, it asked
+"should I send that elsewhere?", and the user's "no, for the fable one" was read as the answer
+to that pane's pending permission prompt, so the next card would have declined its command.
+The history held everything needed both times; what the model lacked was the structure, so
+each turn now carries it rather than the prompt growing examples:
+
+- A turn starts with the pane the conversation is on: the last one a reply named (by title or
+  window number, as the prompt has it name panes) or an action reached. A declined action
+  reached nothing and moves nothing. Names in the user's own message were not used: "the
+  agent" names nothing, and a pane the user does name already wins outright.
+- A turn sent right after the assistant asked something says so. A pane's pending question
+  is in the pane state on every turn, so without the marker a "no" has two candidate
+  questions and the louder one wins. The prompt rule beside it says a pane's prompt is
+  answered only when the user points at it, and never declined on a guess.
+
+A code gate (refuse key presses on a pane with a pending question after the assistant asked)
+was rejected: "want me to approve window 3's command?" then "yes" is exactly that shape and
+is right. The consent card stays the backstop. The conversation is replayed against the real
+model in `research/eval/chat_routing.py`.
+
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
 starts. Switching mid-conversation, as the history doc asks, now means moving a

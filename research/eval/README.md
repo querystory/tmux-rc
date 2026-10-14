@@ -252,6 +252,23 @@ python -m research.eval
 (`set -a; . ./.env; set +a` loads them from the repo `.env`; the unquoted OTEL-token
 line errors under `source` — export the three vars directly if so.)
 
+## Live chat routing
+
+The parse eval above scores screens; `chat_routing.py` scores the typed chat (live mode's
+text sessions): given the panes and the turns before, does the turn under test reach the
+pane the user means without answering a pane's prompt they were not answering? Cases in
+`chat_routing/` are real conversations, anonymised; every turn is built by the production
+loop, and only the last reaches the model. Nothing is sent: calls are recorded and declined.
+Each case runs `--runs` times (default 5), since one pass proves little at nonzero
+temperature; the exit status is 1 if any run failed.
+
+```
+python -m research.eval.chat_routing                       # first text model (Gemini on Vertex)
+python -m research.eval.chat_routing --model "Claude Sonnet 5.5" --case fable_ask_the_agent
+```
+
+Gemini needs the Vertex vars above; Claude needs `ANTHROPIC_API_KEY`.
+
 ## Inline replies experiment (closing-question buttons: separate call vs the main parse)
 
 **Question.** A turn that ends on "Should I …?" gets accept/decline reply buttons from a

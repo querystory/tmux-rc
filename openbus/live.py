@@ -291,6 +291,28 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     return [d for _, d in ranked[:5]], clear
 
 
+def _named(digest: list[dict], text: str) -> dict | None:
+    """The pane a reply names last, by its title or "window N" (how the prompt has it say
+    them), or None. The longer name wins a tie, so "main" can't steal "tmuxrc main"."""
+    said, best, pane = f" {' '.join(_words(text))} ", (-1, 0), None
+    for d in digest:
+        win = d.get("window_index")
+        for name in (d.get("title") or d.get("label"), win not in (None, "") and f"window {win}"):
+            words = " ".join(_words(str(name))) if name else ""
+            at = said.rfind(f" {words} ") if words else -1
+            if at >= 0 and (at + len(words), len(words)) > best:
+                best, pane = (at + len(words), len(words)), d
+    return pane
+
+
+def _focus(session, d: dict | None) -> None:
+    """Point a chat at the pane it is now about: the one a reply named or an action reached.
+    Its next turn says so, so "ask the agent" stays with the pane just discussed instead of
+    going to whichever pane's screen shares a word with the request."""
+    if d:
+        session.focus = f"[Current pane: {_pane_name(d)} (id={d['pane_id']})]"
+
+
 def _pane_block(d: dict, screen: str | None) -> str:
     """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
     leads with the user-facing identity (window number + title) and gives the internal
@@ -372,7 +394,11 @@ _TEXT_NOTE = (
     "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
     "about to do before calling a tool, and never say what a pane did unless an update "
     'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
-    "with none, ask what they mean instead of acting. Pasted images are numbered in the "
+    "with none, ask what they mean instead of acting. A [Current pane] line names the window "
+    'this conversation is on: "the agent", "it" and follow-ups mean that window unless the '
+    "user names another. After [Open question: yours] the user is answering you, not a "
+    "pane's PENDING QUESTION: answer a pane's prompt only when they point at it, and never "
+    "decline one on a guess; ask. Pasted images are numbered in the "
     'turn text; to give one to an agent ("send this to window 3") use send_image_to_pane.'
 )
 
@@ -424,6 +450,9 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
             result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
+    if meter.text and result["status"] in _DONE:  # a declined one went nowhere
+        _focus(session, next((d for d in watcher.digest() if d["pane_id"] == rec.get("pane_id")),
+                             None))
     await session.send_tool_result(fc, result)
 
 
@@ -438,12 +467,13 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
     status, reason = result["status"], result.get("reason")
     _audit(
         meter, f"live_{name}",
-        outcome="ok" if status in {"sent", "ok", "opened", "button_shown"}
+        outcome="ok" if status in _DONE
         else f"{status}: {reason}" if reason else status,
         latency_ms=round((time.monotonic() - started) * 1000), **rec,
     )
 
 
+_DONE = {"sent", "ok", "opened", "button_shown"}  # a call's outcomes that reached a pane
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
@@ -1267,6 +1297,8 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         elif ev.kind == "audio":
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
+            if meter.text:
+                _focus(session, _named(watcher.digest(), ev.text))
             await _transcript(websocket, meter, ev.role, ev.text)
         elif ev.kind == "turn_complete":
             meter.superseded = False
