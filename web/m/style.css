@@ -753,9 +753,11 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
 
-/* Wider than a phone, the agent chips are one hairline segmented control, and the row with
-   its session select stands one small control tall instead of a row of 44px boxes. */
-@media (min-width: 700px) {
+/* In a dashboard column wider than a phone, the agent chips are one hairline segmented control,
+   and the row with its session select stands one small control tall instead of a row of 44px
+   boxes. The column's width, not the window's: a narrower one (a docked chat) would wrap the
+   segments, so it keeps the standalone chips. */
+@container dash (min-width: 700px) {
   .atlas-controls > select { min-height: 32px; padding: 2px 8px; font-size: 13px; border-radius: 6px; }
   .atlas-controls > .atlas-filter { min-height: 32px; min-width: 0; padding: 0 10px; gap: 5px; border-radius: 0; }
   .atlas-filter + .atlas-filter { margin-left: -9px; } /* the row's 8px gap and one shared hairline */
