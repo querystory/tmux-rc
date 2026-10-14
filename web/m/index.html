@@ -96,10 +96,11 @@
     <!-- Wide screens: #sessions is the sidebar. app.js moves the header's brand and buttons
          into these slots (and back for a phone), so each control exists once. -->
     <section id="sessions" aria-label="Sessions">
-      <!-- Wide, everything down to the list scrolls as one, the Sessions block sticking at the top;
-           the usage strip stays at the foot. A phone's #sessions is the scroller (style.css). -->
-      <div id="sb-scroll">
+      <!-- Wide, the head stays put; below it everything down to the list scrolls as one, the
+           Sessions block sticking under the head; the usage strip stays at the foot. A phone's
+           #sessions is the scroller (style.css). -->
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
+      <div id="sb-scroll">
       <!-- The places: Dashboard always; More gives way to Chat, Voice and Settings, and Show less
            (the caret on the Settings row) folds them back into More. -->
       <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><button id="places" class="icon-button" aria-expanded="false" aria-controls="sb-nav" title="Chat, Voice and Settings"></button><button id="places-less" class="icon-button" aria-controls="sb-nav" aria-label="Show less" title="Show less"></button></div>

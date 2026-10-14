@@ -368,7 +368,7 @@ function renderList() {
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
-  renderSidebar.picker.firstChild.dataset.n = (filter !== "all") + accounts.on() + renderSidebar.bySession() || ""; // the filter button's count
+  renderSidebar.picker.firstChild.dataset.n = (filter !== "all") + accounts.on() + renderSidebar.bySession() + !!query || ""; // the filter button's count
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
   // Not before boot: an empty `panes` then would open the dialog in New session mode.
@@ -1415,9 +1415,10 @@ function openBeside(dialog, opener) {
   dialog.classList.add("beside"); dialog.show();
 }
 const besides = () => document.querySelectorAll("dialog.beside[open]");
+// Capture phase, so a click that closes a modal over the panel (its ×) still sees the modal open.
 document.addEventListener("click", (e) => {
   if (!document.querySelector("dialog:modal")) besides().forEach((d) => { if (!d.contains(e.target) && !d._opener.contains(e.target)) d.close(); });
-});
+}, true);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
 // Closed by its × or Escape, focus goes back to what opened it; not after a launch, whose
 // navigation has already put focus on the pane.

@@ -29,10 +29,11 @@ The sidebar holds three kinds of thing, and each now has one home.
   "Group by", and the sub-agents count, which also switches their lines under each row, sits
   in the title row.
 
-Everything above the usage strip scrolls as one, so the head and the places scroll out of
-the way as you page through panes, and the Sessions block (its title and +, search and the
-filter, the "Filtered:" chips) sticks at the top with a hairline once it has. The usage
-strip stays at the foot.
+Between the header and the usage strip everything scrolls as one, so the places scroll out
+of the way as you page through panes, and the Sessions block (its title and +, search and
+the filter, the "Filtered:" chips) sticks under the header with a hairline once it has. The
+header, with the collapse, stays put: scrolling it away hid the way to fold the sidebar. The
+usage strip stays at the foot.
 
 The header is just the logo and the name, with Live as the logo's dot (green, or amber
 while it reconnects or the watcher stalls) and a dim collapse at the right, as on
