@@ -5,6 +5,8 @@ import { formatHash, historyMode, parseHash } from "../web/m/url-state.js";
 test("every addressable state round-trips", () => {
   for (const state of [
     { pane: "%12", view: "terminal", filter: "attention", sort: "session" },
+    { pane: "%12", filter: "running", acct: "work" },
+    { dashboard: true, acct: "side-project" },
     { pane: "%3", view: "summary", filter: "running" },
     { dashboard: true, filter: "recent" },
     { dashboard: true, page: "usage" },
@@ -21,7 +23,7 @@ test("every addressable state round-trips", () => {
 
 test("unknown fields and bad values are ignored", () => {
   const state = parseHash("#from=push&pane=%254&filter=bogus&sort=weird&view=nope&x=1");
-  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: "all", sort: "updated", compose: false });
+  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: "all", acct: null, sort: "updated", compose: false });
   assert.equal(parseHash("#pane=%254&compose=1").compose, true);
   assert.equal(formatHash(parseHash("#pane=%254&from=push&compose=1")), "pane=%254");
   assert.equal(parseHash("").pane, null);
@@ -53,6 +55,15 @@ test("old desktop hashes still land", () => {
   assert.equal(parseHash("#/list/waiting").filter, "attention");
   assert.equal(parseHash("#/list/running").filter, "running");
   assert.equal(parseHash("#/list/nonsense").filter, "all");
+});
+
+test("the account filter rides along: in the URL only when set, and a change replaces", () => {
+  assert.equal(formatHash({ filter: "running", acct: "work" }), "filter=running&acct=work");
+  assert.equal(formatHash({ acct: null }), "");
+  assert.equal(parseHash("#acct=work").acct, "work");
+  assert.equal(parseHash("#acct=").acct, null);
+  assert.equal(historyMode("filter=running", "filter=running&acct=work"), "replace");
+  assert.equal(historyMode("pane=%251&acct=work", "pane=%251"), "replace");
 });
 
 test("history: screens push, in-place changes replace", () => {

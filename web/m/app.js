@@ -216,15 +216,17 @@ function notice(message = "", ms = 0) {
 }
 
 const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { paintUsage(); render(); },
+  // An account picked: this very screen, in a URL that names it (or none, for All).
+  navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
   paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id) });
 
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
-function navigate(id = null, nextView = "summary", { mode } = {}) {
+function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
   const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, sort });
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, sort });
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
@@ -262,6 +264,7 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort, page } = state);
+  if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {

@@ -92,6 +92,12 @@ the wide layout had no menu before.
   dashboard). It applies to the list, the strip and the dashboard, Open loops included:
   a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
   which no account owns, is hidden while filtered.
+  It lives in the URL beside the state filter (`#filter=running&acct=work`, the account's
+  name as a slug so a shared link reads), not in localStorage: reload, a shared link and
+  Back/Forward restore it, one source of truth for both filters. Picking replaces the
+  history entry, as the state filter does, so Back leaves the screen instead of replaying
+  taps. A bare URL (the installed app's launch) starts unfiltered, as the state filter
+  always has: a filter remembered silently across launches would hide panes that need you.
 - **Consent card:** a chat action on a pane names the account the pane runs on, and says
   that sending never changes it.
 
