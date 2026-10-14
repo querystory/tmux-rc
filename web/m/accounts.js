@@ -20,7 +20,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const byDir = (dir) => profiles.find((p) => p.dir === dir);
   // The account worth naming for a pane: only when its provider has several.
   const ofPane = (id) => { const p = profiles.find((a) => a.panes.includes(id)); return p && several(p.provider) ? p : null; };
-  const key = (p) => slug(p.tilde); // the URL's name for an account: its dir (unique, kept across a rename), readable
+  // The URL's name for an account: its dir, which is unique and outlives a rename, with the
+  // usual "~/." dropped so it reads (acct=claude-work). Every other dir keeps its leading
+  // "~" or "/", so no two dirs share a name.
+  const key = (p) => p.tilde.replace(/^~\/\./, "");
   const active = () => any() && signedIn().find((p) => key(p) === filter) || null;
   const dot = (p) => `<i class="acct-dot" style="--a:var(--acct-${p.color})"></i>`;
   const badge = (p, after = "") => `<span class="acct-badge" style="--a:var(--acct-${p.color})" title="${esc(`${p.name}: ${p.tilde}`)}">${dot(p)}<span>${esc(p.name)}</span>${after}</span>`;
