@@ -601,6 +601,9 @@ async def _approved(
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
     card = {"type": "propose", "pane_id": pane_id if known else None}  # Open
+    well_formed = _keystrokes(fc, pane_id)[0] is not None
+    if known:  # what the card calls the pane until the page's own list has it
+        card["label"] = d.get("title") or d.get("label") or pane_id
     if fc.name == "resume_session":
         entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
             await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}
@@ -611,6 +614,8 @@ async def _approved(
                 "last_active": entry.get("last_active"), "id": entry["session_id"][:8]}
     elif fc.name == "press_key":
         summary = f"Press {args.get('key')} in {pane}"
+        if well_formed:  # drawn as a keycap; a call _dispatch refuses keeps the sentence
+            card["key"] = args["key"]
     elif fc.name == "send_image_to_pane":
         image = meter.image(args.get("image_number"))
         caption = args.get("caption")
@@ -621,6 +626,8 @@ async def _approved(
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
+        if well_formed:  # drawn: the text quoted, and whether Enter follows
+            card.update(payload=args["text"], enter=args.get("press_enter", True))
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
     card["text"] = summary
     proposal = uuid.uuid4().hex
@@ -677,33 +684,12 @@ async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str
         await asyncio.sleep(_NUDGE_TICK)
 
 
-async def _dispatch(
-    websocket: WebSocket, session, fc, watcher, rec: dict, *,
-    expected_pid: str | None = None, meter: _Meter | None = None,
-) -> dict:
-    """Route a tool call (type_in_pane / press_key, or a history tool) and return its
-    answer. The result NEVER rides back through the tool response (echo loops — see
-    design doc); the model sees the outcome via the post-action ambient refresh instead."""
+def _keystrokes(fc, pane_id: str) -> tuple[tuple | None, str | None, bool]:
+    """A type_in_pane / press_key call parsed into (send_args for tmux.send_keys, a human
+    "what" for the audit/feed, whether it counts as submitted); send_args None when it is
+    malformed, which _dispatch rejects and a consent card does not draw as an action."""
     args = fc.args if isinstance(fc.args, dict) else {}
-    if fc.name in _HISTORY_TOOLS:
-        if not agent_history.offered():
-            return {"status": "rejected", "reason": "session history not available"}
-        return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
-    if fc.name == "send_image_to_pane":
-        return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
-    if fc.name == "open_pane":
-        return await _open_pane(websocket, args, watcher, rec)
-
-    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
-    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
-    # rather than silently accept its repr. A model parroting our own tool response back
-    # as a new call is exactly how a dict arrives here.
     raw_pane_id = args.get("pane_id")
-    pane_id = str(raw_pane_id or "").strip()
-    labels = _labels(watcher)
-
-    # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
-    # whether it counts as submitted). malformed stays None ⇒ reject below.
     send_args = what = None
     submitted = False
     if (
@@ -731,6 +717,35 @@ async def _dispatch(
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
+    return send_args, what, submitted
+
+
+async def _dispatch(
+    websocket: WebSocket, session, fc, watcher, rec: dict, *,
+    expected_pid: str | None = None, meter: _Meter | None = None,
+) -> dict:
+    """Route a tool call (type_in_pane / press_key, or a history tool) and return its
+    answer. The result NEVER rides back through the tool response (echo loops — see
+    design doc); the model sees the outcome via the post-action ambient refresh instead."""
+    args = fc.args if isinstance(fc.args, dict) else {}
+    if fc.name in _HISTORY_TOOLS:
+        if not agent_history.offered():
+            return {"status": "rejected", "reason": "session history not available"}
+        return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
+    if fc.name == "send_image_to_pane":
+        return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
+    if fc.name == "open_pane":
+        return await _open_pane(websocket, args, watcher, rec)
+
+    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
+    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
+    # rather than silently accept its repr. A model parroting our own tool response back
+    # as a new call is exactly how a dict arrives here.
+    raw_pane_id = args.get("pane_id")
+    pane_id = str(raw_pane_id or "").strip()
+    labels = _labels(watcher)
+
+    send_args, what, submitted = _keystrokes(fc, pane_id)
 
     # The payload may hold secrets: it is speech, so it reaches the journal only under
     # QSDEBUG. The pane id is recorded only once it names a real pane.
@@ -760,7 +775,8 @@ async def _dispatch(
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,
-         "text": what, "submitted": submitted}
+         "text": what, "submitted": submitted,
+         **({"key": args["key"]} if fc.name == "press_key" else {"payload": what})}
     )
 
     # Let the pane react, then show the model what its keystrokes did — as ambient
