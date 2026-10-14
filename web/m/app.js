@@ -308,10 +308,9 @@ function makeRow(pane) {
   return button;
 }
 function updateRow(button, pane) {
-  const answered = isAnswered(pane);
   if (pane.pane_id === active) button.setAttribute("aria-current", "true");
   else button.removeAttribute("aria-current");
-  button.classList.toggle("needs-you", needsYou(pane) && !answered);
+  button.classList.toggle("needs-you", asks(pane));
   button.classList.toggle("fresh", pane.activity === "idle" && isRecent(pane));
   const logo = button.querySelector(".pane-icon img");
   logo.alt = pane.tool || "tmux";
@@ -330,7 +329,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
+  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, asks, badgeOf, answer, compose,
   setFilter: (value) => { filter = value; stayPut(); }, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
@@ -353,7 +352,7 @@ function renderList() {
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
   text($("all-count"), mine.length);
-  text($("attention-count"), mine.filter(needsYou).length);
+  text($("attention-count"), mine.filter(asks).length);
   text($("running-count"), mine.filter(isRunning).length);
   text($("recent-count"), mine.filter((pane) => isRecent(pane)).length);
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
@@ -1141,9 +1140,13 @@ function isAnswered(pane) {
   if (pending && pending.key !== questionKey(pane.question)) pendingAnswers.delete(pane.pane_id);
   return pendingAnswers.get(pane.pane_id) || null;
 }
+// Whether a pane reads as Needs you: not while a tapped answer holds it. Its card keeps its
+// place (group, filter, list slot) for the hold, so the spinner stays under the finger.
+function asks(pane) { return needsYou(pane) && !isAnswered(pane); }
 // A pane's status badge: "Sent" while a tapped answer holds it, never "Needs you".
-const badgeOf = (pane) => isAnswered(pane) ? { label: "Sent", cls: "running" }
-  : { label: activityLabel(pane), cls: activityClass(pane) };
+function badgeOf(pane) {
+  return isAnswered(pane) ? { label: "Sent", cls: "running" } : { label: activityLabel(pane), cls: activityClass(pane) };
+}
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
 // stops reading as Needs you, through the send and on until the pane's next state.
 async function answer(id, option, index) {

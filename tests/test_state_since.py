@@ -195,9 +195,11 @@ def test_a_parse_read_before_an_answer_cannot_put_its_question_back(monkeypatch)
     w.drop_question(pane.id, "Trust this folder?")
     assert w._state[pane.id]["question"] is None
     assert w._state[pane.id]["activity"] == "running"
+    assert w._state[pane.id]["state_since"] == 1001.0  # running since the answer
     clock[0] = 1000.5  # this parse's capture predates the answer
     w._forced_this_tick = {pane.id}
-    assert w._tick_pane(pane)["question"] is None
+    stale = w._tick_pane(pane)
+    assert stale["question"] is None and stale["state_since"] == 1001.0
     clock[0], frame[0] = 1002.0, "a new ask"  # read after it: the parse stands
     w._forced_this_tick = {pane.id}
     assert w._tick_pane(pane)["question"] == {"prompt": "Trust this folder?"}

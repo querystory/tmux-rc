@@ -262,11 +262,13 @@ def _server_alive(server: str, current: str) -> bool:
     return True
 
 
-def _drop_question(state: dict | None, prompt: str) -> None:
+def _drop_question(state: dict | None, prompt: str) -> bool:
     """Take the answered question asking `prompt` off a card (Watcher.drop_question)."""
     q = (state or {}).get("question")
     if isinstance(q, dict) and q.get("prompt") == prompt:
         state.update(question=None, activity="running", waiting_on=None)
+        return True
+    return False
 
 
 class Watcher:
@@ -587,10 +589,14 @@ class Watcher:
         taken before now is held to the same (_tick_pane), so a tick already reading the
         old dialog cannot put it back; a different question is never touched."""
         with self._publish_lock:
-            self._dropped[pane_id] = prompt, time.time()
+            now = time.time()
+            self._dropped[pane_id] = prompt, now
             shown = (s for s in self.states if s.get("pane_id") == pane_id)
-            for s in (self._state.get(pane_id), *shown):
-                _drop_question(s, prompt)
+            dropped = [s for s in (self._state.get(pane_id), *shown) if _drop_question(s, prompt)]
+            if dropped:  # the clock in the new state starts at the answer, not the next parse
+                since = self._state_since_for(pane_id, dropped[0], now)
+                for s in dropped:
+                    s["state_since"] = since
             self._bump_state_if_changed(self.states)
 
     def invalidate_input_actions(self, pane_id: str) -> None:
@@ -1541,7 +1547,8 @@ class Watcher:
         state["parsed_at"] = now
         with self._publish_lock:  # read off a capture older than an answer: that answer holds
             prompt, at = self._dropped.get(pane.id, (None, 0))
-            if now < at:
-                _drop_question(state, prompt)
+            if now < at and _drop_question(state, prompt):
+                self._state_since_for(pane.id, state, now)  # re-keyed to the answered state,
+                self._state_since[pane.id] = state["state_since"] = at  # entered at the answer
             self._state[pane.id] = state
         return state

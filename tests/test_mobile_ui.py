@@ -196,7 +196,7 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
     assert "!active && (WIDE.matches || dashboard)" in app
     assert "renderLanding()" in app
     # The same helpers the tabs count with — not a parallel definition that can drift.
-    assert "mine.filter(needsYou)" in app and "mine.filter(isRunning)" in app
+    assert "mine.filter(asks)" in app and "mine.filter(isRunning)" in app
 
     # The drag handle writes a variable the grid clamps; the clamp is the real guard.
     assert "--sidebar" in css and "clamp(260px" in css
@@ -268,7 +268,7 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     are moved there and back (one element each), not duplicated."""
     root = Path(__file__).resolve().parents[1] / "web/m"
     app, side = (root / "app.js").read_text(), (root / "sidebar.js").read_text()
-    assert "answers: answerOptions, answered: isAnswered, answer, compose" in app
+    assert "answers: answerOptions, answered: isAnswered, asks, badgeOf, answer, compose" in app
     assert 'reconcile($("options"), answerOptions(question)' in app
     assert 'compose(active, $("secret").hidden ? draft() : $("secret"))' in app
     assert "await ctx.compose(id, value)" in side
