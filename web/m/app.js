@@ -15,6 +15,7 @@ import { renderUsage, shownUsage } from "/m/usage.js";
 import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
+import { setupRestore } from "/m/restore.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -233,6 +234,7 @@ function pause(ms, signal) {
 // A notice stays until replaced or cleared; with `ms` it also clears itself, for a short
 // result. `action`, a [label, fn] pair, adds one button (an Undo) that clears it and runs fn.
 let noticeTimer;
+const restore = setupRestore({ mount: $("restore"), request, logos: LOGOS, notice: (...a) => notice(...a), running: () => tmuxRunning });
 function notice(message = "", ms = 0, action = null) {
   clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
   if (action) $("notice").append(" ", Object.assign(document.createElement("button"), { type: "button", textContent: action[0], onclick: () => { notice(); action[1](); } }));
@@ -1117,7 +1119,9 @@ async function pollState(signal) {
       // every 20s as well.
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
+      const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
+      if (wasRunning !== tmuxRunning) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       refreshHistory(); refreshCached();
       pruneDrafts();

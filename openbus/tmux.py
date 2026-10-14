@@ -394,6 +394,12 @@ def list_panes() -> list[Pane]:
     return panes
 
 
+def run(*args: str) -> str:
+    """One tmux command's stripped output, for a caller driving a layout directly
+    (reboot restore builds sessions, windows and splits through it)."""
+    return _run(list(args)).strip()
+
+
 def rows(command: str, fmt: str) -> list[list[str]]:
     """`tmux <command> -a -F <fmt>` (list-windows, list-panes, ...), as tab-split rows."""
     return [r.split("\t") for r in _run([command, "-a", "-F", fmt]).splitlines() if r]

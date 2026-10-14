@@ -1252,3 +1252,16 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .acct-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); }
 @media (prefers-reduced-motion: no-preference) { .acct-spin { animation: acct-spin 1s linear infinite; } }
 @keyframes acct-spin { to { transform: rotate(360deg); } }
+/* The Restore card (restore.js): one attention item at the top of the list. */
+#restore { margin: 8px 12px 12px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 10px; background: var(--bg); }
+#restore[hidden] { display: none; }
+#restore h3 { margin: 0 0 4px; font-size: 15px; }
+#restore > p { margin: 0 0 10px; font-size: 13px; }
+.restore-session summary { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; }
+.restore-session summary .muted { margin-left: auto; font-size: 12px; }
+.restore-pane { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0 6px 22px; font-size: 13.5px; }
+.restore-pane img { margin-top: 2px; flex: none; }
+.restore-pane small { display: block; color: var(--muted); font-size: 12px; }
+.restore-pane.blocked { opacity: .55; }
+.restore-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.restore-actions button { min-height: 40px; padding: 0 14px; border-radius: 6px; }

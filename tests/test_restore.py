@@ -3,6 +3,7 @@
 Runs a REAL tmux on private sockets (TMUXRC_TMUX_SOCKET), never the developer's server.
 Cleanup closes the exact panes each test made on its own socket; no kill-server."""
 
+import asyncio
 import json
 import os
 import shutil
@@ -192,3 +193,81 @@ def test_defaults_follow_the_transcript_and_say_why_not(tmp_path, monkeypatch):
     assert judge(cwd="/no/such/dir") == (False, "its directory is gone")
     assert judge(command="bash", last_activity=died) == (False, None)
     assert judge(command="vim", last_activity=died - 60) == (True, None)
+
+
+def _shape(snapshot):
+    """What a restore must reproduce, minus the ids a new server assigns afresh."""
+    windows = snapshot["windows"]
+    return sorted((s["name"], s["group"] == "", w["index"], w["current"], windows[w["id"]]["name"],
+                   windows[w["id"]]["manual"], windows[w["id"]]["zoomed"],
+                   windows[w["id"]]["layout"].split(",", 1)[1],
+                   tuple(p["cwd"] for p in windows[w["id"]]["panes"]))
+                  for s in snapshot["sessions"] for w in s["windows"])
+
+
+def test_build_reproduces_a_dead_servers_layout(server, tmp_path, monkeypatch):
+    monkeypatch.delenv("INVOCATION_ID", raising=False)  # no systemd scope in tests
+    history = History(tmp_path / "h.db")
+    server()
+    tmux("new-session", "-d", "-s", "work", "-c", str(tmp_path), "-x", "160", "-y", "48")
+    tmux("split-window", "-h", "-t", "work:0", "-c", "/")
+    tmux("new-window", "-d", "-t", "work:3", "-c", "/tmp")
+    tmux("rename-window", "-t", "work:3", "notes")
+    tmux("split-window", "-t", "work:3", "-c", "/")
+    tmux("resize-pane", "-Z", "-t", "work:3.1")
+    tmux("new-session", "-d", "-s", "peer", "-t", "work")  # a grouped member
+    R.Recorder(history).tick([], now=1000)
+    before = json.loads(rows(history)[0][2])
+    stop()
+    server()  # no server at all now: build must start one
+    found = R.candidate(history)
+    chosen = {(wid, p["index"]) for wid, w in found["windows"].items() for p in w["panes"]}
+    built = R.build(found, chosen)
+    assert len(built) == 4
+    R.Recorder(history).tick([], now=2000)
+    after = json.loads(next(r[2] for r in rows(history) if r[1] == 2000))
+    assert _shape(after) == _shape(before)
+
+
+def test_build_never_merges_into_a_live_session_and_leaves_out_what_wasnt_chosen(
+        server, tmp_path, monkeypatch):
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    history = History(tmp_path / "h.db")
+    server()
+    tmux("new-session", "-d", "-s", "work", "-c", str(tmp_path))
+    tmux("new-window", "-d", "-t", "work:1", "-c", "/")
+    R.Recorder(history).tick([], now=1000)
+    stop()
+    server()
+    tmux("new-session", "-d", "-s", "work")  # a login script's session, by the same name
+    found = R.candidate(history)
+    first = next(w for w in found["sessions"][0]["windows"] if w["index"] == 1)
+    R.build(found, {(first["id"], 0)})
+    names = set(tmux("list-sessions", "-F", "#{session_name}").split())
+    assert names == {"work", "work-restored"}
+    assert tmux("list-windows", "-t", "work-restored", "-F", "#{window_index}") == "1"
+    assert tmux("display-message", "-p", "-t", "work-restored:1", "#{pane_current_path}") == "/"
+
+
+def test_launch_types_each_resume_and_skips_one_running_meanwhile(server, monkeypatch):
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    monkeypatch.setattr(R, "READY", 1)
+    server()
+    tmux("new-session", "-d", "-s", "work")
+    a = tmux("display-message", "-p", "-t", "work:0", "#{pane_id}")
+    b = tmux("split-window", "-d", "-P", "-F", "#{pane_id}", "-t", a)
+    entries = {"one": {"resume_argv": ["codex", "resume", "one"]},
+               "two": {"resume_argv": ["codex", "resume", "two"], "running": {"pid": 1}}}
+    monkeypatch.setattr(R.agent_history, "get", entries.get)
+    audits = []
+    watcher = type("W", (), {"states": [], "request_reparse": lambda self, pane: None})()
+    built = [(a, {"binding": {"session_id": "one"}}), (b, {"binding": {"session_id": "two"}})]
+    asyncio.run(R.launch(built, watcher, lambda *a: audits.append(a)))
+    assert ("restore_resume", a, "one", "ok") in audits
+    assert audits.count(("restore_resume", b, "two",
+                         "skipped: running, unknown or not resumable")) == 1
+    deadline = time.time() + 5
+    while "codex resume one" not in tmux("capture-pane", "-p", "-t", a):
+        assert time.time() < deadline
+        time.sleep(0.05)
+    assert "codex resume two" not in tmux("capture-pane", "-p", "-t", b)

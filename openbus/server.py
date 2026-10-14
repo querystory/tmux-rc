@@ -241,6 +241,11 @@ class NewWindowBody(BaseModel):
     account: str | None = None  # a listed profile's config dir (accounts.py); None = inherit
 
 
+class RestoreBody(BaseModel):
+    server: str  # the snapshot the card showed: a newer loss must not be restored by it
+    panes: list[tuple[str, int]] = []  # (window id, pane index) of each chosen pane
+
+
 class NewSessionBody(BaseModel):
     name: str  # checked in new_session, not here, so a refusal is audited
     cwd: str = "~"
@@ -635,6 +640,51 @@ def get_restore():
     """The workspace of the newest tmux server that died, with each pane's default and
     what keeps a pane from coming back, or null (docs/design/reboot-restore.md)."""
     return {"candidate": restore.offer(_history())}
+
+
+_restoring: set[asyncio.Task] = set()  # held so a running restore isn't collected
+
+
+@app.post("/api/restore")
+async def post_restore(body: RestoreBody, request: Request):
+    """Restore the chosen panes of the dead server's workspace: the layout at once, then
+    each agent resumed, paced, in the background. The snapshot is marked restored before
+    anything is built, so a second tap or device is told it's taken."""
+    history = _history()
+    found = await asyncio.to_thread(restore.offer, history)
+    if found is None or found["server"] != body.server:
+        raise HTTPException(409, "that workspace is no longer on offer")
+    blocked = {(wid, p["index"]) for wid, w in found["windows"].items() for p in w["panes"]
+               if p["blocked"]}
+    chosen = set(body.panes) - blocked
+    if not chosen:
+        raise HTTPException(422, "nothing restorable was chosen")
+    if not restore.consume(history, body.server, "restored"):
+        raise HTTPException(409, "that workspace is already being restored")
+    _audit(request, "restore", "-", f"panes={len(chosen)}")
+
+    def audit(action, pane, sid, outcome):
+        _audit(request, action, pane, f"session={sid}", outcome=outcome)
+
+    try:
+        built = await asyncio.to_thread(restore.build, found, chosen)
+    except (OSError, subprocess.CalledProcessError) as e:
+        restore.consume(history, body.server, None)  # offer it again rather than lose it
+        logger.warning("restore failed while building the layout", exc_info=True)
+        raise HTTPException(500, f"tmux refused the layout: {e}") from e
+    task = asyncio.create_task(restore.launch(built, app.state.watcher, audit))
+    _restoring.add(task)
+    task.add_done_callback(_restoring.discard)
+    return {"ok": True, "panes": len(built)}
+
+
+@app.post("/api/restore/dismiss")
+def dismiss_restore(body: RestoreBody, request: Request):
+    """Start fresh, or keep the workspace already running: the offer goes away."""
+    if not restore.consume(_history(), body.server, "dismissed"):
+        raise HTTPException(409, "that workspace was already restored or dismissed")
+    _audit(request, "restore_dismiss", "-")
+    return {"ok": True}
 
 
 @app.get("/api/history")
