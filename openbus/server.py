@@ -288,7 +288,7 @@ class AccountSessionBody(BaseModel):
 
 
 class SignInBody(AccountSessionBody):
-    command: str = ""  # the sign-in line as edited in the sheet; empty: accounts.LOGIN
+    command: str | None = None  # the sign-in line as edited in the sheet; None: the default
 
 
 class SignInWindowBody(BaseModel):
@@ -1398,7 +1398,8 @@ def account_login(body: SignInBody, request: Request):
     profile = _session_account(body, request, "account_login")
     default, var = accounts.LOGIN[profile["provider"]], ENV[profile["provider"]]
     try:
-        words = shlex.split(body.command) or [f"{var}={profile['dir']}", *default]
+        words = (shlex.split(body.command) if body.command is not None
+                 else [f"{var}={profile['dir']}", *default])
     except ValueError as e:
         _refuse(request, "account_login", body.dir[:120], 400, f"Cannot read that command: {e}")
     lead = list(itertools.takewhile(lambda w: re.match(r"[A-Za-z_]\w*=", w), words))

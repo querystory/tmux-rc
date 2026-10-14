@@ -338,7 +338,7 @@ W = "CODEX_HOME=~/.codex-work"
      ["codex", "login", "--device-auth", "-c", "a=b c"]),
     ("CODEX_HOME=$HOME/../home/./.codex-work/ codex login", 400, None),  # no shell: no $HOME
     ("CODEX_HOME=~/../home/./.codex-work/ codex login", 200, ["codex", "login"]),  # same dir
-    ("  ", 200, ["codex", "login"]),  # blank: the default
+    ("  ", 400, None),  # erased is not the default: the line must say what it runs
     ("codex login", 400, None),  # the dir's variable is not optional
     ("CODEX_HOME=~/.codex codex login", 400, None),  # nor pointed at another account
     (f"{W} CLAUDE_CONFIG_DIR=/x codex login", 400, None),  # nor joined by another
@@ -383,12 +383,12 @@ def test_only_codex_s_own_callback_is_replayed(url, ok):
 def test_a_pasted_callback_reaches_the_waiting_login(client, home, monkeypatch):
     import http.server
     import threading
-    got, replies, location = [], [(302, "")], ["http://example.com/"]
+    got, replies, location, page = [], [(302, "")], ["http://example.com/"], [200]
 
     class Login(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             got.append(self.path)
-            status, text = replies[-1] if self.path.startswith("/auth/") else (200, "Signed in")
+            status, text = replies[-1] if self.path.startswith("/auth/") else (page[0], "Page")
             self.send_response(status)
             self.send_header("Location", location[0])
             self.end_headers()
@@ -426,6 +426,8 @@ def test_a_pasted_callback_reaches_the_waiting_login(client, home, monkeypatch):
     location[0] = "/success"
     got.clear()
     assert post().json() == {"ok": True} and got == [CB[21:], "/success"]
+    page[0] = 500  # its success page failed: so did the sign-in, as far as anyone can tell
+    assert post().status_code == 502
     screen[0] = ""  # the link scrolled away: codex's own answer says why
     replies.append((400, "State mismatch"))
     assert "older sign-in link" in post().json()["detail"]
