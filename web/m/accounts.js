@@ -341,14 +341,18 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   dlg.addEventListener("compositionend", onType);
   dlg.addEventListener("change", (e) => { if (e.target.id === "acct-session") F.session = e.target.value; });
   // Closing stops the sign-in watch, unless the user left for the sign-in window (Go to window).
-  dlg.addEventListener("close", () => { if (!F.away) clearTimeout(poll); refresh(); });
+  dlg.addEventListener("close", () => { if (!F.away) { clearTimeout(poll); seq++; } refresh(); }); // pending answers: void
   // Sign-in is detected, never driven: the dir's account info appearing, or its window gone.
   // The open sign-in window; false when the server says there is none, null when unknown.
   const windowOf = (query) => request(`/api/accounts/login/window?${query}`).catch((e) => e.status === 404 ? false : null);
   const openLogin = async () => {
     if (F.opening) return; // one window per click, across redraws
     F.opening = true; render();
-    try { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() })); } finally { F.opening = false; }
+    const mine = seq;
+    let opened;
+    try { opened = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() }); } finally { F.opening = false; }
+    if (mine !== seq) return; // moved on: the window stays, listed as an older one
+    ({ pane_id: F.pane, pid: F.pid } = opened);
     Object.assign(F, { window: null, seen: false, goneAt: null, openedAt: Date.now() }); render(); return wait();
   };
   async function wait() {
@@ -375,7 +379,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     poll = setTimeout(wait, 2000);
   }
   dlg.addEventListener("click", async (e) => {
-    const t = e.target.closest("button"), d = t?.dataset || {};
+    const t = e.target.closest("button"), d = t?.dataset || {}, mine = seq; // the step it began in
     if (!t) return;
     if ("x" in d) return dlg.close();
     if (d.goto) return go(d.goto);
@@ -412,10 +416,11 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       }
       if ("login" in d) return await openLogin();
       if ("closeOthers" in d) { for (const o of F.window.others) await post("/api/accounts/login/close", o); F.window = null; return wait(); }
-      if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); Object.assign(F, { pane: null, window: null }); F.session ||= sessions()[0]; return await openLogin(); }
+      if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); if (mine !== seq) return; Object.assign(F, { pane: null, window: null }); F.session ||= sessions()[0]; return await openLogin(); }
       if ("callback" in d) { // one at a time, across the polls' redraws: the code is single-use
         F.sending = true;
         try { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); } finally { F.sending = false; }
+        if (mine !== seq) return; // the sheet moved on meanwhile
         F.callback = ""; render(); return wait(); // sent: off the screen
       }
       if ("retry" in d) return go("login", { pane: null, session: F.session || sessions()[0] });
@@ -426,7 +431,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         if (dlg.querySelector("#acct-make-default")?.checked) await post("/api/accounts/default", { session: F.session, dir: F.dir });
         dlg.close(); return notice(`${F.name} added.`, 4000);
       }
-    } catch (error) { fail(error); } finally { t.disabled = false; }
+    } catch (error) { if (mine === seq) fail(error); } finally { t.disabled = false; }
   });
   $("accounts-open").onclick = () => { $("more-menu").open = false; open("list"); };
 
@@ -453,8 +458,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     paneCard: async (pane, section) => {
       if (!pane || !/^sign in: /.test(pane.window_name || "")) { section.hidden = true; delete section.dataset.pane; return; }
       const key = `${pane.pane_id}:${pane.birth}`; // tmux recycles pane ids; the pid tells them apart
-      if (section.dataset.pane === key) return;
-      section.dataset.pane = key; section.hidden = true;
+      if (section.dataset.pane === key) { // drawn: recheck now and then, as an exited login stays on screen
+        if (section.hidden || Date.now() - section.dataset.at < 5000) return;
+        section.dataset.at = Date.now();
+        if (await windowOf(`pane_id=${encodeURIComponent(pane.pane_id)}`) === false && section.dataset.pane === key) section.hidden = true;
+        return;
+      }
+      section.dataset.pane = key; section.dataset.at = Date.now(); section.hidden = true;
       const w = await windowOf(`pane_id=${encodeURIComponent(pane.pane_id)}`);
       if (!w && section.dataset.pane === key) delete section.dataset.pane; // ask again next time
       if (!w?.codex || w.device || section.dataset.pane !== key) return;
