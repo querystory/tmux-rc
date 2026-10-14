@@ -46,9 +46,11 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   function setFilter(dir) {
     filter = dir || null;
     try { if (filter) localStorage.setItem(KEY, filter); else localStorage.removeItem(KEY); } catch {}
-    const menu = filterGroup.closest("details");
+    const menu = filterGroup.closest("details"), focused = filterGroup.contains(document.activeElement);
     if (menu) menu.open = false;
     paintFilter(); repaint();
+    // The pick's button was just redrawn: keep keyboard focus on the menu's trigger, or on the chip.
+    if (focused) (menu?.querySelector("summary") || filterGroup.querySelector('[aria-pressed="true"]')).focus();
   }
 
   // ---- the filter: "Panes from" in the wide list's filter dropdown, chips under a phone's
@@ -60,10 +62,11 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const pill = document.createElement("div");
   pill.className = "acct-pill"; pill.setAttribute("role", "status");
   function paintFilter() {
-    const on = active(), opts = [[null, "All accounts"], ...signedIn().map((p) => [p, p.name])];
+    const on = active(), opts = [[null], ...signedIn().map((p) => [p, p.name])];
     filterGroup.hidden = !any();
     filterGroup.innerHTML = any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
-      `<button type="button" class="acct-opt" data-dir="${esc(p?.dir || "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${esc(name)}</span></button>`).join("") : "";
+      `<button type="button" class="acct-opt" data-dir="${esc(p?.dir || "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "";
+    filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
     tag.hidden = pill.hidden = !on;
     tag.title = on ? `Panes from ${on.name}` : "";
     tag.style.setProperty("--a", on ? `var(--acct-${on.color})` : "");

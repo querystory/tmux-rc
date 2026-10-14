@@ -928,9 +928,9 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* A phone: one row of chips under search, while the pill under the header speaks for the
    views without that list (the dashboard). */
 @media (max-width: 1099px) {
-  #acct-filter:not([hidden]) { display: flex; flex: none; gap: 6px; padding: 0 16px 10px; overflow-x: auto; scrollbar-width: none; }
-  #acct-filter :is(hr, .menu-sec, .acct-dot.none) { display: none; }
-  #acct-filter .acct-opt { display: inline-flex; align-items: center; flex: none; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 14px; white-space: nowrap; color: var(--fg); }
+  #acct-filter:not([hidden]) { display: flex; flex: none; gap: 6px; padding: 0 16px 10px; }
+  #acct-filter :is(hr, .menu-sec, .acct-dot.none, .acct-all) { display: none; }
+  #acct-filter .acct-opt { display: inline-flex; align-items: center; flex: none; gap: 5px; min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; white-space: nowrap; color: var(--fg); }
   #acct-filter .acct-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
   body:has(#sessions:not([hidden])) .acct-pill { display: none; }
 }

@@ -1576,7 +1576,10 @@ function placeChrome() {
   const search = document.querySelector("#sessions .search");
   if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter); search.after(accounts.pill); }
   else { search.after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
+  accounts.strip(accounts.filter, !WIDE.matches);
 }
+// Two filters that combine, not one radio group: the radios still group by their name.
+renderSidebar.picker.lastChild.setAttribute("role", "group");
 renderSidebar.picker.querySelector("summary").prepend(accounts.tag);
 placeChrome();
 // route() again, not just render(): a pane URL without a view opens on a different tab once wide.
