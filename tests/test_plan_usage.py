@@ -268,8 +268,9 @@ def test_samples_past_eight_days_are_thinned_to_one_an_hour_not_deleted(tmp_path
     thinned = [("claude", "a", "5h", 18000, t, min(100, (t - old) / 48), reset) if t < reset
                else ("claude", "a", "5h", 18000, t, 1, reset + 18000)
                for t in range(int(old), int(old) + 7200, 300)]
+    unopened = [("claude", "a", "5h", 18000, old - m, 0, None) for m in (60, 120)]
     raw = [("claude", "a", "5h", 18000, NOW - m, 1, NOW + 60) for m in (120, 60, 0)]
-    history.record_usage(thinned + raw)
+    history.record_usage(thinned + unopened + raw)
     assert history.usage_between("claude", "a", "5h", 0, NOW) == [
         (old + 3300, 3300 / 48, reset),  # the hour's last sample
         (old + 4500, 4500 / 48, reset),  # its window's last below the limit, mid-hour

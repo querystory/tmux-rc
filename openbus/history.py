@@ -325,12 +325,14 @@ class History:
             # Raw samples for the current windows (the longest, 7d, plus a day); past that, the
             # last sample of each hour, per window it belongs to, so a window's final reading
             # survives the hour it reset in, and the first at the limit, so does when it hit
-            # it. Once an hour: the scan grows with the history.
+            # it. A window not yet opened (no reset) has nothing to keep. Once an hour: the
+            # scan grows with the history.
             cutoff = max(r[4] for r in rows) - USAGE_KEEP
             if cutoff // 3600 != self._thinned:
                 db.execute("DELETE FROM plan_usage WHERE t < ?1 AND rowid NOT IN (SELECT rowid "
                            "FROM (SELECT rowid, max(CASE WHEN pct >= 100 THEN -t ELSE t END) "
-                           "FROM plan_usage WHERE t < ?1 GROUP BY provider, account, window, "
+                           "FROM plan_usage WHERE t < ?1 AND resets_at IS NOT NULL "
+                           "GROUP BY provider, account, window, "
                            "CAST(t / 3600 AS INT), CAST(resets_at / 3600 AS INT), pct >= 100))",
                            (cutoff,))
                 self._thinned = cutoff // 3600

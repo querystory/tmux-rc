@@ -142,8 +142,10 @@ than a new store, so the trend survives restarts under the same permissions and 
 as the fleet chart. Raw samples are kept for eight days (the longest window plus a day), so
 a current window's trend and projection see every poll. Past that they are thinned to the
 last sample of each hour, per window, rather than deleted: an hour is fine enough to see
-how a past window climbed and when it hit the limit, and keeps a year to under ten
-thousand rows per meter. The hour is split by window as well, so the final reading of a
+how a past window climbed and when it hit the limit, and keeps a year to about eleven
+thousand rows per meter (8,500 hourly ones, plus eight days of five-minute ones). Old
+samples of a window not yet opened are dropped: they say only "0%", and no past window can
+be drawn from them. The hour is split by window as well, so the final reading of a
 window that reset mid-hour survives, and its first sample at the limit is kept rather than
 its last, so "hit the limit" keeps the time it was hit. Thinning scans every old row, so it runs once an hour,
 not on every poll. The long history is also the base for correlating burn with running
