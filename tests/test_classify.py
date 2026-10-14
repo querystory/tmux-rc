@@ -544,6 +544,9 @@ def test_workflow_row_is_read_from_the_agent_list():
     assert r["subagents"] == [subs[0], {"label": "docs-sweep", "state": "running",
                                         "progress": "1/2", "elapsed": "3m37s", "tokens": "109.1k"}]
     assert r["agents"] == 2
+    empty = screen.replace("▰", "▱").replace("1/2 ·", "0/2 ·")  # a 0/N bar is all ▱
+    subs[1] = {"label": "▱▱▱▱▱ 0/2", "state": "running"}
+    assert classify(_pane(), empty, _llm({"tool": "claude", "subagents": subs}))["agents"] == 2
     done = screen.replace("1/2 ·", "2/2 ·").replace("○", "◯")  # Claude draws either circle
     assert classify(_pane(), done, _llm({"tool": "claude"}))["subagents"][0]["state"] == "done"
     # Only Claude's own agent list: a quoted row, or a shell printing one, gains no worker.
