@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import itertools
 import logging
 import math
 import os
@@ -82,7 +83,7 @@ from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
-from .plan_usage import PlanUsage  # noqa: E402
+from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
@@ -269,7 +270,7 @@ class AccountSessionBody(BaseModel):
 
 
 class SignInBody(AccountSessionBody):
-    command: str = ""  # the sign-in as edited in the sheet; empty: accounts.LOGIN
+    command: str = ""  # the sign-in line as edited in the sheet; empty: accounts.LOGIN
 
 
 class SignInWindowBody(BaseModel):
@@ -1191,18 +1192,24 @@ def _session_account(body: AccountSessionBody, request: Request, action: str) ->
 @app.post("/api/accounts/login")
 def account_login(body: SignInBody, request: Request):
     """Open a window running the provider's own sign-in on this account's dir. The user
-    signs in there; the daemon never sees a password or a token. An edited command may
-    add flags, but runs as argv (no shell), starts with the provider's own binary, and
-    gets the dir's variable set here whatever it says."""
+    signs in there; the daemon never sees a password or a token. The sheet's line is
+    `VAR=<dir> <binary> [args]`, editable: its one assignment must be the provider's
+    variable on this very dir, its program the provider's own binary, and it runs as argv
+    with that variable set here, never through a shell."""
     profile = _session_account(body, request, "account_login")
-    default = accounts.LOGIN[profile["provider"]]
+    default, var = accounts.LOGIN[profile["provider"]], ENV[profile["provider"]]
     try:
-        argv = shlex.split(body.command) or default
+        words = shlex.split(body.command) or [f"{var}={profile['dir']}", *default]
     except ValueError as e:
         _refuse(request, "account_login", body.command[:120], 400, f"Cannot read that command: {e}")
-    if argv[0] != default[0]:
+    lead = list(itertools.takewhile(lambda w: re.match(r"[A-Za-z_]\w*=", w), words))
+    argv = words[len(lead):]
+    if [(k, canonical(v)) for k, v in (w.split("=", 1) for w in lead)] != [(var, profile["dir"])]:
         _refuse(request, "account_login", body.command[:120], 400,
-                f"The sign-in command must start with {default[0]}")
+                f"The command must keep {var}={profile['tilde']}")
+    if not argv or argv[0] != default[0]:
+        _refuse(request, "account_login", body.command[:120], 400,
+                f"The sign-in command must run {default[0]}")
     if why := _unavailable(argv[0], tmux.server_path()):
         _refuse(request, "account_login", body.dir[:120], 400, why)
     pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
