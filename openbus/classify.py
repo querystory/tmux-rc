@@ -62,9 +62,10 @@ _OPENCODE_RUNNING_RE = re.compile(
 _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
     # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
-    # A stamp's trailing shell/monitor count is background work, not the agent's turn.
+    # A stamp's trailing shell/monitor count is background work, not the agent's turn, and
+    # a bar after it is the frame Claude Code draws down the right of its transcript.
     r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
-    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:·|$))",
+    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
 # A provider error that aborted the turn, per tool: Codex's "■ Selected model is at

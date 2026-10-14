@@ -1279,10 +1279,12 @@ def test_handoff_in_a_barred_transcript_is_the_agents_words_with_no_buttons():
     screen = _sample("100_claude_handoff_beside_suggested_command")
     replies = lambda _s, _q: {"options": ["Yes, proceed", "No, cancel"]}  # noqa: E731
     model = {"tool": "claude", "question": {"prompt": "! gh pr merge 812", "options": ["Yes"]}}
-    q = classify(_pane("claude"), screen, _llm(model), replies_fn=replies)["question"]
-    assert q == {"prompt": "The quickest way is to run it yourself with the ! prefix, so it runs "
-                 "here in this session: ! gh pr update-branch 812 && gh pr merge 812 --squash "
-                 "--auto", "answer_style": "text", "options": []}
+    bare = screen.replace("✻ Worked for 29s · done 1:58 PM ", "✻ Baked for 16s" + " " * 16)
+    for shown in (screen, bare):  # the stamp's "· done …" is optional
+        q = classify(_pane("claude"), shown, _llm(model), replies_fn=replies)["question"]
+        assert q == {"answer_style": "text", "options": [], "prompt": (
+            "The quickest way is to run it yourself with the ! prefix, so it runs here in this "
+            "session: ! gh pr update-branch 812 && gh pr merge 812 --squash --auto")}
     asking = screen.replace("#815 is still waiting on its Copilot review.", "Shall I watch CI?")
     q = classify(_pane("claude"), asking, _llm({}), replies_fn=replies)["question"]
     assert q["prompt"].endswith("Shall I watch CI?")
