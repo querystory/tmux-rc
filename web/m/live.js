@@ -1,8 +1,11 @@
 import { liveClose } from "/live-close.js";
 import { chatBubble, chatComposer, chatThumb } from "/live-chat.js";
-import { appendChatMarkdown } from "/chat-markdown.js";
+import { appendChatMarkdown, renderChatText } from "/chat-markdown.js";
+const esc = (text) => renderChatText(text); // no names: plain escaping
+const KEYCAPS = { Up: "↑", Down: "↓", Left: "←", Right: "→", Escape: "Esc", PageUp: "Page Up", PageDown: "Page Down", "C-c": "Ctrl C", "C-d": "Ctrl D" };
+const keycap = (key) => `<kbd>${esc(KEYCAPS[key] || key)}</kbd>`;
 import { chatStarters } from "/chat-starters.js";
-import { since } from "/m/pane-model.js";
+import { since, paneName } from "/m/pane-model.js";
 // Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
 // what the server expects (see docs/design/live-mode.md).
 const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
@@ -15,8 +18,11 @@ const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring 
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
+// Where sw.js records a "Chat needs you" tap, and how long the page still acts on it.
+const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
+const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
-export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {} }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "", panes = () => [], logos = {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -62,10 +68,27 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function badge() {
     const working = run?.turns > 0 && !run.proposals.size;
     bubble({ shown: !!run && !dialog.open, voice: run && !run.text, unread, pending: run?.proposals.size, working });
+    viewing();
     if (working === typing.isConnected) return;
     const follow = following();
     if (working) log.append(typing); else typing.remove();
     if (follow) log.scrollTop = log.scrollHeight;
+  }
+  // A card left waiting while nobody looks pushes "Chat needs you" (live._nudge), so the
+  // daemon hears each change, and a fresh socket the view at connect, in its handshake.
+  // Until a socket is first listening the daemon reads nothing from it, so a waiting card's
+  // change then goes in a new socket's handshake. A provider reconnect's backoff is not that:
+  // the daemon still reads the view meanwhile (live._hold), so it goes as a frame, and a
+  // provider down never churns sockets. Its next "connecting" is again unread, and a frame
+  // sent just as the backoff ended may sit unread through it: with a card waiting, that
+  // "connecting" replaces the socket, whose handshake confirms the view.
+  function viewing(current = run) {
+    const on = dialog.open && !document.hidden;
+    if (!current || current.viewing === on) return;
+    if (current.listening || current.held) {
+      current.dirty = current.held; current.viewing = on; current.ws.send(JSON.stringify({ action: "viewing", on }));
+    }
+    else if (current.viewing != null && current.proposals.size) revive(current, true);
   }
   const bubble = chatBubble({ licon, open: () => show() });
   const starters = chatStarters($("chat-starters"), sendText);
@@ -151,7 +174,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
     const body = row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
-    if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
+    if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; }, names());
+    else if (role === "propose") body.innerHTML = renderChatText(message || "", names()); // one line, never grown
     else body.textContent += message || "";
     body.before(...images.map(chatThumb));
     if (!dialog.open && role !== "user") unread = true; // not the user's own echo
@@ -169,9 +193,13 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // the daemon keeps it for this chat a while, so a tap waits out the reconnect, hurried
   // along, and goes again on each new connection until answered (a socket can die with it
   // in flight); only a card the daemon no longer has comes back "expired".
-  function propose(current, { id, text, image, pane_id, session }) {
+  function propose(current, card) {
+    heard.add(card.label);
+    const { id, text, image, pane_id, session } = card;
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
+    if (drawn(card)) row.lastChild.innerHTML = action(card);
     if (session) row.lastChild.append(sessionMeta(session));
+    if (pane_id) row.lastChild.insertAdjacentHTML("beforeend", account(pane_id)); // which account it lands on, with several
     actions.className = "voice-actions";
     for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
       const button = document.createElement("button"); button.type = "button"; button.textContent = label;
@@ -186,7 +214,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     }
     // Look before approving: opening leaves the card pending, and the bubble brings it back.
     if (pane_id) actions.append(openButton(pane_id, "Open"));
-    row.append(actions); current.proposals.set(id, { row, actions }); badge();
+    row.append(actions); current.proposals.set(id, { row, actions, card }); badge();
     actions.scrollIntoView?.({ block: "nearest" }); // a card waiting on the user is never left clipped
   }
   // A button to a pane, going exactly where its row in the list goes (the caller's
@@ -206,6 +234,30 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     (row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }))).append(button);
     if (auto) button.click();
   }
+  // A pane as its sidebar row shows it, never by tmux id: its tool's logo, its name, its
+  // session dimmed. A pane the page has not seen yet (one just opened) shows the daemon's label.
+  // The names to bold: the page's pane list, and every name the daemon has used for a pane,
+  // since a pane just opened (a resume) can be in the reply before it is in the list; this
+  // chat's only, as a later one may name an old pane's words in passing.
+  const heard = new Set(), names = () => [...panes().map(paneName), ...heard];
+  function paneTag(id, label) {
+    const pane = panes().find((p) => p.pane_id === id);
+    if (!pane) return `<strong>${esc(label || id)}</strong>`;
+    const logo = Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
+    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${pane.session ? `<span> · ${esc(pane.session)}</span>` : ""}</span>`;
+  }
+  // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
+  // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The
+  // model's relay label ("From the user (via text):") is dimmed: how it came, not what goes in.
+  // Only a well-formed call is drawn: a malformed one keeps its sentence, as the daemon refuses it.
+  const drawn = ({ pane_id, key, payload }) => !!pane_id && (typeof key === "string" ? !!key : typeof payload === "string");
+  function action({ pane_id, label, key, payload, enter }, done) {
+    const [press, type, then] = done ? ["Pressed", "Typed into", ", then pressed"] : ["Press", "Type into", ", then press"];
+    if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${paneTag(pane_id, label)}</div>`;
+    const via = /^From the user \(via \w+\):\s*/.exec(payload)?.[0] || "";
+    return `<div class="voice-act">${type} ${paneTag(pane_id, label)}${enter ? `${then} ${keycap("Enter")}` : ""}` +
+      `<blockquote>${via && `<span>${esc(via)}</span>`}${esc(payload.slice(via.length))}</blockquote></div>`;
+  }
   // Which session a resume card means, past a title several can share (live._approved).
   function sessionMeta({ tool, cwd, last_active, id }) {
     const at = Date.parse(last_active), meta = document.createElement("small");
@@ -218,7 +270,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const card = current.proposals.get(id);
     if (!card) return;
     current.sending.delete(id);
-    card.row.firstChild.textContent = label; card.actions.remove(); current.proposals.delete(id); badge();
+    card.row.firstChild.textContent = label; card.actions.remove();
+    if (label === "Approved" && drawn(card.card)) card.row.querySelector(".voice-act").outerHTML = action(card.card, true); current.proposals.delete(id); badge();
   }
   function deliver(current, frames) {
     if (current.listening && current.ws?.readyState === WebSocket.OPEN) frames.forEach((frame) => current.ws.send(JSON.stringify(frame)));
@@ -389,12 +442,13 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (current.model) query.set("model", current.model);
     if (current.text) query.set("mode", "text");
     if (!current.up) query.set("fresh", "1"); // a new chat: drop any cards an offline end left parked
+    current.viewing = dialog.open && !document.hidden; query.set("viewing", current.viewing ? "1" : "0");
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop(`Could not connect to ${name(current)}.`); return; }
     // A new socket is not listening until it says so, even when it replaced an OPEN one,
     // and an echo lost with the old socket never comes.
-    current.ws = ws; current.listening = false; current.thumbs = [];
+    current.ws = ws; current.listening = false; current.held = false; current.thumbs = [];
     clearTimeout(current.deadline);
     current.deadline = setTimeout(() => {
       if (run !== current || current.listening) return;
@@ -406,10 +460,12 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       if (run !== current || current.ws !== ws) return;
       let message; try { message = JSON.parse(data); } catch { return; }
       if (message.type === "status") {
+        if (current.held && current.dirty && current.proposals.size && message.status === "connecting") return revive(current, true);
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
-        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; resync(current); }
+        current.held = message.status === "reconnecting"; current.dirty = false; // see viewing()
+        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); resync(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
@@ -417,7 +473,11 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         [...log.children].forEach((row) => { row.dataset.done = "true"; });
         current.turns = Math.max(0, current.turns - 1); badge(); // a queued turn may follow
       }
-      else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
+      else if (message.type === "typed") {
+        heard.add(message.label);
+        add("typed", `${message.label}: ${message.text}`).lastChild.innerHTML = drawn(message)
+          ? action({ ...message, enter: message.submitted }, true) : `${paneTag(message.pane_id, message.label)}: ${esc(message.text)}`;
+      }
       else if (message.type === "error") {
         // A refused turn gets no answer; any other error ends the session's turns.
         if (message.refused) current.thumbs.shift();
@@ -452,7 +512,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   async function start() {
     const token = ++sequence;
     const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
-    run = current; log.replaceChildren(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
+    run = current; log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
       try { localStorage.setItem(CHAT_MODEL_KEY, current.model); } catch {}
@@ -508,8 +568,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   $("chat").onclick = () => {
     if (docked()) return hide(); // a docked panel toggles: nothing covers the button
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
+    show(); // first, so a new chat's handshake says it opened in view
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
-    show();
   };
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;
@@ -538,11 +598,39 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   window.addEventListener("online", wake);
   // Switching apps is visibilitychange, not navigation: keep the microphone and
   // socket alive. pagehide still releases capture when leaving this document.
-  window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } });
+  window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } pullTaps(); });
   document.addEventListener("visibilitychange", () => {
-    if (run) { resumeAudio(run); keepAwake(run); }
-    if (!document.hidden) wake();
+    // Back in view, any forced reconnect goes first: its handshake carries the view, so
+    // viewing() has nothing left to change, rather than reviving a socket wake() replaces.
+    if (!document.hidden) { wake(); pullTaps(); }
+    if (run) { resumeAudio(run); keepAwake(run); viewing(); }
   });
-  paint(); capabilities();
+  // A "Chat needs you" tap (sw.js) brings back the chat holding its card, even minimized;
+  // only that card's chat answers. Doing it twice is harmless, so it has two triggers: the
+  // worker's message, and the tap the worker recorded, pulled whenever the page comes back,
+  // since iOS can lose a message to the page it is waking. A tap is spent once acted on,
+  // so a later return to the app never reopens a chat minimized again since. iOS may show
+  // the page before the worker has even run, so each return reads again shortly after. A
+  // killed page has no chat left to bring back (it lived in the page): its boot does nothing.
+  const taps = async () => caches.open(TAP_CACHE);
+  function bringBack(id) {
+    const card = run?.proposals.get(id);
+    if (!card) return false;
+    show(); card.actions.scrollIntoView?.({ block: "nearest" });
+    taps().then((cache) => cache.delete(TAP_KEY)).catch(() => {});
+    return true;
+  }
+  async function pullTap() {
+    try {
+      const tap = await (await (await taps()).match(TAP_KEY))?.json();
+      if (tap && Date.now() - tap.at < TAP_FRESH_MS) bringBack(tap.chat);
+    } catch { /* no Cache Storage (an insecure context): the message is the only path */ }
+  }
+  const pullTaps = () => TAP_READS_MS.forEach((ms) => setTimeout(pullTap, ms));
+  navigator.serviceWorker?.addEventListener("message", ({ data, ports }) => {
+    if (data?.chat) ports[0]?.postMessage(bringBack(data.chat));
+  });
+  window.addEventListener("focus", pullTaps);
+  paint(); capabilities(); pullTaps();
   return { isActive: () => !!run, refresh: capabilities };
 }

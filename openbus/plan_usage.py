@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import time
+import urllib.error
 import urllib.request
 from contextlib import suppress
 from datetime import datetime
@@ -24,12 +25,17 @@ from . import tmux
 logger = logging.getLogger(__name__)
 POLL = 60  # Codex logs are local and cheap; the Claude endpoint is still CLAUDE_TTL
 CLAUDE_TTL = 300
+# How old a reading may be and still stand in for a failed read: three Claude polls, so one
+# or two transient failures in a row keep the meter up (a 5h window moves a few points in
+# that time), while an outage, or an expired token nobody refreshes, still reads unavailable.
+STALE_OK = 3 * CLAUDE_TTL
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CLAUDE_WINDOWS = {"five_hour": ("5h", 5 * 3600), "seven_day": ("7d", 7 * 86400)}
 ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
 TAIL = 1 << 20  # Codex session logs reach hundreds of MB; the newest limits sit at the end
 CODEX_FILES = 20  # bounds the scan when recent logs hold no limits event at all
 SPARK_POINTS = 120  # samples sent per window: a sidebar sparkline's width, not a week of polls
+PAST = 12  # ended windows the usage view can step back through: 12 weeks of a 7d window
 
 
 def window_name(minutes: int) -> str:
@@ -40,12 +46,19 @@ def _epoch(stamp: str) -> float:
     return datetime.fromisoformat(stamp).timestamp()
 
 
+def canonical(config: str) -> str:
+    """One spelling per dir: ~ expanded and "..", "." and doubled slashes folded, so an
+    alias can't list one login twice, or miss its profile (accounts.py). normpath keeps a
+    leading "//" (POSIX leaves its meaning to the system); on Linux it is just "/"."""
+    path = os.path.normpath(os.path.expanduser(config))
+    return "/" + path.lstrip("/") if path.startswith("//") else path
+
+
 def home(provider: str, env: dict) -> Path:
     """The config dir an agent with this environment reads: its override, else ~/.claude
     or ~/.codex under its HOME."""
-    if override := env.get(ENV[provider]):
-        return Path(override)
-    return Path(env.get("HOME") or Path.home()) / f".{provider}"
+    default = Path(env.get("HOME") or Path.home()) / f".{provider}"
+    return Path(canonical(env.get(ENV[provider]) or str(default)))
 
 
 def pane_env(pid: str, tool: str) -> dict:
@@ -56,6 +69,12 @@ def pane_env(pid: str, tool: str) -> dict:
                  pid)
     pairs = (v.partition("=") for v in tmux.proc_read(agent, "environ").split("\0"))
     return {k: v for k, _, v in pairs if k in ("HOME", ENV[tool])}
+
+
+def pane_envs(panes: list[dict], birth) -> list[tuple[str, dict, str]]:
+    """(tool, pane_env, pane id) for each live Claude or Codex pane."""
+    return [(p["tool"], pane_env(pid, p["tool"]), p["pane_id"]) for p in panes
+            if p.get("tool") in ENV and (pid := birth(p["pane_id"]))]
 
 
 def codex_samples(event: dict) -> list[dict]:
@@ -128,17 +147,21 @@ def claude_samples(data: dict, now: float) -> list[dict]:
              "resets_at": resets and _epoch(resets)} for name, seconds, pct, resets in windows]
 
 
-def claude_account(config: Path, env: dict) -> dict | None:
+def env_for(provider: str, config: Path) -> dict:
+    """The environment that points the agent at this config dir: none for the provider's
+    default (~/.claude keeps its .claude.json beside it, not in it), else the override."""
+    return {} if config == Path.home() / f".{provider}" else {ENV[provider]: str(config)}
+
+
+def oauth_account(config: Path, env: dict) -> dict:
     """The non-secret identity Claude Code keeps beside its credentials: .claude.json
-    inside an overridden config dir, else next to the default one."""
+    inside an overridden config dir, else next to the default one. {} when signed out."""
     meta = config / ".claude.json" if env.get(ENV["claude"]) else config.parent / ".claude.json"
     try:
-        account = json.loads(meta.read_text()).get("oauthAccount") or {}
-    except (OSError, ValueError):
-        return None
-    short = (account.get("emailAddress") or "?").split("@")[0]
-    return account.get("accountUuid") and {"key": account["accountUuid"], "short": short,
-                                           "long": account.get("emailAddress") or short}
+        account = json.loads(meta.read_text()).get("oauthAccount")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return account if isinstance(account, dict) else {}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -157,8 +180,17 @@ def fetch_claude(config: Path, now: float) -> list[dict]:
         raise PermissionError("token expired")
     request = urllib.request.Request(USAGE_URL, headers={
         "Authorization": f"Bearer {oauth['accessToken']}", "anthropic-beta": "oauth-2025-04-20"})
-    with _OPENER.open(request, timeout=10) as response:
-        return claude_samples(json.load(response), now)
+
+    def get() -> list[dict]:
+        with _OPENER.open(request, timeout=10) as response:
+            return claude_samples(json.load(response), now)
+    try:
+        return get()
+    except urllib.error.HTTPError:  # a status is an answer: a 401 won't fix itself in 2s
+        raise
+    except (urllib.error.URLError, TimeoutError):  # a network blip: one retry
+        time.sleep(2)
+        return get()
 
 
 def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
@@ -182,30 +214,55 @@ def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
             "limit_at": t + (100 - p) / slope if projected > 100 and p < 100 else None}
 
 
+def thin(samples: list[tuple]) -> list[list[float]]:
+    """At most SPARK_POINTS of these (t, pct) samples, newest kept, in ms."""
+    step = max(1, -(-len(samples) // SPARK_POINTS))
+    return [[t * 1000, p] for t, p in samples[::-1][::step][::-1]]
+
+
+def ended(name: str, seconds: int, rows: list[tuple], now: float) -> list[dict]:
+    """The last PAST windows these (t, pct, resets_at) samples show ending by now, oldest
+    first, shaped like a current window: its final %, its trend, and when it reached 100%
+    (`limit_at`). A window is told by its reset; consecutive ones are at least 5h apart, so
+    a reset an hour or less from the last is the same window read again, and its latest
+    read stands for it."""
+    windows: list[list] = []
+    for t, pct, resets in rows:
+        if resets is None:  # not yet opened
+            continue
+        if not windows or resets > windows[-1][0] + 3600:
+            windows.append([resets, []])
+        windows[-1][0] = resets
+        windows[-1][1].append((t, pct))
+    return [{"window": name, "pct": max(p for _, p in samples), "resets_at": resets * 1000,
+             "start": (resets - seconds) * 1000, "samples": thin(samples),
+             "limit_at": next((t * 1000 for t, p in samples if p >= 100), None)}
+            for resets, samples in [w for w in windows if w[0] <= now][-PAST:]]
+
+
 class PlanUsage:
     """Discovers accounts from the panes, samples them into History, reports for the UI."""
 
-    def __init__(self, history, fetch=fetch_claude, read=read_codex):
+    def __init__(self, history, fetch=fetch_claude, read=read_codex, profiles=None):
         self.history, self.fetch, self.read = history, fetch, read
+        # The config dirs worth metering with no pane on them: the daemon passes the listed
+        # accounts; alone, each provider's default dir.
+        self.profiles = profiles or (lambda: [(t, Path.home() / f".{t}") for t in ENV])
         self.accounts: dict[tuple[str, str], dict] = {}
         self._fetched: dict[str, float] = {}
         self._errors: dict[tuple[str, str], str | None] = {}
 
     def discover(self, panes: list[dict], birth) -> dict[tuple[str, str], dict]:
-        """Every account a live agent pane uses, plus the daemon user's own defaults."""
+        """Every account a live agent pane uses, plus the known profiles' (accounts.py)."""
         found: dict[tuple[str, str], dict] = {}
-        sources = [(t, {k: os.environ[k] for k in ("HOME", ENV[t]) if k in os.environ}, None)
-                   for t in ENV]
-        sources += [(p["tool"], pane_env(pid, p["tool"]), p["pane_id"]) for p in panes
-                    if p.get("tool") in ENV and (pid := birth(p["pane_id"]))]
+        sources = [(t, env_for(t, d), None) for t, d in self.profiles()] + pane_envs(panes, birth)
         for tool, env, pane_id in sources:
             config = home(tool, env)
             if tool == "codex":
-                tilde = str(config).replace(str(Path.home()), "~")
-                ident = (config / "sessions").is_dir() and {
-                    "key": str(config), "short": config.name.lstrip("."), "long": tilde}
+                ident = (config / "sessions").is_dir() and {"key": str(config)}
             else:
-                ident = claude_account(config, env)
+                uuid = oauth_account(config, env).get("accountUuid")
+                ident = uuid and {"key": uuid}
             if ident:
                 account = found.setdefault((tool, ident["key"]), {**ident, "homes": [],
                                                                   "panes": []})
@@ -255,37 +312,46 @@ class PlanUsage:
                 logger.warning("plan usage poll failed", exc_info=True)
             await asyncio.sleep(POLL)
 
-    def _window(self, tool: str, key: str, row: tuple, now: float) -> dict:
-        """One window for the UI, in ms: its latest %, its trend thinned to SPARK_POINTS
-        (newest kept), and the projection over every sample."""
+    def _window(self, tool: str, key: str, row: tuple, now: float, past: bool) -> dict:
+        """One window for the UI, in ms: its latest %, its trend thinned to SPARK_POINTS,
+        and the projection over every sample; with `past`, the windows before it too."""
         name, seconds, observed, pct, resets = row
+        out = {"window": name}
+        if past:
+            # Back to the PAST-th last reset, however long ago (a 5h window opens only on
+            # use), so the read is bounded by windows, not by how old the history grows.
+            # Twice PAST, plus the current window: a reset read either side of an hour
+            # counts twice.
+            first = self.history.reset_back(tool, key, name, now, 2 * (PAST + 1))
+            recent = self.history.usage_between(tool, key, name, (first or now) - seconds, now)
+            out["past"] = ended(name, seconds, recent, now)
         if resets is None or resets <= now:  # the window reset since: nothing used yet
-            return {"window": name, "pct": 0.0, "resets_at": None, "samples": []}
+            return {**out, "pct": 0.0, "resets_at": None, "samples": []}
         # Up to the row's own observation: a poll landing in between can't skew the trend.
-        samples = self.history.usage_between(tool, key, name, resets - seconds, observed)
+        samples = [(t, p) for t, p, _ in
+                   self.history.usage_between(tool, key, name, resets - seconds, observed)]
         trend = project(samples, resets, seconds, now)
-        thin = samples[::-1][::max(1, -(-len(samples) // SPARK_POINTS))][::-1]
-        return {"window": name, "pct": pct, "resets_at": resets * 1000,
-                "start": (resets - seconds) * 1000, "samples": [[t * 1000, p] for t, p in thin],
+        return {**out, "pct": pct, "resets_at": resets * 1000,
+                "start": (resets - seconds) * 1000, "samples": thin(samples),
                 "projected": trend["projected"],
                 "limit_at": trend["limit_at"] and trend["limit_at"] * 1000}
 
-    def report(self, now: float | None = None) -> list[dict]:
+    def report(self, now: float | None = None, past: bool = False) -> list[dict]:
         now = time.time() if now is None else now
         accounts = self.accounts  # one snapshot: poll() swaps it from a worker thread
-        count = {t: sum(k[0] == t for k in accounts) for t in ENV}
-        shorts = [(k[0], a["short"]) for k, a in accounts.items()]
         out = []
         for (tool, key), account in accounts.items():
-            # Stale numbers would mislead, and without History there are none to show.
-            error = account["error"] or (None if self.history else "unavailable")
-            rows = [] if error else self.history.latest_usage(tool, key)
-            error = error or (None if rows else "no data yet")  # not "no limits": unknown
-            # One account: the provider's name. Several: short names, the full one on a clash.
-            short = account["short"]
-            label = (None if count[tool] < 2 else short if shorts.count((tool, short)) < 2
-                     else account["long"])
-            out.append({"provider": tool, "label": label,
+            # A failed read keeps showing the last reading while it is recent (STALE_OK),
+            # marked with its age; older numbers would mislead. No History: none to show.
+            rows = self.history.latest_usage(tool, key) if self.history else []
+            newest = max((r[2] for r in rows), default=0)
+            if account["error"] and now - newest > STALE_OK:
+                rows = []
+            error = None if rows else account["error"] or (
+                "no data yet" if self.history else "unavailable")  # not "no limits": unknown
+            # Named by the UI, from the profile its dirs belong to (accounts.py).
+            out.append({"provider": tool, "dirs": [str(h) for h in account.get("homes", [])],
                         "panes": account["panes"], "error": error,
-                        "windows": [self._window(tool, key, row, now) for row in rows]})
-        return sorted(out, key=lambda a: (a["provider"], a["label"] or ""))
+                        "as_of": newest * 1000 if rows and account["error"] else None,
+                        "windows": [self._window(tool, key, row, now, past) for row in rows]})
+        return sorted(out, key=lambda a: (a["provider"], a["dirs"]))

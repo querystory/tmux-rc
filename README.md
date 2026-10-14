@@ -1,5 +1,7 @@
 # tmux-rc
 
+[Website & documentation](https://querystory.github.io/tmux-rc/)
+
 Watch and control whatever runs in a tmux pane — AI coding agents like Codex, Claude
 Code, Gemini CLI, OpenCode and omp, or any other program that prints text — from your
 phone. A small local service reads a `tmux` pane, figures out what's happening, and
@@ -202,7 +204,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
-| `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/omp/Gemini/Shell | "New window" dialog entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/omp/shell) or an image URL |
+| `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/omp/Gemini/Shell | "New window" dialog entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/omp/shell) or an image URL; `provider` (`claude` or `codex`) says whose [accounts](docs/design/agent-accounts.md) it can launch on, read from `icon` when that is claude or codex, so it is needed only with another icon |
 | `TMUXRC_SCRATCH_DIR` | unset (not served) | directory served read-only at `/scratch/` for throwaway previews — see [Previewing work](docs/deploy/previews.md) |
 | `TMUXRC_SCRATCH_ADVERTISE` | unset (off) | `1` exports `TMUXRC_SCRATCH_DIR` and `TMUXRC_SCRATCH_LOCAL_URL` (when scratch is served) and `TMUXRC_SCRATCH_URL` (when also set) to tmux's global environment at startup, removing any that is no longer configured, so agents in new panes can find scratch and check their pages locally |
 | `TMUXRC_SCRATCH_URL` | unset | the base URL you open tmux-rc at, plus `/scratch` (e.g. `https://<machine>.<tailnet>.ts.net/scratch`), advertised with the dir |

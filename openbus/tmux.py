@@ -251,11 +251,26 @@ def _run(args: list[str], stdin: str | None = None, *, prefix: list[str] | None 
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
 
 
-def set_global_env(name: str, value: str | None) -> None:
-    """Set (or, given None, remove) a variable in the server's global environment, which
-    new panes inherit."""
-    _run(["set-environment", "-gu", name] if value is None else
-         ["set-environment", "-g", name, value])
+def _env_scope(session: str | None) -> list[str]:
+    return ["-t", f"={session}"] if session else ["-g"]  # "=": that session exactly
+
+
+def set_env(name: str, value: str | None, session: str | None = None) -> None:
+    """Set (or, given None, remove) a variable in a session's environment, else the
+    server's global one, which new panes there inherit. A session's None marks it removed
+    (-r) rather than unset, so a global value can't show through."""
+    unset = ["-r" if session else "-u", name]
+    _run(["set-environment", *_env_scope(session), *(unset if value is None else [name, value])])
+
+
+def show_env(session: str | None = None) -> dict[str, str]:
+    """A session's own environment, else the global one; a variable tmux marks removed
+    ("-NAME") reads as empty. {} when tmux can't say."""
+    try:
+        out = _run(["show-environment", *_env_scope(session)])
+    except subprocess.CalledProcessError:
+        return {}
+    return {k.lstrip("-"): v for k, _, v in (line.partition("=") for line in out.splitlines())}
 
 
 def client_active_within(seconds: float) -> bool:
@@ -563,7 +578,7 @@ def server_env() -> dict[str, str]:
     return env
 
 
-def new_session(name: str, cwd: str, command: str | None = None, window: str = "",
+def new_session(name: str, cwd: str, command: str | list[str] | None = None, window: str = "",
                 env: dict[str, str] | None = None) -> str:
     """Create detached session `name` in `cwd` and return its first pane's id. Starts the
     tmux server if none is running (after a reboot, nothing else will), which is why this
@@ -588,7 +603,8 @@ def new_session(name: str, cwd: str, command: str | None = None, window: str = "
     argv = ["new-session", "-d", "-E", "-P", "-F", "#{pane_id}", "-s", name, "-c", cwd]
     if window:
         argv += ["-n", window]
-    return _run([*argv, *([command] if command else [])], prefix=scope,
+    command = [command] if isinstance(command, str) else command or []
+    return _run([*argv, *command], prefix=scope,
                 env=server_env() if env is None else env).strip()
 
 
@@ -978,12 +994,12 @@ def send_keys(
     `expected_pid` binds the complete send transaction to that pane incarnation.
     `guard`, when present, runs only after the per-pane send lock is held."""
     with _pane_lock(pane_id):
-        if guard is not None:
-            guard()
         if expected_pid is not None:
             check_pane(pane_id, expected_pid)
         if (keys if literal else keys not in PROMPT_KEYS) and at_password_prompt(pane_id):
             raise PasswordPromptError(AT_PASSWORD)
+        if guard is not None:
+            guard()  # last before delivery: its capture is as fresh as tmux allows
         if literal:
             identity = expected_pid if keys and expected_pid is not None else (
                 pane_pid(pane_id) if keys else None

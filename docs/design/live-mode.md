@@ -548,6 +548,36 @@ sees holds the model's turn open indefinitely. Restoring keeps the draft and the
 transcript's scroll position. Ending the conversation stays an explicit button, so a
 stray tap on the backdrop never throws one away.
 
+**A waiting card notifies.** The bubble only helps someone looking at the page. A card left
+waiting while the sheet is minimized, the app is in the background or the phone is locked
+sends a "Chat needs you" push through the same subscriptions as a pane that needs you. The
+client tells the daemon over the chat socket whenever the sheet goes in or out of view, so
+a card the user is reading stays quiet. A card must wait unseen for the same settle time
+as a pane's push, so minimizing for a moment does not buzz, and it pushes at most once.
+A dropped socket counts as out of view, and the wait belongs to the card rather than to
+the connection that showed it: locking a phone drops the socket and parks the card, and
+that is the moment a push matters most. Whether a parked card is in view again is the
+reconnected chat's word, including a card it took over from a half-open socket: the
+takeover ends the old connection's wait as a drop does, not as an answer, so the push still
+comes.
+The notification has no answer buttons: approving a pane action should happen where the
+card shows exactly what will be typed, not from a lock-screen line. Tapping it brings the
+chat back in the open page instead of navigating there, since a navigation would reload
+the page and end the conversation that holds the card. A minimized chat comes back too,
+scrolled to the card. The app window is focused before it is asked, not after its answer:
+iOS may refuse a focus that is no longer tied to the tap, and a suspended page cannot
+answer until it is woken. Only with several app windows open does the worker ask first,
+so that only the one holding the card is brought forward.
+The message alone proved not enough on an iPhone: a tap opened the app with the chat still
+minimized, most likely because iOS loses a message posted to a page it is still waking. So
+the worker also records the tap, before focusing, in Cache Storage, which both sides can
+read, and the page pulls it whenever it comes back (visible, shown, focused, booted) and
+again a moment later, since iOS may show the page before the worker has run. A record older
+than a minute or naming another tab's card is ignored, and one acted on is deleted, so a
+later return never reopens a chat minimized since. Bringing a chat back twice is harmless,
+which is what lets both paths stay. A page iOS killed meanwhile has no chat to bring back,
+since the conversation lived in it, so its boot does nothing with the record.
+
 **Docked on a wide screen.** At the wide layout's breakpoint (1100px) the same panel opens
 non-modally as a column right of the work area, so nothing is dimmed and the pane stays
 usable while you talk about it. It is the same element and session, not a second chat:

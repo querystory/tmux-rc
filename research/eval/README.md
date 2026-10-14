@@ -66,6 +66,8 @@ strictness is correct:
   An omitted `parse_ok` means success, matching the watcher.
 - `agents` and `subagent_states` — opt-in worker checks. When supplied, compare the busy
   background count and the sorted multiset of worker states (including duplicates).
+- `subagents_include` — opt-in list of partial worker rows; each must exactly match the
+  given fields of some parsed row (e.g. a workflow row's `label` and `progress`).
 - `working_prs` — opt-in exact comparison of semantic `owner/name#number` associations.
   An explicit empty list pins the important negative case: PRs may be visible without
   this session actually working on any of them.

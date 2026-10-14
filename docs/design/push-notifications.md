@@ -161,7 +161,9 @@ change.
 ### The service-worker wrinkle
 
 `web/sw.js` handles `push` and `notificationclick` with **no fetch handler and no
-cache writes**. This replaced the old self-destructing tombstone, which existed
+asset caching**. Its one cache entry is the last "Chat needs you" tap, a small record
+the page reads back because iOS can lose the worker's message to a page it is waking
+(see live-mode.md); it holds no asset and nothing is ever served from it. This replaced the old self-destructing tombstone, which existed
 because a caching worker once served stale `app.js` and hid new UI. Asset requests
 still go to the network; activation clears old caches. `web/push.js` explicitly
 registers the worker and subscribes through its `pushManager`. The worker file is
@@ -271,7 +273,7 @@ than `/send`: the SW posts `{nonce, option_index}` to a dedicated
   checks it again only after taking that same lock. A delayed action therefore cannot
   race an answer from another surface and submit into the next prompt.
 - **The daemon owns the option→keystroke mapping.** `answer_style` matters:
-  `"menu"` options are on-screen widgets answered with a keystroke (digit, y/n),
+  `"menu"` options are on-screen widgets answered with a keystroke (the row's digit),
   not their label text — typing the label into a numbered menu selects nothing or
   the wrong thing. The card does this mapping in `app.js` today; `/api/push/answer`
   mirrors those exact semantics server-side (a later cleanup can point the card at

@@ -30,6 +30,10 @@ Environment=TMUXRC_RELOAD=0
 # the unit would make `TMUXRC_HOST=0.0.0.0` in .env silently do nothing.
 Restart=always
 RestartSec=5
+# `uv run` exits 143 (128+SIGTERM) on a clean stop even though uvicorn shut down
+# gracefully, so every restart logged "Failed with result 'exit-code'" at warning
+# priority — noise in exactly the `journalctl -p warning` view health checks read.
+SuccessExitStatus=143
 
 [Install]
 WantedBy=tmux-rc.target

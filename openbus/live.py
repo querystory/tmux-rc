@@ -23,11 +23,12 @@ import time
 import unicodedata
 import uuid
 from collections import deque
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import agent_history, live_providers, llm, telemetry, tmux
+from . import accounts, agent_history, live_providers, llm, push, telemetry, tmux
 from .classify import _load_prompt
 from .expunge import codex_status_segments
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
@@ -125,6 +126,9 @@ class _Meter:
         self.text = text  # typed turns, written replies: no mic, no playback
         self.approvals: dict[str, asyncio.Future] = {}  # proposal id -> the user's answer
         self.superseded = False  # the user typed past a card: the rest of its turn is declined
+        self.push = None  # the daemon's PushManager: a card left waiting unseen notifies (_nudge)
+        # When the chat last went out of view (sheet closed or page hidden), None while in view
+        self.unseen_since: float | None = None
         # Pasted images by conversation-wide number, kept for every turn the chat model's next
         # request can still show: the kept history, plus the queued turns and the one being
         # answered, which are numbered here before they enter that history.
@@ -457,20 +461,30 @@ _DECLINED = {"declined": "the user declined",
 PARKED_SECONDS = 30 * 60
 _parked: dict[tuple, tuple] = {}
 _answered: dict[tuple, tuple] = {}
-# Each chat's live connection, (actor, session) -> its meter (_connect).
+# Each chat's live connection, (actor, session) -> its meter: a reconnect takes over the one
+# it replaces (_connect), and whether a parked card is in view again is the reconnected
+# chat's word, not the dropped connection's (_nudge).
 _chats: dict[tuple, _Meter] = {}
 
 
-async def _connect(meter: _Meter, *, fresh: bool = False) -> None:
-    """Make `meter` its chat's live connection. One still registered is a socket the phone
-    already left: it saw the drop and reconnected, but the daemon hears of a half-open one
-    only at its ping timeout. Its cards go to the new one now, ending its waits as a drop
-    would, so they are parked by the time this returns (the old call wakes on the loop's
-    next pass), before the new connection can read a sync or a Send for them, rather than
-    being answered "expired" while still held by the dead one. A
-    `fresh` one is a new chat: an earlier one ended offline, so its cards go, once parked."""
+async def _connect(meter: _Meter, *, viewing: bool, fresh: bool = False) -> None:
+    """Make `meter` its chat's live connection, in view or not as its handshake says. A
+    hidden reconnect carries on its cards' unseen wait rather than restarting it.
+
+    One still registered is a socket the phone already left: it saw the drop and
+    reconnected, but the daemon hears of a half-open one only at its ping timeout. Its
+    cards go to the new one now, ending its waits as a drop would, so they are parked by
+    the time this returns (the old call wakes on the loop's next pass), before the new
+    connection can read a sync or a Send for them, rather than being answered "expired"
+    while still held by the dead one. A `fresh` one is a new chat: an earlier one ended
+    offline, so its cards go, once parked."""
     chat = meter.actor, meter.session
-    if old := _chats.get(chat):
+    old = _chats.get(chat)
+    meter.unseen_since = None if viewing else (  # the live connection's word, else parked
+        old.unseen_since if old else next(
+            (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat), None)
+    ) or time.monotonic()
+    if old:
         for answer in old.approvals.values():
             if not answer.done():
                 answer.set_exception(WebSocketDisconnect(1001))
@@ -481,9 +495,16 @@ async def _connect(meter: _Meter, *, fresh: bool = False) -> None:
 
 
 def _disconnect(meter: _Meter) -> None:
+    """A connection ended. A dead socket shows nothing, so its chat's parked cards are
+    out of view from now (or from whenever it already was) until the chat reconnects."""
     chat = meter.actor, meter.session
-    if _chats.get(chat) is meter:  # else a reconnect's newer one took over
-        del _chats[chat]
+    if _chats.get(chat) is not meter:  # a reconnect's newer one took over
+        return
+    del _chats[chat]
+    since = meter.unseen_since or time.monotonic()
+    for key, parked in _parked.items():
+        if key[:2] == chat:
+            parked[4].unseen_since = since
 
 
 def _tapped(answer: asyncio.Future) -> bool:
@@ -580,6 +601,9 @@ async def _approved(
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
     card = {"type": "propose", "pane_id": pane_id if known else None}  # Open
+    well_formed = _keystrokes(fc, pane_id)[0] is not None
+    if known:  # what the card calls the pane until the page's own list has it
+        card["label"] = d.get("title") or d.get("label") or pane_id
     if fc.name == "resume_session":
         entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
             await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}
@@ -590,6 +614,8 @@ async def _approved(
                 "last_active": entry.get("last_active"), "id": entry["session_id"][:8]}
     elif fc.name == "press_key":
         summary = f"Press {args.get('key')} in {pane}"
+        if well_formed:  # drawn as a keycap; a call _dispatch refuses keeps the sentence
+            card["key"] = args["key"]
     elif fc.name == "send_image_to_pane":
         image = meter.image(args.get("image_number"))
         caption = args.get("caption")
@@ -600,6 +626,8 @@ async def _approved(
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
+        if well_formed:  # drawn: the text quoted, and whether Enter follows
+            card.update(payload=args["text"], enter=args.get("press_enter", True))
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
     card["text"] = summary
     proposal = uuid.uuid4().hex
@@ -608,6 +636,13 @@ async def _approved(
         answer.set_result(None)
     try:
         await websocket.send_json({**card, "id": proposal})
+        # Started on the send, deliberately not on a client ack: the push exists for a phone
+        # that got the card while locked or backgrounded, whose page is suspended and could
+        # not ack, so an ack-gated nudge would stay silent exactly when it is needed. A send
+        # that raises parks the card unpushed; a frame lost after it returns gets one push
+        # to a page with no card, the same as a killed tab, and its card expires parked.
+        if meter.push:  # outlives this call, so a parked card notifies
+            _background(asyncio.create_task(_nudge(meter, proposal, answer, summary)))
         ok = await answer  # True / False on a tap, None when a new message superseded it
         await _decide(websocket, meter, proposal, ok, rec)
     except BaseException:  # the connection failed under it (a cancel or a send): nothing ran
@@ -622,33 +657,39 @@ async def _approved(
     return rec["consent"] == "approved", pid
 
 
-async def _dispatch(
-    websocket: WebSocket, session, fc, watcher, rec: dict, *,
-    expected_pid: str | None = None, meter: _Meter | None = None,
-) -> dict:
-    """Route a tool call (type_in_pane / press_key, or a history tool) and return its
-    answer. The result NEVER rides back through the tool response (echo loops — see
-    design doc); the model sees the outcome via the post-action ambient refresh instead."""
+_NUDGE_TICK = 1.0
+
+
+async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str) -> None:
+    """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
+    at the chat (sheet minimized, page hidden, phone locked: a dropped socket) the whole
+    time. It lasts as long as the card does, live or parked, so it ends with the answer, a
+    supersede or expiry, and it pushes at most once."""
+    shown = time.monotonic()
+    while True:
+        _sweep()  # a parked card expires on time even if nothing else sweeps meanwhile
+        # Answered (a tap whose "decided" was lost is parked, but the user did answer), or
+        # gone: cancelled by a drop and no longer parked, or tapped since it was parked (a
+        # resent tap's "decided" died too: _resume re-parks it with the answer in its rec).
+        held = _parked.get(_key(meter, proposal))
+        if _tapped(answer) or (proposal not in meter.approvals
+                               and (held is None or held[3]["consent"] != "parked")):
+            return
+        since = _chats.get((meter.actor, meter.session), meter).unseen_since
+        if (since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS
+                # On the loop, not a thread: nothing (a tap, coming into view) can land
+                # between the check above and the queueing. It reads a small JSON file.
+                and meter.push.chat(proposal, text)):
+            return  # queued; a full queue falls through and tries again next tick
+        await asyncio.sleep(_NUDGE_TICK)
+
+
+def _keystrokes(fc, pane_id: str) -> tuple[tuple | None, str | None, bool]:
+    """A type_in_pane / press_key call parsed into (send_args for tmux.send_keys, a human
+    "what" for the audit/feed, whether it counts as submitted); send_args None when it is
+    malformed, which _dispatch rejects and a consent card does not draw as an action."""
     args = fc.args if isinstance(fc.args, dict) else {}
-    if fc.name in _HISTORY_TOOLS:
-        if not agent_history.offered():
-            return {"status": "rejected", "reason": "session history not available"}
-        return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
-    if fc.name == "send_image_to_pane":
-        return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
-    if fc.name == "open_pane":
-        return await _open_pane(websocket, args, watcher, rec)
-
-    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
-    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
-    # rather than silently accept its repr. A model parroting our own tool response back
-    # as a new call is exactly how a dict arrives here.
     raw_pane_id = args.get("pane_id")
-    pane_id = str(raw_pane_id or "").strip()
-    labels = _labels(watcher)
-
-    # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
-    # whether it counts as submitted). malformed stays None ⇒ reject below.
     send_args = what = None
     submitted = False
     if (
@@ -676,6 +717,35 @@ async def _dispatch(
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
+    return send_args, what, submitted
+
+
+async def _dispatch(
+    websocket: WebSocket, session, fc, watcher, rec: dict, *,
+    expected_pid: str | None = None, meter: _Meter | None = None,
+) -> dict:
+    """Route a tool call (type_in_pane / press_key, or a history tool) and return its
+    answer. The result NEVER rides back through the tool response (echo loops — see
+    design doc); the model sees the outcome via the post-action ambient refresh instead."""
+    args = fc.args if isinstance(fc.args, dict) else {}
+    if fc.name in _HISTORY_TOOLS:
+        if not agent_history.offered():
+            return {"status": "rejected", "reason": "session history not available"}
+        return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
+    if fc.name == "send_image_to_pane":
+        return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
+    if fc.name == "open_pane":
+        return await _open_pane(websocket, args, watcher, rec)
+
+    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
+    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
+    # rather than silently accept its repr. A model parroting our own tool response back
+    # as a new call is exactly how a dict arrives here.
+    raw_pane_id = args.get("pane_id")
+    pane_id = str(raw_pane_id or "").strip()
+    labels = _labels(watcher)
+
+    send_args, what, submitted = _keystrokes(fc, pane_id)
 
     # The payload may hold secrets: it is speech, so it reaches the journal only under
     # QSDEBUG. The pane id is recorded only once it names a real pane.
@@ -686,12 +756,13 @@ async def _dispatch(
     if send_args is None:
         return {"status": "rejected", "reason": "malformed call"}
 
+    from .server import _input_attempt  # noqa: PLC0415 - server imports this module
+
     label = labels[pane_id]
-    invalidate = getattr(watcher, "invalidate_input_actions", None)
     try:
-        if invalidate is not None:
-            await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
-        await asyncio.to_thread(tmux.send_keys, *send_args, expected_pid=expected_pid)
+        await asyncio.to_thread(
+            _input_attempt, pane_id, lambda: tmux.send_keys(*send_args, expected_pid=expected_pid),
+            watcher=watcher)
     except Exception as e:  # report, don't kill the session
         # The error's text can quote the typed text (send-keys argv): speech, so only
         # the class leaves here unless QSDEBUG.
@@ -701,11 +772,11 @@ async def _dispatch(
         return _send_failed(e, rec, "pane did not accept input")
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
-    watcher.request_reparse(pane_id)
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,
-         "text": what, "submitted": submitted}
+         "text": what, "submitted": submitted,
+         **({"key": args["key"]} if fc.name == "press_key" else {"payload": what})}
     )
 
     # Let the pane react, then show the model what its keystrokes did — as ambient
@@ -758,8 +829,7 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
         logger.warning("[live] send_image_to_pane failed for %s: %s", pane_id, type(e).__name__,
                        exc_info=telemetry.QSDEBUG)
         return _send_failed(e, rec, "pane did not accept the image")
-    rec["detail"] += f" via {mode}"
-    watcher.request_reparse(pane_id)
+    rec["detail"] += f" via {mode}"  # attach_image has already requested the reparse
     await websocket.send_json({"type": "typed", "pane_id": pane_id, "label": labels[pane_id],
                                "text": f"[image] {caption}".strip(), "submitted": True})
     return {"status": "done", "pane": labels[pane_id]}
@@ -946,6 +1016,10 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     if not os.path.isdir(cwd):
         return {"status": "rejected", "reason": "session directory is gone"}
 
+    source = Path(entry.get("source") or "/")
+    if argv[0] == "claude" and source.parent.parent.name == "projects":
+        # Its transcript is under one account's dir, and resumes only there.
+        argv = accounts.command("claude", str(source.parents[2]), argv)
     title = entry.get("title") or entry["session_id"][:8]
     name = title[:24]
     try:  # tmux can fail here too; report, don't kill the session
@@ -1167,6 +1241,8 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
             for proposal in map(str, ids if isinstance(ids, list) else []):
                 if proposal not in meter.approvals and _key(meter, proposal) not in _parked:
                     await _tell(websocket, meter, proposal)
+        elif action == "viewing":
+            _view(meter, data)
         elif action == "stop":
             return
         else:
@@ -1196,15 +1272,25 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
             await websocket.send_json({"type": "interrupted"})
 
 
-async def _hold(websocket: WebSocket, seconds: float) -> bool:
+def _view(meter: _Meter, data: dict) -> None:
+    """Whether a card waiting now would be seen (_nudge): unseen time runs from the moment
+    the chat left view, and a repeated "out of view" keeps that moment."""
+    meter.unseen_since = (None if data.get("on") is not False
+                          else meter.unseen_since or time.monotonic())
+
+
+async def _hold(websocket: WebSocket, seconds: float, meter: _Meter) -> bool:
     """Wait out a reconnect backoff while still reading the browser socket. Without this
     the loop reconnected to Vertex for a phone that was already gone — the tunnel drops
     both legs at once, and the browser's disconnect is only observed by a receive. A
-    WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True."""
+    WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True.
+    The view is still heard, so a card parked by the provider drop can push meanwhile."""
     try:
         async with asyncio.timeout(seconds):
-            while (await websocket.receive_json()).get("action") != "stop":
-                pass  # a stray frame (audio already in flight) is no reason to reconnect early
+            while (data := await websocket.receive_json()).get("action") != "stop":
+                if data.get("action") == "viewing":
+                    _view(meter, data)
+                # any other stray frame (audio already in flight) is no reason to reconnect early
     except TimeoutError:
         return True
     return False
@@ -1287,7 +1373,7 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
             backoff = min(2**attempt, 15)
             logger.warning("[live] session dropped; reconnecting in %ds", backoff, exc_info=True)
             await websocket.send_json({"type": "status", "status": "reconnecting"})
-            if not await _hold(websocket, backoff):
+            if not await _hold(websocket, backoff, meter):
                 return  # client sent stop during the backoff
 
 
@@ -1364,10 +1450,12 @@ async def live_mode(websocket: WebSocket) -> None:
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
+    meter.push = getattr(websocket.app.state, "push", None)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     outcome, reason = "ok", "stop"
     try:
-        await _connect(meter, fresh=bool(websocket.query_params.get("fresh")))  # under finally
+        await _connect(meter, viewing=websocket.query_params.get("viewing") != "0",  # finally
+                       fresh=bool(websocket.query_params.get("fresh")))
         if use_gpt:
             await gpt_live.run_session(websocket, watcher, meter)
         else:

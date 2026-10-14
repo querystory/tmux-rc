@@ -10,7 +10,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, questionItems, activityLabel, activityClass, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -92,7 +92,22 @@ export function setupSidebar(ctx) {
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
   bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·", ariaHidden: "true" }), subs);
-  const refreshPick = headerPicker(pick);
+  const refreshPick = headerPicker(pick), picker = pick.nextElementSibling, menu = picker.lastChild;
+  // The menu opens beside the list it filters, never over it: past the sidebar's edge, level
+  // with the trigger, so the list narrows in view. With no room there it drops under the
+  // trigger, nudged in where a narrow sidebar would clip its left edge.
+  picker.addEventListener("toggle", () => {
+    Object.assign(menu.style, { position: "", left: "", top: "", right: "", maxHeight: "" });
+    if (!picker.open) return;
+    const side = root.getBoundingClientRect(), top = picker.getBoundingClientRect().top;
+    if (innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
+      left: `${side.right + 8}px`, top: `${Math.max(8, Math.min(top, innerHeight - menu.offsetHeight - 8))}px` });
+    else {
+      const over = side.left + 8 - menu.getBoundingClientRect().left;
+      if (over > 0) menu.style.right = `${-over}px`;
+    }
+    menu.style.maxHeight = `${innerHeight - menu.getBoundingClientRect().top - 8}px`; // many accounts: it scrolls
+  });
 
   function head(g) {
     const node = document.createElement("div");
@@ -120,7 +135,7 @@ export function setupSidebar(ctx) {
     const node = document.createElement("div"), open = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
     open.className = "sb-open";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><p class="sb-items"></p>' : "");
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span><span class="sb-acct"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><p class="sb-items"></p>' : "");
     node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
     if (card) addAnswers(node);
     open.onclick = () => ctx.navigate(node._p.pane_id);
@@ -137,13 +152,14 @@ export function setupSidebar(ctx) {
     form.onsubmit = async (event) => {
       event.preventDefault();
       const id = node._p.pane_id, value = drafts.get(id);
-      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
+      // Sent: close the Reply, unless more was typed while it went (compose clears as it sends).
+      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value) && !value.segments().length) done(id);
     };
   }
   function updateRow(node, { p, g, card }) {
     node._p = p;
     markEnding(node, p);
-    node.classList.toggle("need", needsYou(p));
+    node.classList.toggle("need", ctx.asks(p));
     // On the card for its styling and on its button, which is what assistive tech lands on.
     for (const el of [node, node.firstChild]) {
       if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
@@ -154,6 +170,7 @@ export function setupSidebar(ctx) {
     // By state the session is context; by session it is the group heading already.
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
+    ctx.html(node.querySelector(".sb-acct"), ctx.badge(p.pane_id));
     text(node.querySelector(".a"), p.ending || age(p));
     // Needs you is about the question and its answers, so its cards only count sub-agents.
     const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents"), lines = prefs.subagents && g.id !== "need";
@@ -168,17 +185,24 @@ export function setupSidebar(ctx) {
     }
   }
 
-  // The same answers, the same send and the same "Answer sent" hold as the pane's own
-  // question card; Reply opens a composer that posts to the pane's /compose like its footer.
+  // The same answers, the same send and the same pending hold as the pane's own question
+  // card, its note standing in for Reply; Reply opens a composer that posts to the pane's
+  // /compose like its footer.
   function replies(node, p) {
-    const options = needsYou(p) ? ctx.answers(p.question) : [], busy = ctx.sending() || ctx.answered(p);
-    const items = [...options, ...(needsYou(p) ? [{ reply: true }] : [])];
-    reconcile(node.querySelector(".sb-replies"), items, (o) => o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
+    const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
+    const options = needsYou(p) ? ctx.answers(p.question) : [];
+    const items = [...options, ...(!needsYou(p) ? [] : answered ? [{ note: answered.note }] : [{ reply: true }])];
+    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
+      if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
       const button = document.createElement("button");
       button.type = "button";
       button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : ctx.answer(node._p.pane_id, o.option, o.index);
       return button;
-    }, (button, o) => { text(button, o.reply ? "Reply" : o.option); button.title = o.reply ? "" : o.option; button.disabled = busy; });
+    }, (el, o) => {
+      if (o.note != null) return text(el, o.note);
+      text(el, o.reply ? "Reply" : o.option); el.title = o.reply ? "" : o.option; el.disabled = busy;
+      el.classList.toggle("picked", !o.reply && ctx.picked(p, o));
+    });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;
     if (form.hidden) return form.querySelector("#side-reply")?.remove();
@@ -210,7 +234,7 @@ export function setupSidebar(ctx) {
       markEnding(b, p);
       const agents = subagentCount(p);
       b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
-      b.classList.toggle("need", needsYou(p));
+      b.classList.toggle("need", ctx.asks(p));
       b.dataset.agents = agents || "";
       if (p.pane_id === ctx.active()) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       markWorking(b.querySelector("img"), p, ctx.logos);
@@ -232,8 +256,8 @@ export function setupSidebar(ctx) {
     text($c("b"), paneName(p));
     text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
     text($c(".w"), [p.session, p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
-    $c(".badge").className = `badge ${activityClass(p)}`;
-    text($c(".badge"), [activityLabel(p), since(p)].filter(Boolean).join(" · "));
+    $c(".badge").className = `badge ${ctx.badgeOf(p).cls}`;
+    text($c(".badge"), [ctx.badgeOf(p).label, since(p)].filter(Boolean).join(" · "));
     text($c(".x"), paneHeadline(p) || "No recent activity");
     const asked = needsYou(p) && (p.question?.ask || p.question?.prompt);
     text($c(".q"), asked && asked !== paneHeadline(p) ? asked : "");
@@ -296,6 +320,7 @@ export function setupSidebar(ctx) {
     subs.setAttribute("aria-pressed", String(prefs.subagents));
     ctx.html(subs, `Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span>`);
   }
+  render.picker = picker; // the filter dropdown: app.js adds the account filter
   render.drafts = drafts; // for the app's unsent-draft guard on reload
   // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
   render.answers = { add: addAnswers, update: replies, prune: (subset) => {

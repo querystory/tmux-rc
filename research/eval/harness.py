@@ -204,12 +204,15 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         expected_prs = sorted(map(pr_key, expected.get("working_prs") or []))
         if candidate_prs != expected_prs:
             diffs.append(f"working_prs: got {candidate_prs!r} want {expected_prs!r}")
+    subs = candidate.get("subagents")
+    subs = [a for a in subs if isinstance(a, dict)] if isinstance(subs, list) else []
     if "subagent_states" in expected:
-        subs = candidate.get("subagents")
-        states = (sorted(str(a.get("state")) for a in subs if isinstance(a, dict))
-                  if isinstance(subs, list) else [])
+        states = sorted(str(a.get("state")) for a in subs)
         if states != sorted(expected["subagent_states"]):
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
+    diffs.extend(f"subagents: no row matches {want!r}"  # each must match some row exactly
+                 for want in expected.get("subagents_include", [])
+                 if not any(all(a.get(k) == v for k, v in want.items()) for a in subs))
     # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
     extra = tuple(k for k in ("selected", "keymap", "context", "items",
