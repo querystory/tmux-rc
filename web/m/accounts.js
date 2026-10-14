@@ -286,12 +286,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   // The sign-in window is open: its link and code (read off its screen) and the paste field
   // right here, so nobody has to leave the sheet; and a restart, if the other way was picked.
   const waiting = () => {
-    const w = F.window, codex = F.provider === "codex", other = codex && w && device() !== w.device;
-    return `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open${F.session ? ` in <b>${esc(F.session)}</b>` : ""}. ${!codex ? "Finish <code>/login</code> there." : w?.device ? "Open the sign-in page and enter the code." : "Open the sign-in page and sign in. Your browser then lands on a <code>localhost</code> page that does not load: paste its address below. tmux-rc hands it to the sign-in waiting on this machine and keeps none of it."}</p>`
+    const w = F.window, codex = F.provider === "codex", dev = w ? w.device : device(); // the line's, until the server says
+    const other = codex && w && device() !== w.device;
+    return `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open${F.session ? ` in <b>${esc(F.session)}</b>` : ""}. ${!codex ? "Finish <code>/login</code> there." : dev ? "Open the sign-in page and enter the code." : "Open the sign-in page and sign in. Your browser then lands on a <code>localhost</code> page that does not load: paste its address below. tmux-rc hands it to the sign-in waiting on this machine and keeps none of it."}</p>`
       + (!codex ? "" : w?.url ? `<a class="acct-open" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">Open sign-in page ↗</a>` : '<p class="acct-wait"><i class="acct-spin"></i>Starting sign-in…</p>')
       + (w?.others?.length ? `<p class="acct-msg warn">${w.others.length} older sign-in window${w.others.length === 1 ? " is" : "s are"} open for ${esc(F.name)}; a link from ${w.others.length === 1 ? "it" : "them"} will not work here.</p><button type="button" data-close-others>Close the older ${w.others.length === 1 ? "window" : "windows"}</button>` : "")
       + (w?.device && w.code ? `<p class="acct-note">One-time code: <code class="acct-code">${esc(w.code)}</code></p>` : "")
-      + (codex && w && !w.device ? pasteForm("acct-callback", F.callback, F.sending) : "")
+      + (codex && !dev ? pasteForm("acct-callback", F.callback, F.sending) : "")
       + (codex ? ways() + (other ? `<button type="button" data-restart>Restart as ${device() ? "device code" : "browser sign-in"}</button>` : "") : "")
       + `<p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
       + btns('<button class="ghost" data-abandon>Cancel sign-in</button>', "<button data-go>Go to window</button>");
@@ -330,7 +331,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const windowOf = (query) => request(`/api/accounts/login/window?${query}`).catch(() => null);
   const openLogin = async () => {
     ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() }));
-    Object.assign(F, { window: null, seen: false, openedAt: Date.now() }); render(); return wait();
+    Object.assign(F, { window: null, seen: false, goneAt: null, openedAt: Date.now() }); render(); return wait();
   };
   async function wait() {
     clearTimeout(poll);
@@ -340,8 +341,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // Signed in, even while away in the sign-in window: back to the sheet, at Done.
     if (byDir(F.dir)?.signed_in) { F.away = false; go("done"); if (!dlg.open) dlg.showModal(); return; }
     // Gone once seen, or never seen within a grace: the page's state can lag the new window.
-    if (paneAlive(F.pane)) F.seen = true;
-    else if (F.seen || Date.now() - F.openedAt > 15000) return go("abandoned");
+    // A window gone may have just signed in: give the account a few polls (past the
+    // server's brief status cache) to appear before calling the sign-in unfinished.
+    if (paneAlive(F.pane)) { F.seen = true; F.goneAt = null; }
+    else if ((F.seen && Date.now() - (F.goneAt ??= Date.now()) > 6000) || (!F.seen && Date.now() - F.openedAt > 15000)) return go("abandoned");
     const w = await windowOf(`pane_id=${encodeURIComponent(F.pane)}`);
     if (w && JSON.stringify(w) !== JSON.stringify(F.window)) {
       F.window = w;
@@ -365,7 +368,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (d.resume) { const p = byDir(d.resume); return go("abandoned", { dir: p.dir, name: p.name, provider: p.provider, pane: null }); }
     if (d.finish) { // back to its sign-in window, if one is still open
       const p = byDir(d.finish), w = await windowOf(`dir=${encodeURIComponent(p.dir)}`);
-      go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: w?.pane_id || null, pid: w?.pid, window: w, session: w ? null : F.session, seen: false, openedAt: Date.now() });
+      go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: w?.pane_id || null, pid: w?.pid, window: w, session: w ? null : F.session, seen: false, goneAt: null, openedAt: Date.now() });
       return w && wait();
     }
     t.disabled = true;
