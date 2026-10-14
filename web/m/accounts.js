@@ -46,11 +46,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   function setFilter(dir) {
     filter = dir || null;
     try { if (filter) localStorage.setItem(KEY, filter); else localStorage.removeItem(KEY); } catch {}
-    const menu = filterGroup.closest("details"), focused = filterGroup.contains(document.activeElement);
+    const menu = filterGroup.closest("details"), focused = [filterGroup, pill].some((el) => el.contains(document.activeElement));
     if (menu) menu.open = false;
     paintFilter(); repaint();
-    // The pick's button was just redrawn: keep keyboard focus on the menu's trigger, or on the chip.
-    if (focused) (menu?.querySelector("summary") || filterGroup.querySelector('[aria-pressed="true"]')).focus();
+    // The button pressed was just redrawn or hidden: keep keyboard focus on the menu's trigger,
+    // else the chip, else (a phone's dashboard, clearing the pill) the current tab.
+    if (focused) [menu?.querySelector("summary"), filterGroup.querySelector('[aria-pressed="true"]'), document.querySelector('#list-nav [aria-pressed="true"]')]
+      .find((el) => el?.getClientRects().length)?.focus();
   }
 
   // ---- the filter: "Panes from" in the wide list's filter dropdown, chips under a phone's
@@ -61,6 +63,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   tag.className = "acct-dot";
   const pill = document.createElement("div");
   pill.className = "acct-pill"; pill.setAttribute("role", "status");
+  filterGroup.hidden = tag.hidden = pill.hidden = true; // until the accounts arrive
   function paintFilter() {
     const on = active(), opts = [[null], ...signedIn().map((p) => [p, p.name])];
     filterGroup.hidden = !any();
@@ -296,7 +299,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     } catch (error) { fail(error); } finally { t.disabled = false; }
   });
   $("accounts-open").onclick = () => { $("more-menu").open = false; open("list"); };
-  pill.hidden = true;
 
   function matches(pane) { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; }
   return {

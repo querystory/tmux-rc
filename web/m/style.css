@@ -358,7 +358,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
     display: grid;
     /* --sidebar is set by the drag handle and persisted; the clamp is the guard, so a
        stored width from a wider window can never squeeze the list or the terminal out. */
-    grid-template-columns: clamp(260px, var(--sidebar, 300px), 46vw) minmax(0, 1fr);
+    --side-w: clamp(260px, var(--sidebar, 300px), 46vw);
+    grid-template-columns: var(--side-w) minmax(0, 1fr);
     /* The last row is the work column's foot, empty here: a slot for a docked panel
        under the pane (the fleet chart), so adding one moves nothing above it. */
     grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -913,7 +914,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
 /* The account filter. Wide: "Panes from" under the list's own "Show" choices, in one
    dropdown, each group's pick a check (no radios) and the account's dot on the label. */
-#side-filter-picker .header-picker-menu { min-width: 180px; font-weight: 400; }
+#side-filter-picker .header-picker-menu { min-width: 180px; max-width: calc(var(--side-w) - 16px); font-weight: 400; }
+#side-filter-picker .acct-opt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen */
 #side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden]))::before { content: "Show"; }
 #side-filter-picker .header-picker-menu::before, #acct-filter .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
 #side-filter-picker :is(label, .acct-opt) { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
