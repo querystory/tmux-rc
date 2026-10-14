@@ -1,6 +1,6 @@
 import pytest
 
-from openbus import tmux, transcript
+from openbus import tmux, transcript, watcher
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +24,7 @@ def _no_enter_settle(monkeypatch):
     delay that is about a terminal's paste heuristic, not about our logic — so it is
     zero by default here. test_send_enter_settle.py opts back in."""
     monkeypatch.setattr(tmux, "_ENTER_SETTLE_S", 0)
+    monkeypatch.setattr(watcher, "CONFIRM_SECONDS", 0)  # likewise a new question's recapture
     # Unit tests never address a real pane. Identity-specific tests override this.
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "1234")
     monkeypatch.setattr(tmux, "at_password_prompt", lambda pane_id: False)

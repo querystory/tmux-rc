@@ -61,20 +61,22 @@
   </script>
   <link rel="stylesheet" href="/m/style.css">
   <link rel="stylesheet" href="/live-chat.css">
-  <link rel="modulepreload" href="/terminal.js">
-  <link rel="modulepreload" href="/m/live.js">
-  <link rel="modulepreload" href="/live-close.js">
-  <link rel="modulepreload" href="/live-chat.js">
-  <link rel="modulepreload" href="/m/composer.js">
-  <link rel="modulepreload" href="/m/pane-model.js">
-  <link rel="modulepreload" href="/m/url-state.js">
-  <link rel="modulepreload" href="/m/overscroll.js">
-  <link rel="modulepreload" href="/m/keys.js">
-  <link rel="modulepreload" href="/m/sidebar.js">
-  <link rel="modulepreload" href="/m/usage.js">
-  <link rel="modulepreload" href="/m/accounts.js">
-  <link rel="modulepreload" href="/m/loops.js">
-  <link rel="modulepreload" href="/cursor-pick.js">
+  <!-- /v/0/ is the server's asset version: see mobile_ui in openbus/server.py -->
+  <script type="importmap">{ "imports": { "/": "/v/0/", "/v/": "/v/" } }</script>
+  <link rel="modulepreload" href="/v/0/terminal.js">
+  <link rel="modulepreload" href="/v/0/m/live.js">
+  <link rel="modulepreload" href="/v/0/live-close.js">
+  <link rel="modulepreload" href="/v/0/live-chat.js">
+  <link rel="modulepreload" href="/v/0/m/composer.js">
+  <link rel="modulepreload" href="/v/0/m/pane-model.js">
+  <link rel="modulepreload" href="/v/0/m/url-state.js">
+  <link rel="modulepreload" href="/v/0/m/overscroll.js">
+  <link rel="modulepreload" href="/v/0/m/keys.js">
+  <link rel="modulepreload" href="/v/0/m/sidebar.js">
+  <link rel="modulepreload" href="/v/0/m/usage.js">
+  <link rel="modulepreload" href="/v/0/m/accounts.js">
+  <link rel="modulepreload" href="/v/0/m/loops.js">
+  <link rel="modulepreload" href="/v/0/cursor-pick.js">
 </head>
 <body>
   <div id="app">
@@ -105,7 +107,7 @@
            Voice are toggles, icons in the head. -->
       <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button></div>
       <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div>
-      <!-- Search and the list's filter (sidebar.js adds it, wide only) share a row. -->
+      <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
       <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div></div>
       <div id="pane-list"></div>
       <div id="side-list" class="sb-only"></div>
@@ -180,7 +182,7 @@
       <h3>Appearance</h3><div class="set-card"><div class="set-row"><b>Theme</b><span id="theme" class="seg" role="group" aria-label="Theme"></span></div><div class="set-row"><b>Plan usage</b><span id="usage-mode" class="seg" role="group" aria-label="Plan usage"></span></div><div class="set-row"><span><b>Always show panes that need you</b><small>Even when a filter leaves them out (they are marked so).</small></span><span id="pin-needs" class="seg" role="group" aria-label="Always show panes that need you"></span></div><div id="sort-row" class="set-row"><b>Sort by</b><span id="sort" class="seg" role="group" aria-label="Sort by"></span></div></div>
       <section><h3>Help</h3><div class="set-card"><a id="docs" class="set-row set-link" href="/docs/" hidden>Documentation</a></div></section>
     </div></dialog>
-    <dialog id="expunge-dialog" aria-labelledby="expunge-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="expunge-title">Expunge session</h2><button type="button" id="close-expunge" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="expunge-what"></p><p id="expunge-caveat">Copies already sent via OpenTelemetry, or kept by Anthropic or OpenAI, are not affected.</p><button type="button" id="expunge-confirm"></button></dialog>
+    <dialog id="expunge-dialog" aria-labelledby="expunge-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="expunge-title">Expunge session</h2><button type="button" id="close-expunge" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="expunge-what"></p><p id="expunge-caveat">Copies already sent via OpenTelemetry, or kept by Anthropic or OpenAI, are not affected.</p><button type="button" id="expunge-confirm"></button><button type="button" id="expunge-cancel">Cancel</button></dialog>
     <dialog id="move-dialog" aria-labelledby="move-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="move-title">Move to another account</h2><button type="button" id="close-move" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="move-what" role="status"></p><div id="move-choices" class="choice-list" aria-label="Account"></div></dialog>
     <dialog id="voice-dialog" aria-labelledby="voice-title" tabindex="-1">
       <div class="sheet-handle"></div>
@@ -194,6 +196,6 @@
     </dialog>
   </div>
   <div id="booting" role="status"><p>Loading…</p><p>tmux-rc couldn't start.</p><button type="button" class="primary" onclick="location.reload()">Reload</button></div>
-  <script type="module" src="/m/app.js"></script>
+  <script type="module" src="/v/0/m/app.js"></script>
 </body>
 </html>

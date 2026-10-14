@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -303,8 +303,9 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, page } = state);
-  // A phone's tabs are one-of: a link with several states keeps the first (Needs you first).
-  if (!WIDE.matches) filter = filter.slice(0, 1);
+  // A phone's tabs are one-of, and Idle has none: a link keeps the first state it has a tab
+  // for (Needs you first), so a pressed tab always says what the list shows.
+  if (!WIDE.matches && filter.length !== (filter = filter.filter((f) => $(`${f}-tab`)).slice(0, 1)).length) writeHash(formatHash({ ...state, filter })); // the URL says so too
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
@@ -362,9 +363,10 @@ function updateRow(button, pane) {
   text(badge, badgeOf(pane).label);
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
-  sessionChip.hidden = sort !== "updated" || !pane.session; // a session label already says it
-  text(sessionChip, pane.session || "");
-  sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
+  const session = sessionOf(pane);
+  sessionChip.hidden = sort !== "updated" || !session; // a session label already says it
+  text(sessionChip, session);
+  sessionChip.title = session ? `Session: ${session}` : "";
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
@@ -393,15 +395,18 @@ function renderList() {
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
   renderSidebar.answers.prune(subset);
-  if (WIDE.matches) { renderSidebar(subset, query, filter); placeRail(); }
-  else renderPhoneList(subset);
+  if (WIDE.matches) { renderSidebar(subset, query, filter); placeRail(); } else { $("app").classList.remove("rail"); placePill(); renderSidebar.marks(filter); renderPhoneList(subset); } // a folded sidebar's class would hide the chips
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
   // Empty, while panes the filter hides need you: say so, a click from them.
-  const needing = subset.length ? [] : panes.filter(needsYou), hidden = needing.length;
-  show("empty-needs", hidden > 0);
+  const needing = subset.length ? [] : panes.filter(needsYou), hidden = needing.length, accts = accounts.on();
+  // A phone's list narrowed to some accounts says so at its foot too, a tap from all of them.
+  const scopedOn = !hidden && !WIDE.matches && accts.length > 0, scoped = subset.filter((p) => !outside.has(p.pane_id)).length; // not the pinned
+  show("empty-needs", hidden > 0 || scopedOn);
+  $("empty-needs").dataset.all = scopedOn ? "accounts" : "needs";
   // "On other accounts" only when that is what hides every one of them.
-  text($("empty-needs"), `${hidden} pane${hidden === 1 ? "" : "s"} ${needing.some(accounts.matches) || !accounts.on().length ? "outside the filter" : "on other accounts"} need${hidden === 1 ? "s" : ""} you · Show`);
+  text($("empty-needs"), scopedOn ? `${scoped} ${accts.join(" or ")} pane${scoped === 1 ? "" : "s"} · Show all accounts`
+    : `${hidden} pane${hidden === 1 ? "" : "s"} ${needing.some(accounts.matches) || !accts.length ? "outside the filter" : "on other accounts"} need${hidden === 1 ? "s" : ""} you · Show`);
   text($("all-count"), mine.length);
   text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length);
   for (const f of ["working", "finished"]) text($(`${f}-count`), mine.filter((p) => matchesFilter(p, [f])).length);
@@ -427,7 +432,7 @@ function renderList() {
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
 function renderPhoneList(subset) {
-  const rows = sort === "updated" ? subset.sort(newestFirst)
+  const rows = sort === "updated" ? subset.sort(newestFirst) : oneSession() ? subset
     // Sessions as the watcher lists them: tmux's own order.
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
@@ -448,7 +453,14 @@ function renderPhoneList(subset) {
   });
 }
 
-function renderLanding() {
+// WebKit lays the dashboard out short for a moment when a repaint swaps nodes under its
+// container query (#landing-main), and that clamps the scroll: a phone at the bottom of the
+// page lands near the top on every poll. A repaint keeps the position it found.
+const steady = (paint) => (...args) => {
+  const landing = $("landing"), top = landing.scrollTop;
+  try { return paint(...args); } finally { if (landing.scrollTop !== top) landing.scrollTop = top; }
+};
+const renderLanding = steady(() => {
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
   if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
@@ -467,7 +479,7 @@ function renderLanding() {
     $("sessions").scrollTop = $("sb-scroll").scrollTop = $("side-list").scrollTop = 0;
   }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge);
   renderLoopsCard($("loops-card"), accounts.loops(loops), openLane, licon);
-}
+});
 
 // Drag the seam between the sidebar and the main column. Width is a CSS variable the
 // grid clamps, so a stored value from a wider window can never strand the layout, and
@@ -668,7 +680,7 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
 let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
-const paintUsage = () => {
+const paintUsage = steady(() => {
   // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
   const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
   renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)), { wide: WIDE.matches });
@@ -695,7 +707,7 @@ const paintUsage = () => {
     return { ...a, acct: p, chip: p ? accounts.chip(p) : "" };
   }).filter((a) => a.acct || !accounts.list().length); // a removed account drops out, as in accounts.usage()
   renderUsageView(cardView("Plan usage", usageView), list, { refetch: () => refreshCached(true), icon: licon("filter", 16) });
-};
+});
 const usageView = document.createElement("section");
 usageView.className = "atlas-panel usage-view";
 usageView.ariaLabel = "Plan usage over time";
@@ -781,7 +793,7 @@ function render() {
   for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
   show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
   markEnding($("detail"), pane);
-  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
+  text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   // Which account it runs on, when that needs saying: first on a phone, which ellipsizes the end.
   const account = pane && accounts.badge(pane.pane_id);
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
@@ -1063,6 +1075,7 @@ function showPanes() {
   // the poll mid-request): only endPane decides it is gone, so the page leaves it cleanly.
   const listed = new Set(statePanes.map((p) => p.pane_id));
   for (const [id, e] of ending) if (!e.done && !listed.has(id)) panes.push({ ...e.pane, ending: e.label });
+  noteSessions(panes);
 }
 const leavePane = (id) => { if (stillOnPane(location.hash, id)) navigate(null, "summary", { mode: "replace" }); };
 // Kill or expunge a pane's window. The window as last seen is greyed while the request runs;
@@ -1193,9 +1206,9 @@ async function sendKeys(body, id = active) {
 function answerOptions(question) {
   return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
 }
-// What makes a question the same ask: its prompt, context and items, and its options unless
+// What makes a question the same ask: its prompt, context, items and subject, and its options unless
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
-const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.answer_style === "cursor" ? null : q?.options]);
+const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.subject, q?.answer_style === "cursor" ? null : q?.options]);
 // The tapped answer while its question is still the one on the card, else null. Once the
 // pane shows another question, or none, the answer has landed and is forgotten.
 function isAnswered(pane) {
@@ -1377,7 +1390,7 @@ new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("gauge")}</span><span>Dashboard</span>`); // the gauge is Dashboard's everywhere; the 2×2 grid is the layout picker's
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-$("empty-needs").onclick = () => { filter = ["attention"]; $("search").value = ""; stayPut({ acct: [] }); };
+$("empty-needs").onclick = () => { if ($("empty-needs").dataset.all === "needs") { filter = ["attention"]; $("search").value = ""; } stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
@@ -1811,11 +1824,16 @@ function placeChrome() {
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
   $("sb-sticky").before($("sb-nav"));
-  // The account filter (accounts.js): wide, a group in the list's filter menu and its
-  // pill under search; on a phone, chips under search and the pill under the header.
-  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views); $("find").after(accounts.pill); }
-  else { $("find").after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
-  accounts.strip(accounts.filter, !WIDE.matches);
+  // The account filter (accounts.js) is a group in the filter menu in both layouts (a phone's
+  // opens as a bottom sheet); the active filters' chips are placed by placePill().
+  renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views);
+  placePill();
+}
+// The active filters' chips: under search, but on a phone's dashboard (no search there) under
+// its header, so a filter is never on without saying so.
+function placePill() {
+  const at = !WIDE.matches && dashboard ? document.querySelector(".app-header") : $("find");
+  if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
 }
 // Folded to the rail, the controls move in the DOM to the order they show in (expand, +,
 // search, filter, Dashboard, Chat, Voice, the panes, Settings), so Tab walks them top down.
@@ -1840,30 +1858,39 @@ const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button")
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
-$("kill-pane").onclick = async () => {
-  closePaneMenu();
-  if (!active || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;
-  try { await endPane(active, "close", "Closing…"); } catch (error) { if (error.status !== 404) notice(`Could not kill this window: ${error.detail || error.message}`, 6000); }
-};
+// `birth` is the incarnation the menu or sheet was drawn for: a newer pane under its %N is refused.
+async function killWindow(pane, birth) {
+  if (!pane || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;
+  try { await endPane(pane, `close?birth=${encodeURIComponent(birth ?? "")}`, "Closing…"); } catch (error) { if (error.status !== 404) notice(`Could not kill this window: ${error.detail || error.message}`, 6000); }
+}
+$("kill-pane").onclick = () => { closePaneMenu(); killWindow(active, panes.find((p) => p.pane_id === active)?.birth); };
 // Expunge: kill the window AND delete its agent session's local files (docs/design/expunge.md).
 // The server names what it would delete first, and the confirmation is bound to that session id.
 html($("expunge-pane"), `${licon("trash", 18)}<span>Expunge</span>`);
 // A reload mid-request would hide the outcome of a kill or deletion still running.
 const busy = () => sending || launching || [...ending.values()].some((e) => !e.done);
 const items = (n) => `${n} local file${n === 1 ? " or folder" : "s or folders"}`;
-html($("expunge-confirm"), `${licon("trash", 18)}<span>Expunge permanently</span>`);
-$("close-expunge").onclick = () => $("expunge-dialog").close();
+$("close-expunge").onclick = $("expunge-cancel").onclick = () => $("expunge-dialog").close();
+// The sheet says what Expunge would delete, why it can't, or (a window with no saved
+// conversation, like a sign-in) offers to close the window instead. `act` is its one action.
+const expungeSheet = (what, act, kill) => {
+  text($("expunge-what"), what);
+  $("expunge-caveat").hidden = !act || kill;
+  $("expunge-confirm").hidden = !act;
+  html($("expunge-confirm"), kill ? `${licon("power", 18)}<span>Kill window</span>` : `${licon("trash", 18)}<span>Expunge permanently</span>`);
+  $("expunge-confirm").onclick = () => { $("expunge-dialog").close(); act(); };
+  $("expunge-dialog").showModal();
+};
 $("expunge-pane").onclick = async () => {
   closePaneMenu();
   const pane = active, title = $("pane-title").textContent;
   const birth = panes.find((p) => p.pane_id === pane)?.birth; // the incarnation this menu is for
   if (!pane) return;
   let plan;
-  try { plan = await request(`${paneUrl(pane, "expunge")}?birth=${encodeURIComponent(birth ?? "")}`); } catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
+  try { plan = await request(`${paneUrl(pane, "expunge")}?birth=${encodeURIComponent(birth ?? "")}`); } catch (error) { return expungeSheet(error.detail || "Could not find this pane's session."); }
+  if (plan.nothing) return expungeSheet("This window has no saved conversation to expunge. Close the window instead?", () => killWindow(pane, birth), true);
   const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
-  text($("expunge-what"), `This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
-  $("expunge-confirm").onclick = async () => {
-    $("expunge-dialog").close();
+  expungeSheet(`This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`, async () => {
     try {
       const done = await endPane(pane, "expunge", "Expunging…", { session_id: plan.session_id, birth }, NO_TIMEOUT);
       notice(`Expunged: ${items(done.files.length)} and ${done.lines} history line${done.lines === 1 ? "" : "s"} deleted.`, 6000);
@@ -1873,8 +1900,7 @@ $("expunge-pane").onclick = async () => {
       if (error.status === undefined) notice("Connection lost; the expunge may have completed. Check that the session no longer resumes.");
       else notice(`Expunge ${refused ? "refused" : "failed"}: ${error.detail || error.message}`, refused ? 6000 : 0);
     }
-  };
-  $("expunge-dialog").showModal();
+  });
 };
 // Move to another account: copy the pane's agent session into another account's dir and
 // resume it there in a new window; this pane and the original are left alone
@@ -1895,6 +1921,7 @@ $("move-pane").onclick = async () => {
   let session_id;
   try { ({ session_id } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
   catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
+  if (!session_id) return notice("This window has no saved conversation to move.", 6000);
   const sheet = (what, choices) => {
     text($("move-what"), what);
     $("move-choices").replaceChildren(...choices.map(([label, sub, act]) => {

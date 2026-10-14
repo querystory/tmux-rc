@@ -253,6 +253,21 @@ def test_new_pane_does_not_reset_the_other_cards(inventory, monkeypatch):
     _tick_blocked_on(w, monkeypatch, "%0", while_blocked)
 
 
+def test_new_pane_never_prepublishes_an_unconfirmed_ask(inventory, monkeypatch):
+    """The parse cache can hold an ask its second capture did not confirm (_confirmed):
+    opening a window republishes the deck's card, never that read."""
+    w, panes = inventory
+    _classified(w, monkeypatch, panes)
+    w._state["%1"] = {**w._state["%1"], "activity": "waiting", "question": {"prompt": "Run?"}}
+    panes.append(W.tmux.Pane("work", "2", "agent-2", "0", "%2", "node", "Task 2",
+                             pid="102", window_active="0", pane_active="0"))
+
+    def while_blocked():
+        assert w.states[1]["activity"] == "idle" and "question" not in w.states[1]
+
+    _tick_blocked_on(w, monkeypatch, "%0", while_blocked)
+
+
 def test_recycled_pane_id_does_not_prepublish_the_old_occupant(inventory, monkeypatch):
     """tmux hands a closed pane's id to the next pane. The pre-publish keys "already
     known" off the PID, not the id, so a recycled id is treated as a brand-new pane: it
@@ -298,6 +313,29 @@ def test_failed_pane_tick_does_not_persist_a_partial_inventory(inventory, monkey
     assert not w.is_stale()
 
 
+@pytest.mark.parametrize(("code", "stderr", "level"), [
+    (1, "can't find pane: %0\n", "INFO"),  # closed between list-panes and capture-pane
+    (1, "no server running on /tmp/tmux-1000/default\n", "WARNING"),
+    (124, None, "WARNING"),
+])
+def test_failed_pane_tick_log_level(inventory, monkeypatch, caplog, code, stderr, level):
+    """Only a pane that closed mid-tick is routine; every other tmux failure still warns."""
+    import subprocess
+
+    w, panes = inventory
+    monkeypatch.setattr(W.tmux, "server_uid", lambda **_kwargs: "s")
+
+    def capture(pane):
+        if pane.id == panes[0].id:
+            raise subprocess.CalledProcessError(code, "tmux", stderr=stderr)
+        return parsed(pane)
+
+    monkeypatch.setattr(w, "_tick_pane", capture)
+    caplog.set_level("INFO", logger=W.logger.name)
+    w._tick()
+    assert [r.levelname for r in caplog.records if "mid-tick" in r.message] == [level]
+
+
 def test_restarted_server_during_tick_does_not_record_old_panes(inventory, monkeypatch):
     from unittest.mock import Mock
 
@@ -324,7 +362,7 @@ def test_unknown_server_identity_leaves_history_gap(inventory, monkeypatch):
     w.history.record.assert_not_called()
 
 
-def test_parse_failure_and_exhausted_retry_cache_leave_history_gap(inventory, monkeypatch):
+def test_unread_screen_records_unknown_without_stopping_history(inventory, monkeypatch):
     from unittest.mock import Mock
 
     w, _ = inventory
@@ -335,22 +373,30 @@ def test_parse_failure_and_exhausted_retry_cache_leave_history_gap(inventory, mo
     frame = ["unread screen"]
     monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: frame[0])
     monkeypatch.setattr(W, "backing_off", lambda: False)
-    monkeypatch.setattr(W, "classify", lambda *args, **kwargs: {
-        "activity": "idle", "tool": "claude", "parse_ok": False,
-    })
+    monkeypatch.setattr(W, "classify", lambda pane, *args, **kwargs: {
+        "pane_id": pane.id, "activity": "idle", "tool": "claude", "parse_ok": pane.id != "%0",
+        "subagents": [{"name": "w", "state": "running"}], "agents": 2,
+    })  # only %0 goes unread
     for _ in range(W.PARSE_RETRIES + 2):
         w._tick()
-    w.history.record.assert_not_called()
+    # The heartbeat keeps going, with the unread pane as unknown rather than its last card.
+    assert w.history.record.call_count == W.PARSE_RETRIES + 2
+    recorded, healthy = w.history.record.call_args.args[0]
+    assert recorded["activity"] == "unknown"
+    assert (recorded["subagents"], recorded["agents"]) == ([], 0)  # the old card's workers
+    assert (healthy["activity"], healthy["agents"]) == ("idle", 2)  # a read pane is as parsed
+    assert w.states[0]["subagents"]  # the phone still shows the last card
     assert not w.pane_parse_valid("%0")
     # One pane's unread screen is that pane's, not a stalled watcher: the global
     # "Stalled" status stays off while tmux keeps answering.
     assert not w.is_stale()
     frame[0] = "successfully read screen"
-    monkeypatch.setattr(W, "classify", lambda *args, **kwargs: {
-        "activity": "idle", "tool": "claude",
+    monkeypatch.setattr(W, "classify", lambda pane, *args, **kwargs: {
+        "pane_id": pane.id, "activity": "idle", "tool": "claude",
     })
+    w.history.record.reset_mock()
     w._tick()
-    w.history.record.assert_called_once()
+    assert w.history.record.call_args.args[0][0]["activity"] == "idle"
     assert w.pane_parse_valid("%0")
     assert not w.is_stale()
 

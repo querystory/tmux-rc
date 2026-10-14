@@ -68,6 +68,14 @@ _CLAUDE_TURN_RE = re.compile(
     r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
+# Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
+# own reviewer weighs an approval: "Reviewing approval request (17m 00s • esc to interrupt)".
+# Unindented, its elapsed time, and nothing under it but its own detail rows (└ the command,
+# ↳ a queued message) above the input row. Codex hides it while a menu waits on the user,
+# so under it nothing is asking.
+_CODEX_LIVE_RE = re.compile(
+    r"^(?:• )?\w[^\n(]*\(\d+[hms](?: \d+[hms])* • esc to interrupt\).*"
+    r"(?=(?:\n(?:[ \t]+[└↳⌥].*|[ \t]*))*\n[ \t]*›)", re.MULTILINE)
 # A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
 # capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
 _TURN_ERROR_RE = {
@@ -80,6 +88,29 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
+# A tabbed panel the user opened and is browsing (/config, /plugin): a strip of 3+ short
+# tab labels under a dialog's top rule ("Settings  Status  Config  Usage  Stats"), a search
+# box or a ❯ cursor on a "name  value" row below it, and the panel's own key-hint footer
+# as the screen's last row. The agent is not asking: a row toggles a setting or opens a
+# page and the panel stays. The footer closes, clears, goes back or exits on Esc, where a
+# question's cancels; any other wording fails safe as a question, as does a later dialog
+# below a lookalike strip. Read by structure, not one panel's exact tabs or hints, which
+# Claude Code keeps rewording.
+_TAB_LABEL = r"\w\S*(?: \S+)?"
+_TAB_STRIP_RE = re.compile(
+    rf"▔{{3,}}.*\n[ \t]*{_TAB_LABEL}(?:[ \t]{{2,}}{_TAB_LABEL}){{2,}}[ \t]*$", re.MULTILINE)
+_PANEL_BODY_RE = re.compile(r"⌕|^[ \t]*❯[ \t]*\S.*?\S[ \t]{2,}\S", re.MULTILINE)
+_PANEL_FOOTER_RE = re.compile(r"\bEsc to (?:close|clear|(?:go )?back|exit)\b", re.IGNORECASE)
+
+
+def _tabbed_panel_open(visible: str) -> bool:
+    """Whether the screen ends in an open tabbed panel (see _TAB_STRIP_RE)."""
+    *_, strip = (None, *_TAB_STRIP_RE.finditer(visible))
+    body = visible[strip.end():].rstrip() if strip else ""
+    return bool(_PANEL_BODY_RE.search(body)
+                and _PANEL_FOOTER_RE.search(body.rsplit("\n", 1)[-1]))
+
+
 # A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
 # the frame, a radio and a digit. The model reads the highlight too but can misplace it
 # (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
@@ -521,12 +552,14 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     # agent asking; a live spinner below the text means the agent is working again; and a
     # finished turn's question followed by typed input has been answered.
     idle_box = _EMPTY_INPUT_RE.search(visible)
+    row = found and visible.rfind("\n", 0, found.start()) + 1
     return found is not None and not (
         (idle_box and found.start() > idle_box.start())
-        or _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
+        or _NOT_ASKING_ROW_RE.match(visible[row:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
+        or (tool == "codex" and _CODEX_LIVE_RE.search(visible, row))  # the prompt's own row too
     )
 
 
@@ -802,20 +835,40 @@ def _final_paragraph(message: str) -> str:
 # Precision beats recall: a missed reference leaves the bare question the card showed
 # before, while a count read as a reference would show an unrelated row as what the
 # question means.
-_NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
-_ITEM_REF_RE = re.compile(
-    # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
-    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)(?=\s*(?:[^\w\s]|$|"
+#
+# Options are lettered as often as numbered ("A. Retry inline", "(b) Queue it", a bulleted
+# "- Option A: Retry inline", or a row opening the agent's turn after its "●"), and "Go
+# with A or B?" names them just as "do 1?" does. A letter A-H in parentheses ("(a)",
+# "(B)") is a label. So is a bare capital followed by what follows a reference ("A quick
+# fix?" and "Grade A beef?" are not) when the prompt names another letter too ("A or
+# B?"), it chains onto a reference, or an option noun or choosing verb precedes it
+# ("option A", "go with B"). The article in "A really quick check?" and the grade in
+# "Grade A only?" are not labels, and an article "a" is lowercase. "Option A" needs a
+# separator after it (or nothing, as a table key), so prose such as "Option A is
+# fastest" is not a row.
+_ROW_LABEL = (
+    r"(?:[-*•●⏺][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})\b"
+    r"(?:[.):]|[ \t]*(?:[—–]|-(?=[ \t]))|(?=\s*$))[ \t]*|\(?([A-Ha-h]|\d{1,2})[.)][ \t]+)")
+_LABELED_ROW_RE = re.compile(rf"[ \t│┃╎]*{_ROW_LABEL}(\S.*)")
+_REF_AFTER = (
+    r"(?=\s*(?:[^\w\s]|$|"
     r"(?i:and|or|now|first|then|next|too|also|only|but|before|after|later|today|tomorrow|"
     r"tonight|instead|together|please|right|again|as|asap|soon|yet|on|in|for|with|without|"
     r"into|onto|via|using|across|against|under|over|here|there|(?!(?:family|supply|reply|"
     r"ally|rally|assembly|anomaly|daily|weekly|monthly|yearly)\b)[a-z]+ly)\b))")
+_ITEM_REF_RE = re.compile(
+    # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
+    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)" + _REF_AFTER)
+_LETTER_REF_RE = re.compile(
+    r"(?<![\w#$.:/'’-])(?<!(?i:grade) )(?:\(([A-Ha-h])\)|([A-H]))(?![\w%:/'’-]|\.\w)" + _REF_AFTER)
 # The nouns an agent numbers what it proposes by ("edit 2", "Recommendation 2").
 _ITEM_LABEL = (
     r"(?i:items?|edits?|steps?|options?|choices?|points?|rows?|tasks?|fix(?:es)?|"
     r"recommendations?|suggestions?|changes?|ideas?|approach(?:es)?|plans?|proposals?|"
     r"actions?|issues?|findings?|comments?|bullets?|entry|entries|parts?|phases?|stages?|"
     r"number|no\.?)")
+_LETTER_BEFORE_RE = re.compile(
+    rf"\b(?:{_ITEM_LABEL}|(?i:with|for|pick|choose|select|take|use|prefer|do|go))\s+$")
 _COUNT_BEFORE_RE = re.compile(
     r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
     r"had|got|need|needs|want|wants|own|owns|keep|keeps|to|from|equals?)\s+$|=\s*$"
@@ -835,7 +888,10 @@ _FUNCTION_WORDS = frozenset((
     "should", "have", "been", "were", "what", "when", "which", "while", "your", "yours",
     "first", "next", "please"))
 # A reply, whatever row number it carries: "1. Yes, but check with me before sending".
-_REPLY_RE = re.compile(r"(?i)\s*(?:\d{1,2}[.)]\s*)?(?:yes|no|ok|okay|sure|go|skip|hold)\b")
+# An option written as a list row: "1. Fix the cache", "B) Queue it", "Option A: Redis".
+_ROW_LABEL_RE = re.compile(rf"^\s*{_ROW_LABEL}")
+_REPLY_RE = re.compile(
+    rf"(?i)(?:{_ROW_LABEL_RE.pattern})?\s*(?:yes|no|ok|okay|sure|go|skip|hold)\b")
 
 
 def _copies(text: object, row: str) -> bool:
@@ -847,36 +903,74 @@ def _copies(text: object, row: str) -> bool:
 
     def words(value: object) -> set[str]:
         return set(_WORD_RE.findall(str(value).lower())) - _FUNCTION_WORDS
-    quoted = re.sub(r"^\s*\d{1,2}[.)]\s*", "", str(text)).strip(" .").lower()
+    quoted = _ROW_LABEL_RE.sub("", str(text), count=1).strip(" .").lower()
     return (bool(quoted) and quoted in row.lower()) or len(words(text) & words(row)) >= 2
 
 
-def _referenced_rows(prompt: str, visible: str) -> dict[str, str]:
-    """The numbered rows above a typed-answer question that its prompt names by number
-    ("Want me to do 1 now and prepare 2?"), whole and in the prompt's order, so the card
-    can say what 1 and 2 are. Read off the screen: the parser, told to carry them, did not
-    reliably. The nearest row wins a number, so an older list above loses to the one the
-    question closes; numbers with no row (a count, a time) name nothing here."""
+def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
+    """The labelled rows above a typed-answer question that its prompt names ("Want me to
+    do 1 now and prepare 2?", "Go with A or B?"), whole and in the prompt's order, so the
+    card can say what 1 and 2 are; and the paragraph that leads into the first one's list
+    (a heading, "Two ways to fix the retries:"), which says what is being decided. Read off
+    the screen: the parser, told to carry them, did not reliably. The nearest row wins a
+    label, so an older list above loses to the one the question closes; numbers with no
+    row (a count, a time) name nothing here."""
     visible = _FRAME_BARS_RE.sub("", visible)  # as _final_ask read the prompt
     found = _last_occurrence(prompt, visible)
     rows: dict[str, list[str]] = {}
-    item, indent = None, 0
+    leads: dict[str, str] = {}
+    lists: dict[int, tuple[str, str]] = {}  # by indent: the last row's label, its list's lead
+    item, indent, para, gap = None, 0, [], False
     for row in visible[:found.start() if found else 0].splitlines():
-        if m := _NUMBERED_ROW_RE.match(row):
-            item, indent = rows.setdefault(m[1], []), _indent(row)
-            item[:] = [m[2]]
+        if row.lstrip(" \t│┃╎").startswith(("●", "⏺")):  # a new turn: nothing above leads in
+            para, lists = [], {}
+        if m := _LABELED_ROW_RE.match(row):
+            label = (m[1] or m[2]).upper()
+            item, indent = rows.setdefault(label, []), _indent(row)
+            item[:] = [m[3]]
+            # The next label in sequence at the same indent (B after A, 3 after 2)
+            # continues its list and keeps the list's lead-in, across blank lines, a
+            # nested list or a deeper note between rows. Any other row starts a list, led
+            # by the paragraph just above it or by nothing, never by an earlier list's. A
+            # row ends the lists nested deeper than it.
+            lists = {i: v for i, v in lists.items() if i <= indent}
+            prev, lead = lists.get(indent, ("", ""))
+            if label != _next_label(prev):
+                lead = " ".join(para)
+            lists[indent], leads[label], para = (label, lead), lead, []
         elif item is not None and row.strip() and _indent(row) > indent:
             item.append(row.strip())  # the item's wrapped continuation
+        elif row.strip():
+            # Prose at a list's indent or left of it ends that list.
+            lists = {i: v for i, v in lists.items() if i < _indent(row)}
+            para = [*(para if not gap else ()), row.strip(" \t│┃╎●⏺•")]
+            item, gap = None, False
         else:
-            item = None
-    refs, last = [], None
-    for m in _ITEM_REF_RE.finditer(prompt):
-        chained = last is not None and _REF_CHAIN_RE.fullmatch(prompt, last, m.start())
-        if (chained or _REF_BEFORE_RE.search(prompt, 0, m.start())) and not (
-                _COUNT_BEFORE_RE.search(prompt, 0, m.start())):
+            item, gap = None, True
+    # One pass over numbers and letters in prompt order, so either chains onto the one
+    # before it ("Do A and 1?", "Do 1 and A?").
+    letters = list(_LETTER_REF_RE.finditer(prompt))
+    several = len({(m[1] or m[2]).upper() for m in letters}) > 1
+    refs, ends = [], []
+    for m in sorted([*_ITEM_REF_RE.finditer(prompt), *letters], key=re.Match.start):
+        before = prompt[:m.start()]
+        chained = any(_REF_CHAIN_RE.fullmatch(before, e) for e in ends)
+        if m.re is _LETTER_REF_RE:
+            if m[1] or several or chained or _LETTER_BEFORE_RE.search(before):
+                refs.append((m[1] or m[2]).upper())
+                ends.append(m.end())
+        elif (chained or _REF_BEFORE_RE.search(before)) and not _COUNT_BEFORE_RE.search(before):
             refs += map(str, range(int(m[1]), int(m[2] or m[1]) + 1))
-            last = m.end()
-    return {n: " ".join(rows[n]) for n in dict.fromkeys(refs) if n in rows}
+            ends.append(m.end())
+    named = [n for n in dict.fromkeys(refs) if n in rows]
+    return {n: " ".join(rows[n]) for n in named}, leads[named[0]] if named else ""
+
+
+def _next_label(label: str) -> str | None:
+    """The label after this one in its sequence ("3" after "2", "B" after "A")."""
+    if not label:
+        return None
+    return str(int(label) + 1) if label.isdigit() else chr(ord(label) + 1)
 
 
 def _item(number: str, text: str) -> str:
@@ -891,8 +985,8 @@ def _restates(table: object, rows: dict[str, str]) -> bool:
     not all). A table that is merely numbered 1, 2 (a ranking, an
     index) or shares one generic verb ("Update ...") with the rows stays."""
     body = table.get("rows") if isinstance(table, dict) else None
-    keys = [str(r[0]).strip().rstrip(".)") if isinstance(r, list) and r else None
-            for r in body] if isinstance(body, list) else []
+    keys = [_row_number(f"{r[0]} ") or str(r[0]).strip().upper() if isinstance(r, list) and r
+            else None for r in body] if isinstance(body, list) else []
     if not keys or not all(k in rows for k in keys):
         return False
     copied = [_copies(" ".join(map(str, r[1:])), rows[k]) for r, k in zip(body, keys, strict=True)]
@@ -931,9 +1025,9 @@ def _final_ask(visible: str, tool: str) -> dict | None:
 
 
 def _row_number(option: object) -> str | None:
-    """The number of an option written as a list row ("1. Fix the cache"), else None."""
-    m = isinstance(option, str) and re.match(r"\s*(\d{1,2})[.)]\s", option)
-    return m[1] if m else None
+    """The label of an option written as a list row ("1. Fix the cache"), else None."""
+    m = isinstance(option, str) and _ROW_LABEL_RE.match(option)
+    return (m[1] or m[2]).upper() if m else None
 
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
@@ -1256,6 +1350,13 @@ def classify(
               and not _USER_ROW_RE.search(visible, turn.end())):  # no newer turn began
             result["activity"] = "idle"  # The turn is over; background shells don't count.
             result.pop("parse_ok", None)
+    # Codex's live row is a read too: a user wait with no question under it, or an ask the
+    # re-read could not place, is its turn running. A finished turn's "idle" stands.
+    if (result.get("tool") == "codex" and result.get("activity") in ("waiting", "unknown", None)
+            and not result.get("question") and result.get("waiting_on") != "external"
+            and _CODEX_LIVE_RE.search(visible)):
+        result["activity"] = "running"
+        result.pop("parse_ok", None)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was
@@ -1272,6 +1373,13 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
+    if result.get("tool") == "claude" and _tabbed_panel_open(visible):
+        # Authoritative over the model, a failed parse included: the screen is a settings
+        # panel, so nothing is asked. Only a turn the model saw still running stays running
+        # (not one a failed parse carried over).
+        result.pop("question", None)
+        if result.pop("parse_ok", True) is False or result.get("activity") != "running":
+            result["activity"] = "idle"
     question = result.get("question")
     # A numbered picker driven by arrows is walked, not answered with a digit, where the
     # screen shows its highlighted row, which a walk needs.
@@ -1298,7 +1406,7 @@ def classify(
             question["selected"] = rows.index(row)
             question["picker"] = picker_digest(text, asked)
     if isinstance(question, dict):  # read off the screen, never passed through from the model
-        for key in ("context", "ask", "items"):
+        for key in ("context", "ask", "items", "subject"):
             question.pop(key, None)
         # A question with no style is answered as text (models.py), so it may name rows.
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
@@ -1324,8 +1432,11 @@ def classify(
             style = question["answer_style"] = "text"
             question.pop("options", None)
         # A menu's own numbers are its options, so only a typed answer names list items.
-        if rows := style == "text" and asked and _referenced_rows(asked, visible):
+        rows, lead = _referenced_rows(asked, visible) if style == "text" and asked else ({}, "")
+        if rows:
             question["items"] = [_item(n, text) for n, text in rows.items()]
+            if lead:  # what is being decided, so "A or B?" reads alone on the card
+                question["subject"] = textwrap.shorten(lead, 140, placeholder="…")
             # The parser's own copy of those rows would show them twice: as answer buttons
             # (a row's number and its words: "1. Resolve the merge conflict", not "1. Yes,
             # move it now"; the reply call fills in when nothing else is left), or as a table.

@@ -76,8 +76,11 @@ strictness is correct:
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
-- `question.items` — opt-in exact list: the numbered rows above a typed question that
-  its prompt names ("do 1 now?"), which classify() reads off the screen.
+- `question.items` — opt-in exact list: the numbered or lettered rows above a typed
+  question that its prompt names ("do 1 now?", "A or B?"), which classify() reads off the
+  screen.
+- `question.subject` — opt-in exact string: the paragraph or heading that leads into
+  those rows, which says what the question decides.
 - `question.context` — opt-in exact string: the widget rows classify() reads around a
   menu's prompt (deterministic, so pinned exactly).
 - `copyable_texts` — opt-in exact list of copyable texts, for payloads lifted from the
@@ -191,6 +194,8 @@ actually hit:
 | `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
 | `88_claude_wrapped_login_link_beside_options` | a wrapped OSC 8 login URL beside a prose option list → the whole URL in `links`, even though grounding rejects the misread question |
 | `90_claude_question_names_list_items` | a closing "do 1 now and prepare the list for 2?" under a numbered list → those two rows in `question.items`, not the unnamed third |
+| `92_claude_question_names_lettered_options` | a bare "Go with A or B?" under lettered options → the A and B rows in `question.items`, and the line leading into them in `question.subject` |
+| `93_claude_decision_heading_above_options` | a heading over bulleted "Option A:" / "Option B —" rows, asked "option A or B?" → the heading as `question.subject`, both rows in `question.items` |
 | `100_claude_handoff_beside_suggested_command` | a `! command` handoff in Claude's right-barred transcript, its greyed suggestion in the box → text user-wait quoting the agent, no reply buttons |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a

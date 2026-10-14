@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchesSearch, matchesFilter } from "../web/m/pane-model.js";
+import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName } from "../web/m/pane-model.js";
 import { paneLinks } from "../web/pr-links.js";
 
 test("PR titles are primary, with the repository and number beneath", () => {
@@ -87,4 +87,17 @@ test("a question's widget context is searchable, as the rows show it", () => {
   assert.ok(matchesSearch(rows, "ss -ltnp | grep"));
   const named = { ...pane, question: { prompt: "Do 1 now?", items: ["1. Prune container images."] } };
   assert.ok(matchesSearch(named, "prune container images"));
+});
+
+test("one tmux session drops its name; two keep it", () => {
+  const shell = { pane_id: "%4", session: "misc-0", label: "misc-0:4", window_index: "4" };
+  const named = { ...shell, pane_id: "%2", label: "Resolve PR 38", window_index: "2" };
+  noteSessions([shell, named]);
+  assert.equal(sessionOf(shell), "");
+  assert.equal(paneName(shell), "Window 4");
+  assert.equal(paneName(named), "Resolve PR 38");
+  noteSessions([shell, { ...named, session: "work" }]);
+  assert.equal(sessionOf(shell), "misc-0");
+  assert.equal(paneName(shell), "misc-0:4");
+  noteSessions([]);
 });

@@ -5,7 +5,7 @@ const esc = (text) => renderChatText(text); // no names: plain escaping
 const KEYCAPS = { Up: "↑", Down: "↓", Left: "←", Right: "→", Escape: "Esc", Enter: "⏎ Enter", PageUp: "Page Up", PageDown: "Page Down", "C-c": "Ctrl C", "C-d": "Ctrl D" };
 const keycap = (key) => `<kbd>${esc(KEYCAPS[key] || key)}</kbd>`;
 import { chatStarters } from "/chat-starters.js";
-import { since, paneName } from "/m/pane-model.js";
+import { since, paneName, sessionOf } from "/m/pane-model.js";
 // Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
 // what the server expects (see docs/design/live-mode.md).
 const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
@@ -160,25 +160,38 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       return button;
     }));
   }
+  // A reconnect opens a daemon session with no history (a restart loses it): hand back the
+  // conversation this log shows, so a "yes" still answers the question above it. Text
+  // only: approvals and tool results never come from here (live_chat.restore).
+  function restore(current) {
+    const transcript = [...log.children].filter((row) => ["user", "model", "typed"].includes(row.dataset.role))
+      .map((row) => ({ role: row.dataset.role, text: row.said })).filter((row) => row.text.trim()); // an Open-only row says nothing
+    if (!transcript.length) return;
+    current.ws.send(JSON.stringify({ action: "resume", transcript }));
+    // A quiet status line, not an error: nothing failed. One per run of reconnects.
+    if (lastRow()?.dataset.role !== "note") add("note", "Reconnected: the assistant has the conversation above");
+  }
+  const lastRow = () => typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
   function add(role, message, newSegment = false, images = []) {
-    const previous = typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
+    const previous = lastRow();
     const follow = following();
     const grow = !newSegment && (role === "user" || role === "model") && previous?.dataset.role === role && !previous.dataset.done;
     let row = previous;
     if (!grow) {
       row = document.createElement("div"); row.className = "voice-entry";
       row.dataset.role = role;
-      row.classList.add(["user", "model", "typed", "error", "propose"].includes(role) ? role : "model");
+      row.classList.add(["user", "model", "typed", "error", "propose", "note"].includes(role) ? role : "model");
       const heading = document.createElement("strong");
       heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
     const body = row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
+    row.said = (row.said || "") + (message || ""); // the source, for restore: rendered Markdown loses it
     if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; }, names());
     else if (role === "propose") body.innerHTML = renderChatText(message || "", names()); // one line, never grown
     else body.textContent += message || "";
     body.before(...images.map(chatThumb));
-    if (!dialog.open && role !== "user") unread = true; // not the user's own echo
+    if (!dialog.open && !["user", "note"].includes(role)) unread = true; // not the user's own echo, nor a status line
     // Oldest first, but never a proposal still waiting on the user: the daemon would wait
     // forever for a Send/Cancel that is no longer on screen.
     for (let old; log.children.length - typing.isConnected > TRANSCRIPT_ROWS && (old = [...log.children].find((r) => r !== typing && !r.querySelector(".voice-actions")));) old.remove();
@@ -195,10 +208,12 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // in flight); only a card the daemon no longer has comes back "expired".
   function propose(current, card) {
     heard.add(card.label);
-    const { id, text, image, pane_id, session } = card;
+    const { id, text, image, pane_id, session, warn } = card;
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
     if (drawn(card)) row.lastChild.innerHTML = action(card);
     if (session) row.lastChild.append(sessionMeta(session));
+    // A reply that only agreed, or context restored after a reconnect: look twice.
+    if (warn) row.lastChild.append(Object.assign(document.createElement("small"), { className: "voice-meta voice-warn", textContent: warn }));
     if (pane_id) row.lastChild.insertAdjacentHTML("beforeend", account(pane_id)); // which account it lands on, with several
     actions.className = "voice-actions";
     for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
@@ -240,23 +255,25 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // since a pane just opened (a resume) can be in the reply before it is in the list; this
   // chat's only, as a later one may name an old pane's words in passing.
   const heard = new Set(), names = () => [...panes().map(paneName), ...heard];
-  function paneTag(id, label) {
+  // `window`: the daemon's " · window N" for a pane another one reads the same as (live._pane_name).
+  function paneTag(id, label, window = "") {
     const pane = panes().find((p) => p.pane_id === id);
-    if (!pane) return `<strong>${esc(label || id)}</strong>`;
+    if (!pane) return `<strong>${esc(label || id)}</strong>${esc(window)}`;
     const logo = Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
-    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${pane.session ? `<span> · ${esc(pane.session)}</span>` : ""}</span>`;
+    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}${window && `<span>${esc(window)}</span>`}</span>`;
   }
   // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
   // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The
   // model's relay label ("From the user (via text):") is dimmed: how it came, not what goes in.
   // Only a well-formed call is drawn: a malformed one keeps its sentence, as the daemon refuses it.
   const drawn = ({ pane_id, key, payload }) => !!pane_id && (typeof key === "string" ? !!key : typeof payload === "string");
-  function action({ pane_id, label, key, payload, enter }, done) {
+  function action({ pane_id, label, window, key, payload, enter }, done) {
     const [press, type] = done ? ["Pressed", "Typed into"] : ["Press", "Type into"];
-    if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${paneTag(pane_id, label)}</div>`;
+    const tag = paneTag(pane_id, label, window);
+    if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${tag}</div>`;
     const via = /^From the user \(via \w+\):\s*/.exec(payload)?.[0] || "";
     // Enter goes where it is pressed: at the end of the text, as it would be typed.
-    return `<div class="voice-act">${type} ${paneTag(pane_id, label)}` +
+    return `<div class="voice-act">${type} ${tag}` +
       `<blockquote>${via && `<span>${esc(via)}</span>`}${esc(payload.slice(via.length))}${enter ? ` ${keycap("Enter")}` : ""}</blockquote></div>`;
   }
   // Which session a resume card means, past a title several can share (live._approved).
@@ -466,7 +483,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
         current.held = message.status === "reconnecting"; current.dirty = false; // see viewing()
-        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); resync(current); }
+        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); if (current.text) restore(current); resync(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);

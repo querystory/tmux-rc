@@ -1402,6 +1402,7 @@ def test_question_naming_list_items_carries_them():
     question = classify(_pane("claude"), _auto_screen(message), _llm({}))["question"]
     assert question["items"] == ["1. Move the build cache to disk.",
                                  "2. Close idle worker sessions."]
+    assert question["subject"] == "Two ways to free memory, in order:"  # not the old plan's
     for ask in ("Want me to do 1 please?", "Start with 2 tomorrow?", "Make edit 2 immediately?",
                 "Do Item 2 first?", "Do 1 urgently?", "Could you handle 2 separately?",
                 "Do 1 and 2 on staging?", "Do task 1 now?", "Apply fix 2 first?",
@@ -1450,6 +1451,91 @@ def test_question_naming_list_items_carries_them():
     widget = _auto_screen(message + "\n  ❯ 1. Yes\n    2. No").replace("auto mode", "plan mode")
     held = classify(_pane("claude"), widget, _llm({"question": menu}))["question"]
     assert held["answer_style"] == "menu" and "items" not in held
+
+
+def test_question_naming_lettered_options_carries_them_and_the_decision():
+    message = ("Session store\n\n  - Option A: Redis. Fast.\n  - Option B — SQLite.\n\n"
+               "  Two ways to fix the timeouts:\n\n  A. Answer first. Then reserve stock.\n"
+               "  (b) Cache the stock levels.\n\n  Go with A or B?")
+    want = ["A. Answer first.", "B. Cache the stock levels."]
+    for ask in ("Go with A or B?", "A or B?", "Which do you prefer, A or B?",
+                "Is it (a) or (b)?", "Option B, then A?", "Go with A, or B?",
+                "Go with (A) or (B)?", "Is it A or (b)?"):
+        screen = _auto_screen(message.replace("Go with A or B?", ask))
+        question = classify(_pane("claude"), screen, _llm({}))["question"]
+        assert sorted(question["items"]) == want
+        assert question["subject"] == "Two ways to fix the timeouts:"
+    for ask in ("Go with (A)?", "Select A?"):
+        screen = _auto_screen(message.replace("Go with A or B?", ask))
+        single = classify(_pane("claude"), screen, _llm({}))["question"]
+        assert single["items"] == ["A. Answer first."]
+    # A list that opens the agent's turn starts after its "●" marker, with no lead-in.
+    opening = classify(_pane("claude"), "\x1e[visible screen]\x1f\n❯ which store?\n\n" +
+                       _auto_screen("A. Redis\n  B. SQLite\n\n  Go with A or B?").split("\n", 1)[1],
+                       _llm({}))["question"]
+    assert opening["items"] == ["A. Redis", "B. SQLite"] and "subject" not in opening
+    for ask in ("A quick check first?", "Grade A beef?", "Should I run it?", "Use a or b?",
+                "A really quick check first?", "Grade A only?"):
+        screen = _auto_screen(message.replace("Go with A or B?", ask))
+        question = classify(_pane("claude"), screen, _llm({}))["question"]
+        assert "items" not in question and "subject" not in question
+    screen = _auto_screen(message.replace("Go with A or B?", "Grade A only, or choose B?"))
+    assert classify(_pane("claude"), screen, _llm({}))["question"]["items"] == [want[1]]
+    # A heading at the left of an indented list ends it: C starts the new decision's list.
+    screen = _auto_screen("Old:\n  A. Redis\n  B. SQLite\nNew decision:\n  C. Disk\n\n  Go with C?")
+    renamed = classify(_pane("claude"), screen, _llm({}))["question"]
+    assert (renamed["items"], renamed["subject"]) == (["C. Disk"], "New decision:")
+    # A parent row ends the list nested under it: the next nested 2 is a new list's.
+    screen = _auto_screen("Decision one:\n    1. Old nested.\n  A. Parent.\n    2. New nested."
+                          "\n\n  Do 2 now?")
+    assert "subject" not in classify(_pane("claude"), screen, _llm({}))["question"]
+    store = message.partition("\n\n  Two")[0]
+    labelled = classify(_pane("claude"), _auto_screen(store + "\n\n  Option A or B?"),
+                        _llm({}))["question"]
+    assert labelled["items"] == ["A. Redis.", "B. SQLite."]
+    assert labelled["subject"] == "Session store"
+    echo = {"prompt": "Option A or B?", "answer_style": "text",
+            "options": ["Option A: Redis", "- Option B — SQLite", "Option B please"]}
+    screen = _auto_screen(store + "\n\n  Option A or B?").replace("auto mode", "plan mode")
+    table = {"rows": [["Option A", "Redis, fast"], ["(b)", "SQLite"]]}
+    result = classify(_pane("claude"), screen, _llm({"question": echo, "tables": [table]}))
+    assert result["question"]["options"] == ["Option B please"] and result["tables"] is None
+    # Numbers and letters keep the prompt's order, and the first named row leads.
+    for row, body in (("Option A: --use-redis", "--use-redis"), ("Option B: -1 s", "-1 s"),
+                      ("Option B—SQLite", "SQLite"), ("Option B - SQLite", "SQLite")):
+        assert classify_mod._LABELED_ROW_RE.match(row)[3] == body
+    assert not classify_mod._LABELED_ROW_RE.match("  Option A is fastest, but heavier.")
+    # A list with no lead-in of its own has no subject, not the list above's.
+    bare = message.replace("  Two ways to fix the timeouts:\n\n", "").rsplit("\n\n", 1)[0]
+    question = classify(_pane("claude"), _auto_screen(bare + "\n\n  1. Ship it.\n\n  Do 1 now?"),
+                        _llm({}))["question"]
+    assert question["items"] == ["1. Ship it."] and "subject" not in question
+    later = classify(_pane("claude"), _auto_screen(bare + "\n\n  B. New row.\n\n  Choose B?"),
+                     _llm({}))["question"]
+    assert later["items"] == ["B. New row."] and "subject" not in later
+    spaced = classify(_pane("claude"), _auto_screen(
+        "Decision heading:\n\n  A. First.\n\n  B. Second.\n\n  Choose B?"), _llm({}))["question"]
+    assert spaced["items"] == ["B. Second."] and spaced["subject"] == "Decision heading:"
+    fresh = classify(_pane("claude"), _auto_screen(
+        "Old decision:\n  A. Old path.\n\n  New decision:\n  B. New path.\n\n  Choose B?"),
+        _llm({}))["question"]
+    assert fresh["items"] == ["B. New path."] and fresh["subject"] == "New decision:"
+    nested = classify(_pane("claude"), _auto_screen(
+        "Decision heading:\n  A. First.\n     1. Step one.\n     2. Step two.\n  B. Second.\n\n"
+        "  Choose B?"), _llm({}))["question"]
+    assert nested["items"] == ["B. Second."] and nested["subject"] == "Decision heading:"
+    for ask, want in (("Do A, then step 1?", "A1"), ("Do A and 1?", "A1"), ("Do 1 and A?", "1A")):
+        mixed = classify(_pane("claude"), _auto_screen(
+            message + f"\n\n  Steps:\n  1. Ship it now.\n\n  {ask}"), _llm({}))["question"]
+        assert "".join(i[0] for i in mixed["items"]) == want
+        assert mixed["subject"] == ("Steps:" if want[0] == "1" else
+                                    "Two ways to fix the timeouts:")
+    # The parser's echo of a lettered row as a button goes, as a numbered one does.
+    ask = {"prompt": "Go with A or B?", "answer_style": "text",
+           "options": ["A. Answer first", "Go with A"]}
+    screen = _auto_screen(message).replace("auto mode on", "plan mode on")
+    assert classify(_pane("claude"), screen, _llm({"question": ask}))["question"][
+        "options"] == ["Go with A"]
 
 
 @pytest.fixture
@@ -1610,3 +1696,125 @@ def test_question_not_below_an_empty_input_box_stands(screen, prompt):
     result = classify(_pane("claude"), f"\x1e[visible screen]\x1f\n{screen}", _llm({
         "tool": "claude", "question": {"prompt": prompt, "answer_style": "cursor"}}))
     assert result["question"]["prompt"] == prompt
+
+
+_PANEL = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ◐ medium · /effort ▔
+   Settings  Status   Config   Usage   Stats
+
+   ╭──────────────────────╮
+   │ ⌕ Search settings…   │
+   ╰──────────────────────╯
+
+   ❯ Auto-compact                true
+     Theme                       Auto (match terminal) ›
+
+   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear"""
+
+
+def test_a_tabbed_panel_the_user_opened_is_not_a_question():
+    asking = {"tool": "claude", "activity": "waiting", "waiting_on": "user", "question": {
+        "prompt": "Search settings…", "answer_style": "cursor", "options": ["Auto-compact"]}}
+    result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{_PANEL}", lambda s, t: asking)
+    assert "question" not in result
+    assert result["activity"] == "idle"
+    # A failed parse of the same panel is grounded by it too: idle (not the running it
+    # carried over), and not reparsed.
+    failed = {"tool": "claude", "activity": "running", "parse_ok": False}
+    result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{_PANEL}", lambda s, t: failed)
+    assert (result["activity"], "parse_ok" in result) == ("idle", False)
+    # Only while its own footer is the last row: a later dialog below a lookalike asks.
+    asking["question"] = {"prompt": "Switch the output to tabs?", "answer_style": "text"}
+    lookalike = _PANEL.rsplit("\n", 1)[0] + "\n\nSwitch the output to tabs?"  # its own words
+    assert "question" in classify(_pane("claude"), lookalike, lambda s, t: asking)
+    ruled, boxed = "────────\n Proceed?\n ❯ No\n   Yes", "╭─────╮\n│ Proceed? │\n│ ❯ No │\n╰─────╯"
+    for dialog in (ruled, boxed):
+        later = {"tool": "claude", "question": {"prompt": "Proceed?", "answer_style": "cursor",
+                                                "options": ["No", "Yes"]}}
+        text = f"{tmux.VISIBLE_SCREEN}\n{_PANEL}\n{dialog}"
+        assert "question" in classify(_pane("claude"), text, lambda s, t, q=later: q)
+
+
+_PLUGIN_PANEL = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+ Plugins  Discover   Installed   Marketplaces   Errors
+
+ ╭──────────────────╮
+ │ ⌕ Search…        │
+ ╰──────────────────╯
+ ❯ code-review      claude-plugins-official
+   pr-tools         acme-marketplace
+
+ Space to toggle · Enter to details · Esc to back"""
+_NEW_CONFIG_PANEL = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Settings  Status   Config   Usage   Stats
+   ❯ Auto-compact                true
+     Theme                       Auto (match terminal) ›
+
+   Enter/Space to change · / to search · Esc to close"""
+
+
+@pytest.mark.parametrize("screen", [
+    _sample("97_claude_config_panel_search_footer"),
+    f"{tmux.VISIBLE_SCREEN}\n{_NEW_CONFIG_PANEL}",  # no search box: the ❯ name/value row
+    f"{tmux.VISIBLE_SCREEN}\n{_PLUGIN_PANEL}",
+])
+def test_a_tabbed_panel_is_read_by_its_shape_not_one_footer(screen):
+    asking = {"tool": "claude", "activity": "waiting", "waiting_on": "user", "question": {
+        "prompt": "Search settings…", "answer_style": "cursor", "options": ["Auto-compact"]}}
+    result = classify(_pane("claude"), screen, lambda s, t: asking)
+    assert ("question" in result, result["activity"]) == (False, "idle")
+
+
+def test_a_tabbed_question_is_still_a_question():
+    # Multi-question AskUserQuestion: its tab bar opens on an arrow and its Esc cancels.
+    screen = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+←  ☐ Scope  ☐ Approach  ✔ Submit  →
+
+Which scope?
+
+❯ 1. Whole repo        every package
+  2. One package       just web/
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel"""
+    asking = {"tool": "claude", "question": {"prompt": "Which scope?", "answer_style": "cursor",
+                                             "options": ["Whole repo", "One package"]}}
+    result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{screen}", lambda s, t: asking)
+    assert "question" in result
+
+
+def test_codex_reviewing_its_own_approval_is_working():
+    # Codex's live row stands under the ask its reviewer is weighing: no user wait, either way
+    # the model reads it, and a failed re-read still lands on the row's own "running".
+    capture = _sample("100_codex_reviewing_approval_is_working")
+    asked = {"tool": "codex", "activity": "waiting",
+             "question": {"prompt": "Reviewing approval request", "answer_style": "text"}}
+    for read in (asked, {"tool": "codex", "activity": "waiting"}):
+        result = classify(_pane("node"), capture, _llm(read))
+        assert result["activity"] == "running" and "question" not in result
+        assert "waiting_on" not in result and "parse_ok" not in result
+    # Codex's real approval menu draws no live row, and a wait on other agents stands.
+    menu = _sample("06_codex_permission_box")
+    ask = {"prompt": "Would you like to run the following command?", "answer_style": "menu"}
+    result = classify(_pane("node"), menu, _llm(
+        {"tool": "codex", "activity": "waiting", "question": ask}))
+    assert result["activity"] == "waiting" and result["question"]
+    result = classify(_pane("node"), capture, _llm(
+        {"tool": "codex", "activity": "waiting", "waiting_on": "external"}))
+    assert result["waiting_on"] == "external"
+
+
+def test_codex_live_row_is_only_its_status_row():
+    # Text shaped like the row is not it: without a timer, in a transcript block, or quoted
+    # above more output instead of standing over the input row.
+    ask = {"prompt": "Would you like to run the following command?", "answer_style": "menu"}
+    menu = _sample("06_codex_permission_box")
+    for quote in ("Documentation example (esc to interrupt)",
+                  "Documentation example (2s • esc to interrupt)",
+                  "  └ Working (2s • esc to interrupt)"):
+        screen = menu.replace("  1. Yes", f"{quote}\n  1. Yes")
+        result = classify(_pane("node"), screen, _llm(
+            {"tool": "codex", "activity": "waiting", "question": ask}))
+        assert result["activity"] == "waiting" and result["question"], quote
+    # A finished reply shaped like the row, right above the input row: the read stands.
+    done = "\x1e[visible screen]\x1f\n• Documentation example (2s • esc to interrupt)\n\n› "
+    assert classify(_pane("node"), done, _llm({"tool": "codex", "activity": "idle"}))[
+        "activity"] == "idle"

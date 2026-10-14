@@ -98,13 +98,13 @@ alike; see [sidebar.md](sidebar.md).
 - **Filter** is a list filter, so it sits with the list's other one rather than in Settings:
   on wide, an "Account" group (All accounts, then each account, several at once) under
   "State" in the filter button's menu beside the search box, combining with it (Working +
-  Work is Work's working panes), the button counting what is on; a phone has no such menu
-  (its tab bar is the state filter), so a row of chips under search that toggle the same
-  way. While on, the account's chip shows under search on wide, labelled "Account" beside
-  the "State" and "Search" chips (`State ● Working ✕  Account ● Work ✕  Search "api" ✕`, the
-  search in the URL as `q=api`), so one line says everything narrowing the list; on a phone
-  it shows under the header on the views without the chips (the dashboard), and a phone's
-  list shows its search box and nothing else is searched, so it leaves the search out. It applies to the list, the strip and the dashboard, Open loops included:
+  Work is Work's working panes), the button counting what is on. A phone has the same
+  button beside its search, opening the menu as a bottom sheet without State (its tab bar
+  is the state filter). While on, the account's chip shows under search, labelled "Account"
+  beside the "State" and "Search" chips (`State ● Working ✕  Account ● Work ✕  Search "api" ✕`,
+  the search in the URL as `q=api`), so one line says everything narrowing the list; on a
+  phone's dashboard (no search there) the chips sit under the header, and a phone leaves the
+  state and the search out of them, since its tab bar and its search box already show them. It applies to the list, the strip and the dashboard, Open loops included:
   a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
   which no account owns, is hidden while filtered.
   It lives in the URL beside the state filter as comma lists

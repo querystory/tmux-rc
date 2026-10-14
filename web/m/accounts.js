@@ -66,9 +66,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       .find((el) => el?.getClientRects().length)?.focus();
   }
 
-  // ---- the filter: "Account" in the wide list's filter menu, chips under a phone's search
-  // (app.js places it), and the active filters' chips, which also name the wide list's other
-  // choices (chips: its state filter and grouping) and the search box's text (query), app.js's.
+  // ---- the filter: "Account" in the filter menu (both layouts; app.js places it), and the
+  // active filters' chips, which also name the wide list's state filters (chips) and the
+  // search box's text (query), app.js's; app.js places them too.
   const filterGroup = document.createElement("div");
   filterGroup.id = "acct-filter"; filterGroup.setAttribute("role", "group"); filterGroup.ariaLabel = "Account";
   const pill = document.createElement("div");
@@ -82,7 +82,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     filterGroup.hidden = !any();
     draw(filterGroup, any() ? '<hr><div class="menu-sec">Account</div>' + opts.map(([p, name]) =>
       `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${p ? on.includes(p) : !on.length}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
-    filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
     const q = query(), more = chips(), clear = (what, attr = "") => `<button type="button" ${attr} aria-label="Clear the ${esc(what)}" title="Clear">${licon("x", 11)}</button>`;
     const chip = (attr, label, what, dot = "") => `<span class="acct-badge" ${attr}>${dot}<span>${esc(label)}</span>${clear(what)}</span>`;
     // Each kind's chips after its dim label, named as the menu names them; the label holds on

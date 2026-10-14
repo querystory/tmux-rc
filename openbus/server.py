@@ -67,7 +67,6 @@ if os.environ.get("TMUXRC_PREFER_IPV4", "1") != "0":
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import (  # noqa: E402
-    FileResponse,
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
@@ -587,6 +586,15 @@ async def no_cache(request, call_next):
     return resp
 
 
+def _web_version() -> str:
+    h = hashlib.md5()
+    for p in sorted(WEB_DIR.rglob("*")):
+        if p.is_file():
+            h.update(p.relative_to(WEB_DIR).as_posix().encode())
+            h.update(str(p.stat().st_mtime_ns).encode())
+    return h.hexdigest()
+
+
 @app.get("/api/version")
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
@@ -597,11 +605,6 @@ def get_version():
     live_enabled is false when the table is empty even with the flag on. An all-keyless
     table still shows the button: its picker is every row greyed with the key it needs,
     which is the one place the user can learn why nothing runs."""
-    h = hashlib.md5()
-    for p in sorted(WEB_DIR.rglob("*")):
-        if p.is_file():
-            h.update(p.relative_to(WEB_DIR).as_posix().encode())
-            h.update(str(p.stat().st_mtime_ns).encode())
     # The menu is live.offered() and nothing else — the same list the socket gates on, so
     # the picker can never show a row the socket would refuse. The label is the only thing
     # the browser ever sends back; hints are rendered by the entry (see LiveModel.hint).
@@ -611,7 +614,7 @@ def get_version():
                for m in live.offered()]
     keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
                for m in live_providers.models() if not m.available()]
-    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered or keyless),
+    return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
             "live_models": offered + keyless, "docs": DOCS_MOUNTED}
 
 
@@ -1391,12 +1394,13 @@ def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
 
 
 @app.post("/api/panes/{pane_id}/close")
-def close_window(pane_id: str, request: Request):
+def close_window(pane_id: str, request: Request, birth: str | None = None):
     """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
     Destructive: any process in the window is killed. Its panes leave the published deck at
     once, so the client's next poll no longer has it; the watcher's next tick then evicts it
-    (emitting pane_removed), the same path as a window closed on the host."""
-    killed = _kill_window(request, pane_id, "kill_window")
+    (emitting pane_removed), the same path as a window closed on the host. `birth`, the
+    incarnation the client's menu or sheet describes, refuses a newer pane under its %N."""
+    killed = _kill_window(request, pane_id, "kill_window", pid=birth or None)
     _audit(request, "kill_window", pane_id)
     return {"ok": True, "killed": killed}
 
@@ -1424,8 +1428,14 @@ def _pane_session(pane_id: str, birth: str, expected: str | None = None):
 
 @app.get("/api/panes/{pane_id}/expunge")
 def expunge_preview(pane_id: str, birth: str):
-    """What Expunge would delete, for the confirmation to name."""
-    _, s, (own, shared) = _pane_session(pane_id, birth)
+    """What Expunge would delete, for the confirmation to name, or {"nothing": true} when
+    the pane has no saved conversation (a sign-in window), which the client offers to close."""
+    try:
+        _, s, (own, shared) = _pane_session(pane_id, birth)
+    except HTTPException as e:
+        if isinstance(e.__cause__, expunge.Empty):
+            return {"nothing": True}
+        raise
     return {"harness": s.harness, "session_id": s.session_id,
             "files": [p.name for p in own], "shared": [p.name for p in shared]}
 
@@ -1920,19 +1930,22 @@ def _advertise_scratch() -> None:
     except (subprocess.CalledProcessError, OSError):  # no server yet, or no tmux binary
         logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 
-# Bare /m needs its own route; /m/ does not. The "/" mount below (html=True) serves
-# web/m/index.html for /m/, but answers bare /m with a 307 built from the request's own
-# scheme/host — behind the TLS-terminating phone tunnel that is http://…/m/, an origin
-# the phone can't reach (#174). GET and HEAD both, since phones/PWAs probe with HEAD.
-# The 404 is inline HTML rather than HTTPException(404): the JSON {"detail":"Not Found"}
-# body made the phone browser download an "m.json" file (#174), whereas text/html is
-# rendered. The check is per-request, so a daemon started before the assets were
-# deployed recovers without a restart. (Starlette's TestClient follows that 307 by
-# default, so a naive test would pass without this route; test_mobile_entrypoint sets
-# follow_redirects=False on purpose to pin it.) response_model=None: FastAPI can't build
-# a response model from a union of Response classes and refuses to import otherwise.
-@app.api_route("/m", methods=["GET", "HEAD"], include_in_schema=False, response_model=None)
-def mobile_ui() -> FileResponse | HTMLResponse:
+# The app's page, at every address it answers: /m/ and /m/index.html, and bare /m, which the
+# "/" mount below would answer with a 307 built from the request's own scheme/host — behind
+# the TLS-terminating phone tunnel that is http://…/m/, an origin the phone can't reach
+# (#174). GET and HEAD both, since phones/PWAs probe with HEAD. The 404 is inline HTML
+# rather than HTTPException(404): the JSON {"detail":"Not Found"} body made the phone
+# browser download an "m.json" file (#174), whereas text/html is rendered. The check is
+# per-request, so a daemon started before the assets were deployed recovers without a
+# restart. (Starlette's TestClient follows that 307 by default; test_mobile_entrypoint sets
+# follow_redirects=False on purpose to pin the bare /m route.)
+#
+# Its module URLs carry the assets' version (/v/0/ in the file, /v/<version>/ as served, any
+# version serving today's web/), and its import map sends every import there too. no-store
+# is not enough: WebKit keeps a module in its in-memory module map across reloads by URL, so
+# a deploy that changed app.js and sidebar.js booted the new app.js against the old sidebar.
+# New files are new URLs, and a reload (the boot screen's included) fetches them all.
+def mobile_ui() -> HTMLResponse:
     entrypoint = WEB_DIR / "m" / "index.html"
     if not entrypoint.is_file():
         return HTMLResponse(
@@ -1940,7 +1953,11 @@ def mobile_ui() -> FileResponse | HTMLResponse:
             "<h1>Mobile UI assets are not installed</h1>",
             status_code=404,
         )
-    return FileResponse(entrypoint)
+    return HTMLResponse(entrypoint.read_text().replace("/v/0/", f"/v/{_web_version()}/"))
+
+
+for _path in ("/m", "/m/", "/m/index.html"):
+    app.add_api_route(_path, mobile_ui, methods=["GET", "HEAD"], include_in_schema=False)
 
 
 # "/" was the retired desktop UI's address, so bookmarks and Home Screen apps installed from
@@ -1956,6 +1973,7 @@ def root_redirect(request: Request) -> RedirectResponse:
 
 # Static files last so /api/* and /docs win. html=True serves index.html at /m/.
 if WEB_DIR.is_dir():
+    app.mount("/v/{version}", StaticFiles(directory=str(WEB_DIR)), name="versioned")
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 
 
