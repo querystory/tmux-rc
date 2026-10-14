@@ -158,8 +158,8 @@ The payload is rewritten only when it changes. Its **last-seen** stamp is refres
 minute regardless, the cadence the inventory heartbeat already keeps, because it is the
 proxy for when the server died: an unchanged server can run for days, and staleness must
 be measured from its end, not from its last layout change. That refresh must not ride on
-the inventory write: the inventory skips any tick with a pane whose screen went unread,
-and one such pane froze its stamp for days (above). The snapshot refreshes last-seen on
+the inventory write: the inventory used to skip any tick with a pane whose screen went
+unread, and one such pane froze its stamp for days (above). The snapshot refreshes last-seen on
 every successful `list-panes`, whatever the classifier made of the screens. Fifty panes are a few tens of
 kilobytes; the cost is one small update a minute.
 
@@ -287,8 +287,9 @@ session level by default, the wide layout shows panes expanded.
 The executor does what a person would. For each selected session, in snapshot order, it
 creates the session in its saved creation directory, which tmux keeps as the default for
 later windows (or, if that directory is gone, in the first selected pane's validated
-directory, which the card notes), respawns the first pane into that pane's own directory, adds each window at its
-original index, splits off the window's panes in order, each in its own directory, then
+directory, which the card notes), respawns the first pane into that pane's own directory,
+moves that first window to its saved index (`new-session` puts it at tmux's `base-index`),
+adds each further window at its original index, splits off the window's panes in order, each in its own directory, then
 applies the saved layout string for exact geometry. A deselected pane makes the layout
 string's pane count wrong and tmux rejects it, so that window falls back to the nearest
 built-in layout rather than failing. Names, the active window and pane, and zoom go last.
@@ -372,8 +373,9 @@ restorable target ever exists before the run can name the server it lives on. Fi
 one transaction, the daemon records the run (the exact selection, each selected pane
 pending, and the actor and confirmation tier of the tap that started it, since the
 request that carried them is gone after a daemon restart and every deferred launch is
-still audited with them) and marks the snapshot consumed *by that run*; a dismissal
-consumes it with no run. A second tap or device is therefore told a restore is running. Second, it records
+still audited with them) and consumes every candidate the card listed: the picked one *by
+that run*, the rest as dismissed, so a crash cannot let them resurface. A dismissal
+consumes them all with no run. A second tap or device is therefore told a restore is running. Second, it records
 the destination server's identity (the same boot id, pid and start time) on the run.
 With a replacement server up, that is the live one. With none, the daemon first starts
 a server holding a single empty session named after the run, records that server's
@@ -426,8 +428,9 @@ had just read.
 **No command line or environment is persisted.** The snapshot stores directories, titles,
 tool names and session ids: never a pane's command line, `/proc` cmdline or environment,
 any of which can carry a token typed inline. The resume command is rebuilt from the index
-at restore time. Titles are the exception that cannot be ruled out: they are agent-chosen
-text and could hold a secret. They are kept because the card needs them to be
+at restore time. The user-controlled text it does keep cannot be ruled out: titles are
+agent-chosen, and session and window names and directory paths are whatever the user
+typed, so any of them could hold a secret. They are kept because the card needs them to be
 recognizable, so they are stored only where all history is (a `0700` directory with
 `0600` files) and shown only on the user's own Restore card, and they are never written to
 logs or telemetry.
