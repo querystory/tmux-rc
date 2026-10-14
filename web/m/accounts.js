@@ -28,7 +28,7 @@ export const shellWords = (s) => {
     if (q === "'") { if (c === "'") q = ""; else word += c; continue; }
     if (c === "\\" && (!q || '"\\'.includes(s[i + 1]))) { if (i + 1 >= s.length) return null; word = (word ?? "") + s[++i]; continue; }
     if (q === '"') { if (c === '"') q = ""; else word += c; continue; }
-    if (/\s/.test(c)) { if (word !== null) out.push(word); word = null; continue; }
+    if (" \t\r\n".includes(c)) { if (word !== null) out.push(word); word = null; continue; }
     word ??= "";
     if (c === "'" || c === '"') q = c; else word += c;
   }
@@ -39,7 +39,7 @@ export const shellWords = (s) => {
 const CALLBACK_MS = 40000; // past the server's two 15 s local GETs: a slow exchange still lands
 // The command with or without Codex's device flag: the way in is picked each time, never
 // remembered, while the rest of an edited command is.
-const withWay = (cmd, device) => [...cmd.split(/\s+/).filter((w) => w && w !== "--device-auth"), ...(device ? ["--device-auth"] : [])].join(" ");
+const withWay = (cmd, device) => cmd.replace(/(^|[ \t])--device-auth(?=[ \t]|$)/g, "").trim() + (device ? " --device-auth" : "");
 const setCmd = (p, v) => { v = withWay(v, false); cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
