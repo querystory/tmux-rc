@@ -4,7 +4,11 @@
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
-const LOGIN = { claude: "claude", codex: "codex login --device-auth" };
+const LOGIN = { claude: "claude", codex: "codex login" };
+// Codex's two ways in from afar: its browser sign-in, whose localhost redirect the sheet
+// takes back by paste (server: /api/accounts/login/callback), or a device code.
+const CODEX_WAYS = [["codex login", "Browser sign-in", "sign in, then paste the localhost address you land on"],
+  ["codex login --device-auth", "Device code", "if your workspace allows it"]];
 // The sign-in command as last edited (what follows VAR=<dir>), per provider and per browser;
 // the server still pins the dir and the binary. Kept here too, where storage is blocked.
 const cmds = {}, cmdKey = (p) => `tmuxrc-signin-${p}`;
@@ -224,10 +228,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       + btns('<button class="ghost" data-goto="name">Back</button>', "<button data-create>Skip</button>", '<button class="primary" data-create="link">Link and continue</button>');
     else if (s === "login") dlg.innerHTML = head(`Sign in to ${F.name}`, 3)
       + (F.existed ? `<p class="acct-msg warn"><code>${esc(F.dir)}</code> already existed; tmux-rc kept its files.</p>` : "")
-      + (F.pane ? `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open in <b>${esc(F.session)}</b>. ${F.provider === "claude" ? "Finish <code>/login</code> there." : "Open the link and enter the code shown in the sign-in window."} tmux-rc only watches for the account to appear; it never sees the login itself.</p><p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
+      + (F.pane ? `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open in <b>${esc(F.session)}</b>. ${F.provider === "claude" ? "Finish <code>/login</code> there." : device() ? "Open the link and enter the code shown in the sign-in window." : "Open the link shown in the sign-in window and sign in. Your browser then lands on a <code>localhost</code> page that does not load. tmux-rc hands that address to the sign-in waiting on this machine, and keeps none of it."} tmux-rc only watches for the account to appear.</p>`
+          + (F.provider === "codex" && !device() ? `<label for="acct-callback">Paste the address your browser ended up on</label><div class="acct-paste"><input id="acct-callback" value="${esc(F.callback || "")}" placeholder="http://localhost:1455/auth/callback?code=…" autocomplete="off" autocapitalize="off" spellcheck="false"><button data-callback ${F.callback?.trim() ? "" : "disabled"}>Finish</button></div>` : "")
+          + `<p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
           + btns('<button class="ghost" data-abandon>Cancel sign-in</button>', "<button data-go>Go to window</button>")
         : `<p class="acct-note">tmux-rc opens a new window that runs the provider's own sign-in on this dir:</p><input id="acct-cmd" class="acct-cmd" value="${esc(lineOf())}" aria-label="Sign-in command" autocomplete="off" autocapitalize="off" spellcheck="false">`
           + (lineError() ? `<p class="acct-msg err">${esc(lineError())}</p>` : "")
+          + (F.provider === "codex" ? `<div class="acct-seg">${CODEX_WAYS.map(([cmd, name]) => `<button type="button" data-way="${cmd}" aria-pressed="${device() === cmd.includes("--device-auth")}">${name}</button>`).join("")}</div><p class="acct-note">${CODEX_WAYS.map(([, name, how]) => `<b>${name}</b>: ${how}.`).join(" ")}</p>` : "")
           + (lineOf() === lineFor(LOGIN[F.provider]) ? "" : `<button type="button" class="ghost" data-reset-cmd>Reset to <code>${LOGIN[F.provider]}</code></button>`)
           + `<label for="acct-session">Open it in session</label><select id="acct-session">${sessions().map((x) => `<option ${x === F.session ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`
           + `<p class="acct-note">You sign in there yourself, so your password and tokens never pass through tmux-rc.</p>`
@@ -255,6 +262,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const go = (step, extra = {}) => { Object.assign(F, { renaming: null, removing: null, error: null, line: null, ...extra, step }); render(); };
   // The sign-in line: as edited in this flow, else VAR=<dir> and the remembered command.
   const lineFor = (cmd) => `${ENV[F.provider]}=${F.dir} ${cmd}`, lineOf = () => F.line ?? lineFor(cmdOf(F.provider));
+  const device = () => /(^|\s)--device-auth(\s|$)/.test(lineOf());
   // What the server would refuse: another dir or variable, or another program.
   const lineError = () => {
     const line = lineOf(), env = line.match(LEAD)[0].trim().split(/\s+/).filter(Boolean), v = ENV[F.provider];
@@ -270,6 +278,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (e.isComposing) return;
     if (e.target.id === "acct-name") { F.name = e.target.value; if (!F.dirTouched) F.dir = `~/.${F.provider}-${slug(F.name)}`; typed("acct-name"); }
     if (e.target.id === "acct-dir") { F.dir = e.target.value.trim(); F.dirTouched = true; typed("acct-dir"); }
+    if (e.target.id === "acct-callback") { F.callback = e.target.value; typed("acct-callback"); }
     if (e.target.id === "acct-cmd") { F.line = e.target.value; setCmd(F.provider, F.line.slice(F.line.match(LEAD)[0].length).trim() || LOGIN[F.provider]); typed("acct-cmd"); }
   };
   dlg.addEventListener("input", onType);
@@ -297,6 +306,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (d.goto) return go(d.goto);
     // The dir follows the provider: ~/.claude-x becomes ~/.codex-x, typed or suggested.
     if (d.prov) { F.dir = F.dir.replace(new RegExp(`^~/\\.${F.provider}(?=-|$)`), `~/.${d.prov}`); F.provider = d.prov; return render(); }
+    if (d.way) { setCmd(F.provider, d.way); F.line = null; return render(); }
     if ("resetCmd" in d) { setCmd(F.provider, LOGIN[F.provider]); F.line = null; return render(); }
     if ("add" in d) return open("name");
     if (d.rename) return go("list", { renaming: d.rename });
@@ -320,6 +330,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         return go(byDir(dir)?.signed_in ? "done" : "login", { dir, existed: added.existed, pane: null });
       }
       if ("login" in d) { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() })); F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
+      if ("callback" in d) { await post("/api/accounts/login/callback", { pane_id: F.pane, pid: F.pid, url: F.callback }); F.callback = ""; return wait(); }
       if ("retry" in d) return go("login", { pane: null });
       if ("later" in d) return go("list");
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }
