@@ -1653,7 +1653,7 @@ $("launch-session").onchange = launchMode;
 // name of your own simply overrides it.
 const sessionName = (dir) => (dir.replace(/\/+$/, "").split("/").pop() || "").replace(/^~$/, "home").replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "main"; // the API's limit
 $("launch-dir").oninput = () => { $("launch-name").placeholder = sessionName($("launch-dir").value.trim()); };
-document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => openLaunch(true); });
+document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => openLaunch(true, b); }); // docked beside the sidebar too
 $("new-window").onclick = () => openLaunch(false, $("new-window"));
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null; // the account picker (accounts.js), with several accounts
