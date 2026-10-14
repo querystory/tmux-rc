@@ -46,9 +46,15 @@ function restore() {
   for (const el of document.querySelectorAll("[data-mock-scroll]")) [el.scrollTop, el.scrollLeft] = el.dataset.mockScroll.split(",").map(Number);
 }
 
-// Form state that lives only in properties, written into the markup so outerHTML keeps it:
-// a build's snapshot and a live fragment both freeze through this.
+// State that lives only in properties (form values, scroll offsets, a dialog's modality),
+// written into the markup under `root` so outerHTML keeps it and restore() can replay it: a
+// build's snapshot and a live fragment both freeze through this.
 function freeze(root) {
+  const all = [root, ...root.querySelectorAll("*")];
+  for (const el of all) {
+    if (el.scrollTop || el.scrollLeft) el.dataset.mockScroll = `${el.scrollTop},${el.scrollLeft}`;
+    if (el.matches("dialog:modal")) el.dataset.mockModal = "";
+  }
   for (const el of root.querySelectorAll("input")) {
     el.setAttribute("value", el.value);
     el.toggleAttribute("checked", el.checked);
@@ -128,7 +134,6 @@ function boot(M) {
     iframe.style.cssText = `position:fixed; left:-10000px; width:${PHONE_WIDTH}px; height:844px`;
     document.body.append(iframe);
     const el = (await liveApp(iframe, step)).querySelector(step.selector);
-    for (const d of [el, ...el.querySelectorAll("dialog")]) if (d.matches("dialog:modal")) d.dataset.mockModal = "";
     freeze(el);
     M.fragments[name] = el.outerHTML;
     iframe.remove();

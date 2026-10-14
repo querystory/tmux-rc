@@ -30,7 +30,8 @@ export function manifest(src) {
   // Its images (../img/…) travel with the mock, as record-img/<name>, since a scratch page
   // can reach nothing outside its own folder.
   const recordImages = [];
-  const record = doc && existsSync(doc) && read(doc).replace(/\]\((?![a-z]+:|\/|#)([^)\s#]+)\.md(#[^)\s]*)?\)/g,
+  if (doc && !existsSync(doc)) throw new Error(`${src}: doc "${m.doc}" is not in docs/design/`);
+  const record = doc && read(doc).replace(/\]\((?![a-z]+:|\/|#)([^)\s#]+)\.md(#[^)\s]*)?\)/g,
     (_, rel, frag = "") => `](/docs/${path.posix.join("design", rel)}/${frag})`)
     .replace(/(!\[[^\]]*\]\()(?![a-z]+:|\/|#)([^)\s]+)\)/g,
       (_, open, rel) => {
@@ -52,7 +53,7 @@ export function manifest(src) {
   };
 }
 
-// The harness's own freeze(), so a build and a live fragment keep form state the same way.
+// The harness's own freeze(), so a build and a live fragment keep the same state.
 const harness = {};
 vm.runInNewContext(readFileSync(path.join(ROOT, "scripts/mock/harness.js"), "utf8"), harness);
 const { freeze } = harness.mockHarness;
@@ -61,11 +62,9 @@ const { freeze } = harness.mockHarness;
 // values, scroll offsets, canvas pixels) is written into the markup, the app's scripts are
 // dropped, and its linked stylesheets come back as one string with absolute URLs.
 function snapshot() {
-  for (const d of document.querySelectorAll("dialog:modal")) d.dataset.mockModal = "";
   // Images are inlined, which would break selectors on their paths (img[src$="-working.svg"]):
   // keep each path in data-mock-src and point those selectors at it.
   for (const el of document.querySelectorAll("[src]:not([src^='data:'])")) el.dataset.mockSrc = el.getAttribute("src");
-  for (const el of document.querySelectorAll("*")) if (el.scrollTop || el.scrollLeft) el.dataset.mockScroll = `${el.scrollTop},${el.scrollLeft}`;
   for (const c of document.querySelectorAll("canvas")) {
     const img = Object.assign(document.createElement("img"), { src: c.toDataURL("image/webp", 0.9), className: c.className });
     img.style.cssText = c.style.cssText;
@@ -131,7 +130,7 @@ async function build(src, out) {
     else if (step.wait) await page.waitForSelector(step.wait);
     await page.evaluate(() => document.fonts.ready);
     await settle(page, name);
-    await page.evaluate(`(${freeze})(document)`);
+    await page.evaluate(`(${freeze})(document.documentElement)`);
     const snap = await page.evaluate(snapshot);
     const fragment = step.selector && await page.$eval(step.selector, (el) => el.outerHTML);
     await page.context().close();
