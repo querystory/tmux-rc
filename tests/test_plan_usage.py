@@ -295,6 +295,7 @@ def test_the_usage_view_reads_the_windows_ended_in_its_range(tmp_path):
         (40, first + 2 - 18000, None), (100, second - 18000, (second - 4000) * 1000)]
     assert window["past"][0]["samples"] == [[(first - 9000) * 1000, 20], [(first - 60) * 1000, 40]]
     assert len(usage.report(now=NOW, past=7)[0]["windows"][0]["past"]) == 4
+    assert len(usage.report(now=NOW, past=float("inf"))[0]["windows"][0]["past"]) == 4  # All
     assert "past" not in usage.report(now=NOW)[0]["windows"][0]  # the strip's minute poll
     # A re-read that moves this window's reset past now leaves it current, not ended.
     assert ended("5h", 18000, [(NOW - 600, 5, NOW - 30), (NOW - 60, 6, NOW + 30)], NOW) == []

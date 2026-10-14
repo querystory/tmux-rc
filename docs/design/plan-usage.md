@@ -96,7 +96,7 @@ a month of weekly ones.
 
 **Data.** `/api/usage?past=<days>` adds, per window, the windows that ended in those days,
 each with its samples thinned to the same 120 points as a current window. The view asks
-for 30 days (All asks for ten years), so 1d, 7d and 30d switch without a fetch; a month
+for 30 days (All asks for every window, `past=Infinity`), so 1d, 7d and 30d switch without a fetch; a month
 of three accounts' meters is about 150 KB. Only the view asks: the strip polls the same
 endpoint every minute without it. The read is bounded by time, which is what the range
 control speaks in, rather than by a count of windows. Windows are still told apart by

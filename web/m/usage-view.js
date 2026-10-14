@@ -25,8 +25,8 @@ const clock = (t, now) => new Date(t).toLocaleString([], { ...(new Date(t).toDat
 let picked = null, shown = 0, zoom = null, view = null;
 const rangeOf = () => picked || (view?.narrow && view.types[shown] === '5h' ? '1d' : '30d');
 // How many days of ended windows the view asks the server for: a month covers every range
-// but All, so picking one does not wait on a fetch.
-export const usageDays = () => picked === 'All' ? 3650 : 30;
+// but All (every one, however old), so picking one does not wait on a fetch.
+export const usageDays = () => picked === 'All' ? Infinity : 30;
 
 // One meter's sawtooth, in ms: the ended windows (each from 0% at its start, to where it
 // stood at its reset, back to 0%), the current one to now, and its forecast to the reset,
@@ -83,7 +83,7 @@ function option(card, extent, now, slider, css) {
   });
   series.push({ type: 'line', data: [], silent: true, markLine: { silent: true, symbol: 'none', data: [{ yAxis: 100 }],
     lineStyle: { color: red, type: 'dashed', width: 1.5, opacity: 0.8 }, label: { show: false } } }); // the limit: 100% says it
-  const left = narrow ? 42 : 52, right = narrow ? 14 : 28;
+  const left = narrow ? 42 : 52, right = narrow ? 14 : 48;
   const range = zoom || windowOf(extent, now);
   return {
     animation: false, textStyle: { color: muted, fontFamily: 'sans-serif', fontSize: 12 },
@@ -143,7 +143,10 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
     card.meters = byType[card.type];
     const head = `<h3>${esc(title(card.type))} <small>${esc(card.type)}</small></h3>${card.meters.map(m => readout(m, now)).join('')}`;
     if (card.headEl.innerHTML !== head) card.headEl.innerHTML = head;
-    card.chartEl.setAttribute('aria-label', `${title(card.type)} usage over time: ${card.meters.map(m => `${m.name} ${Math.round(m.w.pct)}%`).join(', ')}`);
+    // The chart in words: what the canvas shows past the heading's numbers.
+    card.chartEl.setAttribute('aria-label', `${title(card.type)} usage over time. ${card.meters.map(m => `${m.name}: ${(m.w.past || []).length} earlier windows loaded, `
+      + `${m.hits.length ? `${m.hits.length} hit the limit, the last ${stamp(Math.max(...m.hits))}` : 'none hit the limit'}; now ${Math.round(m.w.pct)}%`
+      + (m.w.projected != null ? `, ${Math.round(m.w.projected)}% by the reset at this pace` : '')).join('. ')}. Plus and minus zoom, left and right arrows pan.`);
   }
   paint();
 }
@@ -179,7 +182,8 @@ function build(types) {
   view.cards = types.map(type => {
     const el = document.createElement('section');
     el.className = 'uv-card';
-    el.innerHTML = '<div class="uv-head"></div><div class="uv-chart" role="img" title="Scroll to zoom, drag to pan, hover for the exact %"></div>';
+    el.innerHTML = '<div class="uv-head"></div><div class="uv-chart" role="img" tabindex="0" title="Scroll to zoom, drag to pan, hover for the exact %. Keyboard: + or − to zoom, arrows to pan."></div>';
+    el.lastChild.addEventListener('keydown', keys);
     return { type, el, headEl: el.firstChild, chartEl: el.lastChild };
   });
   view.stack.replaceChildren(...view.cards.map(c => c.el));
@@ -187,6 +191,20 @@ function build(types) {
   view.tabs = segmented('Window', types.map(title), title(types[shown] ?? types[0] ?? ''), t => show(types.map(title).indexOf(t)));
   view.tabs.classList.add('uv-tabs');
   view.bar.append(view.tabs);
+}
+
+// The keyboard's zoom and pan, as the Activity chart's: + and − halve and double the span
+// about its middle, the arrows move it by half, all within the loaded history.
+function keys(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const { startValue: s, endValue: t } = zoom || windowOf(view.extent, view.now), span = t - s, mid = (s + t) / 2;
+  const next = { '+': [mid - span / 4, span / 2], '=': [mid - span / 4, span / 2], '-': [mid - span, span * 2],
+    ArrowLeft: [s - span / 2, span], ArrowRight: [s + span / 2, span] }[e.key];
+  if (!next) return;
+  e.preventDefault();
+  const { min, max } = view.extent, width = Math.min(max - min, Math.max(H, next[1])), start = Math.max(min, Math.min(max - width, next[0]));
+  zoom = { startValue: start, endValue: start + width };
+  paint();
 }
 
 function show(i) {
