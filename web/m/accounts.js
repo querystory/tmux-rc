@@ -65,7 +65,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const tag = document.createElement("i");
   tag.className = "acct-dot";
   const pill = document.createElement("div");
-  pill.className = "acct-pill"; pill.setAttribute("role", "status");
+  pill.className = "acct-pill"; // no live region: it would read the whole line out on every keystroke in search
   filterGroup.hidden = tag.hidden = pill.hidden = true; // until the accounts arrive
   // Redrawn only when changed: the refresh every 20s would otherwise drop a focused button's focus.
   const draw = (el, markup) => { if (el._markup !== markup) el.innerHTML = el._markup = markup; };
