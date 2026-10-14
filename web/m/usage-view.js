@@ -106,12 +106,12 @@ function readout(m, now, type, on) {
 const readings = (card, t, now) => card.meters.map(m => ({ m, v: valueAt(t > now ? m.fc : m.drawn, t) })).filter(r => r.v != null);
 const dot = c => `<i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:4px"></i>`;
 // A phone's reading, in the strip over the chart touched (its linked charts move their lines
-// with it, but stay quiet): the time, short, and each account's % by its colour.
+// with it, but stay quiet): the time, short, and each account's %, named (truncated) and coloured.
 function strip(c, e) {
   const t = e.axesInfo?.[0]?.value, short = x => clock(x, view.now).replace(/ ([AP])M$/, (_, a) => a.toLowerCase());
   const on = view.narrow && c === view.touched && t != null;
   c.tipEl.hidden = !on;
-  if (on) c.tipEl.innerHTML = `<b>${short(t)}</b>${t > view.now ? ' forecast' : ''}${readings(c, t, view.now).map(({ m, v }) => ` <span>${dot(m.color)}${Math.round(v)}%</span>`).join('')}`;
+  if (on) c.tipEl.innerHTML = `<b>${short(t)}</b>${t > view.now ? ' forecast' : ''}${readings(c, t, view.now).map(({ m, v }) => ` <span>${dot(m.color)}<em>${esc(m.name)}</em> ${Math.round(v)}%</span>`).join('')}`;
 }
 
 function option(card, extent, now, slider, css) {

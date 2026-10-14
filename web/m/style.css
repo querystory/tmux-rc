@@ -1005,8 +1005,9 @@ button.picked:disabled { opacity: 1; }
 .uv-status { white-space: nowrap; }
 .uv-read :is(b.full, .out) { color: var(--red); }
 .uv-chart { flex: 1; min-height: 140px; }
-.uv-tip { position: absolute; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 0 10px; padding: 1px 6px; font-size: 12px; line-height: 18px; color: var(--fg); background: var(--surface); border-bottom: 1px solid var(--line); white-space: nowrap; pointer-events: none; }
+.uv-tip { position: absolute; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 0 7px; padding: 1px 4px; font-size: 11.5px; line-height: 18px; color: var(--fg); background: var(--surface); border-bottom: 1px solid var(--line); white-space: nowrap; pointer-events: none; }
 .uv-tip[hidden] { display: none; }
+.uv-tip em { display: inline-block; max-width: 4.5em; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; font-style: normal; color: var(--muted); }
 .uv-key { display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: flex-end; font-size: 11.5px; color: var(--muted); }
 .uv-key span { display: inline-flex; align-items: center; gap: 4px; }
 .uv-key i { width: 16px; height: 11px; border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 2px; }
