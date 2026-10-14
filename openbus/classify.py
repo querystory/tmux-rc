@@ -1250,6 +1250,14 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
+    # Codex reads typed text only in its › composer. A text question with no composer on
+    # screen has nowhere to be typed: `codex login --device-auth`'s "Enter code …" means
+    # in the browser, so the pane waits on something outside it.
+    if (result.get("tool") == "codex" and isinstance(result.get("question"), dict)
+            and result["question"].get("answer_style") == "text"
+            and not re.search(_PROMPT_ROW, visible, re.MULTILINE)):
+        del result["question"]
+        result.update(activity="waiting", waiting_on="external")
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
