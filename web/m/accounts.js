@@ -402,9 +402,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         const dir = added.dir || F.dir; // a dir already signed in needs no sign-in window
         return go(byDir(dir)?.signed_in ? "done" : "login", { dir, existed: added.existed, pane: null });
       }
-      if ("login" in d) return openLogin();
+      if ("login" in d) return await openLogin();
       if ("closeOthers" in d) { for (const o of F.window.others) await post("/api/accounts/login/close", o); F.window = null; return wait(); }
-      if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); F.session ||= sessions()[0]; return openLogin(); }
+      if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); F.session ||= sessions()[0]; return await openLogin(); }
       if ("callback" in d) { // one at a time, across the polls' redraws: the code is single-use
         F.sending = true;
         try { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); } finally { F.sending = false; }
@@ -456,12 +456,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       section.hidden = false;
       section.innerHTML = "<h2>Finish sign-in</h2>" + pasteForm("pane-callback");
       const input = section.querySelector("input"), button = section.querySelector("button");
-      input.oninput = () => { button.disabled = !input.value.trim(); };
+      let busy = false; // one at a time: the code is single-use
+      const paint = () => { button.disabled = busy || !input.value.trim(); };
+      input.oninput = paint;
       button.onclick = async () => {
-        button.disabled = true;
+        busy = true; paint();
         try { await post("/api/accounts/login/callback", { pane_id: pane.pane_id, url: input.value }, CALLBACK_MS); input.value = ""; notice("Sent to the sign-in window.", 4000); }
         catch (error) { notice(error.detail || "That did not work. Try again.", 6000); }
-        finally { button.disabled = !input.value.trim(); }
+        finally { busy = false; paint(); }
       };
     },
     // Where "Move to another account" can take a pane: its provider's other signed-in
