@@ -1292,6 +1292,7 @@ function sizeUsage(px = usageHeight, persist = false) {
   el.style.setProperty("--usage-h", `${h}px`);
   if (persist) {
     usageHeight = h && el.offsetHeight; // what CSS let it be, not an over-drag
+    el.style.setProperty("--usage-h", `${usageHeight}px`); // so a taller window later does not grow it past that
     try { if (usageHeight) localStorage.setItem(USAGE_KEY, String(usageHeight)); else localStorage.removeItem(USAGE_KEY); } catch {}
   }
 }
@@ -1313,7 +1314,7 @@ seam($("usage-handle"), (e) => sizeUsage(usageDrag = Math.max(1, $("usage").getB
   sizeUsage();
   if (!px) return; // a click, or no release
   setUsageMode("off");
-  notice("Plan usage hidden. Turn it back on in ☰ › Plan usage.", 8000, ["Undo", () => setUsageMode(was)]);
+  notice("Plan usage hidden. Turn it back on in Menu › Plan usage.", 8000, ["Undo", () => setUsageMode(was)]);
 });
 $("usage-handle").ondblclick = () => sizeUsage(0, true);
 $("usage-handle").onkeydown = (e) => {
