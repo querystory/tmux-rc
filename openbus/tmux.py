@@ -965,6 +965,15 @@ def pane_pid(pane_id: str) -> str | None:
         return None  # no such pane (or tmux) any more
 
 
+def pane_dead(pane_id: str) -> bool:
+    """Whether the pane's process has exited while tmux keeps the pane (remain-on-exit),
+    which still reports the old pane_pid."""
+    try:
+        return _run(["display-message", "-p", "-t", pane_id, "#{pane_dead}"]).strip() == "1"
+    except (OSError, subprocess.CalledProcessError):
+        return False  # gone altogether: pane_pid says so
+
+
 def before_send(pane_id: str, callback: Callable[[], None]) -> None:
     """Linearize a quick state change with every send targeting this pane."""
     with _pane_lock(pane_id):

@@ -360,8 +360,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // server's brief status cache) to appear before calling the sign-in unfinished.
     if (paneAlive(F.pane)) { F.seen = true; F.goneAt = null; }
     else if ((F.seen && Date.now() - (F.goneAt ??= Date.now()) > 6000) || (!F.seen && Date.now() - F.openedAt > 15000)) return go("abandoned");
-    const w = await windowOf(`pane_id=${encodeURIComponent(F.pane)}`);
-    if (w && JSON.stringify(w) !== JSON.stringify(F.window)) {
+    const flow = F, pane = F.pane, w = await windowOf(`pane_id=${encodeURIComponent(pane)}`);
+    // Superseded while asking (a restart, another account, the sheet closed): not ours.
+    if (flow !== F || F.pane !== pane || F.step !== "login" || (!dlg.open && !F.away)) return;
+    if (w && w.pid === F.pid && JSON.stringify(w) !== JSON.stringify(F.window)) {
       F.window = w;
       const focused = document.activeElement?.id; // the paste field, mid-typing
       if (dlg.open && F.step === "login") { render(); if (focused) dlg.querySelector(`#${focused}`)?.focus(); }

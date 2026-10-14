@@ -1238,7 +1238,8 @@ _SIGN_IN_LOCK = threading.Lock()
 
 def _alive(pane_id: str, entry: dict | None) -> bool:
     """Whether this entry's own process still runs in that pane (tmux recycles pane ids)."""
-    return bool(entry and entry["pid"] and tmux.pane_pid(pane_id) == entry["pid"])
+    return bool(entry and entry["pid"] and tmux.pane_pid(pane_id) == entry["pid"]
+                and not tmux.pane_dead(pane_id))  # remain-on-exit keeps a finished one
 
 
 def _live_sign_ins() -> list[tuple[str, dict]]:
