@@ -1484,8 +1484,8 @@ def account_login_window(pane_id: str = "", dir: str = ""):  # noqa: A002 - the 
         raise HTTPException(404, "no sign-in window open")
     entry = dict(windows)[pane]
     # Older windows on the same account: their links are stale, and a paste from one fails.
-    others = [{"pane_id": p, "pid": e["pid"]} for p, e in windows
-              if p != pane and e["dir"] == entry["dir"]]
+    older = windows[:[p for p, _ in windows].index(pane)]  # oldest first: those before it
+    others = [{"pane_id": p, "pid": e["pid"]} for p, e in older if e["dir"] == entry["dir"]]
     return {"pane_id": pane, **entry, **accounts.sign_in_link(_sign_in_screen(pane)),
             "others": others}
 

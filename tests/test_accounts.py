@@ -464,6 +464,7 @@ def test_the_open_sign_in_window_shows_its_link(client, home, monkeypatch):
     client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
     newest = get("dir=~/.codex-x").json()
     assert (newest["pane_id"], newest["others"]) == ("%43", [{"pane_id": "%42", "pid": "4242"}])
+    assert get("pane_id=%2542").json()["others"] == []  # the newer one is not "older"
     # One browser sign-in at a time (it holds codex's one callback port); device codes may add.
     again = client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
     assert again.status_code == 409 and "already open" in again.json()["detail"]
