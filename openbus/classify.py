@@ -101,6 +101,13 @@ _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
 _ENTER_FOOTER_RE = re.compile(r"\s*enter \w+ · ")
 
 
+def arrow_driven(text: str) -> bool:
+    """Whether the screen ends in Codex's compact key-hint footer: its picker above is
+    driven by arrows and Enter, and a digit need not commit (its trust dialog takes "1"
+    as a move to row 1). Its approval box ("Press enter to confirm …") takes digits."""
+    return any(map(_ENTER_FOOTER_RE.match, _visible(text).rstrip().splitlines()[-3:]))
+
+
 def _widget_end(visible: str, start: int) -> int:
     return next((edge.start() for edge in _WIDGET_END_RE.finditer(visible, start)
                  if edge["rule"] or _HIGHLIGHT_RE.search(visible, start, edge.start())),
@@ -1253,12 +1260,10 @@ def classify(
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     question = result.get("question")
-    # Codex's numbered pickers under a "enter continue · esc back" footer are driven by
-    # arrows and Enter: a digit there need not commit (its trust dialog takes "1" as a
-    # move to row 1, so a tap sat waiting). Only where the screen shows the highlighted
-    # row, which a walk needs. Its approval box ("Press enter to confirm …") takes digits.
+    # A numbered picker driven by arrows is walked, not answered with a digit, where the
+    # screen shows its highlighted row, which a walk needs.
     if (isinstance(question, dict) and question.get("answer_style") == "menu"
-            and any(_ENTER_FOOTER_RE.match(row) for row in visible.splitlines()[-3:])
+            and arrow_driven(text)
             and isinstance(rows := question.get("options"), list)
             and highlighted_row(visible, _question_prompt(question) or "", rows)):
         question.update(answer_style="cursor", keymap={

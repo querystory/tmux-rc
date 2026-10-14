@@ -225,14 +225,16 @@ def test_a_codex_enter_footer_picker_is_walked_not_digited():
 
 
 def test_a_menu_answer_the_screen_ignores_is_reported(monkeypatch):
-    screens = [CODEX_TRUST]
+    # A digit-taking box that ignored this one anyway (a stuck or busy TUI).
+    screens = [CODEX_TRUST.replace("enter continue · esc back", "Press enter to confirm")]
+    sent, reparsed = [], []
     monkeypatch.setattr(tmux, "find_pane", lambda p: CODEX_PANE)
     monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens[-1])
     monkeypatch.setattr(tmux, "at_password_prompt", lambda p: False)
-    monkeypatch.setattr(tmux, "_run", lambda args, *a, **k: "")
+    monkeypatch.setattr(tmux, "_run", lambda args, *a, **k: sent.append(args) or "")
     monkeypatch.setattr(server, "claim_question", lambda *a: None)
     monkeypatch.setattr(server, "PICKER_SETTLE_S", 0)
-    server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
+    server.app.state.watcher = SimpleNamespace(request_reparse=reparsed.append,
                                                pane_birth=lambda p: None)
     body = {"keys": "1", "enter": False, "literal": True, "question": "d:1:f"}
 
@@ -243,6 +245,14 @@ def test_a_menu_answer_the_screen_ignores_is_reported(monkeypatch):
     screens.append("Ask Codex to do anything")  # answered: the dialog is gone
     monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens.pop(0))
     assert send().json() == {"ok": True}
+    # A card parsed before the trust dialog counted as arrow-driven (a deploy, a cached
+    # card) still offers "1": refused unsent, and reread so the card walks it instead.
+    sent.clear(), reparsed.clear()
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: CODEX_TRUST)
+    refused = send()
+    assert refused.status_code == 409 and "arrows" in refused.json()["detail"]
+    assert not any("1" in args for args in sent)
+    assert reparsed
 
 
 def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
