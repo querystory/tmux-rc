@@ -1239,8 +1239,8 @@ class Watcher:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
         # Snapshots store the marked text too (prior frames must match the current
         # one); snapshot_text() strips the markers at the phone-facing boundary.
+        now = time.time()  # before the capture: drop_question compares it with an answer's
         text = tmux.capture_pane(pane.id, mark_dim=True)
-        now = time.time()
         # Hashed: cheap to hold per pane, and the same value the checkpoint stores. The
         # parser version and LLM mode are mixed in so a stored card from a different
         # classifier misses on restart and is re-read.

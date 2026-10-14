@@ -1156,21 +1156,24 @@ async function answer(id, option, index) {
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
   const cursor = current.question.answer_style === "cursor";
   if (cursor && active !== id) navigate(id);
-  const sent = cursor ? await pickCursorRow(cursorIO(id), option, index)
-    : await sendKeys(answerBody(current.question, option, index), id);
-  if (pendingAnswers.get(id) !== pending) return; // the pane moved on already
-  if (sent) {
-    pending.note = "Sent, waiting for the agent";
+  // Delivered: a walk says so as its select lands, before it waits on the picker to close.
+  const delivered = () => {
+    if (pendingAnswers.get(id) !== pending || pending.sent) return; // moved on, or said already
+    pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
     setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
-  } else pendingAnswers.delete(id); // not sent: the notice says why, and the options are live again
-  render();
+  };
+  const sent = cursor ? await pickCursorRow(cursorIO(id, delivered), option, index)
+    : await sendKeys(answerBody(current.question, option, index), id);
+  if (sent) delivered();
+  // Not sent: the notice says why, and the options are live again.
+  else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
 }
 
 // This surface's half of the shared cursor walk. The tap's pending answer greys the
 // options for the walk's length, but what keeps a second walk from starting is the
 // module's own one-at-a-time lock — `sending` is released between every step — which is
 // where that belongs since both surfaces have the same gap.
-function cursorIO(id) {
+function cursorIO(id, committed) {
   // Two separate things, both needed. sendKeys takes the captured id, so no move can ever
   // be posted to a pane the walk was not started for — it defaults to `active` for every
   // other caller, but a default resolved at call time is exactly what a multi-second walk
@@ -1190,6 +1193,7 @@ function cursorIO(id) {
     sendKey: (k, q) => send({ keys: k, literal: false }, q),
     sendText: (t, q) => send({ keys: t, literal: true }, q),
     note: notice,
+    committed,
   };
 }
 // Send a draft to pane `id`: the pane's own composer and a sidebar card's Reply both come

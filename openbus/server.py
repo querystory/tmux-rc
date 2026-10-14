@@ -1006,9 +1006,15 @@ def _picker_after(pane_id: str, body: SendBody) -> dict:
         read = picker_read(screen, body.prompt)
         if not read or read[0] != body.picker:  # redrawn, or the picker is gone
             break
-    # Answered and erased: the card leaves Needs you now, not a model parse later.
+    # Answered and erased: the card leaves Needs you now, not a model parse later. Gone
+    # from two frames apart, so a repaint caught blank in between does not count.
     if not read and prompt_gone(screen, body.prompt):
-        app.state.watcher.drop_question(pane_id, body.prompt)
+        time.sleep(PICKER_SETTLE_S * 3)
+        try:
+            if prompt_gone(tmux.capture_pane(pane_id, mark_dim=True), body.prompt):
+                app.state.watcher.drop_question(pane_id, body.prompt)
+        except subprocess.CalledProcessError:  # closed: its card is going anyway
+            pass
     return {"picker": read and read[0], "row": read and read[1]}
 
 
