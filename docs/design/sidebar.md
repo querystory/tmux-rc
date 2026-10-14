@@ -13,23 +13,25 @@ settled and why.
 The sidebar holds three kinds of thing, and each now has one home.
 
 - **Places** you go: Dashboard, Chat, Voice and Settings. Dashboard is a row that is always
-  there, since it is where you go most. Under it a "··· More" row unfolds the other three,
-  its dim caret turning to fold them again, and it stays as you left it. A chevron on the
-  Dashboard row itself was tried first: one row that both opened a place and unfolded others
-  read as ambiguous. There is no split of some places outside More and the rest behind it:
+  there, since it is where you go most. Under it, "··· More" gives way to the other three
+  rows, and a small dim caret on the last of them (Show less, its own button) folds them back
+  into More; it stays as you left it. A chevron on the Dashboard row was tried first, and
+  read as ambiguous (one row that both opened a place and unfolded others), and so did a More
+  row that stayed above the rows it had unfolded. There is no split of some places outside More and the rest behind it:
   one place left outside read as arbitrary.
 - **Settings** are things you set once: Accounts, Notifications, Theme, Plan usage, the
   phone's sort order, and Docs. They left the ☰ dropdown and the foot for one Settings, the
   same content on a phone (the header's gear, a sheet) and on desktop.
-- **The list** has its own block: a "Sessions" title with the green + (new window), then
-  search with the filter button beside it, then the list's State / Session · Sub-agents
-  line. Search and filter share a row because both narrow the list.
+- **The list** has its own block: a "Sessions" title with its counts (panes · sub-agents)
+  and the green + (new window), then search with the filter button beside it. Search and
+  filter share a row because both narrow the list. The list's own line (State / Session ·
+  Sub-agents) is gone: grouping is a rarely changed choice, so it joined the filter menu as
+  "Group by", and the sub-agents count, which also switches their lines under each row, sits
+  in the title row.
 
 Everything above the usage strip scrolls as one, so the head and the places scroll out of
 the way as you page through panes, and the Sessions block (its title and +, search and the
-filter, the "Filtered:" chips) sticks at the top with a hairline once it has. The State /
-Session line scrolls with the list: pinned too, the stuck block grew to four rows, and it is
-a setting you change rarely, not a control you need at every scroll position. The usage
+filter, the "Filtered:" chips) sticks at the top with a hairline once it has. The usage
 strip stays at the foot.
 
 The header is just the logo and the name, with Live as the logo's dot (green, or amber
@@ -39,11 +41,13 @@ claude.ai. A status word in the foot cost a row to say what a dot says.
 ## The filter opens beside the list
 
 The filter is the shipped one (#402): Show (All, Running, Recent, Needs you) and, with two
-or more accounts, Panes from. It is a bordered square button, unmistakably clickable, that
+or more accounts, Panes from, and Group by (State or Session). It is a bordered square button, unmistakably clickable, that
 counts the filters that are on. Its menu opens to the right of the sidebar, never over the
 list, so the list narrows in view as you pick. Everything that narrows the list reads as one
-"Filtered:" row of chips under the search, the state, the account and the keyword, each
-with its ×. The state lives in the URL (`filter=`, `acct=`, `q=`) as before, so a link or
+"Filtered:" row of chips under the search, the state, the grouping when it is by session,
+the account and the keyword, each with its ×, and the button counts the same choices. The
+grouping stays a per-browser preference rather than joining the URL: it says how you like
+to read the list, not what a link should show. The state lives in the URL (`filter=`, `acct=`, `q=`) as before, so a link or
 Back restores it.
 
 ## Panels dock beside the sidebar

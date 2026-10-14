@@ -218,14 +218,17 @@ function notice(message = "", ms = 0, action = null) {
   if (message && ms) noticeTimer = setTimeout(() => notice(), ms);
 }
 
-const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { paintUsage(); render(); },
+const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { paintUsage(); render(); paintSettings(); },
   // An account picked: this very screen, in a URL that names it (or none, for All).
   navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
   paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id),
   // A phone's list shows its search box, and its tab bar the state: those chips are wide only.
   query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click(),
-  state: () => WIDE.matches && filter !== "all" ? $("side-filter").querySelector(`[value="${filter}"]`).text : "", clearState: () => { filter = "all"; stayPut(); } });
+  // The wide list's state filter and grouping, each a chip that clears it (focus to the filter button).
+  chips: () => !WIDE.matches ? [] : [...filter !== "all" ? [["state", $("side-filter").querySelector(`[value="${filter}"]`).text]] : [],
+    ...renderSidebar.bySession() ? [["by", "By session"]] : []],
+  clearChip: (k) => { if (k === "state") { filter = "all"; stayPut(); } else renderSidebar.byState(); renderSidebar.picker.firstChild.focus(); } });
 
 const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
 // Every user-driven move goes through here: the URL is written first, then the view is
@@ -365,7 +368,7 @@ function renderList() {
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
-  renderSidebar.picker.firstChild.dataset.n = (filter !== "all") + accounts.on() || ""; // the filter button's count
+  renderSidebar.picker.firstChild.dataset.n = (filter !== "all") + accounts.on() + renderSidebar.bySession() || ""; // the filter button's count
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
   // Not before boot: an empty `panes` then would open the dialog in New session mode.
@@ -1289,15 +1292,18 @@ new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-// The sidebar's places: More unfolds Chat, Voice and Settings under Dashboard; open or
-// folded, it stays as you left it (per browser).
-html($("places"), `${licon("ellipsis")}<span>More</span>${licon("chevronDown", 14)}`);
+// The sidebar's places: More, under Dashboard, gives way to Chat, Voice and Settings, and
+// the caret on the last of them (Show less) folds them back. It stays as you left it.
+html($("places"), `${licon("ellipsis")}<span>More</span>`);
+html($("places-less"), licon("chevronUp", 14));
 const unfold = (open) => {
   $("places").ariaExpanded = String($("sb-nav").classList.toggle("open", open));
   try { localStorage.setItem("tmuxrc-places", open ? "open" : ""); } catch {}
 };
 try { unfold(localStorage.getItem("tmuxrc-places") === "open"); } catch {}
-$("places").onclick = () => unfold(!$("sb-nav").classList.contains("open"));
+// The button pressed disappears: focus moves to the first place shown, or back to More.
+$("places").onclick = () => { unfold(true); [$("chat"), $("live-mode"), $("settings-open")].find((b) => !b.hidden).focus(); };
+$("places-less").onclick = () => { unfold(false); $("places").focus(); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
@@ -1381,7 +1387,8 @@ const savedTheme = () => { try { return localStorage.getItem("tmuxrc-theme") || 
 // buttons, one pressed; the accounts are listed, and Manage accounts… opens their sheet.
 function choices(id, options, value, pick) {
   html($(id), Object.entries(options).map(([v, label]) => `<button type="button" data-v="${v}" aria-pressed="${v === value}">${label}</button>`).join(""));
-  $(id).onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) pick(b.dataset.v); };
+  // The pressed button is redrawn: keep keyboard focus on its replacement.
+  $(id).onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) { pick(b.dataset.v); $(id).querySelector(`[data-v="${b.dataset.v}"]`).focus(); } };
 }
 function paintSettings() {
   if (!$("settings").open) return;
@@ -1395,7 +1402,7 @@ function paintSettings() {
 $("settings-open").onclick = () => {
   if ($("settings").open) return $("settings").close();
   openBeside($("settings"), $("settings-open")); paintSettings();
-  accounts.refresh().then(paintSettings);
+  accounts.refresh(); // repaints Settings, as every refresh does while it is open
 };
 $("close-settings").onclick = () => $("settings").close();
 // Wide, Settings and New window dock as a panel beside the sidebar, not over the screen:
@@ -1412,7 +1419,12 @@ document.addEventListener("click", (e) => {
   if (!document.querySelector("dialog:modal")) besides().forEach((d) => { if (!d.contains(e.target) && !d._opener.contains(e.target)) d.close(); });
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
-for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close", () => d.classList.remove("beside"));
+// Closed by its × or Escape, focus goes back to what opened it; not after a launch, whose
+// navigation has already put focus on the pane.
+for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close", () => {
+  if (d.classList.contains("beside") && [null, document.body].includes(document.activeElement)) d._opener?.focus({ preventScroll: true });
+  d.classList.remove("beside");
+});
 // Crossing the breakpoint changes which form a panel takes (sheet or docked): close it.
 WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog")].forEach((d) => d.close()));
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
@@ -1702,7 +1714,7 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // The wide sidebar takes the header's controls into its slots, in this order; a phone
 // gets them back where index.html put them (a comment marks each home), so every control
 // is one element with one set of listeners, whichever layout it is in.
-const CHROME = { "sb-head": ["brand", "connection", "collapse"], "sb-nav": ["chat", "live-mode", "settings-open"], "sb-sess": ["new-window"] };
+const CHROME = { "sb-head": ["brand", "connection", "collapse"], "sb-nav": ["chat", "live-mode", "settings-open", "places-less"], "sb-sess": ["new-window"] };
 const homes = {};
 function placeChrome() {
   for (const [slot, ids] of Object.entries(CHROME)) for (const id of ids) {
@@ -1711,7 +1723,7 @@ function placeChrome() {
   }
   // The account filter (accounts.js): wide, a group in the list's filter menu and its
   // pill under search; on a phone, chips under search and the pill under the header.
-  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter); $("find").after(accounts.pill); }
+  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter, renderSidebar.by); $("find").after(accounts.pill); }
   else { $("find").after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
   accounts.strip(accounts.filter, !WIDE.matches);
 }

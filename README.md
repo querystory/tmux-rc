@@ -113,8 +113,8 @@ Use **Safari or Chrome → Share → Add to Home Screen**, then launch the insta
 a browser tab—for this workflow. Push continues independently of Live Mode; uninterrupted
 background voice is not guaranteed by iOS.
 
-Open `/m` in Safari or Chrome, use **Add to Home Screen**, launch that installed app, then tap
-the bell in its header. iOS only permits Web Push permission from an installed web app
+Open `/m` in Safari or Chrome, use **Add to Home Screen**, launch that installed app, then turn on
+Push notifications in its Settings (the gear in the header). iOS only permits Web Push permission from an installed web app
 and a user gesture. A notification tap opens the exact pane that needs attention, where
 you can use its answer buttons or composer. iOS Web Push does not expose inline text
 replies or notification action buttons; platforms that do support action buttons can

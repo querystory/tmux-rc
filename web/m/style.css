@@ -475,14 +475,16 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #sb-head #collapse:hover { color: var(--fg); }
 /* The places, as rows on the list's icon and text columns: Dashboard always, then More,
    which unfolds Chat, Voice and Settings under it (its dim caret turns to fold them). */
-#sb-nav { display: flex; flex-direction: column; padding: 0 6px 2px; flex: none; }
-#sb-nav .icon-button { width: 100%; height: 32px; min-height: 32px; justify-content: flex-start; gap: 9px; padding: 0 10px 0 13px; border-radius: 7px; color: var(--fg); font-size: 13px; }
+#sb-nav { position: relative; display: flex; flex-direction: column; padding: 0 6px 2px; flex: none; }
+#sb-nav .icon-button:not(#places-less) { width: 100%; height: 32px; min-height: 32px; justify-content: flex-start; gap: 9px; padding: 0 10px 0 13px; border-radius: 7px; color: var(--fg); font-size: 13px; }
 #sb-nav .icon-button svg { width: 16px; height: 16px; color: var(--muted); }
-#sb-nav .icon-button:not(#places)::after { content: attr(aria-label); }
+#sb-nav .icon-button:not(#places, #places-less)::after { content: attr(aria-label); }
+#sb-nav #places-less svg { width: 14px; height: 14px; }
 #sb-nav #live-mode.icon-button::after { content: "Voice"; }
-#places > svg:last-child { width: 14px; height: 14px; margin-left: auto; opacity: .7; transition: transform 120ms; }
-#places[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
-#sb-nav:not(.open) > :is(#chat, #live-mode, #settings-open) { display: none; }
+#sb-nav:not(.open) > :is(#chat, #live-mode, #settings-open, #places-less), #sb-nav.open > #places { display: none; }
+/* Show less: a small dim caret over the Settings row's right end, its own button. */
+#places-less { position: absolute; right: 12px; bottom: 6px; width: 24px; height: 24px; min-height: 24px; border-radius: 6px; color: var(--muted); }
+#places-less:hover { color: var(--fg); }
 /* Everything above the usage strip scrolls as one, and the Sessions block sticks at its top. */
 #sb-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 #sb-sticky { position: sticky; top: 0; z-index: 3; flex: none; background: var(--surface); transition: box-shadow 120ms; }
@@ -491,7 +493,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #dash-nav[aria-pressed="true"] svg { color: var(--fg); }
 /* Sessions: the section's title and its green +; search and the filter on one row under it. */
 #sb-sess { display: flex; align-items: center; min-height: 34px; padding: 6px 14px 0 17px; flex: none; }
-#sb-sess b { margin-right: auto; font-size: 14px; font-weight: 700; }
+#sb-sess b { margin-right: auto; padding-right: 8px; font-size: 14px; font-weight: 700; }
 #sb-sess #new-window { width: 22px; height: 22px; min-height: 22px; border-radius: 50%; background: var(--accent); color: var(--bg); }
 #sb-sess #new-window svg { width: 14px; height: 14px; stroke-width: 2.6; }
 #new-window:not(:disabled):hover { filter: brightness(1.1); }
@@ -512,13 +514,10 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #side-filter-picker summary[data-n=""]::after { display: none; }
 #side-list { flex: none; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
-.sb-bar { display: flex; align-items: center; padding: 8px 6px 2px 10px; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
-.sb-bar > button { flex: none; min-height: 26px; padding: 0 3px; border-radius: 5px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
-.sb-bar > i { font-style: normal; opacity: .5; }
-.sb-bar [aria-pressed="true"] { color: var(--fg); }
-.sb-bar [data-by][aria-pressed="true"] { text-decoration: underline 1.5px; text-underline-offset: 4px; }
+/* The Sessions title's counts, muted: panes · sub-agents, the latter green while listed. */
+.sb-subs { flex: none; min-height: 24px; margin-right: 8px; padding: 0 4px; border-radius: 5px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sb-subs[aria-pressed="true"] .n { color: var(--accent); }
-.sb-bar .sb-subs { margin-left: auto; }
+#app.rail .sb-subs { display: none; }
 .sb-group { display: flex; align-items: center; gap: 2px; margin: 4px 6px 0; }
 .sb-fold { flex: 1; min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 8px; text-align: left; font-size: 12.5px; font-weight: 600; }
 .sb-fold > svg { color: var(--muted); }
@@ -575,7 +574,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
    their buttons stack in that order. */
 #app.rail #sessions { align-items: center; }
 #app.rail :is(#sb-scroll, #sb-sticky, #sb-nav, #sb-sess, #find) { display: contents; }
-#app.rail #sb-nav #places, #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
+#app.rail #sb-nav :is(#places, #places-less), #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
 #app.rail #sb-head { min-height: 0; padding: 12px 0 6px; justify-content: center; }
 #app.rail :is(#new-window, #find > *) { order: 1; }
 #app.rail :is(#dash-nav, #chat, #live-mode) { order: 2; }
@@ -1026,22 +1025,23 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
 .acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
 .acct-pill .acct-badge { flex-shrink: 1; min-width: 0; font-size: 12px; padding: 1px 2px 1px 8px; }
-.acct-pill [data-state] { --a: var(--accent); }
+.acct-pill [data-chip] { --a: var(--accent); }
 .acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
 /* The account filter. Wide: "Panes from" under the list's own "Show" choices, in one
    dropdown, each group's pick a check (no radios) and the account's dot on the label. */
 #side-filter-picker .header-picker-menu { min-width: 180px; max-width: calc(var(--side-w) - 16px); overflow-y: auto; font-weight: 400; }
 #side-filter-picker .acct-opt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen */
-#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden]))::before { content: "Show"; }
-#side-filter-picker .header-picker-menu::before, #acct-filter .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
+#side-filter-picker .header-picker-menu::before { content: "Show"; }
+#side-filter-picker .header-picker-menu::before, #side-filter-picker .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
 #side-filter-picker :is(label, .acct-opt) { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
 #side-filter-picker label input { position: absolute; opacity: 0; pointer-events: none; }
 #side-filter-picker :is(label, .acct-opt)::after { content: ""; flex: none; width: 5px; height: 10px; margin: -4px 4px 0 auto; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); visibility: hidden; }
 #side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"]) { font-weight: 600; }
 #side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"])::after { visibility: visible; }
 #side-filter-picker .acct-opt:hover { background: var(--raised); }
-#acct-filter hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
-#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden])) label { padding-left: 26px; }
+#side-filter-picker hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+/* With the accounts' dots, the other groups' names line up with theirs. */
+#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden])) :is(label, #group-by button) { padding-left: 26px; }
 /* A phone: one row of chips under search, while the pill under the header speaks for the
    views without that list (the dashboard). */
 @media (max-width: 1099px) {

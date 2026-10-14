@@ -14,7 +14,8 @@ voice when iOS locks or suspends the app.
    enabled, then tap **Add**.
 3. Leave the browser and launch **tmux-rc from its Home Screen icon**. Sign in again if
    prompted. Use this installed app from now on, including when enabling permissions.
-4. Tap the **bell** in the header and allow notifications when iOS asks. A question
+4. Open **Settings** (the gear in the header), turn on **Push notifications**, and allow
+   notifications when iOS asks. A question
    card inside the app is not proof that push permission or delivery works.
 5. Open **Live Mode** with the microphone button, select an available model, and
    start the session. Allow microphone access. Wait for **Listening**, then speak
@@ -33,7 +34,7 @@ The requirement is the installed web app, not which browser installed it. A shor
 that merely opens a normal browser tab is not equivalent.
 Microphone and notification permissions are separate: allowing one does not allow
 the other. If notifications were denied, enable them for the installed app in iOS
-**Settings → Notifications**; repeatedly tapping the bell cannot override a denial.
+**Settings → Notifications**; repeatedly turning the switch on cannot override a denial.
 
 ## While using it: screen timeout, lock, and interruptions
 
@@ -113,17 +114,17 @@ Subscriptions and the stable VAPID keypair live in the owner-only file
 `~/.local/state/tmux-rc/push.json` (under the XDG state directory), outside Git.
 Do not delete it or rotate the key to troubleshoot an ordinary delivery failure:
 existing subscriptions are bound to that key. Reinstalling the Home Screen app or
-clearing its data can require enabling the bell again. Tap the bell to disable this
-device; `POST /api/push/revoke-all` removes all saved device subscriptions.
+clearing its data can require turning Push notifications on again. Turn it off in Settings
+to disable this device; `POST /api/push/revoke-all` removes all saved device subscriptions.
 
 If a card says **Needs you** but no push arrives, check in this order:
 
-1. You launched the Home Screen installation, enabled its bell, and granted iOS
+1. You launched the Home Screen installation, turned on its Push notifications, and granted iOS
    notifications. Check Notification Center, Focus, and the app's alert settings.
 2. The question is genuinely current, has settled, and has not already notified or
    reached the fifteen-minute cap. Reopening a card does not request another push.
 3. The daemon has fresh valid classifications and a saved subscription. The browser
-   re-registers an existing subscription on startup; a bell reconnect error means
+   re-registers an existing subscription on startup; a notifications reconnect error means
    that request failed.
 4. Inspect `journalctl --user -u tmux-rc` for `push delivery failed` or queue errors.
    For Apple `BadJwtToken`, check the configured contact above. HTTP 404/410 removes

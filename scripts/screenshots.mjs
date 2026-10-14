@@ -212,7 +212,7 @@ async function showLoops(page) {
   await page.locator("#landing-loops summary").first().waitFor({ timeout: 5000 }).catch(() => {});
 }
 
-// The Sub-agents toggle is on by default; show its lines under activity cards too.
+// The sub-agents count's switch is on by default; show their lines under activity cards too.
 async function showSubagents(page) {
   await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();

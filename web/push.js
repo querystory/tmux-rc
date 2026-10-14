@@ -68,7 +68,7 @@ export async function setupPush(button, announce = () => {}, bell = "") {
       body: JSON.stringify(subscription.toJSON()),
     }).catch(() => null);
     repairNeeded = !repaired?.ok;
-    if (repairNeeded) announce("Notifications could not reconnect; tap the bell to retry");
+    if (repairNeeded) announce("Notifications could not reconnect; turn Push notifications on in Settings to retry");
   }
   button.disabled = false;
   button.onclick = async () => {

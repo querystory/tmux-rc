@@ -85,20 +85,22 @@ export function setupSidebar(ctx) {
   search.addEventListener("click", () => input.focus());
   input.addEventListener("focus", () => { if (prefs.rail) { prefs.rail = false; rerender(); } });
 
-  // One slim row of words: State / Session and the Sub-agents toggle, whose count's colour
-  // says whether it is on. The URL's filter (wide has no tab bar to carry it) is a button
-  // beside the search box, since both narrow the list.
-  const bar = document.createElement("div");
-  bar.className = "sb-bar";
-  bar.innerHTML = '<button data-by="state" aria-label="Group by state">State</button><i aria-hidden="true">/</i><button data-by="session" aria-label="Group by session">Session</button>';
-  bar.querySelectorAll("[data-by]").forEach((b) => { b.onclick = () => { prefs.by = b.dataset.by; rerender(); }; });
+  // The URL's filter (wide has no tab bar to carry it) is a button beside the search box,
+  // since both narrow the list; its menu also groups the list, by state or by session, a
+  // rarely changed choice that needs no row of its own.
   const pick = Object.assign(document.createElement("select"), { id: "side-filter" });
   pick.setAttribute("aria-label", "Filter panes");
   pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
   pick.onchange = () => ctx.setFilter(pick.value);
+  // The Sessions title's counts: the panes listed and their running sub-agents, whose colour
+  // says whether they are listed under their panes' rows (a click switches it).
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
-  bar.append(subs);
+  document.querySelector("#sb-sess b").after(subs);
+  const by = document.createElement("div");
+  by.id = "group-by"; by.setAttribute("role", "group"); by.ariaLabel = "Group by";
+  by.innerHTML = '<hr><div class="menu-sec">Group by</div><button type="button" class="acct-opt" data-by="state">State</button><button type="button" class="acct-opt" data-by="session">Session</button>';
+  by.onclick = (e) => { const b = e.target.closest("[data-by]"); if (b) { prefs.by = b.dataset.by; picker.open = false; picker.firstChild.focus(); rerender(); } };
   document.getElementById("find").append(pick);
   const refreshPick = headerPicker(pick), picker = pick.nextElementSibling, menu = picker.lastChild;
   picker.classList.add("sb-only");
@@ -318,17 +320,20 @@ export function setupSidebar(ctx) {
     shown = groups(subset, query);
     // A folded group still shows the open pane, so the selection never disappears.
     const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards }))];
-    // The controls head the list, above everything they fold or expand (Needs you included).
-    const items = [{ bar: true }, ...shown.flatMap(of)];
-    reconcile(root, items, (i) => i.bar ? "bar" : i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
-      (i) => i.bar ? bar : i.p ? row(i.card) : head(i.g),
-      (node, i) => i.bar ? null : i.p ? updateRow(node, i) : updateHead(node, i.g));
-    bar.querySelectorAll("[data-by]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.by === prefs.by)));
+    reconcile(root, shown.flatMap(of), (i) => i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
+      (i) => i.p ? row(i.card) : head(i.g), (node, i) => i.p ? updateRow(node, i) : updateHead(node, i.g));
+    by.querySelectorAll("[data-by]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.by === prefs.by)));
     if (pick.value !== filter) { pick.value = filter; refreshPick(); }
+    const n = subset.reduce((n, p) => n + liveSubagents(p).length, 0);
     subs.setAttribute("aria-pressed", String(prefs.subagents));
-    ctx.html(subs, `Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span>`);
+    subs.ariaLabel = `${subset.length} panes, ${n} sub-agents: ${prefs.subagents ? "hide" : "list"} sub-agents under their panes`;
+    ctx.html(subs, `${subset.length} · <span class="n">${n} sub-agent${n === 1 ? "" : "s"}</span>`);
   }
-  render.picker = picker; // the filter dropdown: app.js adds the account filter
+  render.picker = picker; // the filter menu: app.js adds the account filter and the grouping
+  render.by = by;
+  // Grouping by session is a choice the filter button counts and the Filtered row names.
+  render.bySession = () => prefs.by === "session";
+  render.byState = () => { prefs.by = "state"; rerender(); };
   render.drafts = drafts; // for the app's unsent-draft guard on reload
   // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
   render.answers = { add: addAnswers, update: replies, prune: (subset) => {

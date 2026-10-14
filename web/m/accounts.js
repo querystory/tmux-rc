@@ -12,7 +12,7 @@ const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) 
 const plain = (html) => Object.assign(document.createElement("template"), { innerHTML: html }).content.textContent;
 const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
-export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery, state, clearState }) {
+export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery, chips, clearChip }) {
   const $ = (id) => document.getElementById(id);
   // The filter is the URL's `acct` (url-state.js): app.js routes it here through follow().
   let profiles = [], defaults = {}, shared = {}, filter = null;
@@ -66,8 +66,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   }
 
   // ---- the filter: "Panes from" in the wide list's filter menu, chips under a phone's search
-  // (app.js places it), and the "Filtered:" pill, which also names the wide list's state
-  // filter and the search box's text (state and query: app.js, a wide list's only).
+  // (app.js places it), and the "Filtered:" pill, which also names the wide list's other
+  // choices (chips: its state filter and grouping) and the search box's text (query), app.js's.
   const filterGroup = document.createElement("div");
   filterGroup.id = "acct-filter"; filterGroup.setAttribute("role", "group"); filterGroup.ariaLabel = "Panes from";
   const pill = document.createElement("div");
@@ -81,13 +81,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     draw(filterGroup, any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
       `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
     filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
-    const q = query(), st = state(), clear = (what) => `<button type="button" aria-label="Clear the ${what}" title="Clear">${licon("x", 14)}</button>`;
+    const q = query(), more = chips(), clear = (what) => `<button type="button" aria-label="Clear the ${what}" title="Clear">${licon("x", 14)}</button>`;
     const chip = (attr, label, what) => `<span class="acct-badge" ${attr}><span>${esc(label)}</span>${clear(what)}</span>`;
-    pill.hidden = !on && !q && !st;
-    draw(pill, pill.hidden ? "" : `Filtered: ${st ? chip("data-state", st, "state filter") : ""}${on ? badge(on, clear("account filter")) : ""}${q ? chip("data-q", `"${q}"`, "search") : ""}`);
+    pill.hidden = !on && !q && !more.length;
+    draw(pill, pill.hidden ? "" : `Filtered: ${more.map(([k, label]) => chip(`data-chip="${k}"`, label, label)).join("")}${on ? badge(on, clear("account filter")) : ""}${q ? chip("data-q", `"${q}"`, "search") : ""}`);
   }
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
-  pill.onclick = (e) => { const b = e.target.closest("button"); if (b) b.closest("[data-q]") ? clearQuery() : b.closest("[data-state]") ? clearState() : setFilter(null); };
+  pill.onclick = (e) => { const b = e.target.closest("button"); if (b) b.closest("[data-q]") ? clearQuery() : b.closest("[data-chip]") ? clearChip(b.closest("[data-chip]").dataset.chip) : setFilter(null); };
 
   // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
   // A meter's account is the profile of its first listed dir; one no longer listed (removed)
