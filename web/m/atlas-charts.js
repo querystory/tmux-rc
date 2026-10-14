@@ -10,7 +10,7 @@ function loadScript(src) {
 }
 // One cached load per library, so the split never waits on the word cloud's script.
 const loads = {};
-const load = (name, src) => loads[name] ||= (window[name] ? Promise.resolve() : loadScript(src))
+export const load = (name, src) => loads[name] ||= (window[name] ? Promise.resolve() : loadScript(src))
   .then(() => window[name], error => { delete loads[name]; throw error; });
 // The latest average on record. Indexed, not at()/findLast(): older iOS Safari has neither.
 export const latestAverage = rows => { for (let i = rows.length - 1; i >= 0; i--) if (rows[i].ma != null) return rows[i].ma; };

@@ -356,7 +356,7 @@ function averageText(data, target = goal) {
   return text;
 }
 
-function segmented(label, options, value, pick) {
+export function segmented(label, options, value, pick) {
   const group = el('span', 'fleet-seg');
   group.setAttribute('role', 'group');
   group.setAttribute('aria-label', label);

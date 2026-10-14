@@ -115,7 +115,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     el.onscroll();
     (el._resize ||= new ResizeObserver(() => el.onscroll())).observe(el);
   }
-  // The wide dashboard and usage view: each account's meters as a group under its chip,
+  // The wide dashboard: each account's meters as a group under its chip,
   // details in its tooltip. The chip names the account once over its meters, so they drop it.
   function groups(el, list, render) {
     el.className = "usage-groups"; el.hidden = !list.length; // a board drawn before the accounts came may have hidden it
