@@ -31,8 +31,9 @@ function spark(w, now) {
 function cell(w, a, wide, now) {
   const projected = Math.min(100, w.projected ?? w.pct), used = Math.min(100, w.pct);
   const level = w.limit_at || w.pct >= 100 ? 'full' : projected >= 90 ? 'warn' : '';
-  const when = w.resets_at ? countdown(w.resets_at - now) : '';
-  const full = w.limit_at ? `full in ${countdown(w.limit_at - now)}` : '';
+  const live = w.resets_at > now; // a minute-old reading can hold a window that has since reset
+  const when = live ? countdown(w.resets_at - now) : '';
+  const full = live && w.limit_at > now ? `full in ${countdown(w.limit_at - now)}` : '';
   const stale = a.as_of ? `as of ${countdown(now - a.as_of)} ago` : ''; // the last read failed: an older reading
   const note = (full && `<small class="out">${full}</small>`) + (when && `<small>resets ${when}</small>`) + (stale && `<small>${stale}</small>`);
   const title = `${who(a)} ${w.window}: ${Math.round(w.pct)}% used${full && `, ${full}`}${when && `, resets in ${when}`}${stale && `, ${stale}`}`

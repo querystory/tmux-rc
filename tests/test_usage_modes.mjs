@@ -41,6 +41,12 @@ test("a reading kept through a failed read says how old it is", () => {
   assert.doesNotMatch(el.innerHTML, /as of/);
 });
 
+test("a reading from before its window reset counts nothing down to zero", () => {
+  const now = Date.now(), el = {};
+  renderUsage(el, [{ provider: "claude", windows: [{ window: "5h", pct: 90, start: now - 6 * 3600e3, resets_at: now - 60e3, limit_at: now - 120e3, samples: [] }] }], { now });
+  assert.doesNotMatch(el.innerHTML, /resets|full in/);
+});
+
 test("a window not yet opened (no reset) draws a bar, not a trend", () => {
   const el = {};
   renderUsage(el, [{ provider: "claude", windows: [{ window: "7d Fable", pct: 0, resets_at: null, samples: [] }] }], { wide: true });

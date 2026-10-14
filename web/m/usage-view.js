@@ -66,7 +66,7 @@ function readout(m, now) {
   const reset = w.resets_at > now ? `resets ${countdown(w.resets_at - now)}, ${clock(w.resets_at, now)}` : 'not started';
   // A reading kept through a failed read says how old it is on hover; the sidebar says it in words.
   return `<span class="uv-read"${m.as_of ? ` title="as of ${countdown(now - m.as_of)} ago"` : ''}>${m.chip}<b class="${level}">${Math.round(w.pct)}%</b>`
-    + (w.limit_at ? `<span class="out">full ${clock(w.limit_at, now)}</span>` : '') + `<span>${reset}</span></span>`;
+    + (w.limit_at > now && w.resets_at > now ? `<span class="out">full ${clock(w.limit_at, now)}</span>` : '') + `<span>${reset}</span></span>`;
 }
 
 function option(card, extent, now, slider, css) {
@@ -79,7 +79,7 @@ function option(card, extent, now, slider, css) {
       { ...base, z: 2, data: m.past, lineStyle: { color: m.color, width: 2, opacity: 0.4 } },
       { ...base, z: 4, data: m.cur, lineStyle: { color: m.color, width: 3.5 } },
       { ...base, z: 4, data: m.fc, lineStyle: { color: m.color, width: 2.5, type: [6, 5] } },
-      { name: m.name, type: 'scatter', z: 6, symbol: 'triangle', symbolRotate: 180, symbolSize: 11, symbolOffset: [0, -9],
+      { name: m.name, type: 'scatter', z: 6, clip: false, // drawn just above the 100% line symbol: 'triangle', symbolRotate: 180, symbolSize: 11, symbolOffset: [0, -9],
         itemStyle: { color: red, borderColor: surface, borderWidth: 1.5 }, tooltip: { show: false },
         data: [...m.hits.map(t => [t, 100]), ...(m.w.limit_at > now ? [{ value: [m.w.limit_at, 100], itemStyle: { color: surface, borderColor: red, borderWidth: 2 } }] : [])] },
     ];
