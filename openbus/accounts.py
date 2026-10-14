@@ -162,8 +162,10 @@ def _profiles(pane_dirs) -> list[dict]:
             found[config] = entry["provider"]
     used, dirty, out = {e.get("color") for e in store.values()}, False, []
     for config, provider in found.items():
-        entry, ident = store.get(config, {}), identity(provider, Path(config))
-        if entry.get("hidden") or not (ident or config in store):
+        entry = store.get(config, {})
+        if entry.get("hidden"):  # before identity(): a forgotten dir costs no codex call
+            continue
+        if not ((ident := identity(provider, Path(config))) or config in store):
             continue
         if "color" not in entry:
             free = sorted(set(range(COLORS)) - used) or [len(used) % COLORS]
