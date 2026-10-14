@@ -1431,6 +1431,14 @@ def _alive(pane_id: str, entry: dict | None) -> bool:
     return bool(entry and entry["pid"] and tmux.pane_pid(pane_id) == entry["pid"])
 
 
+def _sign_in_screen(pane_id: str) -> str:
+    """The sign-in window's screen; 404 if it closed just now (as one does, signed in)."""
+    try:
+        return tmux.capture_pane(pane_id)
+    except subprocess.CalledProcessError:
+        raise HTTPException(404, "the sign-in window has closed") from None
+
+
 def _sign_in(pane_id: str) -> dict | None:
     """The sign-in window this daemon opened in that pane, while it is still there."""
     entry = _SIGN_IN.get(pane_id)
@@ -1452,7 +1460,7 @@ def account_login_window(pane_id: str = "", dir: str = ""):  # noqa: A002 - the 
     # Older windows on the same account: their links are stale, and a paste from one fails.
     others = [{"pane_id": p, "pid": e["pid"]} for p, e in windows
               if p != pane and e["dir"] == entry["dir"] and _alive(p, e)]
-    return {"pane_id": pane, **entry, **accounts.sign_in_link(tmux.capture_pane(pane)),
+    return {"pane_id": pane, **entry, **accounts.sign_in_link(_sign_in_screen(pane)),
             "others": others}
 
 
@@ -1489,7 +1497,7 @@ def account_login_callback(body: SignInCallbackBody, request: Request):
                 f"Not the http://127.0.0.1:{accounts.CODEX_CALLBACK_PORT}/auth/callback?… address")
     # The link this window printed carries its state; an address from another window's
     # link (an older sign-in) would only be refused by codex, so say which up front.
-    shown = accounts.oauth_state(accounts.sign_in_link(tmux.capture_pane(body.pane_id))["url"])
+    shown = accounts.oauth_state(accounts.sign_in_link(_sign_in_screen(body.pane_id))["url"])
     if shown and shown != accounts.oauth_state(path):
         _refuse(request, action, body.pane_id, 409, _OLDER_LINK)
     reply = accounts.replay_codex_callback(path)

@@ -450,6 +450,10 @@ def test_the_open_sign_in_window_shows_its_link(client, home, monkeypatch):
     window = get("pane_id=%2542").json()
     assert (window["url"], window["code"]) == ("https://auth.openai.com/codex/device", "AB12-CD34E")
     assert get("dir=~/.codex-y").status_code == 404
+    gone = subprocess.CalledProcessError(1, "tmux")
+    monkeypatch.setattr(T, "capture_pane", lambda pane_id: (_ for _ in ()).throw(gone))
+    assert get("pane_id=%2542").status_code == 404  # closed between the check and the read
+    monkeypatch.setattr(T, "capture_pane", lambda pane_id: "\n".join(screen))
     monkeypatch.setattr(T, "_run", lambda argv, **_: "%43")  # a second window, same account
     client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
     newest = get("dir=~/.codex-x").json()
