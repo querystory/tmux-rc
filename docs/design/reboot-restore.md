@@ -181,7 +181,9 @@ pane, and for Codex and omp the transcript files their processes hold open. Live
 process, since a pane id from another server would otherwise match by accident.
 Today `get` and the running check look a session up by bare id, harness by harness; two
 harnesses can share an id, so the new listing, `get` and the running check all take and
-validate the pair (harness, session id).
+validate the pair (harness, session id). Live Mode's `resume_session` moves with them,
+since it calls `get`: its tool schema, consent lookup, audit and reservation key carry the
+pair too, in the same first PR.
 
 The snapshot needs the inverse, every live session with its pane, in one call: a listing
 in agent-history in the shape `get` already returns. The daemon calls it once a minute,
@@ -405,7 +407,10 @@ object it is about to create), and the creating tmux command list also tags the 
 object with a user option naming the run and that object. Afterwards its tmux id and,
 for a pane, its launch outcome (pid, or the failure) are written to the run. A crash
 between the mutation and that write loses only the id: recovery finds the object by its
-tag rather than creating it again beside the first. tmux ids are only unique within one server, and a replacement server reuses them,
+tag rather than creating it again beside the first. A launch is different: an agent that
+started and already exited leaves nothing to find. So before each respawn the run
+records the attempt, and recovery treats an attempt with no outcome as indeterminate: the
+pane is marked on the card for a manual retry, never launched again unconfirmed. tmux ids are only unique within one server, and a replacement server reuses them,
 so all of it is scoped to that destination identity. A daemon that restarts mid-restore
 finds the unfinished run. If its destination server is still alive, it reconciles the run
 against tmux by those ids and tags (reusing every target that still exists, rather than meeting its own half
@@ -413,11 +418,13 @@ built session as a name collision and suffixing it), creates what is missing, an
 launches what is pending. If that server died too, its ids and launch outcomes describe
 objects that no longer exist: they are discarded, every selected pane returns to pending
 (the running check below still skips what is live), and the run continues against the
-current server under its new identity. The snapshot records each object's run tag with
+current server under its new identity, recording the dead one as abandoned. The snapshot records each object's run tag with
 the rest of the inventory, so the mark outlives the server. In the dead destination's own
 snapshot the objects tagged by this unfinished run are its half-built copy, which it is
-rebuilding: they are never offered. A finished run's tags mean nothing: what it restored
-is ordinary workspace, offered like any other if its server is lost later. Untagged sessions in it (a replacement server's own, or ones
+rebuilding: they are never offered, and stay excluded after the run finishes, since the
+run records every destination it abandoned. Only on the destination it finished on do its
+tags stop meaning anything: what it restored there is ordinary workspace, offered like
+any other if that server is lost later. Untagged sessions in it (a replacement server's own, or ones
 resumed by hand) remain a candidate of their own; a snapshot with none is consumed by the
 run in the same step. An object created after the last snapshot refresh is in no
 snapshot, so it has nothing to exclude.
