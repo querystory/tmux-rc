@@ -1,6 +1,6 @@
 // Agent accounts (openbus/accounts.py): one per provider config dir. Account UI draws only
 // for a provider with two or more signed-in accounts; with one each, everything here is a
-// no-op and the app looks as it always did. The one exception is Accounts… in the menu,
+// no-op and the app looks as it always did. The one exception is Settings' Accounts,
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
@@ -10,7 +10,7 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g
 const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
 const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
-export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery }) {
+export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery, state, clearState }) {
   const $ = (id) => document.getElementById(id);
   // The filter is the URL's `acct` (url-state.js): app.js routes it here through follow().
   let profiles = [], defaults = {}, shared = {}, filter = null;
@@ -57,16 +57,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       .find((el) => el?.getClientRects().length)?.focus();
   }
 
-  // ---- the filter: "Panes from" in the wide list's filter dropdown, chips under a phone's
-  // search (app.js places it); its pick's dot on the dropdown's label, and the "Filtered: X" pill,
-  // which also names the search box's text (query: app.js, a wide list's only).
+  // ---- the filter: "Panes from" in the wide list's filter menu, chips under a phone's search
+  // (app.js places it), and the "Filtered:" pill, which also names the wide list's state
+  // filter and the search box's text (state and query: app.js, a wide list's only).
   const filterGroup = document.createElement("div");
   filterGroup.id = "acct-filter"; filterGroup.setAttribute("role", "group"); filterGroup.ariaLabel = "Panes from";
-  const tag = document.createElement("i");
-  tag.className = "acct-dot";
   const pill = document.createElement("div");
   pill.className = "acct-pill"; // no live region: it would read the whole line out on every keystroke in search
-  filterGroup.hidden = tag.hidden = pill.hidden = true; // until the accounts arrive
+  filterGroup.hidden = pill.hidden = true; // until the accounts arrive
   // Redrawn only when changed: the refresh every 20s would otherwise drop a focused button's focus.
   const draw = (el, markup) => { if (el._markup !== markup) el.innerHTML = el._markup = markup; };
   function paintFilter() {
@@ -75,14 +73,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     draw(filterGroup, any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
       `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
     filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
-    const q = query(), clear = (what) => `<button type="button" aria-label="Clear the ${what}" title="Clear">${licon("x", 14)}</button>`;
-    tag.hidden = !on; pill.hidden = !on && !q;
-    tag.title = on ? `Panes from ${on.name}` : "";
-    tag.style.setProperty("--a", on ? `var(--acct-${on.color})` : "");
-    draw(pill, on || q ? `Filtered: ${on ? badge(on, clear("account filter")) : ""}${q ? `<span class="acct-badge" data-q><span>${esc(`"${q}"`)}</span>${clear("search")}</span>` : ""}` : "");
+    const q = query(), st = state(), clear = (what) => `<button type="button" aria-label="Clear the ${what}" title="Clear">${licon("x", 14)}</button>`;
+    const chip = (attr, label, what) => `<span class="acct-badge" ${attr}><span>${esc(label)}</span>${clear(what)}</span>`;
+    pill.hidden = !on && !q && !st;
+    draw(pill, pill.hidden ? "" : `Filtered: ${st ? chip("data-state", st, "state filter") : ""}${on ? badge(on, clear("account filter")) : ""}${q ? chip("data-q", `"${q}"`, "search") : ""}`);
   }
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
-  pill.onclick = (e) => { const b = e.target.closest("button"); if (b) b.closest("[data-q]") ? clearQuery() : setFilter(null); };
+  pill.onclick = (e) => { const b = e.target.closest("button"); if (b) b.closest("[data-q]") ? clearQuery() : b.closest("[data-state]") ? clearState() : setFilter(null); };
 
   // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
   // A meter's account is the profile of its first listed dir; one no longer listed (removed)
@@ -142,19 +139,20 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         const pick = byDir(picks[provider]) || def || mine[0];
         picks[provider] = pick.dir;
         return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"}</label><div class="acct-pick">`
-          + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})">${dot(p)}<span><strong>${esc(p.name)}</strong><small>${esc([p.who !== p.name && p.who, p.tilde].filter(Boolean).join(" · "))}</small></span></button>`).join("")
+          + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})" title="${esc([p.who !== p.name && p.who, p.tilde].filter(Boolean).join(" · "))}">${dot(p)}<strong>${esc(p.name)}</strong></button>`).join("")
           + `<button type="button" class="add" data-add>+ Add account</button></div>`
-          + `<p class="acct-hint">${hint(session, provider, def)}</p>`
-          // Always in view: the session's default, set with tmux set-environment on change.
-          + (session ? `<label class="acct-default">Default for this session <select data-default-for="${provider}">`
+          // One line: what a new window here starts on (the whole story in its tooltip) and,
+          // always in view, the session's default, set with tmux set-environment on change.
+          + `<div class="acct-default"><span class="acct-hint" title="${esc(hint(session, provider, def).replace(/<[^>]+>/g, ""))}">${session ? `Default for <b>${esc(session)}</b>` : hint(session, provider, def)}</span>`
+          + (session ? `<select data-default-for="${provider}" aria-label="Default account for this session">`
             + `<option value="" ${set(session, provider) ? "" : "selected"}>Not set</option>`
             // Set to a dir that is none of these: shown as it is, not as "Not set".
             + (set(session, provider) && !def ? `<option selected disabled>${esc(defaults[session][provider])}</option>` : "")
-            + mine.map((p) => `<option value="${esc(p.dir)}" ${set(session, provider) && p === def ? "selected" : ""}>${esc(p.name)}</option>`).join("") + "</select></label>" : "");
+            + mine.map((p) => `<option value="${esc(p.dir)}" ${set(session, provider) && p === def ? "selected" : ""}>${esc(p.name)}</option>`).join("") + "</select>" : "") + "</div>";
       }).join("");
       for (const b of choices.querySelectorAll("button[data-provider]")) {
         const p = several(b.dataset.provider) && byDir(picks[b.dataset.provider]), small = b.querySelector(".acct-on") || b.querySelector("span").appendChild(Object.assign(document.createElement("small"), { className: "acct-on" }));
-        small.hidden = !p; small.innerHTML = p ? `on ${badge(p)} ${esc(p.tilde)}` : "";
+        small.hidden = !p; small.innerHTML = p ? `on ${badge(p)}` : "";
       }
     };
     box.onclick = (e) => {
@@ -303,11 +301,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       }
     } catch (error) { fail(error); } finally { t.disabled = false; }
   });
-  $("accounts-open").onclick = () => { $("more-menu").open = false; open("list"); };
+  $("accounts-open").onclick = () => open("list");
 
   function matches(pane) { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, tag,
+    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => !!active(),
+    // Settings' list: each account, who it is and where, its sheet a click away.
+    rows: () => profiles.map((p) => `<div class="set-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></div>`).join(""),
     // The URL's account (or null) in, and out for the next URL; follow says whether it changed.
     key: () => filter, follow: (k) => { if (k === filter) return false; filter = k; paintFilter(); return true; },
     matches,

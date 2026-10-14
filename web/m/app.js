@@ -79,6 +79,8 @@ const LUCIDE = {
   gauge: '<path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/>',
   arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  filter: '<path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
@@ -221,8 +223,9 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
   paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id),
-  // A phone's list shows its search box, and nothing else there is searched: the chip is wide only.
-  query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click() });
+  // A phone's list shows its search box, and its tab bar the state: those chips are wide only.
+  query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click(),
+  state: () => WIDE.matches && filter !== "all" ? $("side-filter").querySelector(`[value="${filter}"]`).text : "", clearState: () => { filter = "all"; stayPut(); } });
 
 const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
 // Every user-driven move goes through here: the URL is written first, then the view is
@@ -271,7 +274,6 @@ function route() {
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
-  $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
@@ -363,6 +365,7 @@ function renderList() {
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
+  renderSidebar.picker.firstChild.dataset.n = (filter !== "all") + accounts.on() || ""; // the filter button's count
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
   // Not before boot: an empty `panes` then would open the dialog in New session mode.
@@ -609,14 +612,13 @@ function renderFleetSplit() {
 }
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
 // Plan limits move on the daemon's minute poll (Claude's every five), so a minute is plenty.
-// Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
-// by default). The wide sidebar keeps them all unless the same setting is Off, which its ☰
-// menu toggles as "Plan usage": someone paying per token has no plan limits to watch.
+// Which meters a phone shows is a per-viewer choice (Settings › Plan usage, Auto by default).
+// The wide sidebar keeps them all unless the same setting is Off, the one choice Settings
+// offers there: someone paying per token has no plan limits to watch.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
 let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = false, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
-  $("usage-mode").ariaLabel = WIDE.matches ? `Plan usage: ${usageMode === "off" ? "Off" : "On"}` : `Usage: ${USAGE_MODES[usageMode]}`;
   // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
   const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
   renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)), { wide: WIDE.matches });
@@ -696,7 +698,7 @@ function render() {
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
-  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list && !wide); show("usage-mode", list || wide);
+  show("brand", wide || (!inPane && dashboard)); show("list-title", list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -1216,7 +1218,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "menu", sort: "arrowUpDown", "usage-mode": "gauge", "accounts-open": "users", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", places: "chevronDown", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1269,23 +1271,21 @@ new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
+// The sidebar's places: the chevron unfolds Chat, Voice and Settings under Dashboard, and
+// picking one folds them away again.
+$("places").onclick = () => { $("places").ariaExpanded = String($("sb-nav").classList.toggle("open")); };
+$("sb-nav").addEventListener("click", (e) => { if (e.target.closest("button:not(#places)")) { $("sb-nav").classList.remove("open"); $("places").ariaExpanded = "false"; } });
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
 const searched = () => { writeHash(formatHash({ ...parseHash(location.hash), q: $("search").value })); renderList(); };
 $("search").oninput = searched;
 $("clear-search").onclick = () => { $("search").value = ""; searched(); $("search").focus(); };
-$("sort").onclick = () => { sort = sort === "updated" ? "session" : "updated"; stayPut(); };
 function setUsageMode(mode) {
   usageMode = mode;
   try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
-  paintUsage();
+  paintUsage(); paintSettings();
 }
-// A phone steps through the three; wide, where every meter shows, it is on or off.
-$("usage-mode").onclick = () => {
-  const modes = Object.keys(USAGE_MODES);
-  setUsageMode(WIDE.matches ? (usageMode === "off" ? "auto" : "off") : modes[(modes.indexOf(usageMode) + 1) % modes.length]);
-};
 // Wide, the strip's top edge is a seam like the fleet chart's: drag it taller for taller
 // trends and, a row per USAGE_ROW, more rows of meters; a double-click restores its own
 // height. Dragged under one row it closes, which turns the setting Off rather than keeping
@@ -1324,7 +1324,7 @@ seam($("usage-handle"), (e) => sizeUsage(usageDrag = Math.max(1, $("usage").getB
   sizeUsage();
   if (!px) return; // a click, or no release
   setUsageMode("off");
-  notice("Plan usage hidden. Turn it back on in Menu › Plan usage.", 8000, ["Undo", () => setUsageMode(was)]);
+  notice("Plan usage hidden. Turn it back on in Settings › Plan usage.", 8000, ["Undo", () => setUsageMode(was)]);
 });
 $("usage-handle").ondblclick = () => sizeUsage(0, true);
 $("usage-handle").onkeydown = (e) => {
@@ -1341,17 +1341,55 @@ const openUsage = () => {
 };
 $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
-paintUsage(); // labels the item before the first fetch
 $("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; stayPut(); }; });
-function applyTheme(light) {
+// System follows the device, as index.html's boot script does with nothing stored.
+function setTheme(theme) {
+  try { if (theme === "system") localStorage.removeItem("tmuxrc-theme"); else localStorage.setItem("tmuxrc-theme", theme); } catch {}
+  const light = theme === "light" || (theme === "system" && matchMedia("(prefers-color-scheme: light)").matches);
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
   document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
-  icon("theme", light ? "moon" : "sun");
-  $("theme").title = $("theme").ariaLabel = light ? "Use dark theme" : "Use light theme";
+  paintSettings();
 }
-applyTheme(document.documentElement.classList.contains("light"));
-$("theme").onclick = () => { const light = !document.documentElement.classList.contains("light"); applyTheme(light); try { localStorage.setItem("tmuxrc-theme", light ? "light" : "dark"); } catch {} };
+const savedTheme = () => { try { return localStorage.getItem("tmuxrc-theme") || "system"; } catch { return "system"; } };
+
+// Settings (docs/design/sidebar.md): the things you set once. Each choice is a row of
+// buttons, one pressed; the accounts are listed, and Manage accounts… opens their sheet.
+function choices(id, options, value, pick) {
+  html($(id), Object.entries(options).map(([v, label]) => `<button type="button" data-v="${v}" aria-pressed="${v === value}">${label}</button>`).join(""));
+  $(id).onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) pick(b.dataset.v); };
+}
+function paintSettings() {
+  if (!$("settings").open) return;
+  html($("settings-accounts"), accounts.rows());
+  choices("theme", { system: "System", light: "Light", dark: "Dark" }, savedTheme(), setTheme);
+  // Wide, every meter shows, so it is on or off; a phone also has Auto (the urgent ones).
+  choices("usage-mode", WIDE.matches ? { auto: "On", off: "Off" } : USAGE_MODES, WIDE.matches && usageMode === "on" ? "auto" : usageMode, setUsageMode);
+  choices("sort", { updated: "Last updated", session: "Session" }, sort, (v) => { sort = v; stayPut(); paintSettings(); });
+  show("sort-row", !WIDE.matches); // wide, the list's own State / Session sorts it
+}
+$("settings-open").onclick = () => {
+  if ($("settings").open) return $("settings").close();
+  openBeside($("settings"), $("settings-open")); paintSettings();
+  accounts.refresh().then(paintSettings);
+};
+$("close-settings").onclick = () => $("settings").close();
+// Wide, Settings and New window dock as a panel beside the sidebar, not over the screen:
+// non-modal, so the list stays in view and live, and closed by Escape or a click anywhere
+// but the panel or the button that opened it. A phone keeps its sheet.
+function openBeside(dialog, opener) {
+  if (!WIDE.matches) return dialog.showModal();
+  besides().forEach((d) => d !== dialog && d.close()); // one panel at a time
+  dialog._opener = opener;
+  dialog.classList.add("beside"); dialog.show();
+}
+const besides = () => document.querySelectorAll("dialog.beside[open]");
+document.addEventListener("click", (e) => {
+  if (!document.querySelector("dialog:modal")) besides().forEach((d) => { if (!d.contains(e.target) && !d._opener.contains(e.target)) d.close(); });
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
+for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close", () => d.classList.remove("beside"));
+WIDE.addEventListener?.("change", () => besides().forEach((d) => d.close()));
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; wheelHome(active); };
@@ -1522,12 +1560,12 @@ $("launch-session").onchange = launchMode;
 const sessionName = (dir) => (dir.replace(/\/+$/, "").split("/").pop() || "").replace(/^~$/, "home").replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "main"; // the API's limit
 $("launch-dir").oninput = () => { $("launch-name").placeholder = sessionName($("launch-dir").value.trim()); };
 document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => openLaunch(true); });
-$("new-window").onclick = () => openLaunch(false);
+$("new-window").onclick = () => openLaunch(false, $("new-window"));
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null; // the account picker (accounts.js), with several accounts
-async function openLaunch(fresh) {
+async function openLaunch(fresh, opener) {
   launchPick?.remove(); launchPick = null;
-  $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
+  if (opener) openBeside($("launch-dialog"), opener); else $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
   const sessions = [...new Set(panes.map((p) => p.session).filter(Boolean))];
   $("launch-session").replaceChildren(...sessions.map((s) => new Option(s, s)), new Option("New session…", ""));
   if (fresh || !sessions.length) $("launch-session").value = "";
@@ -1639,23 +1677,21 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // The wide sidebar takes the header's controls into its slots, in this order; a phone
 // gets them back where index.html put them (a comment marks each home), so every control
 // is one element with one set of listeners, whichever layout it is in.
-const CHROME = { "sb-head": ["brand", "more-menu", "collapse"], "sb-nav": ["new-window", "dash-nav", "chat", "live-mode", "push"], "sb-foot": ["connection", "theme", "docs"] };
+const CHROME = { "sb-head": ["brand", "connection", "collapse"], "sb-nav": ["chat", "live-mode", "settings-open"], "sb-sess": ["new-window"] };
 const homes = {};
 function placeChrome() {
   for (const [slot, ids] of Object.entries(CHROME)) for (const id of ids) {
     if (!homes[id]) $(id).before(homes[id] = document.createComment(id));
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
-  // The account filter (accounts.js): wide, a group in the list's filter dropdown and its
+  // The account filter (accounts.js): wide, a group in the list's filter menu and its
   // pill under search; on a phone, chips under search and the pill under the header.
-  const search = document.querySelector("#sessions .search");
-  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter); search.after(accounts.pill); }
-  else { search.after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
+  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter); $("find").after(accounts.pill); }
+  else { $("find").after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
   accounts.strip(accounts.filter, !WIDE.matches);
 }
 // Two filters that combine, not one radio group: the radios still group by their name.
 renderSidebar.picker.lastChild.setAttribute("role", "group");
-renderSidebar.picker.querySelector("summary").prepend(accounts.tag);
 placeChrome();
 // route() again, not just render(): a pane URL without a view opens on a different tab once wide.
 const resizeWorkspace = () => { placeChrome(); paintUsage(); route(); };
@@ -1665,7 +1701,6 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // as "close this view", and pressing it should never end a process. 404 means it is already
 // gone, the outcome asked for.
 dismissable($("pane-menu"));
-dismissable($("more-menu"));
 const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
 $("kill-pane").onclick = async () => {

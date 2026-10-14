@@ -66,10 +66,12 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 /* The phone header's status is a dot on the logo (the word stays in the node, still read
    out); in a pane, where the brand is hidden, the dot stands on its own. */
 .app-header #connection { font-size: 0; gap: 0; }
-.app-header #brand { position: relative; }
-.app-header #brand::before, #list-title::after { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+/* The wide sidebar's head does the same with its logo. */
+:is(.app-header, #sb-head) #brand { position: relative; }
+:is(.app-header, #sb-head) #brand::before, #list-title::after { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
 .app-header #brand::before { position: absolute; left: 20px; top: 19px; box-shadow: 0 0 0 2px var(--bg); }
-.app-header:has(#connection.online) #brand::before, .app-header:has(#connection.online) #list-title::after { background: var(--accent); }
+#sb-head #brand::before { position: absolute; }
+:is(.app-header, #sb-head):has(#connection.online) #brand::before, .app-header:has(#connection.online) #list-title::after { background: var(--accent); }
 .app-header :is(#brand, #list-title):not([hidden]) ~ #connection { position: absolute; opacity: 0; }
 /* The list screen's large title, its live dot beside it. */
 #list-title { display: flex; align-items: center; gap: 8px; margin-right: auto; font-size: 28px; font-weight: 750; white-space: nowrap; }
@@ -283,7 +285,44 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #launch-error { color: var(--red); margin-top: 12px; font-size: 13px; }
 #live-mode.active { color: var(--red); background: var(--raised); box-shadow: inset 0 0 0 1px var(--red); }
 #chat.active { color: var(--accent); background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent); }
-#push.active { color: var(--accent); background: var(--accent-bg); }
+/* Settings and New window: their title and × stay in view while the rest scrolls under them. */
+:is(#settings, #launch-dialog) { overflow-y: auto; padding-top: 0; }
+:is(#settings, #launch-dialog) .dialog-heading { position: sticky; top: 0; z-index: 2; margin: 0 -20px 4px; padding: 10px 20px 6px; background: var(--surface); box-shadow: 0 1px 0 var(--line); }
+:is(#settings, #launch-dialog) .sheet-handle { margin: 8px auto 0; }
+#settings h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+#settings section:has(#push[hidden], #docs[hidden]) { display: none; }
+.set-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.set-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 8px 14px; border-radius: 0; text-align: left; text-decoration: none; font-size: 14px; color: var(--fg); }
+.set-row[hidden] { display: none; }
+:is(.set-card, #settings-accounts) > :not([hidden], :empty) ~ .set-row:not([hidden]) { border-top: 1px solid var(--line); }
+.set-row > span:not(.seg) { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.set-row > b { margin-right: auto; }
+.set-row b { font-weight: 600; }
+.set-row small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.set-row code { font: 11.5px var(--mono); }
+.set-link { color: var(--accent); font-weight: 600; }
+.seg { display: inline-flex; flex: none; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
+.seg button { min-height: 28px; padding: 0 10px; border-radius: 6px; font-size: 13px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; }
+#push { position: relative; width: 38px; height: 22px; min-height: 22px; padding: 0; flex: none; border-radius: 11px; background: var(--line); }
+#push svg { display: none; }
+#push::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: left 120ms; }
+#push.active { background: var(--accent); }
+#push.active::after { left: 19px; }
+/* New window, compact: the session on one line, the accounts as a grid of small chips with
+   Add account as the next cell, the tools as 44px rows. */
+.launch-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.launch-row label { margin: 0; flex: none; }
+#launch-dialog label { margin: 12px 0 6px; }
+#launch-dialog .launch-row label { margin: 0; }
+#launch-choices { margin-top: 8px; }
+#launch-choices button { min-height: 44px; gap: 12px; padding: 6px 4px; }
+#launch-choices img { width: 22px; height: 22px; }
+#launch-choices span { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+#launch-choices strong { font-size: 14.5px; }
+#launch-choices small { margin: 0; }
+#launch-choices .acct-on { display: inline-flex; align-items: center; gap: 4px; }
+@media (min-width: 1100px) { #launch-dialog :is(select, input) { min-height: 36px; padding: 6px 10px; font-size: 14px; } }
 /* Keep the conversation scrollable while status and call controls stay visible. */
 #voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); padding-inline: 16px; }
 /* The sheet itself takes initial focus (tabindex=-1, focused in show()), so no button opens with a ring painted on it; Tab still lands on real controls, which keep their :focus-visible ring. */
@@ -419,22 +458,49 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* The wide sidebar (sidebar.js). Scoped to the breakpoint, not just to its .sb-only
    slots: the slots are still siblings on a phone, and a sibling selector would reach. */
 @media (min-width: 1100px) {
-#sb-head { display: flex; align-items: center; gap: 2px; min-height: var(--bar); padding: 0 8px 0 14px; flex: none; }
-#sb-head #brand { font-size: 16px; }
-#sb-nav, #sb-foot { display: flex; align-items: center; gap: 2px; padding: 0 8px 6px; flex: none; }
-#sb-foot { padding-block: 6px; border-top: 1px solid var(--line); }
-#sb-foot #connection { margin: 0 auto 0 6px; }
-:is(#sb-head, #sb-nav, #sb-foot) .icon-button { width: 36px; height: 36px; min-height: 36px; border-radius: 8px; }
-#sb-nav #new-window { flex: 1; justify-content: flex-start; gap: 8px; padding: 0 10px; background: none; font-size: 14px; font-weight: 600; white-space: nowrap; }
-#sb-nav #new-window::after { content: "New window"; }
-/* Too narrow for the label beside all four icons (it needs ~275px of content box: a sidebar
-   dragged under ~300px, or the rail): just the +, still named by its aria-label and title. */
-#sb-nav { container: sb-nav / inline-size; }
-@container sb-nav (max-width: 280px) { #sb-nav #new-window { flex: none; padding: 0; justify-content: center; } #sb-nav #new-window::after { content: none; } }
-#dash-nav[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
-#sb-nav ~ .search { margin: 2px 12px 6px; flex: none; }
-#sb-nav ~ .search input { height: 36px; font-size: 14px; }
-#sb-nav ~ .search .search-clear { width: 36px; height: 36px; min-height: 36px; }
+/* The head: the logo (Live is its dot) and the name, then a small dim collapse. */
+#sb-head { display: flex; align-items: center; gap: 4px; min-height: 52px; padding: 0 10px 0 17px; flex: none; }
+#sb-head #brand { gap: 9px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+#sb-head #brand img { width: 22px; height: 22px; border-radius: 6px; }
+#sb-head #brand::before { left: 16px; top: 15px; box-shadow: 0 0 0 2px var(--surface); }
+#sb-head #connection { position: absolute; opacity: 0; pointer-events: none; }
+:is(#sb-head, #sb-nav) .icon-button { width: 24px; height: 24px; min-height: 24px; border-radius: 6px; color: var(--muted); }
+#sb-head #collapse:hover, #places:hover, #places[aria-expanded="true"] { color: var(--fg); }
+/* The places, as rows on the list's icon and text columns: Dashboard always, its chevron
+   unfolding Chat, Voice and Settings under it. */
+#sb-nav { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 0 6px 2px; flex: none; }
+#sb-nav .icon-button:not(#places) { grid-column: 1 / -1; width: 100%; height: 32px; min-height: 32px; justify-content: flex-start; gap: 9px; padding: 0 10px 0 13px; border-radius: 7px; color: var(--fg); font-size: 13px; }
+#sb-nav .icon-button:not(#places) svg { width: 16px; height: 16px; color: var(--muted); }
+#sb-nav .icon-button:not(#places)::after { content: attr(aria-label); }
+#sb-nav #live-mode::after { content: "Voice"; }
+#sb-nav #dash-nav { grid-column: 1; grid-row: 1; }
+#places { grid-column: 2; grid-row: 1; margin-right: 6px; }
+#places svg { width: 16px; height: 16px; transition: transform 120ms; }
+#places[aria-expanded="true"] svg { transform: rotate(180deg); }
+#sb-nav:not(.open) > :is(#chat, #live-mode, #settings-open) { display: none; }
+#dash-nav[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
+#dash-nav[aria-pressed="true"] svg { color: var(--fg); }
+/* Sessions: the section's title and its green +; search and the filter on one row under it. */
+#sb-sess { display: flex; align-items: center; min-height: 34px; padding: 6px 14px 0 17px; flex: none; }
+#sb-sess b { margin-right: auto; font-size: 14px; font-weight: 700; }
+#sb-sess #new-window { width: 22px; height: 22px; min-height: 22px; border-radius: 50%; background: var(--accent); color: var(--bg); }
+#sb-sess #new-window svg { width: 14px; height: 14px; stroke-width: 2.6; }
+#new-window:not(:disabled):hover { filter: brightness(1.1); }
+#find { display: flex; align-items: center; gap: 6px; margin: 4px 10px 6px; flex: none; }
+#find .search { flex: 1; min-width: 0; margin: 0; padding: 0 2px 0 9px; gap: 9px; background: var(--raised); border-color: transparent; border-radius: 8px; }
+#find .search:focus-within { border-color: var(--accent); }
+#find .search input { height: 28px; font-size: 13px; }
+#find .search input::placeholder { font-size: 12.5px; }
+#search-icon svg { width: 15px; height: 15px; display: block; }
+#find .search-clear { width: 24px; height: 24px; min-height: 24px; margin: 0; }
+#find .search-clear svg { width: 15px; height: 15px; }
+/* The filter: a bordered button the box's height; on, it is tinted and counts its filters. */
+#side-filter-picker summary { position: relative; width: 30px; height: 30px; min-height: 30px; padding: 0; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); }
+#side-filter-picker summary:hover, #side-filter-picker[open] summary { background: var(--raised); }
+#side-filter-picker summary > span { display: none; }
+#side-filter-picker summary:not([data-n=""]) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-bg); color: var(--accent); }
+#side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
+#side-filter-picker summary[data-n=""]::after { display: none; }
 #side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
 .sb-bar { display: flex; align-items: center; padding: 8px 6px 2px 10px; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
@@ -443,8 +509,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-bar [aria-pressed="true"] { color: var(--fg); }
 .sb-bar [data-by][aria-pressed="true"] { text-decoration: underline 1.5px; text-underline-offset: 4px; }
 .sb-subs[aria-pressed="true"] .n { color: var(--accent); }
-.sb-bar .header-picker { margin-left: auto; }
-.sb-bar .header-picker summary { min-height: 26px; gap: 5px; padding: 0 3px; font-size: 12px; }
+.sb-bar .sb-subs { margin-left: auto; }
 .sb-group { display: flex; align-items: center; gap: 2px; margin: 4px 6px 0; }
 .sb-fold { flex: 1; min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 8px; text-align: left; font-size: 12.5px; font-weight: 600; }
 .sb-fold > svg { color: var(--muted); }
@@ -496,19 +561,45 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* :not(:disabled) outranks the global button hover, so hover cannot repaint a selection. */
 :is(.sb-card, .sb-rail).need[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
 :is(.sb-row, .sb-card)[aria-current="true"] b { font-weight: 800; }
-/* Folded: a 60px rail of what is alive, Needs you first, idle panes as one count. */
+/* Folded: a 60px rail, top down: expand, +, search, the filter, the places, then every
+   listed pane (it scrolls), and Settings at the foot. The rows' containers step aside so
+   their buttons stack in that order. */
 #app.rail #sessions { align-items: center; }
-#app.rail :is(#brand, .search, #empty, #divider) { display: none; }
-#app.rail #sb-head { padding: 0; justify-content: center; }
-#app.rail :is(#sb-nav, #sb-foot) { flex-direction: column; align-self: stretch; padding: 6px 0; }
-#app.rail #sb-foot #connection { margin: 6px 0; font-size: 0; gap: 0; }
-#app.rail #side-list { width: 100%; display: grid; justify-items: center; align-content: start; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
-.sb-rail { position: relative; width: 40px; height: 40px; min-height: 40px; padding: 0; display: grid; place-items: center; border-radius: 10px; }
-.sb-rail .sb-logo, .sb-rail .sb-logo img:not(.model-badge) { width: 24px; height: 24px; }
+#app.rail :is(#sb-nav, #sb-sess, #find) { display: contents; }
+#app.rail #sb-nav #places, #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
+#app.rail #sb-head { min-height: 0; padding: 12px 0 6px; justify-content: center; }
+#app.rail :is(#new-window, #find > *) { order: 1; }
+#app.rail :is(#dash-nav, #chat, #live-mode) { order: 2; }
+#app.rail #side-list { order: 3; }
+#app.rail #settings-open { order: 4; margin: 6px 0 10px; }
+#app.rail #sb-nav .icon-button:not([hidden]) { display: inline-flex; width: 36px; height: 36px; min-height: 36px; padding: 0; justify-content: center; border-radius: 8px; }
+#app.rail #sb-nav .icon-button::after { content: none; }
+#app.rail #sb-nav .icon-button svg { width: 18px; height: 18px; }
+#app.rail #sb-sess #new-window { width: 28px; height: 28px; min-height: 28px; margin: 4px 0; }
+#app.rail #find .search { flex: none; width: 36px; height: 36px; padding: 0; justify-content: center; background: none; cursor: pointer; }
+#app.rail #find .search:hover { background: var(--raised); }
+#app.rail #find .search input { position: absolute; width: 1px; opacity: 0; }
+#app.rail #search-icon svg { width: 18px; height: 18px; }
+#app.rail #side-filter-picker summary { width: 36px; height: 36px; min-height: 36px; border-color: transparent; background: none; color: var(--muted); }
+#app.rail #side-filter-picker summary:not([data-n=""]) { background: var(--accent-bg); color: var(--accent); }
+#app.rail #side-list { width: 100%; display: grid; justify-items: center; align-content: start; gap: 2px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); scrollbar-width: none; }
+.sb-rail { position: relative; width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 8px; }
+.sb-rail .sb-logo, .sb-rail .sb-logo img:not(.model-badge) { width: 22px; height: 22px; }
 .sb-rail.need { background: var(--amber-bg); --card: var(--amber-bg); }
-.sb-rail.need:not([aria-current="true"]) { box-shadow: inset 0 0 0 1.5px var(--amber); }
-.sb-rail:not([data-agents=""])::after { content: attr(data-agents); position: absolute; top: 1px; right: 1px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--accent); color: var(--bg); font-size: 9.5px; font-weight: 700; line-height: 14px; text-align: center; }
-.sb-more { min-height: 28px; padding: 0 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* The state's dot top right (needs you, running); the account's bottom left, with several. */
+.sb-rail:not([data-state=""])::after { content: ""; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
+.sb-rail[data-state="need"]::after { background: var(--amber); box-shadow: 0 0 0 2px var(--amber-bg); }
+.sb-rail .sb-acct { position: absolute; left: 3px; bottom: 3px; display: flex; }
+.sb-rail .acct-badge { padding: 0; border: 0; background: none; }
+.sb-rail .acct-badge > span { display: none; }
+.sb-rail .acct-badge .acct-dot { width: 8px; height: 8px; box-shadow: 0 0 0 2px var(--surface); }
+#side-hover .sb-acct { justify-self: start; }
+/* Settings and New window dock beside the sidebar (app.js openBeside): over the left of the
+   main column, which matters less than the chat and pane column on its right. */
+dialog.beside { position: fixed; inset: 0 auto 0 var(--side-w); z-index: 25; width: min(420px, 44vw); height: auto; max-height: none; margin: 0; padding: 0 20px 20px; overflow-y: auto; border: 0; border-right: 1px solid var(--line); border-radius: 0; box-shadow: 12px 0 32px rgb(0 0 0 / .22); }
+#app.rail dialog.beside { left: 60px; }
+dialog.beside .sheet-handle { display: none; }
+dialog.beside .dialog-heading { min-height: var(--bar); }
 }
 /* A Needs-you card's answers and inline Reply: the sidebar's, and the phone list's too. */
 .sb-icon { width: 32px; height: 32px; min-height: 32px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
@@ -675,17 +766,10 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
 .header-picker-menu label, .header-picker-menu button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
-/* The overflow menus: an icon trigger (no picker chevron). The pane's holds its
-   window actions; the phone header's holds its settings-like controls, each its icon
-   plus the label it already carries, so the toggles (the bell's state too) read in words. */
-:is(#pane-menu, #more-menu) { flex: none; }
-:is(#pane-menu, #more-menu) summary { padding: 0; justify-content: center; }
-:is(#pane-menu, #more-menu) summary::after { display: none; }
-#more-menu .icon-button { width: 100%; justify-content: flex-start; padding: 6px 14px 6px 10px; gap: 10px; font-size: 14px; white-space: nowrap; }
-#more-menu .icon-button::after { content: attr(aria-label); }
-#more-menu #push::after { content: "Notifications: Off"; }
-#more-menu #push.active::after { content: "Notifications: On"; }
-#more-menu a:hover { background: var(--raised); }
+/* The pane's overflow menu, its window actions: an icon trigger (no picker chevron). */
+#pane-menu { flex: none; }
+#pane-menu summary { padding: 0; justify-content: center; }
+#pane-menu summary::after { display: none; }
 /* Toolbar spacing: the Layout picker is borderless like Sort, and the icon buttons' 44px
    boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
    the visible glyphs come out even and the X's ink lines up with the right gutter. */
@@ -930,6 +1014,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
 .acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
 .acct-pill .acct-badge { flex-shrink: 1; min-width: 0; font-size: 12px; padding: 1px 2px 1px 8px; }
+.acct-pill [data-state] { --a: var(--accent); }
 .acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
 /* The account filter. Wide: "Panes from" under the list's own "Show" choices, in one
    dropdown, each group's pick a check (no radios) and the account's dot on the label. */
@@ -945,7 +1030,6 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #side-filter-picker .acct-opt:hover { background: var(--raised); }
 #acct-filter hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 #side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden])) label { padding-left: 26px; }
-#side-filter-picker summary .acct-dot { width: 7px; height: 7px; }
 /* A phone: one row of chips under search, while the pill under the header speaks for the
    views without that list (the dashboard). */
 @media (max-width: 1099px) {
@@ -955,8 +1039,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   #acct-filter .acct-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
   body:has(#sessions:not([hidden])) .acct-pill { display: none; }
 }
-#sb-head #more-menu { margin-left: auto; }
-#app.rail :is(#sb-head #more-menu, .acct-pill) { display: none; }
+#sb-head #collapse { margin-left: auto; }
+#app.rail .acct-pill { display: none; }
 /* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third
    of the next peeks in under the fade, so the row reads as one that scrolls: two on a phone,
    one in a narrow sidebar, three where there is room. */
@@ -997,20 +1081,19 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 @container (max-width: 827px) { .usage-view .ug { grid-column: span min(var(--n), 2); } } /* 3 x 260px + 2 gaps */
 @container (max-width: 543px) { .usage-view .ug { grid-column: span 1; } }
 /* New window's picker and the Accounts dialog. */
-.acct-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 6px; }
-.acct-pick button { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 12px; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.acct-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 6px; }
+.acct-pick button { display: flex; align-items: center; gap: 7px; min-height: 36px; padding: 4px 10px; text-align: left; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 13.5px; }
+.acct-pick strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .acct-pick button[aria-pressed="true"] { border-color: var(--a); box-shadow: inset 0 0 0 1px var(--a); background: color-mix(in srgb, var(--a) 8%, var(--surface)); }
-.acct-pick button.add { grid-column: 1 / -1; justify-content: center; min-height: 40px; border-style: dashed; color: var(--muted); }
-.acct-pick span { min-width: 0; }
-.acct-pick small, .acct-hint { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-.acct-hint { margin: 0; }
-dialog label.acct-default { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font-size: 12px; }
-dialog label.acct-default select { width: auto; min-height: 32px; padding: 4px 8px; font-size: 13px; }
+.acct-pick button.add { justify-content: center; border-style: dashed; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.acct-default { display: flex; align-items: center; gap: 8px; min-height: 30px; font-size: 12.5px; color: var(--muted); }
+.acct-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-hint b { color: var(--fg); font-weight: 600; }
+#launch-dialog .acct-default select { width: auto; min-height: 30px; padding: 2px 8px; font-size: 13px; }
 dialog .acct-check { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; min-height: 44px; color: var(--fg); font-size: 14px; cursor: pointer; }
 dialog .acct-check input { flex: none; width: 20px; height: 20px; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); }
 dialog .acct-check small { display: block; color: var(--muted); font-size: 12px; }
 dialog .acct-check.locked { opacity: .6; cursor: default; }
-@media (max-width: 600px) { .acct-pick { grid-template-columns: 1fr; } }
 #acct-dialog { max-width: 560px; overflow-y: auto; }
 #move-dialog { overflow-y: auto; }
 #acct-dialog button:not(.icon-button) { min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }

@@ -50,9 +50,10 @@ With two Claude accounts and one Codex, Claude panes get badges and Codex panes 
 because the Codex icon already says which account it is. Most people have one account
 each, and for them account chrome would only be noise and something to misread.
 
-The one addition everyone sees is **Accounts…** in the ☰ menu, because adding a second
-account has to start somewhere. On a wide screen that menu now sits in the sidebar head;
-the wide layout had no menu before.
+The one addition everyone sees is **Accounts** in Settings, because adding a second
+account has to start somewhere. It lists each account and opens the Accounts sheet from
+Manage accounts…, on a phone (the header's gear) and a wide screen (the sidebar's Settings)
+alike; see [sidebar.md](sidebar.md).
 
 ## Showing it
 
@@ -83,14 +84,14 @@ the wide layout had no menu before.
   save a row, read as loose labels rather than headings, so they now take a row. The chip
   names the account once over its meters, so the meters carry none. A phone's dashboard
   uses the strip, a chip on each meter.
-- **Filter** is a list filter, so it sits with the list's other one rather than in ☰ among
-  settings: on wide, a "Panes from" group (All accounts, then each account) under "Show" in
-  the list's All ∨ dropdown, combining with it (Running + Work is Work's running panes),
-  its dot on the dropdown's label; a phone has no dropdown (its tab bar is the state
+- **Filter** is a list filter, so it sits with the list's other one rather than in Settings:
+  on wide, a "Panes from" group (All accounts, then each account) under "Show" in the
+  filter button's menu beside the search box, combining with it (Running + Work is Work's
+  running panes), the button counting what is on; a phone has no such menu (its tab bar is the state
   filter), so a row of chips under search. While on, a "Filtered: Work ✕" pill shows under
   search on wide, and under a phone's header on the views without the chips (the
-  dashboard). On wide the pill also names a search (`"api" ✕`, in the URL as `q=api`), so
-  one line says everything narrowing the list; a phone's list shows its search box and
+  dashboard). On wide the pill also names the state (`Running ✕`) and a search (`"api" ✕`,
+  in the URL as `q=api`), so one line says everything narrowing the list; a phone's list shows its search box and
   nothing else is searched, so a phone's pill leaves it out. It applies to the list, the strip and the dashboard, Open loops included:
   a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
   which no account owns, is hidden while filtered.
@@ -125,7 +126,7 @@ it; agent-history now indexes every `~/.claude*` dir so those sessions are offer
 
 ![New window with two Claude accounts: Personal and Work as cards, "+ Add account", and the session's default shown and settable](../img/accounts-add-1-new-window.png)
 
-From ☰ → Accounts… → Add account, or "+ Add account" in New window's picker:
+From Settings → Manage accounts… → Add account, or "+ Add account" in New window's picker:
 
 1. **Name, provider and dir.** The dir is suggested as `~/.<provider>-<name>` and stays
    visible and editable, because the dir is the account. One already listed stops the

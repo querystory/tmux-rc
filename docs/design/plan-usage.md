@@ -17,7 +17,7 @@ The first version showed a bare "68%" and "59m", and that read either way: remai
 ### When the phone shows it
 
 Even packed, the strip takes two rows above the list, and most of the time nothing in it
-asks for anything. So the phone's "…" menu has a Usage item that cycles Auto, On and Off,
+asks for anything. So Settings has a Plan usage choice of Auto, On and Off,
 remembered per browser like the theme. On is the full strip and Off hides it. Auto, the
 default, shows only the meters that call for a decision and hides the strip when none do.
 A meter qualifies when the projection has it full before the reset (the same `limit_at`
@@ -28,7 +28,7 @@ is where that remainder gets small enough to matter. Lower and a steady week's o
 pace would keep the strip up most of the time, which is what Auto exists to avoid. An
 account that can't be read drops out under Auto too, because there is nothing to act on.
 The desktop sidebar has room to spare, so it keeps every meter, and the same setting is
-one switch in its ☰ menu, "Plan usage", that is On (Auto and On, since every meter shows) or
+one choice in Settings, "Plan usage", that is On (Auto and On, since every meter shows) or
 Off. It is the one setting rather than a second, desktop-only one, so a browser that crosses
 the breakpoint never shows a strip its other layout was told to hide; someone paying per
 token, with no plan limits at all, turns it off once.
@@ -39,8 +39,8 @@ meters while still swiping sideways, so a tall strip shows more meters rather th
 bigger ones. The height is per browser, like the sidebar's width, and a double-click
 restores the natural one. Dragged under one row it closes, which sets the switch Off with
 an Undo in the notice, rather than snapping back with a hint. Snapping back fights a
-gesture that plainly meant "away", and a zero height would hide the strip somewhere the
-menu does not show, so the switch is the only place hidden can live.
+gesture that plainly meant "away", and a zero height would hide the strip somewhere
+Settings does not show, so the switch is the only place hidden can live.
 
 The meters wait for the accounts before they first draw. Drawn before them, several
 accounts' meters had no strip to fold into yet and stood for a moment as a tall grid

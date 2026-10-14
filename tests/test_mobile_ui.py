@@ -220,6 +220,22 @@ def test_wide_usage_strip_resizes_hides_and_draws_once():
     assert 'request("/api/open-loops"), accounts.refresh()])' in app
 
 
+def test_settings_holds_what_the_old_menus_did():
+    """The ☰ dropdown and the sidebar's icon row are gone (docs/design/sidebar.md): every
+    control they held lives in the one Settings, on desktop and phone alike, and Settings
+    and New window dock beside the sidebar through one helper."""
+    root = Path(__file__).resolve().parents[1] / "web/m"
+    html = (root / "index.html").read_text()
+    start = html.index('<dialog id="settings"')
+    settings = html[start:html.index("</dialog>", start)]
+    for control in ("accounts-open", "push", "theme", "usage-mode", "sort", "docs"):
+        assert f'id="{control}"' in settings, control
+    for gone in ("more-menu", "sb-foot"):
+        assert f'id="{gone}"' not in html
+    app = (root / "app.js").read_text()
+    assert 'openBeside($("settings")' in app and 'openBeside($("launch-dialog")' in app
+
+
 def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
     root = Path(__file__).resolve().parents[1] / "web"
     css = (root / "live-chat.css").read_text()

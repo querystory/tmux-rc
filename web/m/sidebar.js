@@ -5,7 +5,8 @@
 // so they live in localStorage, not the URL. So does the one Sub-agents switch, which lists
 // every pane's running sub-agents under its row in either density (Needs you cards only
 // count them): seeing them is its own question, apart from how much of each pane's
-// activity to show. Folded, the sidebar is a rail of live agents.
+// activity to show. Folded, the sidebar is a rail: its actions and every listed pane as icons
+// (docs/design/sidebar.md).
 // Phones never draw this list (theirs is renderPhoneList in app.js), but their Needs-you rows
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { headerPicker } from "/m/header-picker.js";
@@ -18,7 +19,6 @@ const prefs = { by: "state", rail: false, fold: {}, cards: {}, subagents: true }
 try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.fold && saved.cards) Object.assign(prefs, saved); } catch {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {} };
 
-const alive = (p) => p.activity !== "idle";
 const rank = (p) => needsYou(p) ? 0 : isRunning(p) ? 1 : isRecent(p) ? 2 : 3;
 const STATES = [["run", "Working", isRunning], ["done", "Just finished", (p) => isRecent(p)], ["idle", "Idle", () => true]];
 const FILTERS = [["all", "All"], ["running", "Running"], ["recent", "Recent"], ["attention", "Needs you"]];
@@ -78,9 +78,14 @@ export function setupSidebar(ctx) {
   const app = document.getElementById("app");
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
+  // The rail's search is the box's own icon: focusing the box (a click, or Tab) expands the sidebar.
+  const search = document.querySelector("#sessions .search"), input = search.querySelector("input");
+  search.addEventListener("click", () => input.focus());
+  input.addEventListener("focus", () => { if (prefs.rail) { prefs.rail = false; rerender(); } });
 
-  // One slim row of words: State / Session, the URL's filter (wide has no tab bar to carry
-  // it), and the Sub-agents toggle, whose count's colour says whether it is on.
+  // One slim row of words: State / Session and the Sub-agents toggle, whose count's colour
+  // says whether it is on. The URL's filter (wide has no tab bar to carry it) is a button
+  // beside the search box, since both narrow the list.
   const bar = document.createElement("div");
   bar.className = "sb-bar";
   bar.innerHTML = '<button data-by="state" aria-label="Group by state">State</button><i aria-hidden="true">/</i><button data-by="session" aria-label="Group by session">Session</button>';
@@ -91,8 +96,12 @@ export function setupSidebar(ctx) {
   pick.onchange = () => ctx.setFilter(pick.value);
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
-  bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·", ariaHidden: "true" }), subs);
+  bar.append(subs);
+  document.getElementById("find").append(pick);
   const refreshPick = headerPicker(pick), picker = pick.nextElementSibling, menu = picker.lastChild;
+  picker.classList.add("sb-only");
+  picker.firstChild.title = "Filter";
+  picker.firstChild.insertAdjacentHTML("afterbegin", licon("filter", 16));
   // The menu opens beside the list it filters, never over it: past the sidebar's edge, level
   // with the trigger, so the list narrows in view. With no room there it drops under the
   // trigger, nudged in where a narrow sidebar would clip its left edge.
@@ -210,26 +219,25 @@ export function setupSidebar(ctx) {
     repaint();
     draft().editor.focus();
   }
-  // Folded to the rail: what is alive, Needs you first; idle panes are one count.
+  // Folded to the rail: every pane the list shows, in its order, each with its state's dot
+  // (and, with several accounts, its account's); hovering one shows its card.
   function rail(subset) {
-    const live = subset.filter(alive).sort((a, b) => rank(a) - rank(b));
-    const idle = subset.length - live.length;
-    reconcile(root, [...live, ...(idle ? [{ more: idle }] : [])], (p) => p.more ? "more" : `rail:${p.pane_id}`, (p) => {
+    reconcile(root, groups(subset, "").flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
       const b = document.createElement("button");
-      b.className = p.more ? "sb-more" : "sb-rail";
-      b.innerHTML = p.more ? "" : '<span class="sb-logo"><img alt=""></span>';
-      b.onclick = () => p.more ? collapse.click() : ctx.navigate(b._p.pane_id);
+      b.className = "sb-rail";
+      b.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="sb-acct"></span>';
+      b.onclick = () => ctx.navigate(b._p.pane_id);
       return b;
     }, (b, p) => {
-      if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
       markEnding(b, p);
       const agents = subagentCount(p);
       b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
       b.classList.toggle("need", needsYou(p));
-      b.dataset.agents = agents || "";
+      b.dataset.state = needsYou(p) ? "need" : isRunning(p) ? "run" : "";
       if (p.pane_id === ctx.active()) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       markWorking(b.querySelector("img"), p, ctx.logos);
+      ctx.html(b.lastChild, ctx.badge(p.pane_id));
     });
   }
 
@@ -238,7 +246,7 @@ export function setupSidebar(ctx) {
   // Mouse only: a tap is a navigation, and phones never render this list anyway.
   const card = Object.assign(document.createElement("div"), { id: "side-hover", hidden: true });
   card.setAttribute("role", "tooltip");
-  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><p class="q-cmd"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
+  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="sb-acct"></span><span class="badge"></span><p class="x"></p><p class="q"></p><p class="q-cmd"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
   document.body.append(card);
   let hoverOn = null, pending = null, hoverTimer = 0;
   const paneOf = (el) => (el.closest(".sb-row, .sb-card") || el)._p;
@@ -248,6 +256,7 @@ export function setupSidebar(ctx) {
     text($c("b"), paneName(p));
     text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
     text($c(".w"), [p.session, p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
+    ctx.html($c(".sb-acct"), ctx.badge(p.pane_id));
     $c(".badge").className = `badge ${activityClass(p)}`;
     text($c(".badge"), [activityLabel(p), since(p)].filter(Boolean).join(" · "));
     text($c(".x"), paneHeadline(p) || "No recent activity");
@@ -294,6 +303,7 @@ export function setupSidebar(ctx) {
   function render(subset, query, filter) {
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
+    search.title = prefs.rail ? "Search" : "";
     if (prefs.rail) rail(subset); else list(subset, query, filter);
     // Reconciling may have replaced the hovered row (a card that became a row, say).
     if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
