@@ -90,7 +90,7 @@ function readout(m, now, type, on) {
   const reset = w.resets_at > now ? `resets ${countdown(w.resets_at - now)}, ${clock(w.resets_at, now)}` : 'not started';
   // A reading kept through a failed read says how old it is on hover; the sidebar says it in words.
   // The chip picks the account the chart's bands follow.
-  return `<span class="uv-read"${m.as_of ? ` title="as of ${countdown(now - m.as_of)} ago"` : ''}><button type="button" class="uv-pick" data-type="${esc(type)}" data-id="${esc(m.id)}" aria-pressed="${on}" aria-label="Shade ${esc(m.name)}'s windows">${m.chip}</button><b class="${level}">${Math.round(w.pct)}%</b>`
+  return `<span class="uv-read"${m.as_of ? ` title="as of ${countdown(now - m.as_of)} ago"` : ''}><button type="button" class="uv-pick" data-type="${esc(type)}" data-id="${esc(m.id)}" aria-pressed="${on}" aria-label="Shade ${esc(m.name)}'s windows (${esc(m.dirs)})">${m.chip}</button><b class="${level}">${Math.round(w.pct)}%</b>`
     + (w.limit_at > now && w.resets_at > now ? `<span class="out">full ${clock(w.limit_at, now)}</span>` : '') + `<span>${reset}</span></span>`;
 }
 
@@ -166,7 +166,7 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
   // A meter per account and window, grouped by window type: Codex's week sits in Weekly.
   const byType = {};
   accounts.forEach((a, i) => (a.windows || []).forEach(w => (byType[w.window] ||= []).push({
-    w, as_of: a.as_of, chip: chip(a), id: `${a.provider} ${a.dirs}`, name: a.acct?.name || NAMES[a.provider] || a.provider,
+    w, as_of: a.as_of, chip: chip(a), id: `${a.provider} ${a.dirs}`, dirs: (a.dirs || []).join(', '), name: a.acct?.name || NAMES[a.provider] || a.provider,
     color: css.getPropertyValue(`--acct-${a.acct?.color ?? i}`).trim(), ...teeth(w, now) })));
   const types = [...new Set([...read, ...Object.keys(byType)])].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
   if (types.join() !== view.types.join()) build(types);
