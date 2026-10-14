@@ -124,7 +124,8 @@ def _codex_login(config: Path) -> bool:
 def _codex_status(config: Path) -> bool:
     env = {k: v for k, v in os.environ.items() if k != ENV["codex"]}
     env |= plan_usage.env_for("codex", config)
-    env["PATH"] = tmux.server_path() or env.get("PATH", "")
+    path = tmux.server_path()  # None: tmux can't say; "" is an answer (an empty PATH)
+    env["PATH"] = env.get("PATH", "") if path is None else path
     try:
         return subprocess.run(["codex", "login", "status"], env=env, stdin=subprocess.DEVNULL,
                               capture_output=True, timeout=3, check=False).returncode == 0
@@ -213,7 +214,7 @@ def _profiles(pane_dirs) -> list[dict]:
     # Codex's own status checks side by side, so one slow dir does not stall them all.
     ask = [Path(c) for c, t in found.items() if t == "codex" and not store.get(c, {}).get("hidden")
            and not (Path(c) / "auth.json").exists()]
-    with ThreadPoolExecutor(max_workers=max(len(ask), 1)) as pool:
+    with ThreadPoolExecutor(max_workers=min(max(len(ask), 1), 8)) as pool:
         codex_says = dict(zip(ask, pool.map(_codex_login, ask), strict=True))
     for config, provider in found.items():
         entry = store.get(config, {})
