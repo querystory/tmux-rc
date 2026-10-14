@@ -1117,6 +1117,9 @@ def test_menu_context_is_read_off_its_own_widget():
     box = "\x1e[visible screen]\x1f\n╭────╮\n│ echo a │ │\n│ Go?      │\n│ 1. Yes   │\n╰────╯"
     assert ask(box, "Go?")["question"]["context"] == "echo a │"
     assert ask(nested.replace(" EOF\n", " EOF │\n"), "Go?")["question"]["context"].endswith("EOF │")
+    # A prompt sentence opening a longer row keeps the rest of that row as context.
+    runon = "\x1e[visible screen]\x1f\n───\n Bash command\n\n Go? This deletes /srv/data\n 1. Yes"
+    assert ask(runon, "Go?")["question"]["context"] == "Bash command\n\nThis deletes /srv/data"
     # The edge may sit a full 16 rows above the prompt's own row.
     edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
     assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"

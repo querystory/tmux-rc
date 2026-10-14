@@ -613,7 +613,10 @@ def _widget_text(prompt: str, visible: str) -> str:
     above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows
     top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
                 if _WIDGET_TOP_RE.match(above[i])), None)
-    below = visible[found.end():end].splitlines()[1:]
+    # A prompt sentence may open a longer row: the rest of it is the widget's too, kept
+    # at the prompt's own margin so the frame and common margin go as on every row.
+    rest, *below = visible[found.end():end].split("\n")
+    rest = rest.strip(" \t│┃╎") and found.group()[:_indent(found.group())] + rest.lstrip()
     # With no edge the rows are unframed (Codex): only the terminal's padding goes, so
     # a command's own "│" or "━━━" row stays part of the identity. Framed, a rule is the
     # widget's only when the whole raw row is one ("│ ━━━" is content), and only a ╭ box
@@ -621,8 +624,8 @@ def _widget_text(prompt: str, visible: str) -> str:
     boxed = top is not None and "╭" in above[top]
     text = "\n".join(raw.rstrip() if top is None else "" if _RULE_ROW_RE.match(raw) else
                      _FRAME_RE.sub("", re.sub(r"[│┃╎]\s*$", "", raw) if boxed else raw)
-                     for raw in [*(above[top + 1:] if top is not None else ()), "",
-                                 *below])
+                     for raw in [*(above[top + 1:] if top is not None else ()),
+                                 rest, *below])
     return textwrap.dedent(text).strip("\n")
 
 
