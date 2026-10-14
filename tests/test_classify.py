@@ -1446,6 +1446,12 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
         screen = _auto_screen(message.replace("Go with A or B?", ask))
         question = classify(_pane("claude"), screen, _llm({}))["question"]
         assert "items" not in question and "subject" not in question
+    screen = _auto_screen(message.replace("Go with A or B?", "Grade A only, or choose B?"))
+    assert classify(_pane("claude"), screen, _llm({}))["question"]["items"] == [want[1]]
+    # A heading at the left of an indented list ends it: C starts the new decision's list.
+    screen = _auto_screen("Old:\n  A. Redis\n  B. SQLite\nNew decision:\n  C. Disk\n\n  Go with C?")
+    renamed = classify(_pane("claude"), screen, _llm({}))["question"]
+    assert (renamed["items"], renamed["subject"]) == (["C. Disk"], "New decision:")
     store = message.partition("\n\n  Two")[0]
     labelled = classify(_pane("claude"), _auto_screen(store + "\n\n  Option A or B?"),
                         _llm({}))["question"]

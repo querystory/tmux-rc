@@ -810,7 +810,7 @@ _ITEM_REF_RE = re.compile(
     # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
     r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)" + _REF_AFTER)
 _LETTER_REF_RE = re.compile(
-    r"(?<![\w#$.:/'’-])(?:\(([A-Ha-h])\)|([A-H]))(?![\w%:/'’-]|\.\w)" + _REF_AFTER)
+    r"(?<![\w#$.:/'’-])(?<!(?i:grade) )(?:\(([A-Ha-h])\)|([A-H]))(?![\w%:/'’-]|\.\w)" + _REF_AFTER)
 # The nouns an agent numbers what it proposes by ("edit 2", "Recommendation 2").
 _ITEM_LABEL = (
     r"(?i:items?|edits?|steps?|options?|choices?|points?|rows?|tasks?|fix(?:es)?|"
@@ -889,7 +889,7 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
             item.append(row.strip())  # the item's wrapped continuation
         elif row.strip():
             # Prose at a list's indent or left of it ends that list.
-            lists = {i: v for i, v in lists.items() if i > _indent(row)}
+            lists = {i: v for i, v in lists.items() if i < _indent(row)}
             para = [*(para if not gap else ()), row.strip(" \t│┃╎●⏺•")]
             item, gap = None, False
         else:
