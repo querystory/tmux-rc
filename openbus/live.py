@@ -573,14 +573,21 @@ def _refusal(session, name: str, args: dict, digest: list[dict]) -> str | None:
     question, own = request if isinstance(request, tuple) else ("", request)
     request, said = f"{question}\n{own}", _words(own)
     asked = set(_words(request))
-    if name in _AIMED and pane and getattr(session, "turn_pane", None) not in (
-            None, pane["pane_id"]) and pane["pane_id"] not in _meant(digest, request):
-        return "elsewhere"  # the model's pick over the conversation's: see _FOCUS
+    # The pane the user named, else the one the conversation is on: the model's pick over
+    # either is refused (see _FOCUS).
+    meant = _meant(digest, request) or {getattr(session, "turn_pane", None)} - {None}
+    if name in _AIMED and pane and meant and pane["pane_id"] not in meant:
+        return "elsewhere"
     text = str(args.get("text", "")).strip().casefold()
     row = bool(_ROW.fullmatch(text))
+    # A widget menu takes no message (its Enter picks the highlighted row, "1. Yes"), and
+    # a row only as its one-key shortcut with no Enter, which would land on the next screen;
+    # a cursor picker searches anything typed.
+    shortcut = len(text) == 1 and args.get("press_enter") is False
     if pane and pane.get("menu") is not None and (name == "send_image_to_pane" or (
-            name == "type_in_pane" and (not row or pane.get("answer_style") == "cursor"))):
-        return "menu"  # Enter picks the highlighted row ("1. Yes"); a picker searches typing
+            name == "type_in_pane" and not (row and shortcut
+                                            and pane.get("answer_style") != "cursor"))):
+        return "menu"
     if set(said) & _NOT or said[:1] == ["no"]:  # "don't decline it", "no, …" ask nothing,
         # while "pick No" names a row
         asked = set()
@@ -605,12 +612,13 @@ _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 _DECLINED = {"declined": "the user declined",
              "unanchored": "the user's message only agrees, and you asked them nothing: "
                            "nothing was sent; ask what they want",
-             "elsewhere": "the conversation is on another pane (the [Current pane] line) and the "
-                          "user didn't name this one, so nothing was sent; send it to the "
-                          "current pane, or ask which pane they mean",
+             "elsewhere": "that isn't the pane the user named, or, naming none, the one the "
+                          "conversation is on (the [Current pane] line), so nothing was sent; "
+                          "send it there, or ask which pane they mean",
              "menu": "that pane is waiting on a menu (its PENDING QUESTION), and typing into it "
                      "would pick a row, so nothing was typed; tell the user what it asks and "
-                     "its options, and ask which to pick (a cursor list is driven by keys)",
+                     "its options, and ask which to pick (a row they pick goes as its one "
+                     "key with press_enter false; a cursor list is driven by arrow keys)",
              "unasked_answer": "the user didn't ask you to answer that pane's prompt or press a "
                                "key, so nothing was sent; to pass on a message, type the "
                                "message alone, and ask the user before answering its prompt",

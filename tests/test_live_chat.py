@@ -532,27 +532,30 @@ _MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
     ("decline it", "press_key", {"key": "Enter"}, _ASKING, True),  # the wrong key's job
     ("pick 3", "type_in_pane", {"text": "3"}, _ASKING, False),
     ("ask window 3 for its status", "type_in_pane", {"text": "3"}, _ASKING, True),
-    ("approve the command", "type_in_pane", {"text": "1"}, _MENU, False),
-    ("decline it", "type_in_pane", {"text": "1"}, _MENU, True),  # the wrong side
+    ("approve the command", "type_in_pane", {"text": "1", "press_enter": False}, _MENU, False),
+    ("decline it", "type_in_pane", {"text": "1", "press_enter": False}, _MENU, True),
     ("press enter", "press_key", {"key": "Escape"}, _ASKING, True),  # "press" names no key
     ("pick 3", "type_in_pane", {"text": "2"}, _ASKING, True),  # not the row asked for
-    ("pick 4", "type_in_pane", {"text": "4"}, _MENU, True),  # no such row
-    ("pick 1", "type_in_pane", {"text": "1"}, {**_MENU, "menu": []}, True),  # rows unknown
-    ("approve it", "type_in_pane", {"text": "y"},
+    ("pick 4", "type_in_pane", {"text": "4", "press_enter": False}, _MENU, True),  # no such row
+    ("pick 1", "type_in_pane", {"text": "1", "press_enter": False}, {**_MENU, "menu": []},
+     True),  # rows unknown
+    ("approve it", "type_in_pane", {"text": "y", "press_enter": False},
      {**_MENU, "menu": ["Staging", "Production"]}, True),  # no Yes side to pick
     # A menu takes no message at all: its Enter would pick the highlighted row ("1. Yes").
     ("ask it for status", "type_in_pane", {"text": "From the user: status?"}, _MENU, "menu"),
-    ("pick 3", "type_in_pane", {"text": "3"}, _MENU, False),
+    ("pick 3", "type_in_pane", {"text": "3", "press_enter": False}, _MENU, False),
+    ("pick 3", "type_in_pane", {"text": "3"}, _MENU, "menu"),  # its Enter hits the next screen
     ("send it the screenshot", "send_image_to_pane", {"image_number": 1}, _MENU, "menu"),
-    ("no for the fable one", "type_in_pane", {"text": "3"}, _MENU, True),
+    ("no for the fable one", "type_in_pane", {"text": "3", "press_enter": False}, _MENU, True),
     # A cursor list searches what's typed: even an asked-for row goes by keys.
-    ("pick 3", "type_in_pane", {"text": "3"}, {**_MENU, "answer_style": "cursor"}, "menu"),
+    ("pick 3", "type_in_pane", {"text": "3", "press_enter": False},
+     {**_MENU, "answer_style": "cursor"}, "menu"),
     ("pick 3", "press_key", {"key": "Down"}, {**_MENU, "answer_style": "cursor"}, False),
     ("pick 3", "press_key", {"key": "Enter"}, {**_MENU, "answer_style": "cursor"}, False),
     # Negated, it asks for nothing; a No named with a verb is a row, not a negation.
     ("don't decline it", "press_key", {"key": "Escape"}, _ASKING, True),
     ("no, decline it", "press_key", {"key": "Escape"}, _ASKING, True),
-    ("pick No", "type_in_pane", {"text": "3"}, _MENU, False),
+    ("pick No", "type_in_pane", {"text": "3", "press_enter": False}, _MENU, False),
     # A yes to the assistant's own question carries that question's words.
     (("Want me to cancel its command?", "yes"), "press_key", {"key": "Escape"}, _ASKING, False),
     (("Pick 3. No in fable?", "yes"), "type_in_pane", {"text": "3"}, _ASKING, False)])
@@ -643,7 +646,8 @@ _FABLE = {"pane_id": "%7", "title": "fable session monitor", "window_index": "5"
     ("address review on PR 412", "%3", False),  # or a PR it worked on
     ("all 412 workstreams", "%3", True),  # a bare number cites no PR
     ("and the tmuxrc opus 5.5 main session?", "%3", True),  # naming another pane
-    ("ask window 2 about PR 412", "%3", True)])  # a named pane wins over a PR number
+    ("ask window 2 about PR 412", "%3", True),  # a named pane wins over a PR number
+    ("ask window 2 about it", "%7", True)])  # even over the current pane
 def test_a_send_off_the_current_pane_needs_the_user_to_name_it(request_, turn_pane, refused):
     s = Ns(unanchored=False, request=("", request_), turn_pane=turn_pane)
     args = {"pane_id": "%7", "text": "From the user: status?"}
