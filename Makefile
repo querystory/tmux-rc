@@ -1,4 +1,4 @@
-.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units demo screenshots screenshots-diff
+.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units demo screenshots screenshots-diff mock mock-check mock-live
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -103,3 +103,22 @@ screenshots: $(PLAYWRIGHT)
 
 screenshots-diff: $(PLAYWRIGHT)
 	uv run python -m scripts.screenshots_diff $(BASE) .screenshots/diff
+
+# Mocks: variants of /m over the demo fleet, in one harness (docs/deploy/previews.md,
+# "Mocks"). A mock's source (variants.json and its scripts) lives outside every checkout in
+# MOCKS_DIR/NAME; only the harness and the decision it leads to are committed. `mock`
+# snapshots it into scratch, `mock-check` shoots that at desktop and phone size, and
+# `mock-live` runs it over the live demo app on http://127.0.0.1:18039/mock/live/.
+MOCKS_DIR ?= $(HOME)/.local/share/tmux-rc/mocks
+MOCK_OUT ?= $(or $(TMUXRC_SCRATCH_DIR),.screenshots/mock)/$(NAME)
+mock mock-check mock-live: NAME ?= $(error NAME=<mock> is required)
+
+mock: $(PLAYWRIGHT)
+	node scripts/mock.mjs build $(MOCKS_DIR)/$(NAME) $(MOCK_OUT)
+
+mock-check: $(PLAYWRIGHT)
+	node scripts/mock.mjs check $(MOCK_OUT)
+
+mock-live: $(PLAYWRIGHT) # mock.mjs loads the shared browser module even here
+	node scripts/mock.mjs live $(MOCKS_DIR)/$(NAME) $(MOCK_OUT)
+	TMUXRC_MOCK_DIR=$(MOCKS_DIR)/$(NAME) uv run python -m scripts.demo_server 18039

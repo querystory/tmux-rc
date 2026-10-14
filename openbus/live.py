@@ -369,9 +369,11 @@ _TEXT_NOTE = (
     'Keep them short and plain. Label relayed messages "(via text)". Actions that change '
     "a pane (type_in_pane, press_key, resume_session, send_image_to_pane) are shown to the "
     "user to approve first; a declined one did not happen, so don't retry it unless the user "
-    "asks. Act first, then report the outcome briefly; don't narrate what you're about to "
-    "do before calling a tool. Pasted images are numbered in the turn text; to give one to "
-    'an agent ("send this to window 3") use send_image_to_pane.'
+    "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
+    "about to do before calling a tool, and never say what a pane did unless an update "
+    'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
+    "with none, ask what they mean instead of acting. Pasted images are numbered in the "
+    'turn text; to give one to an agent ("send this to window 3") use send_image_to_pane.'
 )
 
 
@@ -417,7 +419,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         "status": "rejected", "reason": "unknown tool"}
     try:
         if known:
-            ok, pid = (await _approved(websocket, call, watcher, meter, rec)
+            ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
             result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
@@ -436,7 +438,7 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
     status, reason = result["status"], result.get("reason")
     _audit(
         meter, f"live_{name}",
-        outcome="ok" if status in {"done", "ok", "opened", "button_shown"}
+        outcome="ok" if status in {"sent", "ok", "opened", "button_shown"}
         else f"{status}: {reason}" if reason else status,
         latency_ms=round((time.monotonic() - started) * 1000), **rec,
     )
@@ -450,6 +452,8 @@ _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 # Typing a new message while a card waits answers it: the user moved on, so the model is
 # told not to retry and to take the new turn (queued behind this one) instead.
 _DECLINED = {"declined": "the user declined",
+             "unanchored": "the user's message only agrees, and you asked them nothing: "
+                           "nothing was sent; ask what they want",
              "superseded": "the user sent a new message instead of answering; do not retry "
                            "this, answer their new message (it follows)"}
 # A card whose connection dropped before the user answered (iOS drops the socket on every
@@ -579,14 +583,18 @@ async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool) 
 
 
 async def _approved(
-    websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict
+    websocket: WebSocket, session, fc, watcher, meter: _Meter, rec: dict
 ) -> tuple[bool, str | None]:
     """Show the user what the call would do, as the model asked it, and wait for Send or
     Cancel, or a new typed turn, which supersedes the card. Returns the answer and the
     pane's pid when it was proposed: the card named THAT process, and tmux recycles %N, so
     an approval must not type into whatever holds the id by the time the user taps. A
     malformed call can be approved and is still refused by _dispatch: this gate only ever
-    removes actions."""
+    removes actions. A turn that only agrees ("yes") with nothing asked is refused before any
+    card (live_chat.only_agrees); the session's caution, if any, rides on the card."""
+    if getattr(session, "unanchored", False):
+        rec["consent"] = "unanchored"
+        return False, None
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
     d = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
@@ -600,7 +608,11 @@ async def _approved(
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
-    card = {"type": "propose", "pane_id": pane_id if known else None}  # Open
+    card = {"type": "propose", "pane_id": pane_id if known else None,  # Open
+            "warn": getattr(session, "caution", None)}
+    well_formed = _keystrokes(fc, pane_id)[0] is not None
+    if known:  # what the card calls the pane until the page's own list has it
+        card["label"] = d.get("title") or d.get("label") or pane_id
     if fc.name == "resume_session":
         entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
             await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}
@@ -611,6 +623,8 @@ async def _approved(
                 "last_active": entry.get("last_active"), "id": entry["session_id"][:8]}
     elif fc.name == "press_key":
         summary = f"Press {args.get('key')} in {pane}"
+        if well_formed:  # drawn as a keycap; a call _dispatch refuses keeps the sentence
+            card["key"] = args["key"]
     elif fc.name == "send_image_to_pane":
         image = meter.image(args.get("image_number"))
         caption = args.get("caption")
@@ -621,6 +635,8 @@ async def _approved(
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
+        if well_formed:  # drawn: the text quoted, and whether Enter follows
+            card.update(payload=args["text"], enter=args.get("press_enter", True))
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
     card["text"] = summary
     proposal = uuid.uuid4().hex
@@ -677,33 +693,12 @@ async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str
         await asyncio.sleep(_NUDGE_TICK)
 
 
-async def _dispatch(
-    websocket: WebSocket, session, fc, watcher, rec: dict, *,
-    expected_pid: str | None = None, meter: _Meter | None = None,
-) -> dict:
-    """Route a tool call (type_in_pane / press_key, or a history tool) and return its
-    answer. The result NEVER rides back through the tool response (echo loops — see
-    design doc); the model sees the outcome via the post-action ambient refresh instead."""
+def _keystrokes(fc, pane_id: str) -> tuple[tuple | None, str | None, bool]:
+    """A type_in_pane / press_key call parsed into (send_args for tmux.send_keys, a human
+    "what" for the audit/feed, whether it counts as submitted); send_args None when it is
+    malformed, which _dispatch rejects and a consent card does not draw as an action."""
     args = fc.args if isinstance(fc.args, dict) else {}
-    if fc.name in _HISTORY_TOOLS:
-        if not agent_history.offered():
-            return {"status": "rejected", "reason": "session history not available"}
-        return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
-    if fc.name == "send_image_to_pane":
-        return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
-    if fc.name == "open_pane":
-        return await _open_pane(websocket, args, watcher, rec)
-
-    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
-    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
-    # rather than silently accept its repr. A model parroting our own tool response back
-    # as a new call is exactly how a dict arrives here.
     raw_pane_id = args.get("pane_id")
-    pane_id = str(raw_pane_id or "").strip()
-    labels = _labels(watcher)
-
-    # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
-    # whether it counts as submitted). malformed stays None ⇒ reject below.
     send_args = what = None
     submitted = False
     if (
@@ -731,6 +726,35 @@ async def _dispatch(
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
+    return send_args, what, submitted
+
+
+async def _dispatch(
+    websocket: WebSocket, session, fc, watcher, rec: dict, *,
+    expected_pid: str | None = None, meter: _Meter | None = None,
+) -> dict:
+    """Route a tool call (type_in_pane / press_key, or a history tool) and return its
+    answer. The result NEVER rides back through the tool response (echo loops — see
+    design doc); the model sees the outcome via the post-action ambient refresh instead."""
+    args = fc.args if isinstance(fc.args, dict) else {}
+    if fc.name in _HISTORY_TOOLS:
+        if not agent_history.offered():
+            return {"status": "rejected", "reason": "session history not available"}
+        return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
+    if fc.name == "send_image_to_pane":
+        return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
+    if fc.name == "open_pane":
+        return await _open_pane(websocket, args, watcher, rec)
+
+    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
+    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
+    # rather than silently accept its repr. A model parroting our own tool response back
+    # as a new call is exactly how a dict arrives here.
+    raw_pane_id = args.get("pane_id")
+    pane_id = str(raw_pane_id or "").strip()
+    labels = _labels(watcher)
+
+    send_args, what, submitted = _keystrokes(fc, pane_id)
 
     # The payload may hold secrets: it is speech, so it reaches the journal only under
     # QSDEBUG. The pane id is recorded only once it names a real pane.
@@ -741,12 +765,13 @@ async def _dispatch(
     if send_args is None:
         return {"status": "rejected", "reason": "malformed call"}
 
+    from .server import _input_attempt  # noqa: PLC0415 - server imports this module
+
     label = labels[pane_id]
-    invalidate = getattr(watcher, "invalidate_input_actions", None)
     try:
-        if invalidate is not None:
-            await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
-        await asyncio.to_thread(tmux.send_keys, *send_args, expected_pid=expected_pid)
+        await asyncio.to_thread(
+            _input_attempt, pane_id, lambda: tmux.send_keys(*send_args, expected_pid=expected_pid),
+            watcher=watcher)
     except Exception as e:  # report, don't kill the session
         # The error's text can quote the typed text (send-keys argv): speech, so only
         # the class leaves here unless QSDEBUG.
@@ -756,11 +781,11 @@ async def _dispatch(
         return _send_failed(e, rec, "pane did not accept input")
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
-    watcher.request_reparse(pane_id)
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,
-         "text": what, "submitted": submitted}
+         "text": what, "submitted": submitted,
+         **({"key": args["key"]} if fc.name == "press_key" else {"payload": what})}
     )
 
     # Let the pane react, then show the model what its keystrokes did — as ambient
@@ -775,7 +800,14 @@ async def _dispatch(
 
     if session is not None:  # none for a resumed card (_resume)
         _background(asyncio.create_task(refresh()))
-    return {"status": "done", "pane": label}
+    return _sent(label)
+
+
+def _sent(label: str) -> dict:
+    """A delivered send. Not "done": the model read that as the work being done, and told the
+    user what the pane was "now" doing before it had seen the pane react at all."""
+    return {"status": "sent", "pane": label,
+            "note": "delivered; you haven't seen the pane react, so say only what you sent"}
 
 
 def _send_failed(e: Exception, rec: dict, reason: str) -> dict:
@@ -813,11 +845,10 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
         logger.warning("[live] send_image_to_pane failed for %s: %s", pane_id, type(e).__name__,
                        exc_info=telemetry.QSDEBUG)
         return _send_failed(e, rec, "pane did not accept the image")
-    rec["detail"] += f" via {mode}"
-    watcher.request_reparse(pane_id)
+    rec["detail"] += f" via {mode}"  # attach_image has already requested the reparse
     await websocket.send_json({"type": "typed", "pane_id": pane_id, "label": labels[pane_id],
                                "text": f"[image] {caption}".strip(), "submitted": True})
-    return {"status": "done", "pane": labels[pane_id]}
+    return _sent(labels[pane_id])
 
 
 async def _offer(websocket, pane_id: str, pane: dict, *, auto: bool = False) -> None:
@@ -1210,6 +1241,9 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     await _tell(websocket, meter, proposal)
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
+        elif action == "resume" and hasattr(session, "restore"):  # a chat's reconnect
+            logger.info("[live] chat context restored: %d rows",
+                        session.restore(data.get("transcript")))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
             proposal, ok = str(data.get("id")), data.get("ok") is True
             answer = meter.approvals.get(proposal)
@@ -1281,6 +1315,11 @@ async def _hold(websocket: WebSocket, seconds: float, meter: _Meter) -> bool:
     return False
 
 
+# Close codes a client sends when it simply goes away: normal, going away, no status
+# (a tab closed or a phone asleep), and service restart.
+_NORMAL_CLOSES = frozenset({1000, 1001, 1005, 1012})
+
+
 async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
     """Connect to meter.model and run the session; reconnect with backoff on drops."""
     model = meter.model
@@ -1347,9 +1386,13 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
                         )
                     for t in done:
                         if not t.cancelled() and (exc := t.exception()) is not None:
-                            logger.warning(
-                                "[live] side task %s ended in error: %r", t.get_name(), exc
-                            )
+                            # A phone tab closing or sleeping (1005), or a restart (1012),
+                            # is the client's normal lifecycle, not an error worth a warning.
+                            normal = (isinstance(exc, WebSocketDisconnect)
+                                      and exc.code in _NORMAL_CLOSES)
+                            logger.log(logging.INFO if normal else logging.WARNING,
+                                       "[live] side task %s ended in error: %r",
+                                       t.get_name(), exc)
         except (WebSocketDisconnect, live_providers.Unreachable):
             raise  # client gone, or a misconfiguration no retry can fix
         except Exception:

@@ -3,6 +3,7 @@
 Each "daemon" is a fresh Watcher over the same SQLite file. tmux, the clock, the
 parser and the bootstrap are stubbed; a parse or bootstrap call stands for an LLM call."""
 
+import json
 import os
 import sqlite3
 
@@ -102,19 +103,26 @@ def test_database_failure_falls_back(monkeypatch, tmp_path):
     assert card(w)["last_activity_at"] == 19000.0
 
 
-def test_prunes_gone_panes_and_dead_servers(monkeypatch, tmp_path):
+def test_prunes_gone_panes_and_expired_dead_servers(monkeypatch, tmp_path):
     db = tmp_path / "h.db"
     history = History(db)
-    row = {"fp": "x", "last_activity_at": 1.0, "idle_since": None, "card": None}
+    now = W.DEAD_SERVER_RETENTION + 10_000.0
     live = f"boot:{os.getpid()}"
-    history.save_checkpoints([{**row, "uid": f"{server}:%1:5", "server": server} for server in (
-        "boot:1",           # this server: its %1:5 pane is gone
-        "oldboot:77",       # previous boot
-        "boot:999999999",   # this boot, pid not running
-        live,               # this boot, still running: kept however long it sits still
+    history.save_checkpoints([{
+        "uid": f"{server}:{pane}:5", "server": server, "fp": "x", "idle_since": None,
+        "card": None, "last_activity_at": at,
+    } for server, pane, at in (
+        ("boot:1", "%1", now),             # this server: its %1:5 pane is gone
+        ("oldboot:77", "%1", 1.0),         # previous boot, idle past retention
+        ("boot:999999999", "%1", 1.0),     # this boot, pid not running, idle past retention
+        ("oldboot:78", "%1", now - 3600),  # previous boot, recent: kept for a restore
+        ("oldboot:78", "%2", 1.0),         # ...with its long-idle sibling
+        (live, "%1", 1.0),                 # this boot, still running: kept however long
     )])
-    daemon(monkeypatch, db, history=history)
-    assert set(History(db).load_checkpoints()) == {f"{live}:%1:5", "boot:1:%1:101"}
+    w, _ = daemon(monkeypatch, db, history=history, now=now, activity=str(int(now)))
+    assert set(History(db).load_checkpoints()) == {
+        f"{live}:%1:5", "oldboot:78:%1:5", "oldboot:78:%2:5", "boot:1:%1:101"}
+    assert all(r["server"] == "boot:1" for r in w._checkpoints.values())
 
 
 def test_migrates_old_schema_and_refuses_newer(tmp_path):
@@ -177,6 +185,21 @@ def test_retiring_a_pr_rewrites_the_checkpoint(monkeypatch, tmp_path):
     w._pr_titles._cache[("o/r", 1)] = (float("inf"), {"title": "t", "state": "MERGED"})
     w._tick()
     assert w._prs["%1"] == [] and len(saves) == 1
+
+
+def test_a_card_checkpointed_without_a_frame_is_parsed_again(monkeypatch, tmp_path):
+    """The checkpoint key strips durations, so "sleep 10s" can restore over "sleep 20s":
+    a frame taken off today's screen would let the old question's digit approve it."""
+    db = tmp_path / "h.db"
+    daemon(monkeypatch, db)
+    with sqlite3.connect(db) as conn:
+        (raw,) = conn.execute("SELECT card FROM pane_checkpoints").fetchone()
+        old = json.loads(raw)
+        old["state"].pop("frame")
+        conn.execute("UPDATE pane_checkpoints SET card = ?", (json.dumps(old),))
+    w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
+    assert "parse" in calls
+    assert w.states[0]["frame"]
 
 
 def test_an_expunged_pane_is_never_checkpointed_again(monkeypatch, tmp_path):

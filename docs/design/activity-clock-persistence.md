@@ -147,12 +147,14 @@ a no-op, and they converge.
 After the first successful listing of every pane on the tmux server, we delete the
 preloaded rows for that server whose panes are not in it. Limiting the delete to the
 preload means a row another daemon inserted meanwhile can't be pruned. Preloaded rows
-from other tmux servers go once that server is provably gone: a different boot id, or
-a server pid that is no longer running. The listing must be the full one, not the
-watch list, which `TMUXRC_TARGET` narrows to one pane. If tmux can't be listed,
-nothing is pruned. Expiring rows by age instead would drop a long-idle live pane back
-to `window_activity`, which the footer redraws above keep fresh: the very bug this
-fixes.
+from other tmux servers go once that server is provably gone (a different boot id, or
+a server pid that is no longer running) and its newest activity is 30 days old. Until
+then they are the only record of what a server ran, which after a reboot is what you
+want back. The age is the server's, not the row's, so a long-idle pane is kept with
+its siblings. The listing must be the full one, not the watch list, which
+`TMUXRC_TARGET` narrows to one pane. If tmux can't be listed, nothing is pruned.
+Expiring this server's rows by age instead would drop a long-idle live pane back to
+`window_activity`, which the footer redraws above keep fresh: the very bug this fixes.
 
 ## Alternatives considered
 

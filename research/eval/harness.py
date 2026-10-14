@@ -162,8 +162,8 @@ def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     model that says "cursor" with a wrong anchor selects the WRONG SESSION — silently,
     and with an eval that was still green. Scored only where a sample asks for it, since
     most screens have nothing to say about either. `context` (the widget rows classify()
-    reads around a menu's prompt) and `items` (the list rows a typed question names by
-    number) are pinned the same way, exactly; an `ask`
+    reads around a menu's prompt), `items` (the list rows a typed question names) and
+    `subject` (the paragraph leading into them) are pinned the same way, exactly; an `ask`
     pinned null asserts a menu is NOT restated (a present one is left to the judge)."""
     if field is None:
         return None
@@ -204,16 +204,19 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         expected_prs = sorted(map(pr_key, expected.get("working_prs") or []))
         if candidate_prs != expected_prs:
             diffs.append(f"working_prs: got {candidate_prs!r} want {expected_prs!r}")
+    subs = candidate.get("subagents")
+    subs = [a for a in subs if isinstance(a, dict)] if isinstance(subs, list) else []
     if "subagent_states" in expected:
-        subs = candidate.get("subagents")
-        states = (sorted(str(a.get("state")) for a in subs if isinstance(a, dict))
-                  if isinstance(subs, list) else [])
+        states = sorted(str(a.get("state")) for a in subs)
         if states != sorted(expected["subagent_states"]):
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
+    diffs.extend(f"subagents: no row matches {want!r}"  # each must match some row exactly
+                 for want in expected.get("subagents_include", [])
+                 if not any(all(a.get(k) == v for k, v in want.items()) for a in subs))
     # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
     extra = tuple(k for k in ("selected", "keymap", "context", "items",
-                              "ask")  # ask: only its absence
+                              "subject", "ask")  # ask: only its absence
                   if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:

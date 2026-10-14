@@ -61,20 +61,22 @@
   </script>
   <link rel="stylesheet" href="/m/style.css">
   <link rel="stylesheet" href="/live-chat.css">
-  <link rel="modulepreload" href="/terminal.js">
-  <link rel="modulepreload" href="/m/live.js">
-  <link rel="modulepreload" href="/live-close.js">
-  <link rel="modulepreload" href="/live-chat.js">
-  <link rel="modulepreload" href="/m/composer.js">
-  <link rel="modulepreload" href="/m/pane-model.js">
-  <link rel="modulepreload" href="/m/url-state.js">
-  <link rel="modulepreload" href="/m/overscroll.js">
-  <link rel="modulepreload" href="/m/keys.js">
-  <link rel="modulepreload" href="/m/sidebar.js">
-  <link rel="modulepreload" href="/m/usage.js">
-  <link rel="modulepreload" href="/m/accounts.js">
-  <link rel="modulepreload" href="/m/loops.js">
-  <link rel="modulepreload" href="/cursor-pick.js">
+  <!-- /v/0/ is the server's asset version: see mobile_ui in openbus/server.py -->
+  <script type="importmap">{ "imports": { "/": "/v/0/", "/v/": "/v/" } }</script>
+  <link rel="modulepreload" href="/v/0/terminal.js">
+  <link rel="modulepreload" href="/v/0/m/live.js">
+  <link rel="modulepreload" href="/v/0/live-close.js">
+  <link rel="modulepreload" href="/v/0/live-chat.js">
+  <link rel="modulepreload" href="/v/0/m/composer.js">
+  <link rel="modulepreload" href="/v/0/m/pane-model.js">
+  <link rel="modulepreload" href="/v/0/m/url-state.js">
+  <link rel="modulepreload" href="/v/0/m/overscroll.js">
+  <link rel="modulepreload" href="/v/0/m/keys.js">
+  <link rel="modulepreload" href="/v/0/m/sidebar.js">
+  <link rel="modulepreload" href="/v/0/m/usage.js">
+  <link rel="modulepreload" href="/v/0/m/accounts.js">
+  <link rel="modulepreload" href="/v/0/m/loops.js">
+  <link rel="modulepreload" href="/v/0/cursor-pick.js">
 </head>
 <body>
   <div id="app">
@@ -88,34 +90,35 @@
       <span id="connection" role="status">Connecting</span>
       <button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button>
       <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
-      <!-- A phone keeps Chat and the mic in reach; the settings-like controls fold in here. -->
-      <details id="more-menu" class="header-picker"><summary id="more-button" class="icon-button" aria-label="Menu" title="Menu"></summary><div class="header-picker-menu">
-        <button id="accounts-open" class="icon-button" aria-label="Accounts…" title="Agent accounts"></button>
-        <button id="push" class="icon-button" aria-label="Notifications" aria-pressed="false" hidden></button>
-        <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
-        <a id="docs" class="icon-button" href="/docs/" hidden aria-label="Documentation" title="Documentation"></a>
-        <button id="sort" class="icon-button" title="Switch the sort order"></button>
-        <button id="usage-mode" class="icon-button" title="Choose when the usage meters show"></button>
-      </div></details>
+      <!-- A phone keeps Chat and the mic in reach; the gear opens Settings, as the sidebar's row does. -->
+      <button id="settings-open" class="icon-button" aria-label="Settings" title="Settings"></button>
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
     <!-- Wide screens: #sessions is the sidebar. app.js moves the header's brand and buttons
          into these slots (and back for a phone), so each control exists once. -->
     <section id="sessions" aria-label="Sessions">
+      <!-- Wide, the head stays put; below it everything down to the list scrolls as one, the
+           Sessions block sticking under the head; the usage strip stays at the foot. A phone's
+           #sessions is the scroller (style.css). -->
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
+      <div id="sb-scroll">
+      <!-- The places you go, as rows: Dashboard and Settings (app.js moves Settings in). Chat and
+           Voice are toggles, icons in the head. -->
       <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button></div>
-      <div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div>
+      <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div>
+      <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
+      <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div></div>
       <div id="pane-list"></div>
       <div id="side-list" class="sb-only"></div>
-      <p id="empty" class="empty" role="status">Loading sessions...</p><button id="list-start" class="primary start-session" hidden>Start a tmux session</button>
+      <p id="empty" class="empty" role="status">Loading sessions...</p><button type="button" id="empty-needs" class="empty-needs" hidden></button><button id="list-start" class="primary start-session" hidden>Start a tmux session</button>
+      </div>
       <!-- A phone's floating action button, pinned to the list's foot (sticky, so the list's
            end scrolls clear of it). -->
       <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
       <!-- Plan limits (usage.js): pinned over a phone's list by CSS, above the wide foot. -->
       <div id="usage-handle" class="sb-only" role="separator" aria-orientation="horizontal" aria-label="Resize plan usage" tabindex="0" hidden></div>
       <div id="usage" role="link" aria-label="Plan usage" tabindex="0" title="Open plan usage in the dashboard" hidden></div>
-      <div id="sb-foot" class="sb-only"></div>
     </section>
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
     <section id="landing" aria-label="Dashboard" hidden>
@@ -137,7 +140,7 @@
            it does not describe. Kept as ONE node for both layouts — narrow stacks it above
            the tabs exactly as the old header row read, wide sits it on the tab line. -->
       <div id="heading" hidden><div class="pane-heading-text"><h1 id="pane-title" tabindex="-1"></h1><p id="pane-location"></p></div>
-        <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" data-view="summary" aria-pressed="true">Overview</button><button type="button" data-view="terminal" aria-pressed="false">Terminal</button></div><span>Layout</span><select id="review-layout" aria-label="Session view"><option value="auto">Auto</option><option value="side">Side by side</option><option value="stack">Overview above</option><option value="summary">Overview</option><option value="terminal">Terminal</option></select></div>
+        <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" data-view="summary" aria-pressed="true">Overview</button><button type="button" data-view="terminal" aria-pressed="false">Terminal</button></div><select id="review-layout" aria-label="Pane layout" aria-description="Applies to all panes · remembered in this browser"></select></div>
         <details id="pane-menu" class="header-picker"><summary id="pane-menu-button" class="icon-button" aria-label="More actions" title="More actions"></summary><div class="header-picker-menu"><button id="kill-pane" type="button"></button><button id="move-pane" hidden type="button"></button><hr id="expunge-rule" hidden><button id="expunge-pane" hidden type="button"></button></div></details>
         <button id="close-pane" class="icon-button" aria-label="Close" title="Close"></button>
       </div>
@@ -169,8 +172,16 @@
       <div id="fleet-handle" role="separator" aria-orientation="horizontal" aria-label="Resize the fleet chart" title="Drag to resize. Double-click to fold or unfold." tabindex="0" hidden></div>
       <section id="fleet" aria-label="Fleet chart" hidden></section>
     </section>
-    <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="running-tab" data-filter="running" aria-pressed="false"></button><button id="recent-tab" data-filter="recent" aria-pressed="false"></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
-    <dialog id="launch-dialog" aria-labelledby="launch-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><label for="launch-session">Session</label><select id="launch-session" required></select><div id="launch-new" hidden><label for="launch-dir">Directory</label><input id="launch-dir" list="launch-dirs" value="~" autocomplete="off" autocapitalize="off" spellcheck="false"><datalist id="launch-dirs"></datalist><label for="launch-name">Session name</label><input id="launch-name" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9_\-]{1,64}"></div><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></dialog>
+    <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="working-tab" data-filter="working" aria-pressed="false"></button><button id="finished-tab" data-filter="finished" aria-pressed="false"></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
+    <dialog id="launch-dialog" aria-labelledby="launch-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><div class="panel-body"><p class="panel-sub">Start an agent or shell in a new tmux window.</p><div class="launch-row"><label for="launch-session">Session</label><select id="launch-session" required></select></div><div id="launch-new" hidden><label for="launch-dir">Directory</label><input id="launch-dir" list="launch-dirs" value="~" autocomplete="off" autocapitalize="off" spellcheck="false"><datalist id="launch-dirs"></datalist><label for="launch-name">Session name</label><input id="launch-name" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9_\-]{1,64}"></div><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></div></dialog>
+    <!-- Settings: what you set once, not a place you go (docs/design/sidebar.md). Wide, a panel
+         beside the sidebar; a phone, a sheet. -->
+    <dialog id="settings" aria-labelledby="settings-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="settings-title">Settings</h2><button type="button" id="close-settings" class="icon-button" aria-label="Close" title="Close"></button></div><div class="panel-body">
+      <h3>Accounts</h3><div class="set-card"><div id="settings-accounts"></div><button type="button" id="accounts-open" class="set-row set-link">Manage accounts…</button></div>
+      <section><h3>Notifications</h3><div class="set-card"><div class="set-row"><span><b>Push notifications</b><small>Alert this device when a pane needs you.</small></span><button type="button" id="push" class="switch" aria-pressed="false" hidden></button></div></div></section>
+      <h3>Appearance</h3><div class="set-card"><div class="set-row"><b>Theme</b><span id="theme" class="seg" role="group" aria-label="Theme"></span></div><div class="set-row"><b>Plan usage</b><span id="usage-mode" class="seg" role="group" aria-label="Plan usage"></span></div><div class="set-row"><span><b>Always show panes that need you</b><small>Even when a filter leaves them out (they are marked so).</small></span><span id="pin-needs" class="seg" role="group" aria-label="Always show panes that need you"></span></div><div id="sort-row" class="set-row"><b>Sort by</b><span id="sort" class="seg" role="group" aria-label="Sort by"></span></div></div>
+      <section><h3>Help</h3><div class="set-card"><a id="docs" class="set-row set-link" href="/docs/" hidden>Documentation</a></div></section>
+    </div></dialog>
     <dialog id="expunge-dialog" aria-labelledby="expunge-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="expunge-title">Expunge session</h2><button type="button" id="close-expunge" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="expunge-what"></p><p id="expunge-caveat">Copies already sent via OpenTelemetry, or kept by Anthropic or OpenAI, are not affected.</p><button type="button" id="expunge-confirm"></button></dialog>
     <dialog id="move-dialog" aria-labelledby="move-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="move-title">Move to another account</h2><button type="button" id="close-move" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="move-what" role="status"></p><div id="move-choices" class="choice-list" aria-label="Account"></div></dialog>
     <dialog id="voice-dialog" aria-labelledby="voice-title" tabindex="-1">
@@ -185,6 +196,6 @@
     </dialog>
   </div>
   <div id="booting" role="status"><p>Loading…</p><p>tmux-rc couldn't start.</p><button type="button" class="primary" onclick="location.reload()">Reload</button></div>
-  <script type="module" src="/m/app.js"></script>
+  <script type="module" src="/v/0/m/app.js"></script>
 </body>
 </html>
