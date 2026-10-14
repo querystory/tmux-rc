@@ -1433,9 +1433,10 @@ def test_question_naming_lettered_options_carries_them_and_the_decision():
         question = classify(_pane("claude"), screen, _llm({}))["question"]
         assert sorted(question["items"]) == want
         assert question["subject"] == "Two ways to fix the timeouts:"
-    screen = _auto_screen(message.replace("Go with A or B?", "Go with (A)?"))
-    single = classify(_pane("claude"), screen, _llm({}))["question"]
-    assert single["items"] == ["A. Answer first."]
+    for ask in ("Go with (A)?", "Select A?"):
+        screen = _auto_screen(message.replace("Go with A or B?", ask))
+        single = classify(_pane("claude"), screen, _llm({}))["question"]
+        assert single["items"] == ["A. Answer first."]
     # A list that opens the agent's turn starts after its "●" marker, with no lead-in.
     opening = classify(_pane("claude"), "\x1e[visible screen]\x1f\n❯ which store?\n\n" +
                        _auto_screen("A. Redis\n  B. SQLite\n\n  Go with A or B?").split("\n", 1)[1],

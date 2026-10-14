@@ -818,7 +818,7 @@ _ITEM_LABEL = (
     r"actions?|issues?|findings?|comments?|bullets?|entry|entries|parts?|phases?|stages?|"
     r"number|no\.?)")
 _LETTER_BEFORE_RE = re.compile(
-    rf"\b(?:{_ITEM_LABEL}|(?i:with|for|pick|choose|take|use|prefer|do|go))\s+$")
+    rf"\b(?:{_ITEM_LABEL}|(?i:with|for|pick|choose|select|take|use|prefer|do|go))\s+$")
 _COUNT_BEFORE_RE = re.compile(
     r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
     r"had|got|need|needs|want|wants|own|owns|keep|keeps|to|from|equals?)\s+$|=\s*$"
