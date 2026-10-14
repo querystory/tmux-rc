@@ -43,8 +43,8 @@ claude.ai. A status word in the foot cost a row to say what a dot says.
 
 ## The filter opens beside the list
 
-The filter grew out of the shipped one (#402). Its menu has Show (Running, Recent, Needs you)
-and, with two or more accounts, Panes from, both multi-select: a pane shows if it matches any
+The filter grew out of the shipped one (#402). Its menu has State (Running, Recent, Needs you)
+and, with two or more accounts, Account, both multi-select: a pane shows if it matches any
 checked state and any checked account, and none checked is All. One-of was wrong for both:
 "running or recently finished" and "these two accounts" are natural questions. The menu stays
 open while you check, since one click is rarely the whole choice. Then Group by (State or
@@ -54,10 +54,12 @@ which reads best grouped by session).
 The button is a bordered square, unmistakably clickable, and it opens the menu to the right
 of the sidebar, never over the list, so the list narrows in view as you pick. Everything that
 narrows the list reads as one row of chips under the search, one per state, per account and
-for the keyword, each with its ×; the button counts the same and its tooltip names them. The
+for the keyword, each with its ×, grouped under small labels named as the menu names them
+(State, Account, Search: chips of one look read as one kind of thing), and a Clear all once
+two are on (the menu has one too); the button counts the same and its tooltip names them. The
 chips are the rows' own account chips, small, with no "Filtered:" label: larger chips with a
 label took two lines for three filters. Each state has its list colour (amber Needs you, green
-Running, muted Recent) on its chip, its dot in the menu and its section's count, so the three
+Running, muted Recent) on its chip, its dot in the menu's State and its section's count, so the three
 read as one thing. Grouping and
 sorting are not filters: they change how the list reads, not what is in it, so they neither
 count nor get a chip (a "1" on the button for grouping by session read as a hidden filter).

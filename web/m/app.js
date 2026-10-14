@@ -233,7 +233,7 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click(),
   // The wide list's state filters, each a chip that clears it (focus to the filter button).
   chips: () => !WIDE.matches ? [] : filter.map((f) => [f, SHOW[f]]),
-  clearChip: (k) => { filter = filter.filter((f) => f !== k); stayPut(); renderSidebar.picker.firstChild.focus(); } });
+  clearChip: (k) => { filter = filter.filter((f) => f !== k); stayPut(); renderSidebar.picker.firstChild.focus(); }, clearAll: clearFilters });
 
 const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
 // Every user-driven move goes through here: the URL is written first, then the view is
@@ -258,7 +258,10 @@ function navigate(id = null, nextView = "summary", { mode, acct = accounts.key()
 // Back/Forward; its Back then steps back rather than stacking a second dashboard entry.
 const openPage = (name) => { navigate(null, name); history.replaceState({ fromCard: true }, ""); };
 const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
-const stayPut = () => navigate(active, active ? view : dashboard && WIDE.matches ? page || "dashboard" : "summary");
+const stayPut = (opts) => navigate(active, active ? view : dashboard && WIDE.matches ? page || "dashboard" : "summary", opts);
+// Clear all: every filter (the states, the accounts and the search), not the grouping or the
+// sort, which are not filters; focus goes to the search box.
+function clearFilters() { filter = []; $("search").value = ""; renderSidebar.picker.open = false; stayPut({ acct: [] }); $("search").focus(); }
 
 // Leaving a pane the user did not choose to leave: it closed under them, or a deep link
 // named one that is gone. Replace, never push: Back would land on the dead deep link and
@@ -344,7 +347,7 @@ function updateRow(button, pane) {
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
-  setFilter: (value) => { filter = value; stayPut(); }, sort: () => sort, setSort, repaint: () => renderList() });
+  setFilter: (value) => { filter = value; stayPut(); }, clearAll: clearFilters, sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
@@ -375,7 +378,9 @@ function renderList() {
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), accounts.on().join(", "), $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
-  Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters" }).dataset.n = filter.length + accounts.on().length + !!query || "";
+  const n = filter.length + accounts.on().length + !!query;
+  Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters" }).dataset.n = n || "";
+  renderSidebar.clearAll.disabled = !n;
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
   // Not before boot: an empty `panes` then would open the dialog in New session mode.

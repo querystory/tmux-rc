@@ -95,7 +95,7 @@ export function setupSidebar(ctx) {
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
   document.querySelector("#sb-sess b").after(count, subs);
   // The URL's filters (wide has no tab bar to carry them) are a button beside the search box,
-  // since both narrow the list. Its menu: Show (states, a union; none is All), Panes from (the
+  // since both narrow the list. Its menu: State (a union; none is All), Account (the
   // accounts, app.js adds them), then Group by and Sort by, how you like to read the list:
   // per-browser preferences the button does not count. It stays open as you pick.
   const picker = document.createElement("details"), menu = document.createElement("div");
@@ -114,9 +114,12 @@ export function setupSidebar(ctx) {
     return el;
   };
   let filters = [];
-  const show = group("Show", { all: "All", ...SHOW }, (v) => ctx.setFilter(v === "all" ? [] : filters.includes(v) ? filters.filter((f) => f !== v) : [...filters, v]), "", "dot"); // each state's dot in its colour
+  const show = group("State", { all: "All", ...SHOW }, (v) => ctx.setFilter(v === "all" ? [] : filters.includes(v) ? filters.filter((f) => f !== v) : [...filters, v]), "", "dot"); // each state's dot in its colour
   const by = group("Group by", { state: "State", session: "Session" }, (v) => { prefs.by = v; rerender(); });
   const sortBy = group("Sort by", SORTS, ctx.setSort);
+  // Clear all, at the foot: what the chips' Clear all does (app.js disables it with nothing on).
+  const clearAll = Object.assign(document.createElement("button"), { type: "button", className: "acct-opt menu-clear", textContent: "Clear all" });
+  clearAll.onclick = ctx.clearAll;
   menu.append(show);
   document.getElementById("find").append(picker);
   // The menu opens beside the list it filters, never over it: past the sidebar's edge, level
@@ -346,7 +349,8 @@ export function setupSidebar(ctx) {
     ctx.html(subs, `${n} sub-agent${n === 1 ? "" : "s"} ${licon(prefs.subagents ? "eye" : "eyeOff", 13)}`);
   }
   render.picker = picker; // the filter menu: app.js adds the account filter, then these
-  render.views = [by, sortBy];
+  render.views = [by, sortBy, document.createElement("hr"), clearAll];
+  render.clearAll = clearAll;
   render.drafts = drafts; // for the app's unsent-draft guard on reload
   // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
   render.answers = { add: addAnswers, update: replies, prune: (subset) => {

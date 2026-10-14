@@ -1034,6 +1034,13 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 /* The active filters: each chip is the rows' account chip (.acct-badge) as is, with a small ×. */
 .acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 16px 6px; font-size: 11px; color: var(--muted); }
 .acct-pill .acct-badge { flex-shrink: 1; min-width: 0; padding-right: 2px; }
+.pill-lead { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.pill-lead:not(:first-child) { margin-left: 6px; }
+.pill-kind { font-size: 11px; color: var(--muted); opacity: .8; }
+.acct-pill .pill-clear { padding: 0 4px; border-radius: 4px; font-size: 11px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+.acct-pill .pill-clear:hover { color: var(--fg); }
+#side-filter-picker .menu-clear { color: var(--muted); }
+#side-filter-picker .menu-clear:disabled { opacity: .45; cursor: default; background: none; }
 .acct-pill button { display: inline-flex; min-height: 0; align-items: center; padding: 0; border-radius: 50%; color: inherit; }
 /* The filter menu. Wide: Show, Panes from, Group by and Sort by in one dropdown, each pick a
    check and each account's dot on its label. */
@@ -1047,7 +1054,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #side-filter-picker .acct-opt:hover { background: var(--raised); }
 #side-filter-picker hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 /* The groups without dots line up with the dotted ones' names. */
-#side-filter-picker [data-v]:not(:has(.acct-dot)) { padding-left: 26px; }
+#side-filter-picker :is([data-v]:not(:has(.acct-dot)), .menu-clear) { padding-left: 26px; }
 /* A phone: one row of chips under search, while the pill under the header speaks for the
    views without that list (the dashboard). */
 @media (max-width: 1099px) {
