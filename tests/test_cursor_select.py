@@ -232,7 +232,7 @@ while (key := sys.stdin.read(1)) != "\\r":
     if key == "\\x1b":
         at = min(max(at + {"B": 1, "A": -1}.get(sys.stdin.read(2)[-1], 0), 0), 1)
         draw()
-sys.stdout.write(f"SELECTED {rows[at]}\\r\\n")
+sys.stdout.write(f"\\x1b[H\\x1b[2JSELECTED {rows[at]}\\r\\n")  # erased, as agents do
 sys.stdout.flush()
 time.sleep(30)
 """
@@ -258,8 +258,10 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
             screen = tmux.capture_pane(pane, mark_dim=True)
             parsed["question"]["picker"] = picker_digest(screen, "Remove it?")
 
-        server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
-                                                   states=[parsed])
+        dropped = []
+        server.app.state.watcher = SimpleNamespace(
+            request_reparse=lambda p: None, states=[parsed],
+            drop_question=lambda *a: dropped.append(a))
         client = TestClient(server.app)
 
         def screen_until(text):
@@ -288,8 +290,11 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
         # /send read the screen its key made back: the next step is held to that, no parse.
         assert moved.json()["row"] == "Yes"
         parsed["question"]["picker"] = moved.json()["picker"]
+        assert not dropped  # a move leaves the question up
         assert send("Enter").status_code == 200
         assert "SELECTED Yes" in screen_until("SELECTED")
+        # Answered and erased: the card drops it with no parse.
+        assert dropped == [(pane, "Remove it?")]
     finally:
         subprocess.run(["tmux", "-L", socket, "kill-pane", "-t", pane], env=env,
                        check=False, capture_output=True)

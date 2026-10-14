@@ -77,7 +77,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import accounts, agent_history, expunge, telemetry, tmux  # noqa: E402
-from .classify import picker_digest, picker_read  # noqa: E402
+from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -1005,7 +1005,12 @@ def send(pane_id: str, body: SendBody, request: Request):
             raise HTTPException(409, str(e)) from e
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)
-    return {"ok": True} if body.picker is None else {"ok": True, **_picker_after(pane.id, body)}
+    # A walk's step forces a second reparse once /send has read the redraw back: the one
+    # pane_input forced as the key was queued can read the answered dialog still up.
+    after = {} if body.picker is None else _picker_after(pane.id, body)
+    if after:
+        w.request_reparse(pane.id)
+    return {"ok": True, **after}
 
 
 def _picker_after(pane_id: str, body: SendBody) -> dict:
@@ -1017,11 +1022,23 @@ def _picker_after(pane_id: str, body: SendBody) -> dict:
     for _ in range(PICKER_SETTLE_POLLS):
         time.sleep(PICKER_SETTLE_S)
         try:
-            read = picker_read(tmux.capture_pane(pane_id, mark_dim=True), body.prompt)
+            screen = tmux.capture_pane(pane_id, mark_dim=True)
         except subprocess.CalledProcessError:  # the pane closed: nothing to read
             return {"picker": None, "row": None}
+        read = picker_read(screen, body.prompt)
         if not read or read[0] != body.picker:  # redrawn, or the picker is gone
             break
+    # Answered and erased: the card leaves Needs you now, not a model parse later. Gone
+    # from two frames apart, so a repaint caught blank in between does not count.
+    if not read and prompt_gone(screen, body.prompt):
+        time.sleep(PICKER_SETTLE_S * 3)
+        try:
+            screen = tmux.capture_pane(pane_id, mark_dim=True)
+        except subprocess.CalledProcessError:  # closed: its card is going anyway
+            return {"picker": None, "row": None}
+        read = picker_read(screen, body.prompt)  # repainted: the walk goes on from this
+        if not read and prompt_gone(screen, body.prompt):
+            app.state.watcher.drop_question(pane_id, body.prompt)
     return {"picker": read and read[0], "row": read and read[1]}
 
 

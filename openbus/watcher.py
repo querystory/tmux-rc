@@ -297,6 +297,7 @@ class Watcher:
         # under _input_generation_lock with the generation it bumped.
         self._answered: dict[str, tuple] = {}
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
+        self._dropped: dict[str, tuple] = {}  # pane_id -> (asks, when) drop_question took
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
         # the pending-question identity changes, NOT on cosmetic content churn. The client
@@ -580,6 +581,27 @@ class Watcher:
         for pane_id in pane_ids:
             self.request_reparse(pane_id)
 
+    def drop_question(self, pane_id: str, prompt: str) -> None:
+        """The question asking `prompt` was answered and its screen no longer shows it:
+        publish the card without it now. The parse already forced corrects anything else;
+        until then the agent is taken to be at work on the answer. A parse of a capture
+        taken before now is held to the same (_tick_pane), so a tick already reading the
+        old dialog cannot put it back; a different question is never touched."""
+        with self._publish_lock:
+            now = time.time()
+            shown = (s for s in self.states if s.get("pane_id") == pane_id)
+            cards = [s for s in (self._state.get(pane_id), *shown) if s]
+            asked = {self._pending_key(s)[1:] for s in cards if self._question_prompt(s) == prompt}
+            if not asked:  # dropped already (a second report): keep that guard as it is
+                return
+            self._dropped[pane_id] = asked, now
+            dropped = [s for s in cards if self._drop_question(s, asked)]
+            if dropped:  # the clock in the new state starts at the answer, not the next parse
+                since = self._state_since_for(pane_id, dropped[0], now)
+                for s in dropped:
+                    s["state_since"] = since
+            self._bump_state_if_changed(self.states)
+
     def invalidate_input_actions(self, pane_id: str, answered: tuple = ()) -> None:
         """Invalidate actions before a pane-input transaction can take its send lock.
         `answered`: the (screen, frame) a claimed answer was read from (consume_answer)."""
@@ -829,6 +851,15 @@ class Watcher:
                 tuple(q.get("items") or ()))
 
     @staticmethod
+    def _drop_question(state: dict | None, asked: set) -> bool:
+        """Take an answered question off a card (drop_question): one whose prompt, context
+        and items are in `asked`, so a new ask under the same prompt is untouched."""
+        if state and Watcher._pending_key(state)[1:] in asked:
+            state.update(question=None, activity="running", waiting_on=None)
+            return True
+        return False
+
+    @staticmethod
     def _deck_fp(states: list[dict]) -> str:
         # repr() of a tuple, NOT an f-string join: f-strings coerce None -> "None", so a
         # field flipping between None and the literal string "None" would look unchanged
@@ -1026,6 +1057,7 @@ class Watcher:
 
     def _stores(self):
         return (
+            self._dropped,
             self._prev_fp,
             self._parsed_reply,
             self._seen_fp,
@@ -1250,8 +1282,8 @@ class Watcher:
         # Snapshots store the marked text too (prior frames must match the current
         # one); snapshot_text() strips the markers at the phone-facing boundary.
         generation = self.pane_input_generation(pane.id)  # read first: later input wins
+        now = time.time()  # before the capture: drop_question compares it with an answer's
         text = tmux.capture_pane(pane.id, mark_dim=True)
-        now = time.time()
         fp = self.frame_fp(text)  # cheap to hold per pane; the checkpoint stores it too
         # First sighting since startup (or since a recycled id): resume from the
         # checkpoint when the screen is unchanged, else seed the clocks from tmux.
@@ -1565,5 +1597,10 @@ class Watcher:
             elif claimed <= generation:
                 self._answered.pop(pane.id, None)
         state["input_generation"] = generation
-        self._state[pane.id] = state
+        with self._publish_lock:  # read off a capture older than an answer: that answer holds
+            asked, at = self._dropped.get(pane.id, ((), 0))
+            if now < at and self._drop_question(state, asked):
+                self._state_since_for(pane.id, state, now)  # re-keyed to the answered state,
+                self._state_since[pane.id] = state["state_since"] = at  # entered at the answer
+            self._state[pane.id] = state
         return state

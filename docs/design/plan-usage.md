@@ -90,6 +90,20 @@ phone keeps one column, each chart carrying its chip.
 The sidebar strip stays. It is the only place the limits show while a pane is open, and both
 draw from one renderer (`renderUsage`), so the panel is a size and a flag, not a copy.
 
+### Usage over time: the heatmap instead (#377)
+
+Issue #377 proposed keeping usage history long term and charting burn against running
+agents, to answer what a busy day costs. The mocks tried hand-drawn line and scatter charts
+of exactly that, and a heatmap of hour of day by date. **The heatmap was chosen and the
+burn charts were not built**: it shipped as the dashboard's Running by hour card and its own
+view (#378), drawn from pane history, which is kept for good. The hand-drawn charts were
+rejected as janky next to the app's own charts, and each would have been one more bespoke
+chart to maintain. So what the heatmap shows is when agents run, not what they cost: usage
+history is kept (thinned to hourly after eight days, below), but nothing draws burn from it
+yet, and cost per agent-hour, burn by tool and the "will this burst hit a limit" question
+stay open under #377. The dashboard as a whole is
+recorded in [its layout](dashboard-layout.md).
+
 ## Accounts, not providers
 
 One person often runs several Claude or Codex logins side by side, each with its own plan.

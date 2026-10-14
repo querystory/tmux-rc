@@ -16,6 +16,8 @@
 //                     card's picker lags the screen (the refusal asks for a reparse).
 //   io.sendText(t, q) → type literal text, NO Enter appended. Same contract.
 //   io.note(msg)    → say something to the user
+//   io.committed()  → optional: the select was delivered (the walk then waits for the
+//                     picker to close before it resolves)
 //
 // The delivery contract on sendKey/sendText is load-bearing, not politeness: a move that
 // was never delivered leaves the highlight where it was, so every later step computed
@@ -267,6 +269,7 @@ export async function pickCursorRow(io, targetText, targetIndex) {
     // ever best-effort — the row is already selected either way, so a screen that never
     // settles must not leave picking disabled for the life of the page.
     if (done) {
+      io.committed?.();
       const deadline = Date.now() + SETTLE_MS;
       while (Date.now() < deadline && picker(io)) await sleep(POLL_MS);
     }

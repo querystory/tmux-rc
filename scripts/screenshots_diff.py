@@ -19,7 +19,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
-DEMO = ("demo_fleet.py", "demo_server.py", "screenshots.mjs")
+DEMO = ("demo_fleet.py", "demo_server.py", "demo_browser.mjs", "screenshots.mjs")
 NOISE = 0.05  # % of a shot; below it a difference is reported but the shot counts as unchanged
 
 
