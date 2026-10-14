@@ -1399,8 +1399,14 @@ def _pane_session(pane_id: str, birth: str, expected: str | None = None):
 
 @app.get("/api/panes/{pane_id}/expunge")
 def expunge_preview(pane_id: str, birth: str):
-    """What Expunge would delete, for the confirmation to name."""
-    _, s, (own, shared) = _pane_session(pane_id, birth)
+    """What Expunge would delete, for the confirmation to name, or {"nothing": true} when
+    the pane has no saved conversation (a sign-in window), which the client offers to close."""
+    try:
+        _, s, (own, shared) = _pane_session(pane_id, birth)
+    except HTTPException as e:
+        if isinstance(e.__cause__, expunge.Empty):
+            return {"nothing": True}
+        raise
     return {"harness": s.harness, "session_id": s.session_id,
             "files": [p.name for p in own], "shared": [p.name for p in shared]}
 

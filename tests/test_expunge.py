@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import expunge, server, tmux, watcher
-from openbus.expunge import Refused, Session
+from openbus.expunge import Empty, Refused, Session
 
 A, B = "0f0f0f0f-1111-4222-8333-444444444444", "0e0e0e0e-5555-4666-8777-888888888888"
 CODEX_SCREEN = f"› \n  gpt-5.5 high · ~/src/example-org/api · {A}\n"
@@ -156,8 +156,10 @@ def fake_procs(monkeypatch, tmp_path, procs):
         return env if name == "environ" else ""
     (tmp_path / "config.toml").write_text(CODEX_LINE)
     (tmp_path / "sessions/2026/10/08").mkdir(parents=True)
-    for sid in (A, B):  # Codex threads that exist here
+    (tmp_path / "projects/-src").mkdir(parents=True)
+    for sid in (A, B):  # Codex threads and Claude transcripts that exist here
         (tmp_path / f"sessions/2026/10/08/rollout-2026-10-08T10-00-00-{sid}.jsonl").touch()
+        (tmp_path / f"projects/-src/{sid}.jsonl").touch()
     for pid, (_, _, sid) in procs.items():
         if sid:
             (tmp_path / "sessions" / f"{pid}.json").write_text(
@@ -196,6 +198,26 @@ def test_identify_refuses_rather_than_guess(monkeypatch, tmp_path, procs, screen
         expunge.identify("10", screen)
 
 
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_an_agent_with_no_saved_conversation_is_empty(monkeypatch, tmp_path, harness):
+    # A fresh agent, or Claude's sign-in, has an id but has written no transcript yet.
+    fake_procs(monkeypatch, tmp_path, {10: (harness, [], A if harness == "claude" else None)})
+    for p in tmp_path.glob(f"*/**/*{A}.jsonl"):
+        p.unlink()
+    with pytest.raises(Empty, match="not saved a conversation"):
+        expunge.identify("10", CODEX_SCREEN)
+
+
+def test_codex_sign_in_is_empty(monkeypatch, tmp_path):
+    fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
+    read = tmux.proc_read
+    for argv in (["codex", "login"], ["node", "/usr/lib/node_modules/codex/bin/codex", "login"]):
+        monkeypatch.setattr(tmux, "proc_read", lambda pid, name, argv=argv: "\0".join(argv)
+                            if name == "cmdline" else read(pid, name))
+        with pytest.raises(Empty, match="sign-in"):  # before its status line is looked for
+            expunge.identify("10", "")
+
+
 def test_codex_thread_comes_from_its_status_line(monkeypatch, tmp_path):
     fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
     assert expunge.identify("10", CODEX_SCREEN).session_id == A
@@ -215,6 +237,11 @@ def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
     server.app.state.watcher = SimpleNamespace()
     client = TestClient(server.app)
     assert client.get("/api/panes/%251/expunge?birth=1234").json()["session_id"] == A
+    monkeypatch.setattr(expunge, "identify", lambda *_a: (_ for _ in ()).throw(
+        Empty("this agent has not saved a conversation yet")))
+    assert client.get("/api/panes/%251/expunge?birth=1234").json() == {"nothing": True}
+    assert client.post("/api/panes/%251/expunge", json=CONFIRM).status_code == 409
+    monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
     # A menu drawn for an earlier pane under the same %N reaches nothing.
     r = client.get("/api/panes/%251/expunge?birth=999")
     assert r.status_code == 409 and "different window" in r.json()["detail"]

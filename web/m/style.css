@@ -701,7 +701,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #pane-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 #expunge-pane, #expunge-confirm { color: var(--red); }
 #expunge-caveat { color: var(--muted); font-size: 13px; }
-#expunge-confirm { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
+#expunge-confirm, #expunge-cancel { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
+#expunge-cancel { margin-top: 8px; border-color: var(--line); font-weight: 400; }
 .header-picker-menu input { accent-color: var(--accent); }
 
 .header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
