@@ -25,6 +25,7 @@ from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
 from .repository import github_repository
+from .restore import Recorder
 from .telemetry import emit_pane_event
 
 logger = logging.getLogger(__name__)
@@ -277,6 +278,8 @@ class Watcher:
     def __init__(self, target: str | None, use_llm: bool = True, history=None):
         self.history = history
         self.target = target
+        # A one-pane watch list sees one pane, and must never replace a server's snapshot.
+        self._recorder = Recorder(history) if history and not target else None
         self.use_llm = use_llm
         self._warned_no_target = False  # warn once, not every poll
         self.states: list[dict] = []  # raw LLM JSON dicts, piped straight to the UI
@@ -811,6 +814,8 @@ class Watcher:
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
         self._checkpoint(states, panes)
+        if self._recorder:
+            self._recorder.tick(states)
         self._collection_failed = not collected
         self._publish_states(states, record_history=history_complete and history_server is not None,
                              history_server=history_server, unread=unread)

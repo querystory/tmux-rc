@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 
 from . import plan_usage, tmux
-from .expunge import _FILES, Refused, Session, _home, _registration, _stat
+from .expunge import _FILES, Refused, Session, _home, _registration
 from .plan_usage import ENV
 from .plan_usage import canonical as _canonical
 
@@ -166,6 +166,15 @@ def command(provider: str, config: str, cmd: str | list[str]) -> list[str]:
     var = ENV[provider]
     pin = ["-u", var] if Path(config) == default_dir(provider) else [f"{var}={config}"]
     return ["env", *pin, *(cmd if isinstance(cmd, list) else ["sh", "-c", cmd])]
+
+
+def resume_command(entry: dict) -> list[str]:
+    """agent-history's resume argv for `entry`, on the account whose dir holds its
+    transcript: a Claude session resumes only under the config dir it was written in."""
+    argv, source = entry.get("resume_argv") or [], Path(entry.get("source") or "/")
+    if argv[:1] == ["claude"] and source.parent.parent.name == "projects":
+        return command("claude", str(source.parents[2]), argv)
+    return argv
 
 
 def session_defaults(sessions) -> dict[str, dict[str, str | None]]:
@@ -324,7 +333,7 @@ def running(s: Session, target: Path, pids: list[str] | None = None) -> bool:
         except Refused:
             return True
         if (reg.get("sessionId") == s.session_id and reg["pid"] != s.pid
-                and _stat(reg["pid"])[19:20] == [reg["procStart"]]):
+                and tmux.proc_stat(reg["pid"])[19:20] == [reg["procStart"]]):
             return True
     dst, held = target.resolve(), {str(p.resolve()) for p in _tree(files(s, target))}
     for pid in filter(str.isdigit, os.listdir("/proc") if pids is None else pids):

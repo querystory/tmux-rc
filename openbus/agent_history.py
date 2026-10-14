@@ -64,6 +64,12 @@ def get(session_id: str) -> dict | None:
     return _run("get", session_id)
 
 
+def live() -> dict | None:
+    """{"sessions": {id: {pid, harness, ...}}, "unknown": [harness]}: every live session,
+    and the harnesses that couldn't tell. None if agent-history is unavailable."""
+    return _run("live")
+
+
 def recent_dirs(limit: int = 30) -> list[str]:
     """Directories past agent sessions ran in, most recently active first, that still
     exist. Read straight from the index's front matter (cwd, last_active — its documented

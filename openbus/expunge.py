@@ -71,11 +71,6 @@ class Session:
     start: str  # kernel start time: tells the agent apart from a later reuse of its pid
 
 
-def _stat(pid: int) -> list[str]:
-    """/proc/<pid>/stat fields from the state on (field 3), so [19] is the start time."""
-    return tmux.proc_read(pid, "stat").rpartition(")")[2].split()
-
-
 def _home(pid: int, var: str, default: str) -> Path:
     """The dir the agent's environment names in `var`, else `default` under the agent's
     own HOME, resolved against the agent's own cwd: never the daemon's."""
@@ -129,7 +124,7 @@ def _rollout_since(home: Path, start: str) -> bool:
 
 def _agent(pid: int, screen: str) -> Session | None:
     """The Claude or Codex session this process is, if it is one."""
-    start = "".join(_stat(pid)[19:20])
+    start = "".join(tmux.proc_stat(pid)[19:20])
     home = _home(pid, "CLAUDE_CONFIG_DIR", ".claude")
     # Claude Code registers each running session as sessions/<pid>.json. A file left by an
     # earlier process with this pid has a different start time.
@@ -229,7 +224,7 @@ def targets(s: Session) -> tuple[list[Path], list[Path]]:
 
 def alive(s: Session) -> bool:
     """Whether the identified agent itself (pid and start time; a zombie is gone) still runs."""
-    st = _stat(s.pid)
+    st = tmux.proc_stat(s.pid)
     return st[19:20] == [s.start] and st[0] != "Z"
 
 

@@ -26,7 +26,7 @@ const reconcileEvery = 6 * time.Hour
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query> | get <session-id>")
+		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query> | get <session-id> | live")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -50,6 +50,8 @@ func main() {
 		}
 	case "get":
 		getCmd(os.Args[2:])
+	case "live":
+		liveCmd()
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command:", os.Args[1])
 		os.Exit(2)
@@ -141,6 +143,18 @@ func getCmd(args []string) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	enc.Encode(out)
+}
+
+// liveCmd prints every live session with its process and harness, and the harnesses
+// whose liveness is unknown, whose sessions a caller must not read as stopped. It is
+// the inverse of get, for a caller binding processes to places (reboot restore).
+func liveCmd() {
+	running, errs := LiveSessions()
+	unknown := []string{}
+	for name := range errs {
+		unknown = append(unknown, name)
+	}
+	json.NewEncoder(os.Stdout).Encode(map[string]any{"sessions": running, "unknown": unknown})
 }
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
