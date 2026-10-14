@@ -1276,7 +1276,7 @@ def test_finished_turn_blocked_on_the_user_is_a_text_wait():
 def test_handoff_in_a_barred_transcript_is_the_agents_words_with_no_buttons():
     # Claude Code's right-hand bar must not join paragraphs or hide a closing "?", and a
     # `! command` handed over is not a question: typed-back "Yes, proceed" runs nothing.
-    screen = _sample("98_claude_handoff_beside_suggested_command")
+    screen = _sample("100_claude_handoff_beside_suggested_command")
     replies = lambda _s, _q: {"options": ["Yes, proceed", "No, cancel"]}  # noqa: E731
     model = {"tool": "claude", "question": {"prompt": "! gh pr merge 812", "options": ["Yes"]}}
     q = classify(_pane("claude"), screen, _llm(model), replies_fn=replies)["question"]
