@@ -36,13 +36,17 @@ export const usageDays = () => picked === 'All' ? Infinity : 30;
 // or to 100% and along it if it gets there first. Hits are the times windows reached 100%.
 function teeth(w, now) {
   const past = [], hits = [];
-  for (const p of w.past || []) {
+  // An ended window: from 0% at its start, to where it stood at its reset, back to 0%.
+  const ended = (p, hit) => {
     // Within the window's final bounds: a reset re-read up to an hour off groups samples
     // from either side, and the points must run forward in time.
     const pts = p.samples.filter(([t]) => t >= p.start && t <= p.resets_at), last = pts.length ? pts[pts.length - 1][1] : p.pct;
     past.push([p.start, 0], ...pts, [p.resets_at, last], [p.resets_at, 0]);
-    if (p.limit_at >= p.start && p.limit_at <= p.resets_at) hits.push(p.limit_at);
-  }
+    if (hit >= p.start && hit <= p.resets_at) hits.push(hit);
+  };
+  for (const p of w.past || []) ended(p, p.limit_at);
+  // The current window, unless it has none yet, or reset since this reading (an ended one till the next).
+  if (w.resets_at != null && w.resets_at <= now) ended(w, w.hit_at);
   if (!(w.resets_at > now)) return { past, cur: [], fc: [], hits, drawn: past };
   const held = [Math.max(now, w.start), w.pct];
   past.push([w.start, 0]);
@@ -225,7 +229,10 @@ function setup(root, refetch, filter) {
     from = null;
   });
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  new ResizeObserver(() => { if (root.isConnected && root.clientWidth) { fit(); paint(); } }).observe(root); // not while away: a detached view measures 0
+  new ResizeObserver(() => {
+    if (!root.isConnected && v.picker.open) { v.picker.open = false; filter.place(null); } // left with the menu open (Back, say): the filter goes home
+    else if (root.clientWidth) { fit(); paint(); } // not while away: a detached view measures 0
+  }).observe(root);
   return v;
 }
 
