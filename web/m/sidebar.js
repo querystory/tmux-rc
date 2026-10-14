@@ -137,7 +137,8 @@ export function setupSidebar(ctx) {
     form.onsubmit = async (event) => {
       event.preventDefault();
       const id = node._p.pane_id, value = drafts.get(id);
-      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
+      // Sent: close the Reply, unless more was typed while it went (compose clears as it sends).
+      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value) && !value.segments().length) done(id);
     };
   }
   function updateRow(node, { p, g, card }) {

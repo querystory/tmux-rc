@@ -85,9 +85,12 @@ export class Composer {
   // this composer's own chips (fresh handlers and URLs); the old ones are released.
   append(other) {
     const segments = other.segments();
-    this.replace([...this.segments(), ...segments.map((s) => s.file ? { chip: this.chip(s.file) } : s)]);
+    this.replace([...this.segments(), ...this.adopt(segments)]);
     segments.forEach((s) => s.chip && URL.revokeObjectURL(s.chip.src));
   }
+  // Segments taken from elsewhere (another draft, or this one's own unsent ones after it
+  // was cleared) with fresh chips of this composer's own, ready for replace().
+  adopt(segments) { return segments.map((s) => s.file ? { chip: this.chip(s.file) } : s); }
   segments() {
     const segments = [];
     let text = "", started = false, pending = 0;
