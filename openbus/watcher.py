@@ -30,6 +30,10 @@ from .telemetry import emit_pane_event
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
+# A user wait no earlier parse read is published only when a second capture this long after
+# the first still shows that screen: Codex flashes its own approval review for a moment, and
+# a ~1.5s tick plus the parse would otherwise hold that flash on the card (and push it).
+CONFIRM_SECONDS = 1.2
 MAX_PRS_PER_PANE = 64  # retain recent evidence, bound state/Live payloads
 REPOSITORY_REFRESH_SECONDS = 60.0
 # Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
@@ -1603,4 +1607,20 @@ class Watcher:
                 self._state_since_for(pane.id, state, now)  # re-keyed to the answered state,
                 self._state_since[pane.id] = state["state_since"] = at  # entered at the answer
             self._state[pane.id] = state
-        return state
+        return self._confirmed(pane.id, previous, state, fp, now)
+
+    def _confirmed(self, pane_id: str, previous: dict | None, state: dict, fp: str,
+                   captured: float) -> dict:
+        """The card for a parse: a NEW user wait only once a second capture still shows its
+        screen, else the agent at work. _state keeps the read, so the next tick confirms it on
+        an unchanged screen (the cached card) or on a parse that reads the same ask again."""
+        key = self._pending_key(state)
+        if (key[0] != "waiting" or state.get("waiting_on") == "external"
+                or key == self._pending_key(previous or {})):
+            return state
+        time.sleep(max(0.0, captured + CONFIRM_SECONDS - time.time()))
+        if self.frame_fp(tmux.capture_pane(pane_id, mark_dim=True)) == fp:
+            return state
+        held = dict(state)
+        self._drop_question(held, {key[1:]})
+        return held

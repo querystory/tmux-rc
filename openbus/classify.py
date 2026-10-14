@@ -67,6 +67,11 @@ _CLAUDE_TURN_RE = re.compile(
     r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:·|$))",
     re.MULTILINE,
 )
+# Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
+# own reviewer weighs an approval: "Reviewing approval request (17m 00s • esc to interrupt)".
+# Codex hides it while a menu waits on the user, so under it nothing is asking.
+_CODEX_LIVE_RE = re.compile(
+    r"^[ \t]*(?:•[ \t]+)?\w[^\n(]*\((?:[^()\n]*•[ \t]*)?esc to interrupt\)", re.MULTILINE)
 # A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
 # capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
 _TURN_ERROR_RE = {
@@ -507,12 +512,14 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     # agent asking; a live spinner below the text means the agent is working again; and a
     # finished turn's question followed by typed input has been answered.
     idle_box = _EMPTY_INPUT_RE.search(visible)
+    row = found and visible.rfind("\n", 0, found.start()) + 1
     return found is not None and not (
         (idle_box and found.start() > idle_box.start())
-        or _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
+        or _NOT_ASKING_ROW_RE.match(visible[row:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
+        or (tool == "codex" and _CODEX_LIVE_RE.search(visible, row))  # the prompt's own row too
     )
 
 
@@ -1234,6 +1241,12 @@ def classify(
               and not _USER_ROW_RE.search(visible, turn.end())):  # no newer turn began
             result["activity"] = "idle"  # The turn is over; background shells don't count.
             result.pop("parse_ok", None)
+    # Codex's live row is a read too: its turn runs, and no question or user wait stands under it.
+    if (result.get("tool") == "codex" and _CODEX_LIVE_RE.search(visible)
+            and not result.get("question") and result.get("waiting_on") != "external"
+            and result.get("activity") != "compacting"):
+        result["activity"] = "running"
+        result.pop("parse_ok", None)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was

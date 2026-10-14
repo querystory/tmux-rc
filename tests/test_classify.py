@@ -1578,3 +1578,24 @@ def test_question_not_below_an_empty_input_box_stands(screen, prompt):
     result = classify(_pane("claude"), f"\x1e[visible screen]\x1f\n{screen}", _llm({
         "tool": "claude", "question": {"prompt": prompt, "answer_style": "cursor"}}))
     assert result["question"]["prompt"] == prompt
+
+
+def test_codex_reviewing_its_own_approval_is_working():
+    # Codex's live row stands under the ask its reviewer is weighing: no user wait, either way
+    # the model reads it, and a failed re-read still lands on the row's own "running".
+    capture = _sample("100_codex_reviewing_approval_is_working")
+    asked = {"tool": "codex", "activity": "waiting",
+             "question": {"prompt": "Reviewing approval request", "answer_style": "text"}}
+    for read in (asked, {"tool": "codex", "activity": "waiting"}):
+        result = classify(_pane("node"), capture, _llm(read))
+        assert result["activity"] == "running" and "question" not in result
+        assert "waiting_on" not in result and "parse_ok" not in result
+    # Codex's real approval menu draws no live row, and a wait on other agents stands.
+    menu = _sample("06_codex_permission_box")
+    ask = {"prompt": "Would you like to run the following command?", "answer_style": "menu"}
+    result = classify(_pane("node"), menu, _llm(
+        {"tool": "codex", "activity": "waiting", "question": ask}))
+    assert result["activity"] == "waiting" and result["question"]
+    result = classify(_pane("node"), capture, _llm(
+        {"tool": "codex", "activity": "waiting", "waiting_on": "external"}))
+    assert result["waiting_on"] == "external"
