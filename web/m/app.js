@@ -265,11 +265,13 @@ const openPage = (name) => { navigate(null, name); history.replaceState({ fromCa
 const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
 const stayPut = (opts) => navigate(active, active ? view : dashboard && WIDE.matches ? page || "dashboard" : "summary", opts);
 // Clear all: every filter (the states, the accounts and the search), not the grouping or the
-// sort, which are not filters; focus goes to the search box (in the rail, to the filter
-// button: focusing search would expand it).
+// sort, which are not filters; focus goes to the search box, else (a phone's dashboard or
+// pane, where it is hidden) the tab bar's pressed tab or Back; in the rail, to the filter
+// button, since focusing search would expand it.
 function clearFilters() {
   filter = []; $("search").value = ""; renderSidebar.picker.open = false; stayPut({ acct: [] });
-  ($("app").classList.contains("rail") ? renderSidebar.picker.firstChild : $("search")).focus();
+  ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")])
+    .find((el) => el?.getClientRects().length)?.focus();
 }
 
 // Leaving a pane the user did not choose to leave: it closed under them, or a deep link
@@ -1474,6 +1476,7 @@ function openBeside(dialog, opener) {
   besides().forEach((d) => d !== dialog && d.close()); // one panel at a time
   dialog._opener = opener;
   dialog.classList.add("beside"); dialog.show();
+  dialog.focus(); // show() does not move focus as showModal() does: the next Tab enters the panel
 }
 const besides = () => document.querySelectorAll("dialog.beside[open]");
 // Capture phase, so a click that closes a modal over the panel (its ×) still sees the modal open.
