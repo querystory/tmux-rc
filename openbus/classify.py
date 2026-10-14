@@ -261,11 +261,11 @@ def _read_workflow_rows(result: dict, visible: str) -> None:
              "progress": m[2], "elapsed": m[5], "tokens": m[6]}
             for m in _WORKFLOW_ROW_RE.finditer(visible)]
     if rows:
-        subs = result.get("subagents")
+        subs, names = result.get("subagents"), {r["label"] for r in rows}
+        def theirs(a):  # the model's read of a workflow row: its exact name, or the bar
+            return isinstance(a, dict) and (str(a.get("label")) in names or "▰" in str(a.get("label")))
         result["subagents"] = [a for a in (subs if isinstance(subs, list) else [])
-                               if not (isinstance(a, dict) and any(
-                                   r["label"] in str(a.get("label")) or "▰" in str(a.get("label"))
-                                   for r in rows))] + rows
+                               if not theirs(a)] + rows
 
 
 def _checklist_text(text: str) -> str:
@@ -1258,7 +1258,8 @@ def classify(
         result.pop("waiting_on", None)
     # Count only workers observed running; waiting/idle/unknown are not active work.
     # Compacting has its own history state but still counts as busy in the dock.
-    _read_workflow_rows(result, visible)
+    if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
+        _read_workflow_rows(result, visible)
     subs = result.get("subagents")
     result["agents"] = (
         sum(1 for a in subs if isinstance(a, dict) and a.get("state") in ("running", "compacting"))
