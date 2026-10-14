@@ -67,9 +67,10 @@ const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NA
 // The usage view steps each meter back through its ended windows (w.past, oldest first;
 // only /api/usage?past=1 sends them) with arrows, or a sideways swipe on its chart. The
 // window being read is kept per meter on the element by its reset, not by how far back it
-// is, so a refresh across a reset still shows it; none kept is the current window.
+// is, so a refresh across a reset still shows it; none kept is the current window. Within
+// the hour, as the server groups them: a re-read can move a reset a little.
 const position = (el, k) => {
-  const list = el._list[k], i = list.findIndex(w => w.resets_at === el._back[k]);
+  const list = el._list[k], i = list.findIndex(w => Math.abs(w.resets_at - el._back[k]) <= 3600e3);
   return i < 0 ? list.length - 1 : i;
 };
 

@@ -194,8 +194,14 @@ def _index_plan_usage(db) -> None:
     db.execute("CREATE INDEX plan_usage_by_time ON plan_usage(provider, account, t)")
 
 
+def _index_plan_usage_resets(db) -> None:
+    # A meter's past windows are found newest reset first, by the hour (History.reset_back).
+    db.execute("CREATE INDEX plan_usage_by_reset ON plan_usage(provider, account, window, "
+               "CAST(resets_at / 3600 AS INT))")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
-              _add_checkpoints, _add_plan_usage, _index_plan_usage)
+              _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets)
 
 
 class History:
@@ -356,12 +362,14 @@ class History:
 
     def reset_back(self, provider: str, account: str, window: str, until: float,
                    n: int) -> float | None:
-        """The earliest of this meter's last n resets by `until`, counted by the hour."""
+        """The hour of the earliest of this meter's last n resets by `until`, counted by the
+        hour: an index walk from the newest, however long the history."""
         with self.connect() as db:
-            return db.execute("SELECT min(r) FROM (SELECT max(resets_at) AS r FROM plan_usage "
-                              "WHERE provider=? AND account=? AND window=? AND resets_at<=? "
-                              "GROUP BY CAST(resets_at / 3600 AS INT) ORDER BY r DESC LIMIT ?)",
-                              (provider, account, window, until, n)).fetchone()[0]
+            h = db.execute("SELECT min(h) FROM (SELECT CAST(resets_at / 3600 AS INT) AS h "
+                           "FROM plan_usage WHERE provider=? AND account=? AND window=? "
+                           "AND CAST(resets_at / 3600 AS INT) <= ? GROUP BY h ORDER BY h DESC "
+                           "LIMIT ?)", (provider, account, window, until // 3600, n)).fetchone()[0]
+        return h and h * 3600
 
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""

@@ -50,6 +50,7 @@ test("the usage view keeps the past window being read across a refresh that adds
   el._back[Object.keys(el._list)[0]] = now - 11 * H; // stepped back two windows
   assert.match(draw([ended(now - 11 * H, 74), ended(now - H, 50)]), /ended at 74%/);
   assert.match(draw([ended(now - 11 * H, 74), ended(now - 6 * H, 50), ended(now - H, 20)]), /ended at 74%/);
+  assert.match(draw([ended(now - 11 * H + 60e3, 74), ended(now - H, 50)]), /ended at 74%/); // its reset re-read a minute on
 });
 
 test("a window not yet opened (no reset) is not drawn as an ended one", () => {
