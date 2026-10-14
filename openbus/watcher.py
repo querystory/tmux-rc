@@ -584,6 +584,8 @@ class Watcher:
             shown = (s for s in self.states if s.get("pane_id") == pane_id)
             cards = [s for s in (self._state.get(pane_id), *shown) if s]
             asked = {self._pending_key(s)[1:] for s in cards if self._question_prompt(s) == prompt}
+            if not asked:  # dropped already (a second report): keep that guard as it is
+                return
             self._dropped[pane_id] = asked, now
             dropped = [s for s in cards if self._drop_question(s, asked)]
             if dropped:  # the clock in the new state starts at the answer, not the next parse
