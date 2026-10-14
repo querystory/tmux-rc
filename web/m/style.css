@@ -189,10 +189,14 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #options button:hover:not(:disabled) { border-color: var(--amber); }
 #answer-status { color: var(--amber); font-size: 12px; padding-top: 10px; }
 #task-count { color: var(--muted); font-size: 12px; margin-left: 6px; }
-.task, .agent { display: flex; align-items: flex-start; gap: 10px; padding-top: 12px; overflow-wrap: anywhere; }
+/* A title too long to share its line with the meta keeps the line beside its icon (the
+   max-width), and the meta wraps under it, rather than squeezing the title to a word a line. */
+.task, .agent { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 2px 10px; padding-top: 12px; overflow-wrap: anywhere; }
+.task > span:nth-child(2), .agent > span:nth-child(2) { max-width: calc(100% - 26px); }
 .task svg, .agent svg { margin-top: 3px; color: var(--accent); }
 .agent.compacting svg { color: var(--purple); }
 .task.done { color: var(--muted); }
+.task small:empty, .agent small:empty { display: none; } /* else it wraps to a blank line */
 .agent small { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .event { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .event:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -458,7 +462,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-n svg { color: var(--accent); }
 /* The overview's agent lines, compact: in a row (indented under its name) and the hover card. */
 .sb-agents:not([hidden]) { display: grid; padding: 0 8px 4px 41px; }
-.sb-agents .agent { min-width: 0; align-items: center; gap: 6px; padding: 0; min-height: 22px; font-size: 12px; white-space: nowrap; }
+.sb-agents .agent { min-width: 0; flex-wrap: nowrap; align-items: center; gap: 6px; padding: 0; min-height: 22px; font-size: 12px; white-space: nowrap; }
 .sb-agents .agent svg { width: 11px; height: 11px; margin: 0; flex: none; }
 .sb-agents .agent > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .need .a { color: var(--amber); font-weight: 700; }

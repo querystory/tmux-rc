@@ -272,3 +272,14 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     for needle in ('e.pointerType === "mouse"', ":focus-visible", "aria-describedby"):
         assert needle in side
     assert "node.title" not in side
+
+
+def test_agent_title_is_not_squeezed_by_its_meta():
+    """The meta ("idle · 3h 48m 17s · 318.3k tokens") never shrinks, so in a narrow column
+    it squeezed the title beside it to a word a line. The row wraps instead: the title
+    keeps the line by its icon and the meta drops under it. The sidebar's compact lines
+    stay one line, ellipsized."""
+    css = (Path(__file__).resolve().parents[1] / "web/m/style.css").read_text()
+    assert ".task, .agent { display: flex; flex-wrap: wrap;" in css
+    assert ".agent > span:nth-child(2) { max-width: calc(100% - 26px); }" in css
+    assert ".sb-agents .agent { min-width: 0; flex-wrap: nowrap;" in css
