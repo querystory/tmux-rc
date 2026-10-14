@@ -84,7 +84,7 @@ from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import PlanUsage  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
-from .watcher import Watcher  # noqa: E402
+from .watcher import Watcher, _fingerprint  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
 # passes log_config=None so its loggers propagate here instead of using its own):
@@ -161,10 +161,10 @@ IMG_MAX_BYTES = (
 # anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
 # telemetry too — this bounds the READ so a huge body can't balloon memory).
 CLIENT_ERROR_MAX_BYTES = 8 * 2**10
-# After a cursor walk's key, how often and how long /send waits for the screen to redraw
-# before it reads the picker back: a terminal redraws in milliseconds, a key that moved
-# nothing never redraws, so a second bounds it.
-PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 20
+# After a menu answer or a cursor walk's key, how often and how long /send waits for the
+# screen to redraw: a terminal redraws in milliseconds, a key that did nothing never
+# redraws, so a second and a half bounds it.
+PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 30
 # A boot failure (web/m/index.html's watchdog) also goes to the journal, at most this often,
 # so a reload loop can't flood it; one line is enough to see what broke.
 BOOT_WARN_INTERVAL_S = 10.0
@@ -966,9 +966,12 @@ def send(pane_id: str, body: SendBody, request: Request):
     w, fp = app.state.watcher, body.question
     birth = w.pane_birth(pane.id) if fp else None  # the incarnation the question names
 
+    shown = []  # the screen a menu answer lands on, read under the send lock
+
     def claim() -> None:
         digest, generation, frame = fp.split(":")  # a malformed token: ValueError, 409
         claim_question(w, pane.id, digest, int(generation), frame)
+        shown.append(_screen(pane.id))
 
     def same_picker() -> None:
         # The whole guard on a cursor walk, under the send lock: the picker, from its
@@ -1010,7 +1013,29 @@ def send(pane_id: str, body: SendBody, request: Request):
     after = {} if body.picker is None else _picker_after(pane.id, body)
     if after:
         w.request_reparse(pane.id)
+    # A digit the widget ignores (Codex's trust dialog and "1") leaves the card saying so
+    # instead of waiting on an agent that never heard it.
+    if shown and shown[0] is not None and not _redrawn(pane.id, shown[0]):
+        after = {"took": False}
     return {"ok": True, **after}
+
+
+def _screen(pane_id: str) -> str | None:
+    try:
+        return tmux.capture_pane(pane_id)
+    except subprocess.CalledProcessError:  # closed: nothing to compare
+        return None
+
+
+def _redrawn(pane_id: str, before: str) -> bool:
+    """Whether the screen moves off `before` within the settle window, past the timer
+    and spinner churn that redraws it with no answer at all."""
+    was = _fingerprint(before)
+    for _ in range(PICKER_SETTLE_POLLS):
+        time.sleep(PICKER_SETTLE_S)
+        if (now := _screen(pane_id)) is None or _fingerprint(now) != was:
+            return True
+    return False
 
 
 def _picker_after(pane_id: str, body: SendBody) -> dict:
