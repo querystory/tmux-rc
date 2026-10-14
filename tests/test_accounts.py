@@ -365,7 +365,8 @@ CB = "http://localhost:1455/auth/callback?code=c-1&state=s-2"
     ("http://localhost/auth/callback?code=c", False),  # no port: 80
     (CB.replace("localhost", "example.com"), False), (CB.replace("localhost", "[::1]"), False),
     (CB.replace("localhost", "localhost.example.com"), False),
-    (CB.replace("//", "//u:p@"), False), (CB + "#x", False), (CB.replace("1455", "x"), False),
+    (CB.replace("//", "//u:p@"), False), (CB.replace("//", "//:@"), False),
+    (CB.replace("//", "//@"), False), (CB + "#x", False), (CB.replace("1455", "x"), False),
     (CB.replace("/auth/callback", "/auth/callback/../x"), False), (CB.partition("?")[0], False),
     (CB.replace("c-1", "c 1"), False), (CB.replace("c-1", "c%0d%0aX:1"), True),  # still escaped
     ("javascript:alert(1)", False), ("", False),

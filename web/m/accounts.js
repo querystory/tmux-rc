@@ -18,7 +18,7 @@ const LEAD = /^\s*(?:[A-Za-z_]\w*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\\.|[^\s'"\\])*\s
 const shq = (s) => /^[\w@%+=:,./~-]+$/.test(s) ? s : `'${s.replace(/'/g, `'"'"'`)}'`;
 // Where a browser `codex login` is finished from afar: the sheet's waiting step and the
 // sign-in pane's own card both offer it (server: /api/accounts/login/callback).
-const pasteForm = (id, value = "") => `<label for="${id}">Paste the address your browser ended up on</label><div class="acct-paste"><input id="${id}" value="${esc(value)}" placeholder="http://127.0.0.1:1455/auth/callback?code=…" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" data-callback ${value.trim() ? "" : "disabled"}>Finish</button></div>`;
+const pasteForm = (id, value = "", busy = false) => `<label for="${id}">Paste the address your browser ended up on</label><div class="acct-paste"><input id="${id}" value="${esc(value)}" placeholder="http://127.0.0.1:1455/auth/callback?code=…" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" data-callback ${value.trim() && !busy ? "" : "disabled"}>Finish</button></div>`;
 // The line in words as the server's shlex.split reads it: quotes and backslashes, and null
 // for one left open, so the sheet refuses exactly what the server would.
 export const shellWords = (s) => {
@@ -290,7 +290,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       + (!codex ? "" : w?.url ? `<a class="acct-open" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">Open sign-in page ↗</a>` : '<p class="acct-wait"><i class="acct-spin"></i>Starting sign-in…</p>')
       + (w?.others?.length ? `<p class="acct-msg warn">${w.others.length} older sign-in window${w.others.length === 1 ? " is" : "s are"} open for ${esc(F.name)}; a link from ${w.others.length === 1 ? "it" : "them"} will not work here.</p><button type="button" data-close-others>Close the older ${w.others.length === 1 ? "window" : "windows"}</button>` : "")
       + (w?.device && w.code ? `<p class="acct-note">One-time code: <code class="acct-code">${esc(w.code)}</code></p>` : "")
-      + (codex && w && !w.device ? pasteForm("acct-callback", F.callback) : "")
+      + (codex && w && !w.device ? pasteForm("acct-callback", F.callback, F.sending) : "")
       + (codex ? ways() + (other ? `<button type="button" data-restart>Restart as ${device() ? "device code" : "browser sign-in"}</button>` : "") : "")
       + `<p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
       + btns('<button class="ghost" data-abandon>Cancel sign-in</button>', "<button data-go>Go to window</button>");
@@ -302,7 +302,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (!words) return "A quote or a backslash is left open";
     const n = words.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w)), env = n < 0 ? words : words.slice(0, n);
     const p = byDir(F.dir), bin = LOGIN[F.provider].split(" ")[0];
-    if (env.length !== 1 || !env[0].startsWith(`${v}=`) || ![F.dir, p?.dir, p?.tilde].filter(Boolean).map(norm).includes(norm(env[0].slice(v.length + 1))))
+    // ~ as the server expands it: the home the profile's own dir and ~-spelling share.
+    const home = p?.tilde?.startsWith("~") ? p.dir.slice(0, p.dir.length - p.tilde.length + 1) : "";
+    const canon = (d) => norm(home && /^~(\/|$)/.test(d) ? home + d.slice(1) : d);
+    if (env.length !== 1 || !env[0].startsWith(`${v}=`) || ![F.dir, p?.dir].filter(Boolean).map(canon).includes(canon(env[0].slice(v.length + 1))))
       return `Must stay ${v}=${shq(p?.tilde || F.dir)}`;
     return words[env.length] === bin ? "" : `Must run ${bin}`;
   };
@@ -382,7 +385,11 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       if ("login" in d) return openLogin();
       if ("closeOthers" in d) { for (const o of F.window.others) await post("/api/accounts/login/close", o); F.window = null; return wait(); }
       if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); F.session ||= sessions()[0]; return openLogin(); }
-      if ("callback" in d) { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); F.callback = ""; return wait(); }
+      if ("callback" in d) { // one at a time, across the polls' redraws: the code is single-use
+        F.sending = true;
+        try { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); } finally { F.sending = false; }
+        F.callback = ""; return wait();
+      }
       if ("retry" in d) return go("login", { pane: null });
       if ("later" in d) return go("list");
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }
