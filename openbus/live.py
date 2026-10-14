@@ -502,6 +502,7 @@ _KEY_ASKS = {k: frozenset(f"{_PRESS} {v}".split()) for k, v in {
 # model still sent "the agent" to the pane whose screen shared a word with the request about
 # one time in twenty, and only a check in code makes that never.
 _AIMED = {"type_in_pane", "press_key", "send_image_to_pane"}
+_NOT = frozenset({"no", "not", "don", "dont", "never", "nope", "nah"})  # _words splits "don't"
 _ROW = re.compile(r"\d+|y(es)?|no?")  # what picks a menu row (or answers y/n) when typed
 _ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply accept approve confirm allow decline reject "
                      "deny cancel".split())
@@ -513,7 +514,8 @@ def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
     name, a message typed into a menu, or a pane's prompt answered unasked."""
     if getattr(session, "unanchored", False):
         return "unanchored"
-    request = getattr(session, "request", "")
+    question, own = getattr(session, "request", ("", ""))
+    request, said = f"{question}\n{own}", set(_words(own))
     asked = set(_words(request))
     if name in _AIMED and pane and getattr(session, "turn_pane", None) not in (
             None, pane["pane_id"]) and not _named([pane], request) and not any(
@@ -524,6 +526,8 @@ def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
     if name == "type_in_pane" and pane and pane.get("menu") is not None and (
             not row or pane.get("answer_style") == "cursor"):
         return "menu"  # Enter picks the highlighted row ("1. Yes"); a picker searches typing
+    if said & _NOT:  # "don't decline it", "no, …": nothing in it asks for an answer
+        asked = set()
     if name == "press_key":
         ok = bool(_KEY_ASKS.get(args.get("key"), frozenset()) & asked)
     elif name == "type_in_pane" and pane and pane.get("question") and row:
@@ -815,20 +819,10 @@ async def _dispatch(
     # whether it counts as submitted). malformed stays None ⇒ reject below.
     send_args = what = None
     submitted = False
-    if (
-        fc.name == "type_in_pane"
-        and isinstance(fc.args, dict)
-        and isinstance(raw_pane_id, str)
-        and isinstance(args.get("text"), str)
-        and not (set(args) - {"pane_id", "text", "press_enter"})
-    ):
-        text = args["text"]
-        raw_enter = args.get("press_enter", True)
-        # Never coerce press_enter: bool("false") is True and would submit an unsent
-        # command. A non-bool value is malformed.
-        if text.strip() and isinstance(raw_enter, bool):
-            send_args = (pane_id, text, raw_enter, True)  # literal text
-            what, submitted = text, raw_enter
+    if fc.name == "type_in_pane" and isinstance(fc.args, dict) and _typed(args):
+        text, raw_enter = _typed(args)
+        send_args = (pane_id, text, raw_enter, True)  # literal text
+        what, submitted = text, raw_enter
     elif (
         fc.name == "press_key"
         and isinstance(fc.args, dict)
@@ -885,6 +879,15 @@ async def _dispatch(
     if session is not None:  # none for a resumed card (_resume)
         _background(asyncio.create_task(refresh()))
     return _sent(label)
+
+
+def _typed(args: dict) -> tuple[str, bool] | None:
+    """A well-formed type_in_pane's (text, press_enter), else None. Never coerce press_enter:
+    bool("false") is True and would submit an unsent command, so a non-bool is malformed."""
+    text, enter = args.get("text"), args.get("press_enter", True)
+    ok = (isinstance(args.get("pane_id"), str) and isinstance(text, str) and text.strip()
+          and isinstance(enter, bool) and not set(args) - {"pane_id", "text", "press_enter"})
+    return (text, enter) if ok else None
 
 
 def _sent(label: str) -> dict:

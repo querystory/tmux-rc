@@ -122,7 +122,8 @@ class _Chat:
         self.turn_pane: str | None = None
         self._asking = ""  # the reply that asked, while self.asked
         self._replies: list[str] = []  # the restored assistant rows, oldest first
-        self.request = ""  # this turn's words and the question they answer (live._refusal)
+        # The question this turn agrees with, if it only agrees, and its own words (live._refusal)
+        self.request = ("", "")
 
     def restore(self, rows) -> int:
         """Take the client's transcript as quoted context for a session that has none yet.
@@ -175,7 +176,9 @@ class _Chat:
                 cut = self._starts[-TURNS_KEPT]
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
-            self.request = f"{self._asking}\n{text}" if anchored else text
+            # The question's words count only when the reply just agrees with it: after
+            # "cancel its command?", "no" must not leave "cancel" asking for Escape.
+            self.request = (self._asking if anchored and only_agrees(text) else "", text)
             bare = only_agrees(text)
             self.unanchored = bare and not anchored
             self.caution = (CAUTION_RESTORED if self._restored
