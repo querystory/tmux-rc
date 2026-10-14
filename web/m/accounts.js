@@ -3,24 +3,28 @@
 // no-op and the app looks as it always did. The one exception is Accounts… in the menu,
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-const KEY = "tmuxrc-account", ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
+const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
 const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
 const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
-export function setupAccounts({ request, post, licon, notice, repaint, sessions, paneAlive, openPane }) {
+export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane }) {
   const $ = (id) => document.getElementById(id);
+  // The filter is the URL's `acct` (url-state.js): app.js routes it here through follow().
   let profiles = [], defaults = {}, shared = {}, filter = null;
-  try { filter = localStorage.getItem(KEY); } catch {}
   const signedIn = () => profiles.filter((p) => p.signed_in);
   const several = (provider) => signedIn().filter((p) => p.provider === provider).length > 1;
   const any = () => Object.keys(ENV).some(several);
   const byDir = (dir) => profiles.find((p) => p.dir === dir);
   // The account worth naming for a pane: only when its provider has several.
   const ofPane = (id) => { const p = profiles.find((a) => a.panes.includes(id)); return p && several(p.provider) ? p : null; };
-  const active = () => { const p = any() && byDir(filter); return p?.signed_in ? p : null; };
+  // The URL's name for an account: its dir, which is unique and outlives a rename, with the
+  // usual "~/." dropped so it reads (acct=claude-work). Every other dir keeps its leading
+  // "~" or "/", so no two dirs share a name.
+  const key = (p) => p.tilde.replace(/^~\/\./, "");
+  const active = () => any() && signedIn().find((p) => key(p) === filter) || null;
   // The login's email, where the name and organisation leave it unsaid.
   const login = (p) => [p.who, p.name].some((s) => s?.includes(p.login)) ? "" : p.login;
   // The line under a name in a pick list: what the name leaves unsaid, then the dir.
@@ -45,33 +49,43 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     if (mine !== asked) return newest; // whether this one failed or not
     if (!data) return false;
     ({ profiles, sessions: defaults, shared } = data);
-    paintMenu(); repaint();
+    paintFilter(); repaint();
     if (dlg.open && F.step === "list" && !F.renaming) render();
     return true;
   }
-  function setFilter(dir) {
-    filter = dir || null;
-    try { if (filter) localStorage.setItem(KEY, filter); else localStorage.removeItem(KEY); } catch {}
-    $("more-menu").open = false; paintMenu(); repaint();
+  function setFilter(k) {
+    const menu = filterGroup.closest("details"), focused = [filterGroup, pill].some((el) => el.contains(document.activeElement));
+    if (menu) menu.open = false;
+    navigate(k || null); // writes the URL, which routes back to follow()
+    // The button pressed was just redrawn or hidden: keep keyboard focus on the menu's trigger,
+    // else the chip, else (clearing the pill on a phone) the dashboard's tab or a pane's Back.
+    if (focused) [menu?.querySelector("summary"), filterGroup.querySelector('[aria-pressed="true"]'), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")]
+      .find((el) => el?.getClientRects().length)?.focus();
   }
 
-  // ---- the menu's Filter (several only), its dot, and the "Filtered: X" pill ----
-  const menuFilter = document.createElement("div");
-  menuFilter.id = "acct-filter"; menuFilter.setAttribute("role", "group"); menuFilter.ariaLabel = "Account filter";
-  $("more-menu").querySelector(".header-picker-menu").prepend(menuFilter);
+  // ---- the filter: "Panes from" in the wide list's filter dropdown, chips under a phone's
+  // search (app.js places it); its pick's dot on the dropdown's label, and the "Filtered: X" pill.
+  const filterGroup = document.createElement("div");
+  filterGroup.id = "acct-filter"; filterGroup.setAttribute("role", "group"); filterGroup.ariaLabel = "Panes from";
+  const tag = document.createElement("i");
+  tag.className = "acct-dot";
   const pill = document.createElement("div");
   pill.className = "acct-pill"; pill.setAttribute("role", "status");
-  function paintMenu() {
-    const on = active(), opts = [[null, "All accounts"], ...signedIn().map((p) => [p, p.name])];
-    menuFilter.hidden = !any();
-    menuFilter.innerHTML = any() ? '<div class="menu-sec">Filter</div>' + opts.map(([p, name]) =>
-      `<button type="button" class="acct-opt" data-dir="${esc(p?.dir || "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${esc(name)}</span>${licon("check", 16)}</button>`).join("") + "<hr>" : "";
-    $("more-menu").classList.toggle("filtered", !!on);
-    $("more-menu").style.setProperty("--a", on ? `var(--acct-${on.color})` : "");
-    pill.hidden = !on;
-    pill.innerHTML = on ? `Filtered: ${badge(on, `<button type="button" aria-label="Clear the account filter" title="Clear">${licon("x", 14)}</button>`)}` : "";
+  filterGroup.hidden = tag.hidden = pill.hidden = true; // until the accounts arrive
+  // Redrawn only when changed: the refresh every 20s would otherwise drop a focused button's focus.
+  const draw = (el, markup) => { if (el._markup !== markup) el.innerHTML = el._markup = markup; };
+  function paintFilter() {
+    const on = active(), opts = [[null], ...signedIn().map((p) => [p, p.name])];
+    filterGroup.hidden = !any();
+    draw(filterGroup, any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
+      `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
+    filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
+    tag.hidden = pill.hidden = !on;
+    tag.title = on ? `Panes from ${on.name}` : "";
+    tag.style.setProperty("--a", on ? `var(--acct-${on.color})` : "");
+    draw(pill, on ? `Filtered: ${badge(on, `<button type="button" aria-label="Clear the account filter" title="Clear">${licon("x", 14)}</button>`)}` : "");
   }
-  menuFilter.onclick = (e) => { const b = e.target.closest("[data-dir]"); if (b) setFilter(b.dataset.dir); };
+  filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
   pill.onclick = (e) => { if (e.target.closest("button")) setFilter(null); };
 
   // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
@@ -101,14 +115,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     el.onscroll();
     (el._resize ||= new ResizeObserver(() => el.onscroll())).observe(el);
   }
-  // The wide dashboard: one row of capped meters, each account's group labelled, details in
-  // its tooltip; it wraps only when they don't fit. The label names the account once over
-  // its meters, so they drop the chip.
+  // The wide dashboard and usage view: each account's meters as a group under its chip,
+  // details in its tooltip. The chip names the account once over its meters, so they drop it.
   function groups(el, list, render) {
     el.className = "usage-groups"; el.hidden = !list.length; // a board drawn before the accounts came may have hidden it
     const markup = list.map((a, i) => {
       const p = a.acct, tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
-      return `<div class="ug" data-i="${i}"><div class="ug-label" title="${esc(tip)}">${several(p.provider) ? badge(p) : `<b>${esc(p.name)}</b>`}</div><div class="ug-cells"></div></div>`;
+      return `<div class="ug" data-i="${i}" style="--n:${a.windows?.length || 1}"><div class="ug-label" title="${esc(tip)}">${badge(p)}</div><div class="ug-cells"></div></div>`;
     }).join("");
     if (el._groups !== markup) { el.innerHTML = markup; el._groups = markup; }
     el.querySelectorAll(".ug").forEach((g) => render(g.lastChild, [{ ...list[g.dataset.i], label: null, chip: null }]));
@@ -275,7 +288,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); // a failed close stops the removal
         F.pane = null;
       }
-      if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); if ((F.removing || F.dir) === filter) setFilter(null); await refresh(); return go("list"); }
+      if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); if (byDir(F.removing || F.dir) === active()) setFilter(null); await refresh(); return go("list"); }
       if ("create" in d) {
         const link = d.create ? [...dlg.querySelectorAll("[data-link]:checked")].map((i) => i.dataset.link) : [];
         const added = await post("/api/accounts", { provider: F.provider, dir: F.dir, label: F.name, link });
@@ -295,11 +308,12 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     } catch (error) { fail(error); } finally { t.disabled = false; }
   });
   $("accounts-open").onclick = () => { $("more-menu").open = false; open("list"); };
-  pill.hidden = true;
 
   function matches(pane) { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, any,
+    refresh, usage, byUrgency, strip, groups, picker, pill, any, filter: filterGroup, tag,
+    // The URL's account (or null) in, and out for the next URL; follow says whether it changed.
+    key: () => filter, follow: (k) => { if (k === filter) return false; filter = k; paintFilter(); return true; },
     matches,
     // Open loops under a filter: only what a pane on the account holds (a PR's or worktree's
     // with no pane belongs to no account, so it is hidden with the rest).

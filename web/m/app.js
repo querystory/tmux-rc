@@ -216,15 +216,17 @@ function notice(message = "", ms = 0) {
 }
 
 const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { paintUsage(); render(); },
+  // An account picked: this very screen, in a URL that names it (or none, for All).
+  navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
   paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id) });
 
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
-function navigate(id = null, nextView = "summary", { mode } = {}) {
+function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
   const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, sort });
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, sort });
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
@@ -262,6 +264,7 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort, page } = state);
+  if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {
@@ -603,7 +606,7 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 // Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
 // by default); the wide sidebar has no such menu and keeps them all.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], loops = null, cachedAt = 0, usageMode = "auto";
+let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = false, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
@@ -616,17 +619,27 @@ const paintUsage = () => {
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
-  const el = $("usage-board"), mode = several && WIDE.matches ? "groups" : "board";
-  if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
+  // A labelled group per account, or else one grid of meters (`flat`).
+  const paint = (el, list, grouped, cls, options, flat = () => renderUsage(el, list, options)) => {
+    const mode = grouped ? "groups" : "board";
+    if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = cls; }
+    if (grouped) accounts.groups(el, list, (cells, one) => renderUsage(cells, one, options));
+    else flat();
+  };
   show("usage-panel", board.length > 0);
-  if (mode === "groups") accounts.groups(el, board, (cells, list) => renderUsage(cells, list, { wide: true }));
-  else { renderUsage(el, order(board), { wide: true }); accounts.strip(el, several); }
+  const el = $("usage-board");
+  paint(el, board, several && WIDE.matches, "usage-board", { wide: true }, () => renderUsage(el, order(board), { wide: true }));
+  accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
   if (page !== "usage") return;
+  if (!usagePast) refreshCached(true); // past windows: only this view asks for them
   // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.
-  renderUsage(cardView("Plan usage", usageView).firstChild, board.length ? board : all, { wide: true, detail: true });
+  // Wide, each account's meters share a row under its name, once the accounts have come.
+  const list = board.length ? board : all;
+  paint(cardView("Plan usage", usageView).firstChild, list, WIDE.matches && list.every((a) => a.acct), "usage-board usage-full",
+    { wide: true, detail: true, icon: licon });
 };
 const usageView = document.createElement("section");
-usageView.className = "atlas-panel";
+usageView.className = "atlas-panel usage-view";
 usageView.innerHTML = '<div class="usage-board usage-full" role="group" aria-label="Plan usage"></div>';
 detailCard($("usage-panel"), "Plan usage", "", () => openPage("usage"));
 const loopsView = document.createElement("section");
@@ -645,10 +658,12 @@ function cardView(title, node) {
   return node;
 }
 // Plan usage and open loops are both cached by the server; a minute is fresh enough.
-async function refreshCached() {
-  if (Date.now() - cachedAt < 60000) return;
-  cachedAt = Date.now();
-  const [u, l] = await Promise.allSettled([request("/api/usage"), request("/api/open-loops")]);
+async function refreshCached(force) {
+  if (!force && Date.now() - cachedAt < 60000) return;
+  cachedAt = Date.now(); usagePast = page === "usage";
+  const seq = ++cachedSeq;
+  const [u, l] = await Promise.allSettled([request(usagePast ? "/api/usage?past=1" : "/api/usage"), request("/api/open-loops")]);
+  if (seq !== cachedSeq) return; // a forced fetch overlapped this one: only the latest answers land
   if (u.status === "fulfilled") usage = u.value.accounts || [];
   if (l.status === "fulfilled") loops = l.value;
   accounts.refresh();
@@ -1571,9 +1586,16 @@ function placeChrome() {
     if (!homes[id]) $(id).before(homes[id] = document.createComment(id));
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
-  // The account filter's pill: under the phone's header, in the wide sidebar under search.
-  (WIDE.matches ? document.querySelector("#sessions .search") : document.querySelector(".app-header")).after(accounts.pill);
+  // The account filter (accounts.js): wide, a group in the list's filter dropdown and its
+  // pill under search; on a phone, chips under search and the pill under the header.
+  const search = document.querySelector("#sessions .search");
+  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter); search.after(accounts.pill); }
+  else { search.after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
+  accounts.strip(accounts.filter, !WIDE.matches);
 }
+// Two filters that combine, not one radio group: the radios still group by their name.
+renderSidebar.picker.lastChild.setAttribute("role", "group");
+renderSidebar.picker.querySelector("summary").prepend(accounts.tag);
 placeChrome();
 // route() again, not just render(): a pane URL without a view opens on a different tab once wide.
 const resizeWorkspace = () => { placeChrome(); paintUsage(); route(); };
