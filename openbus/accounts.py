@@ -86,7 +86,9 @@ def identity(provider: str, config: Path) -> dict | None:
     return {"who": org or account.get("displayName") or email, "plan": plan.title(),
             # Tell apart two people of one organisation: the display name, else the email's
             # local part; the full email only if those clash too (see _distinguish).
-            "_more": [account.get("displayName") or email.split("@")[0], email]}
+            "_more": [account.get("displayName") or email.split("@")[0], email],
+            # The login itself: one person in one organisation, whatever either is called.
+            "_key": [account["accountUuid"], account.get("organizationUuid") or org]}
 
 
 def profiles(pane_dirs=()) -> list[dict]:
@@ -125,12 +127,12 @@ def _profiles(pane_dirs) -> list[dict]:
     if dirty:
         _save(store)
     _distinguish([p for p in out if not p["label"]])
+    for p in out:  # dirs signed in to one login (a stray /login): flag each, by dir
+        p["same_as"] = [q["dir"] for q in out if q is not p and p.get("_key")
+                        and q.get("_key") == p["_key"]]
     for p in out:  # the login's email, which the UI shows to tell each dir's login apart
         p["login"] = p.pop("_more", ["", ""])[1]
-    for p in out:  # dirs signed in to one login (a stray /login): flag each, by dir
-        key = (p["provider"], p["who"], p["login"])
-        p["same_as"] = [q["dir"] for q in out if q is not p and p["login"]
-                        and (q["provider"], q["who"], q["login"]) == key]
+        p.pop("_key", None)
     return out
 
 

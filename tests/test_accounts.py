@@ -155,9 +155,12 @@ def test_two_dirs_on_one_login_flag_each_other(home):
     # A /login in the wrong dir: ~/.claude-demo now holds ~/.claude's login, under a label.
     _signed_in(home / ".claude-demo", "u-work", organizationName="Example Org",
                emailAddress="dev@example.com", organizationType="claude_team")
-    # One email in another organisation is another login, as is a codex dir.
+    # One email in another organisation is another login, even under the same name.
     _signed_in(home / ".claude-side", "u-work", organizationName="Side Org",
                emailAddress="dev@example.com")
+    for d, org in (("a", "o-1"), ("b", "o-2")):
+        _signed_in(home / f".claude-{d}", "u-work", organizationName="Twin Org",
+                   organizationUuid=org, emailAddress="dev@example.com")
     accounts.edit(str(home / ".claude-demo"), "Demo")
     found = _by_dir(home)
     assert found["~/.claude"]["same_as"] == [str(home / ".claude-demo")]
