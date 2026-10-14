@@ -11,6 +11,7 @@ export function headerPicker(select) {
   menu.className = 'header-picker-menu';
   menu.setAttribute('role', 'radiogroup');
   menu.setAttribute('aria-label', select.getAttribute('aria-label'));
+  if (select.hasAttribute('aria-description')) menu.setAttribute('aria-description', select.getAttribute('aria-description'));
   details.append(summary, menu);
   select.after(details);
   select.hidden = true;
