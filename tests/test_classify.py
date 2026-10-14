@@ -1340,6 +1340,31 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     assert "question" not in claude and "question" not in codex
 
 
+def test_claude_interrupt_is_the_user_at_an_idle_prompt():
+    asked = {"activity": "waiting", "question": {
+        "prompt": "Interrupted · What should Claude do instead?", "answer_style": "text"}}
+    screen = _sample("99_claude_interrupt_is_not_a_question")
+    result = classify(_pane("claude"), screen, _llm(asked))
+    assert result["activity"] == "idle" and "question" not in result
+    assert "waiting_on" not in result
+    # A finished stamp after the notice in auto mode: its "?" is no closing question.
+    stamped = ("\x1e[visible screen]\x1f\n● Bash(make test)\n"
+               "  ⎿ \xa0Interrupted · What should Claude do instead?\n\n"
+               "✻ Sautéed for 10s · done 11:00 AM\n\n❯\n  ⏵⏵ auto mode on")
+    assert "question" not in classify(_pane("claude"), stamped, _llm(asked))
+    # Anything after the notice is newer, so the model's read stands: a typed row, a live
+    # turn, a held picker.
+    menu = {"prompt": "Run it?", "answer_style": "menu", "options": ["Yes", "No"]}
+    for later, model, activity in [
+        (stamped.replace("❯\n", "❯ run it again\n"), {"activity": "running"}, "running"),
+        (stamped.replace("❯\n", "✶ Befuddling… (3s · esc to interrupt)\n\n❯\n"),
+         {"activity": "running"}, "running"),
+        (stamped.replace("❯\n", " Run it?\n ❯ 1. Yes\n   2. No\n"), {"question": menu},
+         "waiting"),
+    ]:
+        assert classify(_pane("claude"), later, _llm(model))["activity"] == activity
+
+
 def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 
