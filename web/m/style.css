@@ -747,7 +747,13 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
 .usage-board .usage-spark { height: 56px; margin-top: 6px; }
 .usage-full { grid-template-columns: repeat(auto-fit, minmax(max(280px, 40%), 1fr)); }
-.usage-full .usage-spark { height: 96px; }
+.usage-full .usage-spark { height: 96px; touch-action: pan-y; } /* a sideways swipe steps through past windows */
+/* The arrows back through past windows share the head row with "used", at its end; full-size
+   touch targets that overhang the row rather than heighten it. */
+.usage-cell em, .usage-nav { grid-area: 1 / 3; } /* placed, not flowed, so the two can share the cell */
+.usage-nav { justify-self: end; display: flex; margin: -13px -10px -13px 0; }
+.usage-nav button { width: 40px; display: inline-flex; align-items: center; justify-content: center; }
+.usage-nav button:first-child svg { transform: scaleX(-1); }
 .usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }

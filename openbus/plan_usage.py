@@ -35,6 +35,7 @@ ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
 TAIL = 1 << 20  # Codex session logs reach hundreds of MB; the newest limits sit at the end
 CODEX_FILES = 20  # bounds the scan when recent logs hold no limits event at all
 SPARK_POINTS = 120  # samples sent per window: a sidebar sparkline's width, not a week of polls
+PAST = 12  # ended windows the usage view can step back through: 12 weeks of a 7d window
 
 
 def window_name(minutes: int) -> str:
@@ -213,6 +214,30 @@ def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
             "limit_at": t + (100 - p) / slope if projected > 100 and p < 100 else None}
 
 
+def thin(samples: list[tuple]) -> list[list[float]]:
+    """At most SPARK_POINTS of these (t, pct) samples, newest kept, in ms."""
+    step = max(1, -(-len(samples) // SPARK_POINTS))
+    return [[t * 1000, p] for t, p in samples[::-1][::step][::-1]]
+
+
+def ended(name: str, seconds: int, rows: list[tuple], now: float) -> list[dict]:
+    """The last PAST windows these (t, pct, resets_at) samples show ending by now, oldest
+    first, shaped like a current window: its final %, its trend, and when it reached 100%
+    (`limit_at`). A window is told by its reset; consecutive ones are at least 5h apart, so
+    a reset an hour or less from the last is the same window read again."""
+    windows: list[tuple[float, list]] = []
+    for t, pct, resets in rows:
+        if resets is None:  # not yet opened
+            continue
+        if not windows or resets > windows[-1][0] + 3600:
+            windows.append((resets, []))
+        windows[-1][1].append((t, pct))
+    return [{"window": name, "pct": max(p for _, p in samples), "resets_at": resets * 1000,
+             "start": (resets - seconds) * 1000, "samples": thin(samples),
+             "limit_at": next((t * 1000 for t, p in samples if p >= 100), None)}
+            for resets, samples in [w for w in windows if w[0] <= now][-PAST:]]
+
+
 class PlanUsage:
     """Discovers accounts from the panes, samples them into History, reports for the UI."""
 
@@ -285,22 +310,26 @@ class PlanUsage:
                 logger.warning("plan usage poll failed", exc_info=True)
             await asyncio.sleep(POLL)
 
-    def _window(self, tool: str, key: str, row: tuple, now: float) -> dict:
-        """One window for the UI, in ms: its latest %, its trend thinned to SPARK_POINTS
-        (newest kept), and the projection over every sample."""
+    def _window(self, tool: str, key: str, row: tuple, now: float, past: bool) -> dict:
+        """One window for the UI, in ms: its latest %, its trend thinned to SPARK_POINTS,
+        and the projection over every sample; with `past`, the windows before it too."""
         name, seconds, observed, pct, resets = row
+        out = {"window": name}
+        if past:
+            every = self.history.usage_between(tool, key, name, 0, now)
+            out["past"] = ended(name, seconds, every, now)
         if resets is None or resets <= now:  # the window reset since: nothing used yet
-            return {"window": name, "pct": 0.0, "resets_at": None, "samples": []}
+            return {**out, "pct": 0.0, "resets_at": None, "samples": []}
         # Up to the row's own observation: a poll landing in between can't skew the trend.
-        samples = self.history.usage_between(tool, key, name, resets - seconds, observed)
+        samples = [(t, p) for t, p, _ in
+                   self.history.usage_between(tool, key, name, resets - seconds, observed)]
         trend = project(samples, resets, seconds, now)
-        thin = samples[::-1][::max(1, -(-len(samples) // SPARK_POINTS))][::-1]
-        return {"window": name, "pct": pct, "resets_at": resets * 1000,
-                "start": (resets - seconds) * 1000, "samples": [[t * 1000, p] for t, p in thin],
+        return {**out, "pct": pct, "resets_at": resets * 1000,
+                "start": (resets - seconds) * 1000, "samples": thin(samples),
                 "projected": trend["projected"],
                 "limit_at": trend["limit_at"] and trend["limit_at"] * 1000}
 
-    def report(self, now: float | None = None) -> list[dict]:
+    def report(self, now: float | None = None, past: bool = False) -> list[dict]:
         now = time.time() if now is None else now
         accounts = self.accounts  # one snapshot: poll() swaps it from a worker thread
         out = []
@@ -317,5 +346,5 @@ class PlanUsage:
             out.append({"provider": tool, "dirs": [str(h) for h in account.get("homes", [])],
                         "panes": account["panes"], "error": error,
                         "as_of": newest * 1000 if rows and account["error"] else None,
-                        "windows": [self._window(tool, key, row, now) for row in rows]})
+                        "windows": [self._window(tool, key, row, now, past) for row in rows]})
         return sorted(out, key=lambda a: (a["provider"], a["dirs"]))

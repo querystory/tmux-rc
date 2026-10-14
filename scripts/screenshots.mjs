@@ -29,6 +29,7 @@ const SHOTS = [
   ["wide-heatmap", WIDE, "light", "#view=dashboard", heatCard],
   ["wide-heatmap-view", WIDE, "dark", "#view=heat", heatCell],
   ["wide-usage-detail", WIDE, "dark", "#view=usage"],
+  ["wide-usage-past", WIDE, "light", "#view=usage", stepBack],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
@@ -43,6 +44,7 @@ const SHOTS = [
   ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
+  ["mobile-usage-past", PHONE, "light", "#view=usage", stepBack],
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
@@ -223,6 +225,11 @@ async function confirmExpunge(page) {
   await page.click("#pane-menu-button");
   await page.click("#expunge-pane");
   await page.waitForSelector("#expunge-dialog[open]");
+}
+
+// The usage view's history: the 5h meter two windows back (it hit the limit), the 7d one.
+async function stepBack(page) {
+  for (const n of [0, 0, 1]) await page.locator('.usage-nav [data-step="1"]').nth(n).click();
 }
 
 function chat(ask, until) { // hoisted: SHOTS above calls it

@@ -603,7 +603,7 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 // Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
 // by default); the wide sidebar has no such menu and keeps them all.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], loops = null, cachedAt = 0, usageMode = "auto";
+let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = false;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
@@ -622,8 +622,9 @@ const paintUsage = () => {
   if (mode === "groups") accounts.groups(el, board, (cells, list) => renderUsage(cells, list, { wide: true }));
   else { renderUsage(el, order(board), { wide: true }); accounts.strip(el, several); }
   if (page !== "usage") return;
+  if (!usagePast) refreshCached(true); // past windows: only this view asks for them
   // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.
-  renderUsage(cardView("Plan usage", usageView).firstChild, board.length ? board : all, { wide: true, detail: true });
+  renderUsage(cardView("Plan usage", usageView).firstChild, board.length ? board : all, { wide: true, detail: true, icon: licon });
 };
 const usageView = document.createElement("section");
 usageView.className = "atlas-panel";
@@ -645,10 +646,10 @@ function cardView(title, node) {
   return node;
 }
 // Plan usage and open loops are both cached by the server; a minute is fresh enough.
-async function refreshCached() {
-  if (Date.now() - cachedAt < 60000) return;
-  cachedAt = Date.now();
-  const [u, l] = await Promise.allSettled([request("/api/usage"), request("/api/open-loops")]);
+async function refreshCached(force) {
+  if (!force && Date.now() - cachedAt < 60000) return;
+  cachedAt = Date.now(); usagePast = page === "usage";
+  const [u, l] = await Promise.allSettled([request(usagePast ? "/api/usage?past=1" : "/api/usage"), request("/api/open-loops")]);
   if (u.status === "fulfilled") usage = u.value.accounts || [];
   if (l.status === "fulfilled") loops = l.value;
   accounts.refresh();

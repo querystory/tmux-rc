@@ -12,7 +12,7 @@ export function countdown(ms) {
 
 // The window's samples held to now, the even pace (a faint diagonal from 0% at its start to 100% at
 // its reset) and, dashed, the fitted pace from the latest sample on to the reset, or to
-// 100% if it gets there first. x spans the window, y 0..100%.
+// 100% if it gets there first. x spans the window, y 0..100%. An ended window has no pace to fit.
 function spark(w, now) {
   const W = 120, H = 24, span = w.resets_at - w.start;
   const at = ([t, p]) => `${((t - w.start) / span * W).toFixed(1)},${(H - Math.min(p, 100) / 100 * H).toFixed(1)}`;
@@ -21,32 +21,37 @@ function spark(w, now) {
   return `<svg class="usage-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
     + `<line x1="0" y1="0.5" x2="${W}" y2="0.5" class="limit"/><line x1="0" y1="${H}" x2="${W}" y2="0" class="limit"/>`
     + `<polyline points="${[[w.start, 0], ...w.samples, held].map(at).join(' ')}"/>`
-    + `<polyline class="proj" points="${at(held)} ${at(end)}"/></svg>`;
+    + (w.resets_at > now ? `<polyline class="proj" points="${at(held)} ${at(end)}"/>` : '') + '</svg>';
 }
 
-// A clock time for the detail view: the weekday as well once it is not today.
-const at = (t, now) => new Date(t).toLocaleString([], { ...(new Date(t).toDateString() !== new Date(now).toDateString() && { weekday: 'short' }), hour: 'numeric', minute: '2-digit' });
+// A clock time for the detail view: the weekday as well once it is not today, and the date
+// once the weekday could name another week.
+const at = (t, now) => new Date(t).toLocaleString([], { ...(new Date(t).toDateString() !== new Date(now).toDateString() && { weekday: 'short' }),
+  ...(Math.abs(now - t) > 6 * 864e5 && { month: 'short', day: 'numeric' }), hour: 'numeric', minute: '2-digit' });
 
 // A meter that fills up: the fill is what is used, the faint stretch past it is where the
 // fitted pace ends by the reset, and the tick is the even pace (the share of the window
 // gone), so a fill past the tick is ahead of it. Wide, the trend says the same over time.
-// Both are coloured by the projection's verdict.
-function cell(w, a, wide, detail, now) {
+// Both are coloured by the projection's verdict. An ended window (the usage view's history)
+// says how it ended instead: where it stopped, or when it hit the limit, and its dates.
+function cell(w, nav, a, wide, detail, now) {
   const projected = Math.min(100, w.projected ?? w.pct), used = Math.min(100, w.pct);
   const level = w.limit_at || w.pct >= 100 ? 'full' : projected >= 90 ? 'warn' : '';
-  const when = w.resets_at ? countdown(w.resets_at - now) : '';
-  const full = w.limit_at ? `full in ${countdown(w.limit_at - now)}` : '';
-  const stale = a.as_of ? `as of ${countdown(now - a.as_of)} ago` : ''; // the last read failed: an older reading
-  const note = (full && `<small class="out">${full}${detail ? `, ${at(w.limit_at, now)}` : ''}</small>`)
+  const ended = w.resets_at <= now, span = ended ? `${at(w.start, now)} – ${at(w.resets_at, now)}` : '';
+  const when = w.resets_at && !ended ? countdown(w.resets_at - now) : '';
+  const full = !w.limit_at ? '' : ended ? `hit the limit ${at(w.limit_at, now)}` : `full in ${countdown(w.limit_at - now)}`;
+  const stale = a.as_of && !ended ? `as of ${countdown(now - a.as_of)} ago` : ''; // the last read failed: an older reading
+  const note = (full && `<small class="out">${full}${detail && !ended ? `, ${at(w.limit_at, now)}` : ''}</small>`)
+    + (ended && !full ? `<small>ended at ${Math.round(w.pct)}%</small>` : '') + (span && `<small>${span}</small>`)
     + (when && `<small>resets ${when}${detail ? `, ${at(w.resets_at, now)}` : ''}</small>`)
     + (detail && w.projected != null ? `<small>at this pace ${Math.round(w.projected)}% by the reset</small>` : '')
     + (stale && `<small>${stale}</small>`);
-  const title = `${who(a)} ${w.window}: ${Math.round(w.pct)}% used${full && `, ${full}`}${when && `, resets in ${when}`}${stale && `, ${stale}`}`
+  const title = `${who(a)} ${w.window}${span && `, ${span}`}: ${Math.round(w.pct)}% used${full && `, ${full}`}${when && `, resets in ${when}`}${stale && `, ${stale}`}`
     + (w.projected != null ? `; at this pace ${Math.round(w.projected)}% by the reset` : '');
   const pace = w.resets_at && Math.min(100, Math.max(0, (now - w.start) / (w.resets_at - w.start) * 100));
   const bar = `<i class="usage-bar"><i style="width:${projected}%" class="ahead"></i><i style="width:${used}%"></i>`
     + (pace ? `<i class="pace" style="left:${pace.toFixed(1)}%"></i>` : '') + '</i>';
-  return `<div class="usage-cell ${level}" title="${esc(title)}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${label(a.provider, w.window)}<b>${Math.round(w.pct)}%</b><em>used</em>`
+  return `<div class="usage-cell ${level}" title="${esc(title)}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${label(a.provider, w.window)}<b>${Math.round(w.pct)}%</b><em>used</em>${nav}`
     + `${wide && w.resets_at ? spark(w, now) : bar}<div class="usage-foot"><div>${note}</div>${a.chip || ''}</div></div>`;
 }
 
@@ -58,15 +63,49 @@ function cell(w, a, wide, detail, now) {
 const who = a => a.label ? `${NAMES[a.provider]} ${a.label}` : NAMES[a.provider];
 const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NAMES[provider]}" width="14" height="14">${esc(text)}</span>`;
 
+// The usage view steps each meter back through its ended windows (w.past, oldest first;
+// only /api/usage?past=1 sends them) with arrows, or a sideways swipe on its chart. Steps
+// back are kept per meter on the element, so a refresh redraws the window being read.
+function stepper(el, a, w, icon) {
+  const k = `${a.provider} ${a.dirs} ${w.window}`, max = w.past.length, n = el._back[k] = Math.min(el._back[k] || 0, max);
+  const button = (step, text, off) => `<button type="button" data-step="${step}" aria-label="${text} ${esc(w.window)} window"${off ? ' disabled' : ''}>${icon('chevron', 16)}</button>`;
+  return [n ? w.past[max - n] : w, `<span class="usage-nav" data-k="${esc(k)}">${button(1, 'Earlier', n === max)}${button(-1, 'Later', !n)}</span>`];
+}
+
+function steppable(el) {
+  if (el._back) return;
+  el._back = {};
+  const step = (nav, by) => {
+    const k = nav.dataset.k;
+    el._back[k] = Math.max(0, (el._back[k] || 0) + by);
+    el._redraw();
+    return [...el.querySelectorAll('.usage-nav')].find(n => n.dataset.k === k);
+  };
+  el.addEventListener('click', e => {
+    const b = e.target.closest('.usage-nav button');
+    if (b) step(b.parentNode, +b.dataset.step)?.querySelector(`[data-step="${b.dataset.step}"]:not(:disabled), button:not(:disabled)`)?.focus();
+  });
+  let from = null;
+  el.addEventListener('pointerdown', e => { from = e.target.closest('.usage-spark') && e; });
+  el.addEventListener('pointerup', e => {
+    const dx = from ? e.clientX - from.clientX : 0, nav = from?.target.closest('.usage-cell').querySelector('.usage-nav');
+    if (nav && Math.abs(dx) > 40 && Math.abs(dx) > 2 * Math.abs(e.clientY - from.clientY)) step(nav, dx > 0 ? 1 : -1);
+    from = null;
+  });
+}
+
 // Wide draws each window's trend instead of its bar; detail (the dashboard's expanded
-// panel) adds the clock times behind each countdown and the pace's forecast. Options are
+// panel) adds the clock times behind each countdown and the pace's forecast, and with
+// `icon` (app.js's), the arrows back through past windows. Options are
 // named, not positional: a page holding an older copy of this module once read a
 // positional `detail` flag as `now`, counting every reset from 1970 and drawing each trend
 // back to its window's start.
-export function renderUsage(el, accounts, { wide = false, detail = false, now = Date.now() } = {}) {
+export function renderUsage(el, accounts, options = {}) {
+  const { wide = false, detail = false, now = Date.now(), icon } = options;
   el.hidden = !accounts.length;
+  if (icon) { steppable(el); el._redraw = () => renderUsage(el, accounts, options); }
   const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, a.error)}${a.chip || ''}</div>`
-    : a.windows.map(w => cell(w, a, wide, detail, now)).join('')).join(''); // a plan without a window shows none
+    : a.windows.map(w => cell(...(icon && w.past?.length ? stepper(el, a, w, icon) : [w, '']), a, wide, detail, now)).join('')).join(''); // a plan without a window shows none
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
 }
 

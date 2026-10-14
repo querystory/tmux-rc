@@ -259,9 +259,32 @@ def test_a_failed_account_stays_unavailable_when_it_reappears_within_the_ttl(tmp
     assert usage.report(now=NOW)[0]["error"] == "unavailable"
 
 
-def test_samples_older_than_the_longest_window_are_pruned(tmp_path):
+def test_samples_past_eight_days_are_thinned_to_one_an_hour_not_deleted(tmp_path):
     tmp_path.chmod(0o700)
     history = History(tmp_path / "h.sqlite3")
-    history.record_usage([("codex", "a", "7d", 604800, NOW - 9 * 86400, 50, NOW - 2 * 86400)])
-    history.record_usage([("codex", "a", "7d", 604800, NOW, 5, NOW + 60)])
-    assert history.usage_between("codex", "a", "7d", 0, NOW) == [(NOW, 5.0)]
+    old, reset = NOW - 10 * 86400, NOW - 10 * 86400 + 5400  # a window resets mid-hour
+    thinned = [("claude", "a", "5h", 18000, t, t - old, reset if t < reset else reset + 18000)
+               for t in range(int(old), int(old) + 7200, 300)]
+    raw = [("claude", "a", "5h", 18000, NOW - m, 1, NOW + 60) for m in (120, 60, 0)]
+    history.record_usage(thinned + raw)
+    assert history.usage_between("claude", "a", "5h", 0, NOW) == [
+        (old + 3300, 3300, reset),  # the first hour's last sample
+        (old + 5100, 5100, reset),  # the ended window's final reading, though its hour went on
+        (old + 6900, 6900, reset + 18000),
+        *[r[4:] for r in raw]]  # within eight days: every sample
+
+
+def test_the_usage_view_steps_back_through_ended_windows(tmp_path):
+    tmp_path.chmod(0o700)
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"))
+    usage.accounts = {("claude", "a"): {"homes": [], "panes": [], "error": None}}
+    first, second = NOW - 30000, NOW - 5000  # two ended 5h windows' resets, then this one
+    usage.history.record_usage([("claude", "a", "5h", 18000, t, p, r) for t, p, r in (
+        (first - 9000, 20, first), (first - 60, 40, first + 2),  # re-read: the same window
+        (second - 4000, 100, second), (second - 60, 100, second),
+        (NOW - 600, 10, NOW + 9000), (NOW, 12, None))])  # a closed window is none of them
+    [window] = usage.report(now=NOW, past=True)[0]["windows"]
+    assert [(w["pct"], w["start"] / 1000, w["limit_at"]) for w in window["past"]] == [
+        (40, first - 18000, None), (100, second - 18000, (second - 4000) * 1000)]
+    assert window["past"][0]["samples"] == [[(first - 9000) * 1000, 20], [(first - 60) * 1000, 40]]
+    assert "past" not in usage.report(now=NOW)[0]["windows"][0]  # the strip's minute poll
