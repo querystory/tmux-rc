@@ -64,16 +64,18 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const pill = document.createElement("div");
   pill.className = "acct-pill"; pill.setAttribute("role", "status");
   filterGroup.hidden = tag.hidden = pill.hidden = true; // until the accounts arrive
+  // Redrawn only when changed: the refresh every 20s would otherwise drop a focused button's focus.
+  const draw = (el, markup) => { if (el._markup !== markup) el.innerHTML = el._markup = markup; };
   function paintFilter() {
     const on = active(), opts = [[null], ...signedIn().map((p) => [p, p.name])];
     filterGroup.hidden = !any();
-    filterGroup.innerHTML = any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
-      `<button type="button" class="acct-opt" data-dir="${esc(p?.dir || "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "";
+    draw(filterGroup, any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
+      `<button type="button" class="acct-opt" data-dir="${esc(p?.dir || "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
     filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
     tag.hidden = pill.hidden = !on;
     tag.title = on ? `Panes from ${on.name}` : "";
     tag.style.setProperty("--a", on ? `var(--acct-${on.color})` : "");
-    pill.innerHTML = on ? `Filtered: ${badge(on, `<button type="button" aria-label="Clear the account filter" title="Clear">${licon("x", 14)}</button>`)}` : "";
+    draw(pill, on ? `Filtered: ${badge(on, `<button type="button" aria-label="Clear the account filter" title="Clear">${licon("x", 14)}</button>`)}` : "");
   }
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-dir]"); if (b) setFilter(b.dataset.dir); };
   pill.onclick = (e) => { if (e.target.closest("button")) setFilter(null); };
