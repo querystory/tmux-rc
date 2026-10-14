@@ -1,0 +1,14 @@
+{
+  "description": "A y/n gate whose own line is numbered: a setup script printing its steps asks on step 1's row ([y/N] then Enter). The only \"1.\" row IS the prompt, so there is no option row below it and no digit to press: answer_style must be text (classify's post-parse check, sample 70's sibling). Synthetic.",
+  "current_command": "bash",
+  "capture": "user@host ~/src/app (main) $ ./scripts/setup.sh\nThis installs the toolchain into ~/.local and writes ~/.config/app/env.\n1. Install the toolchain now? [y/N] ",
+  "expected": {
+    "tool": "shell",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Setup script asking whether to install the toolchain"
+  }
+}

@@ -255,6 +255,35 @@ def _read_omp_row(result: dict, visible: str) -> None:
         result["working"] = {**(working if isinstance(working, dict) else {}), "elapsed": m[1]}
 
 
+# Claude Code's agent list (under "● main") shows a workflow as fixed-format chrome, read
+# here rather than left to the model: " ○  docs-sweep  ▰▰▱▱  1/2 · 3m37s · ↓ 109.1k tokens".
+# Only rows in that live list count: the "● main" line and the ○/◯/● rows under it, which
+# Claude draws as the last thing on screen, below its input box and footer. A row, or a
+# whole list, quoted in the conversation sits above the input box, so it never matches.
+# A long list ends with an "↓ 2 more" line.
+_AGENT_LIST_RE = re.compile(
+    r"(?:^|\n) *● +main *\n((?: *(?:[○◯●] |[↑↓] \d+ more)[^\n]*(?:\n|\Z))*)\s*\Z")
+_WORKFLOW_ROW_RE = re.compile(
+    r"^ *[○◯●] +(\S+) +[▰▱]+ +((\d+)/(\d+)) · (\S+) · ↓ ?([\d.]+\w?) tokens", re.MULTILINE)
+
+
+def _read_workflow_rows(result: dict, visible: str) -> None:
+    """Each workflow row is one background worker: it replaces whatever the model made of
+    that row (its name as a label, or the bar mistaken for one) with the row's own read."""
+    rows = [{"label": m[1], "state": "done" if m[3] == m[4] else "running",
+             "progress": m[2], "elapsed": m[5], "tokens": m[6]}
+            for block in _AGENT_LIST_RE.findall(visible)
+            for m in _WORKFLOW_ROW_RE.finditer(block)]
+    if rows:
+        subs, names = result.get("subagents"), {r["label"] for r in rows}
+
+        def theirs(a):  # the model's read of a workflow row: its exact name, or the bar
+            label = str(a.get("label")) if isinstance(a, dict) else ""
+            return label in names or bool({"▰", "▱"} & set(label))
+        result["subagents"] = [a for a in (subs if isinstance(subs, list) else [])
+                               if not theirs(a)] + rows
+
+
 def _checklist_text(text: str) -> str:
     """Normalize visible and model-returned task labels for conservative matching."""
     return " ".join(text.split()).casefold()
@@ -415,10 +444,14 @@ def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Mat
     """The prompt's matches; with row, only those that are a whole row bar the frame (and
     a search field's ⌕), so the same words inside a command (`printf "Proceed?"; rm …`)
     never stand in for it. The row may close on a live count, which the model drops; any
-    other words after the prompt ("… for deployment", "(production)") are another one."""
+    other words after the prompt ("… for deployment", "(production)") are another one,
+    unless the prompt is a whole sentence: the model quotes the question out of a longer
+    paragraph (Claude's trust dialog: "… one you trust? (Like your own code, …"), which
+    the terminal may also wrap, so the prompt's row runs on past it."""
     words = r"\s+".join(map(re.escape, prompt.split()))
     if row:
-        words = rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?(?=[ \t│┃╎]*$)"
+        words = (rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?"
+                 r"(?=[ \t│┃╎]*$|(?<=[?.!])[ \t]+\S)")
     return list(re.finditer(words, visible, re.IGNORECASE | re.MULTILINE))
 
 
@@ -582,7 +615,13 @@ def _ground_visible_fields(
 # A widget's own top edge (a ─── rule or a ╭ box corner), its first option row, and the
 # box/gutter glyphs framing each of its rows.
 _WIDGET_TOP_RE = re.compile(r"^\s*(?:[─━]{3,}|╭)")
-_FIRST_OPTION_RE = re.compile(r"^[ \t│❯›>]*1[.)]\s", re.MULTILINE)
+# A menu row is its digit then "." or ")" (the parser prompt's "1. 2. 3."), the only
+# shape any supported agent draws; none draws "1:" or "1 -" (no capture in the eval
+# samples or tests has one). Both the widget reader and the answer frame
+# (question_rows) use this one definition, so they never disagree on a menu's rows.
+_OPTION_ROW = r"^([ \t│❯›>]*)(?:{n})[.)]\s"
+_FIRST_OPTION_RE = re.compile(_OPTION_ROW.format(n="1"), re.MULTILINE)
+_OPTION_ROW_RE = re.compile(_OPTION_ROW.format(n=r"\d+") + ".*$", re.MULTILINE)
 _FRAME_RE = re.compile(r"^\s*[│┃╎]|\s+$")  # left glyph and padding: indentation is content
 _RULE_ROW_RE = re.compile(r"^\s*[─━╌┄]{3,}\s*$")  # a separator inside the widget
 
@@ -616,7 +655,10 @@ def _widget_text(prompt: str, visible: str) -> str:
     above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows
     top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
                 if _WIDGET_TOP_RE.match(above[i])), None)
-    below = visible[found.end():end].splitlines()[1:]
+    # A prompt sentence may open a longer row: the rest of it is the widget's too, kept
+    # at the prompt's own margin so the frame and common margin go as on every row.
+    rest, *below = visible[found.end():end].split("\n")
+    rest = rest.strip(" \t│┃╎") and found.group()[:_indent(found.group())] + rest.lstrip()
     # With no edge the rows are unframed (Codex): only the terminal's padding goes, so
     # a command's own "│" or "━━━" row stays part of the identity. Framed, a rule is the
     # widget's only when the whole raw row is one ("│ ━━━" is content), and only a ╭ box
@@ -624,9 +666,34 @@ def _widget_text(prompt: str, visible: str) -> str:
     boxed = top is not None and "╭" in above[top]
     text = "\n".join(raw.rstrip() if top is None else "" if _RULE_ROW_RE.match(raw) else
                      _FRAME_RE.sub("", re.sub(r"[│┃╎]\s*$", "", raw) if boxed else raw)
-                     for raw in [*(above[top + 1:] if top is not None else ()), "",
-                                 *below])
+                     for raw in [*(above[top + 1:] if top is not None else ()),
+                                 rest, *below])
     return textwrap.dedent(text).strip("\n")
+
+
+def question_rows(question: dict, text: str) -> str:
+    """The rows a menu `question` reads off capture `text`, verbatim, so a command or an
+    option that differs only in a duration or a cost still differs: from its widget's top
+    edge (Claude draws ▔▔▔ or ─── from column 0; an indented rule is a command's own row)
+    down to the screen's last numbered row and the rows indented under it (its wrapped
+    label or description), or with no edge the whole viewport down to there. The last
+    numbered row, not the question's own last option: a replacement menu with one more
+    option, or a new one drawn below, must change the rows. Never the rows above an edge,
+    where an agent still working behind its dialog streams output, nor below, where an
+    input box or status line animates.
+
+    That relies on an invariant: a supported agent erases or redraws its dialog once it
+    is answered, so an old menu never stays on screen, row for row, above a new plain
+    question. Were one drawn that way, the stale digit would type into a text prompt,
+    which approves nothing until someone presses Enter."""
+    visible = _visible(text)
+    end = list(_OPTION_ROW_RE.finditer(visible))
+    if question.get("answer_style") != "menu" or not question.get("options") or not end:
+        return ""  # only a menu's digit needs it; any other question keeps the whole frame
+    under = re.match(rf"(?:\n[ \t│┃]{{{len(end[-1][1]) + 1},}}\S.*)*", visible[end[-1].end():])
+    rows = visible[:end[-1].end() + under.end()]
+    top = list(re.finditer(r"^(?:[─━▔]{3,}|╭)", rows, re.MULTILINE))
+    return rows[top[-1].start():] if top else rows
 
 
 # The widget's raw rows are evidence, not something to read on a card: one small cached
@@ -1207,6 +1274,27 @@ def classify(
             question.pop(key, None)
         # A question with no style is answered as text (models.py), so it may name rows.
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
+        # A menu answer is its row's digit, so a menu shows its prompt above its last option
+        # row. A prompt only on that row ("1. Continue? [y/N]"), below it (a bare [y/N]
+        # under numbered output reads a typed line), or nowhere has no digit to press, so it
+        # is answered as text. The last match counts, so an older copy of the same prompt
+        # vouches for nothing, and a match inside an option's words, wrapped or not ("1.
+        # Repeat “Which action?”"), is the option's, not the prompt. This check, not the
+        # parser prompt's "or is a y/n confirmation", is the authority: the eval measured
+        # every rewording of the prompt regressing others.
+        rows = list(_OPTION_ROW_RE.finditer(visible))
+        # An option's words run past its row onto lines wrapped deeper than its number
+        # (a boxed widget's frame glyph counted as indentation).
+        words = [(r.end(1), re.compile(rf"(?:\n[ \t│┃╎]{{{len(r[1]) + 1},}}[^\s│┃╎].*)*").match(
+            visible, r.end()).end()) for r in rows]
+        said = [m for m in (_occurrences(asked, visible) if asked else [])
+                if not any(lo < m.start() < hi for lo, hi in words)]
+        if style == "menu" and (not _FIRST_OPTION_RE.search(visible) or not said
+                                or said[-1].start() >= rows[-1].start()):
+            # The menu's labels ("Yes") are no answer for a line prompt that reads "y":
+            # without buttons the user types exactly what the screen asks for.
+            style = question["answer_style"] = "text"
+            question.pop("options", None)
         # A menu's own numbers are its options, so only a typed answer names list items.
         if rows := style == "text" and asked and _referenced_rows(asked, visible):
             question["items"] = [_item(n, text) for n, text in rows.items()]
@@ -1245,6 +1333,8 @@ def classify(
         result.pop("waiting_on", None)
     # Count only workers observed running; waiting/idle/unknown are not active work.
     # Compacting has its own history state but still counts as busy in the dock.
+    if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
+        _read_workflow_rows(result, visible)
     subs = result.get("subagents")
     result["agents"] = (
         sum(1 for a in subs if isinstance(a, dict) and a.get("state") in ("running", "compacting"))

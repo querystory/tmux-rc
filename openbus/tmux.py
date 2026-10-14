@@ -994,12 +994,12 @@ def send_keys(
     `expected_pid` binds the complete send transaction to that pane incarnation.
     `guard`, when present, runs only after the per-pane send lock is held."""
     with _pane_lock(pane_id):
-        if guard is not None:
-            guard()
         if expected_pid is not None:
             check_pane(pane_id, expected_pid)
         if (keys if literal else keys not in PROMPT_KEYS) and at_password_prompt(pane_id):
             raise PasswordPromptError(AT_PASSWORD)
+        if guard is not None:
+            guard()  # last before delivery: its capture is as fresh as tmux allows
         if literal:
             identity = expected_pid if keys and expected_pid is not None else (
                 pane_pid(pane_id) if keys else None

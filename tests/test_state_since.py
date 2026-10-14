@@ -210,3 +210,57 @@ def test_a_parse_read_before_an_answer_cannot_put_its_question_back(monkeypatch)
     clock[0], frame[0] = 1002.0, "a new ask"  # read after it: the parse stands
     w._forced_this_tick = {pane.id}
     assert w._tick_pane(pane)["question"] == {"prompt": "Trust this folder?"}
+
+
+def test_input_generations_never_repeat_across_runs():
+    """A menu answer token names its input generation; a restart must not reissue one an
+    earlier run handed out, or a token held across it could approve an identical ask."""
+    first = Watcher(target=None, use_llm=False)
+    first.invalidate_input_actions("%1")
+    second = Watcher(target=None, use_llm=False)
+    assert second.pane_input_generation("%1") not in {
+        first.pane_input_generation("%1") - 1, first.pane_input_generation("%1")}
+
+
+def test_a_reparse_before_the_answer_is_drawn_reissues_no_token(monkeypatch):
+    """send-keys only queues the digit: the forced reparse right after an answer can read
+    the old menu, and must keep its consumed generation, or a second tap's digit queues
+    behind the first and lands on the next prompt. Output streaming above the menu keeps
+    it consumed too; the menu going away ends it."""
+    menu = f"{'▔' * 40}\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n"  # a widget edge
+    frame, clock = [f"● Bash(mkdir s1)\n{menu}"], [1000.0]
+    question = {"prompt": "Do you want to proceed?", "answer_style": "menu",
+                "options": ["Yes", "No"]}
+    state = [{"activity": "waiting", "events": [], "tool": "claude", "question": question}]
+    w = _harness(monkeypatch, frame, state, clock)
+    pane = _Pane()
+    w._forced_this_tick = set()
+    held = w._tick_pane(pane)
+    issued = held["input_generation"]
+    w.consume_answer("%1", w.frame_fp(frame[0]), held["frame"])  # claim_question's call
+    for screen in (frame[0], f"● Bash(mkdir s1)\n⎿ streamed\n{menu}"):
+        frame[0] = screen
+        w._forced_this_tick = {"%1"}
+        assert w._tick_pane(pane)["input_generation"] == issued  # the consumed one
+    frame[0], state[0] = "● Done.\n> ", {"activity": "idle", "events": [], "tool": "claude"}
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["input_generation"] == w.pane_input_generation("%1")
+    assert w._answered == {}
+
+
+def test_a_claim_during_a_parse_outlives_that_parse(monkeypatch):
+    """A tick that captured before a claim must not clear the claim's marker: its screen
+    can't show the answer yet, and the next parse would reissue the token."""
+    frame, clock = ["$ idle"], [1000.0]
+    w = _harness(monkeypatch, frame, [{"activity": "idle", "events": [], "tool": "shell"}],
+                 clock)
+    parse = W.classify
+
+    def claimed_mid_parse(*a, **kw):
+        w.consume_answer("%1", "the claimed screen", "its frame")  # a /send thread
+        return parse(*a, **kw)
+
+    monkeypatch.setattr(W, "classify", claimed_mid_parse)
+    w._forced_this_tick = set()
+    w._tick_pane(_Pane())
+    assert w._answered["%1"][1:] == ("the claimed screen", "its frame")

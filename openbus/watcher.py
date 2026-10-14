@@ -12,6 +12,7 @@ import hashlib
 import logging
 import os
 import re
+import secrets
 import sqlite3
 import subprocess
 import threading
@@ -19,7 +20,7 @@ import time
 from functools import partial
 
 from . import tmux, transcript
-from .classify import _OMP_CTX_RE, _OPENCODE_RUNNING_RE, bootstrap, classify
+from .classify import _OMP_CTX_RE, _OPENCODE_RUNNING_RE, bootstrap, classify, question_rows
 from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
@@ -46,7 +47,7 @@ SNAPSHOT_HISTORY = 200
 CHECKPOINT_EVENTS = 100
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 12
+CARD_VERSION = 14
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -287,7 +288,14 @@ class Watcher:
         self.tmux_running = True
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
+        # Each run counts from its own random base, so no answer token survives a restart:
+        # a pane bumps once per input, a vanishing slice of 2**62. Not the clock, which a
+        # rollback or a restored snapshot can repeat.
+        self._generation_base = secrets.randbits(62)
         self._input_generation_lock = threading.Lock()
+        # pane_id -> (generation, screen, frame) an answer was claimed at (consume_answer);
+        # under _input_generation_lock with the generation it bumped.
+        self._answered: dict[str, tuple] = {}
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._dropped: dict[str, tuple] = {}  # pane_id -> (asks, when) drop_question took
         self._unchanged_since: dict[str, float] = {}
@@ -594,10 +602,22 @@ class Watcher:
                     s["state_since"] = since
             self._bump_state_if_changed(self.states)
 
-    def invalidate_input_actions(self, pane_id: str) -> None:
-        """Invalidate actions before a pane-input transaction can take its send lock."""
+    def invalidate_input_actions(self, pane_id: str, answered: tuple = ()) -> None:
+        """Invalidate actions before a pane-input transaction can take its send lock.
+        `answered`: the (screen, frame) a claimed answer was read from (consume_answer)."""
         with self._input_generation_lock:
-            self._input_generation[pane_id] = self._input_generation.get(pane_id, 0) + 1
+            generation = self._input_generation.get(pane_id, self._generation_base) + 1
+            self._input_generation[pane_id] = generation
+            if answered:
+                self._answered[pane_id] = generation, *answered
+
+    def consume_answer(self, pane_id: str, screen: str, frame: str) -> None:
+        """An answer claimed on this capture is about to be sent: invalidate every token,
+        and keep the question it answered consumed until a parse reads it gone. send-keys
+        returning only queues the key, so the reparse that follows can still capture the
+        old menu, and stamping it with the new generation would reissue a token whose
+        digit lands on whatever prompt comes next."""
+        self.invalidate_input_actions(pane_id, (screen, frame))
 
     def note_input(self, pane_id: str) -> None:
         """Record successful push input and schedule a fresh classification."""
@@ -1020,10 +1040,20 @@ class Watcher:
         """Whether this pane's published classification came from a successful parse."""
         return self._parse_valid.get(pane_id, False)
 
+    def frame_fp(self, text: str, question: dict | None = None) -> str:
+        """A capture's hash, as _tick_pane keys its parses. The parser version and LLM mode
+        are mixed in so a stored card from a different classifier misses on restart. With
+        a menu `question`, only its own rows, verbatim (classify.question_rows): the
+        normalized screen can't tell "sleep 10s" from "sleep 20s", and an answer token
+        must, yet output still streaming above the menu must not make it look stale."""
+        rows = question_rows(question, text) if isinstance(question, dict) else ""
+        return hashlib.sha256(
+            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
+
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
         with self._input_generation_lock:
-            return self._input_generation.get(pane_id, 0)
+            return self._input_generation.get(pane_id, self._generation_base)
 
     def _stores(self):
         return (
@@ -1082,8 +1112,9 @@ class Watcher:
         )
         for store in self._stores():
             store.pop(pane_id, None)
-        with self._input_generation_lock:
+        with self._input_generation_lock:  # its answer marker with it, never apart
             self._input_generation.pop(pane_id, None)
+            self._answered.pop(pane_id, None)
 
     def _gc(self, alive: set[str]) -> None:
         """Drop per-pane state for panes that no longer exist, so closing windows
@@ -1153,6 +1184,7 @@ class Watcher:
         if card := row["card"]:
             pid, state = pane.id, card["state"]
             state.pop("last_activity_at", None)  # the row's column is the source of truth
+            state.pop("input_generation", None)  # the last run's counter, not this one's
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
             self._checkpointed[pid] = None  # see _checkpoint
             self._state_key[pid] = self._pending_key(state)
@@ -1249,13 +1281,10 @@ class Watcher:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
         # Snapshots store the marked text too (prior frames must match the current
         # one); snapshot_text() strips the markers at the phone-facing boundary.
+        generation = self.pane_input_generation(pane.id)  # read first: later input wins
         now = time.time()  # before the capture: drop_question compares it with an answer's
         text = tmux.capture_pane(pane.id, mark_dim=True)
-        # Hashed: cheap to hold per pane, and the same value the checkpoint stores. The
-        # parser version and LLM mode are mixed in so a stored card from a different
-        # classifier misses on restart and is re-read.
-        fp = hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{_fingerprint(text)}".encode()).hexdigest()
+        fp = self.frame_fp(text)  # cheap to hold per pane; the checkpoint stores it too
         # First sighting since startup (or since a recycled id): resume from the
         # checkpoint when the screen is unchanged, else seed the clocks from tmux.
         row = None if pane.id in self._seen_fp else self._restore(pane, fp, now)
@@ -1306,8 +1335,11 @@ class Watcher:
         # note at the top of this module).
         cached = self._state.get(pane.id)
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
-        if cached is not None and not changed and not forced:
+        # A card checkpointed before frames were kept is read again: a frame taken off
+        # today's screen would vouch for a question parsed from an older one.
+        if cached is not None and not changed and not forced and "frame" in cached:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
+            cached.setdefault("input_generation", generation)  # a restored card has none
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
@@ -1549,6 +1581,22 @@ class Watcher:
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
         state["parsed_at"] = now
+        # The input generation and frame this question was read from, on the state itself
+        # so they publish with it: input since (a menu answer above all) or a screen that
+        # has moved on leaves the question unanswerable from the app (server.send).
+        state["frame"] = self.frame_fp(text, state.get("question"))
+        # Until then a parse of the answered screen keeps the consumed generation: the same
+        # normalized screen (its key not drawn yet) or the same question rows (output still
+        # streaming above a menu). Fail-safe: a key the agent ignored, or a successor that
+        # differs only in a duration, waits for the screen to move or the keyboard.
+        # A claim newer than this tick's capture is left for a later parse to judge.
+        with self._input_generation_lock:
+            claimed, *seen = self._answered.get(pane.id, (0,))
+            if {fp, state["frame"]} & set(seen):
+                generation = (self._state.get(pane.id) or {}).get("input_generation", 0)
+            elif claimed <= generation:
+                self._answered.pop(pane.id, None)
+        state["input_generation"] = generation
         with self._publish_lock:  # read off a capture older than an answer: that answer holds
             asked, at = self._dropped.get(pane.id, ((), 0))
             if now < at and self._drop_question(state, asked):
