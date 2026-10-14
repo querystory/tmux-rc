@@ -182,7 +182,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .section-heading { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
 #status-line { margin: 10px 0; font-size: 19px; line-height: 1.45; font-weight: 550; white-space: pre-wrap; }
 #metadata { font-size: 12px; color: var(--muted); }
-#question { background: var(--amber-bg); }
+#question:not(.answered) { background: var(--amber-bg); }
 #question h2 { font-size: 17px; white-space: pre-wrap; }
 #options { display: grid; gap: 8px; margin-top: 14px; }
 #options button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }

@@ -225,8 +225,9 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
             parsed["question"]["picker"] = picker_digest(screen, "Remove it?")
 
         dropped = []
-        server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
-                                                   states=[parsed], drop_question=dropped.append)
+        server.app.state.watcher = SimpleNamespace(
+            request_reparse=lambda p: None, states=[parsed],
+            drop_question=lambda *a: dropped.append(a))
         client = TestClient(server.app)
 
         def screen_until(text):
@@ -258,7 +259,8 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
         assert not dropped  # a move leaves the question up
         assert send("Enter").status_code == 200
         assert "SELECTED Yes" in screen_until("SELECTED")
-        assert dropped == [pane]  # answered and erased: the card drops it with no parse
+        # Answered and erased: the card drops it with no parse.
+        assert dropped == [(pane, "Remove it?")]
     finally:
         subprocess.run(["tmux", "-L", socket, "kill-pane", "-t", pane], env=env,
                        check=False, capture_output=True)

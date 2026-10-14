@@ -176,3 +176,28 @@ def test_last_activity_survives_refresh_and_restart(monkeypatch):
     assert changed["last_activity_at"] == 12_000.0
     assert changed["state_since"] == first["state_since"]
     assert Watcher._deck_fp([first]) != Watcher._deck_fp([{**first, "last_activity_at": 12_000.0}])
+
+
+def test_a_parse_read_before_an_answer_cannot_put_its_question_back(monkeypatch):
+    # /send drops an erased picker's question at once (drop_question); a tick that captured
+    # the dialog before that, finishing after it, must not republish the answered ask.
+    frame = ["trust dialog"]
+    asking = {"activity": "waiting", "waiting_on": "user", "events": [], "tool": "claude",
+              "question": {"prompt": "Trust this folder?"}}
+    state, clock = [asking], [1000.0]
+    w = _harness(monkeypatch, frame, state, clock)
+    pane = _Pane()
+    w._forced_this_tick = set()
+    w._tick_pane(pane)
+    w.drop_question(pane.id, "Another prompt?")  # not this card's ask: untouched
+    assert w._state[pane.id]["question"]
+    clock[0] = 1001.0
+    w.drop_question(pane.id, "Trust this folder?")
+    assert w._state[pane.id]["question"] is None
+    assert w._state[pane.id]["activity"] == "running"
+    clock[0] = 1000.5  # this parse's capture predates the answer
+    w._forced_this_tick = {pane.id}
+    assert w._tick_pane(pane)["question"] is None
+    clock[0], frame[0] = 1002.0, "a new ask"  # read after it: the parse stands
+    w._forced_this_tick = {pane.id}
+    assert w._tick_pane(pane)["question"] == {"prompt": "Trust this folder?"}

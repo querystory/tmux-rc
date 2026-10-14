@@ -262,6 +262,13 @@ def _server_alive(server: str, current: str) -> bool:
     return True
 
 
+def _drop_question(state: dict | None, prompt: str) -> None:
+    """Take the answered question asking `prompt` off a card (Watcher.drop_question)."""
+    q = (state or {}).get("question")
+    if isinstance(q, dict) and q.get("prompt") == prompt:
+        state.update(question=None, activity="running", waiting_on=None)
+
+
 class Watcher:
     """Holds current pane state + snapshot history, refreshed by an async loop."""
 
@@ -289,6 +296,7 @@ class Watcher:
         self._input_generation: dict[str, int] = {}
         self._input_generation_lock = threading.Lock()
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
+        self._dropped: dict[str, tuple] = {}  # pane_id -> (prompt, when) drop_question took
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
         # the pending-question identity changes, NOT on cosmetic content churn. The client
@@ -572,15 +580,17 @@ class Watcher:
         for pane_id in pane_ids:
             self.request_reparse(pane_id)
 
-    def drop_question(self, pane_id: str) -> None:
-        """The pane's question was answered and its screen no longer shows it: publish the
-        card without it now. The parse already forced corrects anything else; until then
-        the agent is taken to be at work on the answer."""
+    def drop_question(self, pane_id: str, prompt: str) -> None:
+        """The question asking `prompt` was answered and its screen no longer shows it:
+        publish the card without it now. The parse already forced corrects anything else;
+        until then the agent is taken to be at work on the answer. A parse of a capture
+        taken before now is held to the same (_tick_pane), so a tick already reading the
+        old dialog cannot put it back; a different question is never touched."""
         with self._publish_lock:
+            self._dropped[pane_id] = prompt, time.time()
             shown = (s for s in self.states if s.get("pane_id") == pane_id)
             for s in (self._state.get(pane_id), *shown):
-                if s and s.get("question"):
-                    s.update(question=None, activity="running", waiting_on=None)
+                _drop_question(s, prompt)
             self._bump_state_if_changed(self.states)
 
     def invalidate_input_actions(self, pane_id: str) -> None:
@@ -1007,6 +1017,7 @@ class Watcher:
 
     def _stores(self):
         return (
+            self._dropped,
             self._prev_fp,
             self._parsed_reply,
             self._seen_fp,
@@ -1528,5 +1539,9 @@ class Watcher:
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
         state["parsed_at"] = now
-        self._state[pane.id] = state
+        with self._publish_lock:  # read off a capture older than an answer: that answer holds
+            prompt, at = self._dropped.get(pane.id, (None, 0))
+            if now < at:
+                _drop_question(state, prompt)
+            self._state[pane.id] = state
         return state

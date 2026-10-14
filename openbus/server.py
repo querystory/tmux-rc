@@ -1008,7 +1008,7 @@ def _picker_after(pane_id: str, body: SendBody) -> dict:
             break
     # Answered and erased: the card leaves Needs you now, not a model parse later.
     if not read and prompt_gone(screen, body.prompt):
-        app.state.watcher.drop_question(pane_id)
+        app.state.watcher.drop_question(pane_id, body.prompt)
     return {"picker": read and read[0], "row": read and read[1]}
 
 

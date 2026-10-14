@@ -319,8 +319,8 @@ function updateRow(button, pane) {
   text(button.querySelector("strong"), paneName(pane));
   text(button.querySelector(".row-age"), age(pane));
   const badge = button.querySelector(".badge");
-  badge.className = `badge ${answered ? "running" : activityClass(pane)}`;
-  text(badge, answered ? "Sent" : activityLabel(pane));
+  badge.className = `badge ${badgeOf(pane).cls}`;
+  text(badge, badgeOf(pane).label);
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
   sessionChip.hidden = sort !== "updated" || !pane.session; // a session label already says it
@@ -746,8 +746,8 @@ function render() {
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
   if (wide) sizeFleet();
-  text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
-  $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
+  text($("activity"), pane ? badgeOf(pane).label : settled ? "Unavailable" : "Loading");
+  $("activity").className = `badge ${pane ? badgeOf(pane).cls : "unknown"}`;
   text($("tool"), pane?.tool || "");
   const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
   const headline = paneHeadline(pane) || missing;
@@ -774,6 +774,7 @@ function render() {
   command.hidden = !question?.context;
   text(command.lastChild, question?.context || "");
   const answered = pane && isAnswered(pane);
+  $("question").classList.toggle("answered", !!answered);
   show("answer-status", !!answered);
   text($("answer-status"), answered?.note || "");
   reconcile($("options"), answerOptions(question), (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
@@ -1130,20 +1131,25 @@ async function sendKeys(body, id = active) {
 function answerOptions(question) {
   return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
 }
-// The tapped answer while its question is still the one on the card, else null. Keyed on
-// the prompt alone: a cursor walk redraws the options and highlight under one prompt. Once
-// the pane shows another question, or none, the answer has landed and is forgotten.
+// What makes a question the same ask: its prompt, context and items, and its options unless
+// it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
+const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.answer_style === "cursor" ? null : q?.options]);
+// The tapped answer while its question is still the one on the card, else null. Once the
+// pane shows another question, or none, the answer has landed and is forgotten.
 function isAnswered(pane) {
   const pending = pendingAnswers.get(pane.pane_id);
-  if (pending && pending.prompt !== pane.question?.prompt) pendingAnswers.delete(pane.pane_id);
+  if (pending && pending.key !== questionKey(pane.question)) pendingAnswers.delete(pane.pane_id);
   return pendingAnswers.get(pane.pane_id) || null;
 }
+// A pane's status badge: "Sent" while a tapped answer holds it, never "Needs you".
+const badgeOf = (pane) => isAnswered(pane) ? { label: "Sent", cls: "running" }
+  : { label: activityLabel(pane), cls: activityClass(pane) };
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
 // stops reading as Needs you, through the send and on until the pane's next state.
 async function answer(id, option, index) {
   const current = panes.find((p) => p.pane_id === id);
   if (!current?.question || !needsYou(current) || isAnswered(current) || sending) return;
-  const pending = { prompt: current.question.prompt, index, note: "Sending…" };
+  const pending = { key: questionKey(current.question), index, note: "Sending…" };
   pendingAnswers.set(id, pending); render();
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk
