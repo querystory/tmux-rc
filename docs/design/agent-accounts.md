@@ -146,8 +146,8 @@ From ☰ → Accounts… → Add account, or "+ Add account" in New window's pic
    `settings.json` is off by default because it often carries work-only hooks, MCP servers
    or permissions. The login, `.claude.json` and `projects/` are listed as never linked.
 3. **Sign in.** tmux-rc opens a normal new window running `CLAUDE_CONFIG_DIR=<dir> claude`
-   (or `CODEX_HOME=<dir> codex login --device-auth`), and the user runs the provider's own
-   `/login` there. Both flows finish in a browser on another machine, since tmux-rc users are
+   (or `CODEX_HOME=<dir> codex login --device-auth`), and the user signs in there: `/login`
+   in Claude, while the Codex command is the sign-in itself. Both flows finish in a browser on another machine, since tmux-rc users are
    remote: Codex's device-code flow shows a link and a one-time code (plain `codex login`
    waits on a localhost callback a remote browser cannot reach), and Claude's `/login` shows
    a link whose page hands back a code to paste into the window.
