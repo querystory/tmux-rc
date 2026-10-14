@@ -126,13 +126,12 @@ def _agent(pid: int, screen: str) -> Session | None:
     if reg.get("pid") == pid and start and reg.get("procStart") == start:
         return Session("claude", str(reg.get("sessionId")), home, _index(pid, "claude"), pid,
                        start)
-    if tmux.proc_read(pid, "comm").strip() != "codex":
-        return None
-    # Its sign-in, `codex login` (accounts.LOGIN), runs no conversation. Under npm, argv
-    # starts node and the wrapper script before the subcommand.
-    if [a for a in tmux.proc_read(pid, "cmdline").split("\0")[1:]
+    # Codex's sign-in, `codex login` (accounts.LOGIN), is no session: the search goes on
+    # past it. Under npm, argv starts node and the wrapper script before the subcommand.
+    if tmux.proc_read(pid, "comm").strip() != "codex" or [
+            a for a in tmux.proc_read(pid, "cmdline").split("\0")[1:]
             if not a.endswith("/codex")][:1] == ["login"]:
-        raise Empty("this is Codex's sign-in, not a conversation")
+        return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the
     # rollout open; the thread id is only on the pane's status line (see live._codex_pane).
     # It is the segment at session-id's place in the configured order: never just any

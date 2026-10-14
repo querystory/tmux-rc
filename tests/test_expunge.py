@@ -208,14 +208,18 @@ def test_an_agent_with_no_saved_conversation_is_empty(monkeypatch, tmp_path, har
         expunge.identify("10", CODEX_SCREEN)
 
 
-def test_codex_sign_in_is_empty(monkeypatch, tmp_path):
-    fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
+def test_codex_sign_in_is_no_session(monkeypatch, tmp_path):
+    # The search goes on past it: a conversation beside it is still found, and alone it is
+    # nothing to expunge, whatever its screen shows.
+    fake_procs(monkeypatch, tmp_path, {10: ("bash", [11, 12], None), 11: ("codex", [], None),
+                                       12: ("claude", [], A)})
     read = tmux.proc_read
     for argv in (["codex", "login"], ["node", "/usr/lib/node_modules/codex/bin/codex", "login"]):
         monkeypatch.setattr(tmux, "proc_read", lambda pid, name, argv=argv: "\0".join(argv)
-                            if name == "cmdline" else read(pid, name))
-        with pytest.raises(Empty, match="sign-in"):  # before its status line is looked for
-            expunge.identify("10", "")
+                            if name == "cmdline" and pid == 11 else read(pid, name))
+        assert expunge.identify("10", "").session_id == A
+        with pytest.raises(Empty, match="no Claude Code or Codex"):
+            expunge.identify("11", "")
 
 
 def test_codex_thread_comes_from_its_status_line(monkeypatch, tmp_path):
@@ -343,3 +347,17 @@ def test_route_refuses_when_the_identified_agent_is_gone(monkeypatch, claude):
     server.app.state.watcher = SimpleNamespace(checkpoint_key=lambda *_a: "uid")
     r = TestClient(server.app).post("/api/panes/%251/expunge", json=CONFIRM)
     assert r.status_code == 409 and not killed
+
+
+def test_close_with_a_birth_kills_only_that_incarnation(monkeypatch):
+    # The no-conversation sheet's Kill window may outlive the pane it was drawn for.
+    killed = []
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id="%1", pid="1234"))
+    monkeypatch.setattr(tmux, "kill_window", lambda pane_id, pid=None: killed.append(pid) or (
+        [] if pid not in (None, "1234") else [("%1", "1234")]))
+    server.app.state.watcher = SimpleNamespace(drop_panes=lambda _ids: None)
+    client = TestClient(server.app)
+    assert client.post("/api/panes/%251/close?birth=999").status_code == 409
+    assert client.post("/api/panes/%251/close?birth=1234").json()["killed"] == [["%1", "1234"]]
+    assert client.post("/api/panes/%251/close?birth=").status_code == 200  # no birth: unguarded
+    assert killed == ["999", "1234", None]

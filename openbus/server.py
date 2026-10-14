@@ -1366,12 +1366,13 @@ def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
 
 
 @app.post("/api/panes/{pane_id}/close")
-def close_window(pane_id: str, request: Request):
+def close_window(pane_id: str, request: Request, birth: str | None = None):
     """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
     Destructive: any process in the window is killed. Its panes leave the published deck at
     once, so the client's next poll no longer has it; the watcher's next tick then evicts it
-    (emitting pane_removed), the same path as a window closed on the host."""
-    killed = _kill_window(request, pane_id, "kill_window")
+    (emitting pane_removed), the same path as a window closed on the host. `birth`, the
+    incarnation the client's menu or sheet describes, refuses a newer pane under its %N."""
+    killed = _kill_window(request, pane_id, "kill_window", pid=birth or None)
     _audit(request, "kill_window", pane_id)
     return {"ok": True, "killed": killed}
 

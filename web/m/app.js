@@ -1719,11 +1719,12 @@ dismissable($("pane-menu"));
 dismissable($("more-menu"));
 const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
-async function killWindow(pane) {
+// `birth` is the incarnation the menu or sheet was drawn for: a newer pane under its %N is refused.
+async function killWindow(pane, birth) {
   if (!pane || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;
-  try { await endPane(pane, "close", "Closing…"); } catch (error) { if (error.status !== 404) notice(`Could not kill this window: ${error.detail || error.message}`, 6000); }
+  try { await endPane(pane, `close?birth=${encodeURIComponent(birth ?? "")}`, "Closing…"); } catch (error) { if (error.status !== 404) notice(`Could not kill this window: ${error.detail || error.message}`, 6000); }
 }
-$("kill-pane").onclick = () => { closePaneMenu(); killWindow(active); };
+$("kill-pane").onclick = () => { closePaneMenu(); killWindow(active, panes.find((p) => p.pane_id === active)?.birth); };
 // Expunge: kill the window AND delete its agent session's local files (docs/design/expunge.md).
 // The server names what it would delete first, and the confirmation is bound to that session id.
 html($("expunge-pane"), `${licon("trash", 18)}<span>Expunge</span>`);
@@ -1748,7 +1749,7 @@ $("expunge-pane").onclick = async () => {
   if (!pane) return;
   let plan;
   try { plan = await request(`${paneUrl(pane, "expunge")}?birth=${encodeURIComponent(birth ?? "")}`); } catch (error) { return expungeSheet(error.detail || "Could not find this pane's session."); }
-  if (plan.nothing) return expungeSheet("This window has no saved conversation to expunge. Close the window instead?", () => killWindow(pane), true);
+  if (plan.nothing) return expungeSheet("This window has no saved conversation to expunge. Close the window instead?", () => killWindow(pane, birth), true);
   const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
   expungeSheet(`This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`, async () => {
     try {
