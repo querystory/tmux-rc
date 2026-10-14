@@ -108,7 +108,7 @@ alike; see [sidebar.md](sidebar.md).
   a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
   which no account owns, is hidden while filtered.
   It lives in the URL beside the state filter as comma lists
-  (`#filter=running,recent&acct=claude-work,claude`, each account its dir less its usual `~/.`:
+  (`#filter=working,finished&acct=claude-work,claude`, each account its dir less its usual `~/.`:
   unique, unchanged by a rename, and readable; a comma inside a dir is escaped), not in localStorage: reload, a shared link and
   Back/Forward restore it, one source of truth for both filters. Picking replaces the
   history entry, as the state filter does, so Back leaves the screen instead of replaying

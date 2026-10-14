@@ -74,8 +74,8 @@ sorting are not filters: they change how the list reads, not what is in it, so t
 count nor get a chip (a "1" on the button for grouping by session read as a hidden filter).
 They are per-browser preferences rather than URL state, for the same reason, and the sort is
 one setting with the phone's Settings. The filters live in the URL as comma lists
-(`filter=running,recent`, `acct=`, `q=`), so a link or Back restores them and an old
-single-value link still reads.
+(`filter=working,finished`, `acct=`, `q=`), so a link or Back restores them and an old
+single-value link still reads (as do the old names, `running` and `recent`).
 
 Panes that need you are the one thing a filter must not hide: an account or search filter
 once left "Nothing needs your attention" on screen while another account's pane was asking.

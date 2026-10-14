@@ -381,7 +381,7 @@ function renderList() {
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
   renderSidebar.answers.prune(subset);
-  if (WIDE.matches) renderSidebar(subset, query, filter);
+  if (WIDE.matches) { renderSidebar(subset, query, filter); placeRail(); }
   else renderPhoneList(subset);
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
@@ -1780,16 +1780,27 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // is one element with one set of listeners, whichever layout it is in.
 const CHROME = { "sb-head": ["brand", "connection", "chat", "live-mode", "collapse"], "sb-nav": ["settings-open"], "sb-sess": ["new-window"] };
 const homes = {};
+let railPlaced = null;
 function placeChrome() {
+  railPlaced = null;
   for (const [slot, ids] of Object.entries(CHROME)) for (const id of ids) {
     if (!homes[id]) $(id).before(homes[id] = document.createComment(id));
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
+  $("sb-sticky").before($("sb-nav"));
   // The account filter (accounts.js): wide, a group in the list's filter menu and its
   // pill under search; on a phone, chips under search and the pill under the header.
   if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views); $("find").after(accounts.pill); }
   else { $("find").after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
   accounts.strip(accounts.filter, !WIDE.matches);
+}
+// Folded to the rail, the controls move in the DOM to the order they show in (expand, +,
+// search, filter, Dashboard, Chat, Voice, the panes, Settings), so Tab walks them top down.
+function placeRail() {
+  const rail = $("app").classList.contains("rail");
+  if (rail === railPlaced) return;
+  if (rail) { $("sb-sticky").after($("sb-nav")); $("sb-nav").append($("chat"), $("live-mode")); $("side-list").after($("settings-open")); } else placeChrome();
+  railPlaced = rail;
 }
 // Two filters that combine, not one radio group: the radios still group by their name.
 renderSidebar.picker.lastChild.setAttribute("role", "group");
