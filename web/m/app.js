@@ -369,7 +369,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose,
+  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, sendOffer,
   setFilter: (value) => { filter = value; stayPut(); }, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
@@ -430,9 +430,11 @@ function renderPhoneList(subset) {
   const rows = sort === "updated" ? subset.sort(newestFirst)
     // Sessions as the watcher lists them: tmux's own order.
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
-  reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
+  // A card for answers to tap: a question's, or a finished turn's offers.
+  const carded = (p) => needsYou(p) || offersOf(p).length > 0;
+  reconcile($("pane-list"), rows, (p) => p.heading ? p.key : carded(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
     if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
-    if (!needsYou(p)) return makeRow(p);
+    if (!carded(p)) return makeRow(p);
     const card = document.createElement("div");
     card.className = "pane-card";
     card.append(makeRow(p));
@@ -844,15 +846,13 @@ function render() {
     button._option = option; text(button, option.option); button.disabled = sending || !!answered;
     button.classList.toggle("picked", picked(pane, option));
   });
-  // What the finished turn hands over to type back (classify.py's _offers): a tap and a
-  // confirm send it with Enter, the same body as a typed answer.
-  reconcile($("offers"), (Array.isArray(pane?.offers) ? pane.offers : []).filter((o) => typeof o === "string"), (o) => `${active}:${o}`, () => {
+  reconcile($("offers"), offersOf(pane), (o) => `${active}:${o}`, () => {
     const button = document.createElement("button"); button.type = "button";
-    button.onclick = () => confirm(`Type this into the pane and press Enter?\n\n${button._offer}`) && sendKeys(answerBody({}, button._offer));
+    button.onclick = () => sendOffer(active, button._offer);
     return button;
-  }, (button, offer) => {
-    button._offer = offer; button.dataset.verb = offer.startsWith("! ") ? "Run" : "Send";
-    text(button, offer); button.disabled = sending;
+  }, (button, value) => {
+    button._offer = value; button.dataset.verb = value.startsWith("! ") ? "Run" : "Send";
+    text(button, value); button.disabled = sending;
   });
   renderTasks(pane);
   renderRichContent(pane);
@@ -1251,6 +1251,14 @@ async function answer(id, option, index) {
   if (sent) delivered();
   // Not sent: the notice says why, and the options are live again.
   else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
+}
+
+// What a finished turn hands over to type back (classify.py's _offers), whatever the pane's
+// state: buttons above the composer and on the pane's list card. A tap and a confirm send it
+// with Enter, the same body as a typed answer.
+function offersOf(pane) { return (Array.isArray(pane?.offers) ? pane.offers : []).filter((o) => typeof o === "string"); }
+function sendOffer(id, value) {
+  if (!sending && confirm(`Type this into the pane and press Enter?\n\n${value}`)) sendKeys(answerBody({}, value), id);
 }
 
 // This surface's half of the shared cursor walk. The tap's pending answer greys the

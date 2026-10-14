@@ -223,17 +223,19 @@ export function setupSidebar(ctx) {
   function replies(node, p) {
     const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
     const options = needsYou(p) ? ctx.answers(p.question) : [];
-    const items = [...options, ...(!needsYou(p) ? [] : answered ? [{ note: answered.note }] : [{ reply: true }])];
-    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
+    // A finished turn's offers ride every card, Needs you or not (app.js sendOffer).
+    const items = [...options, ...ctx.offers(p).map((offer) => ({ offer })), ...(!needsYou(p) ? [] : answered ? [{ note: answered.note }] : [{ reply: true }])];
+    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.offer ? `offer:${o.offer}` : `${o.index}:${o.option}`, (o) => {
       if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : ctx.answer(node._p.pane_id, o.option, o.index);
+      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : o.offer ? ctx.sendOffer(node._p.pane_id, o.offer) : ctx.answer(node._p.pane_id, o.option, o.index);
       return button;
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
-      text(el, o.reply ? "Reply" : o.option); el.title = o.reply ? "" : o.option; el.disabled = busy;
-      el.classList.toggle("picked", !o.reply && ctx.picked(p, o));
+      const label = o.reply ? "Reply" : o.offer || o.option;
+      text(el, label); el.title = o.reply ? "" : label; el.disabled = busy;
+      el.classList.toggle("picked", !o.reply && !o.offer && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;
@@ -349,8 +351,9 @@ export function setupSidebar(ctx) {
   }
   function list(subset, query) {
     shown = groups(subset, query, ctx.sort());
-    // A folded group still shows the open pane, so the selection never disappears.
-    const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards }))];
+    // A folded group still shows the open pane, so the selection never disappears. A pane
+    // with offers to tap is a card in any group, as Needs you is.
+    const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards || ctx.offers(p).length > 0 }))];
     reconcile(root, shown.flatMap(of), (i) => i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
       (i) => i.p ? row(i.card) : head(i.g), (node, i) => i.p ? updateRow(node, i) : updateHead(node, i.g));
     const n = subset.reduce((n, p) => n + liveSubagents(p).length, 0);

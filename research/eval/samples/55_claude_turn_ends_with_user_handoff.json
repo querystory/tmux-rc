@@ -9,6 +9,9 @@
     "question": {
       "answer_style": "text"
     },
-    "headline": "Push and PR were blocked; user must run the push command"
+    "headline": "Push and PR were blocked; user must run the push command",
+    "offers": [
+      "! cd ~/src/acme/planning-wt-cost-prd && git push -u origin prd/cost-accounting && gh pr create -R acme/planning --base main --head prd/cost-accounting --fill"
+    ]
   }
 }

@@ -907,20 +907,24 @@ def _final_message(visible: str, tool: str) -> str | None:
 
 
 # What a finished turn hands the user to type back, verbatim: a `! command` (Claude Code's
-# shell prefix) as inline code or on a row of its own, or a phrase it asks for ('Say "merge
-# 415"'). A row that wraps onto the next is no offer: a guessed join could run the wrong
-# command. A space after the ! keeps out code such as `!=` and `!important`.
-_OFFER_RE = re.compile(r"`(! [^`\n]+)`|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*[^\s`])"
-                       r"|\bsay[ \t]+[\"“]([^\"”\n]{1,60})[\"”]", re.MULTILINE | re.IGNORECASE)
+# shell prefix) as inline code or on a row of its own, or a phrase it asks for: 'Say "merge
+# 415"', or a quote that does the work ('"merge all" queues 18 PRs'), not any quote. A row
+# that wraps onto the next is no offer: a guessed join could run the wrong command. A space
+# after the ! keeps out code such as `!=` and `!important`.
+_QUOTE = r"[\"“]([^\"”\n]{1,60})[\"”]"
+_OFFER_RE = re.compile(
+    rf"`(! [^`\n]+)`|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*[^\s`])|\bsay[ \t]+{_QUOTE}"
+    rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
 
 def _offers(message: str, reply: str | None) -> list[str]:
     """The replies the final message offers, as tap-to-send buttons. The transcript's copy
     comes first (inline code keeps its backticks there, and long rows are not wrapped), but
-    only what the screen shows too: a stale transcript offers nothing."""
+    only what the screen shows too, whole: a stale transcript offers nothing."""
     shown = " ".join(message.split())
-    found = (m[1] or m[2] or m[3] for t in (reply or "", message) for m in _OFFER_RE.finditer(t))
-    return list(dict.fromkeys(o for o in found if " ".join(o.split())[:40] in shown))[:3]
+    found = (next(filter(None, m.groups()))
+             for t in (reply or "", message) for m in _OFFER_RE.finditer(t))
+    return list(dict.fromkeys(o for o in found if " ".join(o.split()) in shown))[:3]
 
 
 def _final_ask(visible: str, tool: str, message: str) -> dict | None:
@@ -1275,6 +1279,7 @@ def classify(
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
+    result.pop("offers", None)  # buttons that send: the screen's alone, never the model's
     if final and (offers := _offers(final, reply)):
         result["offers"] = offers
     if final and (ask := _final_ask(visible, tool, final)):
