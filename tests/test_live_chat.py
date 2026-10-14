@@ -536,6 +536,10 @@ _MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
     ("decline it", "type_in_pane", {"text": "1"}, _MENU, True),  # the wrong side
     ("press enter", "press_key", {"key": "Escape"}, _ASKING, True),  # "press" names no key
     ("pick 3", "type_in_pane", {"text": "2"}, _ASKING, True),  # not the row asked for
+    ("pick 4", "type_in_pane", {"text": "4"}, _MENU, True),  # no such row
+    ("pick 1", "type_in_pane", {"text": "1"}, {**_MENU, "menu": []}, True),  # rows unknown
+    ("approve it", "type_in_pane", {"text": "y"},
+     {**_MENU, "menu": ["Staging", "Production"]}, True),  # no Yes side to pick
     # A menu takes no message at all: its Enter would pick the highlighted row ("1. Yes").
     ("ask it for status", "type_in_pane", {"text": "From the user: status?"}, _MENU, "menu"),
     ("pick 3", "type_in_pane", {"text": "3"}, _MENU, False),
@@ -601,6 +605,7 @@ def test_a_reconnect_restores_the_pane_the_replies_and_sends_were_about(monkeypa
     ({"prompt": "Pick", "answer_style": "cursor"}, []),
     ({"prompt": "Run it?", "answer_style": "menu", "options": 1}, []),
     ({"prompt": "Run it?", "answer_style": "menu", "options": "Yes"}, []),
+    ({"prompt": "Run it?", "answer_style": "menu", "options": ["Yes", 2, "No"]}, []),
     ({"prompt": "Which branch?", "answer_style": "text", "options": ["main"]}, None),
     ("a bare string", None), (None, None)])
 def test_only_a_widget_question_is_a_menu(question, menu):
@@ -636,6 +641,7 @@ _FABLE = {"pane_id": "%7", "title": "fable session monitor", "window_index": "5"
     ("now tell fable session monitor to stop", "%3", False),  # named by title
     ("and window 5?", "%3", False),  # or number
     ("address review on PR 412", "%3", False),  # or a PR it worked on
+    ("all 412 workstreams", "%3", True),  # a bare number cites no PR
     ("and the tmuxrc opus 5.5 main session?", "%3", True),  # naming another pane
     ("ask window 2 about PR 412", "%3", True)])  # a named pane wins over a PR number
 def test_a_send_off_the_current_pane_needs_the_user_to_name_it(request_, turn_pane, refused):
@@ -660,5 +666,6 @@ def test_a_name_or_pr_two_panes_share_unlocks_neither():
     twins = [{"pane_id": "%1", "title": "main", "prs": [{"number": 7}]},
              {"pane_id": "%2", "title": "tmuxrc main", "prs": [{"number": 7}]}]
     s = Ns(unanchored=False, request=("", "tell tmuxrc main about PR 7"), turn_pane="%9")
+    assert L._meant(twins, "anything on PR 7?") == set()  # two panes worked on it
     assert L._refusal(s, "type_in_pane", {"pane_id": "%1", "text": "hi"}, twins) == "elsewhere"
     assert L._refusal(s, "type_in_pane", {"pane_id": "%2", "text": "hi"}, twins) is None

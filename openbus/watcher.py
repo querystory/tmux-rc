@@ -802,8 +802,11 @@ class Watcher:
         q = state.get("question")
         if not isinstance(q, dict) or q.get("answer_style") not in ("menu", "cursor"):
             return None
-        options = q.get("options")  # unvalidated model output: a non-list is no options
-        return [o for o in options if isinstance(o, str)] if isinstance(options, list) else []
+        # Unvalidated model output: any bad entry voids the list, since dropping one would
+        # renumber the rows after it.
+        options = q.get("options")
+        return options if isinstance(options, list) and all(
+            isinstance(o, str) for o in options) else []
 
     @staticmethod
     def _pending_key(state: dict) -> tuple:

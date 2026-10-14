@@ -529,25 +529,36 @@ _SIDES = {k: frozenset(v.split()) for k, v in {  # each side of a Yes/No row, as
     "yes": "yes accept approve confirm allow", "no": "no decline reject deny cancel"}.items()}
 
 
+def _side(text: str) -> str:
+    """Which side of a Yes/No a row or answer is on, by its first word: "yes", "no" or ""."""
+    word = (_words(text)[:1] or [""])[0]
+    return {"y": "yes", "n": "no"}.get(word, word) if word in ("y", "yes", "n", "no") else ""
+
+
 def _row_asked(row: str, asked: set[str], menu: list[str] | None) -> bool:
-    """Whether the words ask for this typed row (a number, or y/yes/n/no) of the pane's menu."""
+    """Whether the words ask for this typed row (a number, or y/yes/n/no) of the pane's menu,
+    and the menu, when its rows are known, has it."""
     if row.isdigit():
+        at = int(row) - 1
+        if menu is not None and not 0 <= at < len(menu):
+            return False  # no such row (or rows unknown): nothing to check the ask against
         if row in asked and _ANSWERS & asked:
             return True
-        menu, at = menu or [], int(row) - 1
-        row = menu[at] if 0 <= at < len(menu) else ""
-    side = (_words(row)[:1] or [""])[0]
-    return bool(_SIDES.get({"y": "yes", "n": "no"}.get(side, side), frozenset()) & asked)
+        row = menu[at] if menu else ""
+    elif menu is not None and _side(row) not in map(_side, menu):
+        return False  # a y/n for a menu with no such side
+    return bool(_SIDES.get(_side(row), frozenset()) & asked)
 
 
-def _meant(digest: list[dict], request: str, asked: set[str]) -> set[str]:
+def _meant(digest: list[dict], request: str) -> set[str]:
     """The pane the user's words single out, against every pane, so a name or PR two panes
     share singles out neither: the one they name (_named), which wins outright, else the one
-    pane that worked on a PR they number."""
+    pane that worked on a PR they cite as one ("PR 412", "#412"; "8 workstreams" is none)."""
     if named := _named(digest, request):
         return {named["pane_id"]}
+    cited = set(re.findall(r"(?:\bpr\s*#?|#)\s*(\d+)", request, re.IGNORECASE))
     by_pr = [d["pane_id"] for d in digest
-             if any(str(p.get("number")) in asked for p in d.get("prs") or [])]
+             if any(str(p.get("number")) in cited for p in d.get("prs") or [])]
     return set(by_pr[:len(by_pr) == 1])
 
 
@@ -563,7 +574,7 @@ def _refusal(session, name: str, args: dict, digest: list[dict]) -> str | None:
     request, said = f"{question}\n{own}", _words(own)
     asked = set(_words(request))
     if name in _AIMED and pane and getattr(session, "turn_pane", None) not in (
-            None, pane["pane_id"]) and pane["pane_id"] not in _meant(digest, request, asked):
+            None, pane["pane_id"]) and pane["pane_id"] not in _meant(digest, request):
         return "elsewhere"  # the model's pick over the conversation's: see _FOCUS
     text = str(args.get("text", "")).strip().casefold()
     row = bool(_ROW.fullmatch(text))
