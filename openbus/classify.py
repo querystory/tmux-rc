@@ -248,6 +248,26 @@ def _read_omp_row(result: dict, visible: str) -> None:
         result["working"] = {**(working if isinstance(working, dict) else {}), "elapsed": m[1]}
 
 
+# Claude Code's agent list (under "● main") shows a workflow as fixed-format chrome, read
+# here rather than left to the model: " ○  docs-sweep  ▰▰▱▱  1/2 · 3m37s · ↓ 109.1k tokens".
+_WORKFLOW_ROW_RE = re.compile(
+    r"^\s*[○●]\s+(\S+)\s+[▰▱]+\s+((\d+)/(\d+)) · (\S+) · ↓ ?([\d.]+\w?) tokens", re.MULTILINE)
+
+
+def _read_workflow_rows(result: dict, visible: str) -> None:
+    """Each workflow row is one background worker: it replaces whatever the model made of
+    that row (its name as a label, or the bar mistaken for one) with the row's own read."""
+    rows = [{"label": m[1], "state": "done" if m[3] == m[4] else "running",
+             "progress": m[2], "elapsed": m[5], "tokens": m[6]}
+            for m in _WORKFLOW_ROW_RE.finditer(visible)]
+    if rows:
+        subs = result.get("subagents")
+        result["subagents"] = [a for a in (subs if isinstance(subs, list) else [])
+                               if not (isinstance(a, dict) and any(
+                                   r["label"] in str(a.get("label")) or "▰" in str(a.get("label"))
+                                   for r in rows))] + rows
+
+
 def _checklist_text(text: str) -> str:
     """Normalize visible and model-returned task labels for conservative matching."""
     return " ".join(text.split()).casefold()
@@ -1238,6 +1258,7 @@ def classify(
         result.pop("waiting_on", None)
     # Count only workers observed running; waiting/idle/unknown are not active work.
     # Compacting has its own history state but still counts as busy in the dock.
+    _read_workflow_rows(result, visible)
     subs = result.get("subagents")
     result["agents"] = (
         sum(1 for a in subs if isinstance(a, dict) and a.get("state") in ("running", "compacting"))

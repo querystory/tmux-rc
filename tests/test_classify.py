@@ -534,12 +534,17 @@ def test_agents_count_only_observed_busy_workers():
     assert r["agents"] == 2
 
 
-def test_workflow_row_keeps_its_progress_and_counts_as_a_worker():
-    # A workflow is one running background worker, like the agent rows beside it.
-    subs = [{"label": "Fix chart", "state": "running"},
-            {"label": "docs-sweep", "state": "running", "progress": "1/2", "tokens": "109.1k"}]
-    r = classify(_pane(), "…", _llm({"activity": "waiting", "subagents": subs}))
-    assert r["agents"] == 2 and r["subagents"][1]["progress"] == "1/2"
+def test_workflow_row_is_read_from_the_agent_list():
+    # The row is chrome, read in code: it replaces the model's mangled read of it (the bar
+    # as a label) and counts as one running worker beside the agent rows.
+    screen = _sample("91_claude_workflow_row_in_agent_list")
+    subs = [{"label": "Fix chart", "state": "running"}, {"label": "▰▰▰▱▱ 1/2", "state": "running"}]
+    r = classify(_pane(), screen, _llm({"activity": "waiting", "subagents": subs}))
+    assert r["subagents"] == [subs[0], {"label": "docs-sweep", "state": "running",
+                                        "progress": "1/2", "elapsed": "3m37s", "tokens": "109.1k"}]
+    assert r["agents"] == 2
+    done = screen.replace("1/2 ·", "2/2 ·")
+    assert classify(_pane(), done, _llm({"activity": "idle"}))["subagents"][0]["state"] == "done"
 
 
 def test_agents_count_defaults_zero_without_subagents():
