@@ -614,6 +614,7 @@ const paintUsage = () => {
   renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)), { wide: WIDE.matches });
   accounts.strip($("usage"), several);
   $("usage-handle").hidden = $("usage").hidden;
+  fitUsage();
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
   // adds the clock times and the forecast. The dashboard's tool chips filter both, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
@@ -1290,12 +1291,18 @@ function sizeUsage(px = usageHeight, persist = false) {
   el.classList.toggle("sized", !!h);
   el.classList.toggle("closing", !persist && px > 0 && px < USAGE_MIN); // a drag only: keys stop at the floor
   el.style.setProperty("--usage-h", `${h}px`);
-  el.style.setProperty("--rows", Math.max(1, Math.round(h / USAGE_ROW)));
-  $("usage-handle").setAttribute("aria-valuenow", el.offsetHeight); // a focusable separator owes a value
+  fitUsage();
   if (persist) {
     usageHeight = h && el.offsetHeight; // what CSS let it be, not an over-drag
     try { if (usageHeight) localStorage.setItem(USAGE_KEY, String(usageHeight)); else localStorage.removeItem(USAGE_KEY); } catch {}
   }
+}
+// The rows, and the separator's value (a focusable one owes it), from the height CSS let the
+// strip be: capped, natural, or 0 while hidden. So it reruns as each paint shows or hides it.
+function fitUsage() {
+  const shown = $("usage").offsetHeight;
+  $("usage").style.setProperty("--rows", Math.max(1, Math.round(shown / USAGE_ROW)));
+  $("usage-handle").setAttribute("aria-valuenow", shown);
 }
 sizeUsage(); // before the first meters arrive, so they draw at the chosen height
 seam($("usage-handle"), (e) => sizeUsage(usageDrag = Math.max(1, $("usage").getBoundingClientRect().bottom - e.clientY)), () => {
