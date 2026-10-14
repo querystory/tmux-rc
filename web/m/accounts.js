@@ -23,6 +23,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const active = () => { const p = any() && byDir(filter); return p?.signed_in ? p : null; };
   // The login's email, where the name and organisation leave it unsaid.
   const login = (p) => p.login !== p.who ? p.login : "";
+  // The line under a name in a pick list: what the name leaves unsaid, then the dir.
+  const sub = (p) => [p.who !== p.name && p.who, login(p), p.tilde].filter(Boolean).join(" · ");
   // Two dirs on one login (a /login in the wrong dir) look like two accounts: say so.
   const same = (p) => p.same_as?.length ? `<p class="acct-msg warn">Signed in as the same account as ${esc(p.same_as.map((d) => byDir(d)?.name).join(", "))}: sign this folder in again with <code>/login</code></p>` : "";
   const dot = (p) => `<i class="acct-dot" style="--a:var(--acct-${p.color})"></i>`;
@@ -131,7 +133,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         const pick = byDir(picks[provider]) || def || mine[0];
         picks[provider] = pick.dir;
         return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"}</label><div class="acct-pick">`
-          + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})">${dot(p)}<span><strong>${esc(p.name)}</strong><small>${esc([p.who !== p.name && p.who, login(p), p.tilde].filter(Boolean).join(" · "))}</small></span></button>`).join("")
+          + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})">${dot(p)}<span><strong>${esc(p.name)}</strong><small>${esc(sub(p))}</small></span></button>`).join("")
           + `<button type="button" class="add" data-add>+ Add account</button></div>`
           + `<p class="acct-hint">${hint(session, provider, def)}</p>`
           // Always in view: the session's default, set with tmux set-environment on change.
@@ -314,6 +316,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     // accounts, once it has several, each with its line under the name: one on the pane's
     // own login is listed, and says moving there changes nothing.
     moveTargets: (paneId, provider) => { const from = ofPane(paneId); return several(provider) ? signedIn().filter((p) => p.provider === provider && !p.panes.includes(paneId)).map((p) => ({ ...p,
-      sub: from?.same_as?.includes(p.dir) ? `Same login as ${from.name}, so moving changes nothing` : [login(p), p.tilde].filter(Boolean).join(" · ") })) : []; },
+      sub: from?.same_as?.includes(p.dir) ? `Same login as ${from.name}, so moving changes nothing` : sub(p) })) : []; },
   };
 }
