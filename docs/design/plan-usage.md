@@ -1,6 +1,6 @@
 # Design: plan usage — Claude and Codex limits in /m
 
-Status: **implemented** (`openbus/plan_usage.py`, `web/m/usage.js`).
+Status: **implemented** (`openbus/plan_usage.py`, `web/m/usage.js`, `web/m/usage-view.js`).
 
 ## Why
 
@@ -17,7 +17,7 @@ The first version showed a bare "68%" and "59m", and that read either way: remai
 ### When the phone shows it
 
 Even packed, the strip takes two rows above the list, and most of the time nothing in it
-asks for anything. So the phone's "…" menu has a Usage item that cycles Auto, On and Off,
+asks for anything. So Settings has a Plan usage choice of Auto, On and Off,
 remembered per browser like the theme. On is the full strip and Off hides it. Auto, the
 default, shows only the meters that call for a decision and hides the strip when none do.
 A meter qualifies when the projection has it full before the reset (the same `limit_at`
@@ -28,7 +28,7 @@ is where that remainder gets small enough to matter. Lower and a steady week's o
 pace would keep the strip up most of the time, which is what Auto exists to avoid. An
 account that can't be read drops out under Auto too, because there is nothing to act on.
 The desktop sidebar has room to spare, so it keeps every meter, and the same setting is
-one switch in its ☰ menu, "Plan usage", that is On (Auto and On, since every meter shows) or
+one choice in Settings, "Plan usage", that is On (Auto and On, since every meter shows) or
 Off. It is the one setting rather than a second, desktop-only one, so a browser that crosses
 the breakpoint never shows a strip its other layout was told to hide; someone paying per
 token, with no plan limits at all, turns it off once.
@@ -39,8 +39,8 @@ meters while still swiping sideways, so a tall strip shows more meters rather th
 bigger ones. The height is per browser, like the sidebar's width, and a double-click
 restores the natural one. Dragged under one row it closes, which sets the switch Off with
 an Undo in the notice, rather than snapping back with a hint. Snapping back fights a
-gesture that plainly meant "away", and a zero height would hide the strip somewhere the
-menu does not show, so the switch is the only place hidden can live.
+gesture that plainly meant "away", and a zero height would hide the strip somewhere
+Settings does not show, so the switch is the only place hidden can live.
 
 The meters wait for the accounts before they first draw. Drawn before them, several
 accounts' meters had no strip to fold into yet and stood for a moment as a tall grid
@@ -55,37 +55,84 @@ chart, not above it, because the activity chart is what the dashboard is for; ab
 panel pushed the page's main subject below the fold on a phone. Tapping the strip, on the phone or in the
 sidebar, opens the dashboard at that panel rather than a sheet of its own, so there is one
 larger view to maintain and it sits beside the fleet history it is usually read against.
-Tapping the panel opens it up: wider trends (one to a row on a phone, two on desktop), the clock times behind each
-countdown, and the pace's forecast as a number. Those come from the same response the strip
-draws, plus each window's history.
+Tapping the panel opens the usage view, below.
 
-### Past windows
+### The usage view: a sawtooth over time
 
-"Am I using more than last week?" and "how often do I hit the 5h wall?" need the windows
-before this one, so each meter in the view steps back through its last twelve ended
-windows, with arrows in its corner or a sideways swipe on its chart. A past window is drawn
-by the same trend and says how it ended: "ended at 74%", or "hit the limit Tue 12:44 AM" in
-red, with its dates. The current window stays the default, and a refresh keeps the window
-being read. Paging was chosen over a strip of past peaks: a peak alone cannot tell a
-steady week from one that idled and then burst into the wall, and the curve can, at no
-cost in new chart code.
+Every meter climbs toward 100% and drops to zero at its reset, so over weeks it is a
+sawtooth, and the questions the view answers are about that shape: am I using more than
+last week, how often do I hit the 5h wall, when does this window run out. So the view
+(#view=usage) draws one chart per window type (5-hour, Weekly, Weekly <model>), stacked
+to fill the page, with each account a series in its chip's colour. Codex's week sits in
+Weekly beside Claude's, since it is the same question. Past windows are the earlier teeth,
+muted; the current one is bold and runs dashed on to its reset at the fitted pace. A red
+triangle marks each time a window hit the limit, and a hollow one where the current window
+will at this pace. Each chart's heading keeps the numbers the strip shows: the chip, the
+current %, any "full at", and the reset's countdown and clock time.
 
-Only the view asks for them (`/api/usage?past=1`): the strip polls the same endpoint every
-minute, and a dozen weeks of trends on every poll would multiply a phone's traffic for a
-view it rarely opens. The read is bounded by windows, not time: it reaches back to the
-twelfth-last reset, however long ago (a 5h window opens only on use, so a lightly used
-account's twelve can span months), and so it does not slow down as the history grows. Windows are told apart by their reset time rather than stored as
-records, so nothing new is written; a reset that moves by an hour or less between reads is
-the same window, since no two windows reset closer than five hours apart.
+**One range control, not arrows per chart.** The first version stepped each meter back
+one window at a time with arrows in its corner. A week's trend at a time cannot show a
+month's pattern, a dozen arrows were a dozen controls for one question ("how far back am
+I looking?"), and nothing said what time a chart showed. So there is one segmented control
+at the card's top right (1d, 7d, 30d, All; the Activity chart's control and look) and,
+beside it, the range in words: "May 17 – Jun 21 · last 30 days". The charts share one time
+axis and one zoom, so a wheel zoom or a drag on any of them moves all three and the words
+follow ("8 days shown"). Each range also runs on past now by a fifth of itself (at least
+six hours), so the forecasts show without a short range spending its width on the future.
 
-Wide, the view groups the meters by account, as the card does: each account's charts sit
-side by side under its chip, and an account never splits across rows. A flat two-column grid
-interleaved them, one account's 7d Fable beside another's 5h. Every chart sits on one grid
-of equal columns (at least 260px). Each group spans its chart count and shares the grid's
-columns, so charts line up from row to row. A one-chart group such as Codex fills a gap
-beside another group. Groups that each sized their own row did not line up: a line with a
-three-chart and a one-chart group drew narrower charts than a line with one group. The
-phone keeps one column, each chart carrying its chip.
+**Bands for one account's windows.** Behind the lines, the current window is shaded a
+light blue from its start to its reset (not amber, which the app uses for "needs you"), and the windows before it alternate clear
+and grey (clear first, against the blue), so "where we are in this window, and how it is going" reads before any line does.
+A chart holds several accounts whose windows start and end at different times, and bands
+for all of them overlapped into mush, so the bands follow one account per chart: the
+fullest by default, or the one whose chip was clicked. That account's lines go bold and
+the others step back, and its chip is filled. A window's band runs from its start to its
+reset, but a quota sometimes resets early: when the samples fall from well up to near 0
+before the scheduled reset, the band ends at the fall and a fresh one starts there. A
+stretch with no known window (a 5h quota not yet opened, a gap in the history) is left
+unshaded rather than guessed at. A one-line key under the charts names the shading and the dashes.
+
+**Which accounts: the view's own pick.** A filter button beside the range opens the same
+menu the list's account filter uses (its markup and styles: a check on each pick, "All
+accounts" when none is), several at once and open while picking. It keeps its own
+selection, per browser, rather than the list's `acct=`. Sharing it was tried first, so one
+choice scoped both, and it was wrong in use: narrowing the charts to one plan to read it
+also hid every other account's panes from the list, which is not what anyone picking a
+chart meant. A chart the pick empties (Weekly Fable with only Codex picked) collapses to
+one line saying so, rather than vanishing and shifting the others, and band focus picks
+among the shown accounts only.
+
+**A chart per window type, not per account.** A per-account chart overlays its 5h teeth
+on the weekly line they feed, which reads well for one account and badly for three; and
+the comparison people make is across accounts on the same limit ("which plan has room
+for this sweep?"). Grouping by window keeps every y axis meaning the same thing.
+
+**The tooltip reads the samples, not echarts' nearest point.** Every series has its own
+sample times, so echarts' per-series nearest point would show different instants side by
+side. The tooltip interpolates each meter at the pointer's time instead.
+
+**A phone scrolls, like the page it is.** The first phone layout showed one chart at a time
+behind window tabs. That was a control where none was needed, and each chart came out tall
+and thin, the wrong shape for time. Now the charts stack as they do on a wide screen and
+the page scrolls. Each chart is landscape, about 180px tall at 390px wide, with its
+legend as a small table above it: a row per account with the chip, the %, and one status.
+5-hour and Weekly fit on the first screen, and Weekly Fable is a scroll away. A drag on a
+phone's chart scrolls the page rather than panning it, because a stray pan once pushed
+the charts into the empty forecast. Zooming on a phone is the range control and the slider
+under the last chart.
+
+**Data.** `/api/usage?past=<days>` adds, per window, the windows that ended in those days,
+each with its samples thinned to the same 120 points as a current window. The view asks
+for 30 days (All asks for every window, `past=Infinity`), so 1d, 7d and 30d switch without a fetch; a month
+of three accounts' meters is about 150 KB. Only the view asks: the strip polls the same
+endpoint every minute without it. The read is bounded by time, which is what the range
+control speaks in, rather than by a count of windows. Windows are still told apart by
+their reset time rather than stored as records: a reset that moves by an hour or less
+between reads is the same window, since no two windows reset closer than five hours apart.
+
+The charts are the app's vendored ECharts, styled as the Activity chart is, and load only
+with the view. Hand-drawn SVG was tried first, as small sparklines, and had no axes, no
+zoom and no exact values; those are what a chart library is for.
 
 The sidebar strip stays. It is the only place the limits show while a pane is open, and both
 draw from one renderer (`renderUsage`), so the panel is a size and a flag, not a copy.
@@ -205,6 +252,6 @@ burst, which we accept: it is meant to answer "at this rate", not to forecast. T
 computes it, so it is tested in Python and phone and desktop agree. Only ~120 thinned
 samples per window are sent, the sparkline's width; the fit uses all of them.
 
-The sparkline is a few lines of inline SVG rather than the ECharts fleet chart: that chart
-is built around stacked state bars, and four 24px trends do not justify loading it on
-screens that otherwise would not.
+The sidebar's and dashboard's sparklines are a few lines of inline SVG rather than ECharts:
+four 24px trends do not justify loading a chart library on screens that otherwise would
+not. The usage view, which is about the charts, loads it.

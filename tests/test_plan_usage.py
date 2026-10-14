@@ -224,6 +224,26 @@ def test_an_account_with_no_samples_yet_is_not_limitless(tmp_path, monkeypatch):
     assert usage.report(now=NOW)[0]["error"] == "no data yet"
 
 
+def test_each_codex_home_is_its_own_account_before_and_after_it_logs(tmp_path):
+    tmp_path.chmod(0o700)
+    main, demo = tmp_path / ".codex", tmp_path / ".codex-demo"
+    demo.mkdir()  # just signed in: no sessions dir until its first turn
+    (main / "sessions/2026/10/08").mkdir(parents=True)
+    week = lambda pct: {"primary": {"used_percent": pct, "window_minutes": 10080,  # noqa: E731
+                                    "resets_at": NOW + 60}}
+    (main / "sessions/2026/10/08/a.jsonl").write_text(json.dumps(_event(week(9))))
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"),
+                      profiles=lambda: [("codex", main), ("codex", demo)])
+    usage.poll([], lambda _: None, now=NOW)
+    shown = lambda: [(a["dirs"], a["error"], [w["pct"] for w in a["windows"]])  # noqa: E731
+                     for a in usage.report(now=NOW)]
+    assert shown() == [([str(main)], None, [9.0]), ([str(demo)], "no data yet", [])]
+    (demo / "sessions/2026/10/08").mkdir(parents=True)
+    (demo / "sessions/2026/10/08/b.jsonl").write_text(json.dumps(_event(week(30))))
+    usage.poll([], lambda _: None, now=NOW + 60)
+    assert shown() == [([str(main)], None, [9.0]), ([str(demo)], None, [30.0])]
+
+
 def test_a_redirect_never_carries_the_token():
     request = plan_usage.urllib.request.Request(plan_usage.USAGE_URL)
     assert plan_usage._NoRedirect().redirect_request(
@@ -279,45 +299,35 @@ def test_samples_past_eight_days_are_thinned_to_one_an_hour_not_deleted(tmp_path
         *[r[4:] for r in raw]]  # within eight days: every sample
 
 
-def test_the_usage_view_steps_back_through_ended_windows(tmp_path):
+def test_the_usage_view_reads_the_windows_ended_in_its_range(tmp_path):
     tmp_path.chmod(0o700)
     usage = PlanUsage(History(tmp_path / "h.sqlite3"))
     usage.accounts = {("claude", "a"): {"homes": [], "panes": [], "error": None}}
     first, second = NOW - 30000, NOW - 5000  # two ended 5h windows' resets, then this one
     usage.history.record_usage([("claude", "a", "5h", 18000, t, p, r) for t, p, r in (
+        (NOW - 3 * 86400, 50, NOW - 3 * 86400 + 60),  # three days back: out of a 1-day range
+        (NOW - 86400 - 600, 30, NOW - 86400 - 60),  # read within a window of it, ended before it
         (first - 9000, 20, first), (first - 60, 40, first + 2),  # re-read: the same window
         (second - 4000, 100, second), (second - 60, 100, second),
         (NOW - 600, 10, NOW + 9000), (NOW, 12, None))])  # a closed window is none of them
-    [window] = usage.report(now=NOW, past=True)[0]["windows"]
+    [window] = usage.report(now=NOW, past=1)[0]["windows"]
     assert [(w["pct"], w["start"] / 1000, w["limit_at"]) for w in window["past"]] == [
         (40, first + 2 - 18000, None), (100, second - 18000, (second - 4000) * 1000)]
     assert window["past"][0]["samples"] == [[(first - 9000) * 1000, 20], [(first - 60) * 1000, 40]]
+    assert len(usage.report(now=NOW, past=7)[0]["windows"][0]["past"]) == 4
+    assert len(usage.report(now=NOW, past=float("inf"))[0]["windows"][0]["past"]) == 4  # All
     assert "past" not in usage.report(now=NOW)[0]["windows"][0]  # the strip's minute poll
     # A re-read that moves this window's reset past now leaves it current, not ended.
     assert ended("5h", 18000, [(NOW - 600, 5, NOW - 30), (NOW - 60, 6, NOW + 30)], NOW) == []
 
 
-def test_past_windows_reach_back_by_count_however_sparse(tmp_path, monkeypatch):
+def test_the_current_window_says_when_it_hit_the_limit_from_every_sample(tmp_path):
     tmp_path.chmod(0o700)
-    monkeypatch.setattr(plan_usage, "PAST", 2)
     usage = PlanUsage(History(tmp_path / "h.sqlite3"))
     usage.accounts = {("claude", "a"): {"homes": [], "panes": [], "error": None}}
-    resets = [NOW - k * 30 * 86400 for k in (3, 2, 1)]  # a 5h window used once a month
-    usage.history.record_usage([("claude", "a", "5h", 18000, r - 60, 50, r) for r in resets]
-                               + [("claude", "a", "5h", 18000, NOW, 1, NOW + 60)])
-    [window] = usage.report(now=NOW, past=True)[0]["windows"]
-    assert [w["resets_at"] / 1000 for w in window["past"]] == resets[1:]
-
-
-def test_resets_read_across_an_hour_still_reach_back_past_windows(tmp_path, monkeypatch):
-    tmp_path.chmod(0o700)
-    monkeypatch.setattr(plan_usage, "PAST", 2)
-    usage = PlanUsage(History(tmp_path / "h.sqlite3"))
-    usage.accounts = {("claude", "a"): {"homes": [], "panes": [], "error": None}}
-    # Every window's reset read 30s either side of the hour, the current one's around now.
-    usage.history.record_usage([("claude", "a", "5h", 18000, r - 600 + i, 50, r + d)
-                                for i, d in enumerate((-30, 30))
-                                for r in (NOW - 12 * 3600, NOW - 6 * 3600, NOW)])
-    [window] = usage.report(now=NOW, past=True)[0]["windows"]
-    assert [w["resets_at"] / 1000 for w in window["past"]] == [NOW - 12 * 3600 + 30,
-                                                                NOW - 6 * 3600 + 30]
+    hit = NOW - 3000 * 60 + 7 * 60  # a minute the 120 thinned samples skip
+    minutes = range(int(NOW) - 3000 * 60, int(NOW) + 1, 60)
+    usage.history.record_usage([("claude", "a", "7d", 604800, t, 100 if t >= hit else 50,
+                                 NOW + 86400) for t in minutes])
+    [window] = usage.report(now=NOW)[0]["windows"]
+    assert window["hit_at"] == hit * 1000 and [hit * 1000, 100] not in window["samples"]

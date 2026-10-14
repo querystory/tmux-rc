@@ -618,8 +618,7 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
     .find((row) => row.dataset.role === 'typed').lastChild.innerHTML;
   assert.equal(typed, '<div class="voice-act">Typed into <span class="voice-pane">'
     + '<img src="/claude.png" alt="claude"><strong>work</strong><span> · api</span></span>'
-    + ', then pressed <kbd>Enter</kbd>'
-    + '<blockquote>ls</blockquote></div>');
+    + '<blockquote>ls <kbd>⏎ Enter</kbd></blockquote></div>');
   assert.match(bubble.title, /new messages, responding/);
   // A reply can come ahead of more work in the same turn: the row stays until it completes.
   say({type: 'transcript', role: 'model', text: 'Done in api:1.'});

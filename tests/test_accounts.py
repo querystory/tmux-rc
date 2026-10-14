@@ -221,7 +221,8 @@ def test_plan_usage_meters_the_listed_accounts_not_the_daemons_env(home, monkeyp
     accounts.edit(str(home / ".claude-personal"), forget=True)
     usage = plan_usage.PlanUsage(None, profiles=accounts.metered)
     found = usage.discover([], lambda _: None)
-    assert sorted(k for _, k in found) == [str(home / ".codex"), "u-work"]  # .codex2: no logs
+    # .codex2 has logged nothing yet: listed all the same, as "no data yet"
+    assert sorted(k for _, k in found) == [str(home / ".codex"), str(home / ".codex2"), "u-work"]
 
 
 @pytest.fixture

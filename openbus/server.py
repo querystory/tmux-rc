@@ -67,7 +67,6 @@ if os.environ.get("TMUXRC_PREFER_IPV4", "1") != "0":
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import (  # noqa: E402
-    FileResponse,
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
@@ -84,7 +83,7 @@ from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import PlanUsage  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
-from .watcher import Watcher  # noqa: E402
+from .watcher import Watcher, _fingerprint  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
 # passes log_config=None so its loggers propagate here instead of using its own):
@@ -161,10 +160,10 @@ IMG_MAX_BYTES = (
 # anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
 # telemetry too — this bounds the READ so a huge body can't balloon memory).
 CLIENT_ERROR_MAX_BYTES = 8 * 2**10
-# After a cursor walk's key, how often and how long /send waits for the screen to redraw
-# before it reads the picker back: a terminal redraws in milliseconds, a key that moved
-# nothing never redraws, so a second bounds it.
-PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 20
+# After a menu answer or a cursor walk's key, how often and how long /send waits for the
+# screen to redraw: a terminal redraws in milliseconds, a key that did nothing never
+# redraws, so a second and a half bounds it.
+PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 30
 # A boot failure (web/m/index.html's watchdog) also goes to the journal, at most this often,
 # so a reload loop can't flood it; one line is enough to see what broke.
 BOOT_WARN_INTERVAL_S = 10.0
@@ -587,6 +586,15 @@ async def no_cache(request, call_next):
     return resp
 
 
+def _web_version() -> str:
+    h = hashlib.md5()
+    for p in sorted(WEB_DIR.rglob("*")):
+        if p.is_file():
+            h.update(p.relative_to(WEB_DIR).as_posix().encode())
+            h.update(str(p.stat().st_mtime_ns).encode())
+    return h.hexdigest()
+
+
 @app.get("/api/version")
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
@@ -597,11 +605,6 @@ def get_version():
     live_enabled is false when the table is empty even with the flag on. An all-keyless
     table still shows the button: its picker is every row greyed with the key it needs,
     which is the one place the user can learn why nothing runs."""
-    h = hashlib.md5()
-    for p in sorted(WEB_DIR.rglob("*")):
-        if p.is_file():
-            h.update(p.relative_to(WEB_DIR).as_posix().encode())
-            h.update(str(p.stat().st_mtime_ns).encode())
     # The menu is live.offered() and nothing else — the same list the socket gates on, so
     # the picker can never show a row the socket would refuse. The label is the only thing
     # the browser ever sends back; hints are rendered by the entry (see LiveModel.hint).
@@ -611,7 +614,7 @@ def get_version():
                for m in live.offered()]
     keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
                for m in live_providers.models() if not m.available()]
-    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered or keyless),
+    return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
             "live_models": offered + keyless, "docs": DOCS_MOUNTED}
 
 
@@ -653,9 +656,9 @@ def put_goal(body: GoalBody, request: Request):
 
 
 @app.get("/api/usage")
-def get_usage(past: bool = False):
-    """Each Claude and Codex account's plan windows, trend and projection; with ?past=1,
-    each window's ended predecessors too (the usage view's history)."""
+def get_usage(past: float = 0):
+    """Each Claude and Codex account's plan windows, trend and projection; with ?past=<days>,
+    the windows that ended in those days too (the usage view's sawtooth)."""
     usage = getattr(app.state, "usage", None)
     return {"accounts": usage.report(past=past) if usage else []}
 
@@ -966,9 +969,12 @@ def send(pane_id: str, body: SendBody, request: Request):
     w, fp = app.state.watcher, body.question
     birth = w.pane_birth(pane.id) if fp else None  # the incarnation the question names
 
+    shown = []  # the screen a menu answer lands on, read under the send lock
+
     def claim() -> None:
         digest, generation, frame = fp.split(":")  # a malformed token: ValueError, 409
         claim_question(w, pane.id, digest, int(generation), frame)
+        shown.append(_screen(pane.id))
 
     def same_picker() -> None:
         # The whole guard on a cursor walk, under the send lock: the picker, from its
@@ -1010,7 +1016,29 @@ def send(pane_id: str, body: SendBody, request: Request):
     after = {} if body.picker is None else _picker_after(pane.id, body)
     if after:
         w.request_reparse(pane.id)
+    # A digit the widget ignores (Codex's trust dialog and "1") leaves the card saying so
+    # instead of waiting on an agent that never heard it.
+    if shown and shown[0] is not None and not _redrawn(pane.id, shown[0]):
+        after = {"took": False}
     return {"ok": True, **after}
+
+
+def _screen(pane_id: str) -> str | None:
+    try:
+        return tmux.capture_pane(pane_id)
+    except subprocess.CalledProcessError:  # closed: nothing to compare
+        return None
+
+
+def _redrawn(pane_id: str, before: str) -> bool:
+    """Whether the screen moves off `before` within the settle window, past the timer
+    and spinner churn that redraws it with no answer at all."""
+    was = _fingerprint(before)
+    for _ in range(PICKER_SETTLE_POLLS):
+        time.sleep(PICKER_SETTLE_S)
+        if (now := _screen(pane_id)) is None or _fingerprint(now) != was:
+            return True
+    return False
 
 
 def _picker_after(pane_id: str, body: SendBody) -> dict:
@@ -1895,19 +1923,22 @@ def _advertise_scratch() -> None:
     except (subprocess.CalledProcessError, OSError):  # no server yet, or no tmux binary
         logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 
-# Bare /m needs its own route; /m/ does not. The "/" mount below (html=True) serves
-# web/m/index.html for /m/, but answers bare /m with a 307 built from the request's own
-# scheme/host — behind the TLS-terminating phone tunnel that is http://…/m/, an origin
-# the phone can't reach (#174). GET and HEAD both, since phones/PWAs probe with HEAD.
-# The 404 is inline HTML rather than HTTPException(404): the JSON {"detail":"Not Found"}
-# body made the phone browser download an "m.json" file (#174), whereas text/html is
-# rendered. The check is per-request, so a daemon started before the assets were
-# deployed recovers without a restart. (Starlette's TestClient follows that 307 by
-# default, so a naive test would pass without this route; test_mobile_entrypoint sets
-# follow_redirects=False on purpose to pin it.) response_model=None: FastAPI can't build
-# a response model from a union of Response classes and refuses to import otherwise.
-@app.api_route("/m", methods=["GET", "HEAD"], include_in_schema=False, response_model=None)
-def mobile_ui() -> FileResponse | HTMLResponse:
+# The app's page, at every address it answers: /m/ and /m/index.html, and bare /m, which the
+# "/" mount below would answer with a 307 built from the request's own scheme/host — behind
+# the TLS-terminating phone tunnel that is http://…/m/, an origin the phone can't reach
+# (#174). GET and HEAD both, since phones/PWAs probe with HEAD. The 404 is inline HTML
+# rather than HTTPException(404): the JSON {"detail":"Not Found"} body made the phone
+# browser download an "m.json" file (#174), whereas text/html is rendered. The check is
+# per-request, so a daemon started before the assets were deployed recovers without a
+# restart. (Starlette's TestClient follows that 307 by default; test_mobile_entrypoint sets
+# follow_redirects=False on purpose to pin the bare /m route.)
+#
+# Its module URLs carry the assets' version (/v/0/ in the file, /v/<version>/ as served, any
+# version serving today's web/), and its import map sends every import there too. no-store
+# is not enough: WebKit keeps a module in its in-memory module map across reloads by URL, so
+# a deploy that changed app.js and sidebar.js booted the new app.js against the old sidebar.
+# New files are new URLs, and a reload (the boot screen's included) fetches them all.
+def mobile_ui() -> HTMLResponse:
     entrypoint = WEB_DIR / "m" / "index.html"
     if not entrypoint.is_file():
         return HTMLResponse(
@@ -1915,7 +1946,11 @@ def mobile_ui() -> FileResponse | HTMLResponse:
             "<h1>Mobile UI assets are not installed</h1>",
             status_code=404,
         )
-    return FileResponse(entrypoint)
+    return HTMLResponse(entrypoint.read_text().replace("/v/0/", f"/v/{_web_version()}/"))
+
+
+for _path in ("/m", "/m/", "/m/index.html"):
+    app.add_api_route(_path, mobile_ui, methods=["GET", "HEAD"], include_in_schema=False)
 
 
 # "/" was the retired desktop UI's address, so bookmarks and Home Screen apps installed from
@@ -1931,6 +1966,7 @@ def root_redirect(request: Request) -> RedirectResponse:
 
 # Static files last so /api/* and /docs win. html=True serves index.html at /m/.
 if WEB_DIR.is_dir():
+    app.mount("/v/{version}", StaticFiles(directory=str(WEB_DIR)), name="versioned")
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 
 

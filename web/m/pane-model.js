@@ -58,10 +58,15 @@ export function isRecent(pane, nowMs = Date.now()) {
   const idle = Number.isFinite(since) ? Math.max(0, nowMs / 1000 - since) : pane.idle_seconds || 0;
   return pane.activity !== "idle" || idle < PARKED_IDLE_SECS;
 }
-export const FILTERS = { all: () => true, running: isRunning, recent: (pane, nowMs) => isRecent(pane, nowMs), attention: needsYou };
-export function matchesFilter(pane, filter, nowMs = Date.now()) {
-  const predicate = Object.prototype.hasOwnProperty.call(FILTERS, filter) ? FILTERS[filter] : FILTERS.all;
-  return predicate(pane, nowMs);
+// The list's sections, each its own pane set, so a filter shows exactly one section's panes:
+// Needs you, then Working, Just finished and Idle among the rest, each the first that fits.
+const working = (pane) => !needsYou(pane) && isRunning(pane), finished = (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && isRecent(pane, nowMs);
+export const FILTERS = { attention: needsYou, working, finished, idle: (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && !isRecent(pane, nowMs) };
+// `filters` is a list of FILTERS' names: a pane shows if it matches any; none (or only
+// unknown names) shows every pane.
+export function matchesFilter(pane, filters, nowMs = Date.now()) {
+  const known = filters.filter((f) => Object.prototype.hasOwnProperty.call(FILTERS, f));
+  return !known.length || known.some((f) => FILTERS[f](pane, nowMs));
 }
 // Is the URL still on pane `id`? Nothing may pull the user out of a pane on the strength of
 // the app's own `active` alone: the involuntary exits (a state poll that no longer lists the
@@ -127,8 +132,9 @@ export function lastActivity(pane) {
 export function paneName(pane) {
   return pane.title || pane.label || pane.window_name || pane.pane_id;
 }
-// The list rows a question names by number ("do 1 now?"), one per line, so it reads alone.
-export const questionItems = (question) => Array.isArray(question?.items) ? question.items.join("\n") : "";
+// What a question decides, then the list rows it names ("do 1 now?", "A or B?"), one per
+// line, so it reads alone.
+export const questionItems = (question) => Array.isArray(question?.items) ? [question.subject, ...question.items].filter(Boolean).join("\n") : "";
 // The line a list shows under the name: the question it is stuck on, else what it is doing.
 // A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare
 // "Do you want to proceed?" says nothing on a card.

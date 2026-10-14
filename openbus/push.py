@@ -31,7 +31,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from pywebpush import WebPushException, webpush
 
 from . import tmux
-from .classify import is_approval
+from .classify import arrow_driven, is_approval
 
 logger = logging.getLogger(__name__)
 
@@ -324,6 +324,7 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         "context": question.get("context") if question else None,
         # Likewise "Do 1 now?" over a different row 1: the body shows the rows it names.
         "items": question.get("items") if question else None,
+        "subject": question.get("subject") if question else None,
         # The body is the restatement: one that arrives late (a retried call) re-notifies.
         "ask": question.get("ask") if question else None,
     }
@@ -371,6 +372,10 @@ def claim_question(watcher, pane_id: str, fingerprint: str, generation: int, fra
         raise ValueError("the pane has changed") from e
     if watcher.frame_fp(text, question) != frame:
         raise ValueError("the pending question has changed")
+    # A card read before its picker counted as arrow-driven (cached across a deploy)
+    # still offers a digit the picker may ignore: refused, and the reread walks it.
+    if question.get("answer_style") == "menu" and arrow_driven(question, text):
+        raise ValueError("This picker is answered with arrows; reread it.")
     watcher.consume_answer(pane_id, watcher.frame_fp(text), frame)
 
 
@@ -575,12 +580,17 @@ class PushManager:
             offered = renderable_options(question)[:2] if question else []
             # A widget's plain restatement ("Do you want to proceed?" alone says
             # nothing; classify._restate), else the prompt itself, then the list rows
-            # it names by number ("Do 1 now?" alone says nothing either).
+            # it names ("Do 1 now?" alone says nothing either), led by what is being decided
+            # when that still fits: the rows must, the subject is a bonus.
             items = (question or {}).get("items") or []
             # str(): raw model fields are unvalidated, and one bad headline must not stall
             # every pane's notifications.
-            body = "\n".join(map(str, [(question or {}).get("ask") or (question or {}).get(
-                "prompt") or pane.get("headline") or "Needs your attention", *items]))
+            lines = [(question or {}).get("ask") or (question or {}).get(
+                "prompt") or pane.get("headline") or "Needs your attention", *items]
+            if (subject := (question or {}).get("subject")) and (
+                    len("\n".join(map(str, lines))) + len(str(subject)) < PUSH_BODY_MAX):
+                lines.insert(1, subject)
+            body = "\n".join(map(str, lines))
             # A menu with no widget rows (one taller than classify reads, or none) can't
             # tell one "Do you want to proceed?" from the next, so its nonce could approve
             # a later command; an approval not yet restated (a failed call, retried) would

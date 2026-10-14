@@ -4,6 +4,8 @@ The atlas reads `/api/history?window=1h|24h|7d|all`. The daemon records structur
 inventories in SQLite whenever identity, session, tool, or displayed state changes,
 and at least once per minute while healthy. Removing a pane or closing the whole
 fleet therefore has an explicit observation. Browser visits do not affect collection.
+A pane whose screen the parser could not read is recorded as Unknown, with no
+workers, never as its last card, so one unread screen cannot stop the heartbeat.
 
 The database defaults to `$XDG_STATE_HOME/tmux-rc/history.sqlite3` (normally
 `~/.local/state/tmux-rc/history.sqlite3`); `TMUXRC_HISTORY_DB` overrides it. Keep it
