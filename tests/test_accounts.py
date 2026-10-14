@@ -460,7 +460,8 @@ def test_the_open_sign_in_window_shows_its_link(client, home, monkeypatch):
               "command": "CODEX_HOME=~/.codex-x codex login --device-auth"}
     assert client.post("/api/accounts/login", json=device).status_code == 200
     monkeypatch.setattr(T, "pane_dead", lambda pane_id: True)  # finished, kept on exit
-    assert get("dir=~/.codex-x").status_code == 404
+    assert get("dir=~/.codex-x").status_code == 404 and "%43" in S._SIGN_IN  # still closable
+    monkeypatch.setattr(T, "pane_dead", lambda pane_id: False)
     monkeypatch.setattr(T, "pane_pid", lambda pane_id: None)  # all gone: signed in, say
     assert get("dir=~/.codex-x").status_code == 404 and S._SIGN_IN == {}  # and forgotten
 

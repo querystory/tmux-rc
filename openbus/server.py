@@ -1243,14 +1243,17 @@ def _alive(pane_id: str, entry: dict | None) -> bool:
 
 
 def _live_sign_ins() -> list[tuple[str, dict]]:
-    """The sign-in windows still running, oldest first. One gone (signed in, or closed by
-    hand) is dropped from the registry, unless a newer window took its pane id meanwhile."""
+    """The sign-in windows still running, oldest first. One whose pane is gone (signed in,
+    or closed by hand) is dropped from the registry, unless a newer window took its pane id
+    meanwhile; one exited but kept on screen (remain-on-exit) stays registered, so the
+    sheet can still close it, but is not live."""
     live = []
     for pane_id, entry in list(_SIGN_IN.items()):
-        if _alive(pane_id, entry):
+        if not entry["pid"] or tmux.pane_pid(pane_id) != entry["pid"]:
+            if _SIGN_IN.get(pane_id) is entry:
+                _SIGN_IN.pop(pane_id, None)
+        elif not tmux.pane_dead(pane_id):
             live.append((pane_id, entry))
-        elif _SIGN_IN.get(pane_id) is entry:
-            _SIGN_IN.pop(pane_id, None)
     return live
 
 
