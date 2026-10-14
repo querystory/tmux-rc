@@ -79,13 +79,28 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
-# A tab strip under a dialog's top rule ("Settings  Status  Config  Usage  Stats") is a
-# panel the user opened and is browsing (/config). The agent is not asking: a row
-# there toggles a setting or opens a page and the panel stays, so it is no question. Only
-# while it is still open: the screen's last row is its own footer ("… ↑ to tabs · Esc to
-# clear"), not that of any later dialog, framed or ruled, drawn below a lookalike.
-_TABBED_PANEL_RE = re.compile(r"▔{3,}.*\n[ \t]*\w+(?:[ \t]{2,}\w+){3,}[ \t]*\n"
-                              r"[\s\S]*↑ to tabs\b.*\s*\Z")
+# A tabbed panel the user opened and is browsing (/config, /plugin): a strip of 3+ short
+# tab labels under a dialog's top rule ("Settings  Status  Config  Usage  Stats"), a search
+# box or a ❯ cursor on a "name  value" row below it, and the panel's own key-hint footer
+# as the screen's last row. The agent is not asking: a row toggles a setting or opens a
+# page and the panel stays. The footer closes, clears or goes back on Esc, never cancels
+# as a question's does, so a later dialog below a lookalike strip still asks. Read by
+# structure, not one panel's exact tabs or hints, which Claude Code keeps rewording.
+_TAB_LABEL = r"\w\S*(?: \S+)?"
+_TAB_STRIP_RE = re.compile(
+    rf"▔{{3,}}.*\n[ \t]*{_TAB_LABEL}(?:[ \t]{{2,}}{_TAB_LABEL}){{2,}}[ \t]*$", re.MULTILINE)
+_PANEL_BODY_RE = re.compile(r"⌕|^[ \t]*❯[ \t]*\S.*?\S[ \t]{2,}\S", re.MULTILINE)
+_PANEL_FOOTER_RE = re.compile(r"\bEsc to (?!cancel\b)\w", re.IGNORECASE)
+
+
+def _tabbed_panel_open(visible: str) -> bool:
+    """Whether the screen ends in an open tabbed panel (see _TAB_STRIP_RE)."""
+    *_, strip = (None, *_TAB_STRIP_RE.finditer(visible))
+    body = visible[strip.end():].rstrip() if strip else ""
+    return bool(_PANEL_BODY_RE.search(body)
+                and _PANEL_FOOTER_RE.search(body.rsplit("\n", 1)[-1]))
+
+
 # A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
 # the frame, a radio and a digit. The model reads the highlight too but can misplace it
 # (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
@@ -1183,7 +1198,7 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    if result.get("tool") == "claude" and _TABBED_PANEL_RE.search(visible):
+    if result.get("tool") == "claude" and _tabbed_panel_open(visible):
         # Authoritative over the model, a failed parse included: the screen is a settings
         # panel, so nothing is asked. Only a turn the model saw still running stays running
         # (not one a failed parse carried over).
