@@ -146,16 +146,18 @@ def test_a_codex_login_in_the_keyring_is_signed_in(home, monkeypatch):
 
 def test_codex_is_asked_about_that_dir_alone(tmp_path, monkeypatch):
     # A stand-in codex, found on the tmux server's PATH: signed in only for `login status`
-    # run on the dir it was asked about, whatever CODEX_HOME the daemon itself has.
+    # run on the dir it was asked about, whatever CODEX_HOME the daemon itself has, and
+    # never handed the daemon's secrets.
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "codex").write_text(
-        '#!/bin/sh\n[ "$*" = "login status" ] && [ "$CODEX_HOME" = "$WANT" ]\n')
+        f'#!/bin/sh\n[ -z "$OPENAI_API_KEY" ] && [ "$*" = "login status" ] '
+        f'&& [ "$CODEX_HOME" = "{tmp_path / "in"}" ]\n')
     (bin_dir / "codex").chmod(0o755)
     monkeypatch.setattr(T, "server_path", lambda: str(bin_dir))
     monkeypatch.setattr(accounts, "_CODEX_SEEN", {})
     monkeypatch.setenv("CODEX_HOME", "/elsewhere")
-    monkeypatch.setenv("WANT", str(tmp_path / "in"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
     assert CODEX_LOGIN(tmp_path / "in") and not CODEX_LOGIN(tmp_path / "out")  # exit 1: no
     monkeypatch.setattr(T, "server_path", lambda: str(tmp_path / "nowhere"))
     assert CODEX_LOGIN(tmp_path / "in")  # asked a moment ago: the answer is kept

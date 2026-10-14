@@ -122,7 +122,9 @@ def _codex_login(config: Path) -> bool:
 
 
 def _codex_status(config: Path) -> bool:
-    env = {k: v for k, v in os.environ.items() if k != ENV["codex"]}
+    # Only what a tmux session would get (tmux._SERVER_ENV): none of the daemon's secrets.
+    env = {k: v for k, v in os.environ.items()
+           if tmux._SERVER_ENV.fullmatch(k) and k != ENV["codex"]}
     env |= plan_usage.env_for("codex", config)
     path = tmux.server_path()  # None: tmux can't say; "" is an answer (an empty PATH)
     env["PATH"] = env.get("PATH", "") if path is None else path
