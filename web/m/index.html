@@ -101,9 +101,9 @@
            #sessions is the scroller (style.css). -->
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
       <div id="sb-scroll">
-      <!-- The places: Dashboard always; More gives way to Chat, Voice and Settings, and Show less
-           (the caret on the Settings row) folds them back into More. -->
-      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><button id="places" class="icon-button" aria-expanded="false" aria-controls="sb-nav" title="Chat, Voice and Settings"></button><button id="places-less" class="icon-button" aria-controls="sb-nav" aria-label="Show less" title="Show less"></button></div>
+      <!-- The places you go, as rows: Dashboard and Settings (app.js moves Settings in). Chat and
+           Voice are toggles, icons in the head. -->
+      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button></div>
       <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div>
       <!-- Search and the list's filter (sidebar.js adds it, wide only) share a row. -->
       <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div></div>

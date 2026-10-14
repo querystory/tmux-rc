@@ -12,13 +12,13 @@ settled and why.
 
 The sidebar holds three kinds of thing, and each now has one home.
 
-- **Places** you go: Dashboard, Chat, Voice and Settings. Dashboard is a row that is always
-  there, since it is where you go most. Under it, "··· More" gives way to the other three
-  rows, and a small dim caret on the last of them (Show less, its own button) folds them back
-  into More; it stays as you left it. A chevron on the Dashboard row was tried first, and
-  read as ambiguous (one row that both opened a place and unfolded others), and so did a More
-  row that stayed above the rows it had unfolded. There is no split of some places outside More and the rest behind it:
-  one place left outside read as arbitrary.
+- **Places** you go are two rows under the header, always there: Dashboard and Settings.
+  Chat and Voice are not places but toggles (a panel that opens beside you, a mic that stays
+  on), so they are small icons in the header, between the name and the collapse, and being on
+  shows as a tint on the icon. As rows they read as selected navigation: an open Chat was a
+  big green rectangle in the list of places. That left two places, which need no folding, so
+  the "··· More" row that once gave way to the rest is gone; it, and a chevron on the Dashboard
+  row before it, were ways to hide rows that no longer need hiding.
 - **Settings** are things you set once: Accounts, Notifications, Theme, Plan usage, the
   phone's sort order, and Docs. They left the ☰ dropdown and the foot for one Settings, the
   same content on a phone (the header's gear, a sheet) and on desktop.

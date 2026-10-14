@@ -465,26 +465,22 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* The wide sidebar (sidebar.js). Scoped to the breakpoint, not just to its .sb-only
    slots: the slots are still siblings on a phone, and a sibling selector would reach. */
 @media (min-width: 1100px) {
-/* The head: the logo (Live is its dot) and the name, then a small dim collapse. */
+/* The head: the logo (Live is its dot) and the name, then Chat and Voice as small icons (on,
+   a tint, not a filled row) and a dim collapse. */
 #sb-head { display: flex; align-items: center; gap: 4px; min-height: 52px; padding: 0 10px 0 17px; flex: none; }
 #sb-head #brand { gap: 9px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
 #sb-head #brand img { width: 22px; height: 22px; border-radius: 6px; }
 #sb-head #brand::before { left: 16px; top: 15px; box-shadow: 0 0 0 2px var(--surface); }
 #sb-head #connection { position: absolute; opacity: 0; pointer-events: none; }
 #sb-head .icon-button { width: 24px; height: 24px; min-height: 24px; border-radius: 6px; color: var(--muted); }
-#sb-head #collapse:hover { color: var(--fg); }
-/* The places, as rows on the list's icon and text columns: Dashboard always, then More,
-   which unfolds Chat, Voice and Settings under it (its dim caret turns to fold them). */
-#sb-nav { position: relative; display: flex; flex-direction: column; padding: 0 6px 2px; flex: none; }
-#sb-nav .icon-button:not(#places-less) { width: 100%; height: 32px; min-height: 32px; justify-content: flex-start; gap: 9px; padding: 0 10px 0 13px; border-radius: 7px; color: var(--fg); font-size: 13px; }
+#sb-head .icon-button:hover { color: var(--fg); }
+#sb-head #chat.active { color: var(--accent); background: var(--accent-bg); box-shadow: none; }
+#sb-head #live-mode.active { color: var(--red); background: var(--raised); box-shadow: none; }
+/* The places, as rows on the list's icon and text columns: Dashboard and Settings. */
+#sb-nav { display: flex; flex-direction: column; padding: 0 6px 2px; flex: none; }
+#sb-nav .icon-button { width: 100%; height: 32px; min-height: 32px; justify-content: flex-start; gap: 9px; padding: 0 10px 0 13px; border-radius: 7px; color: var(--fg); font-size: 13px; }
 #sb-nav .icon-button svg { width: 16px; height: 16px; color: var(--muted); }
-#sb-nav .icon-button:not(#places, #places-less)::after { content: attr(aria-label); }
-#sb-nav #places-less svg { width: 14px; height: 14px; }
-#sb-nav #live-mode.icon-button::after { content: "Voice"; }
-#sb-nav:not(.open) > :is(#chat, #live-mode, #settings-open, #places-less), #sb-nav.open > #places { display: none; }
-/* Show less: a small dim caret over the Settings row's right end, its own button. */
-#places-less { position: absolute; right: 12px; bottom: 6px; width: 24px; height: 24px; min-height: 24px; border-radius: 6px; color: var(--muted); }
-#places-less:hover { color: var(--fg); }
+#sb-nav .icon-button::after { content: attr(aria-label); }
 /* Everything above the usage strip scrolls as one, and the Sessions block sticks at its top. */
 #sb-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 #sb-sticky { position: sticky; top: 0; z-index: 3; flex: none; background: var(--surface); transition: box-shadow 120ms; }
@@ -576,16 +572,17 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
    listed pane (it scrolls), and Settings at the foot. The rows' containers step aside so
    their buttons stack in that order. */
 #app.rail #sessions { align-items: center; }
-#app.rail :is(#sb-scroll, #sb-sticky, #sb-nav, #sb-sess, #find) { display: contents; }
-#app.rail #sb-nav :is(#places, #places-less), #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
-#app.rail #sb-head { min-height: 0; padding: 12px 0 6px; justify-content: center; }
+#app.rail :is(#sb-head, #sb-scroll, #sb-sticky, #sb-nav, #sb-sess, #find) { display: contents; }
+#app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
+#app.rail #collapse { margin: 12px 0 6px; }
 #app.rail :is(#new-window, #find > *) { order: 1; }
-#app.rail :is(#dash-nav, #chat, #live-mode) { order: 2; }
-#app.rail #side-list { order: 3; }
-#app.rail #settings-open { order: 4; margin: 6px 0 10px; }
-#app.rail #sb-nav .icon-button:not([hidden]) { display: inline-flex; width: 36px; height: 36px; min-height: 36px; padding: 0; justify-content: center; border-radius: 8px; }
+#app.rail #dash-nav { order: 2; }
+#app.rail :is(#chat, #live-mode) { order: 3; }
+#app.rail #side-list { order: 4; }
+#app.rail #settings-open { order: 5; margin: 6px 0 10px; }
+#app.rail :is(#sb-nav .icon-button, #chat, #live-mode):not([hidden]) { display: inline-flex; width: 36px; height: 36px; min-height: 36px; padding: 0; justify-content: center; border-radius: 8px; }
 #app.rail #sb-nav .icon-button::after { content: none; }
-#app.rail #sb-nav .icon-button svg { width: 18px; height: 18px; }
+#app.rail :is(#sb-nav .icon-button, #chat, #live-mode) svg { width: 18px; height: 18px; }
 #app.rail #sb-sess #new-window { width: 28px; height: 28px; min-height: 28px; margin: 4px 0; }
 #app.rail #find .search { flex: none; width: 36px; height: 36px; padding: 0; justify-content: center; background: none; cursor: pointer; }
 #app.rail #find .search:hover { background: var(--raised); }
@@ -1052,7 +1049,6 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
   #acct-filter .acct-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
   body:has(#sessions:not([hidden])) .acct-pill { display: none; }
 }
-#sb-head #collapse { margin-left: auto; }
 #app.rail .acct-pill { display: none; }
 /* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third
    of the next peeks in under the fade, so the row reads as one that scrolls: two on a phone,

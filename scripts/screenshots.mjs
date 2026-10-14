@@ -68,9 +68,9 @@ const SHOTS = [
   ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
   ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-close"); }],
   ["mobile-no-tmux", PHONE, "light", "", noTmux],
-  // The sidebar (docs/design/sidebar.md): the places unfolded, Settings beside it, and the rail.
-  ["wide-places", WIDE, "light", "#pane=%259", (page) => page.click("#places")],
-  ["wide-settings", WIDE, "dark", "#view=dashboard", async (page) => { await page.click("#places"); await page.click("#settings-open"); }],
+  // The sidebar (docs/design/sidebar.md): Chat open from the head, Settings beside it, and the rail.
+  ["wide-places", WIDE, "light", "#pane=%259", (page) => page.click("#chat")],
+  ["wide-settings", WIDE, "dark", "#view=dashboard", (page) => page.click("#settings-open")],
   ["wide-rail", WIDE, "light", "#pane=%259", async (page) => { await page.click("#collapse"); await page.hover("#side-list .sb-rail >> nth=2"); await page.locator("#side-hover").waitFor(); }],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
 ];

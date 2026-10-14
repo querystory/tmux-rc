@@ -1297,18 +1297,6 @@ new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-// The sidebar's places: More, under Dashboard, gives way to Chat, Voice and Settings, and
-// the caret on the last of them (Show less) folds them back. It stays as you left it.
-html($("places"), `${licon("ellipsis")}<span>More</span>`);
-html($("places-less"), licon("chevronUp", 14));
-const unfold = (open) => {
-  $("places").ariaExpanded = String($("sb-nav").classList.toggle("open", open));
-  try { localStorage.setItem("tmuxrc-places", open ? "open" : ""); } catch {}
-};
-try { unfold(localStorage.getItem("tmuxrc-places") === "open"); } catch {}
-// The button pressed disappears: focus moves to the first place shown, or back to More.
-$("places").onclick = () => { unfold(true); [$("chat"), $("live-mode"), $("settings-open")].find((b) => !b.hidden).focus(); };
-$("places-less").onclick = () => { unfold(false); $("places").focus(); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
@@ -1720,7 +1708,7 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // The wide sidebar takes the header's controls into its slots, in this order; a phone
 // gets them back where index.html put them (a comment marks each home), so every control
 // is one element with one set of listeners, whichever layout it is in.
-const CHROME = { "sb-head": ["brand", "connection", "collapse"], "sb-nav": ["chat", "live-mode", "settings-open", "places-less"], "sb-sess": ["new-window"] };
+const CHROME = { "sb-head": ["brand", "connection", "chat", "live-mode", "collapse"], "sb-nav": ["settings-open"], "sb-sess": ["new-window"] };
 const homes = {};
 function placeChrome() {
   for (const [slot, ids] of Object.entries(CHROME)) for (const id of ids) {
