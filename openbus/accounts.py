@@ -29,7 +29,9 @@ COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
 SHARED = {"claude": {"CLAUDE.md": True, "skills": True, "hooks": True, "statusline.sh": True,
                      "settings.json": False},
           "codex": {"AGENTS.md": True, "prompts": True, "config.toml": False}}
-LOGIN = {"claude": ["claude"], "codex": ["codex", "login"]}  # the provider's own sign-in
+# The provider's own sign-in. tmux-rc users are remote, so Codex gets the device-code flow:
+# plain `codex login` waits on a localhost:1455 callback the remote browser cannot reach.
+LOGIN = {"claude": ["claude"], "codex": ["codex", "login", "--device-auth"]}
 RESUME = {"claude": ["claude", "--resume"], "codex": ["codex", "resume"]}
 # What a session needs to resume on another account: of the files Expunge knows it by,
 # Claude's transcript, its subagents' and tool results' folder and its /rewind snapshots;

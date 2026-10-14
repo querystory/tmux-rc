@@ -295,7 +295,7 @@ def test_the_session_default_and_the_sign_in_window(client, home):
     argv = next(a for a in client.calls if a[0] == "new-window")
     assert argv[argv.index("-n") + 1] == "sign in: Work"
     assert argv[argv.index("--") + 1:] == [
-        "env", f"CODEX_HOME={home}/.codex-work", "codex", "login"]
+        "env", f"CODEX_HOME={home}/.codex-work", "codex", "login", "--device-auth"]
     assert client.post("/api/accounts", json={"provider": "claude",
                                               "dir": "~/.claude-personal"}).status_code == 409
 
