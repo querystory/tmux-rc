@@ -51,7 +51,7 @@ SNAPSHOT_HISTORY = 200
 CHECKPOINT_EVENTS = 100
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 14
+CARD_VERSION = 15
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -697,16 +697,16 @@ class Watcher:
             # Never seed the parse cache with these placeholders.
             focused = tmux.active_pane_id()
             blank = {"tool": "unknown", "activity": "unknown", "prs": []}
+            shown = {s.get("pane_id"): s for s in self.states}
             for p in panes:
                 # A pane already classified keeps its last state here, so republishing
                 # for a NEW pane's sake never flickers an existing card back to "unknown".
-                # _state is the right source despite being called a parse cache: the dict
-                # it holds IS the one that went into the deck (_tick_pane stores what it
-                # returns), so the fields merged in later in the tick — events_seq, the
-                # bootstrap's session_summary and title — are on this object too, and a
-                # carried-over card keeps everything the client last saw rather than
-                # appearing to reset its activity log every time some OTHER pane opens.
-                prior = None if p.id in fresh else self._state.get(p.id)
+                # The deck's own card, not the parse cache: it carries the fields merged in
+                # later in the tick — events_seq, the bootstrap's session_summary and title —
+                # so a carried-over card keeps everything the client last saw rather than
+                # appearing to reset its activity log every time some OTHER pane opens, and
+                # an ask the cache holds unconfirmed (_confirmed) is never published here.
+                prior = None if p.id in fresh else shown.get(p.id)
                 # A placeholder still has an age: tmux's own last activity, until the
                 # pane's first tick (which can be a minute away at startup) replaces it.
                 s = {"pane_id": p.id, **(dict(prior) if prior else
@@ -1287,6 +1287,7 @@ class Watcher:
         # one); snapshot_text() strips the markers at the phone-facing boundary.
         generation = self.pane_input_generation(pane.id)  # read first: later input wins
         now = time.time()  # before the capture: drop_question compares it with an answer's
+        captured = time.monotonic()  # and what _confirmed's second capture waits out
         text = tmux.capture_pane(pane.id, mark_dim=True)
         fp = self.frame_fp(text)  # cheap to hold per pane; the checkpoint stores it too
         # First sighting since startup (or since a recycled id): resume from the
@@ -1607,7 +1608,7 @@ class Watcher:
                 self._state_since_for(pane.id, state, now)  # re-keyed to the answered state,
                 self._state_since[pane.id] = state["state_since"] = at  # entered at the answer
             self._state[pane.id] = state
-        return self._confirmed(pane.id, previous, state, fp, now)
+        return self._confirmed(pane.id, previous, state, fp, captured)
 
     def _confirmed(self, pane_id: str, previous: dict | None, state: dict, fp: str,
                    captured: float) -> dict:
@@ -1618,7 +1619,7 @@ class Watcher:
         if (key[0] != "waiting" or state.get("waiting_on") == "external"
                 or key == self._pending_key(previous or {})):
             return state
-        time.sleep(max(0.0, captured + CONFIRM_SECONDS - time.time()))
+        time.sleep(max(0.0, captured + CONFIRM_SECONDS - time.monotonic()))
         if self.frame_fp(tmux.capture_pane(pane_id, mark_dim=True)) == fp:
             return state
         held = dict(state)

@@ -253,6 +253,21 @@ def test_new_pane_does_not_reset_the_other_cards(inventory, monkeypatch):
     _tick_blocked_on(w, monkeypatch, "%0", while_blocked)
 
 
+def test_new_pane_never_prepublishes_an_unconfirmed_ask(inventory, monkeypatch):
+    """The parse cache can hold an ask its second capture did not confirm (_confirmed):
+    opening a window republishes the deck's card, never that read."""
+    w, panes = inventory
+    _classified(w, monkeypatch, panes)
+    w._state["%1"] = {**w._state["%1"], "activity": "waiting", "question": {"prompt": "Run?"}}
+    panes.append(W.tmux.Pane("work", "2", "agent-2", "0", "%2", "node", "Task 2",
+                             pid="102", window_active="0", pane_active="0"))
+
+    def while_blocked():
+        assert w.states[1]["activity"] == "idle" and "question" not in w.states[1]
+
+    _tick_blocked_on(w, monkeypatch, "%0", while_blocked)
+
+
 def test_recycled_pane_id_does_not_prepublish_the_old_occupant(inventory, monkeypatch):
     """tmux hands a closed pane's id to the next pane. The pre-publish keys "already
     known" off the PID, not the id, so a recycled id is treated as a brand-new pane: it
