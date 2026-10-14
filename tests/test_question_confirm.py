@@ -97,6 +97,11 @@ def test_a_new_menu_under_the_same_screen_is_not_the_one_read(monkeypatch):
     # "sleep 10s" → "sleep 20s" normalizes alike; the question's own rows tell them apart.
     menu = "Would you like to run the following command?\n\n  sleep {}\n\n  1. Yes\n  2. No"
     ask = {**ASK, "question": {**ASK["question"], "answer_style": "menu", "options": ["Yes", "No"]}}
-    w = _harness(monkeypatch, ["working", menu.format("10s"), menu.format("20s")], [WORK, ask])
+    later = {**ask, "question": {**ask["question"], "context": "sleep 20s"}}
+    w = _harness(monkeypatch, ["working", menu.format("10s"), menu.format("20s")],
+                 [WORK, ask, later])
     _tick(w)
     assert _tick(w)["question"] is None
+    card = _tick(w)  # the 20s menu hashes like the 10s one, but is read, not served from cache
+    assert card["question"] == later["question"] and card["frame"] != w.frame_fp(
+        menu.format("10s"), ask["question"])

@@ -1244,10 +1244,11 @@ def classify(
               and not _USER_ROW_RE.search(visible, turn.end())):  # no newer turn began
             result["activity"] = "idle"  # The turn is over; background shells don't count.
             result.pop("parse_ok", None)
-    # Codex's live row is a read too: its turn runs, and no question or user wait stands under it.
-    if (result.get("tool") == "codex" and _CODEX_LIVE_RE.search(visible)
+    # Codex's live row is a read too: a user wait with no question under it, or an ask the
+    # re-read could not place, is its turn running. A finished turn's "idle" stands.
+    if (result.get("tool") == "codex" and result.get("activity") in ("waiting", "unknown", None)
             and not result.get("question") and result.get("waiting_on") != "external"
-            and result.get("activity") != "compacting"):
+            and _CODEX_LIVE_RE.search(visible)):
         result["activity"] = "running"
         result.pop("parse_ok", None)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not

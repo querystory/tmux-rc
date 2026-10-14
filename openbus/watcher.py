@@ -1613,8 +1613,8 @@ class Watcher:
     def _confirmed(self, pane_id: str, previous: dict | None, state: dict,
                    captured: float) -> dict:
         """The card for a parse: a NEW user wait only once a second capture still shows its
-        frame, else the agent at work on the clock it had. _state keeps the read, so the next
-        tick confirms it on an unchanged screen (the cached card) or a re-read of the same ask."""
+        frame, else the agent at work on the clock it had. _state keeps the read, so a parse
+        that reads the same ask again confirms it; a rejected one is never served from cache."""
         key, previous = self._pending_key(state), previous or {}
         if (key[0] != "waiting" or state.get("waiting_on") == "external"
                 or (key == self._pending_key(previous) and previous.get("waiting_on") == "user")):
@@ -1625,6 +1625,7 @@ class Watcher:
             return state
         held = dict(state)
         self._drop_question(held, {key[1:]})
+        self._prev_fp.pop(pane_id, None)  # read the next screen afresh, whatever it hashes to
         if previous.get("state_since") is not None:  # the unread wait started no clock
             self._state_key[pane_id] = self._pending_key(previous)
             self._state_since[pane_id] = previous["state_since"]

@@ -1613,6 +1613,7 @@ def test_codex_live_row_is_only_its_status_row():
         result = classify(_pane("node"), screen, _llm(
             {"tool": "codex", "activity": "waiting", "question": ask}))
         assert result["activity"] == "waiting" and result["question"], quote
-    done = "\x1e[visible screen]\x1f\n• Working (2s • esc to interrupt) is the row.\n• Done.\n\n› "
+    # A finished reply shaped like the row, right above the input row: the read stands.
+    done = "\x1e[visible screen]\x1f\n• Documentation example (2s • esc to interrupt)\n\n› "
     assert classify(_pane("node"), done, _llm({"tool": "codex", "activity": "idle"}))[
         "activity"] == "idle"
