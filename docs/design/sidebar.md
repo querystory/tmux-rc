@@ -87,9 +87,11 @@ nothing but "expand" made folding a trap, so the rail now keeps everything that 
 icon, top down: expand, the green +, search, the filter, Dashboard, Chat, Voice, every pane
 the list shows in its order, and Settings at the foot. The + opens New window beside the
 rail without expanding it, and the filter's menu opens beside it too with its count. Search
-expands the sidebar and focuses the box, since a query needs the list. Each pane icon has a
-state dot (amber needs you, green running) and, with several accounts, an account dot in
-the opposite corner; hovering one shows the list's hover card, with the account's chip. The
+expands the sidebar and focuses the box, since a query needs the list. Each pane icon has the
+list's own single running ring on its logo, an amber dot when it needs you and, with several
+accounts, an account dot in the opposite corner; hovering one shows the list's hover card,
+with the account's chip. The open pane is a soft filled square: the rows' left bar and
+border, squeezed round an icon, looked lopsided. The
 pane icons scroll between the places and Settings.
 
 The idle-count button ("+12") is gone: the rail lists every pane, as the list does.

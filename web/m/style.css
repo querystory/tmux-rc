@@ -564,9 +564,9 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #side-hover .sb-agents { padding: 0; }
 #side-hover :is(p, small):empty, #side-hover :is(.l, .sb-agents):empty { display: none; }
 /* Selection is #277's neutral card, not a colour: colour here means state. */
-:is(.sb-row, .sb-card, .sb-rail)[aria-current="true"]:not(:disabled) { background: var(--lift); --card: var(--lift); box-shadow: inset 3px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent); }
+:is(.sb-row, .sb-card)[aria-current="true"]:not(:disabled) { background: var(--lift); --card: var(--lift); box-shadow: inset 3px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent); }
 /* :not(:disabled) outranks the global button hover, so hover cannot repaint a selection. */
-:is(.sb-card, .sb-rail).need[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
+.sb-card.need[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
 :is(.sb-row, .sb-card)[aria-current="true"] b { font-weight: 800; }
 /* Folded: a 60px rail, top down: expand, +, search, the filter, the places, then every
    listed pane (it scrolls), and Settings at the foot. The rows' containers step aside so
@@ -594,10 +594,12 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-rail { position: relative; width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 8px; }
 .sb-rail .sb-logo, .sb-rail .sb-logo img:not(.model-badge) { width: 22px; height: 22px; }
 .sb-rail.need { background: var(--amber-bg); --card: var(--amber-bg); }
-/* Needs you: an amber dot top right; running: a ring. With several accounts, the account's
-   dot bottom left. The model badge steps aside for them. */
+/* The open pane: a soft filled square, symmetric (the rows' left bar reads oddly round an icon).
+   Needs you: an amber dot top right; running: the logo's own ring, as in the rows. With
+   several accounts, the account's dot bottom left. The model badge steps aside for them. */
+.sb-rail[aria-current="true"]:not(:disabled) { background: color-mix(in srgb, var(--fg) 14%, transparent); }
+.sb-rail.need[aria-current="true"]:not(:disabled) { background: color-mix(in srgb, var(--amber) 32%, var(--amber-bg)); }
 .sb-rail[data-state="need"]::after { content: ""; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 2px var(--amber-bg); }
-.sb-rail[data-state="run"]::before { content: ""; position: absolute; inset: 3px; border: 2px solid var(--accent); border-radius: 50%; }
 .sb-rail .model-badge { display: none; }
 .sb-rail .sb-acct { position: absolute; left: 3px; bottom: 3px; display: flex; }
 .sb-rail .acct-badge { padding: 0; border: 0; background: none; }
