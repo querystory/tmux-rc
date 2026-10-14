@@ -751,7 +751,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .atlas-controls-label { font-size: 13px; }
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
-.atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
+.atlas-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
 
 .atlas-range { margin: 0 0 0 auto; min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 4px 8px; }
 
@@ -937,6 +937,12 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
 .atlas-tool-filter img { object-fit: contain; }
+/* A phone swaps the agent chips, which wrap there, for a select beside the session one. */
+.atlas-tool-picker { display: none; }
+@media (max-width: 699px) {
+  .atlas-controls > :is(.atlas-controls-label, .atlas-tool-filter) { display: none; }
+  .atlas-controls > .atlas-picker { display: block; flex: 1 1 0; min-width: 0; margin-left: 0; }
+}
 
 /* Keep the standalone root in normal flow to avoid WebKit fixed-root clipping.
    Include the top safe area for translucent installs; opaque installs report

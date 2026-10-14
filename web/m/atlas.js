@@ -538,8 +538,19 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const controls = el('div', 'atlas-controls');
   controls.append(el('span', 'atlas-controls-label muted', 'Sessions'));
   const redraw = () => setFleet({}); // through app.js, which repaints what follows the filters (Plan usage)
-  ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].forEach(tool => {
-    const count = allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length;
+  // A select per filter, styled alike; `field` names what it sets in the scope.
+  const picker = (field, label, options) => {
+    const select = el('select', `atlas-picker atlas-${field}-picker`);
+    select.dataset.key = `${field}-filter`;
+    select.setAttribute('aria-label', label);
+    options.forEach(([value, text]) => select.append(new Option(text, value)));
+    select.value = scope[field];
+    select.onchange = () => { scope[field] = select.value; redraw(); };
+    return select;
+  };
+  const choices = ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].map(tool =>
+    [tool, allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length]);
+  choices.forEach(([tool, count]) => {
     const button = el('button', 'atlas-filter atlas-tool-filter');
     const label = `${tool || 'All tools'} · ${count} panes`;
     button.setAttribute('aria-label', label);
@@ -558,14 +569,10 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     button.onclick = () => { scope.tool = tool; redraw(); };
     controls.append(button);
   });
-  const sessionPicker = el('select', 'atlas-session-picker');
-  sessionPicker.dataset.key = 'session-filter';
-  sessionPicker.setAttribute('aria-label', 'Filter atlas by tmux session');
-  sessionPicker.append(new Option('All tmux sessions', ''));
-  [...new Set([...sessions, ...(scope.session ? [scope.session] : [])])].forEach(session => sessionPicker.append(new Option(session, session)));
-  sessionPicker.value = scope.session;
-  sessionPicker.onchange = () => { scope.session = sessionPicker.value; redraw(); };
-  controls.append(sessionPicker); nodes.push(controls);
+  // A phone picks the agent from a select too: the chips' row wraps there (style.css swaps them).
+  controls.append(picker('tool', 'Filter atlas by agent', choices.map(([tool, count]) => [tool, tool ? `${tool} · ${count}` : 'All agents'])),
+    picker('session', 'Filter atlas by tmux session', [['', 'All tmux sessions'], ...[...new Set([...sessions, ...(scope.session ? [scope.session] : [])])].map(s => [s, s])]));
+  nodes.push(controls);
 
   // The big chart: the fleet over time, against the goal.
   const samples = scoped(scope), data = rows(samples);
