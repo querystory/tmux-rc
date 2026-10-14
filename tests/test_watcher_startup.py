@@ -336,16 +336,17 @@ def test_unread_screen_records_unknown_without_stopping_history(inventory, monke
     monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: frame[0])
     monkeypatch.setattr(W, "backing_off", lambda: False)
     monkeypatch.setattr(W, "classify", lambda pane, *args, **kwargs: {
-        "pane_id": pane.id, "activity": "idle", "tool": "claude", "parse_ok": False,
+        "pane_id": pane.id, "activity": "idle", "tool": "claude", "parse_ok": pane.id != "%0",
         "subagents": [{"name": "w", "state": "running"}], "agents": 2,
-    })
+    })  # only %0 goes unread
     for _ in range(W.PARSE_RETRIES + 2):
         w._tick()
     # The heartbeat keeps going, with the unread pane as unknown rather than its last card.
     assert w.history.record.call_count == W.PARSE_RETRIES + 2
-    recorded = w.history.record.call_args.args[0][0]
+    recorded, healthy = w.history.record.call_args.args[0]
     assert recorded["activity"] == "unknown"
     assert (recorded["subagents"], recorded["agents"]) == ([], 0)  # the old card's workers
+    assert (healthy["activity"], healthy["agents"]) == ("idle", 2)  # a read pane is as parsed
     assert w.states[0]["subagents"]  # the phone still shows the last card
     assert not w.pane_parse_valid("%0")
     # One pane's unread screen is that pane's, not a stalled watcher: the global
