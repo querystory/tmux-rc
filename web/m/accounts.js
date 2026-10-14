@@ -26,7 +26,7 @@ export const shellWords = (s) => {
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (q === "'") { if (c === "'") q = ""; else word += c; continue; }
-    if (c === "\\" && (!q || '"\\$`'.includes(s[i + 1]))) { if (i + 1 >= s.length) return null; word = (word ?? "") + s[++i]; continue; }
+    if (c === "\\" && (!q || '"\\'.includes(s[i + 1]))) { if (i + 1 >= s.length) return null; word = (word ?? "") + s[++i]; continue; }
     if (q === '"') { if (c === '"') q = ""; else word += c; continue; }
     if (/\s/.test(c)) { if (word !== null) out.push(word); word = null; continue; }
     word ??= "";
@@ -36,6 +36,7 @@ export const shellWords = (s) => {
   if (word !== null) out.push(word);
   return out;
 };
+const CALLBACK_MS = 40000; // past the server's two 15 s local GETs: a slow exchange still lands
 const setCmd = (p, v) => { cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
@@ -381,7 +382,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       if ("login" in d) return openLogin();
       if ("closeOthers" in d) { for (const o of F.window.others) await post("/api/accounts/login/close", o); F.window = null; return wait(); }
       if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); F.session ||= sessions()[0]; return openLogin(); }
-      if ("callback" in d) { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }); F.callback = ""; return wait(); }
+      if ("callback" in d) { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); F.callback = ""; return wait(); }
       if ("retry" in d) return go("login", { pane: null });
       if ("later" in d) return go("list");
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }
@@ -414,19 +415,22 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // The consent card: which account a chat action lands on.
     consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)}</small>` : ""; },
     profile: byDir, list: () => profiles, chip: (p) => badge(p),
-    // A Codex sign-in window's own card: the same paste field as the sheet's waiting step.
-    // Drawn once per pane, so a poll never wipes what is being typed.
-    paneCard: (pane, section) => {
-      const on = !!pane && /^sign in: /.test(pane.window_name || "") && pane.tool !== "claude";
-      section.hidden = !on;
-      if (!on || section.dataset.pane === pane.pane_id) return;
-      section.dataset.pane = pane.pane_id;
+    // A browser Codex sign-in window's own card (one this daemon opened, by the server's
+    // word): the same paste field as the sheet's waiting step. Drawn once per pane, so a
+    // poll never wipes what is being typed.
+    paneCard: async (pane, section) => {
+      if (!pane || !/^sign in: /.test(pane.window_name || "")) { section.hidden = true; delete section.dataset.pane; return; }
+      if (section.dataset.pane === pane.pane_id) return;
+      section.dataset.pane = pane.pane_id; section.hidden = true;
+      const w = await windowOf(`pane_id=${encodeURIComponent(pane.pane_id)}`);
+      if (!w?.codex || w.device || section.dataset.pane !== pane.pane_id) return;
+      section.hidden = false;
       section.innerHTML = "<h2>Finish sign-in</h2>" + pasteForm("pane-callback");
       const input = section.querySelector("input"), button = section.querySelector("button");
       input.oninput = () => { button.disabled = !input.value.trim(); };
       button.onclick = async () => {
         button.disabled = true;
-        try { await post("/api/accounts/login/callback", { pane_id: pane.pane_id, url: input.value }); input.value = ""; notice("Sent to the sign-in window.", 4000); }
+        try { await post("/api/accounts/login/callback", { pane_id: pane.pane_id, url: input.value }, CALLBACK_MS); input.value = ""; notice("Sent to the sign-in window.", 4000); }
         catch (error) { notice(error.detail || "That did not work. Try again.", 6000); }
         finally { button.disabled = !input.value.trim(); }
       };

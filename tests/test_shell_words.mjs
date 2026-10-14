@@ -9,7 +9,7 @@ test("the sign-in line splits into words as shlex.split does", () => {
     ['CODEX_HOME="~/.codex-work" codex login', ["CODEX_HOME=~/.codex-work", "codex", "login"]],
     ["codex login -c 'a=b c'", ["codex", "login", "-c", "a=b c"]],
     ["x'y z'w a\\ b", ["xy zw", "a b"]],
-    ['"a\\"b" "a\\b" \'a\\b\' ""', ['a"b', "a\\b", "a\\b", ""]],
+    ['"a\\"b" "a\\b" \'a\\b\' "" "\\$x"', ['a"b', "a\\b", "a\\b", "", "\\$x"]],
     ["  ", []],
   ]) assert.deepEqual(shellWords(line), words, line);
   for (const open of ["codex 'login", '"codex', "codex\\"]) assert.equal(shellWords(open), null, open);

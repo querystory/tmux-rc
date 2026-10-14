@@ -114,7 +114,8 @@ def _codex_login(config: Path) -> bool:
     at, seen = _CODEX_SEEN.get(config, (-10.0, False))
     if time.monotonic() - at < 3:
         return seen
-    _CODEX_SEEN[config] = (time.monotonic(), seen := _codex_status(config))
+    seen = _codex_status(config)
+    _CODEX_SEEN[config] = (time.monotonic(), seen)  # from when the answer came
     return seen
 
 
