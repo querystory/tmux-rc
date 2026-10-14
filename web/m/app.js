@@ -71,6 +71,7 @@ const LUCIDE = {
   pointer: '<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
   cursor: '<path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4v-1M7 2h1a4 4 0 0 1 4 4v1"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  layout: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
   panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
   dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
@@ -92,6 +93,15 @@ const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.sv
 const NO_TMUX = "tmux is not running on this host (it does not survive a reboot).";
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
+// The Layout menu's wireframes, in a 38×24 box: a terminal panel is dark, with a prompt and
+// output lines; an overview panel is tinted, with a title bar and lines of text.
+const strokes = (x, y, room, widths) => widths.filter((_, i) => 3 * i + 2 < room).map((w, i) => `M${x} ${y + 3 * i}h${w}`).join("");
+const box = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.5"/>`;
+const term = (x, y, w, h) => `<g class="term">${box(x, y, w, h)}<path class="prompt" d="M${x + 2.5} ${y + 2.5}l2 1.5-2 1.5M${x + 5.5} ${y + 5.5}h2.5"/><path d="${strokes(x + 2.5, y + 9, h - 9, [Math.min(w - 5, 12), Math.min(w - 5, 7)])}"/></g>`;
+const over = (x, y, w, h) => `<g class="over">${box(x, y, w, h)}${box(x, y, w, 3)}<path d="${strokes(x + 2.5, y + 6, h - 6, [w - 5, w - 9, w - 7])}"/></g>`;
+const svgThumb = (body) => `<svg viewBox="0 0 38 24" aria-hidden="true">${body}</svg>`;
+const LAYOUT_THUMBS = { auto: "✦", side: svgThumb(term(0, 0, 23, 24) + over(25, 0, 13, 24)),
+  stack: svgThumb(over(0, 0, 38, 9) + term(0, 11, 38, 13)), summary: svgThumb(over(0, 0, 38, 24)), terminal: svgThumb(term(0, 0, 38, 24)) };
 const WIDE = matchMedia("(min-width: 1100px)");
 // The wide Layout picker's choice, global across panes and reloads: a split, or the one tab
 // the focus layout shows. "focus" is what the Overview choice was saved as before the tab was.
@@ -737,14 +747,15 @@ function render() {
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
-  // The picker's trigger draws the layout on screen: Auto's pick, or the one tab a focus layout shows.
-  $("review-layout-picker").dataset.shown = reviewing() ? effectiveLayout() : view;
-  $("review-layout-picker").toggleAttribute("data-auto", reviewLayout === "auto");
-  // Each choice carries a line on what it shows; the wide picker also draws its wireframe.
+  // Each choice carries a line on what it shows and, wide, a wireframe of it (LAYOUT_THUMBS).
   const layouts = [["summary", "Overview", "The overview alone"], ["terminal", "Terminal", "The terminal alone"]];
   if (wide) layouts.unshift(["auto", "Auto", "Side by side or stacked, to fit"], ["side", "Side by side", "Terminal, overview to its right"], ["stack", "Overview above", "Overview over the terminal"]);
   const picker = $("review-layout");
-  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label, hint]) => Object.assign(new Option(label, value), { title: hint })));
+  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label, hint]) => {
+    const option = Object.assign(new Option(label, value), { title: hint });
+    option.dataset.thumb = LAYOUT_THUMBS[value];
+    return option;
+  }));
   picker.value = wide && !focusChoice() ? reviewLayout : view;
   refreshViewPicker();
   $("mobile-view-toggle").querySelectorAll("button").forEach(button => {
@@ -1689,6 +1700,8 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 dismissable($("pane-menu"));
 dismissable($("more-menu"));
 const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
+// The Layout picker's trigger: one fixed layout glyph; its value says which layout is on.
+$("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("layout", 18));
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
 $("kill-pane").onclick = async () => {
   closePaneMenu();

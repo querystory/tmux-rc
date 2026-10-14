@@ -18,7 +18,7 @@ export function headerPicker(select) {
   let signature;
   function refresh() {
     const options = Array.from(select.options);
-    const next = JSON.stringify(options.map(o => [o.value, o.textContent, o.title]));
+    const next = JSON.stringify(options.map(o => [o.value, o.textContent, o.title, o.dataset.thumb]));
     if (signature !== next) {
       signature = next;
       details.open = false;
@@ -31,6 +31,8 @@ export function headerPicker(select) {
         name.textContent = option.textContent;
         if (option.title) name.append(Object.assign(document.createElement('small'), { textContent: option.title }));
         label.append(input, name);
+        // And its data-thumb, markup drawn at the end of the row (a picture of the choice).
+        if (option.dataset.thumb) label.append(Object.assign(document.createElement('span'), { className: 'thumb', innerHTML: option.dataset.thumb }));
         return label;
       }));
     }
