@@ -250,11 +250,11 @@ def _read_omp_row(result: dict, visible: str) -> None:
 
 # Claude Code's agent list (under "● main") shows a workflow as fixed-format chrome, read
 # here rather than left to the model: " ○  docs-sweep  ▰▰▱▱  1/2 · 3m37s · ↓ 109.1k tokens".
-# Only rows in that list count (the "● main" line and the ○/● rows right under it), so a
+# Only rows in that list count (the "● main" line and the ○/◯/● rows right under it), so a
 # row quoted in the conversation is not mistaken for a live worker.
-_AGENT_LIST_RE = re.compile(r"^ *● +main *\n((?: *[○●] .*(?:\n|$))*)", re.MULTILINE)
+_AGENT_LIST_RE = re.compile(r"^ *● +main *\n((?: *[○◯●] .*(?:\n|$))*)", re.MULTILINE)
 _WORKFLOW_ROW_RE = re.compile(
-    r"^ *[○●] +(\S+) +[▰▱]+ +((\d+)/(\d+)) · (\S+) · ↓ ?([\d.]+\w?) tokens", re.MULTILINE)
+    r"^ *[○◯●] +(\S+) +[▰▱]+ +((\d+)/(\d+)) · (\S+) · ↓ ?([\d.]+\w?) tokens", re.MULTILINE)
 
 
 def _read_workflow_rows(result: dict, visible: str) -> None:
@@ -266,6 +266,7 @@ def _read_workflow_rows(result: dict, visible: str) -> None:
             for m in _WORKFLOW_ROW_RE.finditer(block)]
     if rows:
         subs, names = result.get("subagents"), {r["label"] for r in rows}
+
         def theirs(a):  # the model's read of a workflow row: its exact name, or the bar
             label = str(a.get("label")) if isinstance(a, dict) else ""
             return label in names or "▰" in label

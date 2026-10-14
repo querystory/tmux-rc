@@ -23,6 +23,7 @@ def test_shared_worker_model_accepts_every_observed_state():
 def test_subagents_include_pins_a_workflow_row():
     workflow = {"label": "docs-sweep", "state": "running", "progress": "1/2", "elapsed": "3m37s"}
     candidate = {"subagents": [{"label": "Fix chart", "state": "running"}, workflow, "junk"]}
+
     def include(**want):
         return score_structured(candidate, {"subagents_include": [want]})[0]
     assert include(label="docs-sweep", progress="1/2")
