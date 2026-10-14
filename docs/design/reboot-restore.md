@@ -260,9 +260,9 @@ agent was working, waiting on the user, or active in the last 24 hours; unchecke
 idle longer, or a shell with nothing running. Staleness is measured **from when the
 server died, not from now**: a machine powered off all weekend should still treat Friday
 afternoon's work as recent. For an agent pane, "active" means the transcript's last
-user or assistant message. That is a new agent-history field: its `last_active` moves with
-every transcript record, tool output and bookkeeping included, the same false recency
-again. Nor is it the checkpoint's activity clock: the clock moves with
+user or assistant message, a new agent-history field (`last_message`). The existing
+`last_active` is not it and stays as it is: it moves with every transcript record, tool
+output and bookkeeping included, the same false recency again. Nor is it the checkpoint's activity clock: the clock moves with
 anything on screen, and in the field it showed four-day-idle agents as active yesterday.
 The clock remains the measure for shells and for agents with no binding.
 
