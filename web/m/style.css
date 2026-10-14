@@ -427,6 +427,10 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 :is(#sb-head, #sb-nav, #sb-foot) .icon-button { width: 36px; height: 36px; min-height: 36px; border-radius: 8px; }
 #sb-nav #new-window { flex: 1; justify-content: flex-start; gap: 8px; padding: 0 10px; background: none; font-size: 14px; font-weight: 600; white-space: nowrap; }
 #sb-nav #new-window::after { content: "New window"; }
+/* Too narrow for the label beside all four icons (it needs ~275px of content box: a sidebar
+   dragged under ~300px, or the rail): just the +, still named by its aria-label and title. */
+#sb-nav { container: sb-nav / inline-size; }
+@container sb-nav (max-width: 280px) { #sb-nav #new-window { flex: none; padding: 0; justify-content: center; } #sb-nav #new-window::after { content: none; } }
 #dash-nav[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
 #sb-nav ~ .search { margin: 2px 12px 6px; flex: none; }
 #sb-nav ~ .search input { height: 36px; font-size: 14px; }
@@ -496,9 +500,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #app.rail #sessions { align-items: center; }
 #app.rail :is(#brand, .search, #empty, #divider) { display: none; }
 #app.rail #sb-head { padding: 0; justify-content: center; }
-#app.rail :is(#sb-nav, #sb-foot) { flex-direction: column; padding: 6px 0; }
-#app.rail #sb-nav #new-window { flex: none; padding: 0; justify-content: center; }
-#app.rail #sb-nav #new-window::after { content: none; }
+#app.rail :is(#sb-nav, #sb-foot) { flex-direction: column; align-self: stretch; padding: 6px 0; }
 #app.rail #sb-foot #connection { margin: 6px 0; font-size: 0; gap: 0; }
 #app.rail #side-list { width: 100%; display: grid; justify-items: center; align-content: start; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
 .sb-rail { position: relative; width: 40px; height: 40px; min-height: 40px; padding: 0; display: grid; place-items: center; border-radius: 10px; }
