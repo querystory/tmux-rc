@@ -615,8 +615,10 @@ async def _approved(
     card = {"type": "propose", "pane_id": pane_id if known else None,  # Open
             "warn": getattr(session, "caution", None)}
     well_formed = _keystrokes(fc, pane_id)[0] is not None
-    if known:  # what the card calls the pane until the page's own list has it
+    if known:  # what the card calls the pane until the page's own list has it, and the
+        # " · window N" that tells it from a same-named pane, which the page's tag lacks
         card["label"] = d.get("title") or d.get("label") or pane_id
+        card["window"] = pane.removeprefix(_pane_name(d))
     if fc.name == "resume_session":
         entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
             await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}

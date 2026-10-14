@@ -378,9 +378,16 @@ def test_a_card_draws_only_a_call_that_would_run(monkeypatch, name, args, drawn)
     ws, session = Tap(), _Session()
     session.request = "press escape"  # asked, where unasked keys are refused before a card
     fc = _FC(name=name, args={"pane_id": "%1", **args})
-    _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
+
+    class Twins(_Watcher):  # a same-named pane elsewhere: the drawn card says which window
+        def digest(self):
+            d = super().digest()
+            return [*d, {**d[0], "pane_id": "%9", "window_index": "7"}]
+
+    _run(L._handle_tool_call(ws, session, fc, Twins(), meter))
     for card in [m for m in ws.sent if m["type"] == "propose"] or [{}]:  # or refused first
         assert {k: card[k] for k in ("key", "payload", "enter") if k in card} == drawn
+        assert not card or card["window"] == " · window 3"
 
 
 @pytest.mark.parametrize("viewing", [True, False])
