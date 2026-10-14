@@ -52,7 +52,7 @@ function cell(w, nav, a, wide, detail, now) {
   const bar = `<i class="usage-bar"><i style="width:${projected}%" class="ahead"></i><i style="width:${used}%"></i>`
     + (pace ? `<i class="pace" style="left:${pace.toFixed(1)}%"></i>` : '') + '</i>';
   // The meter is the percentage, not the cell, whose arrows a meter's role would hide.
-  return `<div class="usage-cell ${level}" title="${esc(title)}">${label(a.provider, w.window)}<b role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${Math.round(w.pct)}%</b><em>used</em>${nav}`
+  return `<div class="usage-cell ${level}" title="${esc(title)}">${label(a.provider, w.window)}<b role="meter" aria-label="${esc([NAMES[a.provider], a.acct?.name ?? a.label, w.window].filter(Boolean).join(' '))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${Math.round(w.pct)}%</b><em>used</em>${nav}`
     + `${wide && w.resets_at ? spark(w, now) : bar}<div class="usage-foot"><div>${note}</div>${a.chip || ''}</div></div>`;
 }
 

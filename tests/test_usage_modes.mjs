@@ -58,3 +58,9 @@ test("a window not yet opened (no reset) is not drawn as an ended one", () => {
   renderUsage(el, [{ provider: "claude", windows: [{ window: "7d Fable", pct: 0, resets_at: null, samples: [] }] }], { wide: true, detail: true });
   assert.doesNotMatch(el.innerHTML, /ended|Invalid/);
 });
+
+test("each meter is named by its account and window", () => {
+  const el = {};
+  renderUsage(el, [{ provider: "claude", acct: { name: "Work" }, windows: [{ window: "5h", pct: 3, resets_at: null, samples: [] }] }]);
+  assert.match(el.innerHTML, /role="meter" aria-label="Claude Work 5h"/);
+});
