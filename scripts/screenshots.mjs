@@ -22,6 +22,14 @@ const WIDE = { width: 1440, height: 900 }, HD = { width: 1920, height: 1080 }, P
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
   ["hero", WIDE, "light", "#pane=%259"],
+  ["website-desktop", WIDE, "light", "#pane=%259"],
+  ["website-chat", WIDE, "light", "#pane=%259", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["website-chat-phone", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["website-voice", WIDE, "light", "#pane=%259", voice],
+  ["website-voice-phone", PHONE, "light", "", voice],
+  ["website-usage", WIDE, "light", "#pane=%259", undefined, "#usage"],
+  ["website-dashboard", WIDE, "light", "#view=dashboard"],
+  ["website-atlas", WIDE, "light", "#view=dashboard", (page) => page.locator(".atlas-map").scrollIntoViewIfNeeded()],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
@@ -257,6 +265,33 @@ function chat(ask, until) { // hoisted: SHOTS above calls it
   };
 }
 
+async function voice(page) {
+  await page.click("#live-mode");
+  await page.locator("#voice-models button").click();
+  await page.waitForFunction(() => document.getElementById("voice-status")?.textContent.startsWith("Listening /"));
+  await page.waitForSelector("#voice-log .voice-open button");
+}
+
+// Fictional speech and a follow-up about work the user just directed. The browser's
+// synthetic microphone stays active; no recording, provider, or real pane is involved.
+function stubVoice(socket) {
+  socket.send(JSON.stringify({ type: "status", status: "listening" }));
+  let spoken = false;
+  socket.onMessage((raw) => {
+    if (spoken || JSON.parse(raw).action !== "audio") return;
+    spoken = true;
+    for (const frame of [
+      { type: "transcript", role: "user", text: "Tell e2e triage to rerun the checkout test with tracing.", new_segment: true },
+      { type: "transcript", role: "model", text: "Sent. I'll keep an eye on that rerun.", new_segment: true },
+      { type: "typed", label: "e2e triage", pane_id: "%9", text: "Rerun the checkout test with tracing.", submitted: true },
+      { type: "turn_complete" },
+      { type: "transcript", role: "model", text: "The rerun reproduced the checkout failure. e2e triage is tracing the iframe timing now.", new_segment: true },
+      { type: "open_pane", pane_id: "%9", label: "e2e triage" },
+      { type: "turn_complete" },
+    ]) socket.send(JSON.stringify(frame));
+  });
+}
+
 // A canned Live Mode socket: a window named is offered with an Open button (open_pane), a
 // "tell" or a "Resume..." waits on a consent card, anything else gets the same summary.
 function stubChat(socket) {
@@ -317,7 +352,8 @@ try {
   // one shot came out with three text baselines (and an icon aligned to one) a pixel lower
   // than every other render of the same page. Unhinted metrics and grayscale antialiasing
   // leave nothing for that answer to change.
-  browser = await chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none"] });
+  browser = await chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none",
+    "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
   for (const [shots, base] of runs) for (const [name, viewport, colorScheme, hash, step, crop] of shots) {
     const context = await browser.newContext({ viewport, colorScheme, deviceScaleFactor: 2,
       reducedMotion: "reduce", locale: "en-US", timezoneId: "UTC", serviceWorkers: "block",
@@ -327,7 +363,23 @@ try {
     await context.clock.setSystemTime(now * 1000);
     context.setDefaultTimeout(10000);
     const page = await context.newPage();
-    await page.routeWebSocket(/\/api\/live-mode/, stubChat);
+    const speaking = name === "website-voice" || name === "website-voice-phone";
+    await page.routeWebSocket(/\/api\/live-mode/, speaking ? stubVoice : stubChat);
+    if (speaking) await page.route("**/api/version", async (route) => {
+      const response = await route.fetch(), data = await response.json();
+      data.live_models.push({ label: "Demo voice", hint: "Fictional conversation", text: false });
+      await route.fulfill({ response, json: data });
+    });
+    // The landing page shows a quieter fictional fleet so the compact session and
+    // sub-agent rows fit below one actionable card. Other shots keep all states. As in
+    // noTmux: no timeout on what may be a long poll, and a page gone under it is dropped.
+    if (name.startsWith("website-")) await page.route("**/api/state*", async (route) => {
+      try {
+        const response = await route.fetch({ timeout: 0 }), data = await response.json();
+        data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "api contract diff");
+        await route.fulfill({ response, json: data });
+      } catch { /* page gone */ }
+    });
     // Wait on the API rather than a selector, so a UI that renames its markup still gets
     // shot and the diff shows the change instead of the run failing.
     const state = page.waitForResponse((r) => r.url().includes("/api/state"));
@@ -350,6 +402,7 @@ try {
     // Never write a frame that did not settle: that is how nondeterminism slips in unseen.
     if (!last?.equals(shot)) throw new Error(`${name}: still changing after 10s`);
     writeFileSync(path.join(out, `${name}.png`), shot);
+    await page.unrouteAll({ behavior: "ignoreErrors" });
     await context.close();
     console.log(`shot ${name}`);
   }

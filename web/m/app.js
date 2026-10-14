@@ -862,7 +862,7 @@ function renderItems(el, values, agents = false) {
     node.firstChild.ariaLabel = done ? "done" : agents ? value.state || "running" : "to do";
     text(node.children[1], value.text || value.label);
     node.title = value.text || value.label || "";
-    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.elapsed, value.tokens ? `${value.tokens} tokens` : ""].filter(Boolean).join(" · ") : "");
+    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.progress && `workflow ${value.progress}`, value.elapsed, value.tokens ? `${value.tokens} tokens` : ""].filter(Boolean).join(" · ") : "");
   });
 }
 
@@ -1127,9 +1127,10 @@ async function sendKeys(body, answer = false, id = active) {
   } catch (error) {
     // 409 on a cursor walk's step: nothing was sent, and the walk rereads and goes again.
     if ("picker" in body && error.status === 409) delivered = STALE;
+    // 409 on a menu answer: the pane holds a different question now, and nothing was sent.
+    else if (body.question && error.status === 409) { notice("This question changed — check the pane"); startState(); }
     else notice("Delivery could not be confirmed. Check the terminal before retrying.");
-  }
-  finally { sending = false; render(); }
+  } finally { sending = false; render(); }
   return delivered;
 }
 
@@ -1146,7 +1147,12 @@ function answer(id, option, index) {
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
   if (current.question.answer_style === "cursor") { if (active !== id) navigate(id); pickCursorRow(cursorIO(id), option, index); }
-  else sendKeys(answerBody(current.question, option, index), true, id);
+  else {
+    const body = answerBody(current.question, option, index);
+    if (body) sendKeys(body, true, id);
+    // Open the pane first, as the cursor walk does, so the keyboard reaches the right one.
+    else { if (active !== id) navigate(id); notice("Use the keyboard for this option."); }
+  }
 }
 
 // This surface's half of the shared cursor walk. No send here sets `pendingAnswers`:
@@ -1179,24 +1185,36 @@ function cursorIO(id) {
 // Send a draft to pane `id`: the pane's own composer and a sidebar card's Reply both come
 // through here, so they share one endpoint and one confirmation. Resolves to delivered.
 // `value` is a Composer, or the password input, whose text goes as the one "secret" field.
+// The draft is cleared as it goes, not when the reply lands: typing straight after Enter
+// is the next message, and clearing on the reply erased it. A failed send puts the sent
+// draft back in front of whatever was typed since (a password only into an empty field).
 async function compose(id, value) {
-  const secret = value === $("secret");
+  const secret = value === $("secret"), sent = secret ? value.value : value.segments();
+  const form = new FormData();
+  if (secret) form.append("secret", sent);
+  else for (const segment of sent) {
+    if (segment.file) form.append("image", segment.file);
+    else form.append("text", segment.text);
+  }
+  if (secret) value.value = "";
+  else { value.replace([]); value.pendingEnter = false; }
   sending = true; notice(); render();
   try {
-    const form = new FormData();
-    if (secret) form.append("secret", value.value);
-    else for (const segment of value.segments()) {
-      if (segment.file) form.append("image", segment.file);
-      else form.append("text", segment.text);
-    }
     await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
-    if (secret) value.value = "";
-    else { value.replace([]); value.pendingEnter = false; }
-    if (active === id) text($("draft-status"), "Sent");
+    // Not over a next draft typed while this one went: that one is unsent.
+    if (active === id && !(secret ? value.value : draft(id).segments().length)) text($("draft-status"), "Sent");
     startState();
     return true;
-  } catch { notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); return false; }
-  finally { sending = false; render(); }
+  } catch {
+    if (secret) { if (active === id && !value.value) value.value = sent; } // the one field is the open pane's
+    else {
+      // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
+      // a sidebar Reply's draft into the pane's own composer and detaches the Reply.
+      const owner = renderSidebar.drafts.get(id) === value ? value : draft(id), typed = owner.segments();
+      owner.replace([...owner.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]);
+    }
+    notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); return false;
+  } finally { sending = false; render(); }
 }
 $("reply-form").onsubmit = (event) => {
   event.preventDefault();
@@ -1799,7 +1817,7 @@ $("move-pane").onclick = async () => {
     }
   };
   sheet(`Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
-    targets.map((p) => [accounts.chip(p), p.tilde, () => move(p)]));
+    targets.map((p) => [accounts.chip(p), p.sub, () => move(p)]));
   $("move-dialog").showModal();
 };
 window.addEventListener("hashchange", route);

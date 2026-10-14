@@ -31,6 +31,17 @@ the dir's `.claude.json`: the organisation name, with a personal plan's
 unlabelled accounts that would read the same (two people of one organisation) add the
 display name or the email's local part ("QSI · sam"), and the full email only if that
 clashes too.
+
+Names alone hide one failure: a `/login` run in a pane without `CLAUDE_CONFIG_DIR` signs
+the default dir in to whatever login was chosen, and a labelled dir keeps its label while
+holding the same login as another. Nothing then shows that two "accounts" are one, or that
+a login has vanished. So each profile also carries its login's email, shown as secondary
+text wherever an account is listed, and two dirs on one login (the same account and
+organisation ids) flag each other: the Accounts sheet warns on both rows, and the Move sheet keeps
+such a target listed but says the copy would stay on the same login and its limits. Hiding it instead would leave
+the user wondering where the account went. Neither the email nor the shown name is the key:
+one email in two organisations is two plans, and names are display values, so without an
+organisation id no match is claimed.
 The credentials file is never opened by this code: Codex keeps no non-secret identity
 file, so only the presence of its login file is checked. The old meter labels (the email's
 local part, or the full email on a clash) are gone: for one person with two plans they put
