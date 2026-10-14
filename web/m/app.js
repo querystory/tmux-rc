@@ -1706,7 +1706,7 @@ async function openLaunch(fresh, opener) {
       // tool; after the account it starts on, where it has several (accounts.picker).
       const desc = document.createElement("small");
       desc.innerHTML = `<span class="acct-on" hidden></span><span class="desc"></span>`;
-      desc.lastChild.textContent = /\((.+)\)/.exec(launcher.label)?.[1] || LAUNCH_DESC[launcher.icon] || "";
+      desc.lastChild.textContent = /\((.+)\)/.exec(launcher.label)?.[1] || LAUNCH_DESC[launcher.icon] || LAUNCH_DESC[launcher.provider] || "A configured launcher";
       label.append(name, desc);
       // A launcher whose command the daemon can't find stays VISIBLE — the user
       // configured it, so hiding it would only be a second mystery — but is disabled and
