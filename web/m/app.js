@@ -625,7 +625,8 @@ const paintUsage = () => {
   };
   show("usage-panel", board.length > 0);
   const el = $("usage-board");
-  paint(el, board, several && WIDE.matches, "usage-board", { wide: true }, () => { renderUsage(el, order(board), { wide: true }); accounts.strip(el, several); });
+  paint(el, board, several && WIDE.matches, "usage-board", { wide: true }, () => renderUsage(el, order(board), { wide: true }));
+  accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
   if (page !== "usage") return;
   if (!usagePast) refreshCached(true); // past windows: only this view asks for them
   // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.

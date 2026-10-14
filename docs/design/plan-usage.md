@@ -62,10 +62,13 @@ records, so nothing new is written; a reset that moves by an hour or less betwee
 the same window, since no two windows reset closer than five hours apart.
 
 Wide, the view groups the meters by account, as the card does: each account's charts sit
-side by side on one row under its name, and an account never splits across rows. A flat
-two-column grid interleaved them, one account's 7d Fable beside another's 5h. Groups wrap,
-two to a line when both fit, and grow by their chart count, so every chart on a line is the
-same width (260 to 480px). The phone keeps one column, each chart carrying its chip.
+side by side under its chip, and an account never splits across rows. A flat two-column grid
+interleaved them, one account's 7d Fable beside another's 5h. Every chart sits on one grid
+of equal columns (at least 260px). Each group spans its chart count and shares the grid's
+columns, so charts line up from row to row. A one-chart group such as Codex fills a gap
+beside another group. Groups that each sized their own row did not line up: a line with a
+three-chart and a one-chart group drew narrower charts than a line with one group. The
+phone keeps one column, each chart carrying its chip.
 
 The sidebar strip stays. It is the only place the limits show while a pane is open, and both
 draw from one renderer (`renderUsage`), so the panel is a size and a flag, not a copy.
