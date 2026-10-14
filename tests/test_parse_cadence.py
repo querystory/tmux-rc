@@ -341,15 +341,15 @@ def test_a_pane_never_read_stays_pending(monkeypatch):
     set it, or a still-unread card claims "No recent activity"."""
     frame = ["agent finished · done 10:28 PM"]
     w, _ = _harness(monkeypatch, frame)
-    oks = [False, True, False]
+    oks = [False, False, True, False]  # two failures: the second falls back on the first
     monkeypatch.setattr(W, "classify", lambda pane, text, **_kw: {
         "activity": "idle", "tool": "claude", "events": [], "parse_ok": oks.pop(0)})
     stamps = []
-    for _ in range(3):
+    for _ in range(4):
         w._forced_this_tick = {"%1"}
         stamps.append(w._tick_pane(_Pane()).get("parsed_at"))
-    assert stamps[0] is None, "the failed first read leaves the card pending"
-    assert stamps[1] and stamps[2], "once read, a later failure keeps it read"
+    assert stamps[:2] == [None, None], "failed first reads leave the card pending"
+    assert stamps[2] and stamps[3], "once read, a later failure keeps it read"
 
 
 def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch):

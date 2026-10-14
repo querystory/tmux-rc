@@ -1582,7 +1582,7 @@ class Watcher:
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)
-        read = state.pop("parse_ok", True)
+        state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 
         # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
@@ -1620,7 +1620,8 @@ class Watcher:
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
         # A pane never read successfully keeps no parsed_at: the phone shows it as pending.
-        if read or "parsed_at" in state:
+        # This attempt's own outcome (_parse_valid): a failure's fallback copies `previous`.
+        if self._parse_valid[pane.id] or "parsed_at" in state:
             state["parsed_at"] = now
         # The input generation and frame this question was read from, on the state itself
         # so they publish with it: input since (a menu answer above all) or a screen that
