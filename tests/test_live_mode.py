@@ -204,7 +204,7 @@ def test_typing_dispatches_and_logs(monkeypatch):
                for m in ws.sent)
     call, payload = session.responses[0]
     assert call.id == "call-1"  # the call (with its id) rides back to the provider
-    assert payload == {"status": "done", "pane": "work"}
+    assert payload == L._sent("work")
     # the tool result never carries screen content (echo-loop guard)
     assert "screen" not in str(payload)
 
@@ -327,7 +327,7 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
     assert session.responses[0][1] == (
-        {"status": "done", "pane": "work"} if ok
+        L._sent("work") if ok
         else {"status": "declined", "reason": "the user declined"})
     assert audits[-1]["consent"] == ("approved" if ok else "declined")
     assert audits[-1]["pane"] == "%1"  # recorded even when declined
@@ -748,7 +748,7 @@ def test_press_key_dispatches_named_key(monkeypatch):
     assert w.reparsed == ["%1"]
     assert any(m["type"] == "typed" and m["text"] == "[Escape]" and m["key"] == "Escape"
                for m in ws.sent)
-    assert session.responses[0][1] == {"status": "done", "pane": "work"}
+    assert session.responses[0][1] == L._sent("work")
     # The model sees readable names; tmux gets its canonical ones.
     fc = _FC(name="press_key", args={"pane_id": "%1", "key": "PageUp"})
     assert _dispatch(fc, monkeypatch)[3] == [("%1", "PPage", False, False)]
@@ -1013,15 +1013,19 @@ def test_run_session_reconnects_when_the_provider_stream_ends(monkeypatch):
     assert _statuses(ws).count("reconnecting") == 1
 
 
-def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
+@pytest.mark.parametrize(("code", "level"), [(1005, logging.INFO), (1012, logging.INFO),
+                                             (1006, logging.WARNING)])
+def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch, caplog, code, level):
     # A gone client (WebSocketDisconnect from receive_json) propagates out — there is
-    # nothing to reconnect to, so no second connect attempt is made.
+    # nothing to reconnect to, so no second connect attempt is made. A tab closing or
+    # sleeping (1005) or a restart (1012) is logged at INFO; an abnormal close still warns.
+    caplog.set_level(logging.INFO, logger=L.logger.name)
     monkeypatch.setattr(L, "_receiver", _park)
     monkeypatch.setattr(L, "_context_updater", _park)
     client = _FakeClient([_Connect(_Session())])
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
-    ws = _ScriptedWS([L.WebSocketDisconnect(code=1006)])
+    ws = _ScriptedWS([L.WebSocketDisconnect(code=code)])
     try:
         _run(L._run_session(ws, _Watcher(), L._Meter("s", "a", P._DEFAULT[0])))
         raised = False
@@ -1030,6 +1034,7 @@ def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
 
     assert raised  # the disconnect surfaces, not swallowed as a reconnectable drop
     assert client.attempts == 1
+    assert [r.levelno for r in caplog.records if "ended in error" in r.message] == [level]
 
 
 class _Detail:
@@ -1255,8 +1260,7 @@ def _forward(meter, ws, **args):
 
 def test_forwarding_an_image_waits_for_send_and_binds_to_the_pane(monkeypatch):
     meter, ws, events, audits = _forwarding(monkeypatch, ok=True)
-    assert _forward(meter, ws, image_number=1, caption="what is this?") == {
-        "status": "done", "pane": "work"}
+    assert _forward(meter, ws, image_number=1, caption="what is this?") == L._sent("work")
     card = ws.sent[0]
     assert card["text"] == 'Send image 1 to window 3 "work": what is this?'
     assert card["image"] == "data:image/png;base64,UE5H"  # the thumbnail the user approves
@@ -1290,7 +1294,7 @@ def test_forwarding_works_from_a_voice_session_too(monkeypatch):
     """A voice model that takes images can hand one on, without a card like its other
     actions, and audited like them."""
     meter, ws, events, audits = _forwarding(monkeypatch, ok=True, text=False)
-    assert _forward(meter, ws)["status"] == "done"
+    assert _forward(meter, ws)["status"] == "sent"
     assert len(events) == 1 and len(audits) == 1 and "consent" not in audits[0]
 
 

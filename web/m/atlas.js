@@ -499,7 +499,7 @@ export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
   count.append(el('b', '', String(now[0])), el('span', 'muted', ' running'));
   const board = el('button', 'fleet-chip');
   board.dataset.key = 'dashboard';
-  board.innerHTML = `${icon('layers', 14)}<span>Dashboard</span>`;
+  board.innerHTML = `${icon('gauge', 14)}<span>Dashboard</span>`;
   board.onclick = dashboard;
   strip.append(fold, count, averageText(data), goalControl(icon), ...(open
     ? [el('span', 'fleet-gap'), stateChip('Running', now[3]), stateChip('Needs you', now[1]), stateChip('Idle', now[2]),

@@ -66,7 +66,7 @@ test("sidebar finds accumulated PRs after the number disappears from visible tex
 
 test("all sessions for a PR remain searchable, including idle panes in All", () => {
   const other = { ...pane, pane_id: "%8", prs: [...pane.prs, { repo: "org/other", number: 42 }] };
-  assert.deepEqual([pane, other].filter((p) => matchesFilter(p, "all") && matchesSearch(p, "4955")), [pane, other]);
+  assert.deepEqual([pane, other].filter((p) => matchesFilter(p, []) && matchesSearch(p, "4955")), [pane, other]);
   assert.equal(matchesSearch(other, "other#42"), true);
   assert.equal(matchesSearch(pane, "other#42"), false);
 });

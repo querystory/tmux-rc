@@ -1,0 +1,14 @@
+{
+  "description": "Codex 0.162 with automatic approval review: its own reviewer weighs a command, and the live status row reads 'Reviewing approval request (17m 00s • esc to interrupt)' with the command under it, while the footer still says Working. No menu is drawn and nothing waits on the user; it resolves on its own a few seconds later. Read live as a user wait, it flipped the card to Needs you and pushed a notification for every reviewed command. The screen also carries a previous review's denial ('✗ Request denied for codex to run …', 'Automatic approval review rejected a PATCH') in the transcript: history, not an ask. Real capture, anonymised (paths, ids).",
+  "current_command": "node",
+  "processes": [
+    "bash",
+    "node /opt/nvm/versions/node/v24/bin/codex",
+    "codex"
+  ],
+  "capture": "• Ran python - <<'PY'\n  │ p='/tmp/import-study/seed.py';s=open(p).read().replace(\"method='POST'\",\"method='PATCH'\");open(p,'w').write(s)\n  └ (no output)\n\u001e[visible screen]\u001f\n• Running make pretty > /tmp/import-study/pretty.log 2>&1\n\n• Running python /tmp/import-study/seed.py > /tmp/import-study/seed.log 2>&1\n\n✗ Request denied for codex to run python /tmp/import-study/seed.py > /tmp/import-study/seed.log 2>&1\n\n• Ran python /tmp/import-study/seed.py > /tmp/import-study/seed.log 2>&1\n  └ (no output)\n\n• The preview copies are being created in a dedicated project. I hit a deployment-tooling check while resuming the import, and I'm verifying the copied record's ownership before retrying.\n\n  Automatic approval review rejected a PATCH because its hardcoded ID looked like an unrelated shared-preview record. It is the parent-query copy created by this import; I'll verify that against the API and scope\n  the retry to the dedicated project.\n\n• Running python - <<'PY'\n  │ from pathlib import Path\n  │ s=Path('/tmp/import-study/seed.py').read_text();prefix=s[:s.index('statepath=')];exec(prefix)\n  │ … +5 lines\n\nReviewing approval request (17m 00s • esc to interrupt)\n  └ /bin/bash -lc \"python - <<'PY'…\n\n\n› Ask Codex to do anything\n\n  0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b · gpt-6-astra medium · Context 25% left · Context 75% used · main · ~/src/app · weekly 88% left · Working · ← for agents                      ⚠ 1 warning · f2 to view",
+  "expected": {
+    "tool": "codex",
+    "activity": "running"
+  }
+}

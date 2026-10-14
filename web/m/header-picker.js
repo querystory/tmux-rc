@@ -61,6 +61,7 @@ export function dismissable(details) {
   details.addEventListener('keydown', event => {
     if (event.key === 'Escape') { details.open = false; summary.focus(); event.preventDefault(); }
   });
-  document.addEventListener('click', event => { if (!details.contains(event.target)) details.open = false; });
+  // The path as dispatched: a click that redraws its own button (a multi-select's) is still inside.
+  document.addEventListener('click', event => { if (!event.composedPath().includes(details)) details.open = false; });
   window.addEventListener('resize', () => { details.open = false; });
 }
