@@ -1218,7 +1218,7 @@ def account_login(body: SignInBody, request: Request):
     pid = tmux.pane_pid(pane_id) or ""
     _SIGN_IN.pop(pane_id, None)  # a recycled id goes last, as the newest window
     _SIGN_IN[pane_id] = {"pid": pid, "dir": profile["dir"], "codex": argv[:2] == ["codex", "login"],
-                         "device": "--device-auth" in argv}
+                         "device": "--device-auth" in argv, "session": body.session}
     return {**_opened(pane_id), "pid": pid}
 
 
@@ -1227,11 +1227,15 @@ def account_login(body: SignInBody, request: Request):
 _SIGN_IN: dict[str, dict] = {}
 
 
+def _alive(pane_id: str, entry: dict | None) -> bool:
+    """Whether this entry's own process still runs in that pane (tmux recycles pane ids)."""
+    return bool(entry and entry["pid"] and tmux.pane_pid(pane_id) == entry["pid"])
+
+
 def _sign_in(pane_id: str) -> dict | None:
-    """The sign-in window this daemon opened in that pane, while its process still runs
-    there (tmux recycles pane ids)."""
+    """The sign-in window this daemon opened in that pane, while it is still there."""
     entry = _SIGN_IN.get(pane_id)
-    return entry if entry and entry["pid"] and tmux.pane_pid(pane_id) == entry["pid"] else None
+    return entry if _alive(pane_id, entry) else None
 
 
 @app.get("/api/accounts/login/window")
@@ -1242,13 +1246,13 @@ def account_login_window(pane_id: str = "", dir: str = ""):  # noqa: A002 - the 
     want = canonical(dir) if dir else None
     windows = list(_SIGN_IN.items())  # a snapshot: other requests open and close them
     pane = next((p for p, e in reversed(windows)
-                 if (p == pane_id or e["dir"] == want) and _sign_in(p)), None)
+                 if (p == pane_id or e["dir"] == want) and _alive(p, e)), None)
     if pane is None:
         raise HTTPException(404, "no sign-in window open")
     entry = dict(windows)[pane]
     # Older windows on the same account: their links are stale, and a paste from one fails.
     others = [{"pane_id": p, "pid": e["pid"]} for p, e in windows
-              if p != pane and e["dir"] == entry["dir"] and _sign_in(p)]
+              if p != pane and e["dir"] == entry["dir"] and _alive(p, e)]
     return {"pane_id": pane, **entry, **accounts.sign_in_link(tmux.capture_pane(pane)),
             "others": others}
 
