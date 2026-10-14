@@ -1040,7 +1040,10 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 #acct-dialog .acct-seg button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); font-weight: 600; }
 #acct-dialog input.acct-cmd { width: 100%; font: 12.5px var(--mono); }
 .acct-paste { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-#acct-dialog .acct-paste input { flex: 1; min-width: 0; font: 12.5px var(--mono); }
+.acct-open { display: block; margin: 8px 0; padding: 12px; border-radius: 8px; background: var(--accent); color: var(--bg); font-weight: 600; text-align: center; text-decoration: none; }
+#acct-dialog code.acct-code { font-size: 16px; letter-spacing: 1px; }
+.acct-paste input, #acct-dialog .acct-paste input { flex: 1; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: 12.5px var(--mono); }
+#signin-section .acct-paste button { min-height: 40px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; }
 .acct-wait { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
 .acct-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); }
 @media (prefers-reduced-motion: no-preference) { .acct-spin { animation: acct-spin 1s linear infinite; } }

@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from . import plan_usage, tmux
 from .expunge import _FILES, Refused, Session, _home, _registration, _stat
@@ -131,17 +131,49 @@ def codex_callback(url: str) -> str | None:
     return f"{u.path}?{u.query}" if ok else None
 
 
-def replay_codex_callback(path: str) -> bool:
-    """GET a codex_callback path from the `codex login` listening on this machine, as the
-    browser would have; whether it took it. No redirect is followed."""
+def sign_in_link(screen: str) -> dict:
+    """The sign-in page a Codex login window shows (the last on screen, whole: tmux joins
+    wrapped lines), and the one-time code the device flow shows beside it; "" for each it
+    has not shown yet."""
+    urls = re.findall(r"https://auth\.openai\.com/[^\s\x00-\x1f]+", screen)
+    code = re.findall(r"\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b", screen)
+    return {"url": urls[-1] if urls else "", "code": code[-1] if code else ""}
+
+
+def oauth_state(url: str) -> str:
+    """The OAuth `state` an authorize link or a callback address carries ("" for none)."""
+    return parse_qs(urlsplit(url).query).get("state", [""])[0]
+
+
+def _get_local(path: str) -> tuple[int, str, str]:
+    """GET a path from the `codex login` listening here: status, body start, Location."""
     conn = http.client.HTTPConnection("127.0.0.1", CODEX_CALLBACK_PORT, timeout=15)
     try:
         conn.request("GET", path)
-        return conn.getresponse().status < 400
-    except OSError:
-        return False
+        reply = conn.getresponse()
+        text = reply.read(500).decode(errors="replace")
+        return reply.status, text, reply.getheader("Location") or ""
     finally:
         conn.close()
+
+
+def replay_codex_callback(path: str) -> tuple[int, str] | None:
+    """GET a codex_callback path from the `codex login` listening on this machine, as the
+    browser would have: its status and the start of its body, or None when nothing is
+    listening. Codex answers a good code with a redirect to its own success page, and only
+    exits once that page is loaded too, so a redirect to the same server (and only that) is
+    followed once; any other host is left alone."""
+    try:
+        status, text, location = _get_local(path)
+        u = urlsplit(location)
+        same = (not u.netloc or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
+                                 and u.port == CODEX_CALLBACK_PORT))
+        if 300 <= status < 400 and same and u.path.startswith("/") and not u.path.startswith("//"):
+            with contextlib.suppress(OSError):
+                _get_local(u.path + (f"?{u.query}" if u.query else ""))
+        return status, text
+    except OSError:
+        return None
 
 
 def profiles(pane_dirs=()) -> list[dict]:

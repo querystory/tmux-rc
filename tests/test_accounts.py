@@ -364,14 +364,16 @@ def test_only_codex_s_own_callback_is_replayed(url, ok):
 def test_a_pasted_callback_reaches_the_waiting_login(client, home, monkeypatch):
     import http.server
     import threading
-    got = []
+    got, replies, location = [], [(302, "")], ["http://example.com/"]
 
     class Login(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             got.append(self.path)
-            self.send_response(302)  # codex's success redirect: not followed
-            self.send_header("Location", "http://example.com/")
+            status, text = replies[-1] if self.path.startswith("/auth/") else (200, "Signed in")
+            self.send_response(status)
+            self.send_header("Location", location[0])
             self.end_headers()
+            self.wfile.write(text.encode())
 
         def log_message(self, *a):
             pass
@@ -379,19 +381,63 @@ def test_a_pasted_callback_reaches_the_waiting_login(client, home, monkeypatch):
     server = http.server.HTTPServer(("127.0.0.1", 0), Login)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setattr(accounts, "CODEX_CALLBACK_PORT", server.server_port)
-    monkeypatch.setattr(T, "pane_pid", lambda pane_id: "4242")
+    pids = {"%42": "4242"}
+    monkeypatch.setattr(T, "pane_pid", pids.get)
+    screen = ["https://auth.openai.com/oauth/authorize?response_type=code&state=s-2"]
+    monkeypatch.setattr(T, "capture_pane", lambda pane_id: screen[0])
     added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-x"}).json()
     client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
     url = CB.replace("1455", str(server.server_port))
     post = lambda **b: client.post("/api/accounts/login/callback",  # noqa: E731
-                                   json={"pane_id": "%42", "pid": "4242", "url": url, **b})
-    assert post(pid="1").status_code == 404  # only a sign-in window this daemon opened
+                                   json={"pane_id": "%42", "url": url, **b})
+    assert post(pane_id="%9").status_code == 404  # only a sign-in window this daemon opened
+    pids["%42"] = "1"
+    assert post().status_code == 404  # and only while its own process still runs there
+    pids["%42"] = "4242"
     assert post(url=url.replace("/auth/callback", "/x")).status_code == 400
+    older = post(url=url.replace("s-2", "s-1"))  # another window's link: caught here
+    assert older.status_code == 409 and "older sign-in link" in older.json()["detail"]
     assert got == []  # refused before anything was requested
     assert post().json() == {"ok": True} and got == ["/auth/callback?code=c-1&state=s-2"]
+    # A redirect to codex's own success page, on its own server, is loaded (codex exits
+    # only then); the one to example.com above was not.
+    location[0] = f"http://127.0.0.1:{server.server_port}/success?id=1"
+    got.clear()
+    assert post().json() == {"ok": True} and got == [CB[21:], "/success?id=1"]
+    location[0] = "/success"
+    got.clear()
+    assert post().json() == {"ok": True} and got == [CB[21:], "/success"]
+    screen[0] = ""  # the link scrolled away: codex's own answer says why
+    replies.append((400, "State mismatch"))
+    assert "older sign-in link" in post().json()["detail"]
+    replies.append((500, "Token exchange failed"))
+    assert "already used or expired" in post().json()["detail"]
     server.shutdown()
     server.server_close()
     assert post().status_code == 502  # nobody waiting any more
+
+
+def test_the_open_sign_in_window_shows_its_link(client, home, monkeypatch):
+    monkeypatch.setattr(T, "pane_pid", lambda pane_id: "4242")
+    screen = ["Starting local login server on http://localhost:1455."]
+    monkeypatch.setattr(T, "capture_pane", lambda pane_id: "\n".join(screen))
+    added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-x"}).json()
+    get = lambda q: client.get(f"/api/accounts/login/window?{q}")  # noqa: E731
+    assert get("dir=~/.codex-x").status_code == 404  # none opened yet
+    client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"],
+                "command": "CODEX_HOME=~/.codex-x codex login --device-auth"})
+    assert get("dir=~/.codex-x").json() == {"pane_id": "%42", "pid": "4242", "dir": added["dir"],
+                                            "codex": True, "device": True, "url": "", "code": "",
+                                            "others": []}
+    screen += ["1. Open this link", "   https://auth.openai.com/codex/device", "2. Enter",
+               "   AB12-CD34E"]
+    window = get("pane_id=%2542").json()
+    assert (window["url"], window["code"]) == ("https://auth.openai.com/codex/device", "AB12-CD34E")
+    assert get("dir=~/.codex-y").status_code == 404
+    monkeypatch.setattr(T, "_run", lambda argv, **_: "%43")  # a second window, same account
+    client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
+    newest = get("dir=~/.codex-x").json()
+    assert (newest["pane_id"], newest["others"]) == ("%43", [{"pane_id": "%42", "pid": "4242"}])
 
 
 def test_an_unfinished_sign_in_is_resumed_not_refused(home):

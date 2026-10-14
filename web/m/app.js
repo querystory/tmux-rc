@@ -796,6 +796,7 @@ function render() {
 }
 
 function renderRichContent(pane) {
+  accounts.paneCard(pane, $("signin-section"));
   const links = paneLinks(pane);
   show("link-section", !!links.length);
   reconcile($("links"), links, (link) => link.href, () => {
