@@ -32,6 +32,7 @@ def home(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(accounts, "_codex_login", lambda config: False)  # no real codex
     _signed_in(home / ".claude", "u-work", organizationName="Example Org",
                emailAddress="dev@example.com", organizationType="claude_team")
     _signed_in(home / ".claude-personal", "u-me", emailAddress="sam@example.net",
@@ -134,6 +135,12 @@ def test_an_added_dirs_provider_is_kept_whatever_its_name(home):
     (home / ".claude-work" / "auth.json").touch()
     work = _by_dir(home)["~/.claude-work"]
     assert (work["provider"], work["signed_in"]) == ("codex", True)
+
+
+def test_a_codex_login_in_the_keyring_is_signed_in(home, monkeypatch):
+    (home / ".codex-kr").mkdir()  # no auth.json: the login is where only codex can see it
+    monkeypatch.setattr(accounts, "_codex_login", lambda config: config.name == ".codex-kr")
+    assert _by_dir(home)["~/.codex-kr"]["signed_in"]
 
 
 def test_two_people_of_one_organisation_are_told_apart(home):
@@ -298,6 +305,25 @@ def test_the_session_default_and_the_sign_in_window(client, home):
         "env", f"CODEX_HOME={home}/.codex-work", "codex", "login", "--device-auth"]
     assert client.post("/api/accounts", json={"provider": "claude",
                                               "dir": "~/.claude-personal"}).status_code == 409
+
+
+@pytest.mark.parametrize("command,status,tail", [
+    ("codex login --device-auth -c 'a=b c'", 200,
+     ["codex", "login", "--device-auth", "-c", "a=b c"]),
+    ("  ", 200, ["codex", "login", "--device-auth"]),  # blank: the default
+    ("sh -c 'codex login'", 400, None),  # only the provider's own binary
+    ("/tmp/codex login", 400, None),
+    ("codex login; rm -rf ~", 200, ["codex", "login;", "rm", "-rf", "~"]),  # argv, no shell
+    ("codex 'login", 400, None),  # unbalanced quote
+])
+def test_an_edited_sign_in_runs_the_providers_binary_as_argv(client, home, command, status, tail):
+    added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-work"}).json()
+    r = client.post("/api/accounts/login",
+                    json={"session": "work", "dir": added["dir"], "command": command})
+    assert r.status_code == status
+    calls = [a for a in client.calls if a[0] == "new-window"]
+    assert [a[a.index("--") + 1:] for a in calls] == (
+        [["env", f"CODEX_HOME={home}/.codex-work", *tail]] if tail else [])
 
 
 def test_an_unfinished_sign_in_is_resumed_not_refused(home):

@@ -286,6 +286,10 @@ class AccountSessionBody(BaseModel):
     provider: Literal["claude", "codex"] | None = None  # with dir "": clear its default
 
 
+class SignInBody(AccountSessionBody):
+    command: str = ""  # the sign-in as edited in the sheet; empty: accounts.LOGIN
+
+
 class SignInWindowBody(BaseModel):
     pane_id: str
     pid: str
@@ -1384,11 +1388,20 @@ def _session_account(body: AccountSessionBody, request: Request, action: str) ->
 
 
 @app.post("/api/accounts/login")
-def account_login(body: AccountSessionBody, request: Request):
+def account_login(body: SignInBody, request: Request):
     """Open a window running the provider's own sign-in on this account's dir. The user
-    signs in there; the daemon never sees a password or a token."""
+    signs in there; the daemon never sees a password or a token. An edited command may
+    add flags, but runs as argv (no shell), starts with the provider's own binary, and
+    gets the dir's variable set here whatever it says."""
     profile = _session_account(body, request, "account_login")
-    argv = accounts.LOGIN[profile["provider"]]
+    default = accounts.LOGIN[profile["provider"]]
+    try:
+        argv = shlex.split(body.command) or default
+    except ValueError as e:
+        _refuse(request, "account_login", body.command[:120], 400, f"Cannot read that command: {e}")
+    if argv[0] != default[0]:
+        _refuse(request, "account_login", body.command[:120], 400,
+                f"The sign-in command must start with {default[0]}")
     if why := _unavailable(argv[0], tmux.server_path()):
         _refuse(request, "account_login", body.dir[:120], 400, why)
     pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
