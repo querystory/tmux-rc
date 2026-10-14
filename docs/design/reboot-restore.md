@@ -398,9 +398,11 @@ built session as a name collision and suffixing it), creates what is missing, an
 launches what is pending. If that server died too, its ids and launch outcomes describe
 objects that no longer exist: they are discarded, every selected pane returns to pending
 (the running check below still skips what is live), and the run continues against the
-current server under its new identity. The dead destination's own snapshot, a half-built
-copy of the same workspace, is marked consumed by that run in the same step, so it is
-never offered afterwards as a second restore.
+current server under its new identity. The dead destination's own snapshot is marked
+consumed by that run in the same step when everything in it carries the run's tag: a
+half-built copy of the same workspace, never to be offered as a second restore. One that
+also holds untagged sessions (a replacement server's own, or ones resumed by hand) stays a
+candidate, since only the run's part of it is rebuilt.
 The audit trail is not this record: it is telemetry, for reconstruction afterwards,
 not state an executor can resume from. And right before each launch the running check
 runs again, so a session resumed by hand meanwhile is skipped. That check and its lock
@@ -410,7 +412,8 @@ that takes a target pane: Live Mode passes a pane it just opened, restore passes
 one, which the primitive respawns with the launch command. One path, not two.
 
 **Audit.** Each launch writes the record Live Mode's resume writes (actor, harness, session id,
-directory, pane), and the restore writes one record of the selection.
+pane) minus the directory, which is private here (below) and which the session id leads
+back to; the restore writes one record of the selection, by id.
 
 ## Safety
 
