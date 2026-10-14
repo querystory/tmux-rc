@@ -313,7 +313,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const lineError = () => {
     const words = shellWords(lineOf()), v = ENV[F.provider];
     if (!words) return "A quote or a backslash is left open";
-    if (!words.length) return ""; // blank: the server runs the default
     const n = words.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w)), env = n < 0 ? words : words.slice(0, n);
     const p = byDir(F.dir), run = LOGIN[F.provider].split(" ");
     // ~ as the server expands it: the home the profile's own dir and ~-spelling share.
