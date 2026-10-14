@@ -1608,20 +1608,25 @@ class Watcher:
                 self._state_since_for(pane.id, state, now)  # re-keyed to the answered state,
                 self._state_since[pane.id] = state["state_since"] = at  # entered at the answer
             self._state[pane.id] = state
-        return self._confirmed(pane.id, previous, state, fp, captured)
+        return self._confirmed(pane.id, previous, state, captured)
 
-    def _confirmed(self, pane_id: str, previous: dict | None, state: dict, fp: str,
+    def _confirmed(self, pane_id: str, previous: dict | None, state: dict,
                    captured: float) -> dict:
         """The card for a parse: a NEW user wait only once a second capture still shows its
-        screen, else the agent at work. _state keeps the read, so the next tick confirms it on
-        an unchanged screen (the cached card) or on a parse that reads the same ask again."""
+        frame, else the agent at work on the clock it had. _state keeps the read, so the next
+        tick confirms it on an unchanged screen (the cached card) or a re-read of the same ask."""
         key, previous = self._pending_key(state), previous or {}
         if (key[0] != "waiting" or state.get("waiting_on") == "external"
                 or (key == self._pending_key(previous) and previous.get("waiting_on") == "user")):
             return state
         time.sleep(max(0.0, captured + CONFIRM_SECONDS - time.monotonic()))
-        if self.frame_fp(tmux.capture_pane(pane_id, mark_dim=True)) == fp:
+        recapture = tmux.capture_pane(pane_id, mark_dim=True)
+        if self.frame_fp(recapture, state.get("question")) == state["frame"]:
             return state
         held = dict(state)
         self._drop_question(held, {key[1:]})
+        if previous.get("state_since") is not None:  # the unread wait started no clock
+            self._state_key[pane_id] = self._pending_key(previous)
+            self._state_since[pane_id] = previous["state_since"]
+        held["state_since"] = self._state_since_for(pane_id, held, time.time())
         return held

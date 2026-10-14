@@ -1601,11 +1601,18 @@ def test_codex_reviewing_its_own_approval_is_working():
     assert result["waiting_on"] == "external"
 
 
-def test_codex_live_row_needs_its_timer():
-    # Transcript text ending "(esc to interrupt)" is not Codex's status row.
-    menu = _sample("06_codex_permission_box").replace(
-        "  1. Yes", "  Documentation example (esc to interrupt)\n  1. Yes")
+def test_codex_live_row_is_only_its_status_row():
+    # Text shaped like the row is not it: without a timer, in a transcript block, or quoted
+    # above more output instead of standing over the input row.
     ask = {"prompt": "Would you like to run the following command?", "answer_style": "menu"}
-    result = classify(_pane("node"), menu, _llm(
-        {"tool": "codex", "activity": "waiting", "question": ask}))
-    assert result["activity"] == "waiting" and result["question"]
+    menu = _sample("06_codex_permission_box")
+    for quote in ("Documentation example (esc to interrupt)",
+                  "Documentation example (2s • esc to interrupt)",
+                  "  └ Working (2s • esc to interrupt)"):
+        screen = menu.replace("  1. Yes", f"{quote}\n  1. Yes")
+        result = classify(_pane("node"), screen, _llm(
+            {"tool": "codex", "activity": "waiting", "question": ask}))
+        assert result["activity"] == "waiting" and result["question"], quote
+    done = "\x1e[visible screen]\x1f\n• Working (2s • esc to interrupt) is the row.\n• Done.\n\n› "
+    assert classify(_pane("node"), done, _llm({"tool": "codex", "activity": "idle"}))[
+        "activity"] == "idle"

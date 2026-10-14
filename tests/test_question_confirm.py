@@ -84,3 +84,19 @@ def test_a_wait_on_others_turning_into_a_user_wait_is_confirmed(monkeypatch):
     w = _harness(monkeypatch, ["a", "b", "c"], [external, user])
     _tick(w)
     assert _tick(w)["activity"] == "running"  # "b": its recapture moved on
+
+
+def test_a_rejected_flash_keeps_the_running_clock(monkeypatch):
+    w = _harness(monkeypatch, ["working", "approval flash", "working again"], [WORK, ASK, WORK])
+    since = _tick(w)["state_since"]
+    assert _tick(w)["state_since"] == since  # the held card
+    assert _tick(w)["state_since"] == since  # and the next parse of the work
+
+
+def test_a_new_menu_under_the_same_screen_is_not_the_one_read(monkeypatch):
+    # "sleep 10s" → "sleep 20s" normalizes alike; the question's own rows tell them apart.
+    menu = "Would you like to run the following command?\n\n  sleep {}\n\n  1. Yes\n  2. No"
+    ask = {**ASK, "question": {**ASK["question"], "answer_style": "menu", "options": ["Yes", "No"]}}
+    w = _harness(monkeypatch, ["working", menu.format("10s"), menu.format("20s")], [WORK, ask])
+    _tick(w)
+    assert _tick(w)["question"] is None
