@@ -37,7 +37,7 @@ const SHOTS = [
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
   ["wide-sessions", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
   ["mobile-open-loops", PHONE, "light", "#view=loops", showLoops],
-  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card .loop-count")],
+  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card .kpi")],
   ["mobile-sessions", PHONE, "dark", "#view=dashboard", reach(".atlas-multiples")],
   ["wide-activity", WIDE, "light", "#view=dashboard", reach(".atlas-pulse", true)],
   ["mobile-activity", PHONE, "dark", "#view=dashboard", reach(".atlas-pulse", true)],
@@ -179,7 +179,7 @@ async function noTmux(page) {
 // scrolls to the page's foot instead (Activity, which grows from its strip there).
 function reach(selector, end = false) {
   return async (page) => {
-    for (const node of ["#loops-card .loop-count", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
+    for (const node of ["#loops-card .kpi", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(500); // the panels above settle their height first
     await page.locator(selector).first().evaluate((el, end) => {
       const pane = document.getElementById("landing"); // scroll the dashboard, never the page

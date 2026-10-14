@@ -79,7 +79,7 @@ export function renderLoopsCard(card, report, openLane, licon, now = Date.now())
   card.hidden = !lanes;
   if (!lanes) return;
   const top = groups(lanes, "waiting").flatMap(g => g.items).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 3);
-  paint(card.querySelector(".loop-card-body"), `<div class="loop-counts">${Object.entries(LANES).map(([lane, title]) => `<button type="button" class="loop-count ${lane}" data-lane="${lane}" data-key="count ${lane}">`
+  paint(card.querySelector(".loop-card-body"), `<div class="kpis">${Object.entries(LANES).map(([lane, title]) => `<button type="button" class="kpi ${lane}" data-lane="${lane}" data-key="count ${lane}">`
       + `<b>${count(groups(lanes, lane))}</b><span>${title}</span></button>`).join("")}</div>`
     + (top.length ? `<h4>Waiting on you</h4>${top.map(i => row(i, licon, now, "top")).join("")}` : "")
     + `<p class="m loop-notes">${esc(notes(report, now))}</p>`, // stale, failed or cut short shows here

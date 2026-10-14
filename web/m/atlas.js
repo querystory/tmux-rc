@@ -155,7 +155,8 @@ function refreshHeat() {
 }
 const pad = h => String(h).padStart(2, '0');
 const shade = (v, low, top) => v < 0.05 ? 'var(--raised)' : `color-mix(in oklab, var(--chart-s1) ${Math.round(12 + 88 * Math.max(0, Math.min(1, (v - low) / (top - low))))}%, var(--surface))`;
-const fig = (value, label) => { const node = el('span', 'heat-fig'); node.append(el('b', '', value), el('span', 'muted', label)); return node; };
+const fig = (value, label, cls = 'heat-fig') => { const node = el('span', cls); node.append(el('b', '', value), el('span', 'muted', label)); return node; };
+const hourName = h => `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`;
 // The metric's population, as the activity chart's unit names it: every pane, shells too, plus agents.
 const heatUnit = () => fleet.metric === 'panes' ? 'pane-hours' : 'pane+agent hours';
 const heatWaiting = () => el('p', 'muted', heat === false ? 'History unavailable. Retrying automatically.' : 'Loading saved history…');
@@ -196,7 +197,7 @@ function heatGrid(data, days, compact) {
   const grid = el('div', compact ? 'heat-grid heat-compact' : 'heat-grid');
   grid.setAttribute('role', compact ? 'img' : 'group');
   grid.setAttribute('aria-label', heatLabel(data, compact));
-  grid.append(el('span'), ...Array.from({ length: 24 }, (_, h) => el('span', 'heat-hour', h % (compact ? 12 : 6) ? '' : `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`)),
+  grid.append(el('span'), ...Array.from({ length: 24 }, (_, h) => el('span', 'heat-hour', h % (compact ? 12 : 6) ? '' : hourName(h))),
     el('span', 'heat-hour heat-total', compact ? '' : 'Hours'));
   heatRows(grid, data, 0, days);
   return grid;
@@ -244,11 +245,31 @@ export function pageHead(title, icon, back) {
   return head;
 }
 
-// The Dashboard's heatmap card: the last week, compact.
+// The Dashboard's heatmap card: the last week, compact, its rows growing into the height the
+// cards beside it give the row, over the figures the grid only implies, in Open loops' tiles.
 function heatCard(scope, open) {
   const card = detailCard(el('section', 'atlas-heat-card'), 'Running by hour', `last 7 days · ${heatUnit()}`, open);
-  card.append(heat ? heatGrid(heatDays(scope), 7, true) : heatWaiting());
+  if (!heat) return card.append(heatWaiting()), card;
+  const data = heatDays(scope), w = heatWeek(data), figs = el('div', 'kpis heat-kpis'), n = v => Math.round(v).toLocaleString();
+  // A label short enough for one line in a tile, so the tiles never set the row's height; the detail is its tooltip.
+  const kpi = (value, label, title) => figs.append(Object.assign(fig(value, label, 'kpi'), { title })), pct = w.before && Math.round((w.now / w.before - 1) * 100);
+  kpi(hourName(w.peak), 'peak hour', `${w.peakAvg.toFixed(1)} running on average at ${hourName(w.peak)}, last 7 days`);
+  kpi(`${n(data.totals[w.busy] || 0)}h`, `busiest day${w.busy < 0 ? '' : `, ${dayName(data.all[w.busy][0])}`}`, 'the most hours run in a day, last 7 days');
+  kpi(w.avg.toFixed(1), 'running on average', 'running on average in any hour, last 7 days');
+  if (w.before) kpi(`${pct > 0 ? '+' : ''}${pct}%`, 'vs the week before', `${n(w.now)}h in the last 7 full days, ${n(w.before)}h in the 7 before`);
+  card.append(heatGrid(data, 7, true), figs);
   return card;
+}
+// The card's figures, over the last 7 days (today too): the hour of day with the most running
+// on average and that average (hours not recorded left out), the busiest day (its index), and
+// the average running in any recorded hour; then the 7 full days before today against the 7
+// before those (`before` null until history holds both).
+export function heatWeek({ all, value, totals }) {
+  const add = v => v.reduce((a, b) => a + b, 0), mean = v => v.length ? add(v) / v.length : 0;
+  const week = all.slice(0, 7).map(([, cells]) => cells), seven = totals.slice(0, 7), full = all[0]?.[0] === today() ? 1 : 0;
+  const hours = Array.from({ length: 24 }, (_, h) => mean(week.filter(c => c[h]).map(c => value(c[h])))), peak = hours.indexOf(Math.max(...hours));
+  return { peak, peakAvg: hours[peak], busy: seven.indexOf(Math.max(...seven)), avg: mean(week.flatMap(c => c.filter(Boolean).map(value))),
+    now: add(totals.slice(full, full + 7)), before: totals.length >= full + 14 ? add(totals.slice(full + 7, full + 14)) : null };
 }
 
 function heatFigs({ all, totals, most }) {
