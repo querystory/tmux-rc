@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+import time
 
 import pytest
 
@@ -341,7 +342,9 @@ def test_parse_failure_and_exhausted_retry_cache_leave_history_gap(inventory, mo
         w._tick()
     w.history.record.assert_not_called()
     assert not w.pane_parse_valid("%0")
-    assert w.is_stale()
+    # One pane's unread screen is that pane's, not a stalled watcher: the global
+    # "Stalled" status stays off while tmux keeps answering.
+    assert not w.is_stale()
     frame[0] = "successfully read screen"
     monkeypatch.setattr(W, "classify", lambda *args, **kwargs: {
         "activity": "idle", "tool": "claude",
@@ -377,3 +380,22 @@ def test_failed_loop_tick_reports_stale_even_with_recent_heartbeat(monkeypatch):
                 await task
 
     asyncio.run(scenario())
+
+
+def test_failed_pane_collection_reports_stale(inventory, monkeypatch):
+    w, _ = inventory
+
+    def broken(_pane):
+        raise RuntimeError("tmux gave nothing")
+
+    monkeypatch.setattr(w, "_tick_pane", broken)
+    w._tick()
+    assert w.is_stale()
+
+
+def test_slow_tick_still_beats_per_pane(inventory, monkeypatch):
+    w, _ = inventory
+    w._last_tick = time.time() - 60  # the previous tick ended long ago
+    monkeypatch.setattr(w, "_tick_pane", parsed)
+    w._tick()  # the heartbeat moves as each pane is read, not only when the tick ends
+    assert not w.is_stale()
