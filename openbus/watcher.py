@@ -1608,26 +1608,31 @@ class Watcher:
                 self._state_since_for(pane.id, state, now)  # re-keyed to the answered state,
                 self._state_since[pane.id] = state["state_since"] = at  # entered at the answer
             self._state[pane.id] = state
-        return self._confirmed(pane.id, previous, state, captured)
+        return self._confirmed(pane.id, state, captured)
 
-    def _confirmed(self, pane_id: str, previous: dict | None, state: dict,
-                   captured: float) -> dict:
-        """The card for a parse: a NEW user wait only once a second capture still shows its
-        frame, else the agent at work on the clock it had. _state keeps the read, so a parse
-        that reads the same ask again confirms it; a rejected one is never served from cache."""
-        key, previous = self._pending_key(state), previous or {}
+    def _confirmed(self, pane_id: str, state: dict, captured: float) -> dict:
+        """The card for a parse: a user wait the deck does not show yet only once a second
+        capture still shows its frame, else the agent at work on the clock the deck shows.
+        Until then the screen counts as unread (a failed recapture included), and a held ask
+        is cached as held, so neither the cache nor a failed parse can publish it."""
+        key = self._pending_key(state)
+        shown = next((s for s in self.states if s.get("pane_id") == pane_id), {})
         if (key[0] != "waiting" or state.get("waiting_on") == "external"
-                or (key == self._pending_key(previous) and previous.get("waiting_on") == "user")):
+                or (key == self._pending_key(shown) and shown.get("waiting_on") == "user")):
             return state
+        read = self._prev_fp.pop(pane_id, None)
         time.sleep(max(0.0, captured + CONFIRM_SECONDS - time.monotonic()))
         recapture = tmux.capture_pane(pane_id, mark_dim=True)
         if self.frame_fp(recapture, state.get("question")) == state["frame"]:
+            if read is not None:
+                self._prev_fp[pane_id] = read
             return state
         held = dict(state)
         self._drop_question(held, {key[1:]})
-        self._prev_fp.pop(pane_id, None)  # read the next screen afresh, whatever it hashes to
-        if previous.get("state_since") is not None:  # the unread wait started no clock
-            self._state_key[pane_id] = self._pending_key(previous)
-            self._state_since[pane_id] = previous["state_since"]
+        if shown.get("state_since") is not None:  # the unread wait started no clock
+            self._state_key[pane_id] = self._pending_key(shown)
+            self._state_since[pane_id] = shown["state_since"]
         held["state_since"] = self._state_since_for(pane_id, held, time.time())
+        with self._publish_lock:
+            self._state[pane_id] = held
         return held
