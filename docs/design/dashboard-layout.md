@@ -22,10 +22,12 @@ the page).
   Open loops), so a fixed-height week of rows left the heatmap card half empty. The rows now
   grow into whatever height the row leaves, without ever setting it, and four figures sit
   under them that the grid only implies: the peak hour, the busiest day, the average running
-  at any hour, and the last 7 full days against the 7 before (the only week-over-week number
-  on the dashboard). They use Open loops' own KPI tiles, one style for every figure on the
-  page, with one-line labels so a tile never makes the row taller; each tile's tooltip
-  holds the detail. Chosen over showing more weeks (denser rows whose count changes with
+  at any hour, and the change in average running over the last 7 full days against the 7
+  before (the only week-over-week number on the dashboard). Every figure averages over the
+  time actually recorded, so a sleeping laptop or history that starts mid-week reads as
+  missing, not as idle. They use Open loops' own KPI tiles, one style for every figure on
+  the page, with one-line labels so a tile never makes the row taller; the detail behind a
+  figure is in the full heatmap, not in a hover-only tooltip a phone cannot reach. Chosen over showing more weeks (denser rows whose count changes with
   the window), an hour-of-day profile (a second chart form in one card) and a full-width
   strip (a taller page), from the "use the space" mock.
 - **One card per session** (from option C), with its 7-day trend, its pane icons and an

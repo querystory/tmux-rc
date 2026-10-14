@@ -186,7 +186,7 @@ function heatDays(scope) {
   const low = values[Math.floor(values.length * 0.03)] || 0, top = Math.max(low + 1, values[Math.floor(values.length * 0.97)] || 0);
   const totals = all.map(([, cells]) => cells.reduce((t, c) => t + (c ? value(c) : 0), 0));
   // Meters share the latest fortnight's longest day, so older pages never rescale the rows above.
-  return { all, value, low, top, totals, first: heat.first, most: totals.reduce((m, t) => Math.max(m, t), 0), meter: Math.max(1, ...totals.slice(0, 15)) };
+  return { all, value, low, top, totals, most: totals.reduce((m, t) => Math.max(m, t), 0), meter: Math.max(1, ...totals.slice(0, 15)) };
 }
 const today = () => new Date().setHours(0, 0, 0, 0);
 // A month's first day names its month, so a long scroll back stays anchored.
@@ -251,27 +251,29 @@ export function pageHead(title, icon, back) {
 function heatCard(scope, open) {
   const card = detailCard(el('section', 'atlas-heat-card'), 'Running by hour', `last 7 days · ${heatUnit()}`, open);
   if (!heat) return card.append(heatWaiting()), card;
-  const data = heatDays(scope), w = heatWeek(data), figs = el('div', 'kpis heat-kpis'), n = v => Math.round(v).toLocaleString();
-  // A label short enough for one line in a tile, so the tiles never set the row's height; the detail is its tooltip.
-  const kpi = (value, label, title) => figs.append(Object.assign(fig(value, label, 'kpi'), { title })), pct = w.before && Math.round((w.now / w.before - 1) * 100);
-  kpi(hourName(w.peak), 'peak hour', `${w.peakAvg.toFixed(1)} running on average at ${hourName(w.peak)}, last 7 days`);
-  kpi(`${n(data.totals[w.busy] || 0)}h`, `busiest day${w.busy < 0 ? '' : `, ${dayName(data.all[w.busy][0])}`}`, 'the most hours run in a day, last 7 days');
-  kpi(w.avg.toFixed(1), 'running on average', 'running on average in any hour, last 7 days');
-  if (w.before) kpi(`${pct > 0 ? '+' : ''}${pct}%`, 'vs the week before', `${n(w.now)}h in the last 7 full days, ${n(w.before)}h in the 7 before`);
+  // Labels short enough for one line in a tile, so the tiles never set the row's height.
+  const data = heatDays(scope), w = heatWeek(data), figs = el('div', 'kpis heat-kpis'), kpi = (value, label) => figs.append(fig(value, label, 'kpi'));
+  const pct = w.change === null ? null : Math.round(w.change * 100);
+  kpi(w.peak < 0 ? '–' : hourName(w.peak), 'peak hour');
+  kpi(`${Math.round(data.totals[w.busy] || 0)}h`, `busiest day${w.busy < 0 ? '' : `, ${dayName(data.all[w.busy][0])}`}`);
+  kpi(w.avg === null ? '–' : w.avg.toFixed(1), 'running on average');
+  if (pct !== null) kpi(`${pct > 0 ? '+' : ''}${pct}%`, 'vs the week before');
   card.append(heatGrid(data, 7, true), figs);
   return card;
 }
 // The card's figures, over the last 7 days (today too): the hour of day with the most running
-// on average and that average, the busiest day (its index), and the average running in any
-// hour, each average over the time recorded (gaps and part-recorded hours weigh only what was
-// seen); then the 7 full days before today against the 7 before those (`before` null until
-// history, which starts at `first`, holds both whole).
-export function heatWeek({ all, totals, first }) {
-  const add = v => v.reduce((a, b) => a + b, 0), avg = cells => add(cells.map(c => c.sum)) / add(cells.map(c => c.seen)) || 0;
-  const week = all.slice(0, 7).map(([, cells]) => cells), seven = totals.slice(0, 7), full = all[0]?.[0] === today() ? 1 : 0;
-  const hours = Array.from({ length: 24 }, (_, h) => avg(week.map(c => c[h]).filter(Boolean))), peak = hours.indexOf(Math.max(...hours));
-  return { peak, peakAvg: hours[peak], busy: seven.indexOf(Math.max(...seven)), avg: avg(week.flatMap(c => c.filter(Boolean))),
-    now: add(totals.slice(full, full + 7)), before: all[full + 13]?.[0] >= first ? add(totals.slice(full + 7, full + 14)) : null };
+// on average (-1 if none was recorded), the busiest day (its index), and the average running
+// in any hour; then the change in average running over the 7 full days before today against
+// the 7 before those (null until both hold a recording). Each average is over the time
+// recorded (null if none), so gaps, part-recorded hours and history starting mid-week weigh
+// only what was seen, never as idle.
+export function heatWeek({ all, totals }) {
+  const add = v => v.reduce((a, b) => a + b, 0), seen = (days, h) => days.flatMap(c => (h === undefined ? c : [c[h]]).filter(Boolean));
+  const avg = cells => { const t = add(cells.map(c => c.seen)); return t ? add(cells.map(c => c.sum)) / t : null; };
+  const days = all.map(([, cells]) => cells), week = days.slice(0, 7), seven = totals.slice(0, 7), full = all[0]?.[0] === today() ? 1 : 0;
+  const hours = Array.from({ length: 24 }, (_, h) => avg(seen(week, h))), peak = hours.reduce((p, v, h) => v !== null && (p < 0 || v > hours[p]) ? h : p, -1);
+  const now = avg(seen(days.slice(full, full + 7))), before = avg(seen(days.slice(full + 7, full + 14)));
+  return { peak, busy: seven.indexOf(Math.max(...seven)), avg: avg(seen(week)), change: now === null || !before ? null : now / before - 1 };
 }
 
 function heatFigs({ all, totals, most }) {
