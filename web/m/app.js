@@ -1658,10 +1658,11 @@ $("launch-dir").oninput = () => { $("launch-name").placeholder = sessionName($("
 document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => openLaunch(true, b); }); // docked beside the sidebar too
 $("new-window").onclick = () => openLaunch(false, $("new-window"));
 const LAST_DIR = "tmuxrc-last-dir";
-let launchPick = null; // the account picker (accounts.js), with several accounts
+let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
 const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
 async function openLaunch(fresh, opener) {
   launchPick?.remove(); launchPick = null;
+  const load = ++launchLoad; // a second open, or a close, while this one loads makes it stale
   if (opener) openBeside($("launch-dialog"), opener); else $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
   const sessions = [...new Set(panes.map((p) => p.session).filter(Boolean))];
   $("launch-session").replaceChildren(...sessions.map((s) => new Option(s, s)), new Option("New session…", ""));
@@ -1674,6 +1675,7 @@ async function openLaunch(fresh, opener) {
   try {
     // The accounts too: the picker below draws from them, and on a first load they may not be in yet.
     const [data] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
+    if (load !== launchLoad || !$("launch-dialog").open) return;
     text($("launch-error"), "");
     $("launch-choices").replaceChildren(...data.launchers.map((launcher) => {
       const button = document.createElement("button");
@@ -1702,7 +1704,7 @@ async function openLaunch(fresh, opener) {
       return button;
     }));
     launchPick = accounts.picker($("launch-choices"), $("launch-session"));
-  } catch { text($("launch-error"), "Could not load launchers. Close and try again."); }
+  } catch { if (load === launchLoad) text($("launch-error"), "Could not load launchers. Close and try again."); }
 }
 $("close-launch").onclick = () => $("launch-dialog").close();
 let launching = false, launched = null;
