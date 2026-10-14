@@ -916,22 +916,30 @@ _QUOTE = r"[\"“]([^\"”\n]{1,60})[\"”]"
 _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
     rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
     rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!```[ \t]*$)\S)"
-    rf"|(?<!\bnot )(?<!n't )(?<!\bnever )\bsay[ \t]+{_QUOTE}"
+    rf"|\bsay[ \t]+{_QUOTE}"
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
+
+
+def _plain(text: str) -> str:
+    """Text as the screen draws it, near enough to compare: no Markdown marks, one space."""
+    return " ".join(re.sub(r"[`*]", "", text).split())
 
 
 def _offers(message: str, reply: str | None) -> list[str]:
     """The replies the final message offers, as tap-to-send buttons. The transcript's copy
     comes first (inline code keeps its backticks there, and long rows are not wrapped), but
-    only what the screen shows too, whole and bounded (a stale `merge 41` is not the `merge
-    415` on screen), each space a space or the screen's wrap, so `a  b` is not `a b`: a stale
-    transcript offers nothing. A message with the user's own row in it (a new turn that
-    failed before any reply) offers nothing, and file content behind a gutter is no offer."""
+    only when it is the message on screen, word for word, so its context (a "do not" before
+    a say) is the screen's too. Each offer must show on screen whole and bounded (a `merge
+    41` is not the `merge 415` on screen), each space a space or the screen's wrap, so `a
+    b` is not `a  b`. A message with the user's own row in it (a new turn that failed before
+    any reply) offers nothing, and file content behind a gutter is no offer."""
     if _USER_ROW_RE.search(message):
         return []
     message = "\n".join(r for r in message.splitlines() if not _NOT_ASKING_ROW_RE.match(r))
+    texts = (reply, message) if reply and _plain(reply) in _plain(message) else (message,)
     found = (m[m.lastindex]  # the payload: each alternative's last group
-             for t in (reply or "", message) for m in _OFFER_RE.finditer(t))
+             for t in texts for m in _OFFER_RE.finditer(t)
+             if not re.search(r"(?:\bnot|n't|\bnever)\s*$", t[:m.start()], re.IGNORECASE))
     return list(dict.fromkeys(o for o in found if re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
         + r"(?![^\s\"”`.,;:?!)])", message)))[:3]
