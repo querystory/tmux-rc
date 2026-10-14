@@ -61,20 +61,22 @@
   </script>
   <link rel="stylesheet" href="/m/style.css">
   <link rel="stylesheet" href="/live-chat.css">
-  <link rel="modulepreload" href="/terminal.js">
-  <link rel="modulepreload" href="/m/live.js">
-  <link rel="modulepreload" href="/live-close.js">
-  <link rel="modulepreload" href="/live-chat.js">
-  <link rel="modulepreload" href="/m/composer.js">
-  <link rel="modulepreload" href="/m/pane-model.js">
-  <link rel="modulepreload" href="/m/url-state.js">
-  <link rel="modulepreload" href="/m/overscroll.js">
-  <link rel="modulepreload" href="/m/keys.js">
-  <link rel="modulepreload" href="/m/sidebar.js">
-  <link rel="modulepreload" href="/m/usage.js">
-  <link rel="modulepreload" href="/m/accounts.js">
-  <link rel="modulepreload" href="/m/loops.js">
-  <link rel="modulepreload" href="/cursor-pick.js">
+  <!-- /v/0/ is the server's asset version: see mobile_ui in openbus/server.py -->
+  <script type="importmap">{ "imports": { "/": "/v/0/", "/v/": "/v/" } }</script>
+  <link rel="modulepreload" href="/v/0/terminal.js">
+  <link rel="modulepreload" href="/v/0/m/live.js">
+  <link rel="modulepreload" href="/v/0/live-close.js">
+  <link rel="modulepreload" href="/v/0/live-chat.js">
+  <link rel="modulepreload" href="/v/0/m/composer.js">
+  <link rel="modulepreload" href="/v/0/m/pane-model.js">
+  <link rel="modulepreload" href="/v/0/m/url-state.js">
+  <link rel="modulepreload" href="/v/0/m/overscroll.js">
+  <link rel="modulepreload" href="/v/0/m/keys.js">
+  <link rel="modulepreload" href="/v/0/m/sidebar.js">
+  <link rel="modulepreload" href="/v/0/m/usage.js">
+  <link rel="modulepreload" href="/v/0/m/accounts.js">
+  <link rel="modulepreload" href="/v/0/m/loops.js">
+  <link rel="modulepreload" href="/v/0/cursor-pick.js">
 </head>
 <body>
   <div id="app">
@@ -194,6 +196,6 @@
     </dialog>
   </div>
   <div id="booting" role="status"><p>Loading…</p><p>tmux-rc couldn't start.</p><button type="button" class="primary" onclick="location.reload()">Reload</button></div>
-  <script type="module" src="/m/app.js"></script>
+  <script type="module" src="/v/0/m/app.js"></script>
 </body>
 </html>

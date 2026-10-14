@@ -138,7 +138,7 @@ function addFlow(until) {
 // from before accounts, or before the item, is shot as it is.
 function moveMenu(item, done) {
   return async (page) => {
-    if (!await page.locator('link[href="/m/accounts.js"]').count() || (item && !await page.locator(item).count())) return;
+    if (!await page.locator('link[href$="/m/accounts.js"]').count() || (item && !await page.locator(item).count())) return;
     await page.locator("#pane-location .acct-badge").waitFor();
     await page.click("#pane-menu-button");
     if (item) { await page.click(item); await page.waitForSelector("#move-dialog[open]"); }
@@ -150,7 +150,7 @@ function moveMenu(item, done) {
 // (no accounts.js preload) is shot as it is; on any other, a missing badge fails the shot.
 function two(step) {
   return async (page) => {
-    if (!await page.locator('link[href="/m/accounts.js"]').count()) return;
+    if (!await page.locator('link[href$="/m/accounts.js"]').count()) return;
     // Attached, not visible: a phone's dashboard has its badged rows hidden.
     await page.locator(".acct-badge").first().waitFor({ state: "attached" })
       .catch((e) => { throw Object.assign(new Error(`no account badge: ${e.message}`), { loud: true }); });

@@ -11,7 +11,7 @@ from openbus import server
 app = server.app
 
 
-@pytest.mark.parametrize("path", ["/m", "/m/"])
+@pytest.mark.parametrize("path", ["/m", "/m/", "/m/index.html"])
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
 def test_mobile_entrypoint(path, method):
     client = TestClient(app)
@@ -20,7 +20,10 @@ def test_mobile_entrypoint(path, method):
     assert response.headers["content-type"].startswith("text/html")
     assert "attachment" not in response.headers.get("content-disposition", "")
     if method == "GET":
-        assert 'src="/m/app.js"' in response.text
+        version = client.get("/api/version").json()["version"]
+        assert f'src="/v/{version}/m/app.js"' in response.text
+        assert "/v/0/" not in response.text
+        assert client.get(f"/v/{version}/m/sidebar.js").text == client.get("/m/sidebar.js").text
         assert 'href="/m/style.css"' in response.text
     assert "no-store" in response.headers["cache-control"]
 
