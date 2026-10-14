@@ -569,6 +569,11 @@ _SERVER_ENV = re.compile(r"HOME|USER|LOGNAME|SHELL|LANG|LC_\w+|TZ|PATH|XDG_\w+"
                          r"|DBUS_SESSION_BUS_ADDRESS|SSH_AUTH_SOCK|TMUX|TMUX_TMPDIR")
 
 
+def safe_env() -> dict[str, str]:
+    """The daemon's environment cut to what a tmux session may see (_SERVER_ENV)."""
+    return {k: v for k, v in os.environ.items() if _SERVER_ENV.fullmatch(k)}
+
+
 def server_env() -> dict[str, str]:
     """The environment new_session hands tmux — see _SERVER_ENV — with PATH taken from
     the user's LOGIN shell. The daemon's unit PATH is deliberately minimal, and a launcher
@@ -577,7 +582,7 @@ def server_env() -> dict[str, str]:
     reboot, though it runs fine in one the user starts by hand. `exec env` rather than
     echoing $PATH, which fish would space-join; the LAST PATH= line wins, past anything
     the profile prints. If the shell fails, the scrubbed PATH stands."""
-    env = {k: v for k, v in os.environ.items() if _SERVER_ENV.fullmatch(k)}
+    env = safe_env()
     venv = os.environ.get("VIRTUAL_ENV")
     if venv:
         dirs = env.get("PATH", "").split(os.pathsep)
