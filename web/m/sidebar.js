@@ -191,6 +191,7 @@ export function setupSidebar(ctx) {
     node._p = p;
     markEnding(node, p);
     node.classList.toggle("need", ctx.asks(p));
+    node.classList.toggle("outside", ctx.outside(p)); // needs you, shown though the filter leaves it out
     // On the card for its styling and on its button, which is what assistive tech lands on.
     for (const el of [node, node.firstChild]) {
       if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
@@ -265,6 +266,7 @@ export function setupSidebar(ctx) {
       b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
       b.classList.toggle("need", ctx.asks(p));
       b.dataset.state = ctx.asks(p) ? "need" : isRunning(p) ? "run" : "";
+      b.classList.toggle("outside", ctx.outside(p));
       if (p.pane_id === ctx.active()) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       markWorking(b.querySelector("img"), p, ctx.logos);
       ctx.html(b.lastChild, ctx.badge(p.pane_id));

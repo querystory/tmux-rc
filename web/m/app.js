@@ -94,7 +94,8 @@ const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", opencode: "/opencode.svg", omp: "/omp.svg", shell: "/bash.png" };
 const NO_TMUX = "tmux is not running on this host (it does not survive a reboot).";
-const EMPTY_MESSAGE = { all: "No tmux panes are open.", several: "No panes match the filters.", attention: "Nothing needs your attention.", working: "No panes are working.", finished: "Nothing just finished.", idle: "No idle panes." };
+// What an empty list says was filtered: "No Personal panes are working."
+const STATE_VERB = { attention: "need you", working: "are working", finished: "just finished", idle: "are idle" };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
 const WIDE = matchMedia("(min-width: 1100px)");
 // The wide Layout picker's choice, global across panes and reloads: a split, or the one tab
@@ -128,6 +129,10 @@ let focusPushComposer = false;
 // list, not what a link should show. A phone's Settings and the wide filter menu share it.
 let sort = "updated";
 try { if (localStorage.getItem("tmuxrc-sort") === "session") sort = "session"; } catch {}
+// Whether panes that need you show outside the filters (renderList): per browser, on by default.
+let pinNeeds = true, outside = new Set();
+try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
+const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let streamedLayout = null;
@@ -353,20 +358,25 @@ function updateRow(button, pane) {
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose,
-  setFilter: (value) => { filter = value; stayPut(); }, clearAll: clearFilters, sort: () => sort, setSort, repaint: () => renderList() });
+  setFilter: (value) => { filter = value; stayPut(); }, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
-  if (query) return "No matching panes.";
-  if (!tmuxRunning) return NO_TMUX;
-  return EMPTY_MESSAGE[filter.length > 1 ? "several" : filter[0] || "all"];
+  const accts = accounts.on(), q = $("search").value.trim(), verb = filter.map((f) => STATE_VERB[f]).join(" or ");
+  if (!filter.length && !accts.length && !q) return tmuxRunning ? "No tmux panes are open." : NO_TMUX;
+  const what = `${accts.length ? `${accts.join(" or ")} ` : ""}panes`;
+  return q ? `No ${what}${verb ? ` that ${verb}` : ""} match "${q}".` : `No ${what}${verb ? ` ${verb}` : ""}.`;
 }
 function renderList() {
   show("clear-search", !!$("search").value);
   accounts.paintFilter(); // the pill names the search
   const query = $("search").value.trim().toLowerCase();
   const mine = panes.filter(accounts.matches); // the account filter (accounts.js), else every pane
-  const subset = mine.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
+  // Panes that need you show whatever the account or search filter says (marked as outside
+  // it), unless the state filter leaves Needs you out or the setting is off.
+  const pin = pinNeeds && (!filter.length || filter.includes("attention"));
+  outside = new Set(pin ? panes.filter((p) => needsYou(p) && !(accounts.matches(p) && matchesSearch(p, query))).map((p) => p.pane_id) : []);
+  const subset = panes.filter((p) => outside.has(p.pane_id) || accounts.matches(p) && matchesFilter(p, filter) && matchesSearch(p, query));
   // One composer per pane, in either layout: an open pane takes over its sidebar Reply draft.
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
@@ -375,8 +385,12 @@ function renderList() {
   else renderPhoneList(subset);
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
+  // Empty, while panes the filter hides need you: say so, a click from them.
+  const hidden = subset.length ? 0 : panes.filter(needsYou).length;
+  show("empty-needs", hidden > 0);
+  text($("empty-needs"), `${hidden} pane${hidden === 1 ? "" : "s"} ${accounts.on().length ? "on other accounts" : "outside the filter"} need${hidden === 1 ? "s" : ""} you · Show`);
   text($("all-count"), mine.length);
-  text($("attention-count"), mine.filter(asks).length);
+  text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length);
   for (const f of ["working", "finished"]) text($(`${f}-count`), mine.filter((p) => matchesFilter(p, [f])).length);
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && (filter.length ? String(filter) : "all") === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
@@ -414,6 +428,7 @@ function renderPhoneList(subset) {
     if (p.heading) return text(node, p.heading);
     node._p = p;
     markEnding(node, p);
+    node.classList.toggle("outside", outside.has(p.pane_id));
     updateRow(node.querySelector(".pane-row") || node, p);
     if (node.matches(".pane-card")) renderSidebar.answers.update(node, p);
   });
@@ -1290,7 +1305,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["working", "Working", "terminal"], ["finished", "Just finished", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1341,8 +1356,9 @@ function fadeKeys() {
 $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
-html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
+html($("dashboard-tab"), `<span class="nav-icon">${licon("gauge")}</span><span>Dashboard</span>`); // the gauge is Dashboard's everywhere; the 2×2 grid is the layout picker's
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
+$("empty-needs").onclick = () => { filter = ["attention"]; $("search").value = ""; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
@@ -1436,6 +1452,7 @@ function paintSettings() {
   // Wide, every meter shows, so it is on or off; a phone also has Auto (the urgent ones).
   choices("usage-mode", WIDE.matches ? { auto: "On", off: "Off" } : USAGE_MODES, WIDE.matches && usageMode === "on" ? "auto" : usageMode, setUsageMode);
   choices("sort", SORTS, sort, setSort);
+  choices("pin-needs", { on: "On", off: "Off" }, pinNeeds ? "on" : "off", setPinNeeds);
   show("sort-row", !WIDE.matches); // wide, the filter menu's Sort by sets it
 }
 $("settings-open").onclick = () => {

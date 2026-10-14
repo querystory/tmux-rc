@@ -77,6 +77,15 @@ one setting with the phone's Settings. The filters live in the URL as comma list
 (`filter=running,recent`, `acct=`, `q=`), so a link or Back restores them and an old
 single-value link still reads.
 
+Panes that need you are the one thing a filter must not hide: an account or search filter
+once left "Nothing needs your attention" on screen while another account's pane was asking.
+So whenever State is All or includes Needs you, every pane that needs you shows in its
+section, and those the account or search filter leaves out are dimmed and marked "outside
+filter", so the filter still reads as honest. Picking only Working (say) is an explicit
+choice, so nothing is forced in then. Settings › Appearance can turn it off. An empty list
+says what was filtered ("No Personal panes need you") and, if panes it hides need you, offers
+them ("5 panes on other accounts need you · Show").
+
 The phone keeps its tab bar for the state, one at a time (tabs are one-of by nature); its
 account chips toggle like the menu's.
 

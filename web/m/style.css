@@ -518,6 +518,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #side-filter-picker summary[data-n=""]::after { display: none; }
 #side-list { flex: none; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
+.empty-needs { align-self: center; margin: -8px auto 12px; padding: 4px 8px; font-size: 12.5px; color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
+#app.rail .empty-needs { display: none; }
 /* The Sessions title's counts, muted (green is the +'s): the panes beside the title, and the
    sub-agents with the eye that says whether those are listed, right-aligned just left of the +.
    They give way, so the + never moves. */
@@ -605,6 +607,9 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 /* The open pane: a soft filled square, symmetric (the rows' left bar reads oddly round an icon).
    Needs you: an amber dot top right; running: the logo's own ring, as in the rows. With
    several accounts, the account's dot bottom left. The model badge steps aside for them. */
+/* A pane that needs you, shown though the filter leaves it out: dimmed, and said so. */
+:is(.sb-row, .sb-card, .pane-card, .pane-row, .sb-rail).outside { opacity: .72; }
+:is(.sb-row, .sb-card).outside b::after, .outside .row-title strong::after { content: "outside filter"; margin-left: 6px; font-size: 10.5px; font-weight: 500; color: var(--muted); }
 .sb-rail[aria-current="true"]:not(:disabled) { background: color-mix(in srgb, var(--fg) 14%, transparent); }
 .sb-rail.need[aria-current="true"]:not(:disabled) { background: color-mix(in srgb, var(--amber) 32%, var(--amber-bg)); }
 .sb-rail[data-state="need"]::after { content: ""; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 2px var(--amber-bg); }
