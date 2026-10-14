@@ -46,6 +46,17 @@ function restore() {
   for (const el of document.querySelectorAll("[data-mock-scroll]")) [el.scrollTop, el.scrollLeft] = el.dataset.mockScroll.split(",").map(Number);
 }
 
+// Form state that lives only in properties, written into the markup so outerHTML keeps it:
+// a build's snapshot and a live fragment both freeze through this.
+function freeze(root) {
+  for (const el of root.querySelectorAll("input")) {
+    el.setAttribute("value", el.value);
+    el.toggleAttribute("checked", el.checked);
+  }
+  for (const el of root.querySelectorAll("textarea")) el.textContent = el.value; // a textarea's markup value is its text
+  for (const o of root.querySelectorAll("option")) o.toggleAttribute("selected", o.selected);
+}
+
 const fits = (width, room) => 2 * width + GAP <= room;
 // The widest preset that fits the screen, so a first look is the real thing with no scroll.
 const widest = (widths, room) => [...widths].sort((a, b) => b - a).find((w) => w <= room) ?? Math.min(...widths);
@@ -118,6 +129,7 @@ function boot(M) {
     document.body.append(iframe);
     const el = (await liveApp(iframe, step)).querySelector(step.selector);
     for (const d of [el, ...el.querySelectorAll("dialog")]) if (d.matches("dialog:modal")) d.dataset.mockModal = "";
+    freeze(el);
     M.fragments[name] = el.outerHTML;
     iframe.remove();
   }));
@@ -218,4 +230,4 @@ function boot(M) {
 }
 
 if (typeof document !== "undefined") boot(window.MOCK);
-else globalThis.mockHarness = { fits, widest, srcdoc }; // tests/test_mock_harness.mjs
+else globalThis.mockHarness = { fits, widest, srcdoc, freeze }; // tests/test_mock_harness.mjs

@@ -11,6 +11,7 @@
 // the folder's own scripts. Then it stops the server.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import markdownit from "../web/m/vendor/markdown-it.mjs";
 import { PHONE, chat, launch, newPage, settle, startDemo } from "./demo_browser.mjs";
@@ -51,16 +52,15 @@ export function manifest(src) {
   };
 }
 
+// The harness's own freeze(), so a build and a live fragment keep form state the same way.
+const harness = {};
+vm.runInNewContext(readFileSync(path.join(ROOT, "scripts/mock/harness.js"), "utf8"), harness);
+const { freeze } = harness.mockHarness;
+
 // In the page: the DOM as it stands, made static. State that lives in properties (form
 // values, scroll offsets, canvas pixels) is written into the markup, the app's scripts are
 // dropped, and its linked stylesheets come back as one string with absolute URLs.
 function snapshot() {
-  for (const el of document.querySelectorAll("input")) {
-    el.setAttribute("value", el.value);
-    el.toggleAttribute("checked", el.checked);
-  }
-  for (const el of document.querySelectorAll("textarea")) el.textContent = el.value; // a textarea's markup value is its text
-  for (const o of document.querySelectorAll("option")) o.toggleAttribute("selected", o.selected);
   for (const d of document.querySelectorAll("dialog:modal")) d.dataset.mockModal = "";
   // Images are inlined, which would break selectors on their paths (img[src$="-working.svg"]):
   // keep each path in data-mock-src and point those selectors at it.
@@ -131,6 +131,7 @@ async function build(src, out) {
     else if (step.wait) await page.waitForSelector(step.wait);
     await page.evaluate(() => document.fonts.ready);
     await settle(page, name);
+    await page.evaluate(`(${freeze})(document)`);
     const snap = await page.evaluate(snapshot);
     const fragment = step.selector && await page.$eval(step.selector, (el) => el.outerHTML);
     await page.context().close();
