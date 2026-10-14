@@ -207,6 +207,19 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
     assert html.index('id="detail"') < html.index('id="heading"'), "the title belongs over the pane"
 
 
+def test_wide_usage_strip_resizes_hides_and_draws_once():
+    """The sidebar's plan usage: its seam persists a height per screen, dragged under one row
+    it turns the one usage setting Off (which the wide menu toggles too, so a phone and a
+    desktop never disagree about what Off means) with an Undo, and the meters wait for the
+    accounts: drawn before them, several accounts' meters flashed as a tall grid on load."""
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "web/m/app.js").read_text()
+    assert 'seam($("usage-handle")' in app and '"tmuxrc-usage-height"' in app
+    assert 'setUsageMode("off")' in app and '["Undo", () => setUsageMode(was)]' in app
+    assert 'WIDE.matches && usageMode !== "off" ? "on" : usageMode' in app
+    assert 'request("/api/open-loops"), accounts.refresh()])' in app
+
+
 def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
     root = Path(__file__).resolve().parents[1] / "web"
     css = (root / "live-chat.css").read_text()

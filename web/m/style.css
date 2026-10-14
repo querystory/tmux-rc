@@ -243,6 +243,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .primary:hover:not(:disabled) { background: var(--accent); filter: brightness(.92); }
 #update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; background: var(--accent-bg); color: var(--accent); flex: none; font-size: 13px; }
 #reload-update { padding: 0 12px; text-decoration: underline; }
+#notice button { padding: 0 0 0 8px; color: inherit; font-weight: 600; text-decoration: underline; } /* an Undo */
 /* Transient: no row of its own, and :empty collapses it entirely, so "Draft"/"Sent"
    costs height only while it has something to say. */
 #draft-status { font-size: 11px; color: var(--muted); padding-bottom: 4px; }
@@ -740,7 +741,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* Plan limits (usage.js): one flat grid of meters, two to a row. A phone pins it over the
    list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
 #usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
-#usage[hidden], #app.rail #usage { display: none; }
+#usage[hidden], #app.rail :is(#usage, #usage-handle) { display: none; }
 #usage { cursor: pointer; }
 /* The dashboard's card: the same cells, as many to a row as fit, the trend tall enough to read;
    its view (.usage-full), wider cells (one to a row on a phone, two on desktop) with the times spelled out. */
@@ -781,6 +782,16 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 @media (max-width: 1099px) { #usage { order: -1; position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); } }
 @media (min-width: 1100px) {
   #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); scroll-padding-inline: 14px; }
+  /* Its seam (app.js sizeUsage), over the border it moves. Dragged, the cells fill the chosen
+     height and each trend takes what its cell has spare; several accounts' strip stacks
+     --rows of meters, still swiped sideways. Under one row the strip dims: let go to close it. */
+  #usage-handle { flex: none; position: relative; z-index: 5; height: 9px; margin-bottom: -5px; cursor: row-resize; touch-action: none; }
+  #usage.sized { row-gap: 10px; height: var(--usage-h); max-height: 60%; align-items: stretch; grid-auto-rows: minmax(min-content, 1fr); overflow-y: auto; }
+  #usage.sized.acct-strip:not([hidden]) { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows), minmax(min-content, 1fr)); grid-auto-columns: max-content; overflow-y: hidden; }
+  #usage.sized.acct-strip > .usage-cell { width: calc((100cqw - var(--n) * 16px) / (var(--n) + .3)); }
+  #usage.sized .usage-cell { grid-template-rows: auto 1fr auto; }
+  #usage.sized .usage-spark { height: 100%; min-height: 24px; }
+  #usage.closing { opacity: .4; }
 }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
@@ -843,7 +854,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   #detail > #fleet { grid-row: 5; grid-column: 1 / -1; height: var(--fleet-h, 40px); min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line); background: var(--surface); }
   #detail > #fleet-handle { grid-row: 5; grid-column: 1 / -1; align-self: start; position: relative; z-index: 5; height: 9px; margin-top: -5px; cursor: row-resize; touch-action: none; }
   #detail[data-layout="stack"] > #fleet, #detail[data-layout="stack"] > #fleet-handle { grid-row: 6; }
-  #fleet-handle:hover, #fleet-handle:focus-visible, #fleet-handle.dragging { outline: none; background: linear-gradient(var(--accent), var(--accent)) center / 100% 3px no-repeat; }
+  :is(#fleet-handle, #usage-handle):is(:hover, :focus-visible, .dragging) { outline: none; background: linear-gradient(var(--accent), var(--accent)) center / 100% 3px no-repeat; }
   #detail:has(#fleet-handle.dragging) { user-select: none; cursor: row-resize; }
   .fleet-strip { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 39px; padding: 0 12px 0 4px; }
   /* Folded, the strip stays one 40px row: the sparkline and the average give way first,
