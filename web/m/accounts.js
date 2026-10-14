@@ -287,10 +287,11 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (F.error) at?.insertAdjacentHTML(b ? "beforebegin" : "afterend", `<p class="acct-msg err" role="alert">${esc(F.error)}</p>`);
   }
   function open(step) {
-    F = { step, name: "", provider: "claude", dir: "~/.claude-new", session: sessions()[0] || "" };
+    seq++; F = { step, name: "", provider: "claude", dir: "~/.claude-new", session: sessions()[0] || "" };
     render(); if (!dlg.open) dlg.showModal();
   }
-  const go = (step, extra = {}) => { Object.assign(F, { renaming: null, removing: null, error: null, line: null, callback: "", ...extra, step }); render(); };
+  let seq = 0; // bumped by every step taken: a lookup answered after another step is stale
+  const go = (step, extra = {}) => { seq++; Object.assign(F, { renaming: null, removing: null, error: null, line: null, callback: "", ...extra, step }); render(); };
   // The sign-in line: as edited in this flow, else VAR=<dir> and the remembered command.
   const lineFor = (cmd) => `${ENV[F.provider]}=${shq(F.dir)} ${cmd}`, lineOf = () => F.line ?? lineFor(cmdOf(F.provider));
   const ways = () => `<div class="acct-seg">${CODEX_WAYS.map(([cmd, name]) => `<button type="button" data-way="${cmd}" aria-pressed="${device() === cmd.includes("--device-auth")}">${name}</button>`).join("")}</div><p class="acct-note">${CODEX_WAYS.map(([, name, how]) => `<b>${name}</b>: ${how}.`).join(" ")}</p>`;
@@ -384,7 +385,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (d.remove) return go("list", { removing: d.remove });
     if (d.resume) { const p = byDir(d.resume); return go("abandoned", { dir: p.dir, name: p.name, provider: p.provider, pane: null }); }
     if (d.finish) { // back to its sign-in window, if one is still open
-      const p = byDir(d.finish), w = await windowOf(`dir=${encodeURIComponent(p.dir)}`);
+      const p = byDir(d.finish), mine = ++seq, w = await windowOf(`dir=${encodeURIComponent(p.dir)}`);
+      if (mine !== seq || !dlg.open) return;
       go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: w?.pane_id || null, pid: w?.pid, window: w, session: w ? w.session : F.session, seen: false, goneAt: null, openedAt: Date.now() });
       if (w) { F.line = lineFor(withWay(cmdOf(F.provider), w.device)); render(); } // the way it runs, picked
       return w && wait();
@@ -407,7 +409,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       }
       if ("login" in d) return await openLogin();
       if ("closeOthers" in d) { for (const o of F.window.others) await post("/api/accounts/login/close", o); F.window = null; return wait(); }
-      if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); F.session ||= sessions()[0]; return await openLogin(); }
+      if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); Object.assign(F, { pane: null, window: null }); F.session ||= sessions()[0]; return await openLogin(); }
       if ("callback" in d) { // one at a time, across the polls' redraws: the code is single-use
         F.sending = true;
         try { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); } finally { F.sending = false; }
