@@ -68,24 +68,26 @@ const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NA
 // only /api/usage?past=1 sends them) with arrows, or a sideways swipe on its chart. The
 // window being read is kept per meter on the element by its reset, not by how far back it
 // is, so a refresh across a reset still shows it; none kept is the current window. Within
-// the hour, as the server groups them: a re-read can move a reset a little.
-const position = (el, k) => {
-  const list = el._list[k], i = list.findIndex(w => Math.abs(w.resets_at - el._back[k]) <= 3600e3);
+// the hour, as the server groups them: a re-read can move a reset a little. Kept per page,
+// not per element: the wide view's groups are rebuilt when an account's details change.
+const back = {}, lists = {};
+const position = k => {
+  const list = lists[k], i = list.findIndex(w => Math.abs(w.resets_at - back[k]) <= 3600e3);
   return i < 0 ? list.length - 1 : i;
 };
 
-function stepper(el, a, w, icon) {
-  const k = `${a.provider} ${a.dirs} ${w.window}`, list = el._list[k] = [...w.past, w], at = position(el, k);
+function stepper(a, w, icon) {
+  const k = `${a.provider} ${a.dirs} ${w.window}`, list = lists[k] = [...w.past, w], at = position(k);
   const button = (step, text, off) => `<button type="button" data-step="${step}" aria-label="${text} ${esc(w.window)} window"${off ? ' disabled' : ''}>${icon('chevron', 16)}</button>`;
   return [list[at], `<span class="usage-nav" data-k="${esc(k)}">${button(1, 'Earlier', !at)}${button(-1, 'Later', at === list.length - 1)}</span>`];
 }
 
 function steppable(el) {
-  if (el._back) return;
-  el._back = {}; el._list = {};
+  if (el._steppable) return;
+  el._steppable = true;
   const step = (nav, by) => {
-    const k = nav.dataset.k, list = el._list[k], at = Math.min(list.length - 1, Math.max(0, position(el, k) - by));
-    el._back[k] = at < list.length - 1 ? list[at].resets_at : undefined;
+    const k = nav.dataset.k, list = lists[k], at = Math.min(list.length - 1, Math.max(0, position(k) - by));
+    back[k] = at < list.length - 1 ? list[at].resets_at : undefined;
     el._redraw();
     return [...el.querySelectorAll('.usage-nav')].find(n => n.dataset.k === k);
   };
@@ -114,7 +116,7 @@ export function renderUsage(el, accounts, options = {}) {
   el.hidden = !accounts.length;
   if (icon) { steppable(el); el._redraw = () => renderUsage(el, accounts, options); }
   const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, a.error)}${a.chip || ''}</div>`
-    : a.windows.map(w => cell(...(icon && w.past?.length ? stepper(el, a, w, icon) : [w, '']), a, wide, detail, now)).join('')).join(''); // a plan without a window shows none
+    : a.windows.map(w => cell(...(icon && w.past?.length ? stepper(a, w, icon) : [w, '']), a, wide, detail, now)).join('')).join(''); // a plan without a window shows none
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
 }
 
