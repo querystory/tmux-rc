@@ -329,7 +329,7 @@ async function paint() {
       c.chart.on('datazoom', () => {
         const z = c.chart.getOption().dataZoom[0];
         zoomTo(z.startValue, z.endValue - z.startValue);
-        if (zoom.startValue !== z.startValue) paint(); else spanText(); // held back from all-forecast
+        if (zoom.startValue !== z.startValue || zoom.endValue !== z.endValue) paint(); else spanText(); // corrected: held back from all-forecast, or to an hour
       });
       (c.sized = new ResizeObserver(() => c.chart.resize())).observe(c.chartEl);
       c.chart.on('updateAxisPointer', e => strip(c, e));
