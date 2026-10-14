@@ -361,12 +361,14 @@ working, then by recency. The layout is built up front, so every pane exists at 
 agents fill in as their turn comes. Readiness has a bound, about a minute: an agent that
 is still alive but has shown neither its input line nor a recognized prompt by then is
 marked as needing attention, and its slot passes to the next one, so a few hung starts
-cannot stall the rest of the queue. The timed-out process is still alive, though, so
+do not stall the rest of the queue (six can; see below). The timed-out process is still alive, though, so
 slots alone would let repeated hangs pile up processes without bound. A second, hard cap
 counts every live agent that has not reached a prompt, timed out or not (six, twice the
 pace): at the cap the queue waits until one becomes ready or exits. The executor never
-kills a timed-out start, since a slow first run is indistinguishable from a hung one and
-the user can close it from the card.
+kills a timed-out start, since a slow first run is indistinguishable from a hung one. So
+six hung starts pause the restore: the card says so, names them, and the queue resumes
+when the user closes one (or it comes alive). A paused restore costs a tap; a killed
+first run could cost a login or a half-written config.
 
 An agent that exits at once stays in the layout as the shell its launcher falls back to,
 with the error above the prompt, and the card reports it. A login or first-run prompt is
