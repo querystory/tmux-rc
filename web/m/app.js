@@ -1174,7 +1174,7 @@ async function compose(id, value) {
     startState();
     return true;
   } catch {
-    if (secret) value.value ||= sent;
+    if (secret) { if (active === id && !value.value) value.value = sent; } // the one field is the open pane's
     else {
       // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
       // a sidebar Reply's draft into the pane's own composer and detaches the Reply.
