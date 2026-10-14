@@ -1,6 +1,6 @@
 // Navigation state <-> location.hash, with no DOM so `node --test` can drive it.
 //
-// The hash is the whole addressable state: `#pane=%25N&view=terminal&filter=running,attention&acct=claude-work&q=api`
+// The hash is the whole addressable state: `#pane=%25N&view=terminal&filter=working,attention&acct=claude-work&q=api`
 // or, with no pane, `#view=dashboard`, or one of PAGES: a dashboard card's own view (`#view=heat`, `#view=loops`). A hash (not a path) because the daemon serves /m and
 // nothing under it, and because the installed PWA's start_url stays the plain list. Unknown
 // fields (push's `from=push`) are ignored on read and dropped on write; `compose=1` is

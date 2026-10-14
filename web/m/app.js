@@ -386,9 +386,10 @@ function renderList() {
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
   // Empty, while panes the filter hides need you: say so, a click from them.
-  const hidden = subset.length ? 0 : panes.filter(needsYou).length;
+  const needing = subset.length ? [] : panes.filter(needsYou), hidden = needing.length;
   show("empty-needs", hidden > 0);
-  text($("empty-needs"), `${hidden} pane${hidden === 1 ? "" : "s"} ${accounts.on().length ? "on other accounts" : "outside the filter"} need${hidden === 1 ? "s" : ""} you · Show`);
+  // "On other accounts" only when that is what hides every one of them.
+  text($("empty-needs"), `${hidden} pane${hidden === 1 ? "" : "s"} ${needing.some(accounts.matches) || !accounts.on().length ? "outside the filter" : "on other accounts"} need${hidden === 1 ? "s" : ""} you · Show`);
   text($("all-count"), mine.length);
   text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length);
   for (const f of ["working", "finished"]) text($(`${f}-count`), mine.filter((p) => matchesFilter(p, [f])).length);
@@ -1450,7 +1451,8 @@ function paintSettings() {
   html($("settings-accounts"), accounts.rows());
   choices("theme", { system: "System", light: "Light", dark: "Dark" }, savedTheme(), setTheme);
   // Wide, every meter shows, so it is on or off; a phone also has Auto (the urgent ones).
-  choices("usage-mode", WIDE.matches ? { auto: "On", off: "Off" } : USAGE_MODES, WIDE.matches && usageMode === "on" ? "auto" : usageMode, setUsageMode);
+  // Its On is the phone's On when that is the setting, else Auto, so a click on it changes nothing.
+  choices("usage-mode", WIDE.matches ? { [usageMode === "on" ? "on" : "auto"]: "On", off: "Off" } : USAGE_MODES, usageMode, setUsageMode);
   choices("sort", SORTS, sort, setSort);
   choices("pin-needs", { on: "On", off: "Off" }, pinNeeds ? "on" : "off", setPinNeeds);
   show("sort-row", !WIDE.matches); // wide, the filter menu's Sort by sets it
