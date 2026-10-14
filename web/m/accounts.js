@@ -41,11 +41,12 @@ export const shellWords = (s, spans = []) => {
 const CALLBACK_MS = 40000; // past the server's two 15 s local GETs: a slow exchange still lands
 // The command with or without Codex's device flag: the way in is picked each time, never
 // remembered, while the rest of an edited command is.
-// Only a bare --device-auth word is taken out; the same text inside a quoted argument stays.
+// Every word that reads as --device-auth (quoted or not) is taken out; the same text inside
+// a longer argument stays.
 export const withWay = (cmd, device) => {
-  const spans = [];
-  if (!shellWords(cmd, spans)) return cmd;
-  for (const [a, b] of spans.reverse()) if (cmd.slice(a, b) === "--device-auth") cmd = cmd.slice(0, a).replace(/[ \t]+$/, "") + cmd.slice(b);
+  const spans = [], words = shellWords(cmd, spans);
+  if (!words) return cmd;
+  for (let i = spans.length - 1; i >= 0; i--) if (words[i] === "--device-auth") cmd = cmd.slice(0, spans[i][0]).replace(/[ \t]+$/, "") + cmd.slice(spans[i][1]);
   return cmd.trim() + (device ? " --device-auth" : "");
 };
 const setCmd = (p, v) => { v = withWay(v, false); cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };

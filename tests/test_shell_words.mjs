@@ -21,4 +21,5 @@ test("picking a way toggles only a bare --device-auth word", () => {
   assert.equal(withWay("codex login -c 'x --device-auth y'", true), "codex login -c 'x --device-auth y' --device-auth");
   assert.equal(withWay("codex login -c 'x --device-auth y'", false), "codex login -c 'x --device-auth y'");
   assert.equal(withWay("codex login --device-auth", true), "codex login --device-auth");
+  assert.equal(withWay('codex login "--device-auth" -v', false), "codex login -v"); // the same word, quoted
 });
