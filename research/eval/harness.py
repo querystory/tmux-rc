@@ -222,10 +222,12 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")
     # Model-written reply buttons vary in wording: a sample opts in to "accept first, decline
-    # second" with `reply_buttons`, instead of pinning text.
+    # second" with `reply_buttons`, instead of pinning text; false pins that there are none.
+    got_q = candidate.get("question")
+    opts = got_q.get("options") if isinstance(got_q, dict) else None
+    if isinstance(want_q, dict) and want_q.get("reply_buttons") is False and opts:
+        diffs.append(f"question.options: want none, got {opts!r}")
     if isinstance(want_q, dict) and want_q.get("reply_buttons"):
-        got_q = candidate.get("question")
-        opts = got_q.get("options") if isinstance(got_q, dict) else None
         first = [str(o).lower() for o in opts[:2]] if isinstance(opts, list) else []
         if len(first) < 2 or not re.match(r"yes\b", first[0]) or not re.match(r"no\b", first[1]):
             diffs.append(f"question.options: want accept then decline, got {opts!r}")
