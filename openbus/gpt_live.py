@@ -251,9 +251,10 @@ class Session:
             self.last_context[snapshot] = text
         # Changed digests keep every pane represented without feeding full screens
         # into the voice model's small context window or repeating unchanged panes.
+        digest = self.watcher.digest()
         hints = {
-            d["pane_id"]: "[tmux update] " + live._pane_block(d, None)  # noqa: SLF001 - shared Live adapter internals
-            for d in self.watcher.digest()
+            d["pane_id"]: "[tmux update] " + live._pane_block(d, None, digest)  # noqa: SLF001 - shared Live adapter internals
+            for d in digest
         }
         for pane, hint in hints.items():
             if self.pane_hints.get(pane) != hint:

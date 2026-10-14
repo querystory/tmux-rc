@@ -71,7 +71,7 @@ def _run_live(body: str, version: dict | None = None) -> None:
     script = ("globalThis.requestAnimationFrame = fn => fn();\n"
               "(async () => {\n"
               "const { appendChatMarkdown, renderChatText } = await import(" + markdown + ");\n"
-              "const { since, paneName } = await import(" + model + ");\n"
+              "const { since, paneName, sessionOf } = await import(" + model + ");\n"
               + _HARNESS + body + "\n})().catch(e => { console.error(e); process.exitCode = 1; });")
     result = subprocess.run(["node", "-e", script, *args],
                             capture_output=True, text=True, timeout=30,
@@ -231,7 +231,7 @@ const caches = {open: async (name) => ({
   },
   delete: async (key) => tapped.delete(`${name} ${key}`)})};
 const sandbox = {document, window, navigator, caches, AudioContext: Context, WebSocket: Socket,
-  appendChatMarkdown, renderChatText, since, paneName,
+  appendChatMarkdown, renderChatText, since, paneName, sessionOf,
   AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
   Audio: class {
     constructor() {this.paused = true; this.pending = initialPlayPending; outputs.push(this);}
