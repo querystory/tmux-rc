@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+import time
 
 import pytest
 
@@ -347,7 +348,9 @@ def test_unread_screen_records_unknown_without_stopping_history(inventory, monke
     assert (recorded["subagents"], recorded["agents"]) == ([], 0)  # the old card's workers
     assert w.states[0]["subagents"]  # the phone still shows the last card
     assert not w.pane_parse_valid("%0")
-    assert w.is_stale()
+    # One pane's unread screen is that pane's, not a stalled watcher: the global
+    # "Stalled" status stays off while tmux keeps answering.
+    assert not w.is_stale()
     frame[0] = "successfully read screen"
     monkeypatch.setattr(W, "classify", lambda pane, *args, **kwargs: {
         "pane_id": pane.id, "activity": "idle", "tool": "claude",
@@ -384,3 +387,29 @@ def test_failed_loop_tick_reports_stale_even_with_recent_heartbeat(monkeypatch):
                 await task
 
     asyncio.run(scenario())
+
+
+def test_failed_pane_collection_reports_stale(inventory, monkeypatch):
+    w, _ = inventory
+
+    def broken(_pane):
+        raise RuntimeError("tmux gave nothing")
+
+    monkeypatch.setattr(w, "_tick_pane", broken)
+    w._tick()
+    assert w.is_stale()
+
+
+def test_slow_tick_still_beats_per_pane(inventory, monkeypatch):
+    w, _ = inventory
+    w._last_tick = time.time() - 60  # the previous tick ended long ago
+    seen = []
+
+    def read(pane):  # the second pane checks mid-tick, after only the first was read
+        if pane.id == "%1":
+            seen.append(w.is_stale())
+        return parsed(pane)
+
+    monkeypatch.setattr(w, "_tick_pane", read)
+    w._tick()
+    assert seen == [False], "the first pane's read should have moved the heartbeat"

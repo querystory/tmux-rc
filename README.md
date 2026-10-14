@@ -1,5 +1,7 @@
 # tmux-rc
 
+[Website & documentation](https://querystory.github.io/tmux-rc/)
+
 Watch and control whatever runs in a tmux pane — AI coding agents like Codex, Claude
 Code, Gemini CLI, OpenCode and omp, or any other program that prints text — from your
 phone. A small local service reads a `tmux` pane, figures out what's happening, and

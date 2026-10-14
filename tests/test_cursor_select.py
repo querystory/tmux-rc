@@ -154,6 +154,40 @@ def test_a_picker_prompt_may_close_on_a_count():
     assert picker_digest(other, "Resume session") is None
 
 
+# Claude Code's trust dialog, wrapped at 60 columns: its question opens a paragraph.
+TRUST = """────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /home/x/src/harbor-notes
+
+ Quick safety check: Is this a project you created or one
+ you trust? (Like your own code, a well-known open source
+ project, or work from your team). If not, take a moment to
+ review what's in this folder first.
+
+ ❯ No, exit
+   Yes, I trust this folder
+
+ Enter to confirm · Esc to cancel"""
+
+
+def test_a_prompt_sentence_may_open_a_wrapped_paragraph():
+    sentence = "Quick safety check: Is this a project you created or one you trust?"
+    rows = ["No, exit", "Yes, I trust this folder"]
+    for asked in (sentence, "Accessing workspace:"):
+        assert highlighted_row(TRUST, asked, rows) == rows[0]
+    assert picker_digest(TRUST, sentence) == picker_digest(TRUST, "Accessing workspace:")
+    misread = {"tool": "claude", "question": {
+        "prompt": sentence, "answer_style": "cursor", "options": rows, "selected": 1,
+        "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
+    question = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{TRUST}", lambda s, t: misread)["question"]
+    assert question["selected"] == 0
+    assert question["picker"] == picker_digest(TRUST, sentence)
+    # Only a whole sentence may run on: a phrase cut mid-sentence is not the prompt.
+    assert picker_digest(TRUST, "Quick safety check: Is this a project") is None
+    assert picker_digest(TRUST, "Quick safety check:") is None  # a colon introduces more
+
+
 def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     sent, reparsed = [], []
     monkeypatch.setattr(tmux, "find_pane", lambda p: PANE)
@@ -198,7 +232,7 @@ while (key := sys.stdin.read(1)) != "\\r":
     if key == "\\x1b":
         at = min(max(at + {"B": 1, "A": -1}.get(sys.stdin.read(2)[-1], 0), 0), 1)
         draw()
-sys.stdout.write(f"SELECTED {rows[at]}\\r\\n")
+sys.stdout.write(f"\\x1b[H\\x1b[2JSELECTED {rows[at]}\\r\\n")  # erased, as agents do
 sys.stdout.flush()
 time.sleep(30)
 """
@@ -224,8 +258,10 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
             screen = tmux.capture_pane(pane, mark_dim=True)
             parsed["question"]["picker"] = picker_digest(screen, "Remove it?")
 
-        server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
-                                                   states=[parsed])
+        dropped = []
+        server.app.state.watcher = SimpleNamespace(
+            request_reparse=lambda p: None, states=[parsed],
+            drop_question=lambda *a: dropped.append(a))
         client = TestClient(server.app)
 
         def screen_until(text):
@@ -254,8 +290,11 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
         # /send read the screen its key made back: the next step is held to that, no parse.
         assert moved.json()["row"] == "Yes"
         parsed["question"]["picker"] = moved.json()["picker"]
+        assert not dropped  # a move leaves the question up
         assert send("Enter").status_code == 200
         assert "SELECTED Yes" in screen_until("SELECTED")
+        # Answered and erased: the card drops it with no parse.
+        assert dropped == [(pane, "Remove it?")]
     finally:
         subprocess.run(["tmux", "-L", socket, "kill-pane", "-t", pane], env=env,
                        check=False, capture_output=True)

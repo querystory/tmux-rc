@@ -94,7 +94,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .pane-row.needs-you::before { background: var(--amber); }
 .pane-row.fresh::before { background: var(--accent); }
-.pane-row.needs-you, .pane-card { background: var(--amber-bg); --card: var(--amber-bg); }
+.pane-row.needs-you, .pane-card:has(.needs-you) { background: var(--amber-bg); --card: var(--amber-bg); }
 .needs-you .row-age { color: var(--amber); font-weight: 700; }
 .needs-you .row-status { color: var(--fg); } /* the ask is the row's point */
 /* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
@@ -182,17 +182,21 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .section-heading { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
 #status-line { margin: 10px 0; font-size: 19px; line-height: 1.45; font-weight: 550; white-space: pre-wrap; }
 #metadata { font-size: 12px; color: var(--muted); }
-#question { background: var(--amber-bg); }
+#question:not(.answered) { background: var(--amber-bg); }
 #question h2 { font-size: 17px; white-space: pre-wrap; }
 #options { display: grid; gap: 8px; margin-top: 14px; }
 #options button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
 #options button:hover:not(:disabled) { border-color: var(--amber); }
-#answer-status { color: var(--amber); font-size: 12px; padding-top: 10px; }
+#answer-status { color: var(--muted); font-size: 12px; padding-top: 10px; }
 #task-count { color: var(--muted); font-size: 12px; margin-left: 6px; }
-.task, .agent { display: flex; align-items: flex-start; gap: 10px; padding-top: 12px; overflow-wrap: anywhere; }
+/* A title too long to share its line with the meta keeps the line beside its icon (the
+   max-width), and the meta wraps under it, rather than squeezing the title to a word a line. */
+.task, .agent { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 2px 10px; padding-top: 12px; overflow-wrap: anywhere; }
+.task > span:nth-child(2), .agent > span:nth-child(2) { max-width: calc(100% - 26px); }
 .task svg, .agent svg { margin-top: 3px; color: var(--accent); }
 .agent.compacting svg { color: var(--purple); }
 .task.done { color: var(--muted); }
+.task small:empty, .agent small:empty { display: none; } /* else it wraps to a blank line */
 .agent small { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .event { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .event:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -243,6 +247,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .primary:hover:not(:disabled) { background: var(--accent); filter: brightness(.92); }
 #update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; background: var(--accent-bg); color: var(--accent); flex: none; font-size: 13px; }
 #reload-update { padding: 0 12px; text-decoration: underline; }
+#notice button { padding: 0 0 0 8px; color: inherit; font-weight: 600; text-decoration: underline; } /* an Undo */
 /* Transient: no row of its own, and :empty collapses it entirely, so "Draft"/"Sent"
    costs height only while it has something to say. */
 #draft-status { font-size: 11px; color: var(--muted); padding-bottom: 4px; }
@@ -307,6 +312,12 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .voice-entry.propose { align-self: stretch; max-width: none; background: transparent; border: 1px solid var(--accent); border-radius: 8px; font-size: 14px; }
 .voice-entry.propose strong { color: var(--accent); }
 .voice-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+/* What a card or a typed line does to a pane: the pane as its row shows it, keys as keycaps,
+   typed text quoted in italics under the line. */
+.voice-pane img { width: 1em; height: 1em; margin-right: 4px; vertical-align: -0.12em; object-fit: contain; }
+.voice-pane > span, .voice-act blockquote > span { color: var(--muted); font-style: normal; }
+.voice-act kbd { font: inherit; font-size: 0.85em; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); }
+.voice-act blockquote { margin: 6px 0 0 2px; padding: 1px 0 1px 10px; border-left: 3px solid var(--accent); font-style: italic; }
 .voice-actions, .voice-open { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .voice-actions button, .voice-entry button.open { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
 .voice-entry button.open { display: inline-flex; align-items: center; gap: 4px; padding-right: 12px; border-color: var(--accent); color: var(--accent); text-align: left; }
@@ -358,7 +369,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
     display: grid;
     /* --sidebar is set by the drag handle and persisted; the clamp is the guard, so a
        stored width from a wider window can never squeeze the list or the terminal out. */
-    grid-template-columns: clamp(260px, var(--sidebar, 300px), 46vw) minmax(0, 1fr);
+    --side-w: clamp(260px, var(--sidebar, 300px), 46vw);
+    grid-template-columns: var(--side-w) minmax(0, 1fr);
     /* The last row is the work column's foot, empty here: a slot for a docked panel
        under the pane (the fleet chart), so adding one moves nothing above it. */
     grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -425,6 +437,10 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 :is(#sb-head, #sb-nav, #sb-foot) .icon-button { width: 36px; height: 36px; min-height: 36px; border-radius: 8px; }
 #sb-nav #new-window { flex: 1; justify-content: flex-start; gap: 8px; padding: 0 10px; background: none; font-size: 14px; font-weight: 600; white-space: nowrap; }
 #sb-nav #new-window::after { content: "New window"; }
+/* Too narrow for the label beside all four icons (it needs ~275px of content box: a sidebar
+   dragged under ~300px, or the rail): just the +, still named by its aria-label and title. */
+#sb-nav { container: sb-nav / inline-size; }
+@container sb-nav (max-width: 280px) { #sb-nav #new-window { flex: none; padding: 0; justify-content: center; } #sb-nav #new-window::after { content: none; } }
 #dash-nav[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
 #sb-nav ~ .search { margin: 2px 12px 6px; flex: none; }
 #sb-nav ~ .search input { height: 36px; font-size: 14px; }
@@ -458,7 +474,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-n svg { color: var(--accent); }
 /* The overview's agent lines, compact: in a row (indented under its name) and the hover card. */
 .sb-agents:not([hidden]) { display: grid; padding: 0 8px 4px 41px; }
-.sb-agents .agent { min-width: 0; align-items: center; gap: 6px; padding: 0; min-height: 22px; font-size: 12px; white-space: nowrap; }
+.sb-agents .agent { min-width: 0; flex-wrap: nowrap; align-items: center; gap: 6px; padding: 0; min-height: 22px; font-size: 12px; white-space: nowrap; }
 .sb-agents .agent svg { width: 11px; height: 11px; margin: 0; flex: none; }
 .sb-agents .agent > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .need .a { color: var(--amber); font-weight: 700; }
@@ -494,9 +510,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #app.rail #sessions { align-items: center; }
 #app.rail :is(#brand, .search, #empty, #divider) { display: none; }
 #app.rail #sb-head { padding: 0; justify-content: center; }
-#app.rail :is(#sb-nav, #sb-foot) { flex-direction: column; padding: 6px 0; }
-#app.rail #sb-nav #new-window { flex: none; padding: 0; justify-content: center; }
-#app.rail #sb-nav #new-window::after { content: none; }
+#app.rail :is(#sb-nav, #sb-foot) { flex-direction: column; align-self: stretch; padding: 6px 0; }
 #app.rail #sb-foot #connection { margin: 6px 0; font-size: 0; gap: 0; }
 #app.rail #side-list { width: 100%; display: grid; justify-items: center; align-content: start; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
 .sb-rail { position: relative; width: 40px; height: 40px; min-height: 40px; padding: 0; display: grid; place-items: center; border-radius: 10px; }
@@ -512,6 +526,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
 .sb-replies button { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
 .sb-replies button:not(:disabled):hover { border-color: var(--amber); }
+.sb-note { align-self: center; color: var(--muted); font-size: 12px; }
 .sb-compose { flex-wrap: nowrap; align-items: flex-end; gap: 2px; }
 .sb-compose[hidden] { display: none; }
 .sb-compose #side-reply { flex: 1; min-width: 0; min-height: 32px; max-height: 120px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -740,14 +755,20 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 /* Plan limits (usage.js): one flat grid of meters, two to a row. A phone pins it over the
    list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
 #usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
-#usage[hidden], #app.rail #usage { display: none; }
+#usage[hidden], #app.rail :is(#usage, #usage-handle) { display: none; }
 #usage { cursor: pointer; }
 /* The dashboard's card: the same cells, as many to a row as fit, the trend tall enough to read;
    its view (.usage-full), wider cells (one to a row on a phone, two on desktop) with the times spelled out. */
 .usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
 .usage-board .usage-spark { height: 56px; margin-top: 6px; }
 .usage-full { grid-template-columns: repeat(auto-fit, minmax(max(280px, 40%), 1fr)); }
-.usage-full .usage-spark { height: 96px; }
+.usage-full .usage-spark { height: 96px; touch-action: pan-y; } /* a sideways swipe steps through past windows */
+/* The arrows back through past windows share the head row with "used", at its end; full-size
+   touch targets that overhang the row rather than heighten it. */
+.usage-cell em, .usage-nav { grid-area: 1 / 3; } /* placed, not flowed, so the two can share the cell */
+.usage-nav { justify-self: end; display: flex; margin: -13px -10px -13px 0; }
+.usage-nav button { width: 40px; display: inline-flex; align-items: center; justify-content: center; }
+.usage-nav button:first-child svg { transform: scaleX(-1); }
 .usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
@@ -775,6 +796,16 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 @media (max-width: 1099px) { #usage { order: -1; position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); } }
 @media (min-width: 1100px) {
   #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); scroll-padding-inline: 14px; }
+  /* Its seam (app.js sizeUsage), over the border it moves. Dragged, the cells fill the chosen
+     height and each trend takes what its cell has spare; several accounts' strip stacks
+     --rows of meters, still swiped sideways. Under one row the strip dims: let go to close it. */
+  #usage-handle { flex: none; position: relative; z-index: 5; height: 9px; margin-bottom: -5px; cursor: row-resize; touch-action: none; }
+  #usage.sized { row-gap: 10px; height: var(--usage-h); max-height: 60%; align-items: stretch; grid-auto-rows: minmax(min-content, 1fr); overflow-y: auto; }
+  #usage.sized.acct-strip:not([hidden]) { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows), minmax(min-content, 1fr)); grid-auto-columns: max-content; overflow-y: hidden; }
+  #usage.sized.acct-strip > .usage-cell { width: calc((100cqw - var(--n) * 16px) / (var(--n) + .3)); }
+  #usage.sized .usage-cell { grid-template-rows: auto 1fr auto; }
+  #usage.sized .usage-spark { height: 100%; min-height: 24px; }
+  #usage.closing { opacity: .4; }
 }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
@@ -837,7 +868,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   #detail > #fleet { grid-row: 5; grid-column: 1 / -1; height: var(--fleet-h, 40px); min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line); background: var(--surface); }
   #detail > #fleet-handle { grid-row: 5; grid-column: 1 / -1; align-self: start; position: relative; z-index: 5; height: 9px; margin-top: -5px; cursor: row-resize; touch-action: none; }
   #detail[data-layout="stack"] > #fleet, #detail[data-layout="stack"] > #fleet-handle { grid-row: 6; }
-  #fleet-handle:hover, #fleet-handle:focus-visible, #fleet-handle.dragging { outline: none; background: linear-gradient(var(--accent), var(--accent)) center / 100% 3px no-repeat; }
+  :is(#fleet-handle, #usage-handle):is(:hover, :focus-visible, .dragging) { outline: none; background: linear-gradient(var(--accent), var(--accent)) center / 100% 3px no-repeat; }
   #detail:has(#fleet-handle.dragging) { user-select: none; cursor: row-resize; }
   .fleet-strip { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 39px; padding: 0 12px 0 4px; }
   /* Folded, the strip stays one 40px row: the sparkline and the average give way first,
@@ -892,11 +923,13 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   .heat-total { grid-template-columns: 1fr; padding-left: 4px; }
   .heat-total .usage-bar { display: none; }
 }
-/* A window being killed or expunged from here (markEnding): greyed, its label under a spinner. */
+/* A window being killed or expunged from here (markEnding): greyed, its label under a spinner.
+   A tapped answer (button.picked) spins the same way while its send and the agent catch up. */
 .ending { opacity: .55; }
 .ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
-.ending :is(.badge, .sb-open .a, .m)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
-@media (prefers-reduced-motion: no-preference) { .ending :is(.badge, .sb-open .a, .m)::before { animation: logo-spin .8s linear infinite; } }
+:is(.ending :is(.badge, .sb-open .a, .m), button.picked)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) { :is(.ending :is(.badge, .sb-open .a, .m), button.picked)::before { animation: logo-spin .8s linear infinite; } }
+button.picked:disabled { opacity: 1; }
 
 /* Agent accounts (accounts.js): drawn only for a provider with two or more. */
 .acct-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--a); }
@@ -908,17 +941,33 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-acct .acct-badge { margin-left: 4px; font-size: 10.5px; vertical-align: 1px; }
 #pane-location .acct-badge { vertical-align: 1px; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
-.acct-pill { display: flex; flex: none; align-items: center; gap: 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
+.acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
 .acct-pill .acct-badge { flex-shrink: 1; min-width: 0; font-size: 12px; padding: 1px 2px 1px 8px; }
 .acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
-#more-menu.filtered > summary { position: relative; }
-#more-menu.filtered > summary::before { content: ""; position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--a); box-shadow: 0 0 0 2px var(--bg); }
-#acct-filter .menu-sec { padding: 8px 12px 2px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+/* The account filter. Wide: "Panes from" under the list's own "Show" choices, in one
+   dropdown, each group's pick a check (no radios) and the account's dot on the label. */
+#side-filter-picker .header-picker-menu { min-width: 180px; max-width: calc(var(--side-w) - 16px); overflow-y: auto; font-weight: 400; }
+#side-filter-picker .acct-opt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen */
+#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden]))::before { content: "Show"; }
+#side-filter-picker .header-picker-menu::before, #acct-filter .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
+#side-filter-picker :is(label, .acct-opt) { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
+#side-filter-picker label input { position: absolute; opacity: 0; pointer-events: none; }
+#side-filter-picker :is(label, .acct-opt)::after { content: ""; flex: none; width: 5px; height: 10px; margin: -4px 4px 0 auto; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); visibility: hidden; }
+#side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"]) { font-weight: 600; }
+#side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"])::after { visibility: visible; }
+#side-filter-picker .acct-opt:hover { background: var(--raised); }
 #acct-filter hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
-#acct-filter .acct-opt { width: 100%; gap: 10px; padding: 6px 14px 6px 12px; white-space: nowrap; }
-#acct-filter .acct-opt svg { margin-left: auto; color: var(--accent); visibility: hidden; }
-#acct-filter .acct-opt[aria-pressed="true"] { font-weight: 600; }
-#acct-filter .acct-opt[aria-pressed="true"] svg { visibility: visible; }
+#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden])) label { padding-left: 26px; }
+#side-filter-picker summary .acct-dot { width: 7px; height: 7px; }
+/* A phone: one row of chips under search, while the pill under the header speaks for the
+   views without that list (the dashboard). */
+@media (max-width: 1099px) {
+  #acct-filter:not([hidden]) { display: flex; flex: none; gap: 6px; padding: 0 16px 10px; }
+  #acct-filter :is(hr, .menu-sec, .acct-dot.none, .acct-all) { display: none; }
+  #acct-filter .acct-opt { display: inline-flex; align-items: center; flex: none; gap: 5px; min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; white-space: nowrap; color: var(--fg); }
+  #acct-filter .acct-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  body:has(#sessions:not([hidden])) .acct-pill { display: none; }
+}
 #sb-head #more-menu { margin-left: auto; }
 #app.rail :is(#sb-head #more-menu, .acct-pill) { display: none; }
 /* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third
@@ -934,18 +983,32 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .acct-strip.more-r { mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
 .acct-strip.more-l { mask-image: linear-gradient(90deg, transparent, #000 36px); }
 .acct-strip.more-l.more-r { mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
-/* The wide dashboard: one row of capped meters, wrapping only when they don't fit. Each
-   group's chip is lifted out of the flow, centred over its meters: on the first row that is
-   the card's heading line (clear of the title and Details on either side), on a wrapped
-   row the gap above it, so the labels cost no height of their own. */
-.usage-groups { display: flex; flex-wrap: wrap; align-items: flex-start; row-gap: 48px; font-size: 13px; line-height: 18px; }
-.ug { position: relative; padding: 0 22px; border-left: 1px solid var(--line); }
-.ug:first-child { padding-left: 0; border-left: 0; }
-.ug-label { position: absolute; bottom: calc(100% + 17px); left: 50%; translate: -50%; max-width: 100%; display: flex; font-size: 12px; color: var(--muted); cursor: default; }
+/* The wide dashboard: every account's meters on one line, never wrapped. Each group is
+   headed by its account's chip, in flow and flush left over its first chart, with one thin
+   divider between groups. A group grows by its meter count, so the charts share the line
+   evenly down to 130px each; past that the line scrolls, as the phone's strip does. */
+.usage-groups { display: flex; gap: 0 33px; align-items: flex-start; font-size: 13px; line-height: 18px; }
+.ug { position: relative; flex: var(--n) 1 0; display: flex; flex-direction: column; gap: 8px; scroll-snap-align: start; }
+.ug + .ug::before { content: ""; position: absolute; inset: 0 auto 0 -17px; border-left: 1px solid var(--line); }
+.ug-label { display: flex; font-size: 12px; color: var(--muted); cursor: default; }
 .ug-label .acct-badge { pointer-events: none; } /* hover reads the label's fuller tooltip, not the chip's */
-.ug-cells { display: flex; gap: 20px; }
-.ug-cells .usage-cell { flex: 0 0 180px; }
+.ug-cells { display: flex; gap: 12px; }
+.ug-cells .usage-cell { flex: 1 1 0; min-width: 130px; }
 .ug-cells .usage-spark { height: 56px; margin-top: 6px; }
+/* The usage view, wide: one grid of equal columns for every chart, so they line up from row
+   to row. Each group spans its meter count, its own columns shared with the grid (subgrid),
+   and its chip on a row of its own; dense packing lets a one-meter group fill a gap beside
+   another. Where a group has more meters than the grid has columns, it spans what there is
+   and wraps within it, still on the same columns. */
+.usage-view { container-type: inline-size; }
+.usage-view .usage-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-flow: row dense; gap: 40px 24px; }
+.usage-view .ug { grid-column: span var(--n); display: grid; grid-template-columns: subgrid; align-content: start; gap: 12px 24px; }
+.usage-view .ug::before { display: none; }
+.usage-view .ug-label { grid-column: 1 / -1; }
+.usage-view .ug-cells { display: contents; }
+.usage-view .ug-cells .usage-spark { height: 96px; }
+@container (max-width: 827px) { .usage-view .ug { grid-column: span min(var(--n), 2); } } /* 3 x 260px + 2 gaps */
+@container (max-width: 543px) { .usage-view .ug { grid-column: span 1; } }
 /* New window's picker and the Accounts dialog. */
 .acct-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 6px; }
 .acct-pick button { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 12px; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }

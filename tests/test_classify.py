@@ -534,6 +534,29 @@ def test_agents_count_only_observed_busy_workers():
     assert r["agents"] == 2
 
 
+def test_workflow_row_is_read_from_the_agent_list():
+    # The row is chrome, read in code: it replaces the model's mangled read of it (the bar
+    # as a label) and counts as one running worker beside the agent rows.
+    screen = _sample("91_claude_workflow_row_in_agent_list")
+    subs = [{"label": "Review docs-sweep output", "state": "running"},
+            {"label": "▰▰▰▱▱ 1/2", "state": "running"}, {"label": "docs-sweep"}]
+    r = classify(_pane(), screen, _llm({"tool": "claude", "subagents": subs}))
+    assert r["subagents"] == [subs[0], {"label": "docs-sweep", "state": "running",
+                                        "progress": "1/2", "elapsed": "3m37s", "tokens": "109.1k"}]
+    assert r["agents"] == 2
+    empty = screen.replace("▰", "▱").replace("1/2 ·", "0/2 ·")  # a 0/N bar is all ▱
+    subs[1] = {"label": "▱▱▱▱▱ 0/2", "state": "running"}
+    assert classify(_pane(), empty, _llm({"tool": "claude", "subagents": subs}))["agents"] == 2
+    done = screen.replace("1/2 ·", "2/2 ·").replace("○", "◯") + "\n  ↓ 2 more"  # either circle
+    assert classify(_pane(), done, _llm({"tool": "claude"}))["subagents"][0]["state"] == "done"
+    # Only Claude's own agent list: a quoted row, or a shell printing one, gains no worker.
+    quoted = screen.replace(" ●  main\n", "")
+    assert "subagents" not in classify(_pane(), quoted, _llm({"tool": "claude"}))
+    head, sep, block = screen.partition(" ●  main\n")  # the whole list quoted above the box
+    assert "subagents" not in classify(_pane(), sep + block + "\n" + head, _llm({"tool": "claude"}))
+    assert "subagents" not in classify(_pane(), screen, _llm({"tool": "shell"}))
+
+
 def test_agents_count_defaults_zero_without_subagents():
     assert classify(_pane(), "…", _llm({"activity": "running"}))["agents"] == 0
     # A non-list subagents (model glitch) must not leak through as a count.
@@ -1038,9 +1061,33 @@ def test_cursor_search_binding_requires_visible_footer_evidence():
         assert result["question"]["keymap"]["search"] is expected
 
 
+def test_menu_without_a_digit_row_is_answered_as_text():
+    for capture, prompt in (("Continue? [y/N] ", "Continue?"),
+                            ("1. Built\n2. Tested\nContinue? [y/N] ", "Continue?"),
+                            ("1. Continue? [y/N] ", "1. Continue?")):  # its own row: none below
+        result = classify(_pane(), capture, _llm({"question": {
+            "prompt": prompt, "answer_style": "menu", "options": ["Yes", "No"]}}))
+        assert result["question"]["answer_style"] == "text"
+        assert "options" not in result["question"]  # "Yes" + Enter is no answer to [y/N]
+    # An older copy of the prompt, or none at all, vouches for nothing.
+    for screen, prompt in (("Continue?\n1. Yes\n2. No\n1. Built\nContinue? [y/N] ", "Continue?"),
+                           ("1. Built\nReally? [y/N] ", "Continue?")):
+        result = classify(_pane(), screen, _llm({"question": {
+            "prompt": prompt, "answer_style": "menu", "options": ["Yes", "No"]}}))
+        assert result["question"]["answer_style"] == "text"
+    # An option that repeats the question, on its row or wrapped below it, is no prompt.
+    for screen in ("1. Repeat “Which action?”\n2. Stop", "1. Repeat\n   Which action?\n2. Stop",
+                   "1. Stop\n2. Repeat\n   Which action?",
+                   "│ 1. Stop\n│ 2. Repeat\n│    Which action?"):  # boxed
+        result = classify(_pane(), f"Which action?\n{screen}", _llm({"question": {
+            "prompt": "Which action?", "answer_style": "menu", "options": ["Repeat", "Stop"]}}))
+        assert result["question"]["answer_style"] == "menu"
+
+
 def test_menu_command_becomes_context_not_paste_action():
-    result = classify(_pane(), "Allow?\ngit apply patch.diff", _llm({
-        "question": {"prompt": "Allow?", "answer_style": "menu", "options": ["Yes", "No"]},
+    # A cursor picker: a numbered menu would read the command as its widget's context.
+    result = classify(_pane(), "Allow?\ngit apply patch.diff\n❯ Yes\n  No", _llm({
+        "question": {"prompt": "Allow?", "answer_style": "cursor", "options": ["Yes", "No"]},
         "copyables": [{"label": "Command", "text": "git apply patch.diff"}],
     }))
     assert "copyables" not in result
@@ -1080,6 +1127,9 @@ def test_menu_context_is_read_off_its_own_widget():
     """The bare "Do you want to proceed?" gets the widget's rows (tool, description,
     command, blocking notice); the samples pin each layout's exact string end to end."""
     def ask(capture, prompt, style="menu", **extra):
+        if style == "menu" and not classify_mod._FIRST_OPTION_RE.search(capture):  # digits
+            last = capture.rsplit("\n", 1)[-1]
+            capture += "\n" + last[:len(last) - len(last.lstrip())] + "1. Yes"
         return classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
             "prompt": prompt, "answer_style": style, "options": ["Yes", "No"], **extra}}))
     proceed, run = "Do you want to proceed?", "Would you like to run the following command?"
@@ -1117,6 +1167,9 @@ def test_menu_context_is_read_off_its_own_widget():
     box = "\x1e[visible screen]\x1f\n╭────╮\n│ echo a │ │\n│ Go?      │\n│ 1. Yes   │\n╰────╯"
     assert ask(box, "Go?")["question"]["context"] == "echo a │"
     assert ask(nested.replace(" EOF\n", " EOF │\n"), "Go?")["question"]["context"].endswith("EOF │")
+    # A prompt sentence opening a longer row keeps the rest of that row as context.
+    runon = "\x1e[visible screen]\x1f\n───\n Bash command\n\n Go? This deletes /srv/data\n 1. Yes"
+    assert ask(runon, "Go?")["question"]["context"] == "Bash command\n\nThis deletes /srv/data"
     # The edge may sit a full 16 rows above the prompt's own row.
     edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
     assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"
