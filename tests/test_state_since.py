@@ -200,6 +200,12 @@ def test_a_parse_read_before_an_answer_cannot_put_its_question_back(monkeypatch)
     w._forced_this_tick = {pane.id}
     stale = w._tick_pane(pane)
     assert stale["question"] is None and stale["state_since"] == 1001.0
+    # The same prompt over another command is a new ask, even off an early capture.
+    state[0] = {**asking, "question": {"prompt": "Trust this folder?", "context": "rm -rf x"}}
+    frame[0] = "another dialog"
+    w._forced_this_tick = {pane.id}
+    assert w._tick_pane(pane)["question"]["context"] == "rm -rf x"
+    state[0] = asking
     clock[0], frame[0] = 1002.0, "a new ask"  # read after it: the parse stands
     w._forced_this_tick = {pane.id}
     assert w._tick_pane(pane)["question"] == {"prompt": "Trust this folder?"}

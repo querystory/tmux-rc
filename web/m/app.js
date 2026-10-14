@@ -124,7 +124,7 @@ let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
-// Answers tapped and not yet reflected, per pane (pane id -> { key, option, note }): the
+// Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
 // sidebar can answer several panes inside one hold, and each keeps its own.
 const pendingAnswers = new Map();
 // Per-line nodes under #capture, in document order; each caches the markup last written
@@ -329,7 +329,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, asks, badgeOf, answer, compose,
+  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose,
   setFilter: (value) => { filter = value; stayPut(); }, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
@@ -782,7 +782,7 @@ function render() {
     return button;
   }, (button, option) => {
     button._option = option; text(button, option.option); button.disabled = sending || !!answered;
-    button.classList.toggle("picked", answered?.option === option.option); // a walk renumbers rows
+    button.classList.toggle("picked", picked(pane, option));
   });
   renderTasks(pane);
   renderRichContent(pane);
@@ -1142,6 +1142,12 @@ function isAnswered(pane) {
 }
 // Whether a pane reads as Needs you: not while a tapped answer holds it. Its card keeps its
 // place (group, filter, list slot) for the hold, so the spinner stays under the finger.
+// Whether option `o` is the tapped one: its row by text, since a walk renumbers the list,
+// and by index too where two rows share the text.
+function picked(pane, o) {
+  const pending = isAnswered(pane), named = answerOptions(pane.question).filter((x) => x.option === o.option);
+  return pending?.option === o.option && (pending.index === o.index || named.length === 1);
+}
 function asks(pane) { return needsYou(pane) && !isAnswered(pane); }
 // A pane's status badge: "Sent" while a tapped answer holds it, never "Needs you".
 function badgeOf(pane) {
@@ -1152,7 +1158,7 @@ function badgeOf(pane) {
 async function answer(id, option, index) {
   const current = panes.find((p) => p.pane_id === id);
   if (!current?.question || !needsYou(current) || isAnswered(current) || sending) return;
-  const pending = { key: questionKey(current.question), option, note: "Sending…" };
+  const pending = { key: questionKey(current.question), option, index, note: "Sending…" };
   pendingAnswers.set(id, pending); render();
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk

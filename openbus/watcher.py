@@ -262,15 +262,6 @@ def _server_alive(server: str, current: str) -> bool:
     return True
 
 
-def _drop_question(state: dict | None, prompt: str) -> bool:
-    """Take the answered question asking `prompt` off a card (Watcher.drop_question)."""
-    q = (state or {}).get("question")
-    if isinstance(q, dict) and q.get("prompt") == prompt:
-        state.update(question=None, activity="running", waiting_on=None)
-        return True
-    return False
-
-
 class Watcher:
     """Holds current pane state + snapshot history, refreshed by an async loop."""
 
@@ -298,7 +289,7 @@ class Watcher:
         self._input_generation: dict[str, int] = {}
         self._input_generation_lock = threading.Lock()
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
-        self._dropped: dict[str, tuple] = {}  # pane_id -> (prompt, when) drop_question took
+        self._dropped: dict[str, tuple] = {}  # pane_id -> (asks, when) drop_question took
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
         # the pending-question identity changes, NOT on cosmetic content churn. The client
@@ -590,9 +581,11 @@ class Watcher:
         old dialog cannot put it back; a different question is never touched."""
         with self._publish_lock:
             now = time.time()
-            self._dropped[pane_id] = prompt, now
             shown = (s for s in self.states if s.get("pane_id") == pane_id)
-            dropped = [s for s in (self._state.get(pane_id), *shown) if _drop_question(s, prompt)]
+            cards = [s for s in (self._state.get(pane_id), *shown) if s]
+            asked = {self._pending_key(s)[1:] for s in cards if self._question_prompt(s) == prompt}
+            self._dropped[pane_id] = asked, now
+            dropped = [s for s in cards if self._drop_question(s, asked)]
             if dropped:  # the clock in the new state starts at the answer, not the next parse
                 since = self._state_since_for(pane_id, dropped[0], now)
                 for s in dropped:
@@ -834,6 +827,15 @@ class Watcher:
         q = state.get("question") if isinstance(state.get("question"), dict) else {}
         return (state.get("activity"), Watcher._question_prompt(state), q.get("context"),
                 tuple(q.get("items") or ()))
+
+    @staticmethod
+    def _drop_question(state: dict | None, asked: set) -> bool:
+        """Take an answered question off a card (drop_question): one whose prompt, context
+        and items are in `asked`, so a new ask under the same prompt is untouched."""
+        if state and Watcher._pending_key(state)[1:] in asked:
+            state.update(question=None, activity="running", waiting_on=None)
+            return True
+        return False
 
     @staticmethod
     def _deck_fp(states: list[dict]) -> str:
@@ -1546,8 +1548,8 @@ class Watcher:
         # reparse has actually landed — so it can stop spinning the answered control.
         state["parsed_at"] = now
         with self._publish_lock:  # read off a capture older than an answer: that answer holds
-            prompt, at = self._dropped.get(pane.id, (None, 0))
-            if now < at and _drop_question(state, prompt):
+            asked, at = self._dropped.get(pane.id, ((), 0))
+            if now < at and self._drop_question(state, asked):
                 self._state_since_for(pane.id, state, now)  # re-keyed to the answered state,
                 self._state_since[pane.id] = state["state_since"] = at  # entered at the answer
             self._state[pane.id] = state

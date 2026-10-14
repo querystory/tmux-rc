@@ -268,7 +268,8 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     are moved there and back (one element each), not duplicated."""
     root = Path(__file__).resolve().parents[1] / "web/m"
     app, side = (root / "app.js").read_text(), (root / "sidebar.js").read_text()
-    assert "answers: answerOptions, answered: isAnswered, asks, badgeOf, answer, compose" in app
+    assert ("answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, "
+            "compose") in app
     assert 'reconcile($("options"), answerOptions(question)' in app
     assert 'compose(active, $("secret").hidden ? draft() : $("secret"))' in app
     assert "await ctx.compose(id, value)" in side
