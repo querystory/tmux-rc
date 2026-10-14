@@ -91,7 +91,9 @@ def test_recycled_pane_never_receives_a_stale_click(monkeypatch):
 
 
 @pytest.mark.parametrize("sent", [False, True])
-def test_click_endpoint_canonicalizes_and_reparses_only_sent_clicks(monkeypatch, sent):
+def test_click_endpoint_canonicalizes_and_always_reparses(monkeypatch, sent):
+    """A click moves the input generation on before it knows whether the app takes it, so
+    even one that sends nothing must reparse: only a fresh parse reissues menu tokens."""
     from types import SimpleNamespace
     from unittest.mock import Mock
 
@@ -100,7 +102,7 @@ def test_click_endpoint_canonicalizes_and_reparses_only_sent_clicks(monkeypatch,
     from openbus.server import app
 
     click = Mock(return_value=sent)
-    watcher = SimpleNamespace(request_reparse=Mock())
+    watcher = SimpleNamespace(request_reparse=Mock(), invalidate_input_actions=Mock())
     monkeypatch.setattr(T, "find_pane", lambda _alias: SimpleNamespace(id="%7", pid="42"))
     monkeypatch.setattr(T, "click", click)
     monkeypatch.setattr(app.state, "watcher", watcher, raising=False)
@@ -109,7 +111,8 @@ def test_click_endpoint_canonicalizes_and_reparses_only_sent_clicks(monkeypatch,
     assert response.status_code == 200
     assert response.json() == {"sent": sent}
     click.assert_called_once_with("%7", 2, 4, expected_pid="42", expected_frame="a" * 32)
-    assert watcher.request_reparse.call_args_list == ([(("%7",), {})] if sent else [])
+    assert watcher.invalidate_input_actions.call_count == 2  # before and after delivery
+    watcher.request_reparse.assert_called_once_with("%7")
 
 
 @pytest.mark.parametrize(("failure", "status"), [("missing", 404), ("gone", 404),

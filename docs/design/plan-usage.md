@@ -27,7 +27,24 @@ sweep started late in a window can burn the last 30% before the line catches up,
 is where that remainder gets small enough to matter. Lower and a steady week's ordinary
 pace would keep the strip up most of the time, which is what Auto exists to avoid. An
 account that can't be read drops out under Auto too, because there is nothing to act on.
-The desktop sidebar has no "…" menu and room to spare, so it keeps every meter.
+The desktop sidebar has room to spare, so it keeps every meter, and the same setting is
+one switch in its ☰ menu, "Plan usage", that is On (Auto and On, since every meter shows) or
+Off. It is the one setting rather than a second, desktop-only one, so a browser that crosses
+the breakpoint never shows a strip its other layout was told to hide; someone paying per
+token, with no plan limits at all, turns it off once.
+
+The strip's top edge is a seam, as the fleet chart's is: dragged taller, each trend takes
+the height and, a row per hundred pixels, several accounts' strip stacks more rows of
+meters while still swiping sideways, so a tall strip shows more meters rather than just
+bigger ones. The height is per browser, like the sidebar's width, and a double-click
+restores the natural one. Dragged under one row it closes, which sets the switch Off with
+an Undo in the notice, rather than snapping back with a hint. Snapping back fights a
+gesture that plainly meant "away", and a zero height would hide the strip somewhere the
+menu does not show, so the switch is the only place hidden can live.
+
+The meters wait for the accounts before they first draw. Drawn before them, several
+accounts' meters had no strip to fold into yet and stood for a moment as a tall grid
+reaching up the sidebar, then collapsed into their row.
 
 ### The dashboard panel
 
@@ -40,12 +57,52 @@ sidebar, opens the dashboard at that panel rather than a sheet of its own, so th
 larger view to maintain and it sits beside the fleet history it is usually read against.
 Tapping the panel opens it up: wider trends (one to a row on a phone, two on desktop), the clock times behind each
 countdown, and the pace's forecast as a number. Those come from the same response the strip
-draws, so the detail costs no request. A longer range was considered and left out: samples
-are pruned to eight days (see Polling and storage), enough for the current weekly window and
-no more, so a range past the last reset would mean keeping history nothing else reads.
+draws, plus each window's history.
+
+### Past windows
+
+"Am I using more than last week?" and "how often do I hit the 5h wall?" need the windows
+before this one, so each meter in the view steps back through its last twelve ended
+windows, with arrows in its corner or a sideways swipe on its chart. A past window is drawn
+by the same trend and says how it ended: "ended at 74%", or "hit the limit Tue 12:44 AM" in
+red, with its dates. The current window stays the default, and a refresh keeps the window
+being read. Paging was chosen over a strip of past peaks: a peak alone cannot tell a
+steady week from one that idled and then burst into the wall, and the curve can, at no
+cost in new chart code.
+
+Only the view asks for them (`/api/usage?past=1`): the strip polls the same endpoint every
+minute, and a dozen weeks of trends on every poll would multiply a phone's traffic for a
+view it rarely opens. The read is bounded by windows, not time: it reaches back to the
+twelfth-last reset, however long ago (a 5h window opens only on use, so a lightly used
+account's twelve can span months), and so it does not slow down as the history grows. Windows are told apart by their reset time rather than stored as
+records, so nothing new is written; a reset that moves by an hour or less between reads is
+the same window, since no two windows reset closer than five hours apart.
+
+Wide, the view groups the meters by account, as the card does: each account's charts sit
+side by side under its chip, and an account never splits across rows. A flat two-column grid
+interleaved them, one account's 7d Fable beside another's 5h. Every chart sits on one grid
+of equal columns (at least 260px). Each group spans its chart count and shares the grid's
+columns, so charts line up from row to row. A one-chart group such as Codex fills a gap
+beside another group. Groups that each sized their own row did not line up: a line with a
+three-chart and a one-chart group drew narrower charts than a line with one group. The
+phone keeps one column, each chart carrying its chip.
 
 The sidebar strip stays. It is the only place the limits show while a pane is open, and both
 draw from one renderer (`renderUsage`), so the panel is a size and a flag, not a copy.
+
+### Usage over time: the heatmap instead (#377)
+
+Issue #377 proposed keeping usage history long term and charting burn against running
+agents, to answer what a busy day costs. The mocks tried hand-drawn line and scatter charts
+of exactly that, and a heatmap of hour of day by date. **The heatmap was chosen and the
+burn charts were not built**: it shipped as the dashboard's Running by hour card and its own
+view (#378), drawn from pane history, which is kept for good. The hand-drawn charts were
+rejected as janky next to the app's own charts, and each would have been one more bespoke
+chart to maintain. So what the heatmap shows is when agents run, not what they cost: usage
+history is kept (thinned to hourly after eight days, below), but nothing draws burn from it
+yet, and cost per agent-hour, burn by tool and the "will this burst hit a limit" question
+stay open under #377. The dashboard as a whole is
+recorded in [its layout](dashboard-layout.md).
 
 ## Accounts, not providers
 
@@ -122,9 +179,17 @@ Claude endpoint is called at most every five minutes per account, which is gentl
 undocumented endpoint and fine for windows measured in hours. Samples go into the existing
 history database (a `plan_usage` table keyed by provider, account, window and time) rather
 than a new store, so the trend survives restarts under the same permissions and migrations
-as the fleet chart. Unlike pane history, it is pruned to eight days (the longest window
-plus a day): only a current window is ever drawn, and a minute-level poll per account
-would otherwise grow without use. The UI fetches `/api/usage` once a minute; it is a separate endpoint,
+as the fleet chart. Raw samples are kept for eight days (the longest window plus a day), so
+a current window's trend and projection see every poll. Past that they are thinned to the
+last sample of each hour, per window, rather than deleted: an hour is fine enough to see
+how a past window climbed and when it hit the limit, and keeps a year to about eleven
+thousand rows per meter (8,500 hourly ones, plus eight days of five-minute ones). Old
+samples of a window not yet opened are dropped: they say only "0%", and no past window can
+be drawn from them. The hour is split by window as well, so the final reading of a
+window that reset mid-hour survives, and its first sample at the limit is kept rather than
+its last, so "hit the limit" keeps the time it was hit. Thinning scans every old row, so it runs once an hour,
+not on every poll. The long history is also the base for correlating burn with running
+agents (#377). The UI fetches `/api/usage` once a minute; it is a separate endpoint,
 not part of the `/api/state` long-poll, because that one returns on every pane change.
 
 ## Projection

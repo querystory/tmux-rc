@@ -77,13 +77,13 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import accounts, agent_history, expunge, telemetry, tmux  # noqa: E402
-from .classify import picker_digest, picker_read  # noqa: E402
+from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import PlanUsage  # noqa: E402
-from .push import PushManager  # noqa: E402
+from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
@@ -181,6 +181,7 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+    question: str | None = None  # a menu answer's question fingerprint (its `fp`)
     # A cursor walk's step: the picker digest of the frame it was computed from (classify's
     # `picker`) and the prompt that locates that picker. Sent only to that very screen.
     picker: str | None = None
@@ -652,10 +653,11 @@ def put_goal(body: GoalBody, request: Request):
 
 
 @app.get("/api/usage")
-def get_usage():
-    """Each Claude and Codex account's plan windows, trend and projection."""
+def get_usage(past: bool = False):
+    """Each Claude and Codex account's plan windows, trend and projection; with ?past=1,
+    each window's ended predecessors too (the usage view's history)."""
     usage = getattr(app.state, "usage", None)
-    return {"accounts": usage.report() if usage else []}
+    return {"accounts": usage.report(past=past) if usage else []}
 
 
 @app.get("/api/open-loops")
@@ -688,6 +690,18 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
     version = w.state_version()
     panes = [dict(s) for s in w.states]
+    # Each question carries what a push nonce binds: its contract digest and the input
+    # generation its parse captured, plus that parse's frame. A menu answer names all
+    # three, and /send refuses it once the pane holds a different ask, has taken input
+    # since (a double tap, a second client, a refetch before the reparse lands), or shows
+    # a different screen (advanced from the keyboard, its parse not yet published).
+    # Menu questions only: no other answer sends it, and a changed fp would re-enable an
+    # answered text card's buttons (app.js pendingAnswers) before its reply has landed.
+    for s in panes:
+        if isinstance(s.get("question"), dict) and s["question"].get("answer_style") == "menu":
+            fp = ":".join((contract(s, s.get("birth"))[0],
+                           str(s.get("input_generation", 0)), s.get("frame", "")))
+            s["question"] = {**s["question"], "fp": fp}
     return {
         "version": version,  # echo so the client re-holds on the next value
         "stale": w.is_stale(),
@@ -910,14 +924,18 @@ def _emit_live_round(
         logger.debug("live emit failed", exc_info=True)
 
 
-def _invalidate_input_actions(pane_id: str) -> None:
-    """Invalidate push actions before competing for the pane's send lock."""
-    watcher = getattr(app.state, "watcher", None)
-    if watcher is None:
-        return
-    invalidate = getattr(watcher, "invalidate_input_actions", None)
-    if invalidate is not None:
-        tmux.before_send(pane_id, lambda: invalidate(pane_id))
+def _pane_input(pane_id: str, *, invalidate: bool = True, watcher=None):
+    """push.pane_input on the app's watcher unless one is given."""
+    return pane_input(watcher or getattr(app.state, "watcher", None), pane_id,
+                      invalidate=invalidate)
+
+
+def _input_attempt(pane_id: str, deliver: Callable, *args, watcher=None):
+    """deliver(*args) inside _pane_input, synchronously: run it in a worker thread whole.
+    Cancelling an await does not stop the thread behind it, so a context held around
+    `await asyncio.to_thread(...)` would reparse while the delivery is still typing."""
+    with _pane_input(pane_id, watcher=watcher):
+        return deliver(*args)
 
 
 @app.post("/api/panes/{pane_id}/send")
@@ -942,7 +960,15 @@ def send(pane_id: str, body: SendBody, request: Request):
             outcome="rejected: pane not found",
         )
         raise HTTPException(404, "pane not found")
-    _invalidate_input_actions(pane.id)
+    # A menu digit means nothing on its own: the "1" that said Yes to one ask says Yes to
+    # whatever replaced it. So a menu answer names its question, claimed under the send
+    # lock exactly as a push action is.
+    w, fp = app.state.watcher, body.question
+    birth = w.pane_birth(pane.id) if fp else None  # the incarnation the question names
+
+    def claim() -> None:
+        digest, generation, frame = fp.split(":")  # a malformed token: ValueError, 409
+        claim_question(w, pane.id, digest, int(generation), frame)
 
     def same_picker() -> None:
         # The whole guard on a cursor walk, under the send lock: the picker, from its
@@ -963,13 +989,15 @@ def send(pane_id: str, body: SendBody, request: Request):
             raise tmux.PaneChangedError(msg)
 
     try:
-        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
-                       guard=None if body.picker is None else same_picker)
+        with _pane_input(pane.id, invalidate=not fp):  # a menu answer's claim bumps it
+            tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
+                           expected_pid=birth,
+                           guard=claim if fp else None if body.picker is None else same_picker)
     except Exception as e:
         # Keys refused at a password prompt are probably the password: never recorded.
         keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
         _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
-        if isinstance(e, tmux.PaneChangedError):
+        if isinstance(e, (tmux.PaneChangedError, ValueError)):
             # The watcher reuses a card while its fingerprint holds, and that ignores
             # repaints (a timer, a cost) the picker digest counts: reread, so a refused
             # walk can go again on the next parse instead of staying refused.
@@ -977,13 +1005,12 @@ def send(pane_id: str, body: SendBody, request: Request):
             raise HTTPException(409, str(e)) from e
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)
-    # Input changes the screen — force an immediate re-parse so an answered question /
-    # closed menu reflects on the card within a capture, not a poll interval later. The
-    # canonical id again: the watcher matches this set against pane.id, so a request
-    # queued under an alias would simply never fire and the card would go stale until the
-    # next poll.
-    app.state.watcher.request_reparse(pane.id)
-    return {"ok": True} if body.picker is None else {"ok": True, **_picker_after(pane.id, body)}
+    # A walk's step forces a second reparse once /send has read the redraw back: the one
+    # pane_input forced as the key was queued can read the answered dialog still up.
+    after = {} if body.picker is None else _picker_after(pane.id, body)
+    if after:
+        w.request_reparse(pane.id)
+    return {"ok": True, **after}
 
 
 def _picker_after(pane_id: str, body: SendBody) -> dict:
@@ -995,11 +1022,23 @@ def _picker_after(pane_id: str, body: SendBody) -> dict:
     for _ in range(PICKER_SETTLE_POLLS):
         time.sleep(PICKER_SETTLE_S)
         try:
-            read = picker_read(tmux.capture_pane(pane_id, mark_dim=True), body.prompt)
+            screen = tmux.capture_pane(pane_id, mark_dim=True)
         except subprocess.CalledProcessError:  # the pane closed: nothing to read
             return {"picker": None, "row": None}
+        read = picker_read(screen, body.prompt)
         if not read or read[0] != body.picker:  # redrawn, or the picker is gone
             break
+    # Answered and erased: the card leaves Needs you now, not a model parse later. Gone
+    # from two frames apart, so a repaint caught blank in between does not count.
+    if not read and prompt_gone(screen, body.prompt):
+        time.sleep(PICKER_SETTLE_S * 3)
+        try:
+            screen = tmux.capture_pane(pane_id, mark_dim=True)
+        except subprocess.CalledProcessError:  # closed: its card is going anyway
+            return {"picker": None, "row": None}
+        read = picker_read(screen, body.prompt)  # repainted: the walk goes on from this
+        if not read and prompt_gone(screen, body.prompt):
+            app.state.watcher.drop_question(pane_id, body.prompt)
     return {"picker": read and read[0], "row": read and read[1]}
 
 
@@ -1009,12 +1048,9 @@ def click(pane_id: str, body: ClickBody, request: Request):
     them (tmux.click). `sent: false` is a normal answer — the tap landed on a shell, or
     on history — so the client just lets it be a tap."""
     def deliver(pane: tmux.Pane) -> bool:
-        _invalidate_input_actions(pane.id)
-        sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid,
-                          expected_frame=body.frame)
-        if sent:
-            app.state.watcher.request_reparse(pane.id)
-        return sent
+        with _pane_input(pane.id):
+            return tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid,
+                              expected_frame=body.frame)
     return {"sent": _mouse("click", pane_id, f"from_bottom={body.from_bottom} col={body.col}",
                            request, deliver)}
 
@@ -1608,7 +1644,6 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
             raise HTTPException(409, str(error)) from error
         raise
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
-    app.state.watcher.request_reparse(pane.id)
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
 
@@ -1620,13 +1655,14 @@ async def attach_image(
     delivery path for the pane composer's endpoint and Live Chat's send_image_to_pane.
     With a caption (even ""), the image, the caption and the submitting Enter go in as one
     composer draft under a single pane lock, so no other sender can land between them."""
-    _invalidate_input_actions(pane_id)
     path = _stage_image(data, mime)
     # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
     if caption is None:
-        return path, await asyncio.to_thread(_deliver_image, pane_id, data, path, expected_pid)
+        return path, await asyncio.to_thread(
+            _input_attempt, pane_id, _deliver_image, pane_id, data, path, expected_pid)
     segments = [(data, path), *([caption] if caption else [])]
-    return path, await asyncio.to_thread(_deliver_composer, pane_id, expected_pid, segments)
+    return path, await asyncio.to_thread(
+        _input_attempt, pane_id, _deliver_composer, pane_id, expected_pid, segments)
 
 
 def _stage_image(data: bytes, mime: str) -> str:
@@ -1709,14 +1745,13 @@ async def _compose(pane_id: str, request: Request):
         raise HTTPException(400, "send a draft or a secret")
     if not (secret or "").isprintable():  # a newline or ^D would end the read early,
         raise HTTPException(400, "a password is printable text")  # the rest run as input
-    _invalidate_input_actions(pane.id)
     if secret:
-        await asyncio.to_thread(tmux.send_secret, pane, secret)
+        await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
     else:
-        await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
+        await asyncio.to_thread(
+            _input_attempt, pane.id, _deliver_composer, pane.id, pane.pid, segments)
     _audit(request, "compose", pane_id,
            detail="secret" if secret else f"{len(segments)} segments")
-    app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 
 
