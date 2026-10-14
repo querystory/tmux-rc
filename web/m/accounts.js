@@ -17,6 +17,23 @@ const LEAD = /^\s*(?:[A-Za-z_]\w*=\S*\s+)*/; // the line's leading VAR=value wor
 // Where a browser `codex login` is finished from afar: the sheet's waiting step and the
 // sign-in pane's own card both offer it (server: /api/accounts/login/callback).
 const pasteForm = (id, value = "") => `<label for="${id}">Paste the address your browser ended up on</label><div class="acct-paste"><input id="${id}" value="${esc(value)}" placeholder="http://127.0.0.1:1455/auth/callback?code=…" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" data-callback ${value.trim() ? "" : "disabled"}>Finish</button></div>`;
+// The line in words as the server's shlex.split reads it: quotes and backslashes, and null
+// for one left open, so the sheet refuses exactly what the server would.
+export const shellWords = (s) => {
+  const out = []; let word = null, q = "";
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q === "'") { if (c === "'") q = ""; else word += c; continue; }
+    if (c === "\\" && (!q || '"\\$`'.includes(s[i + 1]))) { if (i + 1 >= s.length) return null; word = (word ?? "") + s[++i]; continue; }
+    if (q === '"') { if (c === '"') q = ""; else word += c; continue; }
+    if (/\s/.test(c)) { if (word !== null) out.push(word); word = null; continue; }
+    word ??= "";
+    if (c === "'" || c === '"') q = c; else word += c;
+  }
+  if (q) return null;
+  if (word !== null) out.push(word);
+  return out;
+};
 const setCmd = (p, v) => { cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
@@ -279,11 +296,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const device = () => /(^|\s)--device-auth(\s|$)/.test(lineOf());
   // What the server would refuse: another dir or variable, or another program.
   const lineError = () => {
-    const line = lineOf(), env = line.match(LEAD)[0].trim().split(/\s+/).filter(Boolean), v = ENV[F.provider];
+    const words = shellWords(lineOf()), v = ENV[F.provider];
+    if (!words) return "A quote or a backslash is left open";
+    const n = words.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w)), env = n < 0 ? words : words.slice(0, n);
     const p = byDir(F.dir), bin = LOGIN[F.provider].split(" ")[0];
     if (env.length !== 1 || !env[0].startsWith(`${v}=`) || ![F.dir, p?.dir, p?.tilde].filter(Boolean).map(norm).includes(norm(env[0].slice(v.length + 1))))
       return `Must stay ${v}=${p?.tilde || F.dir}`;
-    return line.slice(line.match(LEAD)[0].length).split(/\s+/)[0] === bin ? "" : `Must run ${bin}`;
+    return words[env.length] === bin ? "" : `Must run ${bin}`;
   };
   const fail = (error) => { F.error = error.detail || "That did not work. Try again."; render(); };
   const typed = (id) => { const at = dlg.querySelector(`#${id}`).selectionStart; render(); const i = dlg.querySelector(`#${id}`); i.focus(); i.setSelectionRange(at, at); };

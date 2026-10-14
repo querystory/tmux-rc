@@ -169,10 +169,10 @@ def replay_codex_callback(path: str) -> tuple[int, str] | None:
         same = (not u.netloc or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
                                  and u.port == CODEX_CALLBACK_PORT))
         if 300 <= status < 400 and same and u.path.startswith("/") and not u.path.startswith("//"):
-            with contextlib.suppress(OSError):
+            with contextlib.suppress(OSError, http.client.HTTPException):
                 _get_local(u.path + (f"?{u.query}" if u.query else ""))
         return status, text
-    except OSError:
+    except (OSError, http.client.HTTPException):  # nothing there, or no HTTP spoken
         return None
 
 
