@@ -1212,13 +1212,19 @@ def account_login(body: SignInBody, request: Request):
                 f"The sign-in command must run {' '.join(default)}")
     if why := _unavailable(argv[0], tmux.server_path()):
         _refuse(request, "account_login", body.dir[:120], 400, why)
+    device = "--device-auth" in argv
+    # A browser `codex login` listens on one fixed port: a second could not take callbacks.
+    if profile["provider"] == "codex" and not device and any(
+            e["codex"] and not e["device"] for _, e in _live_sign_ins()):
+        _refuse(request, "account_login", body.dir[:120], 409, "A browser sign-in to Codex is "
+                "already open. Finish or close it first, or use a device code.")
     pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
                               accounts.command(profile["provider"], profile["dir"], argv))
     _audit(request, "account_login", pane_id, f"dir={body.dir[:120]!r}")
     pid = tmux.pane_pid(pane_id) or ""
     _SIGN_IN.pop(pane_id, None)  # a recycled id goes last, as the newest window
     _SIGN_IN[pane_id] = {"pid": pid, "dir": profile["dir"], "codex": profile["provider"] == "codex",
-                         "device": "--device-auth" in argv, "session": body.session}
+                         "device": device, "session": body.session}
     return {**_opened(pane_id), "pid": pid}
 
 
@@ -1230,6 +1236,18 @@ _SIGN_IN: dict[str, dict] = {}
 def _alive(pane_id: str, entry: dict | None) -> bool:
     """Whether this entry's own process still runs in that pane (tmux recycles pane ids)."""
     return bool(entry and entry["pid"] and tmux.pane_pid(pane_id) == entry["pid"])
+
+
+def _live_sign_ins() -> list[tuple[str, dict]]:
+    """The sign-in windows still running, oldest first. One gone (signed in, or closed by
+    hand) is dropped from the registry, unless a newer window took its pane id meanwhile."""
+    live = []
+    for pane_id, entry in list(_SIGN_IN.items()):
+        if _alive(pane_id, entry):
+            live.append((pane_id, entry))
+        elif _SIGN_IN.get(pane_id) is entry:
+            _SIGN_IN.pop(pane_id, None)
+    return live
 
 
 def _sign_in_screen(pane_id: str) -> str:
@@ -1252,15 +1270,14 @@ def account_login_window(pane_id: str = "", dir: str = ""):  # noqa: A002 - the 
     device code) as its screen shows them, so the sheet can offer them without the user
     leaving it. 404 when there is none."""
     want = canonical(dir) if dir else None
-    windows = list(_SIGN_IN.items())  # a snapshot: other requests open and close them
-    pane = next((p for p, e in reversed(windows)
-                 if (p == pane_id or e["dir"] == want) and _alive(p, e)), None)
+    windows = _live_sign_ins()  # a snapshot: other requests open and close them
+    pane = next((p for p, e in reversed(windows) if p == pane_id or e["dir"] == want), None)
     if pane is None:
         raise HTTPException(404, "no sign-in window open")
     entry = dict(windows)[pane]
     # Older windows on the same account: their links are stale, and a paste from one fails.
     others = [{"pane_id": p, "pid": e["pid"]} for p, e in windows
-              if p != pane and e["dir"] == entry["dir"] and _alive(p, e)]
+              if p != pane and e["dir"] == entry["dir"]]
     return {"pane_id": pane, **entry, **accounts.sign_in_link(_sign_in_screen(pane)),
             "others": others}
 
