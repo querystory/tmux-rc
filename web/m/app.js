@@ -99,7 +99,7 @@ const strokes = (x, y, room, widths) => widths.filter((_, i) => 3 * i + 2 < room
 const box = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.5"/>`;
 const term = (x, y, w, h) => `<g class="term">${box(x, y, w, h)}<path class="prompt" d="M${x + 2.5} ${y + 2.5}l2 1.5-2 1.5M${x + 5.5} ${y + 5.5}h2.5"/><path d="${strokes(x + 2.5, y + 9, h - 9, [Math.min(w - 5, 12), Math.min(w - 5, 7)])}"/></g>`;
 const over = (x, y, w, h) => `<g class="over">${box(x, y, w, h)}${box(x, y, w, 3)}<path d="${strokes(x + 2.5, y + 6, h - 6, [w - 5, w - 9, w - 7])}"/></g>`;
-const svgThumb = (body) => `<svg viewBox="0 0 38 24" aria-hidden="true">${body}</svg>`;
+const svgThumb = (body) => `<svg viewBox="0 0 38 24">${body}</svg>`;
 const LAYOUT_THUMBS = { auto: "✦", side: svgThumb(term(0, 0, 23, 24) + over(25, 0, 13, 24)),
   stack: svgThumb(over(0, 0, 38, 9) + term(0, 11, 38, 13)), summary: svgThumb(over(0, 0, 38, 24)), terminal: svgThumb(term(0, 0, 38, 24)) };
 const WIDE = matchMedia("(min-width: 1100px)");
