@@ -81,11 +81,12 @@ def _tilde(path: str) -> str:
     return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
 
 
-def identity(provider: str, config: Path) -> dict | None:
+def identity(provider: str, config: Path, codex_says: bool = False) -> dict | None:
     """Who is signed in to this dir, from non-secret files only; None when nobody is.
-    Codex keeps no such file, so only its login's presence is checked, never read."""
+    Codex keeps no such file, so only its login's presence is checked, never read: its
+    auth.json, else what `codex login status` said (codex_says, asked by the caller)."""
     if provider == "codex":
-        signed_in = (config / "auth.json").exists() or _codex_login(config)
+        signed_in = (config / "auth.json").exists() or codex_says
         return {"who": "", "plan": ""} if signed_in else None
     account = plan_usage.oauth_account(config, plan_usage.env_for("claude", config))
     if not account.get("accountUuid"):
@@ -212,13 +213,14 @@ def _profiles(pane_dirs) -> list[dict]:
     # Codex's own status checks side by side, so one slow dir does not stall them all.
     ask = [Path(c) for c, t in found.items() if t == "codex" and not store.get(c, {}).get("hidden")
            and not (Path(c) / "auth.json").exists()]
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(_codex_login, ask))
+    with ThreadPoolExecutor(max_workers=max(len(ask), 1)) as pool:
+        codex_says = dict(zip(ask, pool.map(_codex_login, ask), strict=True))
     for config, provider in found.items():
         entry = store.get(config, {})
         if entry.get("hidden"):  # before identity(): a forgotten dir costs no codex call
             continue
-        if not ((ident := identity(provider, Path(config))) or config in store):
+        ident = identity(provider, Path(config), codex_says.get(Path(config), False))
+        if not (ident or config in store):
             continue
         if "color" not in entry:
             free = sorted(set(range(COLORS)) - used) or [len(used) % COLORS]
