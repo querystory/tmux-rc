@@ -536,6 +536,7 @@ _MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
     # A menu takes no message at all: its Enter would pick the highlighted row ("1. Yes").
     ("ask it for status", "type_in_pane", {"text": "From the user: status?"}, _MENU, "menu"),
     ("pick 3", "type_in_pane", {"text": "3"}, _MENU, False),
+    ("send it the screenshot", "send_image_to_pane", {"image_number": 1}, _MENU, "menu"),
     ("no for the fable one", "type_in_pane", {"text": "3"}, _MENU, True),
     # A cursor list searches what's typed: even an asked-for row goes by keys.
     ("pick 3", "type_in_pane", {"text": "3"}, {**_MENU, "answer_style": "cursor"}, "menu"),
@@ -590,6 +591,8 @@ def test_a_reconnect_restores_the_pane_the_replies_were_about(monkeypatch):
 @pytest.mark.parametrize(("question", "menu"), [
     ({"prompt": "Run it?", "answer_style": "menu", "options": ["Yes", "No"]}, ["Yes", "No"]),
     ({"prompt": "Pick", "answer_style": "cursor"}, []),
+    ({"prompt": "Run it?", "answer_style": "menu", "options": 1}, []),
+    ({"prompt": "Run it?", "answer_style": "menu", "options": "Yes"}, []),
     ({"prompt": "Which branch?", "answer_style": "text", "options": ["main"]}, None),
     ("a bare string", None), (None, None)])
 def test_only_a_widget_question_is_a_menu(question, menu):
@@ -629,3 +632,9 @@ def test_a_send_off_the_current_pane_needs_the_user_to_name_it(request_, turn_pa
     s = Ns(unanchored=False, request=("", request_), turn_pane=turn_pane)
     args = {"pane_id": "%7", "text": "From the user: status?"}
     assert (L._refusal(s, "type_in_pane", args, _FABLE) == "elsewhere") is refused
+
+
+def test_an_open_button_moves_no_focus(monkeypatch):
+    s = _Fake([("", [("open_pane", {"pane_id": "%2"})]), ("Here.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("where's that one", None), ("and now", None))
+    assert "[Current pane" not in _users(s)[-1]

@@ -456,7 +456,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
             result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
-    if meter.text and result["status"] in {*_DONE, "already_running"}:  # a declined one isn't
+    if meter.text and result["status"] in _REACHED:  # not a declined call, nor a mere button
         # A resumed pane is new to the watcher until its next parse: its result names it.
         pane = result.get("pane_id") or rec.get("pane_id")
         _focus(session, next((d for d in watcher.digest() if d["pane_id"] == pane), None) or (
@@ -525,8 +525,8 @@ def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
         return "elsewhere"  # the model's pick over the conversation's: see _FOCUS
     text = str(args.get("text", "")).strip().casefold()
     row = bool(_ROW.fullmatch(text))
-    if name == "type_in_pane" and pane and pane.get("menu") is not None and (
-            not row or pane.get("answer_style") == "cursor"):
+    if pane and pane.get("menu") is not None and (name == "send_image_to_pane" or (
+            name == "type_in_pane" and (not row or pane.get("answer_style") == "cursor"))):
         return "menu"  # Enter picks the highlighted row ("1. Yes"); a picker searches typing
     if said & _NOT:  # "don't decline it", "no, …": nothing in it asks for an answer
         asked = set()
@@ -539,7 +539,8 @@ def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
     return None if ok else "unasked_answer"
 
 
-_DONE = {"sent", "ok", "opened", "button_shown"}  # a call's outcomes that reached a pane
+_DONE = {"sent", "ok", "opened", "button_shown"}  # a call's outcomes that went as asked
+_REACHED = {"sent", "ok", "opened", "already_running"}  # ones that reached a pane
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,

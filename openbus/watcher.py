@@ -802,7 +802,8 @@ class Watcher:
         q = state.get("question")
         if not isinstance(q, dict) or q.get("answer_style") not in ("menu", "cursor"):
             return None
-        return [str(o) for o in q.get("options") or [] if isinstance(o, str)]
+        options = q.get("options")  # unvalidated model output: a non-list is no options
+        return [o for o in options if isinstance(o, str)] if isinstance(options, list) else []
 
     @staticmethod
     def _pending_key(state: dict) -> tuple:
