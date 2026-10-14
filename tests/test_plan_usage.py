@@ -7,8 +7,7 @@ import pytest
 
 from openbus import plan_usage
 from openbus.history import History
-from openbus.plan_usage import (PlanUsage, claude_samples, codex_samples, ended, project,
-                                read_codex)
+from openbus.plan_usage import PlanUsage, claude_samples, codex_samples, ended, project, read_codex
 
 NOW = datetime(2026, 10, 8, 12, tzinfo=UTC).timestamp()
 
