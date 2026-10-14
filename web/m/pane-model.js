@@ -142,6 +142,14 @@ export const paneActivity = (pane) => pane.question?.ask || pane.question?.promp
 // The pane overview's headline and its stats line (model / context / cost / elapsed); the
 // sidebar's hover card shows the same two, so they are defined once.
 export const paneHeadline = (pane) => pane?.headline || pane?.status_line || pane?.session_summary || "";
+// A card the daemon has not read since it started is a placeholder (no parsed_at): its
+// silence means "not yet", not "nothing", so a blank line spins "Summarizing…" instead.
+export const panePending = (pane) => !!pane && !pane.parsed_at;
+export const markLine = (node, line, pane, empty = "No recent activity") => {
+  const pending = !line && panePending(pane), value = line || (pending ? "Summarizing…" : empty);
+  node.classList.toggle("pending", pending);
+  if (node.textContent !== value) node.textContent = value;
+};
 // A list field (tasks, subagents) as its object entries: what the model emits can be junk.
 export const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
 export const itemDone = (item) => !!item.done || item.state === "done";

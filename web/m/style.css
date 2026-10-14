@@ -1051,11 +1051,12 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   .heat-total .usage-bar { display: none; }
 }
 /* A window being killed or expunged from here (markEnding): greyed, its label under a spinner.
-   A tapped answer (button.picked) spins the same way while its send and the agent catch up. */
+   A tapped answer (button.picked) spins the same way while its send and the agent catch up,
+   and so does a card line the daemon has not summarized yet (markLine's .pending). */
 .ending { opacity: .55; }
 .ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
-:is(.ending :is(.badge, .sb-open .a, .m), button.picked)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
-@media (prefers-reduced-motion: no-preference) { :is(.ending :is(.badge, .sb-open .a, .m), button.picked)::before { animation: logo-spin .8s linear infinite; } }
+:is(.ending :is(.badge, .sb-open .a, .m), button.picked, .pending)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) { :is(.ending :is(.badge, .sb-open .a, .m), button.picked, .pending)::before { animation: logo-spin .8s linear infinite; } }
 button.picked:disabled { opacity: 1; }
 
 /* Agent accounts (accounts.js): drawn only for a provider with two or more. */

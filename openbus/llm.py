@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from functools import cache
 
 from .telemetry import emit_parse
@@ -105,6 +106,26 @@ if not _trace.handlers:
     _trace.propagate = False
 
 
+_TIMEOUT_MS = int(os.environ.get("TMUXRC_LLM_TIMEOUT_MS", "20000"))
+# The HTTP timeout bounds only Vertex's own request. A fresh process first refreshes its
+# ADC token (google-auth: 120s per attempt, retried) and resolves DNS (no timeout at all),
+# and one of those hanging held a restart's first parse — and every pane queued behind
+# it — for 10.5 minutes. So each call also gets an overall deadline, measured on a worker
+# thread; a call past it fails as a timeout, and its thread is left to finish on its own.
+_DEADLINE_S = _TIMEOUT_MS / 1000 + 10
+_calls = ThreadPoolExecutor(max_workers=8, thread_name_prefix="vertex")
+
+
+def _generate(**kwargs):
+    """generate_content under the overall deadline (see _DEADLINE_S)."""
+    future = _calls.submit(lambda: _client().models.generate_content(**kwargs))
+    try:
+        return future.result(timeout=_DEADLINE_S)
+    except TimeoutError:
+        future.cancel()  # still queued behind hung calls: never send it late
+        raise
+
+
 @cache
 def _client():
     """Lazily construct the Vertex client once. Cached so we don't rebuild per call."""
@@ -126,7 +147,6 @@ def _client():
     # description). That unit has historically been seconds in some clients, so a future
     # SDK bump that flipped it would silently turn 20s into a ~5.5h no-op timeout — assert
     # the ms contract so such a change fails loudly at startup instead.
-    timeout_ms = int(os.environ.get("TMUXRC_LLM_TIMEOUT_MS", "20000"))
     _desc = (types.HttpOptions.model_fields["timeout"].description or "").lower()
     if "millisecond" not in _desc:  # not assert: must survive `python -O`
         raise RuntimeError(
@@ -137,7 +157,7 @@ def _client():
         vertexai=True,
         project=project,
         location=location,
-        http_options=types.HttpOptions(timeout=timeout_ms),
+        http_options=types.HttpOptions(timeout=_TIMEOUT_MS),
     )
 
 
@@ -274,7 +294,7 @@ def classify_text(
         parts: list = [text]
         if image_png is not None:
             parts.append(types.Part.from_bytes(data=image_png, mime_type="image/png"))
-        resp = _client().models.generate_content(
+        resp = _generate(
             model=_MODEL,
             contents=parts,
             config=types.GenerateContentConfig(
@@ -320,7 +340,7 @@ def summarize_events(event_texts: list[str]) -> str | None:
         types = genai_types()
 
         joined = "\n".join(f"- {t}" for t in event_texts[-60:])
-        resp = _client().models.generate_content(
+        resp = _generate(
             model=_MODEL,
             contents=[
                 (

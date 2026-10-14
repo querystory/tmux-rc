@@ -11,7 +11,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -211,7 +211,7 @@ export function setupSidebar(ctx) {
     ctx.html(badge, `${licon("bot", 12)}${agents.length}`);
     renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
-      text(node.querySelector("p"), paneActivity(p) || "No recent activity");
+      markLine(node.querySelector("p"), paneActivity(p), p);
       text(node.querySelector(".sb-items"), needsYou(p) ? questionItems(p.question) : "");
       replies(node, p);
     }
@@ -291,7 +291,7 @@ export function setupSidebar(ctx) {
     ctx.html($c(".sb-acct"), ctx.badge(p.pane_id));
     $c(".badge").className = `badge ${ctx.badgeOf(p).cls}`;
     text($c(".badge"), [ctx.badgeOf(p).label, since(p)].filter(Boolean).join(" · "));
-    text($c(".x"), paneHeadline(p) || "No recent activity");
+    markLine($c(".x"), paneHeadline(p), p);
     const asked = needsYou(p) && (p.question?.ask || p.question?.prompt);
     text($c(".q"), asked && asked !== paneHeadline(p) ? asked : "");
     text($c(".q-cmd"), (needsYou(p) && p.question?.context) || "");

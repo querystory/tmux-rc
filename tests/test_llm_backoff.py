@@ -4,6 +4,10 @@ also means a sustained outage would retry every pane every tick. The backoff is 
 brake; without it a 27-pane server on a 1.5s tick attempts ~18 calls a second."""
 
 
+import threading
+import time
+import types
+
 import openbus.llm as L
 
 
@@ -71,4 +75,27 @@ def test_an_armed_backoff_skips_the_call_entirely():
         assert L.last_error["msg"], "and it says why, so the UI can show the degradation"
     finally:
         L._client = real_client
+        _clear()
+
+
+def test_a_hung_call_fails_at_the_overall_deadline(monkeypatch):
+    """The HTTP timeout never covered the token refresh or DNS before it; the overall
+    deadline does, and its expiry is handled like any Vertex timeout."""
+    _clear()
+    release = threading.Event()
+
+    def hang(**_kwargs):
+        release.wait(5)
+
+    monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(
+        models=types.SimpleNamespace(generate_content=hang)))
+    monkeypatch.setattr(L, "_DEADLINE_S", 0.05)
+    try:
+        started = time.monotonic()
+        assert L.classify_text("system", "text") is None
+        assert time.monotonic() - started < 2
+        assert "timed out" in L.last_error["msg"]
+        assert L.backing_off()
+    finally:
+        release.set()
         _clear()
