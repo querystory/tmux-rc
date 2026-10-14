@@ -77,7 +77,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import accounts, agent_history, expunge, telemetry, tmux  # noqa: E402
-from .classify import arrow_driven, picker_digest, picker_read, prompt_gone  # noqa: E402
+from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -972,10 +972,6 @@ def send(pane_id: str, body: SendBody, request: Request):
         digest, generation, frame = fp.split(":")  # a malformed token: ValueError, 409
         claim_question(w, pane.id, digest, int(generation), frame)
         shown.append(_screen(pane.id))
-        # A card read before the picker counted as arrow-driven still offers its digit,
-        # which the picker may ignore: refused unsent, and the reread walks it instead.
-        if shown[0] and arrow_driven(shown[0]):
-            raise ValueError("This picker is answered with arrows; reread it.")
 
     def same_picker() -> None:
         # The whole guard on a cursor walk, under the send lock: the picker, from its

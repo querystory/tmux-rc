@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from openbus import server, tmux
+from openbus import push, server, tmux
 from openbus.classify import classify, highlighted_row, picker_digest
 from openbus.tmux import Pane
 
@@ -250,14 +250,26 @@ def test_a_menu_answer_the_screen_ignores_is_reported(monkeypatch):
     screens.append("Ask Codex to do anything")  # answered: the dialog is gone
     monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens.pop(0))
     assert send().json() == {"ok": True}
-    # A card parsed before the trust dialog counted as arrow-driven (a deploy, a cached
-    # card) still offers "1": refused unsent, and reread so the card walks it instead.
-    sent.clear(), reparsed.clear()
+
+
+def test_a_stale_cards_digit_is_refused_at_an_arrow_driven_picker(monkeypatch):
+    """A card parsed before the trust dialog counted as arrow-driven (cached across a
+    deploy) still offers "1": the claim refuses it unsent, so the reread walks it."""
+    rows = ["Trust and continue", "Back to Agent Command Center"]
+    stale = {"pane_id": CODEX_PANE.id, "activity": "waiting", "question": {
+        "prompt": "Trust this folder?", "answer_style": "menu", "options": rows}}
+    watcher = SimpleNamespace(
+        is_stale=lambda: False, pane_parse_valid=lambda p: True, states=[stale],
+        pane_birth=lambda p: "b", pane_input_generation=lambda p: 1,
+        frame_fp=lambda *a: "f", consume_answer=lambda *a: None)
+    digest = push.contract(stale, "b")[0]
+    claim = lambda: push.claim_question(watcher, CODEX_PANE.id, digest, 1, "f")  # noqa: E731
     monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: CODEX_TRUST)
-    refused = send()
-    assert refused.status_code == 409 and "arrows" in refused.json()["detail"]
-    assert not any("1" in args for args in sent)
-    assert reparsed
+    with pytest.raises(ValueError, match="arrows"):
+        claim()
+    # Where the screen shows no highlight a walk could hold to, the digit is all there is.
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: CODEX_TRUST.replace("› 1.", "  1."))
+    claim()
 
 
 def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):

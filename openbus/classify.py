@@ -101,11 +101,15 @@ _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
 _ENTER_FOOTER_RE = re.compile(r"\s*enter \w+ · ")
 
 
-def arrow_driven(text: str) -> bool:
-    """Whether the screen ends in Codex's compact key-hint footer: its picker above is
-    driven by arrows and Enter, and a digit need not commit (its trust dialog takes "1"
-    as a move to row 1). Its approval box ("Press enter to confirm …") takes digits."""
-    return any(map(_ENTER_FOOTER_RE.match, _visible(text).rstrip().splitlines()[-3:]))
+def arrow_driven(question: dict, text: str) -> bool:
+    """Whether numbered `question` is a picker to walk, not answer with a digit: the
+    screen ends in Codex's compact key-hint footer, where a digit need not commit (its
+    trust dialog takes "1" as a move to row 1), and shows the highlighted row a walk
+    needs. Its approval box ("Press enter to confirm …") takes digits."""
+    visible, rows = _visible(text), question.get("options")
+    return (any(map(_ENTER_FOOTER_RE.match, visible.rstrip().splitlines()[-3:]))
+            and isinstance(rows, list)
+            and highlighted_row(visible, _question_prompt(question) or "", rows) is not None)
 
 
 def _widget_end(visible: str, start: int) -> int:
@@ -1263,9 +1267,7 @@ def classify(
     # A numbered picker driven by arrows is walked, not answered with a digit, where the
     # screen shows its highlighted row, which a walk needs.
     if (isinstance(question, dict) and question.get("answer_style") == "menu"
-            and arrow_driven(text)
-            and isinstance(rows := question.get("options"), list)
-            and highlighted_row(visible, _question_prompt(question) or "", rows)):
+            and arrow_driven(question, text)):
         question.update(answer_style="cursor", keymap={
             "next": "Down", "prev": "Up", "select": "Enter", "search": False})
     # A cursor picker's advertised search binding is evidence, not a model guess.

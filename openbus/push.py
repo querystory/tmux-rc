@@ -31,7 +31,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from pywebpush import WebPushException, webpush
 
 from . import tmux
-from .classify import is_approval
+from .classify import arrow_driven, is_approval
 
 logger = logging.getLogger(__name__)
 
@@ -371,6 +371,10 @@ def claim_question(watcher, pane_id: str, fingerprint: str, generation: int, fra
         raise ValueError("the pane has changed") from e
     if watcher.frame_fp(text, question) != frame:
         raise ValueError("the pending question has changed")
+    # A card read before its picker counted as arrow-driven (cached across a deploy)
+    # still offers a digit the picker may ignore: refused, and the reread walks it.
+    if question.get("answer_style") == "menu" and arrow_driven(question, text):
+        raise ValueError("This picker is answered with arrows; reread it.")
     watcher.consume_answer(pane_id, watcher.frame_fp(text), frame)
 
 
