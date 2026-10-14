@@ -1473,6 +1473,7 @@ function openBeside(dialog, opener) {
   besides().forEach((d) => d !== dialog && d.close()); // one panel at a time
   dialog._opener = opener;
   dialog.classList.add("beside"); dialog.show();
+  dialog.focus(); // show() does not move focus as showModal() does: the next Tab enters the panel
 }
 const besides = () => document.querySelectorAll("dialog.beside[open]");
 // Capture phase, so a click that closes a modal over the panel (its ×) still sees the modal open.
