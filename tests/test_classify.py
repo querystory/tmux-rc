@@ -547,7 +547,7 @@ def test_workflow_row_is_read_from_the_agent_list():
     empty = screen.replace("▰", "▱").replace("1/2 ·", "0/2 ·")  # a 0/N bar is all ▱
     subs[1] = {"label": "▱▱▱▱▱ 0/2", "state": "running"}
     assert classify(_pane(), empty, _llm({"tool": "claude", "subagents": subs}))["agents"] == 2
-    done = screen.replace("1/2 ·", "2/2 ·").replace("○", "◯")  # Claude draws either circle
+    done = screen.replace("1/2 ·", "2/2 ·").replace("○", "◯") + "\n  ↓ 2 more"  # either circle
     assert classify(_pane(), done, _llm({"tool": "claude"}))["subagents"][0]["state"] == "done"
     # Only Claude's own agent list: a quoted row, or a shell printing one, gains no worker.
     quoted = screen.replace(" ●  main\n", "")

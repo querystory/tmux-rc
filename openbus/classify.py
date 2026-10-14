@@ -253,7 +253,9 @@ def _read_omp_row(result: dict, visible: str) -> None:
 # Only rows in that live list count: the "● main" line and the ○/◯/● rows under it, which
 # Claude draws as the last thing on screen, below its input box and footer. A row, or a
 # whole list, quoted in the conversation sits above the input box, so it never matches.
-_AGENT_LIST_RE = re.compile(r"(?:^|\n) *● +main *\n((?: *[○◯●] [^\n]*\n?)*)\s*\Z")
+# A long list ends with an "↓ 2 more" line.
+_AGENT_LIST_RE = re.compile(
+    r"(?:^|\n) *● +main *\n((?: *(?:[○◯●] |[↑↓] \d+ more)[^\n]*(?:\n|\Z))*)\s*\Z")
 _WORKFLOW_ROW_RE = re.compile(
     r"^ *[○◯●] +(\S+) +[▰▱]+ +((\d+)/(\d+)) · (\S+) · ↓ ?([\d.]+\w?) tokens", re.MULTILINE)
 
