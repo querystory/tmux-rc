@@ -70,8 +70,8 @@ function valueAt(points, t) {
   return b[0] === a[0] ? b[1] : a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
 }
 
-// The focused meter's windows as background bands: ended ones alternate grey and clear back
-// from the current one, which is amber. A window ends at its reset, at the next one's start
+// The focused meter's windows as background bands: the current one blue, the ones before it
+// clear, then grey, alternating back. A window ends at its reset, at the next one's start
 // if that comes first, or where its usage fell to near 0 before either: a quota reset early,
 // and what follows is a fresh one, banded on its own. Stretches with no window stay clear.
 function bands(m, now) {
@@ -83,7 +83,7 @@ function bands(m, now) {
     out.push([p.start, drop || next]);
     if (drop) out.push([drop, next]);
   });
-  const grey = out.map(([a, b], k) => [a, b, (out.length - k) % 2 ? 'grey' : null]).filter(b => b[2]);
+  const grey = out.map(([a, b], k) => [a, b, (out.length - k) % 2 ? null : 'grey']).filter(b => b[2]); // the one before the current clear, for contrast
   return m.w.resets_at > now ? [...grey, [m.w.start, m.w.resets_at, 'now']] : grey;
 }
 
@@ -218,7 +218,9 @@ export function renderUsageView(root, all, options) {
 }
 
 function setup(root, refetch, icon) {
-  root.innerHTML = '<div class="uv-bar"><div class="uv-errs"></div><span class="uv-span"></span></div><div class="uv-stack"></div>';
+  root.innerHTML = '<div class="uv-bar"><div class="uv-errs"></div><span class="uv-span"></span></div><div class="uv-stack"></div>'
+    // What the shading and the dashes mean, once under the charts.
+    + '<div class="uv-key" aria-hidden="true"><span><i class="now"></i>current window</span><span><i class="was"></i><i></i>earlier windows</span><span><i class="fc"></i>forecast</span></div>';
   const v = { root, types: [], cards: [], bar: root.firstChild, span: root.querySelector('.uv-span'), stack: root.querySelector('.uv-stack'), errs: root.querySelector('.uv-errs') };
   v.range = segmented('Time range', Object.keys(RANGES), rangeOf(), r => {
     const more = usageDays();

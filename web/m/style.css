@@ -1005,6 +1005,12 @@ button.picked:disabled { opacity: 1; }
 .uv-status { white-space: nowrap; }
 .uv-read :is(b.full, .out) { color: var(--red); }
 .uv-chart { flex: 1; min-height: 140px; }
+.uv-key { display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: flex-end; font-size: 11.5px; color: var(--muted); }
+.uv-key span { display: inline-flex; align-items: center; gap: 4px; }
+.uv-key i { width: 16px; height: 11px; border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 2px; }
+.uv-key i.now { background: color-mix(in srgb, var(--chart-s5) 16%, transparent); } /* as the chart's band (usage-view.js) */
+.uv-key i.was { background: color-mix(in srgb, var(--raised) 60%, transparent); margin-right: -4px; }
+.uv-key i.fc { width: 20px; height: 0; border: 0; border-top: 2px dashed var(--muted); }
 .uv-card.empty { padding-bottom: 10px; }
 .uv-card.empty .uv-chart { display: none; }
 .uv-none { color: var(--muted); font-size: 13px; }

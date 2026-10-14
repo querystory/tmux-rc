@@ -81,8 +81,8 @@ follow ("8 days shown"). Each range also runs on past now by a fifth of itself (
 six hours), so the forecasts show without a short range spending its width on the future.
 
 **Bands for one account's windows.** Behind the lines, the current window is shaded a
-light blue from its start to its reset (not amber, which the app uses for "needs you"), and the windows before it alternate grey and
-clear, so "where we are in this window, and how it is going" reads before any line does.
+light blue from its start to its reset (not amber, which the app uses for "needs you"), and the windows before it alternate clear
+and grey (clear first, against the blue), so "where we are in this window, and how it is going" reads before any line does.
 A chart holds several accounts whose windows start and end at different times, and bands
 for all of them overlapped into mush, so the bands follow one account per chart: the
 fullest by default, or the one whose chip was clicked. That account's lines go bold and
@@ -90,7 +90,7 @@ the others step back, and its chip is filled. A window's band runs from its star
 reset, but a quota sometimes resets early: when the samples fall from well up to near 0
 before the scheduled reset, the band ends at the fall and a fresh one starts there. A
 stretch with no known window (a 5h quota not yet opened, a gap in the history) is left
-unshaded rather than guessed at.
+unshaded rather than guessed at. A one-line key under the charts names the shading and the dashes.
 
 **Which accounts: the view's own pick.** A filter button beside the range opens the same
 menu the list's account filter uses (its markup and styles: a check on each pick, "All
