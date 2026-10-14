@@ -22,9 +22,9 @@ The sidebar holds three kinds of thing, and each now has one home.
 - **Settings** are things you set once: Accounts, Notifications, Theme, Plan usage, the
   phone's sort order, and Docs. They left the ☰ dropdown and the foot for one Settings, the
   same content on a phone (the header's gear, a sheet) and on desktop.
-- **The list** has its own block: a "Sessions" title followed by its counts (panes ·
-  sub-agents, muted, so the green is the +'s alone) and, fixed at the right, the green + (new
-  window), then search with the filter button beside it. Search and
+- **The list** has its own block: a "Sessions" title with its pane count beside it, then at the
+  right the sub-agents count (a button, muted, so the green is the +'s alone) and, fixed at the
+  far right, the green + (new window), then search with the filter button beside it. Search and
   filter share a row because both narrow the list. The list's own line (State / Session ·
   Sub-agents) is gone: grouping is a rarely changed choice, so it joined the filter menu as
   "Group by", and the sub-agents count, which also switches their lines under each row (its eye is open while

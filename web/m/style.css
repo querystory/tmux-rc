@@ -514,11 +514,13 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #side-filter-picker summary[data-n=""]::after { display: none; }
 #side-list { flex: none; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
-/* The Sessions title's counts, muted (green is the +'s): panes · sub-agents and the eye that
-   says whether those are listed. They follow the title and give way, so the + never moves. */
-.sb-subs { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; min-height: 24px; margin-right: auto; padding: 0 4px; border-radius: 5px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The Sessions title's counts, muted (green is the +'s): the panes beside the title, and the
+   sub-agents with the eye that says whether those are listed, right-aligned just left of the +.
+   They give way, so the + never moves. */
+.sb-subs { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; min-height: 24px; margin-left: auto; padding: 0 4px; border-radius: 5px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sb-subs svg { vertical-align: -2px; }
-#app.rail .sb-subs { display: none; }
+.sb-count { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#app.rail :is(.sb-count, .sb-subs) { display: none; }
 .sb-group { display: flex; align-items: center; gap: 2px; margin: 4px 6px 0; }
 .sb-fold { flex: 1; min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 8px; text-align: left; font-size: 12.5px; font-weight: 600; }
 .sb-fold > svg { color: var(--muted); }

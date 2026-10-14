@@ -92,11 +92,13 @@ export function setupSidebar(ctx) {
   pick.setAttribute("aria-label", "Filter panes");
   pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
   pick.onchange = () => ctx.setFilter(pick.value);
-  // The Sessions title's counts: the panes listed and their running sub-agents, with an eye
-  // (open while they are listed under their panes' rows, slashed while not; a click switches it).
+  // The Sessions title's counts: the panes listed, plain text beside it, and at the right their
+  // running sub-agents, a button with an eye (open while they are listed under their panes'
+  // rows, slashed while not).
+  const count = Object.assign(document.createElement("span"), { className: "sb-count" });
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
-  document.querySelector("#sb-sess b").after(subs);
+  document.querySelector("#sb-sess b").after(count, subs);
   const by = document.createElement("div");
   by.id = "group-by"; by.setAttribute("role", "group"); by.ariaLabel = "Group by";
   by.innerHTML = '<hr><div class="menu-sec">Group by</div><button type="button" class="acct-opt" data-by="state">State</button><button type="button" class="acct-opt" data-by="session">Session</button>';
@@ -326,8 +328,9 @@ export function setupSidebar(ctx) {
     if (pick.value !== filter) { pick.value = filter; refreshPick(); }
     const n = subset.reduce((n, p) => n + liveSubagents(p).length, 0);
     subs.setAttribute("aria-pressed", String(prefs.subagents));
-    subs.ariaLabel = `${subset.length} panes, ${n} sub-agents: ${prefs.subagents ? "hide" : "list"} sub-agents under their panes`;
-    ctx.html(subs, `${subset.length} · ${n} sub-agent${n === 1 ? "" : "s"} ${licon(prefs.subagents ? "eye" : "eyeOff", 13)}`);
+    subs.ariaLabel = `${n} sub-agents: ${prefs.subagents ? "hide" : "list"} them under their panes`;
+    text(count, subset.length);
+    ctx.html(subs, `${n} sub-agent${n === 1 ? "" : "s"} ${licon(prefs.subagents ? "eye" : "eyeOff", 13)}`);
   }
   render.picker = picker; // the filter menu: app.js adds the account filter and the grouping
   render.by = by;
