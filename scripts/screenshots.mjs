@@ -32,6 +32,7 @@ const SHOTS = [
   ["website-atlas", WIDE, "light", "#view=dashboard", (page) => page.locator(".atlas-map").scrollIntoViewIfNeeded()],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
+  ["wide-layout-menu", WIDE, "light", "#pane=%259", (page) => page.click("#review-layout-picker summary")],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
   ["wide-heatmap", WIDE, "light", "#view=dashboard", heatCard],

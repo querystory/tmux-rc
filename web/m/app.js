@@ -737,10 +737,11 @@ function render() {
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
-  const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
-  if (wide) layouts.unshift(["auto", "Auto"], ["side", "Side by side"], ["stack", "Overview above"]);
+  // Each choice carries a line on what it shows; the wide picker also draws its wireframe.
+  const layouts = [["summary", "Overview", "The overview alone"], ["terminal", "Terminal", "The terminal alone"]];
+  if (wide) layouts.unshift(["auto", "Auto", "Side by side or stacked, to fit"], ["side", "Side by side", "Terminal, overview to its right"], ["stack", "Overview above", "Overview over the terminal"]);
   const picker = $("review-layout");
-  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
+  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label, hint]) => Object.assign(new Option(label, value), { title: hint })));
   picker.value = wide && !focusChoice() ? reviewLayout : view;
   refreshViewPicker();
   $("mobile-view-toggle").querySelectorAll("button").forEach(button => {
