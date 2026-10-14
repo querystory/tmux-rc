@@ -95,7 +95,7 @@ function readout(m, now, type, on) {
   // phone each account is one row (chip, %, status), so its times are short ("Thu 10:10p") and
   // the reset's clock time is left to the row's tooltip.
   const at = t => view.narrow ? clock(t, now).replace(/ ([AP])M$/, (_, x) => x.toLowerCase()) : clock(t, now);
-  const reset = live ? `resets ${countdown(w.resets_at - now)}<span class="uv-at">, ${clock(w.resets_at, now)}</span>` : 'not started';
+  const reset = live ? `resets ${countdown(w.resets_at - now)}<span class="uv-at">, ${clock(w.resets_at, now)}</span>` : w.resets_at ? 'reset since this reading' : 'not started';
   const tip = [live && `resets ${stamp(w.resets_at)}`, m.as_of && `as of ${countdown(now - m.as_of)} ago`].filter(Boolean).join(' · ');
   // The chip picks the account the chart's bands follow (on a phone, anywhere on its row).
   return `<span class="uv-read" title="${esc(tip)}"><button type="button" class="uv-pick" data-type="${esc(type)}" data-id="${esc(m.id)}" aria-pressed="${on}" aria-label="Shade ${esc(m.name)}'s windows (${esc(m.dirs)})">${m.chip}</button><b class="${level}">${Math.round(w.pct)}%</b>`
@@ -285,7 +285,7 @@ function build(types) {
     el.innerHTML = '<div class="uv-head"></div><div class="uv-chart" role="img" tabindex="0"></div><div class="uv-tip" hidden></div>';
     const card = { type, el, headEl: el.firstChild, chartEl: el.children[1], tipEl: el.lastChild };
     card.chartEl.addEventListener('keydown', keys);
-    card.chartEl.addEventListener('pointerdown', () => { view.touched = card; }, true); // capture: before echarts moves the line
+    for (const ev of ['pointerdown', 'pointerenter']) card.chartEl.addEventListener(ev, () => { view.touched = card; }, true); // capture: before echarts moves the line; a mouse's hover too
     return card;
   });
   view.stack.replaceChildren(...view.cards.map(c => c.el));
