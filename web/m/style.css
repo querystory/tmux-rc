@@ -267,7 +267,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent); }
 #keys::-webkit-scrollbar { display: none; }
-#offers { display: grid; gap: 6px; padding-bottom: 6px; }
+#offers { display: grid; gap: 6px; padding-bottom: 6px; max-height: 25dvh; overflow-y: auto; } /* never pushes the editor off screen */
 #offers:empty { display: none; }
 #offers button { min-height: 44px; padding: 8px 12px; background: var(--raised); text-align: left; font: 13px/1.35 var(--mono); overflow-wrap: anywhere; }
 #offers button::before { content: attr(data-verb); margin-right: 8px; color: var(--accent); font-weight: 600; }

@@ -1356,6 +1356,14 @@ def test_finished_turn_offers_the_replies_it_hands_over():
     reply = "Not logged in; type `! gh auth login --hostname github.com` to fix it."
     assert classify(_pane("claude"), _auto_screen(shown), _llm({}), reply=reply)["offers"] == [
         "! gh auth login --hostname github.com"]
+    wrapped = "Run:\n\n  ! gh pr merge\n  `cat /tmp/pr` --squash"  # a row the screen wraps
+    assert "offers" not in classify(_pane("claude"), _auto_screen(wrapped), _llm({}))
+    fence = "Run:\n\n```\n! make deploy\n```"
+    assert classify(_pane("claude"), _auto_screen(fence), _llm({}))["offers"] == ["! make deploy"]
+    longer = "Run ``! printf '```x```' && make deploy`` now."  # a longer run inside the span
+    screen = _auto_screen("Run ! printf '```x```' && make deploy now.")
+    assert classify(_pane("claude"), screen, _llm({}), reply=longer)["offers"] == [
+        "! printf '```x```' && make deploy"]
     ticks = "Run ! gh pr merge `cat /tmp/pr` --squash."  # a span around a shell backtick
     assert classify(_pane("claude"), _auto_screen(ticks), _llm({}), reply=ticks.replace(
         "Run ! gh", "Run ``! gh").replace("--squash", "--squash``"))["offers"] == [

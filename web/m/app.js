@@ -1270,7 +1270,10 @@ function verbOf(value) { return value.startsWith("! ") ? "Run" : "Send"; }
 function offersOf(pane) { return (Array.isArray(pane?.offers) ? pane.offers : []).filter((o) => typeof o === "string"); }
 function takeOffer(id, value) {
   if (active !== id) navigate(id);
-  draft(id).replace([{ text: value }]);
+  // Never over unsent work: a draft (text or images) that is not this offer stays put.
+  const composer = draft(id);
+  if (composer.segments().length && (composer.files.size || composer.editor.textContent !== value)) return notice("Send or clear this pane's draft first.");
+  composer.replace([{ text: value }]);
   render();
   const editor = $("reply"); editor.focus({ preventScroll: true }); getSelection().selectAllChildren(editor); getSelection().collapseToEnd();
 }

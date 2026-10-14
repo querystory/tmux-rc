@@ -912,8 +912,9 @@ def _final_message(visible: str, tool: str) -> str | None:
 # that wraps onto the next is no offer: a guessed join could run the wrong command. A space
 # after the ! keeps out code such as `!=` and `!important`.
 _QUOTE = r"[\"“]([^\"”\n]{1,60})[\"”]"
-_OFFER_RE = re.compile(  # a span may open with several backticks, around one in the command
-    rf"(`+)(! [^\n]+?)\1(?!`)|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*[^\s`])|\bsay[ \t]+{_QUOTE}"
+_OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
+    rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
+    rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!```[ \t]*$)\S)|\bsay[ \t]+{_QUOTE}"
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
 
