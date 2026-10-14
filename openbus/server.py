@@ -1415,6 +1415,7 @@ def account_login(body: SignInBody, request: Request):
                               accounts.command(profile["provider"], profile["dir"], argv))
     _audit(request, "account_login", pane_id, f"dir={body.dir[:120]!r}")
     pid = tmux.pane_pid(pane_id) or ""
+    _SIGN_IN.pop(pane_id, None)  # a recycled id goes last, as the newest window
     _SIGN_IN[pane_id] = {"pid": pid, "dir": profile["dir"], "codex": argv[0] == "codex",
                          "device": "--device-auth" in argv}
     return {**_opened(pane_id), "pid": pid}

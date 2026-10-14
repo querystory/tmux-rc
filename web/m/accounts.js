@@ -37,7 +37,10 @@ export const shellWords = (s) => {
   return out;
 };
 const CALLBACK_MS = 40000; // past the server's two 15 s local GETs: a slow exchange still lands
-const setCmd = (p, v) => { cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
+// The command with or without Codex's device flag: the way in is picked each time, never
+// remembered, while the rest of an edited command is.
+const withWay = (cmd, device) => [...cmd.split(/\s+/).filter((w) => w && w !== "--device-auth"), ...(device ? ["--device-auth"] : [])].join(" ");
+const setCmd = (p, v) => { v = withWay(v, false); cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
 const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
@@ -359,7 +362,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (d.goto) return go(d.goto);
     // The dir follows the provider: ~/.claude-x becomes ~/.codex-x, typed or suggested.
     if (d.prov) { F.dir = F.dir.replace(new RegExp(`^~/\\.${F.provider}(?=-|$)`), `~/.${d.prov}`); F.provider = d.prov; return render(); }
-    if (d.way) { setCmd(F.provider, LOGIN[F.provider]); F.line = lineFor(d.way); return render(); } // a pick, not an edit to remember
+    if (d.way) { F.line = lineFor(withWay(cmdOf(F.provider), d.way.includes("--device-auth"))); return render(); }
     if ("resetCmd" in d) { setCmd(F.provider, LOGIN[F.provider]); F.line = null; return render(); }
     if ("add" in d) return open("name");
     if (d.rename) return go("list", { renaming: d.rename });
