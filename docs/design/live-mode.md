@@ -578,7 +578,8 @@ each turn now carries it rather than the prompt growing examples:
   Yes", approving a command the user never saw. So text into such a pane is refused before
   any card, and the model is told to say what the menu asks, list its options (now in the
   pane state) and ask which to pick. A free-text question is unaffected: answering it is
-  exactly what a relay is for.
+  exactly what a relay is for. A cursor list takes no typing at all, not even an asked-for
+  row number: it searches what is typed, so its rows are picked with the arrow keys.
 
 The eval (`research/eval/chat_routing.py`) replays the conversation against the real
 model, through the same gate. Without the gate and the explicit line it routed the first

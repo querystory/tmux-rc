@@ -445,6 +445,8 @@ class Watcher:
                     "prs": list(self._prs.get(pid, [])),
                     "question": self._question_prompt(s),
                     "menu": self._question_menu(s),
+                    "answer_style": (s.get("question") or {}).get("answer_style")
+                    if isinstance(s.get("question"), dict) else None,
                     # LLM one-liner for the last activity burst (present once the pane
                     # has idled past the summary threshold; None while actively working).
                     "summary": (self._summary.get(pid) or {}).get("text"),

@@ -292,14 +292,16 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
 
 
 def _named(digest: list[dict], text: str) -> dict | None:
-    """The pane a reply names last, by its title (window numbers are never said), or None.
-    The longer name wins a tie, so "main" can't steal "tmuxrc main"."""
+    """The pane a reply names last, by its title or "window N" (where a prompt still has it
+    say numbers), or None. The longer name wins a tie, so "main" can't steal "tmuxrc main"."""
     said, best, pane = f" {' '.join(_words(text))} ", (-1, 0), None
     for d in digest:
-        words = " ".join(_words(str(d.get("title") or d.get("label") or "")))
-        at = said.rfind(f" {words} ") if words else -1
-        if at >= 0 and (at + len(words), len(words)) > best:
-            best, pane = (at + len(words), len(words)), d
+        win = d.get("window_index")
+        for name in (d.get("title") or d.get("label"), win not in (None, "") and f"window {win}"):
+            words = " ".join(_words(str(name))) if name else ""
+            at = said.rfind(f" {words} ") if words else -1
+            if at >= 0 and (at + len(words), len(words)) > best:
+                best, pane = (at + len(words), len(words)), d
     return pane
 
 
@@ -483,16 +485,17 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
 # question, needs the user's message, or the question of the assistant's they answer, to ask
 # for it: the key's job by name, or an answer by verb or number; never a bare yes or no,
 # which answers the assistant. Erring towards refusing costs one more line of chat.
-_PRESS = "press hit key keys"
+_PRESS, _PICK = "press hit key keys", "select choose pick option"
 _KEY_ASKS = {k: frozenset(f"{_PRESS} {v}".split()) for k, v in {
-    "Escape": "esc escape cancel decline reject dismiss deny", "Enter": "enter return accept "
-    "approve confirm submit continue", "Up": "up arrow select choose pick option",
-    "Down": "down arrow select choose pick option", "Left": "left arrow", "Right": "right arrow",
-    "PageUp": "page scroll", "PageDown": "page scroll", "Tab": "tab complete",
-    "C-c": "ctrl control interrupt stop abort kill", "C-d": "ctrl control eof exit quit"}.items()}
+    "Escape": "esc escape cancel decline reject dismiss deny",
+    "Enter": f"enter return accept approve confirm submit continue {_PICK}",
+    "Up": f"up arrow {_PICK}", "Down": f"down arrow {_PICK}", "Left": "left arrow",
+    "Right": "right arrow", "PageUp": "page scroll", "PageDown": "page scroll",
+    "Tab": "tab complete", "C-c": "ctrl control interrupt stop abort kill",
+    "C-d": "ctrl control eof exit quit"}.items()}
 _ROW = re.compile(r"\d+|y(es)?|no?")  # what picks a menu row (or answers y/n) when typed
-_ANSWERS = frozenset(f"{_PRESS} answer reply option choose pick select accept approve confirm "
-                     "allow decline reject deny cancel".split())
+_ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply accept approve confirm allow decline reject "
+                     "deny cancel".split())
 
 
 def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
@@ -504,8 +507,9 @@ def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
     asked = set(_words(getattr(session, "request", "")))
     text = str(args.get("text", "")).strip().casefold()
     row = bool(_ROW.fullmatch(text))
-    if name == "type_in_pane" and pane and pane.get("menu") is not None and not row:
-        return "menu"  # its Enter would pick the highlighted row, often "1. Yes"
+    if name == "type_in_pane" and pane and pane.get("menu") is not None and (
+            not row or pane.get("answer_style") == "cursor"):
+        return "menu"  # Enter picks the highlighted row ("1. Yes"); a picker searches typing
     if name == "press_key":
         ok = bool(_KEY_ASKS.get(args.get("key"), frozenset()) & asked)
     elif name == "type_in_pane" and pane and pane.get("question") and row:
@@ -528,7 +532,7 @@ _DECLINED = {"declined": "the user declined",
                            "nothing was sent; ask what they want",
              "menu": "that pane is waiting on a menu (its PENDING QUESTION), and typing into it "
                      "would pick a row, so nothing was typed; tell the user what it asks and "
-                     "its options, and ask which to pick",
+                     "its options, and ask which to pick (a cursor list is driven by keys)",
              "unasked_answer": "the user didn't ask you to answer that pane's prompt or press a "
                                "key, so nothing was sent; to pass on a message, type the "
                                "message alone, and ask the user before answering its prompt",

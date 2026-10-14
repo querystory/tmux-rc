@@ -509,8 +509,9 @@ _PANES = [{"pane_id": "%1", "title": "tmuxrc opus 5.5 main session", "window_ind
     ("The fable session monitor is investigating a 500.", "%5"),
     ("Main is idle, and Fable Session Monitor waits on you.", "%5"),  # the last named
     ("Sending to tmuxrc opus 5.5 main session.", "%1"),  # not "main", inside it
-    ("main is idle", "%6"), ("window 7 is idle", None), ("Nothing to report.", None)])
-def test_a_reply_names_a_pane_by_title(reply, pane):
+    ("main is idle", "%6"), ("window 7 is idle", "%5"), ("window 1 is idle", None),
+    ("Nothing to report.", None)])
+def test_a_reply_names_a_pane_by_title_or_number(reply, pane):
     assert (L._named(_PANES, reply) or {}).get("pane_id") == pane
 
 
@@ -535,6 +536,10 @@ _MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
     ("ask it for status", "type_in_pane", {"text": "From the user: status?"}, _MENU, "menu"),
     ("pick 3", "type_in_pane", {"text": "3"}, _MENU, False),
     ("no for the fable one", "type_in_pane", {"text": "3"}, _MENU, True),
+    # A cursor list searches what's typed: even an asked-for row goes by keys.
+    ("pick 3", "type_in_pane", {"text": "3"}, {**_MENU, "answer_style": "cursor"}, "menu"),
+    ("pick 3", "press_key", {"key": "Down"}, {**_MENU, "answer_style": "cursor"}, False),
+    ("pick 3", "press_key", {"key": "Enter"}, {**_MENU, "answer_style": "cursor"}, False),
     # A yes to the assistant's own question carries that question's words.
     ("Want me to cancel its command?\nyes", "press_key", {"key": "Escape"}, _ASKING, False)])
 def test_a_panes_prompt_is_answered_only_when_asked(request_, name, args, pane, refused):
