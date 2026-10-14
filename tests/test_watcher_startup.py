@@ -396,6 +396,13 @@ def test_failed_pane_collection_reports_stale(inventory, monkeypatch):
 def test_slow_tick_still_beats_per_pane(inventory, monkeypatch):
     w, _ = inventory
     w._last_tick = time.time() - 60  # the previous tick ended long ago
-    monkeypatch.setattr(w, "_tick_pane", parsed)
-    w._tick()  # the heartbeat moves as each pane is read, not only when the tick ends
-    assert not w.is_stale()
+    seen = []
+
+    def read(pane):  # the second pane checks mid-tick, after only the first was read
+        if pane.id == "%1":
+            seen.append(w.is_stale())
+        return parsed(pane)
+
+    monkeypatch.setattr(w, "_tick_pane", read)
+    w._tick()
+    assert seen == [False], "the first pane's read should have moved the heartbeat"
