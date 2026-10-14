@@ -286,6 +286,7 @@ def test_the_usage_view_reads_the_windows_ended_in_its_range(tmp_path):
     first, second = NOW - 30000, NOW - 5000  # two ended 5h windows' resets, then this one
     usage.history.record_usage([("claude", "a", "5h", 18000, t, p, r) for t, p, r in (
         (NOW - 3 * 86400, 50, NOW - 3 * 86400 + 60),  # three days back: out of a 1-day range
+        (NOW - 86400 - 600, 30, NOW - 86400 - 60),  # read within a window of it, ended before it
         (first - 9000, 20, first), (first - 60, 40, first + 2),  # re-read: the same window
         (second - 4000, 100, second), (second - 60, 100, second),
         (NOW - 600, 10, NOW + 9000), (NOW, 12, None))])  # a closed window is none of them
@@ -293,7 +294,7 @@ def test_the_usage_view_reads_the_windows_ended_in_its_range(tmp_path):
     assert [(w["pct"], w["start"] / 1000, w["limit_at"]) for w in window["past"]] == [
         (40, first + 2 - 18000, None), (100, second - 18000, (second - 4000) * 1000)]
     assert window["past"][0]["samples"] == [[(first - 9000) * 1000, 20], [(first - 60) * 1000, 40]]
-    assert len(usage.report(now=NOW, past=7)[0]["windows"][0]["past"]) == 3
+    assert len(usage.report(now=NOW, past=7)[0]["windows"][0]["past"]) == 4
     assert "past" not in usage.report(now=NOW)[0]["windows"][0]  # the strip's minute poll
     # A re-read that moves this window's reset past now leaves it current, not ended.
     assert ended("5h", 18000, [(NOW - 600, 5, NOW - 30), (NOW - 60, 6, NOW + 30)], NOW) == []

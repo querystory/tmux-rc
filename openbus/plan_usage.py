@@ -318,8 +318,10 @@ class PlanUsage:
         name, seconds, observed, pct, resets = row
         out = {"window": name}
         if past:  # from a window's length earlier, so the oldest tooth starts at its start
-            recent = self.history.usage_between(tool, key, name, now - past * 86400 - seconds, now)
-            out["past"] = ended(name, seconds, recent, now)
+            since = now - past * 86400
+            recent = self.history.usage_between(tool, key, name, since - seconds, now)
+            out["past"] = [w for w in ended(name, seconds, recent, now)
+                           if w["resets_at"] >= since * 1000]
         if resets is None or resets <= now:  # the window reset since: nothing used yet
             return {**out, "pct": 0.0, "resets_at": None, "samples": []}
         # Up to the row's own observation: a poll landing in between can't skew the trend.

@@ -141,7 +141,7 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
   view.extent = { min: Math.min(now - D, ...times), max: Math.max(now + 6 * H, ...times) + H };
   for (const card of view.cards) {
     card.meters = byType[card.type];
-    const head = `<h3>${title(card.type)} <small>${esc(card.type)}</small></h3>${card.meters.map(m => readout(m, now)).join('')}`;
+    const head = `<h3>${esc(title(card.type))} <small>${esc(card.type)}</small></h3>${card.meters.map(m => readout(m, now)).join('')}`;
     if (card.headEl.innerHTML !== head) card.headEl.innerHTML = head;
     card.chartEl.setAttribute('aria-label', `${title(card.type)} usage over time: ${card.meters.map(m => `${m.name} ${Math.round(m.w.pct)}%`).join(', ')}`);
   }
