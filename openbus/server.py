@@ -1448,7 +1448,7 @@ def account_login_callback(body: SignInCallbackBody, request: Request):
         _refuse(request, "account_login_callback", body.pane_id, 404, "not a sign-in window")
     if not (path := accounts.codex_callback(body.url)):
         _refuse(request, "account_login_callback", body.pane_id, 400,
-                f"Not the http://localhost:{accounts.CODEX_CALLBACK_PORT}/auth/callback?… address")
+                f"Not the http://127.0.0.1:{accounts.CODEX_CALLBACK_PORT}/auth/callback?… address")
     ok = accounts.replay_codex_callback(path)
     _audit(request, "account_login_callback", body.pane_id, outcome="ok" if ok else "failed")
     if not ok:
