@@ -952,6 +952,16 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .ug-cells { display: flex; gap: 20px; }
 .ug-cells .usage-cell { flex: 0 0 180px; }
 .ug-cells .usage-spark { height: 56px; margin-top: 6px; }
+/* The usage view, wide: each account's meters side by side under its name, never split, and
+   two accounts share a line when both fit. A group grows by its meter count, so every chart
+   on a line is the same width, and none is narrower than 260px before it wraps, nor wider
+   than 480px (a lone Codex chart stretched across the page read as a flat line). */
+.usage-view .usage-groups { gap: 40px 48px; }
+.usage-view .ug { flex: var(--n) 1 calc(var(--n) * 260px + (var(--n) - 1) * 24px); padding: 0; border: 0; }
+.usage-view .ug-label { position: static; translate: none; margin-bottom: 12px; }
+.usage-view .ug-cells { gap: 24px; }
+.usage-view .ug-cells .usage-cell { flex: 1 1 0; max-width: 480px; }
+.usage-view .ug-cells .usage-spark { height: 96px; }
 /* New window's picker and the Accounts dialog. */
 .acct-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 6px; }
 .acct-pick button { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 12px; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }

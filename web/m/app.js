@@ -616,18 +616,26 @@ const paintUsage = () => {
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
-  const el = $("usage-board"), mode = several && WIDE.matches ? "groups" : "board";
-  if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
+  // A labelled group per account, or else one grid of meters (`flat`).
+  const paint = (el, list, grouped, cls, options, flat = () => renderUsage(el, list, options)) => {
+    const mode = grouped ? "groups" : "board";
+    if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = cls; }
+    if (grouped) accounts.groups(el, list, (cells, one) => renderUsage(cells, one, options));
+    else flat();
+  };
   show("usage-panel", board.length > 0);
-  if (mode === "groups") accounts.groups(el, board, (cells, list) => renderUsage(cells, list, { wide: true }));
-  else { renderUsage(el, order(board), { wide: true }); accounts.strip(el, several); }
+  const el = $("usage-board");
+  paint(el, board, several && WIDE.matches, "usage-board", { wide: true }, () => { renderUsage(el, order(board), { wide: true }); accounts.strip(el, several); });
   if (page !== "usage") return;
   if (!usagePast) refreshCached(true); // past windows: only this view asks for them
   // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.
-  renderUsage(cardView("Plan usage", usageView).firstChild, board.length ? board : all, { wide: true, detail: true, icon: licon });
+  // Wide, each account's meters share a row under its name, once the accounts have come.
+  const list = board.length ? board : all;
+  paint(cardView("Plan usage", usageView).firstChild, list, WIDE.matches && list.every((a) => a.acct), "usage-board usage-full",
+    { wide: true, detail: true, icon: licon });
 };
 const usageView = document.createElement("section");
-usageView.className = "atlas-panel";
+usageView.className = "atlas-panel usage-view";
 usageView.innerHTML = '<div class="usage-board usage-full" role="group" aria-label="Plan usage"></div>';
 detailCard($("usage-panel"), "Plan usage", "", () => openPage("usage"));
 const loopsView = document.createElement("section");

@@ -61,6 +61,12 @@ account's twelve can span months), and so it does not slow down as the history g
 records, so nothing new is written; a reset that moves by an hour or less between reads is
 the same window, since no two windows reset closer than five hours apart.
 
+Wide, the view groups the meters by account, as the card does: each account's charts sit
+side by side on one row under its name, and an account never splits across rows. A flat
+two-column grid interleaved them, one account's 7d Fable beside another's 5h. Groups wrap,
+two to a line when both fit, and grow by their chart count, so every chart on a line is the
+same width (260 to 480px). The phone keeps one column, each chart carrying its chip.
+
 The sidebar strip stays. It is the only place the limits show while a pane is open, and both
 draw from one renderer (`renderUsage`), so the panel is a size and a flag, not a copy.
 

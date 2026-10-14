@@ -102,7 +102,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     el.className = "usage-groups"; el.hidden = !list.length; // a board drawn before the accounts came may have hidden it
     const markup = list.map((a, i) => {
       const p = a.acct, tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
-      return `<div class="ug" data-i="${i}"><div class="ug-label" title="${esc(tip)}">${several(p.provider) ? badge(p) : `<b>${esc(p.name)}</b>`}</div><div class="ug-cells"></div></div>`;
+      return `<div class="ug" data-i="${i}" style="--n:${a.windows?.length || 1}"><div class="ug-label" title="${esc(tip)}">${several(p.provider) ? badge(p) : `<b>${esc(p.name)}</b>`}</div><div class="ug-cells"></div></div>`;
     }).join("");
     if (el._groups !== markup) { el.innerHTML = markup; el._groups = markup; }
     el.querySelectorAll(".ug").forEach((g) => render(g.lastChild, [{ ...list[g.dataset.i], label: null, chip: null }]));
