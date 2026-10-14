@@ -240,11 +240,10 @@ flowchart TD
   B[daemon start or tmux server change] --> C{unconsumed snapshot<br>of a dead server?}
   C -- no --> N[nothing to offer]
   C -- yes --> R[Restore card:<br>empty state or attention item]
-  R -- Restore selected --> X[restore executor]
+  R -- Restore selected --> D2[record the run,<br>consume the candidates] --> X[restore executor]
   R -- Start fresh / dismiss --> D[mark consumed]
   X --> T[tmux: sessions, windows, splits, layout]
   X --> A[per pane: agent-history get, resume argv, staggered]
-  X --> D
 ```
 
 ### The Restore card
@@ -397,7 +396,8 @@ the destination server's identity (the same boot id, pid and start time) on the 
 With a replacement server up, that is the live one. With none, the daemon first starts
 a server holding a single empty session named after the run, records that server's
 identity, and only then builds anything; the holder closes once the first restored
-session exists. A crash between the two steps leaves a run with no destination: recovery
+session exists, or when the run ends having restored none (every pane failed its
+checks), so a failed restore leaves no empty workspace behind. A crash between the two steps leaves a run with no destination: recovery
 adopts the live server that holds the run's holder session, or else starts one as above.
 Nothing it built can be orphaned, because nothing is built before the identity is
 recorded. Layout construction is
@@ -407,7 +407,10 @@ object it is about to create), and the creating tmux command list also tags the 
 object with a user option naming the run and that object. Afterwards its tmux id and,
 for a pane, its launch outcome (pid, or the failure) are written to the run. A crash
 between the mutation and that write loses only the id: recovery finds the object by its
-tag rather than creating it again beside the first. A launch is different: an agent that
+tag rather than creating it again beside the first. A window link (`link-window`) is
+a relation, not an object, so it carries no tag of its own: recovery checks whether the
+tagged window already sits at its saved index in the tagged session, and links it only if
+not. A launch is different: an agent that
 started and already exited leaves nothing to find. So before each respawn the run
 records the attempt, and recovery treats an attempt with no outcome as indeterminate: the
 pane is marked on the card for a manual retry, never launched again unconfirmed. tmux ids are only unique within one server, and a replacement server reuses them,
