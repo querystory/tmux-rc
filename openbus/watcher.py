@@ -572,6 +572,17 @@ class Watcher:
         for pane_id in pane_ids:
             self.request_reparse(pane_id)
 
+    def drop_question(self, pane_id: str) -> None:
+        """The pane's question was answered and its screen no longer shows it: publish the
+        card without it now. The parse already forced corrects anything else; until then
+        the agent is taken to be at work on the answer."""
+        with self._publish_lock:
+            shown = (s for s in self.states if s.get("pane_id") == pane_id)
+            for s in (self._state.get(pane_id), *shown):
+                if s and s.get("question"):
+                    s.update(question=None, activity="running", waiting_on=None)
+            self._bump_state_if_changed(self.states)
+
     def invalidate_input_actions(self, pane_id: str) -> None:
         """Invalidate actions before a pane-input transaction can take its send lock."""
         with self._input_generation_lock:

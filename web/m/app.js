@@ -26,9 +26,9 @@ const LONG_POLL_TIMEOUT_MS = 35000;
 // No client timeout (setTimeout's largest delay), for a request whose server run an abort
 // would not stop: the answer must be its own outcome, never a failure while it runs on.
 const NO_TIMEOUT = 2 ** 31 - 1;
-// How long "Answer sent" stays (and the option buttons stay disabled) before we trust
-// the pane's own state again — covers the round trip to the agent and back.
-const ANSWER_PENDING_MS = 10000;
+// How long a delivered answer holds its card (spinner, options disabled) when the pane's
+// question never changes — an ignored key — before we trust the pane's own state again.
+const ANSWER_PENDING_MS = 15000;
 // Being this close to the bottom of the terminal counts as following it, so a frame
 // keeps the view pinned to the tail; further up, the user is reading and we leave it.
 const FOLLOW_SLACK_PX = 48;
@@ -124,8 +124,8 @@ let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
-// Answers sent and not yet reflected, per pane (pane id -> question signature): the sidebar
-// can answer several panes inside one hold, and each keeps its own.
+// Answers tapped and not yet reflected, per pane (pane id -> { prompt, index, note }): the
+// sidebar can answer several panes inside one hold, and each keeps its own.
 const pendingAnswers = new Map();
 // Per-line nodes under #capture, in document order; each caches the markup last written
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
@@ -308,9 +308,10 @@ function makeRow(pane) {
   return button;
 }
 function updateRow(button, pane) {
+  const answered = isAnswered(pane);
   if (pane.pane_id === active) button.setAttribute("aria-current", "true");
   else button.removeAttribute("aria-current");
-  button.classList.toggle("needs-you", needsYou(pane));
+  button.classList.toggle("needs-you", needsYou(pane) && !answered);
   button.classList.toggle("fresh", pane.activity === "idle" && isRecent(pane));
   const logo = button.querySelector(".pane-icon img");
   logo.alt = pane.tool || "tmux";
@@ -318,8 +319,8 @@ function updateRow(button, pane) {
   text(button.querySelector("strong"), paneName(pane));
   text(button.querySelector(".row-age"), age(pane));
   const badge = button.querySelector(".badge");
-  badge.className = `badge ${activityClass(pane)}`;
-  text(badge, activityLabel(pane));
+  badge.className = `badge ${answered ? "running" : activityClass(pane)}`;
+  text(badge, answered ? "Sent" : activityLabel(pane));
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
   sessionChip.hidden = sort !== "updated" || !pane.session; // a session label already says it
@@ -772,14 +773,17 @@ function render() {
   if (command._key !== commandKey) { command._key = commandKey; command.open = false; }
   command.hidden = !question?.context;
   text(command.lastChild, question?.context || "");
-  const answered = !!pane && isAnswered(pane);
-  show("answer-status", answered);
-  text($("answer-status"), "Answer sent. Waiting for the pane...");
+  const answered = pane && isAnswered(pane);
+  show("answer-status", !!answered);
+  text($("answer-status"), answered?.note || "");
   reconcile($("options"), answerOptions(question), (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
     button.onclick = () => answer(active, button._option.option, button._option.index);
     return button;
-  }, (button, option) => { button._option = option; text(button, option.option); button.disabled = sending || answered; });
+  }, (button, option) => {
+    button._option = option; text(button, option.option); button.disabled = sending || !!answered;
+    button.classList.toggle("picked", answered?.index === option.index);
+  });
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
@@ -1103,18 +1107,13 @@ function updateComposer() {
 // Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
 // (web/cursor-pick.js) cannot — a move it wrongly believes happened leaves every later
 // step one row out and commits the wrong row.
-async function sendKeys(body, answer = false, id = active) {
+async function sendKeys(body, id = active) {
   if (sending || !panes.some((p) => p.pane_id === id)) return false;
-  const signature = JSON.stringify(panes.find((p) => p.pane_id === id)?.question);
   let delivered = false;
   sending = true; notice(); render();
   try {
     const sent = await paneInput.run(id, () => post(paneUrl(id, "send"), body));
     delivered = sent && "picker" in sent ? sent : true; // a walk's step: the screen it made
-    if (answer) {
-      pendingAnswers.set(id, signature);
-      setTimeout(() => { if (pendingAnswers.get(id) === signature) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
-    }
     if (active === id) text($("draft-status"), "Sent");
     startState();
   } catch (error) {
@@ -1131,22 +1130,40 @@ async function sendKeys(body, answer = false, id = active) {
 function answerOptions(question) {
   return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
 }
-function isAnswered(pane) { return pendingAnswers.get(pane.pane_id) === JSON.stringify(pane.question); }
-function answer(id, option, index) {
+// The tapped answer while its question is still the one on the card, else null. Keyed on
+// the prompt alone: a cursor walk redraws the options and highlight under one prompt. Once
+// the pane shows another question, or none, the answer has landed and is forgotten.
+function isAnswered(pane) {
+  const pending = pendingAnswers.get(pane.pane_id);
+  if (pending && pending.prompt !== pane.question?.prompt) pendingAnswers.delete(pane.pane_id);
+  return pendingAnswers.get(pane.pane_id) || null;
+}
+// A tap holds its card at once: the tapped option spins, the rest go grey, and the card
+// stops reading as Needs you, through the send and on until the pane's next state.
+async function answer(id, option, index) {
   const current = panes.find((p) => p.pane_id === id);
-  if (!current?.question || !needsYou(current)) return;
+  if (!current?.question || !needsYou(current) || isAnswered(current) || sending) return;
+  const pending = { prompt: current.question.prompt, index, note: "Sending…" };
+  pendingAnswers.set(id, pending); render();
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
-  if (current.question.answer_style === "cursor") { if (active !== id) navigate(id); pickCursorRow(cursorIO(id), option, index); }
-  else sendKeys(answerBody(current.question, option, index), true, id);
+  const cursor = current.question.answer_style === "cursor";
+  if (cursor && active !== id) navigate(id);
+  const sent = cursor ? await pickCursorRow(cursorIO(id), option, index)
+    : await sendKeys(answerBody(current.question, option, index), id);
+  if (pendingAnswers.get(id) !== pending) return; // the pane moved on already
+  if (sent) {
+    pending.note = "Sent, waiting for the agent";
+    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
+  } else pendingAnswers.delete(id); // not sent: the notice says why, and the options are live again
+  render();
 }
 
-// This surface's half of the shared cursor walk. No send here sets `pendingAnswers`:
-// gating the option buttons on the first Down would disable the very row the walk is
-// working toward. What keeps a second tap from starting a rival walk is not this surface
-// at all — `sending` is released between every step — but the module's own one-at-a-time
-// lock, which is where that belongs since both surfaces have the same gap.
+// This surface's half of the shared cursor walk. The tap's pending answer greys the
+// options for the walk's length, but what keeps a second walk from starting is the
+// module's own one-at-a-time lock — `sending` is released between every step — which is
+// where that belongs since both surfaces have the same gap.
 function cursorIO(id) {
   // Two separate things, both needed. sendKeys takes the captured id, so no move can ever
   // be posted to a pane the walk was not started for — it defaults to `active` for every
@@ -1160,7 +1177,7 @@ function cursorIO(id) {
   // the key does exactly what the walk computed. With no digest (classify grounded no
   // highlight) there is nothing to hold a key to, so none is sent and the walk stops here.
   const send = (body, q) => q.picker
-    && sendKeys({ ...body, enter: false, prompt: q.prompt ?? "", picker: q.picker }, false, id);
+    && sendKeys({ ...body, enter: false, prompt: q.prompt ?? "", picker: q.picker }, id);
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,

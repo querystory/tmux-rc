@@ -94,7 +94,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .pane-row.needs-you::before { background: var(--amber); }
 .pane-row.fresh::before { background: var(--accent); }
-.pane-row.needs-you, .pane-card { background: var(--amber-bg); --card: var(--amber-bg); }
+.pane-row.needs-you, .pane-card:has(.needs-you) { background: var(--amber-bg); --card: var(--amber-bg); }
 .needs-you .row-age { color: var(--amber); font-weight: 700; }
 .needs-you .row-status { color: var(--fg); } /* the ask is the row's point */
 /* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
@@ -187,7 +187,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #options { display: grid; gap: 8px; margin-top: 14px; }
 #options button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
 #options button:hover:not(:disabled) { border-color: var(--amber); }
-#answer-status { color: var(--amber); font-size: 12px; padding-top: 10px; }
+#answer-status { color: var(--muted); font-size: 12px; padding-top: 10px; }
 #task-count { color: var(--muted); font-size: 12px; margin-left: 6px; }
 /* A title too long to share its line with the meta keeps the line beside its icon (the
    max-width), and the meta wraps under it, rather than squeezing the title to a word a line. */
@@ -520,6 +520,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
 .sb-replies button { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
 .sb-replies button:not(:disabled):hover { border-color: var(--amber); }
+.sb-note { align-self: center; color: var(--muted); font-size: 12px; }
 .sb-compose { flex-wrap: nowrap; align-items: flex-end; gap: 2px; }
 .sb-compose[hidden] { display: none; }
 .sb-compose #side-reply { flex: 1; min-width: 0; min-height: 32px; max-height: 120px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -916,11 +917,13 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   .heat-total { grid-template-columns: 1fr; padding-left: 4px; }
   .heat-total .usage-bar { display: none; }
 }
-/* A window being killed or expunged from here (markEnding): greyed, its label under a spinner. */
+/* A window being killed or expunged from here (markEnding): greyed, its label under a spinner.
+   A tapped answer (button.picked) spins the same way while its send and the agent catch up. */
 .ending { opacity: .55; }
 .ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
-.ending :is(.badge, .sb-open .a, .m)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
-@media (prefers-reduced-motion: no-preference) { .ending :is(.badge, .sb-open .a, .m)::before { animation: logo-spin .8s linear infinite; } }
+:is(.ending :is(.badge, .sb-open .a, .m), button.picked)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) { :is(.ending :is(.badge, .sb-open .a, .m), button.picked)::before { animation: logo-spin .8s linear infinite; } }
+button.picked:disabled { opacity: 1; }
 
 /* Agent accounts (accounts.js): drawn only for a provider with two or more. */
 .acct-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--a); }

@@ -159,7 +159,7 @@ export function setupSidebar(ctx) {
   function updateRow(node, { p, g, card }) {
     node._p = p;
     markEnding(node, p);
-    node.classList.toggle("need", needsYou(p));
+    node.classList.toggle("need", needsYou(p) && !ctx.answered(p));
     // On the card for its styling and on its button, which is what assistive tech lands on.
     for (const el of [node, node.firstChild]) {
       if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
@@ -185,17 +185,24 @@ export function setupSidebar(ctx) {
     }
   }
 
-  // The same answers, the same send and the same "Answer sent" hold as the pane's own
-  // question card; Reply opens a composer that posts to the pane's /compose like its footer.
+  // The same answers, the same send and the same pending hold as the pane's own question
+  // card, its note standing in for Reply; Reply opens a composer that posts to the pane's
+  // /compose like its footer.
   function replies(node, p) {
-    const options = needsYou(p) ? ctx.answers(p.question) : [], busy = ctx.sending() || ctx.answered(p);
-    const items = [...options, ...(needsYou(p) ? [{ reply: true }] : [])];
-    reconcile(node.querySelector(".sb-replies"), items, (o) => o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
+    const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
+    const options = needsYou(p) ? ctx.answers(p.question) : [];
+    const items = [...options, ...(!needsYou(p) ? [] : answered ? [{ note: answered.note }] : [{ reply: true }])];
+    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
+      if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
       const button = document.createElement("button");
       button.type = "button";
       button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : ctx.answer(node._p.pane_id, o.option, o.index);
       return button;
-    }, (button, o) => { text(button, o.reply ? "Reply" : o.option); button.title = o.reply ? "" : o.option; button.disabled = busy; });
+    }, (el, o) => {
+      if (o.note != null) return text(el, o.note);
+      text(el, o.reply ? "Reply" : o.option); el.title = o.reply ? "" : o.option; el.disabled = busy;
+      el.classList.toggle("picked", !o.reply && answered?.index === o.index);
+    });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;
     if (form.hidden) return form.querySelector("#side-reply")?.remove();

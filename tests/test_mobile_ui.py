@@ -263,7 +263,7 @@ def test_atlas_offers_no_chip_for_unknown_or_toolless_panes():
 def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     """The sidebar's Needs you cards answer without opening the pane, which is only safe if
     they are the pane view's buttons and composer in another place: one option filter, one
-    /send (with its "Answer sent" hold), one /compose. A second copy would drift. And the
+    /send (with its pending-answer hold), one /compose. A second copy would drift. And the
     phone keeps its tab bar and header: the sidebar is wide-only, and the header's controls
     are moved there and back (one element each), not duplicated."""
     root = Path(__file__).resolve().parents[1] / "web/m"

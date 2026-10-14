@@ -149,6 +149,13 @@ def picker_read(text: str, prompt: str) -> tuple[str, str | None] | None:
     return hashlib.sha256(visible[top:].encode()).hexdigest(), _drawn_row(visible, live)
 
 
+def prompt_gone(text: str, prompt: str) -> bool:
+    """Whether no words on the screen ask `prompt` any longer: its dialog was answered and
+    erased, which needs no model to tell. Words left anywhere (an echo in the transcript)
+    leave it to the parse."""
+    return bool(prompt.strip()) and not _occurrences(prompt, _visible(text))
+
+
 def picker_digest(text: str, prompt: str) -> str | None:
     read = picker_read(text, prompt)
     return read and read[0]
