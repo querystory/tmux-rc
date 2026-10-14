@@ -1,6 +1,6 @@
 import { liveClose } from "/live-close.js";
 import { chatBubble, chatComposer, chatThumb } from "/live-chat.js";
-import { appendChatMarkdown } from "/chat-markdown.js";
+import { appendChatMarkdown, renderChatText } from "/chat-markdown.js";
 import { chatStarters } from "/chat-starters.js";
 import { since } from "/m/pane-model.js";
 // Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
@@ -19,7 +19,7 @@ const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the
 const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
-export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "" }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "", names = () => [] }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -171,7 +171,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
     const body = row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
-    if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
+    if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; }, names());
+    else if (role === "typed" || role === "propose") body.innerHTML = renderChatText(message || "", names()); // one line each, never grown
     else body.textContent += message || "";
     body.before(...images.map(chatThumb));
     if (!dialog.open && role !== "user") unread = true; // not the user's own echo
