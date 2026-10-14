@@ -919,9 +919,10 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
 
-# What forbids the offer after it, read on _plain text: "do **not**\n  run `! make deploy`".
-_NEGATED_RE = re.compile(
-    r"(?:\bnot|n't|\bnever)(?: (?:run|type|use|execute|enter|paste|send|say))?$", re.IGNORECASE)
+# What forbids the offer after it, read on _plain text: "do **not**\n  run `! make deploy`",
+# or "Do not run this:" over a fenced block.
+_NEGATED_RE = re.compile(r"(?:\bnot|n't|\bnever)(?: (?:run|type|use|execute|enter|paste|send|say))?"
+                         r"(?: (?:this|these|it))?:?$", re.IGNORECASE)
 
 
 def _plain(text: str) -> str:

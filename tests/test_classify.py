@@ -1387,6 +1387,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
          "Do not run `! make deploy`; it deploys."),  # a negated run, wrapped
         (_auto_screen('Do not say "merge all"; it skips.'),
          'Do **not** say "merge all"; it skips.'),  # negation behind Markdown
+        (_auto_screen("Do not run this:\n\n  ! make deploy"),
+         "Do not run this:\n\n```\n! make deploy\n```"),  # a forbidden fenced command
         (_auto_screen('Do not say "merge all"; it skips review.'), 'Say "merge all" now.'),
         (_auto_screen("Run ! gh pr merge 415 --squash --auto now."),
          "Run `! gh pr merge 415 --squash` now."),  # the screen's continues
