@@ -2,7 +2,7 @@ import { liveClose } from "/live-close.js";
 import { chatBubble, chatComposer, chatThumb } from "/live-chat.js";
 import { appendChatMarkdown, renderChatText } from "/chat-markdown.js";
 const esc = (text) => renderChatText(text); // no names: plain escaping
-const KEYCAPS = { Up: "↑", Down: "↓", Left: "←", Right: "→", Escape: "Esc", PageUp: "Page Up", PageDown: "Page Down", "C-c": "Ctrl C", "C-d": "Ctrl D" };
+const KEYCAPS = { Up: "↑", Down: "↓", Left: "←", Right: "→", Escape: "Esc", Enter: "⏎ Enter", PageUp: "Page Up", PageDown: "Page Down", "C-c": "Ctrl C", "C-d": "Ctrl D" };
 const keycap = (key) => `<kbd>${esc(KEYCAPS[key] || key)}</kbd>`;
 import { chatStarters } from "/chat-starters.js";
 import { since, paneName } from "/m/pane-model.js";
@@ -252,11 +252,12 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // Only a well-formed call is drawn: a malformed one keeps its sentence, as the daemon refuses it.
   const drawn = ({ pane_id, key, payload }) => !!pane_id && (typeof key === "string" ? !!key : typeof payload === "string");
   function action({ pane_id, label, key, payload, enter }, done) {
-    const [press, type, then] = done ? ["Pressed", "Typed into", ", then pressed"] : ["Press", "Type into", ", then press"];
+    const [press, type] = done ? ["Pressed", "Typed into"] : ["Press", "Type into"];
     if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${paneTag(pane_id, label)}</div>`;
     const via = /^From the user \(via \w+\):\s*/.exec(payload)?.[0] || "";
-    return `<div class="voice-act">${type} ${paneTag(pane_id, label)}${enter ? `${then} ${keycap("Enter")}` : ""}` +
-      `<blockquote>${via && `<span>${esc(via)}</span>`}${esc(payload.slice(via.length))}</blockquote></div>`;
+    // Enter goes where it is pressed: at the end of the text, as it would be typed.
+    return `<div class="voice-act">${type} ${paneTag(pane_id, label)}` +
+      `<blockquote>${via && `<span>${esc(via)}</span>`}${esc(payload.slice(via.length))}${enter ? ` ${keycap("Enter")}` : ""}</blockquote></div>`;
   }
   // Which session a resume card means, past a title several can share (live._approved).
   function sessionMeta({ tool, cwd, last_active, id }) {
