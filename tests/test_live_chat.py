@@ -673,3 +673,10 @@ def test_a_name_or_pr_two_panes_share_unlocks_neither():
     assert L._meant(twins, "anything on PR 7?") == set()  # two panes worked on it
     assert L._refusal(s, "type_in_pane", {"pane_id": "%1", "text": "hi"}, twins) == "elsewhere"
     assert L._refusal(s, "type_in_pane", {"pane_id": "%2", "text": "hi"}, twins) is None
+
+
+def test_a_restored_send_finds_its_pane_by_label_under_a_title():
+    panes = [{"pane_id": "%1", "label": "work", "title": "auth fix"},
+             {"pane_id": "%2", "label": "shell", "title": "auth fix"}]
+    assert L._restored_pane(panes, "typed", "work: make test")["pane_id"] == "%1"
+    assert L._restored_pane(panes, "typed", "auth fix: make test") is None  # two panes

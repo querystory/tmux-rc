@@ -317,8 +317,12 @@ def _restored_pane(digest: list[dict], role: str, text: str) -> dict | None:
     if role != "typed":
         return _named(digest, text)
     sent = re.match(r".*? \((%\d+)\)(?: \(not submitted\))?: ", text)  # a label may hold ":"
-    return next((d for d in digest if d["pane_id"] == sent[1]), None) if sent else _named(
-        digest, text.split(": ", 1)[0])
+    if sent:
+        return next((d for d in digest if d["pane_id"] == sent[1]), None)
+    head = " ".join(_words(text.split(": ", 1)[0]))  # the row's label (or title), whole
+    hits = [d for d in digest if head in {" ".join(_words(str(d.get(k) or ""))) for k in
+                                           ("label", "title")}]
+    return hits[0] if len(hits) == 1 else None
 
 
 def _focus(session, d: dict | None) -> None:
