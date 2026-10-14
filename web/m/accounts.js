@@ -371,7 +371,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if ("x" in d) return dlg.close();
     if (d.goto) return go(d.goto);
     // The dir follows the provider: ~/.claude-x becomes ~/.codex-x, typed or suggested.
-    if (d.prov) { F.dir = F.dir.replace(new RegExp(`^~/\\.${F.provider}(?=-|$)`), `~/.${d.prov}`); F.provider = d.prov; return render(); }
+    if (d.prov) { F.dir = F.dir.replace(new RegExp(`^~/\\.${F.provider}(?=[-/]|$)`), `~/.${d.prov}`); F.provider = d.prov; return render(); }
     if (d.way) { F.line = lineFor(withWay(cmdOf(F.provider), d.way.includes("--device-auth"))); return render(); }
     if ("resetCmd" in d) { setCmd(F.provider, LOGIN[F.provider]); F.line = null; return render(); }
     if ("add" in d) return open("name");

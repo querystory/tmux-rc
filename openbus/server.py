@@ -1201,14 +1201,14 @@ def account_login(body: SignInBody, request: Request):
     try:
         words = shlex.split(body.command) or [f"{var}={profile['dir']}", *default]
     except ValueError as e:
-        _refuse(request, "account_login", body.command[:120], 400, f"Cannot read that command: {e}")
+        _refuse(request, "account_login", body.dir[:120], 400, f"Cannot read that command: {e}")
     lead = list(itertools.takewhile(lambda w: re.match(r"[A-Za-z_]\w*=", w), words))
     argv = words[len(lead):]
     if [(k, canonical(v)) for k, v in (w.split("=", 1) for w in lead)] != [(var, profile["dir"])]:
-        _refuse(request, "account_login", body.command[:120], 400,
+        _refuse(request, "account_login", body.dir[:120], 400,
                 f"The command must keep {var}={profile['tilde']}")
     if not argv or argv[0] != default[0]:
-        _refuse(request, "account_login", body.command[:120], 400,
+        _refuse(request, "account_login", body.dir[:120], 400,
                 f"The sign-in command must run {default[0]}")
     if why := _unavailable(argv[0], tmux.server_path()):
         _refuse(request, "account_login", body.dir[:120], 400, why)
@@ -1295,7 +1295,7 @@ def account_login_callback(body: SignInCallbackBody, request: Request):
     if reply is None:
         raise HTTPException(502, "Nothing is waiting for it any more. Open a new sign-in window.")
     if status >= 400:  # codex says "State mismatch" for another link's address
-        older = "state" in reply[1].lower()
+        older = "state mismatch" in reply[1].lower()
         raise HTTPException(409 if older else 502, _OLDER_LINK if older else
                             "That code was already used or expired. Sign in again.")
     return {"ok": True}
