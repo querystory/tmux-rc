@@ -1174,7 +1174,12 @@ async function compose(id, value) {
     return true;
   } catch {
     if (secret) value.value ||= sent;
-    else { const typed = value.segments(); value.replace([...value.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]); }
+    else {
+      // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
+      // a sidebar Reply's draft into the pane's own composer and detaches the Reply.
+      const owner = renderSidebar.drafts.get(id) === value ? value : draft(id), typed = owner.segments();
+      owner.replace([...owner.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]);
+    }
     notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); return false;
   } finally { sending = false; render(); }
 }
