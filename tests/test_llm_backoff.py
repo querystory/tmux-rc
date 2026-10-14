@@ -8,6 +8,8 @@ import threading
 import time
 import types
 
+import pytest
+
 import openbus.llm as L
 
 
@@ -119,3 +121,21 @@ def test_a_call_in_flight_does_not_lift_a_brake_armed_after_it_started(monkeypat
         assert L.backing_off()
     finally:
         _clear()
+
+
+def test_hung_calls_are_capped_not_accumulated(monkeypatch):
+    """Each timed-out call leaves its thread running until the hang ends; past the cap a
+    call fails fast as a timeout instead of starting yet another thread."""
+    release = threading.Event()
+    monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(
+        models=types.SimpleNamespace(generate_content=lambda **_k: release.wait(5))))
+    monkeypatch.setattr(L, "_DEADLINE_S", 0.01)
+    monkeypatch.setattr(L, "_slots", threading.BoundedSemaphore(2))
+    started = threading.active_count()
+    try:
+        for _ in range(4):
+            with pytest.raises(TimeoutError):
+                L._generate()
+        assert threading.active_count() - started == 2
+    finally:
+        release.set()

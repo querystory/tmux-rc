@@ -113,13 +113,18 @@ _TIMEOUT_MS = int(os.environ.get("TMUXRC_LLM_TIMEOUT_MS", "20000"))
 # and one of those hanging held a restart's first parse — and every pane queued behind
 # it — for 10.5 minutes. So each call also gets an overall deadline, measured on a worker
 # thread; a call past it fails as a timeout, and its thread is left to finish on its own.
-# A thread per call, not a pool: hung calls must not use up the workers later calls need
-# (the timeout arms the backoff, so they cannot pile up either).
+# A thread per call, not a pool, so hung calls never queue the next ones behind them; but
+# at most _MAX_CALLS live at once. A hung refresh does end (google-auth's retries are
+# bounded), so past the cap a call fails fast as a timeout until one of them returns.
 _DEADLINE_S = _TIMEOUT_MS / 1000 + 10
+_MAX_CALLS = 8
+_slots = threading.BoundedSemaphore(_MAX_CALLS)
 
 
 def _generate(**kwargs):
     """generate_content under the overall deadline (see _DEADLINE_S)."""
+    if not _slots.acquire(blocking=False):
+        raise TimeoutError(f"{_MAX_CALLS} Vertex calls are still hung")
     future = Future()
 
     def call():
@@ -127,6 +132,8 @@ def _generate(**kwargs):
             future.set_result(_client().models.generate_content(**kwargs))
         except BaseException as e:  # noqa: BLE001 - handed to the caller, raised there
             future.set_exception(e)
+        finally:
+            _slots.release()
 
     threading.Thread(target=call, daemon=True, name="vertex").start()
     return future.result(timeout=_DEADLINE_S)
