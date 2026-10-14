@@ -37,7 +37,11 @@ test("an hour never recorded is never the peak; nothing recorded leaves no peak 
   idleAt2[14] = 0;
   assert.equal(heatWeek(data([idleAt2])).peak, 14);
   const w = heatWeek(data([Array(24)]));
-  assert.deepEqual([w.peak, w.avg, w.change], [-1, null, null]);
+  assert.deepEqual([w.peak, w.busy, w.avg, w.change], [-1, -1, null, null]);
+});
+
+test("a day never recorded is never the busiest, even against a recorded idle one", () => {
+  assert.equal(heatWeek(data([Array(24), flat(0)])).busy, 1);
 });
 
 test("the busiest day is an index into the week", () => {

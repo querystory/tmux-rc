@@ -255,15 +255,15 @@ function heatCard(scope, open) {
   const data = heatDays(scope), w = heatWeek(data), figs = el('div', 'kpis heat-kpis'), kpi = (value, label) => figs.append(fig(value, label, 'kpi'));
   const pct = w.change === null ? null : Math.round(w.change * 100);
   kpi(w.peak < 0 ? '–' : hourName(w.peak), 'peak hour');
-  kpi(`${Math.round(data.totals[w.busy] || 0)}h`, `busiest day${w.busy < 0 ? '' : `, ${dayName(data.all[w.busy][0])}`}`);
+  kpi(w.busy < 0 ? '–' : `${Math.round(data.totals[w.busy])}h`, `busiest day${w.busy < 0 ? '' : `, ${dayName(data.all[w.busy][0])}`}`);
   kpi(w.avg === null ? '–' : w.avg.toFixed(1), 'running on average');
-  if (pct !== null) kpi(`${pct > 0 ? '+' : ''}${pct}%`, 'vs the week before');
+  kpi(pct === null ? '–' : `${pct > 0 ? '+' : ''}${pct}%`, 'vs the week before');
   card.append(heatGrid(data, 7, true), figs);
   return card;
 }
 // The card's figures, over the last 7 days (today too): the hour of day with the most running
-// on average (-1 if none was recorded), the busiest day (its index), and the average running
-// in any hour; then the change in average running over the 7 full days before today against
+// on average, the busiest day (its index; each -1 if none was recorded), the average running
+// in any hour, and the change in average running over the 7 full days before today against
 // the 7 before those (null until both hold a recording). Each average is over the time
 // recorded (null if none), so gaps, part-recorded hours and history starting mid-week weigh
 // only what was seen, never as idle.
@@ -271,9 +271,10 @@ export function heatWeek({ all, totals }) {
   const add = v => v.reduce((a, b) => a + b, 0), seen = (days, h) => days.flatMap(c => (h === undefined ? c : [c[h]]).filter(Boolean));
   const avg = cells => { const t = add(cells.map(c => c.seen)); return t ? add(cells.map(c => c.sum)) / t : null; };
   const days = all.map(([, cells]) => cells), week = days.slice(0, 7), seven = totals.slice(0, 7), full = all[0]?.[0] === today() ? 1 : 0;
-  const hours = Array.from({ length: 24 }, (_, h) => avg(seen(week, h))), peak = hours.reduce((p, v, h) => v !== null && (p < 0 || v > hours[p]) ? h : p, -1);
+  const best = (vals, ok) => vals.reduce((b, v, i) => ok(i) && (b < 0 || v > vals[b]) ? i : b, -1); // the largest of those ok, or -1
+  const hours = Array.from({ length: 24 }, (_, h) => avg(seen(week, h))), peak = best(hours, h => hours[h] !== null);
   const now = avg(seen(days.slice(full, full + 7))), before = avg(seen(days.slice(full + 7, full + 14)));
-  return { peak, busy: seven.indexOf(Math.max(...seven)), avg: avg(seen(week)), change: now === null || !before ? null : now / before - 1 };
+  return { peak, busy: best(seven, i => seen([week[i]]).length > 0), avg: avg(seen(week)), change: now === null || !before ? null : now / before - 1 };
 }
 
 function heatFigs({ all, totals, most }) {
