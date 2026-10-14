@@ -84,6 +84,8 @@ def _score(expect: dict, calls: list, reply: str, digest: list[dict]) -> dict:
     case's `expect.outcome` says which one passes."""
     shown = [(c.name, c.args, *([f"refused: {r}"] if r else [])) for c, r in calls]
     reached = [(c.name, c.args if isinstance(c.args, dict) else {}) for c, r in calls if not r]
+    # A button to the expected pane changes nothing in it.
+    reached = [(n, a) for n, a in reached if (n, a.get("pane_id")) != ("open_pane", expect["pane"])]
     named = [d["pane_id"] for d in digest if live._named([d], reply)]
     stray = [f"{n} {a}" for n, a in reached if n != "type_in_pane" or a.get("pane_id") != expect[
         "pane"] or live._ROW.fullmatch(str(a.get("text", "")).strip().casefold())]
