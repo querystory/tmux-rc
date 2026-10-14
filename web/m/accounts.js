@@ -13,7 +13,9 @@ const CODEX_WAYS = [["codex login", "Browser sign-in", "sign in, then paste the 
 // the server still pins the dir and the binary. Kept here too, where storage is blocked.
 const cmds = {}, cmdKey = (p) => `tmuxrc-signin-${p}`;
 const cmdOf = (p) => cmds[p] ??= (() => { try { return localStorage.getItem(cmdKey(p)); } catch { return null; } })() || LOGIN[p];
-const LEAD = /^\s*(?:[A-Za-z_]\w*=\S*\s+)*/; // the line's leading VAR=value words
+const LEAD = /^\s*(?:[A-Za-z_]\w*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\\.|[^\s'"\\])*\s+)*/; // the leading VAR=value words
+// A dir as one shell word, for the line (shlex.split reads it back whole).
+const shq = (s) => /^[\w@%+=:,./~-]+$/.test(s) ? s : `'${s.replace(/'/g, `'"'"'`)}'`;
 // Where a browser `codex login` is finished from afar: the sheet's waiting step and the
 // sign-in pane's own card both offer it (server: /api/accounts/login/callback).
 const pasteForm = (id, value = "") => `<label for="${id}">Paste the address your browser ended up on</label><div class="acct-paste"><input id="${id}" value="${esc(value)}" placeholder="http://127.0.0.1:1455/auth/callback?code=…" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" data-callback ${value.trim() ? "" : "disabled"}>Finish</button></div>`;
@@ -278,7 +280,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   }
   const go = (step, extra = {}) => { Object.assign(F, { renaming: null, removing: null, error: null, line: null, ...extra, step }); render(); };
   // The sign-in line: as edited in this flow, else VAR=<dir> and the remembered command.
-  const lineFor = (cmd) => `${ENV[F.provider]}=${F.dir} ${cmd}`, lineOf = () => F.line ?? lineFor(cmdOf(F.provider));
+  const lineFor = (cmd) => `${ENV[F.provider]}=${shq(F.dir)} ${cmd}`, lineOf = () => F.line ?? lineFor(cmdOf(F.provider));
   const ways = () => `<div class="acct-seg">${CODEX_WAYS.map(([cmd, name]) => `<button type="button" data-way="${cmd}" aria-pressed="${device() === cmd.includes("--device-auth")}">${name}</button>`).join("")}</div><p class="acct-note">${CODEX_WAYS.map(([, name, how]) => `<b>${name}</b>: ${how}.`).join(" ")}</p>`;
   // The sign-in window is open: its link and code (read off its screen) and the paste field
   // right here, so nobody has to leave the sheet; and a restart, if the other way was picked.
@@ -293,7 +295,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       + `<p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
       + btns('<button class="ghost" data-abandon>Cancel sign-in</button>', "<button data-go>Go to window</button>");
   };
-  const device = () => /(^|\s)--device-auth(\s|$)/.test(lineOf());
+  const device = () => !!shellWords(lineOf())?.includes("--device-auth");
   // What the server would refuse: another dir or variable, or another program.
   const lineError = () => {
     const words = shellWords(lineOf()), v = ENV[F.provider];
@@ -301,7 +303,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     const n = words.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w)), env = n < 0 ? words : words.slice(0, n);
     const p = byDir(F.dir), bin = LOGIN[F.provider].split(" ")[0];
     if (env.length !== 1 || !env[0].startsWith(`${v}=`) || ![F.dir, p?.dir, p?.tilde].filter(Boolean).map(norm).includes(norm(env[0].slice(v.length + 1))))
-      return `Must stay ${v}=${p?.tilde || F.dir}`;
+      return `Must stay ${v}=${shq(p?.tilde || F.dir)}`;
     return words[env.length] === bin ? "" : `Must run ${bin}`;
   };
   const fail = (error) => { F.error = error.detail || "That did not work. Try again."; render(); };

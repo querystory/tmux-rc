@@ -153,10 +153,13 @@ def test_codex_is_asked_about_that_dir_alone(tmp_path, monkeypatch):
         '#!/bin/sh\n[ "$*" = "login status" ] && [ "$CODEX_HOME" = "$WANT" ]\n')
     (bin_dir / "codex").chmod(0o755)
     monkeypatch.setattr(T, "server_path", lambda: str(bin_dir))
+    monkeypatch.setattr(accounts, "_CODEX_SEEN", {})
     monkeypatch.setenv("CODEX_HOME", "/elsewhere")
     monkeypatch.setenv("WANT", str(tmp_path / "in"))
     assert CODEX_LOGIN(tmp_path / "in") and not CODEX_LOGIN(tmp_path / "out")  # exit 1: no
     monkeypatch.setattr(T, "server_path", lambda: str(tmp_path / "nowhere"))
+    assert CODEX_LOGIN(tmp_path / "in")  # asked a moment ago: the answer is kept
+    accounts._CODEX_SEEN.clear()
     assert not CODEX_LOGIN(tmp_path / "in")  # no codex at all
 
 

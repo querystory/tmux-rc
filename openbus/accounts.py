@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -102,15 +103,28 @@ def identity(provider: str, config: Path) -> dict | None:
                                                           account["organizationUuid"]]}
 
 
+_CODEX_SEEN: dict[Path, tuple[float, bool]] = {}  # dir -> (when asked, the answer)
+
+
 def _codex_login(config: Path) -> bool:
     """Whether Codex itself says this dir is signed in. Its login may live in the OS keyring
-    (cli_auth_credentials_store), where no file shows it; `codex login status` sees both."""
+    (cli_auth_credentials_store), where no file shows it; `codex login status` sees both.
+    The answer is kept a few seconds, so the sheet's polling costs one probe per dir per
+    interval however often the accounts are read."""
+    at, seen = _CODEX_SEEN.get(config, (-10.0, False))
+    if time.monotonic() - at < 3:
+        return seen
+    _CODEX_SEEN[config] = (time.monotonic(), seen := _codex_status(config))
+    return seen
+
+
+def _codex_status(config: Path) -> bool:
     env = {k: v for k, v in os.environ.items() if k != ENV["codex"]}
     env |= plan_usage.env_for("codex", config)
     env["PATH"] = tmux.server_path() or env.get("PATH", "")
     try:
         return subprocess.run(["codex", "login", "status"], env=env, stdin=subprocess.DEVNULL,
-                              capture_output=True, timeout=5, check=False).returncode == 0
+                              capture_output=True, timeout=3, check=False).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
 
