@@ -61,6 +61,8 @@ const POLL_MS = 120;
 // this UI cannot drive that widget — and the alternative to saying it is the silent
 // no-op the whole feature exists to remove.
 const STUCK = "Can't select that row from here — use the keyboard.";
+// An answer delivered to a screen that did not change: the widget ignored it.
+export const UNTAKEN = "That didn't take; try Keys.";
 // A walk spans several seconds and several sends. Each step releases the surface's own
 // send guard while it waits for the next frame, which is exactly the gap a second tap
 // falls into — and two interleaved walks commit on whichever row their mixed moves happen
@@ -114,7 +116,8 @@ async function waitForFrame(io, after, changed) {
   return false;
 }
 
-// MOVE, VERIFY, THEN SELECT — returns true only once the row is committed.
+// MOVE, VERIFY, THEN SELECT — returns true only once the row is committed, null when the
+// select was delivered and the screen did not change.
 //
 // The anchor (question.selected) comes from a frame that is already stale by the time a
 // tap arrives, so each pass re-reads the screen instead of firing move+move+Enter in one
@@ -232,7 +235,8 @@ async function walk(io, targetText, targetIndex) {
       return false;
     }
     if (!sent) return false; // undelivered: the anchor is now a lie
-    if (at === want) return true;
+    // A select read back on the very screen it was sent to did nothing: told, not retried.
+    if (at === want) return sent.picker === q.picker && q.picker ? null : true;
     read = after(q, sent);
     if (read) { if (read.selected === at) return false; continue; } // a key that moved nothing
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
@@ -283,7 +287,9 @@ async function pick(io, targetText, targetIndex) {
   const first = picker(io), sole = first ? soleIndex(first.options, targetText) : -1;
   const far = sole >= 0 && bindings(first).search && typable(targetText)
     && !(Math.abs(sole - first.selected) <= NEAR);
-  if (!far && await walk(io, targetText, targetIndex)) return true;
+  const walked = !far && await walk(io, targetText, targetIndex);
+  if (walked === null) { io.note(UNTAKEN); return false; }
+  if (walked) return true;
   // Fallback: the widget's own search box. It needs BOTH bindings advertised — typing
   // filters the list but does not commit it, so the obvious shortcut of appending Enter
   // is precisely the unadvertised guess this file exists to stop. A picker that binds Tab

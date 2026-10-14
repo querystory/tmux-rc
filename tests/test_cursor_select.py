@@ -188,6 +188,63 @@ def test_a_prompt_sentence_may_open_a_wrapped_paragraph():
     assert picker_digest(TRUST, "Quick safety check:") is None  # a colon introduces more
 
 
+# Codex 0.162's trust dialog: numbered rows, yet "1" only moves the highlight to row 1.
+CODEX_TRUST = """  Folder access
+  /home/x/src/harbor-notes
+
+  Trust this folder? Codex can read, edit, and run files here, subject to your permission
+  settings. Your trust decision will be saved.
+
+› 1. Trust and continue
+  2. Back to Agent Command Center
+
+  enter continue · esc back"""
+CODEX_PANE = Pane("work", "0", "codex", "0", "%0", "codex", "t", "/home/x/proj")
+
+
+def test_a_codex_enter_footer_picker_is_walked_not_digited():
+    asked, rows = "Trust this folder?", ["Trust and continue", "Back to Agent Command Center"]
+    read = {"tool": "codex", "question": {"prompt": asked, "answer_style": "menu", "options": rows}}
+
+    def parse(screen):
+        model = {**read, "question": dict(read["question"])}
+        text = f"{tmux.VISIBLE_SCREEN}\n{screen}"
+        return classify(CODEX_PANE, text, lambda s, t: model)["question"]
+
+    question = parse(CODEX_TRUST)
+    assert question["answer_style"] == "cursor"
+    assert question["selected"] == 0
+    assert question["keymap"] == {"next": "Down", "prev": "Up", "select": "Enter", "search": False}
+    assert question["picker"] == picker_digest(CODEX_TRUST, asked)
+    # Codex's approval box takes its digits, and a highlight the screen does not show
+    # leaves a walk nothing to hold to: both stay menus.
+    approval = CODEX_TRUST.replace("enter continue · esc back",
+                                   "Press enter to confirm or esc to cancel")
+    assert parse(approval)["answer_style"] == "menu"
+    assert parse(CODEX_TRUST.replace("› 1.", "  1."))["answer_style"] == "menu"
+
+
+def test_a_menu_answer_the_screen_ignores_is_reported(monkeypatch):
+    screens = [CODEX_TRUST]
+    monkeypatch.setattr(tmux, "find_pane", lambda p: CODEX_PANE)
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens[-1])
+    monkeypatch.setattr(tmux, "at_password_prompt", lambda p: False)
+    monkeypatch.setattr(tmux, "_run", lambda args, *a, **k: "")
+    monkeypatch.setattr(server, "claim_question", lambda *a: None)
+    monkeypatch.setattr(server, "PICKER_SETTLE_S", 0)
+    server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
+                                               pane_birth=lambda p: None)
+    body = {"keys": "1", "enter": False, "literal": True, "question": "d:1:f"}
+
+    def send():
+        return TestClient(server.app).post(f"/api/panes/{CODEX_PANE.id}/send", json=body)
+
+    assert send().json() == {"ok": True, "took": False}
+    screens.append("Ask Codex to do anything")  # answered: the dialog is gone
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens.pop(0))
+    assert send().json() == {"ok": True}
+
+
 def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     sent, reparsed = [], []
     monkeypatch.setattr(tmux, "find_pane", lambda p: PANE)

@@ -97,6 +97,8 @@ _HIGHLIGHT_RE = re.compile(
 _LIVE_COUNT = r"\(\d+ of \d+\)"
 _LIVE_COUNT_RE = re.compile(rf"\s*{_LIVE_COUNT}\s*$")
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
+# Codex's compact key-hint footer, led by its commit key: "enter continue · esc back".
+_ENTER_FOOTER_RE = re.compile(r"\s*enter \w+ · ")
 
 
 def _widget_end(visible: str, start: int) -> int:
@@ -1250,8 +1252,18 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
+    # Codex's numbered pickers under a "enter continue · esc back" footer are driven by
+    # arrows and Enter: a digit there need not commit (its trust dialog takes "1" as a
+    # move to row 1, so a tap sat waiting). Only where the screen shows the highlighted
+    # row, which a walk needs. Its approval box ("Press enter to confirm …") takes digits.
+    if (isinstance(question, dict) and question.get("answer_style") == "menu"
+            and any(_ENTER_FOOTER_RE.match(row) for row in visible.splitlines()[-3:])
+            and isinstance(rows := question.get("options"), list)
+            and highlighted_row(visible, _question_prompt(question) or "", rows)):
+        question.update(answer_style="cursor", keymap={
+            "next": "Down", "prev": "Up", "select": "Enter", "search": False})
+    # A cursor picker's advertised search binding is evidence, not a model guess.
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
         keymap = question.get("keymap")
         footer = visible.splitlines()[-3:]

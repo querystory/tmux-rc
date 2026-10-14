@@ -3,7 +3,7 @@ import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCa
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
-import { answerBody, pickCursorRow, STALE } from "/cursor-pick.js";
+import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
@@ -1118,8 +1118,10 @@ async function sendKeys(body, id = active) {
   sending = true; notice(); render();
   try {
     const sent = await paneInput.run(id, () => post(paneUrl(id, "send"), body));
-    delivered = sent && "picker" in sent ? sent : true; // a walk's step: the screen it made
-    if (active === id) text($("draft-status"), "Sent");
+    // A menu answer the widget ignored went out, but the card goes live again (answer()).
+    if (sent?.took === false) notice(UNTAKEN);
+    else delivered = sent && "picker" in sent ? sent : true; // a walk's step: the screen it made
+    if (delivered && active === id) text($("draft-status"), "Sent");
     startState();
   } catch (error) {
     // 409 on a cursor walk's step: nothing was sent, and the walk rereads and goes again.
