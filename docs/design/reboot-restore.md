@@ -164,7 +164,7 @@ every successful `list-panes`, whatever the classifier made of the screens. Fift
 kilobytes; the cost is one small update a minute.
 
 **Retention.** When a server dies its row stays as the restore candidate, stamped with
-when it was last seen. Only the newest dead server's snapshot is offered; older ones are
+when it was last seen. Every unconsumed one is a restore candidate (below); each is
 dropped after 30 days, enough to get back from a long weekend. Unlike inventory intervals
 they are not kept forever, because nobody restores a month-old layout. A new server
 appearing never removes one; that is the checkpoint table's failure (above). A **consumed**
@@ -192,7 +192,10 @@ app-server have no pane (agent-history's README explains why); for them the watc
 back to the status-bar `session-id` match Live Mode already uses ([agent-setup](../agent-setup.md)).
 A pane left without a binding (a Codex pane with neither, or any agent pane whose
 foreground was ambiguous) stays *unbound*: restore still knows its tool and directory
-and offers a picker of that directory's recent sessions instead of guessing.
+and offers a picker of that directory's recent sessions instead of guessing. Neither
+`resolve` (which needs a query) nor `get` (a known id) can fill it, so agent-history
+gains a second listing: one tool's indexed sessions whose `cwd` is a given directory,
+newest first, in the shape `get` returns, with the transcript's last write.
 The picker ranks first the sessions whose transcript was last written within a minute of
 the server's death: a harness flushes on shutdown, so those were almost certainly live.
 
@@ -201,12 +204,15 @@ user closed is finished by definition.
 
 ## Detecting that a restore is due
 
-The daemon cannot see a reboot, only what one leaves behind. It finds the newest
-snapshot whose server is dead, consumed or not, and offers it only if it is unconsumed.
-Two details matter. Rows of running servers are skipped: a replacement server has usually written its
-own, newer row by the time anyone looks, and it must not hide the dead one behind it.
-Consumed rows are not: once the newest loss has been restored or dismissed, an older one
-must not surface in its place. A server is judged by comparing its identity with the
+The daemon cannot see a reboot, only what one leaves behind. Its candidates are the
+unconsumed snapshots of dead servers, newest first. Rows of running servers are skipped:
+a replacement server has usually written its own, newer row by the time anyone looks, and
+it must not hide the dead one behind it. Recency alone does not choose among the rest: a
+server a login script started after the reboot, dying before anyone opened the card,
+would be the newest loss and bury the reboot's. So the card leads with the newest and
+lists the others (when each was last seen, and its pane count) for the user to pick.
+Restoring one or dismissing the card consumes every candidate it listed, the ones not
+picked as dismissed, so none resurfaces once the user has seen them all. A server is judged by comparing its identity with the
 present:
 
 - **Boot id differs** (`/proc/sys/kernel/random/boot_id`): the machine rebooted.
@@ -269,10 +275,9 @@ harness reports the same figures, so a mismatch after restore is a cheap check t
 binding pointed at the wrong conversation, worth a warning on the pane.
 
 **Restore selected** states the count ("Restore 11 agents in 4 sessions"). **Start
-fresh** marks the snapshot consumed and, when no tmux server is running, hands off to the
+fresh** consumes the listed candidates and, when no tmux server is running, hands off to the
 empty state's "Start a tmux session". When a replacement server is already up, the fresh
-workspace already exists, so the same action reads **Keep current** and only consumes the
-snapshot. Starting yet another session there would be no equivalent. The card reuses the existing list and checkbox chrome; phones collapse to
+workspace already exists, so the same action reads **Keep current** and only consumes them. Starting yet another session there would be no equivalent. The card reuses the existing list and checkbox chrome; phones collapse to
 session level by default, the wide layout shows panes expanded.
 
 ## Restore mechanics
@@ -320,7 +325,11 @@ instead of closing and taking its place in the layout with it.
 
 - **Agent panes** run the bound session's resume argv, fetched fresh from agent-history at
   restore time and gated by the daemon's known-resumable list, so nothing from the
-  snapshot beyond a session id reaches a command line. The argv comes paired with the
+  snapshot beyond a session id reaches a command line. It runs under the account Live
+  Mode's resume derives from the entry's `source`, through the same `accounts.command`
+  wrapper: a bare `claude --resume` under the session's default account cannot find a
+  transcript another `~/.claude-*` profile owns. The account is derived at restore time,
+  never stored. The argv comes paired with the
   index entry's `cwd`, which is where it must run, and restore validates that directory
   as Live Mode's resume does. When it differs from the snapshot's pane directory (the
   agent changed directory mid-session), the index wins, because only there can the
