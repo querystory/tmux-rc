@@ -677,7 +677,10 @@ class Watcher:
         self._force_parse = set()
         # One bad pane must NEVER wedge the whole watcher (that loses all visibility).
         # Tick each pane defensively: on error, degrade to a stub card, keep going.
-        history_complete = True
+        # `collected`: tmux answered for every pane. Only that is the watcher's health; a
+        # screen the model could not read is that pane's problem, and flagging it as the
+        # whole watcher "Stalled" lit the global status on every odd parse.
+        history_complete = collected = True
         for index, p in enumerate(panes):
             try:
                 s = self._tick_pane(p)
@@ -695,8 +698,12 @@ class Watcher:
             except Exception:  # isolate per-pane failures
                 logger.warning("pane tick failed: %s", p.id, exc_info=True)
                 s = None
+            # A heartbeat per pane, not per tick: a tick that parses several changed
+            # screens runs one model call after another and can outlast the stale window
+            # while it is still making progress. Stale means the loop stopped moving.
+            self._last_tick = time.time()
             if not isinstance(s, dict):
-                history_complete = False
+                history_complete = collected = False
                 s = {
                     "pane_id": p.id,
                     "tool": "unknown",
@@ -748,7 +755,7 @@ class Watcher:
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
         self._checkpoint(states, panes)
-        self._collection_failed = not history_complete
+        self._collection_failed = not collected
         self._publish_states(states, record_history=history_complete and history_server is not None,
                              history_server=history_server)
         self._gc(alive)

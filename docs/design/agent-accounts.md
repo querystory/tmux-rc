@@ -31,6 +31,17 @@ the dir's `.claude.json`: the organisation name, with a personal plan's
 unlabelled accounts that would read the same (two people of one organisation) add the
 display name or the email's local part ("QSI · sam"), and the full email only if that
 clashes too.
+
+Names alone hide one failure: a `/login` run in a pane without `CLAUDE_CONFIG_DIR` signs
+the default dir in to whatever login was chosen, and a labelled dir keeps its label while
+holding the same login as another. Nothing then shows that two "accounts" are one, or that
+a login has vanished. So each profile also carries its login's email, shown as secondary
+text wherever an account is listed, and two dirs on one login (the same account and
+organisation ids) flag each other: the Accounts sheet warns on both rows, and the Move sheet keeps
+such a target listed but says the copy would stay on the same login and its limits. Hiding it instead would leave
+the user wondering where the account went. Neither the email nor the shown name is the key:
+one email in two organisations is two plans, and names are display values, so without an
+organisation id no match is claimed.
 The credentials file is never opened by this code: Codex keeps no non-secret identity
 file, so only the presence of its login file is checked. The old meter labels (the email's
 local part, or the full email on a clash) are gone: for one person with two plans they put
@@ -73,17 +84,33 @@ the wide layout had no menu before.
   same chip as the rows, in its bottom corner across from the reset, and its title keeps
   just the window: a name in the title was truncated first, read as part of the window
   ("7d QSI"), and left a one-account provider's meter looking unnamed beside it.
-- **Dashboard Plan usage:** wide, one row of 180px meters grouped per account, each group
-  labelled with its chip and the details (who, plan, dir, panes) in its tooltip. The chips sit
-  on the card's heading line, centred over their groups, so the labels add no row. The row wraps
-  only when the groups do not fit. The label names the account once over its meters, so
-  they carry no chip: repeating it in every 180px meter is noise. A phone's dashboard
-  uses the strip, chips included.
-- **Filter** in ☰ (All, then each account), because it is a mode you set and forget, not a
-  control every screen needs. While on, a "Filtered: Work ✕" pill shows under the header
-  (in the sidebar on wide) and ☰ carries a dot. It applies to the list, the strip and the
-  dashboard, Open loops included: a loop shows only if a pane on the account holds it, so a
-  PR or worktree with no pane, which no account owns, is hidden while filtered.
+- **Dashboard Plan usage:** wide, every meter on one line, grouped per account with one thin
+  divider between groups. Each group is headed by its chip, flush left over its first meter,
+  with the details (who, plan, dir, panes) in its tooltip, and Codex gets a chip like the
+  rest. The meters share the line evenly, down to 130px each, which fits ten on a 1500px
+  card; below that the line scrolls with the strip's edge fades rather than wrapping. A
+  wrapped second row looked broken: its chips floated in the gap, and its groups did not
+  line up with the first row's. Chips centred over their groups, on the heading line to
+  save a row, read as loose labels rather than headings, so they now take a row. The chip
+  names the account once over its meters, so the meters carry none. A phone's dashboard
+  uses the strip, a chip on each meter.
+- **Filter** is a list filter, so it sits with the list's other one rather than in ☰ among
+  settings: on wide, a "Panes from" group (All accounts, then each account) under "Show" in
+  the list's All ∨ dropdown, combining with it (Running + Work is Work's running panes),
+  its dot on the dropdown's label; a phone has no dropdown (its tab bar is the state
+  filter), so a row of chips under search. While on, a "Filtered: Work ✕" pill shows under
+  search on wide, and under a phone's header on the views without the chips (the
+  dashboard). On wide the pill also names a search (`"api" ✕`, in the URL as `q=api`), so
+  one line says everything narrowing the list; a phone's list shows its search box and
+  nothing else is searched, so a phone's pill leaves it out. It applies to the list, the strip and the dashboard, Open loops included:
+  a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
+  which no account owns, is hidden while filtered.
+  It lives in the URL beside the state filter (`#filter=running&acct=claude-work`, the
+  account's dir less its usual `~/.`: unique, unchanged by a rename, and readable), not in localStorage: reload, a shared link and
+  Back/Forward restore it, one source of truth for both filters. Picking replaces the
+  history entry, as the state filter does, so Back leaves the screen instead of replaying
+  taps. A bare URL (the installed app's launch) starts unfiltered, as the state filter
+  always has: a filter remembered silently across launches would hide panes that need you.
 - **Consent card:** a chat action on a pane names the account the pane runs on, and says
   that sending never changes it.
 

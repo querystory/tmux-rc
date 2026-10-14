@@ -652,10 +652,11 @@ def put_goal(body: GoalBody, request: Request):
 
 
 @app.get("/api/usage")
-def get_usage():
-    """Each Claude and Codex account's plan windows, trend and projection."""
+def get_usage(past: bool = False):
+    """Each Claude and Codex account's plan windows, trend and projection; with ?past=1,
+    each window's ended predecessors too (the usage view's history)."""
     usage = getattr(app.state, "usage", None)
-    return {"accounts": usage.report() if usage else []}
+    return {"accounts": usage.report(past=past) if usage else []}
 
 
 @app.get("/api/open-loops")
