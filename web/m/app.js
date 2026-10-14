@@ -303,8 +303,9 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, page } = state);
-  // A phone's tabs are one-of: a link with several states keeps the first (Needs you first).
-  if (!WIDE.matches) filter = filter.slice(0, 1);
+  // A phone's tabs are one-of, and Idle has none: a link keeps the first state it has a tab
+  // for (Needs you first), so a pressed tab always says what the list shows.
+  if (!WIDE.matches && filter.length !== (filter = filter.filter((f) => $(`${f}-tab`)).slice(0, 1)).length) writeHash(formatHash({ ...state, filter })); // the URL says so too
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
