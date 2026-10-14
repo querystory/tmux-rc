@@ -194,6 +194,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // along, and goes again on each new connection until answered (a socket can die with it
   // in flight); only a card the daemon no longer has comes back "expired".
   function propose(current, card) {
+    heard.add(card.label);
     const { id, text, image, pane_id, session } = card;
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
     if (drawn(card)) row.lastChild.innerHTML = action(card);
@@ -235,7 +236,9 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   // A pane as its sidebar row shows it, never by tmux id: its tool's logo, its name, its
   // session dimmed. A pane the page has not seen yet (one just opened) shows the daemon's label.
-  const names = () => panes().map(paneName);
+  // The names to bold: the page's pane list, and every name the daemon has used for a pane,
+  // since a pane just opened (a resume) can be in the reply before it is in the list.
+  const heard = new Set(), names = () => [...panes().map(paneName), ...heard];
   function paneTag(id, label) {
     const pane = panes().find((p) => p.pane_id === id);
     if (!pane) return `<strong>${esc(label || id)}</strong>`;
@@ -469,8 +472,11 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         [...log.children].forEach((row) => { row.dataset.done = "true"; });
         current.turns = Math.max(0, current.turns - 1); badge(); // a queued turn may follow
       }
-      else if (message.type === "typed") add("typed", `${message.label}: ${message.text}`).lastChild.innerHTML = drawn(message)
-        ? action({ ...message, enter: message.submitted }, true) : `${paneTag(message.pane_id, message.label)}: ${esc(message.text)}`;
+      else if (message.type === "typed") {
+        heard.add(message.label);
+        add("typed", `${message.label}: ${message.text}`).lastChild.innerHTML = drawn(message)
+          ? action({ ...message, enter: message.submitted }, true) : `${paneTag(message.pane_id, message.label)}: ${esc(message.text)}`;
+      }
       else if (message.type === "error") {
         // A refused turn gets no answer; any other error ends the session's turns.
         if (message.refused) current.thumbs.shift();

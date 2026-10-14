@@ -622,8 +622,11 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
     + '<blockquote>ls</blockquote></div>');
   assert.match(bubble.title, /new messages, responding/);
   // A reply can come ahead of more work in the same turn: the row stays until it completes.
-  say({type: 'transcript', role: 'model', text: 'Done.'});
+  say({type: 'transcript', role: 'model', text: 'Done in api:1.'});
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model', 'typing']);
+  // A name the daemon used is bold before the pane list has it (a pane just opened).
+  assert.match(document.getElementById('voice-log').children
+    .find((row) => row.dataset.role === 'model').lastChild.innerHTML, /<strong>api:1<\/strong>/);
   assert.equal(bubble.classList.contains('working'), true);
   say({type: 'turn_complete'});
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model']);
