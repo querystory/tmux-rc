@@ -35,7 +35,6 @@ test("unknown fields and bad values are ignored", () => {
 test("the filters are comma lists: a union within each, old single values still parse", () => {
   assert.equal(formatHash({ filter: ["running", "recent"], acct: ["claude-work", "claude-personal"] }), "filter=running,recent&acct=claude-work,claude-personal");
   assert.deepEqual(parseHash("#filter=recent,running&acct=claude-work,claude-personal"), { ...parseHash(""), filter: ["running", "recent"], acct: ["claude-work", "claude-personal"] });
-  assert.deepEqual(parseHash("#filter=running%2Crecent").filter, ["running", "recent"]); // an escaped comma too
   assert.deepEqual(parseHash("#filter=running,bogus,running,").filter, ["running"]);
   assert.deepEqual(parseHash("#filter=attention&acct=work"), { ...parseHash(""), filter: ["attention"], acct: ["work"] });
   assert.deepEqual(parseHash("#acct=work,work").acct, ["work"]);
@@ -43,6 +42,9 @@ test("the filters are comma lists: a union within each, old single values still 
   const odd = { acct: ["team,west", "100%", "/x/.claude"] };
   assert.deepEqual(parseHash(formatHash(odd)).acct, odd.acct);
   assert.equal(formatHash({ acct: ["a", "b"] }), "acct=a,b");
+  // An old single-value link, as URLSearchParams wrote it: its escaped comma is not a divider.
+  assert.deepEqual(parseHash("#acct=team%2Cwest").acct, ["team,west"]);
+  assert.deepEqual(parseHash("#acct=my+work&filter=running").acct, ["my work"]);
 });
 
 test("a pane hash without a view opens on the chosen tab; an explicit one wins", () => {

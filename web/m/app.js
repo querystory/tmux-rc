@@ -395,7 +395,8 @@ function renderList() {
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
 function renderPhoneList(subset) {
   const rows = sort === "updated" ? subset.sort(newestFirst)
-    : [...new Set(subset.map((p) => p.session))] // as the watcher lists them: tmux's order.flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
+    // Sessions as the watcher lists them: tmux's own order.
+    : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
     if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
     if (!needsYou(p)) return makeRow(p);
@@ -1386,7 +1387,7 @@ const savedTheme = () => { try { return localStorage.getItem("tmuxrc-theme") || 
 // Settings (docs/design/sidebar.md): the things you set once. Each choice is a row of
 // buttons, one pressed; the accounts are listed, and Manage accounts… opens their sheet.
 function choices(id, options, value, pick) {
-  html($(id), Object.entries(options).map(([v, label]) => `<button type="button" data-v="${v}" aria-pressed="${v === value}">${label}</button>`).join(""));
+  html($(id), Object.entries(options).map(([v, label]) => `<button type="button" data-v="${v}" aria-pressed="${v === value}">${label}</button>`).join("")); // html() skips unchanged markup
   // The pressed button is redrawn: keep keyboard focus on its replacement.
   $(id).onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) { pick(b.dataset.v); $(id).querySelector(`[data-v="${b.dataset.v}"]`).focus(); } };
 }

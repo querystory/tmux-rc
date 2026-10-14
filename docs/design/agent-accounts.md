@@ -96,18 +96,20 @@ alike; see [sidebar.md](sidebar.md).
   names the account once over its meters, so the meters carry none. A phone's dashboard
   uses the strip, a chip on each meter.
 - **Filter** is a list filter, so it sits with the list's other one rather than in Settings:
-  on wide, a "Panes from" group (All accounts, then each account) under "Show" in the
-  filter button's menu beside the search box, combining with it (Running + Work is Work's
-  running panes), the button counting what is on; a phone has no such menu (its tab bar is the state
-  filter), so a row of chips under search. While on, a "Filtered: Work ✕" pill shows under
-  search on wide, and under a phone's header on the views without the chips (the
-  dashboard). On wide the pill also names the state (`Running ✕`) and a search (`"api" ✕`,
-  in the URL as `q=api`), so one line says everything narrowing the list; a phone's list shows its search box and
-  nothing else is searched, so a phone's pill leaves it out. It applies to the list, the strip and the dashboard, Open loops included:
+  on wide, an "Account" group (All accounts, then each account, several at once) under
+  "State" in the filter button's menu beside the search box, combining with it (Running +
+  Work is Work's running panes), the button counting what is on; a phone has no such menu
+  (its tab bar is the state filter), so a row of chips under search that toggle the same
+  way. While on, the account's chip shows under search on wide, labelled "Account" beside
+  the "State" and "Search" chips (`State ● Running ✕  Account ● Work ✕  Search "api" ✕`, the
+  search in the URL as `q=api`), so one line says everything narrowing the list; on a phone
+  it shows under the header on the views without the chips (the dashboard), and a phone's
+  list shows its search box and nothing else is searched, so it leaves the search out. It applies to the list, the strip and the dashboard, Open loops included:
   a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
   which no account owns, is hidden while filtered.
-  It lives in the URL beside the state filter (`#filter=running&acct=claude-work`, the
-  account's dir less its usual `~/.`: unique, unchanged by a rename, and readable), not in localStorage: reload, a shared link and
+  It lives in the URL beside the state filter as comma lists
+  (`#filter=running,recent&acct=claude-work,claude`, each account its dir less its usual `~/.`:
+  unique, unchanged by a rename, and readable; a comma inside a dir is escaped), not in localStorage: reload, a shared link and
   Back/Forward restore it, one source of truth for both filters. Picking replaces the
   history entry, as the state filter does, so Back leaves the screen instead of replaying
   taps. A bare URL (the installed app's launch) starts unfiltered, as the state filter
