@@ -164,11 +164,11 @@ every successful `list-panes`, whatever the classifier made of the screens. Fift
 kilobytes; the cost is one small update a minute.
 
 **Retention.** When a server dies its row stays as the restore candidate, stamped with
-when it was last seen. Every unconsumed one is a restore candidate (below); each is
-dropped after 30 days, enough to get back from a long weekend. Unlike inventory intervals
+when it was last seen. Every unconsumed one is a restore candidate (below); every row,
+consumed or not, is dropped after 30 days, enough to get back from a long weekend. Unlike inventory intervals
 they are not kept forever, because nobody restores a month-old layout. A new server
 appearing never removes one; that is the checkpoint table's failure (above). A **consumed**
-mark (restored or dismissed) keeps the offer from reappearing.
+mark (restored or dismissed) keeps the offer from reappearing until then.
 
 ### Binding a pane to its conversation
 
@@ -267,7 +267,9 @@ anything on screen, and in the field it showed four-day-idle agents as active ye
 The clock remains the measure for shells and for agents with no binding.
 
 Panes that cannot be restored are shown disabled, with the reason: the directory is gone;
-the transcript is gone (agent-history's `source_missing`); or the session is already
+the transcript is gone (checked on disk by `get` and the listing, at card and again at
+launch time, since the index's `source_missing` is only as fresh as its last
+reconciliation; a check that cannot run counts as gone); or the session is already
 running, say because the user resumed it by hand, using the same running check as Live Mode's
 resume; or whether it is running cannot be established (agent-history's
 `running_unknown`). Live Mode's resume refuses that last case rather than risk two processes
@@ -404,8 +406,9 @@ objects that no longer exist: they are discarded, every selected pane returns to
 (the running check below still skips what is live), and the run continues against the
 current server under its new identity. The snapshot records each object's run tag with
 the rest of the inventory, so the mark outlives the server. In the dead destination's own
-snapshot the tagged objects are the run's half-built copy, which the run is rebuilding:
-they are never offered. Untagged sessions in it (a replacement server's own, or ones
+snapshot the objects tagged by this unfinished run are its half-built copy, which it is
+rebuilding: they are never offered. A finished run's tags mean nothing: what it restored
+is ordinary workspace, offered like any other if its server is lost later. Untagged sessions in it (a replacement server's own, or ones
 resumed by hand) remain a candidate of their own; a snapshot with none is consumed by the
 run in the same step. An object created after the last snapshot refresh is in no
 snapshot, so it has nothing to exclude.
