@@ -129,7 +129,7 @@ const windowOf = ({ min, max }, now) => {
 export function renderUsageView(root, accounts, { now = Date.now(), chip, refetch }) {
   if (!view) view = setup(root, refetch);
   view.now = now;
-  view.narrow = root.clientWidth < NARROW;
+  fit();
   const css = getComputedStyle(document.documentElement);
   // A meter per account and window, grouped by window type: Codex's week sits in Weekly.
   const byType = {};
@@ -142,6 +142,8 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
   const all = Object.values(byType).flat(), times = all.flatMap(m => [m.past[0]?.[0], m.cur[0]?.[0], m.w.resets_at]).filter(Boolean);
   // At least the days loaded, so a new account's 30d still spans 30 days; All, what there is.
   view.extent = { min: Math.min(now - (usageDays() === Infinity ? D : usageDays() * D), ...times), max: Math.max(now + 6 * H, ...times) + H };
+  // An account that cannot be read has no windows to draw; it says so rather than vanish.
+  view.errs.innerHTML = accounts.filter(a => a.error).map(a => `<span class="uv-read">${chip(a) || esc(NAMES[a.provider] || a.provider)}<span>${esc(a.error)}</span></span>`).join('');
   for (const card of view.cards) {
     card.meters = byType[card.type];
     const head = `<h3>${esc(title(card.type))} <small>${esc(card.type)}</small></h3>${card.meters.map(m => readout(m, now)).join('')}`;
@@ -155,8 +157,8 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
 }
 
 function setup(root, refetch) {
-  root.innerHTML = '<div class="uv-bar"><span class="uv-span"></span></div><div class="uv-stack"></div>';
-  const v = { root, types: [], cards: [], bar: root.firstChild, span: root.querySelector('.uv-span'), stack: root.querySelector('.uv-stack') };
+  root.innerHTML = '<div class="uv-bar"><div class="uv-errs"></div><span class="uv-span"></span></div><div class="uv-stack"></div>';
+  const v = { root, types: [], cards: [], bar: root.firstChild, span: root.querySelector('.uv-span'), stack: root.querySelector('.uv-stack'), errs: root.querySelector('.uv-errs') };
   v.range = segmented('Time range', Object.keys(RANGES), rangeOf(), r => {
     const more = usageDays();
     picked = r; zoom = null;
@@ -174,8 +176,16 @@ function setup(root, refetch) {
     from = null;
   });
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  new ResizeObserver(() => { const narrow = root.clientWidth < NARROW; if (narrow !== view.narrow) { view.narrow = narrow; zoom = null; } paint(); }).observe(root);
+  new ResizeObserver(() => { if (root.isConnected && root.clientWidth) { fit(); paint(); } }).observe(root); // not while away: a detached view measures 0
   return v;
+}
+
+// One chart at a time below NARROW; crossing it starts the zoom over, as the layout changes.
+function fit() {
+  if (!view.root.clientWidth) return;
+  const narrow = view.root.clientWidth < NARROW;
+  if (narrow !== view.narrow && view.narrow != null) zoom = null;
+  view.narrow = narrow;
 }
 
 function build(types) {

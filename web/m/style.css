@@ -986,6 +986,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .uv-bar .fleet-seg button { font-size: 13px; min-width: 40px; }
 .uv-span { color: var(--muted); font-size: 13px; }
 .uv-span b { color: var(--fg); font-weight: 600; }
+.uv-errs { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-right: auto; } /* unreadable accounts, at the bar's left */
+.uv-errs:empty { display: none; }
 .uv-stack { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .uv-card { min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px 4px; }
 .uv-card[hidden], .uv-tabs[hidden] { display: none; }
