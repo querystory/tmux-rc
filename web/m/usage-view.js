@@ -23,6 +23,8 @@ const clock = (t, now) => new Date(t).toLocaleString([], { ...(new Date(t).toDat
 // the one that suits the chart on screen: a day of 5h teeth, a month of weekly ones), the
 // chart a phone shows, and the span someone zoomed or panned to (null: the range's).
 let picked = null, shown = 0, zoom = null, view = null;
+// The account each chart's bands follow, by window type: the one picked by its chip, else the fullest.
+const focusBy = {};
 const rangeOf = () => picked || (view?.narrow && view.types[shown] === '5h' ? '1d' : '30d');
 // How many days of ended windows the view asks the server for: a month covers every range
 // but All (every one, however old), so picking one does not wait on a fetch.
@@ -59,13 +61,31 @@ function valueAt(points, t) {
   return b[0] === a[0] ? b[1] : a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
 }
 
+// The focused meter's windows as background bands: ended ones alternate grey and clear back
+// from the current one, which is amber. A window ends at its reset, at the next one's start
+// if that comes first, or where its usage fell to near 0 before either: a quota reset early,
+// and what follows is a fresh one, banded on its own. Stretches with no window stay clear.
+function bands(m, now) {
+  const past = m.w.past || [], out = [];
+  past.forEach((p, i) => {
+    const next = Math.min(p.resets_at, past[i + 1]?.start ?? m.w.start ?? Infinity), pts = p.samples;
+    const drop = pts.find(([t, v], k) => k && t > p.start && t < next && v <= 5 && pts[k - 1][1] - v >= 15)?.[0];
+    if (next <= p.start) return;
+    out.push([p.start, drop || next]);
+    if (drop) out.push([drop, next]);
+  });
+  const grey = out.map(([a, b], k) => [a, b, (out.length - k) % 2 ? 'grey' : null]).filter(b => b[2]);
+  return m.w.resets_at > now ? [...grey, [m.w.start, m.w.resets_at, 'now']] : grey;
+}
+
 // A meter's current window as numbers, for its chart's heading: the chip, the %, any "full
 // at", and the reset's countdown and clock time.
-function readout(m, now) {
+function readout(m, now, type, on) {
   const w = m.w, level = w.limit_at || w.pct >= 100 ? 'full' : (w.projected ?? 0) >= 90 ? 'warn' : '';
   const reset = w.resets_at > now ? `resets ${countdown(w.resets_at - now)}, ${clock(w.resets_at, now)}` : 'not started';
   // A reading kept through a failed read says how old it is on hover; the sidebar says it in words.
-  return `<span class="uv-read"${m.as_of ? ` title="as of ${countdown(now - m.as_of)} ago"` : ''}>${m.chip}<b class="${level}">${Math.round(w.pct)}%</b>`
+  // The chip picks the account the chart's bands follow.
+  return `<span class="uv-read"${m.as_of ? ` title="as of ${countdown(now - m.as_of)} ago"` : ''}><button type="button" class="uv-pick" data-type="${esc(type)}" data-name="${esc(m.name)}" aria-pressed="${on}" aria-label="Shade ${esc(m.name)}'s windows">${m.chip}</button><b class="${level}">${Math.round(w.pct)}%</b>`
     + (w.limit_at > now && w.resets_at > now ? `<span class="out">full ${clock(w.limit_at, now)}</span>` : '') + `<span>${reset}</span></span>`;
 }
 
@@ -73,18 +93,22 @@ function option(card, extent, now, slider, css) {
   const color = n => css.getPropertyValue(n).trim(), muted = color('--muted'), line = color('--line');
   const fg = color('--fg'), surface = color('--surface'), red = color('--red'), accent = color('--accent');
   const height = card.chartEl.clientHeight, narrow = view.narrow, bottom = slider ? (narrow ? 60 : 70) : 28;
+  const focused = card.meters.find(m => m.name === focusBy[card.type]);
+  const fill = { grey: [color('--raised'), 0.6], now: [color('--amber-bg'), 1] };
   const series = card.meters.flatMap(m => {
-    const base = { name: m.name, type: 'line', showSymbol: false, emphasis: { disabled: true }, itemStyle: { color: m.color } };
+    const base = { name: m.name, type: 'line', showSymbol: false, emphasis: { disabled: true }, itemStyle: { color: m.color } }, on = m === focused;
     return [
-      { ...base, z: 2, data: m.past, lineStyle: { color: m.color, width: 2, opacity: 0.4 } },
-      { ...base, z: 4, data: m.cur, lineStyle: { color: m.color, width: 3.5 } },
-      { ...base, z: 4, data: m.fc, lineStyle: { color: m.color, width: 2.5, type: [6, 5] } },
-      // Unclipped: the marks sit just above the 100% line.
-      { name: m.name, type: 'scatter', z: 6, clip: false, symbol: 'triangle', symbolRotate: 180, symbolSize: 11, symbolOffset: [0, -9],
+      { ...base, z: 2, data: m.past, lineStyle: { color: m.color, width: on ? 2 : 1.5, opacity: on ? 0.5 : 0.2 } },
+      { ...base, z: on ? 5 : 4, data: m.cur, lineStyle: { color: m.color, width: on ? 3.5 : 2, opacity: on ? 1 : 0.5 } },
+      { ...base, z: on ? 5 : 4, data: m.fc, lineStyle: { color: m.color, width: on ? 2.5 : 1.5, opacity: on ? 1 : 0.5, type: [6, 5] } },
+      // Clipped as a scatter clips: a mark off the visible span is left out, never drawn past the axis.
+      { name: m.name, type: 'scatter', z: 6, symbol: 'triangle', symbolRotate: 180, symbolSize: 11, symbolOffset: [0, -9],
         itemStyle: { color: red, borderColor: surface, borderWidth: 1.5 }, tooltip: { show: false },
         data: [...m.hits.map(t => [t, 100]), ...(m.w.limit_at > now ? [{ value: [m.w.limit_at, 100], itemStyle: { color: surface, borderColor: red, borderWidth: 2 } }] : [])] },
     ];
   });
+  series.push({ type: 'line', data: [], silent: true, z: 0, markArea: { silent: true, data: (focused ? bands(focused, now) : [])
+    .map(([a, b, kind]) => [{ xAxis: a, itemStyle: { color: fill[kind][0], opacity: fill[kind][1] } }, { xAxis: b }]) } });
   series.push({ type: 'line', data: [], silent: true, markLine: { silent: true, symbol: 'none', data: [{ yAxis: 100 }],
     lineStyle: { color: red, type: 'dashed', width: 1.5, opacity: 0.8 }, label: { show: false } } }); // the limit: 100% says it
   const left = narrow ? 42 : 52, right = narrow ? 14 : 48;
@@ -149,7 +173,9 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
   view.errs.innerHTML = accounts.filter(a => a.error).map(a => `<span class="uv-read">${chip(a) || esc(NAMES[a.provider] || a.provider)}<span>${esc(a.error)}</span></span>`).join('');
   for (const card of view.cards) {
     card.meters = byType[card.type];
-    const head = `<h3>${esc(title(card.type))} <small>${esc(card.type)}</small></h3>${card.meters.map(m => readout(m, now)).join('')}`;
+    if (!card.meters.some(m => m.name === focusBy[card.type])) // the fullest, until a chip is picked
+      focusBy[card.type] = card.meters.reduce((a, b) => b.w.pct > a.w.pct ? b : a).name;
+    const head = `<h3>${esc(title(card.type))} <small>${esc(card.type)}</small></h3>${card.meters.map(m => readout(m, now, card.type, m.name === focusBy[card.type])).join('')}`;
     if (card.headEl.innerHTML !== head) card.headEl.innerHTML = head;
     // The chart in words: what the canvas shows past the heading's numbers.
     card.chartEl.setAttribute('aria-label', `${title(card.type)} usage over time. ${card.meters.map(m => `${m.name}: ${(m.w.past || []).length} earlier windows loaded, `
@@ -172,6 +198,13 @@ function setup(root, refetch) {
   // A sideways swipe on a heading or the tabs moves a phone to the next chart; one
   // on the chart pans it.
   let from = null;
+  root.addEventListener('click', e => {
+    const pick = e.target.closest('.uv-pick');
+    if (!pick) return;
+    focusBy[pick.dataset.type] = pick.dataset.name;
+    pick.closest('.uv-head').querySelectorAll('.uv-pick').forEach(b => b.setAttribute('aria-pressed', String(b === pick)));
+    paint();
+  });
   root.addEventListener('pointerdown', e => { from = e.target.closest('.uv-head, .uv-tabs') && e; });
   root.addEventListener('pointerup', e => {
     const dx = from ? e.clientX - from.clientX : 0;

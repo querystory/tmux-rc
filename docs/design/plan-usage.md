@@ -80,6 +80,18 @@ axis and one zoom, so a wheel zoom or a drag on any of them moves all three and 
 follow ("8 days shown"). Each range also runs on past now by a fifth of itself (at least
 six hours), so the forecasts show without a short range spending its width on the future.
 
+**Bands for one account's windows.** Behind the lines, the current window is shaded a
+light amber from its start to its reset, and the windows before it alternate grey and
+clear, so "where we are in this window, and how it is going" reads before any line does.
+A chart holds several accounts whose windows start and end at different times, and bands
+for all of them overlapped into mush, so the bands follow one account per chart: the
+fullest by default, or the one whose chip was clicked. That account's lines go bold and
+the others step back, and its chip is filled. A window's band runs from its start to its
+reset, but a quota sometimes resets early: when the samples fall from well up to near 0
+before the scheduled reset, the band ends at the fall and a fresh one starts there. A
+stretch with no known window (a 5h quota not yet opened, a gap in the history) is left
+unshaded rather than guessed at.
+
 **A chart per window type, not per account.** A per-account chart overlays its 5h teeth
 on the weekly line they feed, which reads well for one account and badly for three; and
 the comparison people make is across accounts on the same limit ("which plan has room

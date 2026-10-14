@@ -995,6 +995,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .landing-inner .uv-head h3 { margin: 0; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--fg); }
 .uv-head h3 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 4px; }
 .uv-read { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; font-size: 13px; color: var(--muted); }
+.uv-pick, .uv-pick:not(:disabled):hover { display: inline-flex; align-self: center; min-height: 0; padding: 6px 0; margin: -6px 0; background: none; border-radius: 999px; } /* the chip's size, a taller target */
+.uv-pick[aria-pressed="true"] .acct-badge { background: color-mix(in srgb, var(--a) 26%, transparent); border-color: var(--a); } /* the chart's bands follow it */
 .uv-read b { font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; }
 .uv-read b.warn { color: var(--amber); }
 .uv-read :is(b.full, .out) { color: var(--red); }

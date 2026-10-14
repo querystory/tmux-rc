@@ -404,7 +404,8 @@ def past_windows(seconds: int, start: float) -> list[tuple[float, float, float]]
 def seed_usage(usage, two: bool = False):
     """Samples of each PLANS window, ending at its share at NOW, after USAGE_DAYS of ended
     windows (past_windows): five-minute ones for the last eight days, hourly before, as
-    plan_usage keeps them. A weekly window climbs a step a day. And the accounts the panes
+    plan_usage keeps them. A weekly window climbs a step a day, and one of Work's quotas
+    resets early, falling to zero before its scheduled reset. And the accounts the panes
     draw on, as discovery would find them. Claude's last read failed, so its samples stop
     STALE seconds short of NOW."""
     rows, panes = [], fleet()
@@ -422,6 +423,8 @@ def seed_usage(usage, two: bool = False):
                 while t > s:
                     x = (t - s) / seconds
                     x -= math.sin(2 * math.pi * days * x) / (2 * math.pi * days) if days > 1 else 0
+                    if (i, j, k) == (len(plans(two)) - 2, 1, 1) and x > 0.6:  # Work: early reset
+                        x = (x - 0.6) / 2
                     rows.append((tool, name, window, seconds, t,
                                  min(100, round(peak * x ** 1.2)), e))
                     t -= 300 if t > NOW - 8 * 86400 else 3600
