@@ -41,12 +41,11 @@ const CALLBACK_MS = 40000; // past the server's two 15 s local GETs: a slow exch
 // The command with or without Codex's device flag: the way in is picked each time, never
 // remembered, while the rest of an edited command is.
 // Every word that reads as --device-auth (quoted or not) is taken out; the same text inside
-// a longer argument stays.
+// a longer argument stays. The words are quoted again, so every boundary survives.
 export const withWay = (cmd, device) => {
-  const spans = [], words = shellWords(cmd, spans);
+  const words = shellWords(cmd);
   if (!words) return cmd;
-  for (let i = spans.length - 1; i >= 0; i--) if (words[i] === "--device-auth") cmd = cmd.slice(0, spans[i][0]).replace(/[ \t]+$/, "") + cmd.slice(spans[i][1]);
-  return cmd.trim() + (device ? " --device-auth" : "");
+  return [...words.filter((w) => w !== "--device-auth"), ...(device ? ["--device-auth"] : [])].map(shq).join(" ");
 };
 const setCmd = (p, v) => { v = withWay(v, false); cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
@@ -269,7 +268,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
           + (lineOf() === lineFor(LOGIN[F.provider]) ? "" : `<button type="button" class="ghost" data-reset-cmd>Reset to <code>${LOGIN[F.provider]}</code></button>`)
           + `<label for="acct-session">Open it in session</label><select id="acct-session">${sessions().map((x) => `<option ${x === F.session ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`
           + `<p class="acct-note">You sign in there yourself, so your password and tokens never pass through tmux-rc.</p>`
-          + btns('<button class="ghost" data-goto="list">Later</button>', `<button class="primary" data-login ${sessions().length && !lineError() ? "" : "disabled"}>Open sign-in window</button>`));
+          + btns('<button class="ghost" data-goto="list">Later</button>', `<button class="primary" data-login ${sessions().length && !lineError() && !F.opening ? "" : "disabled"}>Open sign-in window</button>`));
     else if (s === "abandoned") dlg.innerHTML = head("Sign-in not finished")
       + `<p>${esc(F.name)} is not signed in yet, so it is listed as "not signed in" until you finish or remove it.</p><p class="acct-note"><code>${esc(F.dir)}</code> holds no login; any links you chose are in place and harmless.</p>`
       + (F.pane && paneAlive(F.pane) ? `<label class="acct-check"><input type="checkbox" id="acct-close" checked><span>Close the sign-in window<small>the window tmux-rc opened for this, and nothing else</small></span></label>` : "")
@@ -334,7 +333,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (e.target.id === "acct-cmd") { // remember what follows the VAR=value words, as parsed
       F.line = e.target.value;
       const spans = [], words = shellWords(F.line, spans), n = words?.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w)) ?? -1;
-      if (n >= 0) setCmd(F.provider, F.line.slice(spans[n][0]).trim());
+      if (n >= 0) setCmd(F.provider, F.line.slice(spans[n][0]));
       typed("acct-cmd");
     }
   };
@@ -344,9 +343,12 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   // Closing stops the sign-in watch, unless the user left for the sign-in window (Go to window).
   dlg.addEventListener("close", () => { if (!F.away) clearTimeout(poll); refresh(); });
   // Sign-in is detected, never driven: the dir's account info appearing, or its window gone.
-  const windowOf = (query) => request(`/api/accounts/login/window?${query}`).catch(() => null);
+  // The open sign-in window; false when the server says there is none, null when unknown.
+  const windowOf = (query) => request(`/api/accounts/login/window?${query}`).catch((e) => e.status === 404 ? false : null);
   const openLogin = async () => {
-    ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() }));
+    if (F.opening) return; // one window per click, across redraws
+    F.opening = true; render();
+    try { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() })); } finally { F.opening = false; }
     Object.assign(F, { window: null, seen: false, goneAt: null, openedAt: Date.now() }); render(); return wait();
   };
   async function wait() {
@@ -356,14 +358,15 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (!dlg.open && !F.away) return; // closed while that was in flight: the watch is over
     // Signed in, even while away in the sign-in window: back to the sheet, at Done.
     if (byDir(F.dir)?.signed_in) { F.away = false; go("done"); if (!dlg.open) dlg.showModal(); return; }
-    // Gone once seen, or never seen within a grace: the page's state can lag the new window.
-    // A window gone may have just signed in: give the account a few polls (past the
-    // server's brief status cache) to appear before calling the sign-in unfinished.
-    if (paneAlive(F.pane)) { F.seen = true; F.goneAt = null; }
-    else if ((F.seen && Date.now() - (F.goneAt ??= Date.now()) > 6000) || (!F.seen && Date.now() - F.openedAt > 15000)) return go("abandoned");
     const flow = F, pane = F.pane, w = await windowOf(`pane_id=${encodeURIComponent(pane)}`);
     // Superseded while asking (a restart, another account, the sheet closed): not ours.
     if (flow !== F || F.pane !== pane || F.step !== "login" || (!dlg.open && !F.away)) return;
+    // Gone once seen, or never seen within a grace: the page's state can lag the new window.
+    // A window gone (or exited, kept on screen) may have just signed in: give the account a
+    // few polls (past the server's brief status cache) before calling it unfinished.
+    if (paneAlive(F.pane) && w !== false) { F.seen = true; F.goneAt = null; }
+    else if ((F.seen && Date.now() - (F.goneAt ??= Date.now()) > 6000) || (!F.seen && Date.now() - F.openedAt > 15000)) return go("abandoned");
+    if (w === false && F.window) { F.window = null; render(); } // its link and field are void
     if (w && w.pid === F.pid && JSON.stringify(w) !== JSON.stringify(F.window)) {
       F.window = w;
       const focused = document.activeElement?.id; // the paste field, mid-typing
