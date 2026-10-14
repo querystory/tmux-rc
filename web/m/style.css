@@ -346,7 +346,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 /* Keep the conversation scrollable while status and call controls stay visible. */
 #voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); padding-inline: 16px; }
 /* The sheet itself takes initial focus (tabindex=-1, focused in show()), so no button opens with a ring painted on it; Tab still lands on real controls, which keep their :focus-visible ring. */
-:is(#voice-dialog, #settings, #launch-dialog):focus { outline: none; } /* focused as a whole on open; its controls show the ring */
+#voice-dialog:focus { outline: none; }
+:is(#settings, #launch-dialog):focus { outline: none; } /* focused as a whole on open (openBeside); its controls show the ring */
 #voice-dialog .sheet-handle, #voice-dialog .dialog-heading, #voice-status, .voice-controls { flex: none; }
 #voice-models { min-height: 0; overflow-y: auto; }
 #voice-models button:disabled { opacity: .5; }
