@@ -1699,7 +1699,6 @@ async function openLaunch(fresh, opener) {
   const sessions = [...new Set(panes.map((p) => p.session).filter(Boolean))];
   $("launch-session").replaceChildren(...sessions.map((s) => new Option(s, s)), new Option("New session…", ""));
   if (fresh || !sessions.length) $("launch-session").value = "";
-  $("launch-session").parentElement.hidden = oneSession(); // its only session, or "New session" from its own button
   $("launch-name").value = ""; // the placeholder (the directory's name) is the default
   try { $("launch-dir").value = localStorage.getItem(LAST_DIR) || "~"; } catch { $("launch-dir").value = "~"; }
   $("launch-dir").oninput(); launchMode();
