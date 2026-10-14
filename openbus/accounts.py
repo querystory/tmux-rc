@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -139,7 +140,7 @@ def codex_callback(url: str) -> str | None:
         u = urlsplit(url.strip())
         ok = (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
               and u.port == CODEX_CALLBACK_PORT and u.path == "/auth/callback"
-              and re.fullmatch(r"[\x21-\x7e]+", u.query) and not (u.username or u.password)
+              and re.fullmatch(r"[\x21-\x7e]+", u.query) and "@" not in u.netloc
               and "#" not in url)
     except ValueError:  # a port that is no number
         return None
@@ -208,6 +209,11 @@ def _profiles(pane_dirs) -> list[dict]:
         if entry.get("provider") in ENV:
             found[config] = entry["provider"]
     used, dirty, out = {e.get("color") for e in store.values()}, False, []
+    # Codex's own status checks side by side, so one slow dir does not stall them all.
+    ask = [Path(c) for c, t in found.items() if t == "codex" and not store.get(c, {}).get("hidden")
+           and not (Path(c) / "auth.json").exists()]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(_codex_login, ask))
     for config, provider in found.items():
         entry = store.get(config, {})
         if entry.get("hidden"):  # before identity(): a forgotten dir costs no codex call
