@@ -385,6 +385,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (d.finish) { // back to its sign-in window, if one is still open
       const p = byDir(d.finish), w = await windowOf(`dir=${encodeURIComponent(p.dir)}`);
       go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: w?.pane_id || null, pid: w?.pid, window: w, session: w ? w.session : F.session, seen: false, goneAt: null, openedAt: Date.now() });
+      if (w) F.line = lineFor(withWay(cmdOf(F.provider), w.device)); // the way it runs, picked
       return w && wait();
     }
     t.disabled = true;
