@@ -311,6 +311,17 @@ _FOCUS = ("[Current pane: {} (id={}). If the message below says 'the agent' or '
           "this pane: deliver there, and don't offer another pane.]")
 
 
+def _restored_pane(digest: list[dict], role: str, text: str) -> dict | None:
+    """The pane a restored row moves focus to: a reply by the names in it, a send by the pane
+    its row leads with ("label (%N): text", or "name: text" where clients drop the id)."""
+    if role != "typed":
+        return _named(digest, text)
+    head = text.split(":", 1)[0]
+    sent = re.search(r"\((%\d+)\)", head)
+    return next((d for d in digest if d["pane_id"] == sent[1]), None) if sent else _named(
+        digest, head)
+
+
 def _focus(session, d: dict | None) -> None:
     """Point a chat at the pane it is now about: the one a reply named or an action reached.
     Its next turn says so, so "ask the agent" stays with the pane just discussed instead of
@@ -1335,8 +1346,8 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter, watcher=
         elif action == "resume" and hasattr(session, "restore"):  # a chat's reconnect
             logger.info("[live] chat context restored: %d rows",
                         session.restore(data.get("transcript")))
-            for said in session.restored_replies() if watcher else ():  # each names its pane
-                _focus(session, _named(watcher.digest(), said))
+            for role, said in session.restored_replies() if watcher else ():
+                _focus(session, _restored_pane(watcher.digest(), role, said))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
             proposal, ok = str(data.get("id")), data.get("ok") is True
             answer = meter.approvals.get(proposal)

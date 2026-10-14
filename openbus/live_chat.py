@@ -121,7 +121,7 @@ class _Chat:
         self.focus: tuple[str, str] | None = None
         self.turn_pane: str | None = None
         self._asking = ""  # the reply that asked, while self.asked
-        self._replies: list[str] = []  # the restored assistant rows, oldest first
+        self._replies: list[tuple[str, str]] = []  # restored (role, text): replies, sends
         # The question this turn agrees with, if it only agrees, and its own words (live._refusal)
         self.request = ("", "")
 
@@ -136,15 +136,16 @@ class _Chat:
         if len(text) > RESTORED_CHARS:
             text = "(earlier turns omitted)\n" + text[-RESTORED_CHARS:]
         if rows:
-            self._replies = [r["text"] for r in rows if r["role"] == "model"]
+            self._replies = [(r["role"], r["text"]) for r in rows if r["role"] != "user"]
             self._restored = _RESTORED.format(text)
             last = rows[-1]["text"][-RESTORED_CHARS:]  # only what the model will see asks
             self.asked = rows[-1]["role"] == "model" and bool(_ASKS.search(last))
             self._asking = last
         return len(rows)
 
-    def restored_replies(self) -> list[str]:
-        """The assistant's replies a restore brought back, oldest first (live._focus)."""
+    def restored_replies(self) -> list[tuple[str, str]]:
+        """The replies and sends a restore brought back, oldest first, as (role, text): each
+        can move the current pane (live._focus)."""
         return self._replies
 
     async def send_audio(self, _pcm: bytes) -> None:

@@ -576,16 +576,18 @@ def test_a_queued_message_keeps_the_pane_shown_when_it_was_sent():
     assert asyncio.run(go()) == [("%1", "[Current pane: a]"), ("%2", "[Current pane: b]")]
 
 
-def test_a_reconnect_restores_the_pane_the_replies_were_about(monkeypatch):
+def test_a_reconnect_restores_the_pane_the_replies_and_sends_were_about(monkeypatch):
     s = _Fake([])
     frames = [{"action": "resume", "transcript": [
         {"role": "model", "text": "Shell is idle."}, {"role": "user", "text": "and work?"},
-        {"role": "model", "text": "Work is waiting to run its tests."}]}, {"action": "stop"}]
+        {"role": "model", "text": "Work is waiting to run its tests."},
+        {"role": "typed", "text": "shell (%2): make test"}, {"role": "model", "text": "Sent."}]},
+        {"action": "stop"}]
     from tests.test_live_mode import _ScriptedWS
     asyncio.run(L._forward_client(_ScriptedWS(frames), s, L._Meter("s", "a", _FLASH, text=True),
                                   _Watcher()))
-    work = _Watcher().digest()[0]
-    assert s.focus == ("%1", L._FOCUS.format(L._pane_name(work), "%1"))
+    shell = _Watcher().digest()[1]  # the send came after the reply that named work
+    assert s.focus == ("%2", L._FOCUS.format(L._pane_name(shell), "%2"))
 
 
 @pytest.mark.parametrize(("question", "menu"), [
@@ -638,3 +640,8 @@ def test_an_open_button_moves_no_focus(monkeypatch):
     s = _Fake([("", [("open_pane", {"pane_id": "%2"})]), ("Here.", []), ("Ok.", [])])
     _talk(s, monkeypatch, ("where's that one", None), ("and now", None))
     assert "[Current pane" not in _users(s)[-1]
+
+
+@pytest.mark.parametrize("row", ["shell (%2): make test", "shell: make test"])
+def test_a_restored_send_names_its_pane_by_id_or_name(row):
+    assert L._restored_pane(_Watcher().digest(), "typed", row)["pane_id"] == "%2"
