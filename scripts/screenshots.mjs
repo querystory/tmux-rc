@@ -72,8 +72,9 @@ const TWO_ACCOUNTS = [
   ["accounts-wide-pane", WIDE, "light", "#pane=%2513", two()],
   ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await page.click("#new-window"); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
   ["accounts-wide-usage-tall", WIDE, "dark", "#pane=%2513", two(async (page) => { // the sidebar strip dragged to two rows
-    const r = await page.locator("#usage-handle").boundingBox();
-    if (!r) return; // a base without the seam
+    const handle = page.locator("#usage-handle");
+    if (!await handle.count()) return; // a base without the seam (boundingBox would wait for it)
+    const r = await handle.boundingBox();
     await page.mouse.move(r.x + 100, r.y + 4); await page.mouse.down(); await page.mouse.move(r.x + 100, r.y - 110, { steps: 4 }); await page.mouse.up();
   })],
   ["accounts-mobile-list", PHONE, "light", "", two()],
