@@ -1412,24 +1412,26 @@ def account_login(body: SignInBody, request: Request):
     if why := _unavailable(argv[0], tmux.server_path()):
         _refuse(request, "account_login", body.dir[:120], 400, why)
     device = "--device-auth" in argv
-    # A browser `codex login` listens on one fixed port: a second could not take callbacks.
-    if profile["provider"] == "codex" and not device and any(
-            e["codex"] and not e["device"] for _, e in _live_sign_ins()):
-        _refuse(request, "account_login", body.dir[:120], 409, "A browser sign-in to Codex is "
-                "already open. Finish or close it first, or use a device code.")
-    pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
-                              accounts.command(profile["provider"], profile["dir"], argv))
+    with _SIGN_IN_LOCK:  # the check and the window it allows, as one step
+        # A browser `codex login` listens on one fixed port: a second could not take callbacks.
+        if profile["provider"] == "codex" and not device and any(
+                e["codex"] and not e["device"] for _, e in _live_sign_ins()):
+            _refuse(request, "account_login", body.dir[:120], 409, "A browser sign-in to Codex "
+                    "is already open. Finish or close it first, or use a device code.")
+        pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
+                                  accounts.command(profile["provider"], profile["dir"], argv))
+        pid = tmux.pane_pid(pane_id) or ""
+        _SIGN_IN.pop(pane_id, None)  # a recycled id goes last, as the newest window
+        _SIGN_IN[pane_id] = {"pid": pid, "dir": profile["dir"], "device": device,
+                             "codex": profile["provider"] == "codex", "session": body.session}
     _audit(request, "account_login", pane_id, f"dir={body.dir[:120]!r}")
-    pid = tmux.pane_pid(pane_id) or ""
-    _SIGN_IN.pop(pane_id, None)  # a recycled id goes last, as the newest window
-    _SIGN_IN[pane_id] = {"pid": pid, "dir": profile["dir"], "codex": profile["provider"] == "codex",
-                         "device": device, "session": body.session}
     return {**_opened(pane_id), "pid": pid}
 
 
 # The sign-in windows this daemon opened, by pane id: its pid, the account's dir, and
 # whether it runs Codex's device-code flow. The only panes its close and callback touch.
 _SIGN_IN: dict[str, dict] = {}
+_SIGN_IN_LOCK = threading.Lock()
 
 
 def _alive(pane_id: str, entry: dict | None) -> bool:
