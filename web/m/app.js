@@ -208,11 +208,12 @@ function pause(ms, signal) {
   });
 }
 // A notice stays until replaced or cleared; with `ms` it also clears itself, for a short
-// result that needs no action.
+// result. `action`, a [label, fn] pair, adds one button (an Undo) that clears it and runs fn.
 let noticeTimer;
-function notice(message = "", ms = 0) {
+function notice(message = "", ms = 0, action = null) {
   clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
-  if (message && ms) noticeTimer = setTimeout(() => { if ($("notice").textContent === message) notice(); }, ms);
+  if (action) $("notice").append(" ", Object.assign(document.createElement("button"), { type: "button", textContent: action[0], onclick: () => { notice(); action[1](); } }));
+  if (message && ms) noticeTimer = setTimeout(() => notice(), ms);
 }
 
 const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { paintUsage(); render(); },
@@ -604,16 +605,18 @@ function renderFleetSplit() {
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
 // Plan limits move on the daemon's minute poll (Claude's every five), so a minute is plenty.
 // Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
-// by default); the wide sidebar has no such menu and keeps them all.
+// by default). The wide sidebar keeps them all unless the same setting is Off, which its ☰
+// menu toggles as "Plan usage": someone paying per token has no plan limits to watch.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
 let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = false, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
-  $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
+  $("usage-mode").ariaLabel = WIDE.matches ? `Plan usage: ${usageMode === "off" ? "Off" : "On"}` : `Usage: ${USAGE_MODES[usageMode]}`;
   // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
   const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
-  renderUsage($("usage"), order(shownUsage(all, WIDE.matches ? "on" : usageMode)), { wide: WIDE.matches });
+  renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)), { wide: WIDE.matches });
   accounts.strip($("usage"), several);
+  $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
   // adds the clock times and the forecast. The dashboard's tool chips filter both, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
@@ -662,11 +665,12 @@ async function refreshCached(force) {
   if (!force && Date.now() - cachedAt < 60000) return;
   cachedAt = Date.now(); usagePast = page === "usage";
   const seq = ++cachedSeq;
-  const [u, l] = await Promise.allSettled([request(usagePast ? "/api/usage?past=1" : "/api/usage"), request("/api/open-loops")]);
+  // The accounts with the meters, not after: drawn before them, several accounts' meters
+  // stand as one tall grid for a moment before folding into their strip.
+  const [u, l] = await Promise.allSettled([request(usagePast ? "/api/usage?past=1" : "/api/usage"), request("/api/open-loops"), accounts.refresh()]);
   if (seq !== cachedSeq) return; // a forced fetch overlapped this one: only the latest answers land
   if (u.status === "fulfilled") usage = u.value.accounts || [];
   if (l.status === "fulfilled") loops = l.value;
-  accounts.refresh();
   paintUsage(); render();
 }
 
@@ -687,7 +691,7 @@ function render() {
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
-  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list && !wide); show("usage-mode", list && !wide);
+  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list && !wide); show("usage-mode", list || wide);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -1265,11 +1269,60 @@ $("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
 $("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
 $("sort").onclick = () => { sort = sort === "updated" ? "session" : "updated"; stayPut(); };
-$("usage-mode").onclick = () => {
-  const modes = Object.keys(USAGE_MODES);
-  usageMode = modes[(modes.indexOf(usageMode) + 1) % modes.length];
+function setUsageMode(mode) {
+  usageMode = mode;
   try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
   paintUsage();
+}
+// A phone steps through the three; wide, where every meter shows, it is on or off.
+$("usage-mode").onclick = () => {
+  const modes = Object.keys(USAGE_MODES);
+  setUsageMode(WIDE.matches ? (usageMode === "off" ? "auto" : "off") : modes[(modes.indexOf(usageMode) + 1) % modes.length]);
+};
+// Wide, the strip's top edge is a seam like the fleet chart's: drag it taller for taller
+// trends and, a row per USAGE_ROW, more rows of meters; a double-click restores its own
+// height. Dragged under one row it closes, which turns the setting Off rather than keeping
+// a zero height, so the menu says why it is gone and the notice's Undo brings it back. The
+// height is per screen, like the sidebar's width; unset (the default) is the natural height,
+// and CSS caps it so the pane list keeps most of the column.
+const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72, USAGE_ROW = 100;
+let usageHeight = 0, usageDrag = 0;
+try { usageHeight = Number(localStorage.getItem(USAGE_KEY)) || 0; } catch {}
+function sizeUsage(px = usageHeight, persist = false) {
+  const el = $("usage"), h = px && Math.max(USAGE_MIN, px);
+  el.classList.toggle("sized", !!h);
+  el.classList.toggle("closing", !persist && px > 0 && px < USAGE_MIN); // a drag only: keys stop at the floor
+  el.style.setProperty("--usage-h", `${h}px`);
+  if (persist) {
+    usageHeight = h && el.offsetHeight; // what CSS let it be, not an over-drag
+    el.style.setProperty("--usage-h", `${usageHeight}px`); // so a taller window later does not grow it past that
+    try { if (usageHeight) localStorage.setItem(USAGE_KEY, String(usageHeight)); else localStorage.removeItem(USAGE_KEY); } catch {}
+  }
+}
+// The rows, and the separator's value and range (a focusable one owes them), from the height
+// CSS let the strip be: capped at 60% of the sidebar, natural, or 0 while hidden. Observed, so
+// they follow a paint showing or hiding it and a window resize moving the cap alike.
+const fitUsage = new ResizeObserver(() => {
+  const shown = $("usage").offsetHeight;
+  $("usage").style.setProperty("--rows", Math.max(1, Math.round(shown / USAGE_ROW)));
+  for (const [key, value] of Object.entries({ min: USAGE_MIN, max: Math.round($("sessions").clientHeight * 0.6), now: shown })) $("usage-handle").setAttribute(`aria-value${key}`, value);
+});
+for (const el of ["usage", "sessions"]) fitUsage.observe($(el));
+sizeUsage(); // before the first meters arrive, so they draw at the chosen height
+// Only a release commits: a cancelled or lost capture (crossing the breakpoint) puts it back.
+seam($("usage-handle"), (e) => sizeUsage(usageDrag = Math.max(1, $("usage").getBoundingClientRect().bottom - e.clientY)), (e) => {
+  const was = usageMode, px = e.type === "pointerup" && usageDrag;
+  usageDrag = 0;
+  if (px >= USAGE_MIN) return sizeUsage(px, true);
+  sizeUsage();
+  if (!px) return; // a click, or no release
+  setUsageMode("off");
+  notice("Plan usage hidden. Turn it back on in Menu › Plan usage.", 8000, ["Undo", () => setUsageMode(was)]);
+});
+$("usage-handle").ondblclick = () => sizeUsage(0, true);
+$("usage-handle").onkeydown = (e) => {
+  const step = { ArrowUp: 16, ArrowDown: -16 }[e.key];
+  if (step) { e.preventDefault(); sizeUsage($("usage").offsetHeight + step, true); }
 };
 // The strip is a glance; tapping it opens the usage view, where the trend and times read,
 // by way of the dashboard, so its Back lands on the Plan usage card.
