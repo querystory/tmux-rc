@@ -89,7 +89,7 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { await page.click('#list-nav [data-filter="running"]'); await page.click('#acct-filter [data-acct="claude-personal"]'); })],
   ["accounts-wide-filter", WIDE, "light", "", two((page) => page.click("#side-filter-picker summary"))],
   ["accounts-wide-rail", WIDE, "dark", "#pane=%2513", two((page) => page.click("#collapse"))],
-  ["accounts-wide-filtered", WIDE, "dark", "", two(async (page) => { await page.click("#side-filter-picker summary"); await page.click('#side-filter-picker [data-v="running"]'); await page.click('#acct-filter [data-acct="claude"]'); await page.click("#side-filter-picker summary"); })],
+  ["accounts-wide-filtered", WIDE, "dark", "", two(async (page) => { await page.click("#side-filter-picker summary"); await page.click('#side-filter-picker [data-v="working"]'); await page.click('#acct-filter [data-acct="claude"]'); await page.click("#side-filter-picker summary"); })],
   ["accounts-mobile-dashboard", PHONE, "light", "#view=dashboard", two((page) => page.locator("#usage-panel").scrollIntoViewIfNeeded())],
   ["accounts-mobile-pane", PHONE, "light", "#pane=%2513", two()],
   ["accounts-mobile-pane-menu", PHONE, "dark", "#pane=%2513", moveMenu()],

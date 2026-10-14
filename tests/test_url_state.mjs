@@ -5,12 +5,12 @@ import { formatHash, historyMode, parseHash } from "../web/m/url-state.js";
 test("every addressable state round-trips", () => {
   for (const state of [
     { pane: "%12", view: "terminal", filter: ["attention"] },
-    { pane: "%12", filter: ["running"], acct: ["claude-work"] },
-    { filter: ["attention", "running", "recent"], acct: ["claude-work", "claude-personal"] },
+    { pane: "%12", filter: ["working"], acct: ["claude-work"] },
+    { filter: ["attention", "working", "finished", "idle"], acct: ["claude-work", "claude-personal"] },
     { dashboard: true, acct: ["side-project"] },
     { pane: "%12", acct: ["claude-work"], q: "api fix & more" },
-    { pane: "%3", view: "summary", filter: ["running"] },
-    { dashboard: true, filter: ["recent"] },
+    { pane: "%3", view: "summary", filter: ["working"] },
+    { dashboard: true, filter: ["finished"] },
     { dashboard: true, page: "usage" },
     { dashboard: true, page: "loops" },
     {},
@@ -33,9 +33,9 @@ test("unknown fields and bad values are ignored", () => {
 });
 
 test("the filters are comma lists: a union within each, old single values still parse", () => {
-  assert.equal(formatHash({ filter: ["running", "recent"], acct: ["claude-work", "claude-personal"] }), "filter=running,recent&acct=claude-work,claude-personal");
-  assert.deepEqual(parseHash("#filter=recent,running&acct=claude-work,claude-personal"), { ...parseHash(""), filter: ["running", "recent"], acct: ["claude-work", "claude-personal"] });
-  assert.deepEqual(parseHash("#filter=running,bogus,running,").filter, ["running"]);
+  assert.equal(formatHash({ filter: ["working", "finished"], acct: ["claude-work", "claude-personal"] }), "filter=working,finished&acct=claude-work,claude-personal");
+  assert.deepEqual(parseHash("#filter=finished,working&acct=claude-work,claude-personal"), { ...parseHash(""), filter: ["working", "finished"], acct: ["claude-work", "claude-personal"] });
+  assert.deepEqual(parseHash("#filter=working,bogus,working,").filter, ["working"]);
   assert.deepEqual(parseHash("#filter=attention&acct=work"), { ...parseHash(""), filter: ["attention"], acct: ["work"] });
   assert.deepEqual(parseHash("#acct=work,work").acct, ["work"]);
   // A key with its own comma (or %) is one item, however the list is joined.
@@ -45,6 +45,13 @@ test("the filters are comma lists: a union within each, old single values still 
   // An old single-value link, as URLSearchParams wrote it: its escaped comma is not a divider.
   assert.deepEqual(parseHash("#acct=team%2Cwest").acct, ["team,west"]);
   assert.deepEqual(parseHash("#acct=my+work&filter=running").acct, ["my work"]);
+});
+
+test("old filter names still land: running is Working, recent is Just finished", () => {
+  assert.deepEqual(parseHash("#filter=running").filter, ["working"]);
+  assert.deepEqual(parseHash("#filter=recent").filter, ["finished"]);
+  assert.deepEqual(parseHash("#filter=recent,running,attention").filter, ["attention", "working", "finished"]);
+  assert.equal(formatHash(parseHash("#filter=running,recent")), "filter=working,finished");
 });
 
 test("a pane hash without a view opens on the chosen tab; an explicit one wins", () => {
@@ -70,12 +77,12 @@ test("old desktop hashes still land", () => {
   assert.equal(parseHash("#/pane/%251").pane, "%1");
   assert.equal(parseHash("#/pane/%").pane, "%");
   assert.deepEqual(parseHash("#/list/waiting").filter, ["attention"]);
-  assert.deepEqual(parseHash("#/list/running").filter, ["running"]);
+  assert.deepEqual(parseHash("#/list/running").filter, ["working"]);
   assert.deepEqual(parseHash("#/list/nonsense").filter, []);
 });
 
 test("the account filter rides along: in the URL only when set, and a change replaces", () => {
-  assert.equal(formatHash({ filter: ["running"], acct: ["claude-work"] }), "filter=running&acct=claude-work");
+  assert.equal(formatHash({ filter: ["working"], acct: ["claude-work"] }), "filter=working&acct=claude-work");
   assert.equal(formatHash({ acct: [] }), "");
   assert.deepEqual(parseHash("#acct=work").acct, ["work"]);
   assert.deepEqual(parseHash("#acct=").acct, []);
@@ -99,7 +106,7 @@ test("history: screens push, in-place changes replace", () => {
   assert.equal(historyMode("", "view=dashboard"), "push");
   assert.equal(historyMode("pane=%251", "pane=%251&view=terminal"), "replace");
   assert.equal(historyMode("", "filter=running"), "replace");
-  assert.equal(historyMode("filter=running", "filter=running,recent"), "replace");
+  assert.equal(historyMode("filter=working", "filter=working,finished"), "replace");
   assert.equal(historyMode("#/pane/%251", "pane=%251"), "replace");
 });
 

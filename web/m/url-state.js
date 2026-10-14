@@ -11,7 +11,8 @@
 // Also reads the old desktop UI's `#/pane/<id>` and `#/list/<filter>` so links saved from it
 // keep working.
 
-const FILTERS = ["attention", "running", "recent"];
+const FILTERS = ["attention", "working", "finished", "idle"]; // the list's sections, in its order
+const OLD = { running: "working", recent: "finished", waiting: "attention" }; // earlier links' names
 export const PAGES = ["heat", "usage", "loops"]; // the dashboard's cards that open their own view
 
 // `tab` is the view a pane opens on when the hash names none: the wide Layout picker's choice.
@@ -22,7 +23,7 @@ export function parseHash(hash, tab = "summary") {
   if (legacy) {
     let value = legacy[2];
     try { value = decodeURIComponent(value); } catch { /* keep the raw text; it just won't match a pane */ }
-    params = new URLSearchParams(legacy[1] === "pane" ? { pane: value } : { filter: value === "waiting" ? "attention" : value });
+    params = new URLSearchParams(legacy[1] === "pane" ? { pane: value } : { filter: value });
     lists = params.toString();
   } else params = new URLSearchParams(raw);
   const pane = params.get("pane") || null;
@@ -31,7 +32,7 @@ export function parseHash(hash, tab = "summary") {
     view: ["summary", "terminal"].includes(params.get("view")) ? params.get("view") : tab,
     dashboard: !pane && (params.get("view") === "dashboard" || PAGES.includes(params.get("view"))),
     page: !pane && PAGES.includes(params.get("view")) ? params.get("view") : null,
-    filter: FILTERS.filter((f) => list(lists, "filter").includes(f)),
+    filter: FILTERS.filter((f) => list(lists, "filter").map((v) => OLD[v] || v).includes(f)),
     acct: list(lists, "acct"), // the account filter: names accounts.js resolves
     q: params.get("q")?.trim() || "", // the list's search box
     compose: params.get("compose") === "1",

@@ -43,11 +43,20 @@ claude.ai. A status word in the foot cost a row to say what a dot says.
 
 ## The filter opens beside the list
 
-The filter grew out of the shipped one (#402). Its menu has State (Running, Recent, Needs you)
-and, with two or more accounts, Account, both multi-select: a pane shows if it matches any
+The filter grew out of the shipped one (#402). Its menu has State and, with two or more
+accounts, Account, both multi-select: a pane shows if it matches any
 checked state and any checked account, and none checked is All. One-of was wrong for both:
 "running or recently finished" and "these two accounts" are natural questions. The menu stays
-open while you check, since one click is rarely the whole choice. Then Group by (State or
+open while you check, since one click is rarely the whole choice.
+
+State's options are the list's sections, in their order and colours: Needs you, Working, Just
+finished, Idle, each showing exactly that section's panes. They were Running, Recent and Needs
+you, which named different sets from the sections beside them: Recent was any pane not idle,
+so it also held the working ones and those that needed you. The phone's tabs use the same
+words (All, Working, Just finished, Needs you), and the old `filter=running` and
+`filter=recent` links read as Working and Just finished.
+
+Then Group by (State or
 Session) and Sort by (Last activity, or Session order: tmux's own session, window, pane order,
 which reads best grouped by session).
 
@@ -59,7 +68,7 @@ for the keyword, each with its ×, grouped under small labels named as the menu 
 two are on (the menu has one too); the button counts the same and its tooltip names them. The
 chips are the rows' own account chips, small, with no "Filtered:" label: larger chips with a
 label took two lines for three filters. Each state has its list colour (amber Needs you, green
-Running, muted Recent) on its chip, its dot in the menu's State and its section's count, so the three
+Working, muted Just finished, neutral Idle) on its chip, its dot in the menu's State and its section's count, so the three
 read as one thing. Grouping and
 sorting are not filters: they change how the list reads, not what is in it, so they neither
 count nor get a chip (a "1" on the button for grouping by session read as a hidden filter).

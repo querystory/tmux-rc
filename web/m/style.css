@@ -1035,7 +1035,7 @@ button.picked:disabled { opacity: 1; }
    section's count (by group id) all match. Recent / Just finished muted, Idle or a session neutral. */
 [data-s] { --a: var(--muted); }
 [data-s="attention"], [data-s="need"] { --a: var(--amber); }
-[data-s="running"], [data-s="run"] { --a: var(--accent); }
+[data-s="working"], [data-s="run"] { --a: var(--accent); }
 [data-s="idle"], [data-s^="session:"] { --a: var(--fg); }
 .acct-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: the chip stays in its box */
 .row-acct:empty, .sb-acct:empty { display: none; }

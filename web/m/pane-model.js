@@ -58,7 +58,10 @@ export function isRecent(pane, nowMs = Date.now()) {
   const idle = Number.isFinite(since) ? Math.max(0, nowMs / 1000 - since) : pane.idle_seconds || 0;
   return pane.activity !== "idle" || idle < PARKED_IDLE_SECS;
 }
-export const FILTERS = { running: isRunning, recent: (pane, nowMs) => isRecent(pane, nowMs), attention: needsYou };
+// The list's sections, each its own pane set, so a filter shows exactly one section's panes:
+// Needs you, then Working, Just finished and Idle among the rest, each the first that fits.
+const working = (pane) => !needsYou(pane) && isRunning(pane), finished = (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && isRecent(pane, nowMs);
+export const FILTERS = { attention: needsYou, working, finished, idle: (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && !isRecent(pane, nowMs) };
 // `filters` is a list of FILTERS' names: a pane shows if it matches any; none (or only
 // unknown names) shows every pane.
 export function matchesFilter(pane, filters, nowMs = Date.now()) {
