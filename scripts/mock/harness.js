@@ -85,7 +85,7 @@ function boot(M) {
     theme: q.get("theme") || store(key("theme")) || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"),
     // A phone starts on the app alone, controls folded into the pill.
     hidden: (q.get("hide") ?? store(key("hidden")) ?? (phone.matches ? "1" : "0")) === "1",
-    state: Object.fromEntries((M.states || []).map((st) => [st.name, q.get(`s.${st.name}`) || st.default || st.options[0][0]])),
+    state: Object.fromEntries((M.states || []).map((st) => [st.name, q.get(`s.${st.name}`) ?? st.default ?? st.options[0][0]])),
   };
   let once = {}; // state a frame asked for its next render only (a toast, a sheet left open)
   const variant = (name) => M.variants.find((v) => v.name === name) || M.variants[0];
