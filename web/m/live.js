@@ -255,23 +255,25 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // since a pane just opened (a resume) can be in the reply before it is in the list; this
   // chat's only, as a later one may name an old pane's words in passing.
   const heard = new Set(), names = () => [...panes().map(paneName), ...heard];
-  function paneTag(id, label) {
+  // `window`: the daemon's " · window N" for a pane another one reads the same as (live._pane_name).
+  function paneTag(id, label, window = "") {
     const pane = panes().find((p) => p.pane_id === id);
-    if (!pane) return `<strong>${esc(label || id)}</strong>`;
+    if (!pane) return `<strong>${esc(label || id)}</strong>${esc(window)}`;
     const logo = Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
-    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}</span>`;
+    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}${window && `<span>${esc(window)}</span>`}</span>`;
   }
   // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
   // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The
   // model's relay label ("From the user (via text):") is dimmed: how it came, not what goes in.
   // Only a well-formed call is drawn: a malformed one keeps its sentence, as the daemon refuses it.
   const drawn = ({ pane_id, key, payload }) => !!pane_id && (typeof key === "string" ? !!key : typeof payload === "string");
-  function action({ pane_id, label, key, payload, enter }, done) {
+  function action({ pane_id, label, window, key, payload, enter }, done) {
     const [press, type] = done ? ["Pressed", "Typed into"] : ["Press", "Type into"];
-    if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${paneTag(pane_id, label)}</div>`;
+    const tag = paneTag(pane_id, label, window);
+    if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${tag}</div>`;
     const via = /^From the user \(via \w+\):\s*/.exec(payload)?.[0] || "";
     // Enter goes where it is pressed: at the end of the text, as it would be typed.
-    return `<div class="voice-act">${type} ${paneTag(pane_id, label)}` +
+    return `<div class="voice-act">${type} ${tag}` +
       `<blockquote>${via && `<span>${esc(via)}</span>`}${esc(payload.slice(via.length))}${enter ? ` ${keycap("Enter")}` : ""}</blockquote></div>`;
   }
   // Which session a resume card means, past a title several can share (live._approved).
