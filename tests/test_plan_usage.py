@@ -7,7 +7,8 @@ import pytest
 
 from openbus import plan_usage
 from openbus.history import History
-from openbus.plan_usage import PlanUsage, claude_samples, codex_samples, project, read_codex
+from openbus.plan_usage import (PlanUsage, claude_samples, codex_samples, ended, project,
+                                read_codex)
 
 NOW = datetime(2026, 10, 8, 12, tzinfo=UTC).timestamp()
 
@@ -290,9 +291,11 @@ def test_the_usage_view_steps_back_through_ended_windows(tmp_path):
         (NOW - 600, 10, NOW + 9000), (NOW, 12, None))])  # a closed window is none of them
     [window] = usage.report(now=NOW, past=True)[0]["windows"]
     assert [(w["pct"], w["start"] / 1000, w["limit_at"]) for w in window["past"]] == [
-        (40, first - 18000, None), (100, second - 18000, (second - 4000) * 1000)]
+        (40, first + 2 - 18000, None), (100, second - 18000, (second - 4000) * 1000)]
     assert window["past"][0]["samples"] == [[(first - 9000) * 1000, 20], [(first - 60) * 1000, 40]]
     assert "past" not in usage.report(now=NOW)[0]["windows"][0]  # the strip's minute poll
+    # A re-read that moves this window's reset past now leaves it current, not ended.
+    assert ended("5h", 18000, [(NOW - 600, 5, NOW - 30), (NOW - 60, 6, NOW + 30)], NOW) == []
 
 
 def test_past_windows_reach_back_by_count_however_sparse(tmp_path, monkeypatch):

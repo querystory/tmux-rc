@@ -224,13 +224,15 @@ def ended(name: str, seconds: int, rows: list[tuple], now: float) -> list[dict]:
     """The last PAST windows these (t, pct, resets_at) samples show ending by now, oldest
     first, shaped like a current window: its final %, its trend, and when it reached 100%
     (`limit_at`). A window is told by its reset; consecutive ones are at least 5h apart, so
-    a reset an hour or less from the last is the same window read again."""
-    windows: list[tuple[float, list]] = []
+    a reset an hour or less from the last is the same window read again, and its latest
+    read stands for it."""
+    windows: list[list] = []
     for t, pct, resets in rows:
         if resets is None:  # not yet opened
             continue
         if not windows or resets > windows[-1][0] + 3600:
-            windows.append((resets, []))
+            windows.append([resets, []])
+        windows[-1][0] = resets
         windows[-1][1].append((t, pct))
     return [{"window": name, "pct": max(p for _, p in samples), "resets_at": resets * 1000,
              "start": (resets - seconds) * 1000, "samples": thin(samples),
