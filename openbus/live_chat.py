@@ -145,8 +145,9 @@ class _Chat:
 
     def restored_replies(self) -> list[tuple[str, str]]:
         """The replies and sends a restore brought back, oldest first, as (role, text): each
-        can move the current pane (live._focus)."""
-        return self._replies
+        can move the current pane (live._focus). Handed over once."""
+        replies, self._replies = self._replies, []
+        return replies
 
     async def send_audio(self, _pcm: bytes) -> None:
         """A text session has no mic; a stray frame is dropped."""

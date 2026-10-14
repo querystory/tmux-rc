@@ -542,8 +542,10 @@ _MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
     ("pick 3", "type_in_pane", {"text": "3"}, {**_MENU, "answer_style": "cursor"}, "menu"),
     ("pick 3", "press_key", {"key": "Down"}, {**_MENU, "answer_style": "cursor"}, False),
     ("pick 3", "press_key", {"key": "Enter"}, {**_MENU, "answer_style": "cursor"}, False),
-    # Negated, it asks for nothing.
+    # Negated, it asks for nothing; a No named with a verb is a row, not a negation.
     ("don't decline it", "press_key", {"key": "Escape"}, _ASKING, True),
+    ("no, decline it", "press_key", {"key": "Escape"}, _ASKING, True),
+    ("pick No", "type_in_pane", {"text": "3"}, _ASKING, False),
     # A yes to the assistant's own question carries that question's words.
     (("Want me to cancel its command?", "yes"), "press_key", {"key": "Escape"}, _ASKING, False),
     (("Pick 3. No in fable?", "yes"), "type_in_pane", {"text": "3"}, _ASKING, False)])
@@ -588,6 +590,7 @@ def test_a_reconnect_restores_the_pane_the_replies_and_sends_were_about(monkeypa
                                   _Watcher()))
     shell = _Watcher().digest()[1]  # the send came after the reply that named work
     assert s.focus == ("%2", L._FOCUS.format(L._pane_name(shell), "%2"))
+    assert s.restored_replies() == []  # handed over once: a later resume replays nothing
 
 
 @pytest.mark.parametrize(("question", "menu"), [

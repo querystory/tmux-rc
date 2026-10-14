@@ -87,7 +87,8 @@ def _score(expect: dict, calls: list, reply: str, digest: list[dict]) -> dict:
     reached = [(n, a) for n, a in reached if (n, a.get("pane_id")) != ("open_pane", expect["pane"])]
     named = [d["pane_id"] for d in digest if live._named([d], reply)]
     stray = [f"{n} {a}" for n, a in reached if n != "type_in_pane" or a.get("pane_id") != expect[
-        "pane"] or not live._typed(a) or live._ROW.fullmatch(a["text"].strip().casefold())]
+        "pane"] or not (live._typed(a) or ("", False))[1]  # a draft left unsent reached no one
+        or live._ROW.fullmatch(a["text"].strip().casefold())]
     outcome = (f"reached {stray}" if stray else "relayed" if reached
                else "said nothing to answer" if not live_chat._ASKS.search(reply)
                else "asked" if set(named) <= {expect["pane"]} else f"asked, naming {named}")

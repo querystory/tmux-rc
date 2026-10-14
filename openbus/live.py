@@ -519,7 +519,7 @@ _KEY_ASKS = {k: frozenset(f"{_PRESS} {v}".split()) for k, v in {
 # model still sent "the agent" to the pane whose screen shared a word with the request about
 # one time in twenty, and only a check in code makes that never.
 _AIMED = {"type_in_pane", "press_key", "send_image_to_pane"}
-_NOT = frozenset({"no", "not", "don", "dont", "never", "nope", "nah"})  # _words splits "don't"
+_NOT = frozenset({"not", "don", "dont", "never", "nope", "nah"})  # _words splits "don't"
 _ROW = re.compile(r"\d+|y(es)?|no?")  # what picks a menu row (or answers y/n) when typed
 _ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply accept approve confirm allow decline reject "
                      "deny cancel".split())
@@ -545,7 +545,7 @@ def _refusal(session, name: str, args: dict, digest: list[dict]) -> str | None:
     pane = next((d for d in digest if d["pane_id"] == args.get("pane_id")), None)
     request = getattr(session, "request", "")  # (question, own words), or just the words
     question, own = request if isinstance(request, tuple) else ("", request)
-    request, said = f"{question}\n{own}", set(_words(own))
+    request, said = f"{question}\n{own}", _words(own)
     asked = set(_words(request))
     if name in _AIMED and pane and getattr(session, "turn_pane", None) not in (
             None, pane["pane_id"]) and pane["pane_id"] not in _meant(digest, request, asked):
@@ -555,7 +555,8 @@ def _refusal(session, name: str, args: dict, digest: list[dict]) -> str | None:
     if pane and pane.get("menu") is not None and (name == "send_image_to_pane" or (
             name == "type_in_pane" and (not row or pane.get("answer_style") == "cursor"))):
         return "menu"  # Enter picks the highlighted row ("1. Yes"); a picker searches typing
-    if said & _NOT:  # "don't decline it", "no, …": nothing in it asks for an answer
+    if set(said) & _NOT or said[:1] == ["no"]:  # "don't decline it", "no, …" ask nothing,
+        # while "pick No" names a row
         asked = set()
     if name == "press_key":
         ok = bool(_KEY_ASKS.get(args.get("key"), frozenset()) & asked)
