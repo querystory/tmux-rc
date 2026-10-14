@@ -320,8 +320,9 @@ class PlanUsage:
         if past:
             # Back to the PAST-th last reset, however long ago (a 5h window opens only on
             # use), so the read is bounded by windows, not by how old the history grows.
-            # Twice PAST: a reset read either side of an hour counts twice.
-            first = self.history.reset_back(tool, key, name, now, 2 * PAST)
+            # Twice PAST, plus the current window: a reset read either side of an hour
+            # counts twice.
+            first = self.history.reset_back(tool, key, name, now, 2 * (PAST + 1))
             recent = self.history.usage_between(tool, key, name, (first or now) - seconds, now)
             out["past"] = ended(name, seconds, recent, now)
         if resets is None or resets <= now:  # the window reset since: nothing used yet

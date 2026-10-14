@@ -307,3 +307,17 @@ def test_past_windows_reach_back_by_count_however_sparse(tmp_path, monkeypatch):
                                + [("claude", "a", "5h", 18000, NOW, 1, NOW + 60)])
     [window] = usage.report(now=NOW, past=True)[0]["windows"]
     assert [w["resets_at"] / 1000 for w in window["past"]] == resets[1:]
+
+
+def test_resets_read_across_an_hour_still_reach_back_past_windows(tmp_path, monkeypatch):
+    tmp_path.chmod(0o700)
+    monkeypatch.setattr(plan_usage, "PAST", 2)
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"))
+    usage.accounts = {("claude", "a"): {"homes": [], "panes": [], "error": None}}
+    # Every window's reset read 30s either side of the hour, the current one's around now.
+    usage.history.record_usage([("claude", "a", "5h", 18000, r - 600 + i, 50, r + d)
+                                for i, d in enumerate((-30, 30))
+                                for r in (NOW - 12 * 3600, NOW - 6 * 3600, NOW)])
+    [window] = usage.report(now=NOW, past=True)[0]["windows"]
+    assert [w["resets_at"] / 1000 for w in window["past"]] == [NOW - 12 * 3600 + 30,
+                                                                NOW - 6 * 3600 + 30]
