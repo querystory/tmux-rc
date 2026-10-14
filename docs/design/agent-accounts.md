@@ -38,7 +38,7 @@ holding the same login as another. Nothing then shows that two "accounts" are on
 a login has vanished. So each profile also carries its login's email, shown as secondary
 text wherever an account is listed, and two dirs whose provider, organisation and email
 all match flag each other: the Accounts sheet warns on both rows, and the Move sheet keeps
-such a target listed but says moving there changes nothing. Hiding it instead would leave
+such a target listed but says the copy would stay on the same login and its limits. Hiding it instead would leave
 the user wondering where the account went. The email alone is not the key, since one email
 in two organisations is two plans.
 The credentials file is never opened by this code: Codex keeps no non-secret identity

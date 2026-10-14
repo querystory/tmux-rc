@@ -22,7 +22,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const ofPane = (id) => { const p = profiles.find((a) => a.panes.includes(id)); return p && several(p.provider) ? p : null; };
   const active = () => { const p = any() && byDir(filter); return p?.signed_in ? p : null; };
   // The login's email, where the name and organisation leave it unsaid.
-  const login = (p) => p.login !== p.who ? p.login : "";
+  const login = (p) => [p.who, p.name].some((s) => s?.includes(p.login)) ? "" : p.login;
   // The line under a name in a pick list: what the name leaves unsaid, then the dir.
   const sub = (p) => [p.who !== p.name && p.who, login(p), p.tilde].filter(Boolean).join(" · ");
   // Two dirs on one login (a /login in the wrong dir) look like two accounts: say so.
@@ -314,8 +314,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     profile: byDir, list: () => profiles, chip: (p) => badge(p),
     // Where "Move to another account" can take a pane: its provider's other signed-in
     // accounts, once it has several, each with its line under the name: one on the pane's
-    // own login is listed, and says moving there changes nothing.
+    // own login is listed, and says the copy would stay on that login.
     moveTargets: (paneId, provider) => { const from = ofPane(paneId); return several(provider) ? signedIn().filter((p) => p.provider === provider && !p.panes.includes(paneId)).map((p) => ({ ...p,
-      sub: from?.same_as?.includes(p.dir) ? `Same login as ${from.name}, so moving changes nothing` : sub(p) })) : []; },
+      sub: from?.same_as?.includes(p.dir) ? `Same login as ${from.name}: the copy stays on that login and its limits` : sub(p) })) : []; },
   };
 }
