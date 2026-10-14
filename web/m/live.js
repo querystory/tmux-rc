@@ -237,7 +237,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // A pane as its sidebar row shows it, never by tmux id: its tool's logo, its name, its
   // session dimmed. A pane the page has not seen yet (one just opened) shows the daemon's label.
   // The names to bold: the page's pane list, and every name the daemon has used for a pane,
-  // since a pane just opened (a resume) can be in the reply before it is in the list.
+  // since a pane just opened (a resume) can be in the reply before it is in the list; this
+  // chat's only, as a later one may name an old pane's words in passing.
   const heard = new Set(), names = () => [...panes().map(paneName), ...heard];
   function paneTag(id, label) {
     const pane = panes().find((p) => p.pane_id === id);
@@ -511,7 +512,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   async function start() {
     const token = ++sequence;
     const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
-    run = current; log.replaceChildren(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
+    run = current; log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
       try { localStorage.setItem(CHAT_MODEL_KEY, current.model); } catch {}
