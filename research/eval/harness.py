@@ -210,6 +210,10 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         states = sorted(str(a.get("state")) for a in subs)
         if states != sorted(expected["subagent_states"]):
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
+    entries = candidate.get("status_entries")
+    diffs.extend(f"status_entries: {e!r} repeats a field with its own chip"
+                 for e in expected.get("status_entries_exclude", [])
+                 if isinstance(entries, list) and e in entries)
     diffs.extend(f"subagents: no row matches {want!r}"  # each must match some row exactly
                  for want in expected.get("subagents_include", [])
                  if not any(all(a.get(k) == v for k, v in want.items()) for a in subs))

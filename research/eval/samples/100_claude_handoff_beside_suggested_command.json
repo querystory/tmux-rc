@@ -12,6 +12,11 @@
       "answer_style": "text",
       "reply_buttons": false
     },
-    "headline": "Merge was blocked; user must run the update-branch and merge command for PR #812"
+    "headline": "Merge was blocked; user must run the update-branch and merge command for PR #812",
+    "status_entries_exclude": [
+      "16% ctx",
+      "$4.96",
+      "Opus 5.5"
+    ]
   }
 }

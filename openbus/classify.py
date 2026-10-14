@@ -856,6 +856,7 @@ def _referenced_rows(prompt: str, visible: str) -> dict[str, str]:
     can say what 1 and 2 are. Read off the screen: the parser, told to carry them, did not
     reliably. The nearest row wins a number, so an older list above loses to the one the
     question closes; numbers with no row (a count, a time) name nothing here."""
+    visible = _FRAME_BARS_RE.sub("", visible)  # as _final_ask read the prompt
     found = _last_occurrence(prompt, visible)
     rows: dict[str, list[str]] = {}
     item, indent = None, 0

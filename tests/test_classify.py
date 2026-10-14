@@ -1287,6 +1287,11 @@ def test_handoff_in_a_barred_transcript_is_the_agents_words_with_no_buttons():
     q = classify(_pane("claude"), asking, _llm({}), replies_fn=replies)["question"]
     assert q["prompt"].endswith("Shall I watch CI?")
     assert q["options"] == ["Yes, proceed", "No, cancel"]
+    rows = ("  1. Watch CI", "  2. Merge #815", "", "  Want me to do 1 and 2 now?")
+    listed = screen.replace("#815 is still waiting on its Copilot review.", "").replace(
+        "\n✻ Worked", "".join(f"\n{r:<122}│" for r in rows) + "\n✻ Worked")
+    q = classify(_pane("claude"), listed, _llm({}))["question"]
+    assert q["items"] == ["1. Watch CI", "2. Merge #815"]  # read past the bar
 
 
 def test_status_entries_drop_what_has_its_own_chip():
