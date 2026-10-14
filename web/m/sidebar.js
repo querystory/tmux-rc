@@ -151,7 +151,8 @@ export function setupSidebar(ctx) {
     node._g = g;
     const fold = node.firstChild, density = node.lastChild, running = g.panes.filter(isRunning).length;
     fold.setAttribute("aria-expanded", String(g.open));
-    ctx.html(fold, `${licon(g.open ? "chevronDown" : "chevron", 14)}${g.alert ? licon("alert", 13) : ""}<span class="l"></span><span class="c acct-badge" data-s="${g.id}">${running && g.id !== "run" ? `<i></i>${running} · ` : ""}${g.panes.length}</span>`);
+    ctx.html(fold, `${licon(g.open ? "chevronDown" : "chevron", 14)}${g.alert ? licon("alert", 13) : ""}<span class="l"></span><span class="c acct-badge">${running && g.id !== "run" ? `<i></i>${running} · ` : ""}${g.panes.length}</span>`);
+    fold.lastChild.dataset.s = g.id; // its state's colour; set as data, since a session's id holds its name
     text(fold.querySelector(".l"), g.label);
     density.setAttribute("aria-pressed", String(g.cards));
     density.title = density.ariaLabel = `${g.cards ? "Compact rows" : "Show the latest activity"} for ${g.label}`;
