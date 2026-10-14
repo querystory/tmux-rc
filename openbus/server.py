@@ -1239,13 +1239,14 @@ def account_login_window(pane_id: str = "", dir: str = ""):  # noqa: A002 - the 
     device code) as its screen shows them, so the sheet can offer them without the user
     leaving it. 404 when there is none."""
     want = canonical(dir) if dir else None
-    pane = next((p for p, e in reversed(_SIGN_IN.items())
+    windows = list(_SIGN_IN.items())  # a snapshot: other requests open and close them
+    pane = next((p for p, e in reversed(windows)
                  if (p == pane_id or e["dir"] == want) and _sign_in(p)), None)
     if pane is None:
         raise HTTPException(404, "no sign-in window open")
-    entry = _SIGN_IN[pane]
+    entry = dict(windows)[pane]
     # Older windows on the same account: their links are stale, and a paste from one fails.
-    others = [{"pane_id": p, "pid": e["pid"]} for p, e in _SIGN_IN.items()
+    others = [{"pane_id": p, "pid": e["pid"]} for p, e in windows
               if p != pane and e["dir"] == entry["dir"] and _sign_in(p)]
     return {"pane_id": pane, **entry, **accounts.sign_in_link(tmux.capture_pane(pane)),
             "others": others}
@@ -1258,7 +1259,8 @@ def account_login_close(body: SignInWindowBody, request: Request):
     if not body.pid or (_SIGN_IN.get(body.pane_id) or {}).get("pid") != body.pid:
         _refuse(request, "account_login_close", body.pane_id, 404, "not a sign-in window")
     _kill_window(request, body.pane_id, "account_login_close", pid=body.pid)
-    _SIGN_IN.pop(body.pane_id)
+    if (_SIGN_IN.get(body.pane_id) or {}).get("pid") == body.pid:  # not a reuse since
+        _SIGN_IN.pop(body.pane_id, None)
     _audit(request, "account_login_close", body.pane_id)
     return {"ok": True}
 
