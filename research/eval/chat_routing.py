@@ -52,8 +52,7 @@ async def _turn(s, digest: list[dict], text: str) -> tuple[list, str]:
             live._focus(s, live._named(digest, ev.text))
         elif ev.kind == "tool_call":
             args = ev.call.args if isinstance(ev.call.args, dict) else {}
-            pane = next((d for d in digest if d["pane_id"] == args.get("pane_id")), None)
-            refused = live._refusal(s, ev.call.name, args, pane)  # production's gate
+            refused = live._refusal(s, ev.call.name, args, digest)  # production's gate
             calls.append((ev.call, refused))
             await s.send_tool_result(ev.call, {"status": "declined",
                                                "reason": live._DECLINED[refused]}

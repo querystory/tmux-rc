@@ -551,7 +551,7 @@ def test_a_panes_prompt_is_answered_only_when_asked(request_, name, args, pane, 
     s = Ns(unanchored=False, request=request_ if isinstance(request_, tuple) else ("", request_),
            turn_pane=None)
     want = refused if isinstance(refused, str) else "unasked_answer" if refused else None
-    assert L._refusal(s, name, args, pane) == want
+    assert L._refusal(s, name, {**args, "pane_id": pane["pane_id"]}, [pane]) == want
 
 
 def test_a_turn_knows_the_question_it_answers(monkeypatch):
@@ -629,11 +629,12 @@ _FABLE = {"pane_id": "%7", "title": "fable session monitor", "window_index": "5"
     ("ask the agent for all 8 workstream status", None, False),  # no conversation yet
     ("now tell fable session monitor to stop", "%3", False),  # named by title
     ("and window 5?", "%3", False),  # or number
-    ("address review on PR 412", "%3", False)])  # or a PR it worked on
+    ("address review on PR 412", "%3", False),  # or a PR it worked on
+    ("and the tmuxrc opus 5.5 main session?", "%3", True)])  # naming another pane
 def test_a_send_off_the_current_pane_needs_the_user_to_name_it(request_, turn_pane, refused):
     s = Ns(unanchored=False, request=("", request_), turn_pane=turn_pane)
     args = {"pane_id": "%7", "text": "From the user: status?"}
-    assert (L._refusal(s, "type_in_pane", args, _FABLE) == "elsewhere") is refused
+    assert (L._refusal(s, "type_in_pane", args, [_FABLE, _PANES[0]]) == "elsewhere") is refused
 
 
 def test_an_open_button_moves_no_focus(monkeypatch):
@@ -645,3 +646,11 @@ def test_an_open_button_moves_no_focus(monkeypatch):
 @pytest.mark.parametrize("row", ["shell (%2): make test", "shell: make test"])
 def test_a_restored_send_names_its_pane_by_id_or_name(row):
     assert L._restored_pane(_Watcher().digest(), "typed", row)["pane_id"] == "%2"
+
+
+def test_a_name_or_pr_two_panes_share_unlocks_neither():
+    twins = [{"pane_id": "%1", "title": "main", "prs": [{"number": 7}]},
+             {"pane_id": "%2", "title": "tmuxrc main", "prs": [{"number": 7}]}]
+    s = Ns(unanchored=False, request=("", "tell tmuxrc main about PR 7"), turn_pane="%9")
+    assert L._refusal(s, "type_in_pane", {"pane_id": "%1", "text": "hi"}, twins) == "elsewhere"
+    assert L._refusal(s, "type_in_pane", {"pane_id": "%2", "text": "hi"}, twins) is None

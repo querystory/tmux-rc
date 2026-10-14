@@ -520,19 +520,28 @@ _ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply accept approve confirm allo
                      "deny cancel".split())
 
 
-def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
+def _meant(digest: list[dict], request: str, asked: set[str]) -> set[str]:
+    """The panes the user's words single out, against every pane, so a name or PR two panes
+    share singles out neither: the one a reply names last (_named), and the one pane that
+    worked on a PR the words number."""
+    by_pr = [d["pane_id"] for d in digest
+             if any(str(p.get("number")) in asked for p in d.get("prs") or [])]
+    return {(_named(digest, request) or {}).get("pane_id"), *by_pr[:len(by_pr) == 1]} - {None}
+
+
+def _refusal(session, name: str, args: dict, digest: list[dict]) -> str | None:
     """Why a text session's pane change is refused before any card (a _DECLINED key), or None:
     a bare agreement with nothing asked, a pane the conversation isn't on and the user didn't
     name, a message typed into a menu, or a pane's prompt answered unasked."""
     if getattr(session, "unanchored", False):
         return "unanchored"
+    pane = next((d for d in digest if d["pane_id"] == args.get("pane_id")), None)
     request = getattr(session, "request", "")  # (question, own words), or just the words
     question, own = request if isinstance(request, tuple) else ("", request)
     request, said = f"{question}\n{own}", set(_words(own))
     asked = set(_words(request))
     if name in _AIMED and pane and getattr(session, "turn_pane", None) not in (
-            None, pane["pane_id"]) and not _named([pane], request) and not any(
-            str(p.get("number")) in asked for p in pane.get("prs") or []):
+            None, pane["pane_id"]) and pane["pane_id"] not in _meant(digest, request, asked):
         return "elsewhere"  # the model's pick over the conversation's: see _FOCUS
     text = str(args.get("text", "")).strip().casefold()
     row = bool(_ROW.fullmatch(text))
@@ -712,8 +721,9 @@ async def _approved(
     rides on the card."""
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
-    d = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
-    if refused := _refusal(session, fc.name, args, d):
+    digest = watcher.digest()
+    d = next((d for d in digest if d["pane_id"] == pane_id), None)
+    if refused := _refusal(session, fc.name, args, digest):
         rec["consent"] = refused
         return False, None
     known, pane = d is not None, pane_id
