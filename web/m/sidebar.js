@@ -240,7 +240,7 @@ export function setupSidebar(ctx) {
   // Folded to the rail: every pane the list shows, in its order, each with its state's dot
   // (and, with several accounts, its account's); hovering one shows its card.
   function rail(subset) {
-    reconcile(root, groups(subset, "").flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
+    reconcile(root, groups(subset, "", ctx.sort()).flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
       const b = document.createElement("button");
       b.className = "sb-rail";
       b.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="sb-acct"></span>';

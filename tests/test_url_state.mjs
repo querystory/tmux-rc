@@ -39,6 +39,10 @@ test("the filters are comma lists: a union within each, old single values still 
   assert.deepEqual(parseHash("#filter=running,bogus,running,").filter, ["running"]);
   assert.deepEqual(parseHash("#filter=attention&acct=work"), { ...parseHash(""), filter: ["attention"], acct: ["work"] });
   assert.deepEqual(parseHash("#acct=work,work").acct, ["work"]);
+  // A key with its own comma (or %) is one item, however the list is joined.
+  const odd = { acct: ["team,west", "100%", "/x/.claude"] };
+  assert.deepEqual(parseHash(formatHash(odd)).acct, odd.acct);
+  assert.equal(formatHash({ acct: ["a", "b"] }), "acct=a,b");
 });
 
 test("a pane hash without a view opens on the chosen tab; an explicit one wins", () => {

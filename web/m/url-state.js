@@ -40,14 +40,17 @@ export function parseHash(hash, tab = "summary") {
 // Defaults are omitted so the bare list is the bare URL.
 export function formatHash({ pane = null, view = "summary", dashboard = false, page = null, filter = [], acct = [], q = "" }) {
   const params = new URLSearchParams();
-  if (filter.length) params.set("filter", filter.join(","));
-  if (acct.length) params.set("acct", acct.join(","));
+  if (filter.length) params.set("filter", join(filter));
+  if (acct.length) params.set("acct", join(acct));
   if (q.trim()) params.set("q", q.trim());
   if (pane) { params.set("pane", pane); if (view === "terminal") params.set("view", "terminal"); }
   else if (dashboard) params.set("view", page || "dashboard");
   return params.toString().replace(/%2C/g, ","); // a comma needs no escaping in a hash
 }
-const list = (params, name) => [...new Set((params.get(name) || "").split(",").filter(Boolean))];
+// Each item escapes its own commas (and %), so an account dir with a comma survives the join.
+const join = (items) => items.map((i) => i.replace(/[%,]/g, encodeURIComponent)).join(",");
+const decode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+const list = (params, name) => [...new Set((params.get(name) || "").split(",").filter(Boolean).map(decode))];
 
 // Back should undo a move to another screen (list, dashboard, a card's view or a different pane) and
 // nothing smaller: tab and filter (state, account or search) changes replace, or Back would step through every
