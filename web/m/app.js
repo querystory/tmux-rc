@@ -1136,9 +1136,9 @@ async function sendKeys(body, id = active) {
 function answerOptions(question) {
   return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
 }
-// What makes a question the same ask: its prompt, context and items, and its options unless
+// What makes a question the same ask: its prompt, context, items and subject, and its options unless
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
-const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.answer_style === "cursor" ? null : q?.options]);
+const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.subject, q?.answer_style === "cursor" ? null : q?.options]);
 // The tapped answer while its question is still the one on the card, else null. Once the
 // pane shows another question, or none, the answer has landed and is forgotten.
 function isAnswered(pane) {
