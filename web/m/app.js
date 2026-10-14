@@ -737,6 +737,9 @@ function render() {
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
+  // The picker's trigger draws the layout on screen: Auto's pick, or the one tab a focus layout shows.
+  $("review-layout-picker").dataset.shown = reviewing() ? effectiveLayout() : view;
+  $("review-layout-picker").toggleAttribute("data-auto", reviewLayout === "auto");
   // Each choice carries a line on what it shows; the wide picker also draws its wireframe.
   const layouts = [["summary", "Overview", "The overview alone"], ["terminal", "Terminal", "The terminal alone"]];
   if (wide) layouts.unshift(["auto", "Auto", "Side by side or stacked, to fit"], ["side", "Side by side", "Terminal, overview to its right"], ["stack", "Overview above", "Overview over the terminal"]);
