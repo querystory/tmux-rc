@@ -208,28 +208,34 @@ function pause(ms, signal) {
   });
 }
 // A notice stays until replaced or cleared; with `ms` it also clears itself, for a short
-// result that needs no action.
+// result. `action`, a [label, fn] pair, adds one button (an Undo) that clears it and runs fn.
 let noticeTimer;
-function notice(message = "", ms = 0) {
+function notice(message = "", ms = 0, action = null) {
   clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
-  if (message && ms) noticeTimer = setTimeout(() => { if ($("notice").textContent === message) notice(); }, ms);
+  if (action) $("notice").append(" ", Object.assign(document.createElement("button"), { type: "button", textContent: action[0], onclick: () => { notice(); action[1](); } }));
+  if (message && ms) noticeTimer = setTimeout(() => notice(), ms);
 }
 
 const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { paintUsage(); render(); },
+  // An account picked: this very screen, in a URL that names it (or none, for All).
+  navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
-  paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id) });
+  paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id),
+  // A phone's list shows its search box, and nothing else there is searched: the chip is wide only.
+  query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click() });
 
+const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
-function navigate(id = null, nextView = "summary", { mode } = {}) {
+function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
   const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, sort });
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, q: $("search").value, sort });
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
     const how = mode || historyMode(current, next);
-    history[`${how}State`](how === "replace" ? history.state : null, "", next ? `#${next}` : location.pathname + location.search);
+    writeHash(next, how, how === "replace" ? history.state : null);
   }
   route();
 }
@@ -262,6 +268,8 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort, page } = state);
+  if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
+  if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {
@@ -336,6 +344,7 @@ function emptyMessage(query) {
 }
 function renderList() {
   show("clear-search", !!$("search").value);
+  accounts.paintFilter(); // the pill names the search
   const query = $("search").value.trim().toLowerCase();
   const mine = panes.filter(accounts.matches); // the account filter (accounts.js), else every pane
   const subset = mine.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
@@ -601,32 +610,44 @@ function renderFleetSplit() {
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
 // Plan limits move on the daemon's minute poll (Claude's every five), so a minute is plenty.
 // Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
-// by default); the wide sidebar has no such menu and keeps them all.
+// by default). The wide sidebar keeps them all unless the same setting is Off, which its ☰
+// menu toggles as "Plan usage": someone paying per token has no plan limits to watch.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], loops = null, cachedAt = 0, usageMode = "auto";
+let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = false, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
-  $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
+  $("usage-mode").ariaLabel = WIDE.matches ? `Plan usage: ${usageMode === "off" ? "Off" : "On"}` : `Usage: ${USAGE_MODES[usageMode]}`;
   // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
   const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
-  renderUsage($("usage"), order(shownUsage(all, WIDE.matches ? "on" : usageMode)), { wide: WIDE.matches });
+  renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)), { wide: WIDE.matches });
   accounts.strip($("usage"), several);
+  $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
   // adds the clock times and the forecast. The dashboard's tool chips filter both, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
-  const el = $("usage-board"), mode = several && WIDE.matches ? "groups" : "board";
-  if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
+  // A labelled group per account, or else one grid of meters (`flat`).
+  const paint = (el, list, grouped, cls, options, flat = () => renderUsage(el, list, options)) => {
+    const mode = grouped ? "groups" : "board";
+    if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = cls; }
+    if (grouped) accounts.groups(el, list, (cells, one) => renderUsage(cells, one, options));
+    else flat();
+  };
   show("usage-panel", board.length > 0);
-  if (mode === "groups") accounts.groups(el, board, (cells, list) => renderUsage(cells, list, { wide: true }));
-  else { renderUsage(el, order(board), { wide: true }); accounts.strip(el, several); }
+  const el = $("usage-board");
+  paint(el, board, several && WIDE.matches, "usage-board", { wide: true }, () => renderUsage(el, order(board), { wide: true }));
+  accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
   if (page !== "usage") return;
+  if (!usagePast) refreshCached(true); // past windows: only this view asks for them
   // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.
-  renderUsage(cardView("Plan usage", usageView).firstChild, board.length ? board : all, { wide: true, detail: true });
+  // Wide, each account's meters share a row under its name, once the accounts have come.
+  const list = board.length ? board : all;
+  paint(cardView("Plan usage", usageView).firstChild, list, WIDE.matches && list.every((a) => a.acct), "usage-board usage-full",
+    { wide: true, detail: true, icon: licon });
 };
 const usageView = document.createElement("section");
-usageView.className = "atlas-panel";
+usageView.className = "atlas-panel usage-view";
 usageView.innerHTML = '<div class="usage-board usage-full" role="group" aria-label="Plan usage"></div>';
 detailCard($("usage-panel"), "Plan usage", "", () => openPage("usage"));
 const loopsView = document.createElement("section");
@@ -645,13 +666,16 @@ function cardView(title, node) {
   return node;
 }
 // Plan usage and open loops are both cached by the server; a minute is fresh enough.
-async function refreshCached() {
-  if (Date.now() - cachedAt < 60000) return;
-  cachedAt = Date.now();
-  const [u, l] = await Promise.allSettled([request("/api/usage"), request("/api/open-loops")]);
+async function refreshCached(force) {
+  if (!force && Date.now() - cachedAt < 60000) return;
+  cachedAt = Date.now(); usagePast = page === "usage";
+  const seq = ++cachedSeq;
+  // The accounts with the meters, not after: drawn before them, several accounts' meters
+  // stand as one tall grid for a moment before folding into their strip.
+  const [u, l] = await Promise.allSettled([request(usagePast ? "/api/usage?past=1" : "/api/usage"), request("/api/open-loops"), accounts.refresh()]);
+  if (seq !== cachedSeq) return; // a forced fetch overlapped this one: only the latest answers land
   if (u.status === "fulfilled") usage = u.value.accounts || [];
   if (l.status === "fulfilled") loops = l.value;
-  accounts.refresh();
   paintUsage(); render();
 }
 
@@ -672,7 +696,7 @@ function render() {
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
-  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list && !wide); show("usage-mode", list && !wide);
+  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list && !wide); show("usage-mode", list || wide);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -1101,9 +1125,10 @@ async function sendKeys(body, answer = false, id = active) {
   } catch (error) {
     // 409 on a cursor walk's step: nothing was sent, and the walk rereads and goes again.
     if ("picker" in body && error.status === 409) delivered = STALE;
+    // 409 on a menu answer: the pane holds a different question now, and nothing was sent.
+    else if (body.question && error.status === 409) { notice("This question changed — check the pane"); startState(); }
     else notice("Delivery could not be confirmed. Check the terminal before retrying.");
-  }
-  finally { sending = false; render(); }
+  } finally { sending = false; render(); }
   return delivered;
 }
 
@@ -1120,7 +1145,12 @@ function answer(id, option, index) {
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
   if (current.question.answer_style === "cursor") { if (active !== id) navigate(id); pickCursorRow(cursorIO(id), option, index); }
-  else sendKeys(answerBody(current.question, option, index), true, id);
+  else {
+    const body = answerBody(current.question, option, index);
+    if (body) sendKeys(body, true, id);
+    // Open the pane first, as the cursor walk does, so the keyboard reaches the right one.
+    else { if (active !== id) navigate(id); notice("Use the keyboard for this option."); }
+  }
 }
 
 // This surface's half of the shared cursor walk. No send here sets `pendingAnswers`:
@@ -1153,24 +1183,36 @@ function cursorIO(id) {
 // Send a draft to pane `id`: the pane's own composer and a sidebar card's Reply both come
 // through here, so they share one endpoint and one confirmation. Resolves to delivered.
 // `value` is a Composer, or the password input, whose text goes as the one "secret" field.
+// The draft is cleared as it goes, not when the reply lands: typing straight after Enter
+// is the next message, and clearing on the reply erased it. A failed send puts the sent
+// draft back in front of whatever was typed since (a password only into an empty field).
 async function compose(id, value) {
-  const secret = value === $("secret");
+  const secret = value === $("secret"), sent = secret ? value.value : value.segments();
+  const form = new FormData();
+  if (secret) form.append("secret", sent);
+  else for (const segment of sent) {
+    if (segment.file) form.append("image", segment.file);
+    else form.append("text", segment.text);
+  }
+  if (secret) value.value = "";
+  else { value.replace([]); value.pendingEnter = false; }
   sending = true; notice(); render();
   try {
-    const form = new FormData();
-    if (secret) form.append("secret", value.value);
-    else for (const segment of value.segments()) {
-      if (segment.file) form.append("image", segment.file);
-      else form.append("text", segment.text);
-    }
     await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
-    if (secret) value.value = "";
-    else { value.replace([]); value.pendingEnter = false; }
-    if (active === id) text($("draft-status"), "Sent");
+    // Not over a next draft typed while this one went: that one is unsent.
+    if (active === id && !(secret ? value.value : draft(id).segments().length)) text($("draft-status"), "Sent");
     startState();
     return true;
-  } catch { notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); return false; }
-  finally { sending = false; render(); }
+  } catch {
+    if (secret) { if (active === id && !value.value) value.value = sent; } // the one field is the open pane's
+    else {
+      // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
+      // a sidebar Reply's draft into the pane's own composer and detaches the Reply.
+      const owner = renderSidebar.drafts.get(id) === value ? value : draft(id), typed = owner.segments();
+      owner.replace([...owner.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]);
+    }
+    notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); return false;
+  } finally { sending = false; render(); }
 }
 $("reply-form").onsubmit = (event) => {
   event.preventDefault();
@@ -1247,14 +1289,65 @@ html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
-$("search").oninput = renderList;
-$("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
+// Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
+const searched = () => { writeHash(formatHash({ ...parseHash(location.hash), q: $("search").value })); renderList(); };
+$("search").oninput = searched;
+$("clear-search").onclick = () => { $("search").value = ""; searched(); $("search").focus(); };
 $("sort").onclick = () => { sort = sort === "updated" ? "session" : "updated"; stayPut(); };
-$("usage-mode").onclick = () => {
-  const modes = Object.keys(USAGE_MODES);
-  usageMode = modes[(modes.indexOf(usageMode) + 1) % modes.length];
+function setUsageMode(mode) {
+  usageMode = mode;
   try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
   paintUsage();
+}
+// A phone steps through the three; wide, where every meter shows, it is on or off.
+$("usage-mode").onclick = () => {
+  const modes = Object.keys(USAGE_MODES);
+  setUsageMode(WIDE.matches ? (usageMode === "off" ? "auto" : "off") : modes[(modes.indexOf(usageMode) + 1) % modes.length]);
+};
+// Wide, the strip's top edge is a seam like the fleet chart's: drag it taller for taller
+// trends and, a row per USAGE_ROW, more rows of meters; a double-click restores its own
+// height. Dragged under one row it closes, which turns the setting Off rather than keeping
+// a zero height, so the menu says why it is gone and the notice's Undo brings it back. The
+// height is per screen, like the sidebar's width; unset (the default) is the natural height,
+// and CSS caps it so the pane list keeps most of the column.
+const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72, USAGE_ROW = 100;
+let usageHeight = 0, usageDrag = 0;
+try { usageHeight = Number(localStorage.getItem(USAGE_KEY)) || 0; } catch {}
+function sizeUsage(px = usageHeight, persist = false) {
+  const el = $("usage"), h = px && Math.max(USAGE_MIN, px);
+  el.classList.toggle("sized", !!h);
+  el.classList.toggle("closing", !persist && px > 0 && px < USAGE_MIN); // a drag only: keys stop at the floor
+  el.style.setProperty("--usage-h", `${h}px`);
+  if (persist) {
+    usageHeight = h && el.offsetHeight; // what CSS let it be, not an over-drag
+    el.style.setProperty("--usage-h", `${usageHeight}px`); // so a taller window later does not grow it past that
+    try { if (usageHeight) localStorage.setItem(USAGE_KEY, String(usageHeight)); else localStorage.removeItem(USAGE_KEY); } catch {}
+  }
+}
+// The rows, and the separator's value and range (a focusable one owes them), from the height
+// CSS let the strip be: capped at 60% of the sidebar, natural, or 0 while hidden. Observed, so
+// they follow a paint showing or hiding it and a window resize moving the cap alike.
+const fitUsage = new ResizeObserver(() => {
+  const shown = $("usage").offsetHeight;
+  $("usage").style.setProperty("--rows", Math.max(1, Math.round(shown / USAGE_ROW)));
+  for (const [key, value] of Object.entries({ min: USAGE_MIN, max: Math.round($("sessions").clientHeight * 0.6), now: shown })) $("usage-handle").setAttribute(`aria-value${key}`, value);
+});
+for (const el of ["usage", "sessions"]) fitUsage.observe($(el));
+sizeUsage(); // before the first meters arrive, so they draw at the chosen height
+// Only a release commits: a cancelled or lost capture (crossing the breakpoint) puts it back.
+seam($("usage-handle"), (e) => sizeUsage(usageDrag = Math.max(1, $("usage").getBoundingClientRect().bottom - e.clientY)), (e) => {
+  const was = usageMode, px = e.type === "pointerup" && usageDrag;
+  usageDrag = 0;
+  if (px >= USAGE_MIN) return sizeUsage(px, true);
+  sizeUsage();
+  if (!px) return; // a click, or no release
+  setUsageMode("off");
+  notice("Plan usage hidden. Turn it back on in Menu › Plan usage.", 8000, ["Undo", () => setUsageMode(was)]);
+});
+$("usage-handle").ondblclick = () => sizeUsage(0, true);
+$("usage-handle").onkeydown = (e) => {
+  const step = { ArrowUp: 16, ArrowDown: -16 }[e.key];
+  if (step) { e.preventDefault(); sizeUsage($("usage").offsetHeight + step, true); }
 };
 // The strip is a glance; tapping it opens the usage view, where the trend and times read,
 // by way of the dashboard, so its Back lands on the Plan usage card.
@@ -1571,9 +1664,16 @@ function placeChrome() {
     if (!homes[id]) $(id).before(homes[id] = document.createComment(id));
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
-  // The account filter's pill: under the phone's header, in the wide sidebar under search.
-  (WIDE.matches ? document.querySelector("#sessions .search") : document.querySelector(".app-header")).after(accounts.pill);
+  // The account filter (accounts.js): wide, a group in the list's filter dropdown and its
+  // pill under search; on a phone, chips under search and the pill under the header.
+  const search = document.querySelector("#sessions .search");
+  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter); search.after(accounts.pill); }
+  else { search.after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
+  accounts.strip(accounts.filter, !WIDE.matches);
 }
+// Two filters that combine, not one radio group: the radios still group by their name.
+renderSidebar.picker.lastChild.setAttribute("role", "group");
+renderSidebar.picker.querySelector("summary").prepend(accounts.tag);
 placeChrome();
 // route() again, not just render(): a pane URL without a view opens on a different tab once wide.
 const resizeWorkspace = () => { placeChrome(); paintUsage(); route(); };
@@ -1680,7 +1780,7 @@ $("move-pane").onclick = async () => {
     }
   };
   sheet(`Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
-    targets.map((p) => [accounts.chip(p), p.tilde, () => move(p)]));
+    targets.map((p) => [accounts.chip(p), p.sub, () => move(p)]));
   $("move-dialog").showModal();
 };
 window.addEventListener("hashchange", route);

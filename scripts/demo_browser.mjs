@@ -80,7 +80,9 @@ async function waitUp(url, server) {
 // one shot came out with three text baselines (and an icon aligned to one) a pixel lower
 // than every other render of the same page. Unhinted metrics and grayscale antialiasing
 // leave nothing for that answer to change.
-export const launch = () => chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none"] });
+// The fake media flags give Live Mode's voice a synthetic microphone, with no prompt.
+export const launch = () => chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none",
+  "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
 
 // A new context per page, so nothing (storage, routes, the clock) leaks between shots. A
 // viewport under 700px wide is a phone: mobile, with touch.
@@ -125,10 +127,12 @@ export async function startDemo(tree = process.cwd(), env = {}) {
   return {
     base, close,
     // /m at `hash`, once its first state has arrived. Waiting on the API rather than a
-    // selector means a UI that renames its markup still renders instead of failing.
-    async open(viewport, colorScheme, hash = "") {
+    // selector means a UI that renames its markup still renders instead of failing. `socket`
+    // stands in for Live Mode, and `prepare` adds routes before the page loads.
+    async open(viewport, colorScheme, hash = "", socket = stubChat, prepare) {
       const page = await newPage(browser, viewport, colorScheme, now);
-      await page.routeWebSocket(/\/api\/live-mode/, stubChat);
+      await page.routeWebSocket(/\/api\/live-mode/, socket);
+      await prepare?.(page);
       const state = page.waitForResponse((r) => r.url().includes("/api/state"));
       await page.goto(`${base}/m/${hash}`);
       await page.addStyleTag({ content: STILL });

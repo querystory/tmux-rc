@@ -100,8 +100,9 @@ Mutations answer `{"ok": true}` without running, and tmux is unplugged, so it ca
 reach a real pane.
 
 - `make screenshots` shoots the set in `scripts/screenshots.mjs` into `.screenshots/` and
-  refreshes the README images in `docs/img/`. Only those few are committed; the rest exist
-  to be diffed, and committing them would make every UI PR churn binary files.
+  refreshes the README and website (`website-*`) images in `docs/img/`. Only those are
+  committed; the rest exist to be diffed, and committing them would make every UI PR churn
+  binary files.
 - `make screenshots-diff` (default `BASE=origin/main`) shoots the base and this tree with
   the same fleet and writes per-shot diff images plus `summary.md`, whose image table
   links the PNGs relative to itself. A pixel counts as changed only if no pixel next to it

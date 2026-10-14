@@ -92,7 +92,22 @@ export function setupSidebar(ctx) {
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
   bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·", ariaHidden: "true" }), subs);
-  const refreshPick = headerPicker(pick);
+  const refreshPick = headerPicker(pick), picker = pick.nextElementSibling, menu = picker.lastChild;
+  // The menu opens beside the list it filters, never over it: past the sidebar's edge, level
+  // with the trigger, so the list narrows in view. With no room there it drops under the
+  // trigger, nudged in where a narrow sidebar would clip its left edge.
+  picker.addEventListener("toggle", () => {
+    Object.assign(menu.style, { position: "", left: "", top: "", right: "", maxHeight: "" });
+    if (!picker.open) return;
+    const side = root.getBoundingClientRect(), top = picker.getBoundingClientRect().top;
+    if (innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
+      left: `${side.right + 8}px`, top: `${Math.max(8, Math.min(top, innerHeight - menu.offsetHeight - 8))}px` });
+    else {
+      const over = side.left + 8 - menu.getBoundingClientRect().left;
+      if (over > 0) menu.style.right = `${-over}px`;
+    }
+    menu.style.maxHeight = `${innerHeight - menu.getBoundingClientRect().top - 8}px`; // many accounts: it scrolls
+  });
 
   function head(g) {
     const node = document.createElement("div");
@@ -137,7 +152,8 @@ export function setupSidebar(ctx) {
     form.onsubmit = async (event) => {
       event.preventDefault();
       const id = node._p.pane_id, value = drafts.get(id);
-      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
+      // Sent: close the Reply, unless more was typed while it went (compose clears as it sends).
+      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value) && !value.segments().length) done(id);
     };
   }
   function updateRow(node, { p, g, card }) {
@@ -297,6 +313,7 @@ export function setupSidebar(ctx) {
     subs.setAttribute("aria-pressed", String(prefs.subagents));
     ctx.html(subs, `Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span>`);
   }
+  render.picker = picker; // the filter dropdown: app.js adds the account filter
   render.drafts = drafts; // for the app's unsent-draft guard on reload
   // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
   render.answers = { add: addAnswers, update: replies, prune: (subset) => {

@@ -575,7 +575,13 @@ def _ground_visible_fields(
 # A widget's own top edge (a ─── rule or a ╭ box corner), its first option row, and the
 # box/gutter glyphs framing each of its rows.
 _WIDGET_TOP_RE = re.compile(r"^\s*(?:[─━]{3,}|╭)")
-_FIRST_OPTION_RE = re.compile(r"^[ \t│❯›>]*1[.)]\s", re.MULTILINE)
+# A menu row is its digit then "." or ")" (the parser prompt's "1. 2. 3."), the only
+# shape any supported agent draws; none draws "1:" or "1 -" (no capture in the eval
+# samples or tests has one). Both the widget reader and the answer frame
+# (question_rows) use this one definition, so they never disagree on a menu's rows.
+_OPTION_ROW = r"^([ \t│❯›>]*)(?:{n})[.)]\s"
+_FIRST_OPTION_RE = re.compile(_OPTION_ROW.format(n="1"), re.MULTILINE)
+_OPTION_ROW_RE = re.compile(_OPTION_ROW.format(n=r"\d+") + ".*$", re.MULTILINE)
 _FRAME_RE = re.compile(r"^\s*[│┃╎]|\s+$")  # left glyph and padding: indentation is content
 _RULE_ROW_RE = re.compile(r"^\s*[─━╌┄]{3,}\s*$")  # a separator inside the widget
 
@@ -620,6 +626,31 @@ def _widget_text(prompt: str, visible: str) -> str:
                      for raw in [*(above[top + 1:] if top is not None else ()), "",
                                  *below])
     return textwrap.dedent(text).strip("\n")
+
+
+def question_rows(question: dict, text: str) -> str:
+    """The rows a menu `question` reads off capture `text`, verbatim, so a command or an
+    option that differs only in a duration or a cost still differs: from its widget's top
+    edge (Claude draws ▔▔▔ or ─── from column 0; an indented rule is a command's own row)
+    down to the screen's last numbered row and the rows indented under it (its wrapped
+    label or description), or with no edge the whole viewport down to there. The last
+    numbered row, not the question's own last option: a replacement menu with one more
+    option, or a new one drawn below, must change the rows. Never the rows above an edge,
+    where an agent still working behind its dialog streams output, nor below, where an
+    input box or status line animates.
+
+    That relies on an invariant: a supported agent erases or redraws its dialog once it
+    is answered, so an old menu never stays on screen, row for row, above a new plain
+    question. Were one drawn that way, the stale digit would type into a text prompt,
+    which approves nothing until someone presses Enter."""
+    visible = _visible(text)
+    end = list(_OPTION_ROW_RE.finditer(visible))
+    if question.get("answer_style") != "menu" or not question.get("options") or not end:
+        return ""  # only a menu's digit needs it; any other question keeps the whole frame
+    under = re.match(rf"(?:\n[ \t│┃]{{{len(end[-1][1]) + 1},}}\S.*)*", visible[end[-1].end():])
+    rows = visible[:end[-1].end() + under.end()]
+    top = list(re.finditer(r"^(?:[─━▔]{3,}|╭)", rows, re.MULTILINE))
+    return rows[top[-1].start():] if top else rows
 
 
 # The widget's raw rows are evidence, not something to read on a card: one small cached
@@ -1200,6 +1231,27 @@ def classify(
             question.pop(key, None)
         # A question with no style is answered as text (models.py), so it may name rows.
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
+        # A menu answer is its row's digit, so a menu shows its prompt above its last option
+        # row. A prompt only on that row ("1. Continue? [y/N]"), below it (a bare [y/N]
+        # under numbered output reads a typed line), or nowhere has no digit to press, so it
+        # is answered as text. The last match counts, so an older copy of the same prompt
+        # vouches for nothing, and a match inside an option's words, wrapped or not ("1.
+        # Repeat “Which action?”"), is the option's, not the prompt. This check, not the
+        # parser prompt's "or is a y/n confirmation", is the authority: the eval measured
+        # every rewording of the prompt regressing others.
+        rows = list(_OPTION_ROW_RE.finditer(visible))
+        # An option's words run past its row onto lines wrapped deeper than its number
+        # (a boxed widget's frame glyph counted as indentation).
+        words = [(r.end(1), re.compile(rf"(?:\n[ \t│┃╎]{{{len(r[1]) + 1},}}[^\s│┃╎].*)*").match(
+            visible, r.end()).end()) for r in rows]
+        said = [m for m in (_occurrences(asked, visible) if asked else [])
+                if not any(lo < m.start() < hi for lo, hi in words)]
+        if style == "menu" and (not _FIRST_OPTION_RE.search(visible) or not said
+                                or said[-1].start() >= rows[-1].start()):
+            # The menu's labels ("Yes") are no answer for a line prompt that reads "y":
+            # without buttons the user types exactly what the screen asks for.
+            style = question["answer_style"] = "text"
+            question.pop("options", None)
         # A menu's own numbers are its options, so only a typed answer names list items.
         if rows := style == "text" and asked and _referenced_rows(asked, visible):
             question["items"] = [_item(n, text) for n, text in rows.items()]

@@ -92,6 +92,9 @@ PLANS = [
 PERSONAL = ("claude", "~/.claude-personal", ["research", "docs"],
             [("5h", 5 * 3600, 1 - 185 / 300, 34), ("7d", 7 * 86400, 1 - 74 / 168, 22),
              ("7d Fable", 7 * 86400, 1 - 74 / 168, 9)])
+# Where each past window ended, the latest first; past 100 is a window that hit its limit
+# before the reset (the curve stops at 100%).
+PAST_PEAKS = (74, 118, 61, 92, 38, 104)
 PROFILES = {"~/.claude": ("Work", "Example Org", "Team", 0),
             "~/.claude-personal": ("Personal", "Sam Rivera", "Max", 1),
             "~/.codex": ("Codex", "", "", 2)}
@@ -383,16 +386,21 @@ def seed_history(history: History) -> History:
 
 def seed_usage(usage, two: bool = False):
     """Five-minute samples of each PLANS window, rising a little faster late in it, ending
-    at its share at NOW; and the accounts the panes draw on, as discovery would find them.
-    Claude's last read failed, so its samples stop STALE seconds short of NOW."""
+    at its share at NOW, after one ended window per PAST_PEAKS, back to back; and the
+    accounts the panes draw on, as discovery would find them. Claude's last read failed,
+    so its samples stop STALE seconds short of NOW."""
     rows, panes = [], fleet()
     for tool, name, sessions, windows in plans(two):
         last = NOW - STALE.get(tool, 0)
-        for window, seconds, share, pct in windows:
-            start = NOW - share * seconds
-            rows += [(tool, name, window, seconds, t,
-                      round(pct * ((t - start) / (NOW - start)) ** 1.2), start + seconds)
-                     for t in range(int(last), int(start), -300)]
+        for j, (window, seconds, share, pct) in enumerate(windows):
+            # The current window, then the ended ones, each meter's peaks in its own order.
+            for k, peak in enumerate((pct, *PAST_PEAKS[j:], *PAST_PEAKS[:j])):
+                start = NOW - (share + k) * seconds
+                end = NOW if k == 0 else start + seconds - 1  # its last read, before the reset
+                rows += [(tool, name, window, seconds, t,
+                          min(100, round(peak * ((t - start) / (end - start)) ** 1.2)),
+                          start + seconds)
+                         for t in range(int(last if k == 0 else end), int(start), -300)]
         # "short": what a base tree from before accounts.py labels a meter by.
         usage.accounts[(tool, name)] = {"homes": [name], "short": PROFILES[name][0], "panes": [
             p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions],

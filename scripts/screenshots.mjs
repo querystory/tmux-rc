@@ -15,6 +15,14 @@ const HD = { width: 1920, height: 1080 };
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
   ["hero", WIDE, "light", "#pane=%259"],
+  ["website-desktop", WIDE, "light", "#pane=%259"],
+  ["website-chat", WIDE, "light", "#pane=%259", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["website-chat-phone", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["website-voice", WIDE, "light", "#pane=%259", voice],
+  ["website-voice-phone", PHONE, "light", "", voice],
+  ["website-usage", WIDE, "light", "#pane=%259", undefined, "#usage"],
+  ["website-dashboard", WIDE, "light", "#view=dashboard"],
+  ["website-atlas", WIDE, "light", "#view=dashboard", (page) => page.locator(".atlas-map").scrollIntoViewIfNeeded()],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
@@ -22,6 +30,7 @@ const SHOTS = [
   ["wide-heatmap", WIDE, "light", "#view=dashboard", heatCard],
   ["wide-heatmap-view", WIDE, "dark", "#view=heat", heatCell],
   ["wide-usage-detail", WIDE, "dark", "#view=usage"],
+  ["wide-usage-past", WIDE, "light", "#view=usage", stepBack],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
@@ -36,6 +45,7 @@ const SHOTS = [
   ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
+  ["mobile-usage-past", PHONE, "light", "#view=usage", stepBack],
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
@@ -62,10 +72,19 @@ const TWO_ACCOUNTS = [
   ["accounts-hd-dashboard", HD, "dark", "#view=dashboard", two()],
   ["accounts-wide-pane", WIDE, "light", "#pane=%2513", two()],
   ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await page.click("#new-window"); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
+  ["accounts-wide-usage-tall", WIDE, "dark", "#pane=%2513", two(async (page) => { // the sidebar strip dragged to two rows
+    const handle = page.locator("#usage-handle");
+    if (!await handle.count()) return; // a base without the seam (boundingBox would wait for it)
+    await handle.waitFor(); // visible: shown with the meters, which may follow the badges
+    const r = await handle.boundingBox();
+    await page.mouse.move(r.x + 100, r.y + 4); await page.mouse.down(); await page.mouse.move(r.x + 100, r.y - 110, { steps: 4 }); await page.mouse.up();
+  })],
   ["accounts-mobile-list", PHONE, "light", "", two()],
   ["accounts-mobile-list-dark", PHONE, "dark", "", two()],
   ["accounts-mobile-menu", PHONE, "light", "", two((page) => page.click("#more-button"))],
-  ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { await page.click("#more-button"); await page.click('#acct-filter [data-dir="~/.claude-personal"]'); })],
+  ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { await page.click('#list-nav [data-filter="running"]'); await page.click('#acct-filter [data-acct="claude-personal"]'); })],
+  ["accounts-wide-filter", WIDE, "light", "", two((page) => page.click("#side-filter-picker summary"))],
+  ["accounts-wide-filtered", WIDE, "dark", "", two(async (page) => { await page.click("#side-filter-picker summary"); await page.click('#side-filter-picker label:has([value="running"])'); await page.click("#side-filter-picker summary"); await page.click('#acct-filter [data-acct="claude"]'); })],
   ["accounts-mobile-dashboard", PHONE, "light", "#view=dashboard", two((page) => page.locator("#usage-panel").scrollIntoViewIfNeeded())],
   ["accounts-mobile-pane", PHONE, "light", "#pane=%2513", two()],
   ["accounts-mobile-pane-menu", PHONE, "dark", "#pane=%2513", moveMenu()],
@@ -148,7 +167,6 @@ async function noTmux(page) {
   await page.waitForSelector(".start-session:not([hidden])");
 }
 
-
 // Bring a dashboard node to the top once it, and the Open loops card above it (which arrives
 // after the page), have drawn; a base that predates either shoots the page as it is. `end`
 // scrolls to the page's foot instead (Activity, which grows from its strip there).
@@ -212,8 +230,37 @@ async function confirmExpunge(page) {
   await page.waitForSelector("#expunge-dialog[open]");
 }
 
+// The usage view's history: the 5h meter two windows back (it hit the limit), the 7d one.
+async function stepBack(page) {
+  for (const n of [0, 0, 1]) await page.locator('.usage-nav [data-step="1"]').nth(n).click();
+}
 
+async function voice(page) {
+  await page.click("#live-mode");
+  await page.locator("#voice-models button").click();
+  await page.waitForFunction(() => document.getElementById("voice-status")?.textContent.startsWith("Listening /"));
+  await page.waitForSelector("#voice-log .voice-open button");
+}
 
+// Fictional speech and a follow-up about work the user just directed. The browser's
+// synthetic microphone stays active; no recording, provider, or real pane is involved.
+function stubVoice(socket) {
+  socket.send(JSON.stringify({ type: "status", status: "listening" }));
+  let spoken = false;
+  socket.onMessage((raw) => {
+    if (spoken || JSON.parse(raw).action !== "audio") return;
+    spoken = true;
+    for (const frame of [
+      { type: "transcript", role: "user", text: "Tell e2e triage to rerun the checkout test with tracing.", new_segment: true },
+      { type: "transcript", role: "model", text: "Sent. I'll keep an eye on that rerun.", new_segment: true },
+      { type: "typed", label: "e2e triage", pane_id: "%9", text: "Rerun the checkout test with tracing.", submitted: true },
+      { type: "turn_complete" },
+      { type: "transcript", role: "model", text: "The rerun reproduced the checkout failure. e2e triage is tracing the iframe timing now.", new_segment: true },
+      { type: "open_pane", pane_id: "%9", label: "e2e triage" },
+      { type: "turn_complete" },
+    ]) socket.send(JSON.stringify(frame));
+  });
+}
 
 mkdirSync(out, { recursive: true });
 // One demo per account state: the demo fleet's accounts are fixed when it starts.
@@ -222,13 +269,31 @@ try {
   demos.push([SHOTS, await startDemo(tree)]); // each pushed as it starts, so a later failure closes it
   demos.push([TWO_ACCOUNTS, await startDemo(tree, { TMUXRC_DEMO_ACCOUNTS: "2" })]);
   for (const [shots, demo] of demos) for (const [name, viewport, colorScheme, hash, step, crop] of shots) {
-    const page = await demo.open(viewport, colorScheme, hash);
+    const speaking = name === "website-voice" || name === "website-voice-phone";
+    const page = await demo.open(viewport, colorScheme, hash, speaking ? stubVoice : undefined, async (page) => {
+      if (speaking) await page.route("**/api/version", async (route) => {
+        const response = await route.fetch(), data = await response.json();
+        data.live_models.push({ label: "Demo voice", hint: "Fictional conversation", text: false });
+        await route.fulfill({ response, json: data });
+      });
+      // The landing page shows a quieter fictional fleet so the compact session and
+      // sub-agent rows fit below one actionable card. Other shots keep all states. As in
+      // noTmux: no timeout on what may be a long poll, and a page gone under it is dropped.
+      if (name.startsWith("website-")) await page.route("**/api/state*", async (route) => {
+        try {
+          const response = await route.fetch({ timeout: 0 }), data = await response.json();
+          data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "api contract diff");
+          await route.fulfill({ response, json: data });
+        } catch { /* page gone */ }
+      });
+    });
     // A step written against one UI may not fit another; shoot what is there, unless it says otherwise.
     await step?.(page).catch((e) => { if (e.loud) throw e; console.warn(`${name}: step failed, shooting as is: ${e.message}`); });
     await page.evaluate(() => document.fonts.ready);
     // `crop`: just that sheet, when it is open (a base without it is shot whole).
     const target = crop && await page.locator(crop).isVisible() ? page.locator(crop) : page;
     writeFileSync(path.join(out, `${name}.png`), await settle(page, name, () => target.screenshot()));
+    await page.unrouteAll({ behavior: "ignoreErrors" });
     await page.context().close();
     console.log(`shot ${name}`);
   }
