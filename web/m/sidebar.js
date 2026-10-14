@@ -92,7 +92,13 @@ export function setupSidebar(ctx) {
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
   bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·", ariaHidden: "true" }), subs);
-  const refreshPick = headerPicker(pick);
+  const refreshPick = headerPicker(pick), picker = pick.nextElementSibling, menu = picker.lastChild;
+  // A narrow sidebar would clip the menu at its left edge (the account filter widens it): nudge it in.
+  picker.addEventListener("toggle", () => {
+    menu.style.right = "";
+    const over = root.getBoundingClientRect().left + 8 - menu.getBoundingClientRect().left;
+    if (picker.open && over > 0) menu.style.right = `${-over}px`;
+  });
 
   function head(g) {
     const node = document.createElement("div");
@@ -297,6 +303,7 @@ export function setupSidebar(ctx) {
     subs.setAttribute("aria-pressed", String(prefs.subagents));
     ctx.html(subs, `Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span>`);
   }
+  render.picker = picker; // the filter dropdown: app.js adds the account filter
   render.drafts = drafts; // for the app's unsent-draft guard on reload
   // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
   render.answers = { add: addAnswers, update: replies, prune: (subset) => {

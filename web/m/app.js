@@ -1571,9 +1571,13 @@ function placeChrome() {
     if (!homes[id]) $(id).before(homes[id] = document.createComment(id));
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
-  // The account filter's pill: under the phone's header, in the wide sidebar under search.
-  (WIDE.matches ? document.querySelector("#sessions .search") : document.querySelector(".app-header")).after(accounts.pill);
+  // The account filter (accounts.js): wide, a group in the list's filter dropdown and its
+  // pill under search; on a phone, chips under search and the pill under the header.
+  const search = document.querySelector("#sessions .search");
+  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter); search.after(accounts.pill); }
+  else { search.after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
 }
+renderSidebar.picker.querySelector("summary").prepend(accounts.tag);
 placeChrome();
 // route() again, not just render(): a pane URL without a view opens on a different tab once wide.
 const resizeWorkspace = () => { placeChrome(); paintUsage(); route(); };

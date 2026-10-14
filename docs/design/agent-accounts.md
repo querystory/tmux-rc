@@ -79,10 +79,13 @@ the wide layout had no menu before.
   only when the groups do not fit. The label names the account once over its meters, so
   they carry no chip: repeating it in every 180px meter is noise. A phone's dashboard
   uses the strip, chips included.
-- **Filter** in ☰ (All, then each account), because it is a mode you set and forget, not a
-  control every screen needs. While on, a "Filtered: Work ✕" pill shows under the header
-  (in the sidebar on wide) and ☰ carries a dot. It applies to the list, the strip and the
-  dashboard, Open loops included: a loop shows only if a pane on the account holds it, so a
+- **Filter** is a list filter, so it sits with the list's other one rather than in ☰ among
+  settings: on wide, a "Panes from" group (All accounts, then each account) under "Show" in
+  the list's All ∨ dropdown, combining with it (Running + Work is Work's running panes),
+  its dot on the dropdown's label; a phone has no dropdown (its tab bar is the state
+  filter), so a row of chips under search. While on, a "Filtered: Work ✕" pill shows under
+  search on wide, and under a phone's header on the views without the chips (the
+  dashboard). It applies to the list, the strip and the dashboard, Open loops included: a loop shows only if a pane on the account holds it, so a
   PR or worktree with no pane, which no account owns, is hidden while filtered.
 - **Consent card:** a chat action on a pane names the account the pane runs on, and says
   that sending never changes it.

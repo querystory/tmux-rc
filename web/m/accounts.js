@@ -39,33 +39,37 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     if (mine !== asked) return newest; // whether this one failed or not
     if (!data) return false;
     ({ profiles, sessions: defaults, shared } = data);
-    paintMenu(); repaint();
+    paintFilter(); repaint();
     if (dlg.open && F.step === "list" && !F.renaming) render();
     return true;
   }
   function setFilter(dir) {
     filter = dir || null;
     try { if (filter) localStorage.setItem(KEY, filter); else localStorage.removeItem(KEY); } catch {}
-    $("more-menu").open = false; paintMenu(); repaint();
+    const menu = filterGroup.closest("details");
+    if (menu) menu.open = false;
+    paintFilter(); repaint();
   }
 
-  // ---- the menu's Filter (several only), its dot, and the "Filtered: X" pill ----
-  const menuFilter = document.createElement("div");
-  menuFilter.id = "acct-filter"; menuFilter.setAttribute("role", "group"); menuFilter.ariaLabel = "Account filter";
-  $("more-menu").querySelector(".header-picker-menu").prepend(menuFilter);
+  // ---- the filter: "Panes from" in the wide list's filter dropdown, chips under a phone's
+  // search (app.js places it); its pick's dot on the dropdown's label, and the "Filtered: X" pill.
+  const filterGroup = document.createElement("div");
+  filterGroup.id = "acct-filter"; filterGroup.setAttribute("role", "group"); filterGroup.ariaLabel = "Panes from";
+  const tag = document.createElement("i");
+  tag.className = "acct-dot";
   const pill = document.createElement("div");
   pill.className = "acct-pill"; pill.setAttribute("role", "status");
-  function paintMenu() {
+  function paintFilter() {
     const on = active(), opts = [[null, "All accounts"], ...signedIn().map((p) => [p, p.name])];
-    menuFilter.hidden = !any();
-    menuFilter.innerHTML = any() ? '<div class="menu-sec">Filter</div>' + opts.map(([p, name]) =>
-      `<button type="button" class="acct-opt" data-dir="${esc(p?.dir || "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${esc(name)}</span>${licon("check", 16)}</button>`).join("") + "<hr>" : "";
-    $("more-menu").classList.toggle("filtered", !!on);
-    $("more-menu").style.setProperty("--a", on ? `var(--acct-${on.color})` : "");
-    pill.hidden = !on;
+    filterGroup.hidden = !any();
+    filterGroup.innerHTML = any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
+      `<button type="button" class="acct-opt" data-dir="${esc(p?.dir || "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${esc(name)}</span></button>`).join("") : "";
+    tag.hidden = pill.hidden = !on;
+    tag.title = on ? `Panes from ${on.name}` : "";
+    tag.style.setProperty("--a", on ? `var(--acct-${on.color})` : "");
     pill.innerHTML = on ? `Filtered: ${badge(on, `<button type="button" aria-label="Clear the account filter" title="Clear">${licon("x", 14)}</button>`)}` : "";
   }
-  menuFilter.onclick = (e) => { const b = e.target.closest("[data-dir]"); if (b) setFilter(b.dataset.dir); };
+  filterGroup.onclick = (e) => { const b = e.target.closest("[data-dir]"); if (b) setFilter(b.dataset.dir); };
   pill.onclick = (e) => { if (e.target.closest("button")) setFilter(null); };
 
   // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
@@ -293,7 +297,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
 
   function matches(pane) { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, any,
+    refresh, usage, byUrgency, strip, groups, picker, pill, any, filter: filterGroup, tag,
     matches,
     // Open loops under a filter: only what a pane on the account holds (a PR's or worktree's
     // with no pane belongs to no account, so it is hidden with the rest).

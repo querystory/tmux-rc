@@ -911,14 +911,29 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .acct-pill { display: flex; flex: none; align-items: center; gap: 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
 .acct-pill .acct-badge { flex-shrink: 1; min-width: 0; font-size: 12px; padding: 1px 2px 1px 8px; }
 .acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
-#more-menu.filtered > summary { position: relative; }
-#more-menu.filtered > summary::before { content: ""; position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--a); box-shadow: 0 0 0 2px var(--bg); }
-#acct-filter .menu-sec { padding: 8px 12px 2px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+/* The account filter. Wide: "Panes from" under the list's own "Show" choices, in one
+   dropdown, each group's pick a check (no radios) and the account's dot on the label. */
+#side-filter-picker .header-picker-menu { min-width: 180px; font-weight: 400; }
+#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden]))::before { content: "Show"; }
+#side-filter-picker .header-picker-menu::before, #acct-filter .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
+#side-filter-picker :is(label, .acct-opt) { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
+#side-filter-picker label input { position: absolute; opacity: 0; pointer-events: none; }
+#side-filter-picker :is(label, .acct-opt)::after { content: ""; flex: none; width: 5px; height: 10px; margin: -4px 4px 0 auto; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); visibility: hidden; }
+#side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"]) { font-weight: 600; }
+#side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"])::after { visibility: visible; }
+#side-filter-picker .acct-opt:hover { background: var(--raised); }
 #acct-filter hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
-#acct-filter .acct-opt { width: 100%; gap: 10px; padding: 6px 14px 6px 12px; white-space: nowrap; }
-#acct-filter .acct-opt svg { margin-left: auto; color: var(--accent); visibility: hidden; }
-#acct-filter .acct-opt[aria-pressed="true"] { font-weight: 600; }
-#acct-filter .acct-opt[aria-pressed="true"] svg { visibility: visible; }
+#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden])) label { padding-left: 26px; }
+#side-filter-picker summary .acct-dot { width: 7px; height: 7px; }
+/* A phone: one row of chips under search, while the pill under the header speaks for the
+   views without that list (the dashboard). */
+@media (max-width: 1099px) {
+  #acct-filter:not([hidden]) { display: flex; flex: none; gap: 6px; padding: 0 16px 10px; overflow-x: auto; scrollbar-width: none; }
+  #acct-filter :is(hr, .menu-sec, .acct-dot.none) { display: none; }
+  #acct-filter .acct-opt { display: inline-flex; align-items: center; flex: none; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 14px; white-space: nowrap; color: var(--fg); }
+  #acct-filter .acct-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  body:has(#sessions:not([hidden])) .acct-pill { display: none; }
+}
 #sb-head #more-menu { margin-left: auto; }
 #app.rail :is(#sb-head #more-menu, .acct-pill) { display: none; }
 /* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third
