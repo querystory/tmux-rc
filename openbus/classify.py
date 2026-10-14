@@ -83,14 +83,15 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 # tab labels under a dialog's top rule ("Settings  Status  Config  Usage  Stats"), a search
 # box or a ❯ cursor on a "name  value" row below it, and the panel's own key-hint footer
 # as the screen's last row. The agent is not asking: a row toggles a setting or opens a
-# page and the panel stays. The footer closes, clears or goes back on Esc, never cancels
-# as a question's does, so a later dialog below a lookalike strip still asks. Read by
-# structure, not one panel's exact tabs or hints, which Claude Code keeps rewording.
+# page and the panel stays. The footer closes, clears, goes back or exits on Esc, where a
+# question's cancels; any other wording fails safe as a question, as does a later dialog
+# below a lookalike strip. Read by structure, not one panel's exact tabs or hints, which
+# Claude Code keeps rewording.
 _TAB_LABEL = r"\w\S*(?: \S+)?"
 _TAB_STRIP_RE = re.compile(
     rf"▔{{3,}}.*\n[ \t]*{_TAB_LABEL}(?:[ \t]{{2,}}{_TAB_LABEL}){{2,}}[ \t]*$", re.MULTILINE)
 _PANEL_BODY_RE = re.compile(r"⌕|^[ \t]*❯[ \t]*\S.*?\S[ \t]{2,}\S", re.MULTILINE)
-_PANEL_FOOTER_RE = re.compile(r"\bEsc to (?!cancel\b)\w", re.IGNORECASE)
+_PANEL_FOOTER_RE = re.compile(r"\bEsc to (?:close|clear|(?:go )?back|exit)\b", re.IGNORECASE)
 
 
 def _tabbed_panel_open(visible: str) -> bool:
