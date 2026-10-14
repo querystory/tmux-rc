@@ -151,6 +151,21 @@ def test_two_people_of_one_organisation_are_told_apart(home):
     assert "_more" not in accounts.profiles()[0]
 
 
+def test_two_dirs_on_one_login_flag_each_other(home):
+    # A /login in the wrong dir: ~/.claude-demo now holds ~/.claude's login, under a label.
+    _signed_in(home / ".claude-demo", "u-work", organizationName="Example Org",
+               emailAddress="dev@example.com", organizationType="claude_team")
+    # One email in another organisation is another login, as is a codex dir.
+    _signed_in(home / ".claude-side", "u-work", organizationName="Side Org",
+               emailAddress="dev@example.com")
+    accounts.edit(str(home / ".claude-demo"), "Demo")
+    found = _by_dir(home)
+    assert found["~/.claude"]["same_as"] == [str(home / ".claude-demo")]
+    assert found["~/.claude-demo"]["same_as"] == [str(home / ".claude")]
+    assert found["~/.claude"]["login"] == "dev@example.com"
+    assert [p for p, f in found.items() if f["same_as"]] == ["~/.claude", "~/.claude-demo"]
+
+
 def test_a_forgotten_dir_comes_back_when_added_again(home):
     accounts.edit(str(home / ".claude-personal"), forget=True)
     accounts.add("claude", str(home / ".claude-personal"), "Personal", [])

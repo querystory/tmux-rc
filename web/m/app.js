@@ -1680,7 +1680,7 @@ $("move-pane").onclick = async () => {
     }
   };
   sheet(`Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
-    targets.map((p) => [accounts.chip(p), p.tilde, () => move(p)]));
+    targets.map((p) => [accounts.chip(p), p.sub, () => move(p)]));
   $("move-dialog").showModal();
 };
 window.addEventListener("hashchange", route);

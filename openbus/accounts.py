@@ -125,8 +125,12 @@ def _profiles(pane_dirs) -> list[dict]:
     if dirty:
         _save(store)
     _distinguish([p for p in out if not p["label"]])
-    for p in out:
-        p.pop("_more", None)
+    for p in out:  # the login's email, which the UI shows to tell each dir's login apart
+        p["login"] = p.pop("_more", ["", ""])[1]
+    for p in out:  # dirs signed in to one login (a stray /login): flag each, by dir
+        key = (p["provider"], p["who"], p["login"])
+        p["same_as"] = [q["dir"] for q in out if q is not p and p["login"]
+                        and (q["provider"], q["who"], q["login"]) == key]
     return out
 
 

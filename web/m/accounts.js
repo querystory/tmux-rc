@@ -21,6 +21,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   // The account worth naming for a pane: only when its provider has several.
   const ofPane = (id) => { const p = profiles.find((a) => a.panes.includes(id)); return p && several(p.provider) ? p : null; };
   const active = () => { const p = any() && byDir(filter); return p?.signed_in ? p : null; };
+  // The login's email, where the name and organisation leave it unsaid.
+  const login = (p) => p.login !== p.who ? p.login : "";
+  // Two dirs on one login (a /login in the wrong dir) look like two accounts: say so.
+  const same = (p) => p.same_as?.length ? `<p class="acct-msg warn">Signed in as the same account as ${esc(p.same_as.map((d) => byDir(d)?.name).join(", "))}: sign this folder in again with <code>/login</code></p>` : "";
   const dot = (p) => `<i class="acct-dot" style="--a:var(--acct-${p.color})"></i>`;
   const badge = (p, after = "") => `<span class="acct-badge" style="--a:var(--acct-${p.color})" title="${esc(`${p.name}: ${p.tilde}`)}">${dot(p)}<span>${esc(p.name)}</span>${after}</span>`;
   // The account a new window in this session starts on: the dir its tmux environment sets,
@@ -127,7 +131,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
         const pick = byDir(picks[provider]) || def || mine[0];
         picks[provider] = pick.dir;
         return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"}</label><div class="acct-pick">`
-          + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})">${dot(p)}<span><strong>${esc(p.name)}</strong><small>${esc([p.who !== p.name && p.who, p.tilde].filter(Boolean).join(" · "))}</small></span></button>`).join("")
+          + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})">${dot(p)}<span><strong>${esc(p.name)}</strong><small>${esc([p.who !== p.name && p.who, login(p), p.tilde].filter(Boolean).join(" · "))}</small></span></button>`).join("")
           + `<button type="button" class="add" data-add>+ Add account</button></div>`
           + `<p class="acct-hint">${hint(session, provider, def)}</p>`
           // Always in view: the session's default, set with tmux set-environment on change.
@@ -169,14 +173,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
   const head = (text, step) => `<div class="sheet-handle"></div><div class="dialog-heading"><h2 id="acct-title">${esc(text)}</h2><button type="button" class="icon-button" data-x aria-label="Close" title="Close">${licon("x")}</button></div>`
     + (step ? `<div class="acct-steps" aria-label="Step ${step} of 4">${[1, 2, 3, 4].map((i) => `<i class="${i <= step ? "on" : ""}"></i>`).join("")}</div>` : "");
   const btns = (...b) => `<div class="acct-btns">${b.join("")}</div>`;
-  const who = (p) => [esc(p.signed_in ? p.who || "signed in" : "not signed in"), esc(p.plan), `<code>${esc(p.tilde)}</code>`, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  const who = (p) => [esc(p.signed_in ? p.who || "signed in" : "not signed in"), esc(login(p)), esc(p.plan), `<code>${esc(p.tilde)}</code>`, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
   function render() {
     const s = F.step, owner = s === "name" && profiles.find((p) => [p.dir, p.tilde].includes(norm(F.dir)));
     if (s === "list") dlg.innerHTML = head("Accounts") + profiles.map((p) => F.renaming === p.dir
       ? `<div class="acct-row">${dot(p)}<input id="acct-rename" value="${esc(p.label || p.name)}" aria-label="Account name"><button class="primary" data-rename-save>Save</button><button data-goto="list">Cancel</button></div>`
       : F.removing === p.dir
         ? `<div class="acct-row col"><b>Remove ${esc(p.name)} from tmux-rc?</b><p class="acct-note">It leaves the meters, badges and pickers. <code>${esc(p.tilde)}</code>, its login and its transcripts stay on disk, and the panes running on it keep running.</p>${btns('<button data-goto="list">Keep</button>', '<button class="primary" data-remove-ok>Remove from list</button>')}</div>`
-        : `<div class="acct-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<div class="who"><b>${esc(p.name)}</b> <span class="muted">${p.provider}</span><small>${who(p)}</small></div>`
+        : `<div class="acct-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<div class="who"><b>${esc(p.name)}</b> <span class="muted">${p.provider}</span><small>${who(p)}</small>${same(p)}</div>`
           + (p.signed_in ? `<button data-rename="${esc(p.dir)}">Rename</button>` : `<button class="primary" data-finish="${esc(p.dir)}">Finish sign-in</button>`)
           + (p.default ? "" : `<button data-remove="${esc(p.dir)}">Remove</button>`) + "</div>").join("")
       + `<button class="acct-add" data-add>+ Add account</button><p class="acct-note">One account per config dir, found in <code>~/.claude</code>, <code>~/.claude-*</code>, <code>~/.codex*</code> and any dir a live pane uses. Names come from each dir's non-secret account info. tmux-rc never reads, copies or stores a login.</p>`;
@@ -307,7 +311,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, sessions,
     consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)} ${esc(p.tilde)}. Sending never changes a pane's account.</small>` : ""; },
     profile: byDir, list: () => profiles, chip: (p) => badge(p),
     // Where "Move to another account" can take a pane: its provider's other signed-in
-    // accounts, once it has several.
-    moveTargets: (paneId, provider) => several(provider) ? signedIn().filter((p) => p.provider === provider && !p.panes.includes(paneId)) : [],
+    // accounts, once it has several, each with its line under the name: one on the pane's
+    // own login is listed, and says moving there changes nothing.
+    moveTargets: (paneId, provider) => { const from = ofPane(paneId); return several(provider) ? signedIn().filter((p) => p.provider === provider && !p.panes.includes(paneId)).map((p) => ({ ...p,
+      sub: from?.same_as?.includes(p.dir) ? `Same login as ${from.name}, so moving changes nothing` : [login(p), p.tilde].filter(Boolean).join(" · ") })) : []; },
   };
 }
