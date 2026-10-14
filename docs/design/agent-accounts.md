@@ -73,12 +73,16 @@ the wide layout had no menu before.
   same chip as the rows, in its bottom corner across from the reset, and its title keeps
   just the window: a name in the title was truncated first, read as part of the window
   ("7d QSI"), and left a one-account provider's meter looking unnamed beside it.
-- **Dashboard Plan usage:** wide, one row of 180px meters grouped per account, each group
-  labelled with its chip and the details (who, plan, dir, panes) in its tooltip. The chips sit
-  on the card's heading line, centred over their groups, so the labels add no row. The row wraps
-  only when the groups do not fit. The label names the account once over its meters, so
-  they carry no chip: repeating it in every 180px meter is noise. A phone's dashboard
-  uses the strip, chips included.
+- **Dashboard Plan usage:** wide, every meter on one line, grouped per account with one thin
+  divider between groups. Each group is headed by its chip, flush left over its first meter,
+  with the details (who, plan, dir, panes) in its tooltip, and Codex gets a chip like the
+  rest. The meters share the line evenly, down to 130px each, which fits ten on a 1500px
+  card; below that the line scrolls with the strip's edge fades rather than wrapping. A
+  wrapped second row looked broken: its chips floated in the gap, and its groups did not
+  line up with the first row's. Chips centred over their groups, on the heading line to
+  save a row, read as loose labels rather than headings, so they now take a row. The chip
+  names the account once over its meters, so the meters carry none. A phone's dashboard
+  uses the strip, a chip on each meter.
 - **Filter** is a list filter, so it sits with the list's other one rather than in ☰ among
   settings: on wide, a "Panes from" group (All accounts, then each account) under "Show" in
   the list's All ∨ dropdown, combining with it (Running + Work is Work's running panes),
