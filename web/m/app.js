@@ -1601,6 +1601,7 @@ document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => o
 $("new-window").onclick = () => openLaunch(false, $("new-window"));
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null; // the account picker (accounts.js), with several accounts
+const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
 async function openLaunch(fresh, opener) {
   launchPick?.remove(); launchPick = null;
   if (opener) openBeside($("launch-dialog"), opener); else $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
@@ -1621,14 +1622,20 @@ async function openLaunch(fresh, opener) {
       const logo = document.createElement("img");
       logo.src = Object.prototype.hasOwnProperty.call(LOGOS, launcher.icon) ? LOGOS[launcher.icon] : launcher.icon || "/tmux-logomark.svg"; logo.alt = "";
       const label = document.createElement("span");
-      const name = document.createElement("strong"); name.textContent = launcher.label; label.append(name);
+      const name = document.createElement("strong"); name.textContent = launcher.label;
+      // What it starts, one muted line: a variant's model (its label's parenthesis), else the
+      // tool; after the account it starts on, where it has several (accounts.picker).
+      const desc = document.createElement("small");
+      desc.innerHTML = `<span class="acct-on" hidden></span><span class="desc"></span>`;
+      desc.lastChild.textContent = /\((.+)\)/.exec(launcher.label)?.[1] || LAUNCH_DESC[launcher.icon] || "";
+      label.append(name, desc);
       // A launcher whose command the daemon can't find stays VISIBLE — the user
       // configured it, so hiding it would only be a second mystery — but is disabled and
       // states the reason, instead of opening a window that dies in milliseconds.
       // The marker outlives the disabled flag, which launchWindow's `finally` clears on
       // every button: without it one failed launch would re-arm the entries the daemon
       // has just told us cannot run.
-      if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; const why = document.createElement("small"); why.textContent = launcher.unavailable; label.append(why); }
+      if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; desc.lastChild.textContent = launcher.unavailable; }
       button.append(logo, label);
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !!launcher.unavailable;

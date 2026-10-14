@@ -81,10 +81,15 @@ panel is non-modal, so the list stays live beside it; Escape or a click elsewher
 One helper does this for both, and a phone keeps its bottom sheet. A centred modal was
 rejected: New window had grown taller than the screen and scrolled its own title away.
 
-New window is compact for the same reason: the session on one line, the accounts as a
-two-column grid of small chips with "+ Add account" as the next cell, the default for the
-session on one line (the full explanation in its tooltip), and each tool a 44px row naming
-the account it will start on. Three accounts and five tools fit at 700px tall.
+New window is compact for the same reason, but not at the cost of saying how it works (a
+first cut hid every explanation in tooltips, and read as cryptic): a one-line subtitle says
+what it does; the accounts are a two-column grid of small chips, "+ Add account" the next
+cell, with a hint naming the tool they apply to; the session's default is a sentence with a
+checkbox ("Use Work for every new window in qs") and a muted line on what happens otherwise,
+not a "Default for … Not set" select; and each tool is a 52px row with a muted line, the
+account it starts on where it has several, then its model or what it is. Rows the account
+does not apply to carry no chip. It fits unscrolled at 900px tall; at 700 the body scrolls
+under the fixed title.
 
 ## The collapsed rail keeps working
 

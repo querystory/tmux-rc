@@ -283,7 +283,7 @@ dialog::backdrop { background: #0008; }
 #voice-close { margin-left: auto; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 dialog label { display: block; margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
-dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
+dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
 .start-session { display: block; min-height: 44px; padding: 0 20px; border-radius: 6px; margin: 16px 0 0; }
 #list-start { margin: 0 auto; }
 #launch-error { color: var(--red); margin-top: 12px; font-size: 13px; }
@@ -323,13 +323,20 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #launch-dialog label { margin: 12px 0 6px; }
 #launch-dialog .launch-row label { margin: 0; }
 #launch-choices { margin-top: 8px; }
-#launch-choices button { min-height: 44px; gap: 12px; padding: 6px 4px; }
+#launch-choices button { min-height: 52px; gap: 12px; padding: 6px 4px; }
 #launch-choices img { width: 22px; height: 22px; }
-#launch-choices span { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+#launch-choices > button > span { display: flex; flex-direction: column; gap: 2px; }
 #launch-choices strong { font-size: 14.5px; }
-#launch-choices small { margin: 0; }
-#launch-choices .acct-on { display: inline-flex; align-items: center; gap: 4px; }
-@media (min-width: 1100px) { #launch-dialog :is(select, input) { min-height: 36px; padding: 6px 10px; font-size: 14px; } }
+#launch-choices small { margin: 0; display: flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden; }
+#launch-choices .acct-on:not([hidden]) { display: inline-flex; align-items: center; gap: 4px; }
+#launch-choices .acct-on:not([hidden]) + .desc:not(:empty)::before { content: "· "; }
+#launch-choices small span { flex: 0 1 auto; } /* not .choice-list's flex: 1 */
+#launch-choices .desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.panel-sub { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.acct-why { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
+.acct-default input { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--accent); }
+.acct-else { display: block; margin-left: 20px; font-size: 12px; color: var(--muted); }
+@media (min-width: 1100px) { #launch-dialog :is(select, input:not([type="checkbox"])) { min-height: 36px; padding: 6px 10px; font-size: 14px; } }
 /* Keep the conversation scrollable while status and call controls stay visible. */
 #voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); padding-inline: 16px; }
 /* The sheet itself takes initial focus (tabindex=-1, focused in show()), so no button opens with a ring painted on it; Tab still lands on real controls, which keep their :focus-visible ring. */
@@ -1110,9 +1117,8 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .acct-pick strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .acct-pick button[aria-pressed="true"] { border-color: var(--a); box-shadow: inset 0 0 0 1px var(--a); background: color-mix(in srgb, var(--a) 8%, var(--surface)); }
 .acct-pick button.add { justify-content: center; border-style: dashed; color: var(--muted); font-size: 13px; white-space: nowrap; }
-.acct-default { display: flex; align-items: center; gap: 8px; min-height: 30px; font-size: 12.5px; color: var(--muted); }
-.acct-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acct-hint b { color: var(--fg); font-weight: 600; }
+#launch-dialog .acct-default { display: block; margin: 4px 0 0; font-size: 12.5px; color: var(--fg); }
+.acct-default b { font-weight: 600; }
 #launch-dialog .acct-default select { width: auto; min-height: 30px; padding: 2px 8px; font-size: 13px; }
 dialog .acct-check { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; min-height: 44px; color: var(--fg); font-size: 14px; cursor: pointer; }
 dialog .acct-check input { flex: none; width: 20px; height: 20px; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); }

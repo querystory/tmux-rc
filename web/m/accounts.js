@@ -9,7 +9,6 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
 const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
 // Markup's text, for a tooltip that says what the markup does.
-const plain = (html) => Object.assign(document.createElement("template"), { innerHTML: html }).content.textContent;
 const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
 export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery, chips, clearChip, clearAll }) {
@@ -140,12 +139,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
 
   // ---- New window: an account per provider with several, preset to the session's default ----
   const set = (session, provider) => !!defaults[session]?.[provider]; // its tmux env names a dir
-  function hint(session, provider, def) {
-    const name = def ? `<b style="color:var(--acct-${def.color})">${esc(def.name)}</b>` : "";
-    if (!session) return def ? `A new session starts on ${name}.` : "A new session starts on none of these accounts.";
-    if (!set(session, provider)) return `${esc(session)} has no account default; new windows use ${name || "the standard dir"}${def ? ` (${esc(def.tilde)}, the standard dir)` : ""}.`;
-    return def ? `New windows in ${esc(session)} start on ${name} (set in its tmux session environment).` : `${esc(session)}'s default is none of these accounts.`;
-  }
+  // New session mode: what it starts on (its default is set once it exists).
+  const startsOn = (def) => def ? `A new session starts on <b style="color:var(--acct-${def.color})">${esc(def.name)}</b>.` : "A new session starts on none of these accounts.";
   function picker(choices, select) {
     const box = document.createElement("div");
     box.className = "acct-picker";
@@ -156,21 +151,19 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         const def = defaultOf(session, provider), mine = signedIn().filter((p) => p.provider === provider);
         const pick = byDir(picks[provider]) || def || mine[0];
         picks[provider] = pick.dir;
-        return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"}</label><div class="acct-pick">`
+        // Which rows it applies to, said where it is chosen: rows of other tools carry no chip.
+        return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"} <small class="acct-why">${title(provider)} starts signed in as this account</small></label><div class="acct-pick">`
           + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})" title="${esc(sub(p))}">${dot(p)}<strong>${esc(p.name)}</strong></button>`).join("")
           + `<button type="button" class="add" data-add>+ Add account</button></div>`
-          // One line: what a new window here starts on (the whole story in its tooltip) and,
-          // always in view, the session's default, set with tmux set-environment on change.
-          + `<div class="acct-default"><span class="acct-hint" title="${esc(plain(hint(session, provider, def)))}">${session ? `Default for <b>${esc(session)}</b>` : hint(session, provider, def)}</span>`
-          + (session ? `<select data-default-for="${provider}" aria-label="Default account for this session">`
-            + `<option value="" ${set(session, provider) ? "" : "selected"}>Not set</option>`
-            // Set to a dir that is none of these: shown as it is, not as "Not set".
-            + (set(session, provider) && !def ? `<option selected disabled>${esc(defaults[session][provider])}</option>` : "")
-            + mine.map((p) => `<option value="${esc(p.dir)}" ${set(session, provider) && p === def ? "selected" : ""}>${esc(p.name)}</option>`).join("") + "</select>" : "") + "</div>";
+          // The session's default, as a sentence: make the picked account every new window's
+          // here (tmux set-environment on change), and what happens otherwise.
+          + (!session ? `<p class="acct-default">${startsOn(def)}</p>`
+            : `<label class="acct-default"><input type="checkbox" data-default-for="${provider}" ${set(session, provider) && pick === def ? "checked" : ""}> Use <b>${esc(pick.name)}</b> for every new window in <b>${esc(session)}</b></label>`
+            + `<small class="acct-else">${set(session, provider) && pick !== def ? `Now new windows use ${def ? `<b>${esc(def.name)}</b>` : esc(defaults[session][provider])}` : `Otherwise new windows use the standard ~/.${provider} login`}</small>`);
       }).join("");
       for (const b of choices.querySelectorAll("button[data-provider]")) {
-        const p = several(b.dataset.provider) && byDir(picks[b.dataset.provider]), small = b.querySelector(".acct-on") || b.querySelector("span").appendChild(Object.assign(document.createElement("small"), { className: "acct-on" }));
-        small.hidden = !p; small.innerHTML = p ? `on ${badge(p)}` : "";
+        const p = several(b.dataset.provider) && byDir(picks[b.dataset.provider]), small = b.querySelector(".acct-on");
+        small.hidden = !p; small.innerHTML = p ? `on ${badge(p)}` : ""; // before the row's description
       }
     };
     box.onclick = (e) => {
@@ -181,7 +174,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     box.onchange = async (e) => {
       const provider = e.target.dataset.defaultFor;
       if (!provider) return;
-      try { await post("/api/accounts/default", { session: select.value, dir: e.target.value, provider }); } catch { notice("The session default could not be set.", 6000); }
+      try { await post("/api/accounts/default", { session: select.value, dir: e.target.checked ? picks[provider] : "", provider }); } catch { notice("The session default could not be set.", 6000); }
       delete picks[provider]; await refresh(); paint();
     };
     select.addEventListener("change", () => { for (const k of Object.keys(picks)) delete picks[k]; paint(); }, { signal: done.signal });
