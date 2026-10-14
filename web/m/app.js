@@ -1169,7 +1169,8 @@ async function compose(id, value) {
   sending = true; notice(); render();
   try {
     await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
-    if (active === id) text($("draft-status"), "Sent");
+    // Not over a next draft typed while this one went: that one is unsent.
+    if (active === id && !(secret ? value.value : draft(id).segments().length)) text($("draft-status"), "Sent");
     startState();
     return true;
   } catch {
