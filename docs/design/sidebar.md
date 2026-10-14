@@ -13,16 +13,24 @@ settled and why.
 The sidebar holds three kinds of thing, and each now has one home.
 
 - **Places** you go: Dashboard, Chat, Voice and Settings. Dashboard is a row that is always
-  there, since it is where you go most. A small chevron at its end unfolds the other three
-  under it, and picking one folds them away. There is no "More" with some places outside
-  it: a split of one place outside and the rest behind a menu read as arbitrary, and four
-  rows always fit, so either all show or the chevron holds the three.
+  there, since it is where you go most. Under it a "··· More" row unfolds the other three,
+  its dim caret turning to fold them again, and it stays as you left it. A chevron on the
+  Dashboard row itself was tried first: one row that both opened a place and unfolded others
+  read as ambiguous. There is no split of some places outside More and the rest behind it:
+  one place left outside read as arbitrary.
 - **Settings** are things you set once: Accounts, Notifications, Theme, Plan usage, the
   phone's sort order, and Docs. They left the ☰ dropdown and the foot for one Settings, the
   same content on a phone (the header's gear, a sheet) and on desktop.
 - **The list** has its own block: a "Sessions" title with the green + (new window), then
   search with the filter button beside it, then the list's State / Session · Sub-agents
   line. Search and filter share a row because both narrow the list.
+
+Everything above the usage strip scrolls as one, so the head and the places scroll out of
+the way as you page through panes, and the Sessions block (its title and +, search and the
+filter, the "Filtered:" chips) sticks at the top with a hairline once it has. The State /
+Session line scrolls with the list: pinned too, the stuck block grew to four rows, and it is
+a setting you change rarely, not a control you need at every scroll position. The usage
+strip stays at the foot.
 
 The header is just the logo and the name, with Live as the logo's dot (green, or amber
 while it reconnects or the watcher stalls) and a dim collapse at the right, as on

@@ -58,7 +58,9 @@ export function setupSidebar(ctx) {
   // which holds the last-clicked button's screen position (and its focus, which reconcile
   // drops when it moves the node). Folding near the end leaves too little list below to
   // scroll back by, so the shortfall is padded until the next control changes it.
+  // Expanded, the whole sidebar above the usage strip scrolls (#sb-scroll); the rail, its list.
   let anchor = null;
+  const wrap = document.getElementById("sb-scroll"), scroller = () => prefs.rail ? root : wrap;
   root.addEventListener("click", (e) => { anchor = e.target.closest("button"); }, true);
   const rerender = () => {
     save();
@@ -66,12 +68,12 @@ export function setupSidebar(ctx) {
     root.style.paddingBottom = "";
     repaint();
     if (!el?.isConnected) return;
-    const want = root.scrollTop + el.getBoundingClientRect().top - y;
-    root.scrollTop = want;
-    if (root.scrollTop < want - 1) { // pad a screen, scroll, then trim the padding to fit
-      root.style.paddingBottom = `${root.clientHeight}px`;
-      root.scrollTop = want;
-      root.style.paddingBottom = `${2 * root.clientHeight + want - root.scrollHeight}px`;
+    const sc = scroller(), want = sc.scrollTop + el.getBoundingClientRect().top - y;
+    sc.scrollTop = want;
+    if (sc.scrollTop < want - 1) { // pad a screen, scroll, then trim the padding to fit
+      root.style.paddingBottom = `${sc.clientHeight}px`;
+      sc.scrollTop = want;
+      root.style.paddingBottom = `${parseFloat(root.style.paddingBottom) + sc.clientHeight + want - sc.scrollHeight}px`;
     }
     if (focused) el.focus({ preventScroll: true });
   };
@@ -296,7 +298,10 @@ export function setupSidebar(ctx) {
   root.addEventListener("pointerout", (e) => { const el = target(e); if (el && !el.contains(e.relatedTarget)) unhover(); });
   root.addEventListener("focusin", (e) => { const el = target(e, ".sb-rail, .sb-open"); if (el?.matches(":focus-visible")) hover(el); });
   root.addEventListener("focusout", unhover);
-  root.addEventListener("scroll", unhover, { passive: true });
+  for (const el of [root, wrap]) el.addEventListener("scroll", unhover, { passive: true });
+  // The Sessions block sticks at the top of the scroll; a hairline shows once it has.
+  const sticky = document.getElementById("sb-sticky");
+  wrap.addEventListener("scroll", () => sticky.classList.toggle("stuck", wrap.scrollTop > sticky.offsetTop - wrap.offsetTop - 1 && wrap.scrollTop > 0), { passive: true });
   root.addEventListener("click", unhover);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") unhover(); });
   addEventListener("resize", unhover); // a breakpoint crossing hides the sidebar but not this

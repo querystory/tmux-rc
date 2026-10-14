@@ -471,20 +471,22 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #sb-head #brand img { width: 22px; height: 22px; border-radius: 6px; }
 #sb-head #brand::before { left: 16px; top: 15px; box-shadow: 0 0 0 2px var(--surface); }
 #sb-head #connection { position: absolute; opacity: 0; pointer-events: none; }
-:is(#sb-head, #sb-nav) .icon-button { width: 24px; height: 24px; min-height: 24px; border-radius: 6px; color: var(--muted); }
-#sb-head #collapse:hover, #places:hover, #places[aria-expanded="true"] { color: var(--fg); }
-/* The places, as rows on the list's icon and text columns: Dashboard always, its chevron
-   unfolding Chat, Voice and Settings under it. */
-#sb-nav { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 0 6px 2px; flex: none; }
-#sb-nav .icon-button:not(#places) { grid-column: 1 / -1; width: 100%; height: 32px; min-height: 32px; justify-content: flex-start; gap: 9px; padding: 0 10px 0 13px; border-radius: 7px; color: var(--fg); font-size: 13px; }
-#sb-nav .icon-button:not(#places) svg { width: 16px; height: 16px; color: var(--muted); }
+#sb-head .icon-button { width: 24px; height: 24px; min-height: 24px; border-radius: 6px; color: var(--muted); }
+#sb-head #collapse:hover { color: var(--fg); }
+/* The places, as rows on the list's icon and text columns: Dashboard always, then More,
+   which unfolds Chat, Voice and Settings under it (its dim caret turns to fold them). */
+#sb-nav { display: flex; flex-direction: column; padding: 0 6px 2px; flex: none; }
+#sb-nav .icon-button { width: 100%; height: 32px; min-height: 32px; justify-content: flex-start; gap: 9px; padding: 0 10px 0 13px; border-radius: 7px; color: var(--fg); font-size: 13px; }
+#sb-nav .icon-button svg { width: 16px; height: 16px; color: var(--muted); }
 #sb-nav .icon-button:not(#places)::after { content: attr(aria-label); }
-#sb-nav #live-mode::after { content: "Voice"; }
-#sb-nav #dash-nav { grid-column: 1; grid-row: 1; }
-#places { grid-column: 2; grid-row: 1; margin-right: 6px; }
-#places svg { width: 16px; height: 16px; transition: transform 120ms; }
-#places[aria-expanded="true"] svg { transform: rotate(180deg); }
+#sb-nav #live-mode.icon-button::after { content: "Voice"; }
+#places > svg:last-child { width: 14px; height: 14px; margin-left: auto; opacity: .7; transition: transform 120ms; }
+#places[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
 #sb-nav:not(.open) > :is(#chat, #live-mode, #settings-open) { display: none; }
+/* Everything above the usage strip scrolls as one, and the Sessions block sticks at its top. */
+#sb-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+#sb-sticky { position: sticky; top: 0; z-index: 3; flex: none; background: var(--surface); transition: box-shadow 120ms; }
+#sb-sticky.stuck { box-shadow: 0 1px 0 var(--line), 0 6px 12px -8px rgb(0 0 0 / .25); }
 #dash-nav[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
 #dash-nav[aria-pressed="true"] svg { color: var(--fg); }
 /* Sessions: the section's title and its green +; search and the filter on one row under it. */
@@ -508,7 +510,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #side-filter-picker summary:not([data-n=""]) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-bg); color: var(--accent); }
 #side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
 #side-filter-picker summary[data-n=""]::after { display: none; }
-#side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 8px; font-size: 13px; }
+#side-list { flex: none; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
 .sb-bar { display: flex; align-items: center; padding: 8px 6px 2px 10px; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .sb-bar > button { flex: none; min-height: 26px; padding: 0 3px; border-radius: 5px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -572,7 +574,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
    listed pane (it scrolls), and Settings at the foot. The rows' containers step aside so
    their buttons stack in that order. */
 #app.rail #sessions { align-items: center; }
-#app.rail :is(#sb-nav, #sb-sess, #find) { display: contents; }
+#app.rail :is(#sb-scroll, #sb-sticky, #sb-nav, #sb-sess, #find) { display: contents; }
 #app.rail #sb-nav #places, #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
 #app.rail #sb-head { min-height: 0; padding: 12px 0 6px; justify-content: center; }
 #app.rail :is(#new-window, #find > *) { order: 1; }
@@ -589,7 +591,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #app.rail #search-icon svg { width: 18px; height: 18px; }
 #app.rail #side-filter-picker summary { width: 36px; height: 36px; min-height: 36px; border-color: transparent; background: none; color: var(--muted); }
 #app.rail #side-filter-picker summary:not([data-n=""]) { background: var(--accent-bg); color: var(--accent); }
-#app.rail #side-list { width: 100%; display: grid; justify-items: center; align-content: start; gap: 2px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); scrollbar-width: none; }
+#app.rail #side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: 100%; display: grid; justify-items: center; align-content: start; gap: 2px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); scrollbar-width: none; }
 .sb-rail { position: relative; width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 8px; }
 .sb-rail .sb-logo, .sb-rail .sb-logo img:not(.model-badge) { width: 22px; height: 22px; }
 .sb-rail.need { background: var(--amber-bg); --card: var(--amber-bg); }
@@ -813,6 +815,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
   #landing .atlas-panel > .atlas-panel-heading:first-child { margin-top: -8px; } /* less pull: a phone wraps the controls off the title's line */
   #list-nav button { font-size: 11px; }
   .sb-only { display: none !important; }
+  #sb-scroll, #sb-sticky { display: contents; }
   .search { margin: 8px 16px; border: 0; border-radius: 10px; background: var(--raised); }
   .search:focus-within { box-shadow: 0 0 0 2px var(--accent); }
   /* Needs-you rows answer in place: pill answers under the text column, the divider under all. */

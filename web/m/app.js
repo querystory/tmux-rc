@@ -414,7 +414,7 @@ function renderLanding() {
     filter = "all";
     renderList();
     navigate();
-    $("sessions").scrollTop = $("side-list").scrollTop = 0;
+    $("sessions").scrollTop = $("sb-scroll").scrollTop = $("side-list").scrollTop = 0;
   }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge);
   renderLoopsCard($("loops-card"), accounts.loops(loops), openLane, licon);
 }
@@ -1236,7 +1236,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", places: "chevronDown", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1289,10 +1289,15 @@ new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-// The sidebar's places: the chevron unfolds Chat, Voice and Settings under Dashboard, and
-// picking one folds them away again.
-$("places").onclick = () => { $("places").ariaExpanded = String($("sb-nav").classList.toggle("open")); };
-$("sb-nav").addEventListener("click", (e) => { if (e.target.closest("button:not(#places)")) { $("sb-nav").classList.remove("open"); $("places").ariaExpanded = "false"; } });
+// The sidebar's places: More unfolds Chat, Voice and Settings under Dashboard; open or
+// folded, it stays as you left it (per browser).
+html($("places"), `${licon("ellipsis")}<span>More</span>${licon("chevronDown", 14)}`);
+const unfold = (open) => {
+  $("places").ariaExpanded = String($("sb-nav").classList.toggle("open", open));
+  try { localStorage.setItem("tmuxrc-places", open ? "open" : ""); } catch {}
+};
+try { unfold(localStorage.getItem("tmuxrc-places") === "open"); } catch {}
+$("places").onclick = () => unfold(!$("sb-nav").classList.contains("open"));
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
