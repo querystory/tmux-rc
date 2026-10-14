@@ -339,10 +339,7 @@ export function setupSidebar(ctx) {
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
     search.title = prefs.rail ? "Search" : "";
-    filters = filter;
-    show.mark((v) => v === "all" ? !filter.length : filter.includes(v));
-    by.mark((v) => v === prefs.by);
-    sortBy.mark((v) => v === ctx.sort());
+    marks(filter);
     if (prefs.rail) rail(subset); else list(subset, query);
     // Reconciling may have replaced the hovered row (a card that became a row, say).
     if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
@@ -359,6 +356,14 @@ export function setupSidebar(ctx) {
     text(count, subset.length);
     ctx.html(subs, `${n} sub-agent${n === 1 ? "" : "s"} ${licon(prefs.subagents ? "eye" : "eyeOff", 13)}`);
   }
+  // The menu's checks, for either layout (a phone draws no sidebar, but has the menu).
+  function marks(filter) {
+    filters = filter;
+    show.mark((v) => v === "all" ? !filter.length : filter.includes(v));
+    by.mark((v) => v === prefs.by);
+    sortBy.mark((v) => v === ctx.sort());
+  }
+  render.marks = marks;
   render.picker = picker; // the filter menu: app.js adds the account filter, then these
   render.views = [by, sortBy, document.createElement("hr"), clearAll];
   render.clearAll = clearAll;

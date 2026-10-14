@@ -383,7 +383,7 @@ function renderList() {
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
   renderSidebar.answers.prune(subset);
-  if (WIDE.matches) { renderSidebar(subset, query, filter); placeRail(); } else { placePill(); renderPhoneList(subset); }
+  if (WIDE.matches) { renderSidebar(subset, query, filter); placeRail(); } else { placePill(); renderSidebar.marks(filter); renderPhoneList(subset); }
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
   // Empty, while panes the filter hides need you: say so, a click from them.
