@@ -350,7 +350,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     F.opening = true; render();
     const mine = seq;
     let opened;
-    try { opened = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() }); } finally { F.opening = false; }
+    const flow = F;
+    try { opened = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() }); } finally { flow.opening = false; }
     if (mine !== seq) return; // moved on: the window stays, listed as an older one
     ({ pane_id: F.pane, pid: F.pid } = opened);
     Object.assign(F, { window: null, seen: false, goneAt: null, openedAt: Date.now() }); render(); return wait();
@@ -390,10 +391,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if ("add" in d) return open("name");
     if (d.rename) return go("list", { renaming: d.rename });
     if (d.remove) return go("list", { removing: d.remove });
-    if (d.resume) { const p = byDir(d.resume); return go("abandoned", { dir: p.dir, name: p.name, provider: p.provider, pane: null }); }
-    if (d.finish) { // back to its sign-in window, if one is still open
-      const p = byDir(d.finish), mine = ++seq, w = await windowOf(`dir=${encodeURIComponent(p.dir)}`);
+    if (d.finish || d.resume) { // back to its sign-in window, if one is still open
+      const p = byDir(d.finish || d.resume), mine = ++seq, w = await windowOf(`dir=${encodeURIComponent(p.dir)}`) || null;
       if (mine !== seq || !dlg.open) return;
+      if (!w && d.resume) return go("abandoned", { dir: p.dir, name: p.name, provider: p.provider, pane: null });
       go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: w?.pane_id || null, pid: w?.pid, window: w, session: w ? w.session : F.session, seen: false, goneAt: null, openedAt: Date.now() });
       if (w) { F.line = lineFor(withWay(cmdOf(F.provider), w.device)); render(); } // the way it runs, picked
       return w && wait();
@@ -418,8 +419,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       if ("closeOthers" in d) { for (const o of F.window.others) await post("/api/accounts/login/close", o); F.window = null; return wait(); }
       if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); if (mine !== seq) return; Object.assign(F, { pane: null, window: null }); F.session ||= sessions()[0]; return await openLogin(); }
       if ("callback" in d) { // one at a time, across the polls' redraws: the code is single-use
-        F.sending = true;
-        try { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); } finally { F.sending = false; }
+        const flow = F; flow.sending = true;
+        try { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }, CALLBACK_MS); } finally { flow.sending = false; }
         if (mine !== seq) return; // the sheet moved on meanwhile
         F.callback = ""; render(); return wait(); // sent: off the screen
       }
