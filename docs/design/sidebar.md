@@ -43,15 +43,27 @@ claude.ai. A status word in the foot cost a row to say what a dot says.
 
 ## The filter opens beside the list
 
-The filter is the shipped one (#402): Show (All, Running, Recent, Needs you) and, with two
-or more accounts, Panes from, and Group by (State or Session). It is a bordered square button, unmistakably clickable, that
-counts the filters that are on. Its menu opens to the right of the sidebar, never over the
-list, so the list narrows in view as you pick. Everything that narrows the list reads as one
-"Filtered:" row of chips under the search, the state, the grouping when it is by session,
-the account and the keyword, each with its ×, and the button counts the same choices. The
-grouping stays a per-browser preference rather than joining the URL: it says how you like
-to read the list, not what a link should show. The state lives in the URL (`filter=`, `acct=`, `q=`) as before, so a link or
-Back restores it.
+The filter grew out of the shipped one (#402). Its menu has Show (Running, Recent, Needs you)
+and, with two or more accounts, Panes from, both multi-select: a pane shows if it matches any
+checked state and any checked account, and none checked is All. One-of was wrong for both:
+"running or recently finished" and "these two accounts" are natural questions. The menu stays
+open while you check, since one click is rarely the whole choice. Then Group by (State or
+Session) and Sort by (Last activity, or Session order: tmux's own session, window, pane order,
+which reads best grouped by session).
+
+The button is a bordered square, unmistakably clickable, and it opens the menu to the right
+of the sidebar, never over the list, so the list narrows in view as you pick. Everything that
+narrows the list reads as one "Filtered:" row of chips under the search, one per state, per
+account and for the keyword, each with its ×, and the button counts the same. Grouping and
+sorting are not filters: they change how the list reads, not what is in it, so they neither
+count nor get a chip (a "1" on the button for grouping by session read as a hidden filter).
+They are per-browser preferences rather than URL state, for the same reason, and the sort is
+one setting with the phone's Settings. The filters live in the URL as comma lists
+(`filter=running,recent`, `acct=`, `q=`), so a link or Back restores them and an old
+single-value link still reads.
+
+The phone keeps its tab bar for the state, one at a time (tabs are one-of by nature); its
+account chips toggle like the menu's.
 
 ## Panels dock beside the sidebar
 

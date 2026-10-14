@@ -6,11 +6,11 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, tmuxOrder, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
-import { setupSidebar } from "/m/sidebar.js";
+import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
 import { renderUsage, shownUsage } from "/m/usage.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
@@ -94,7 +94,7 @@ const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", opencode: "/opencode.svg", omp: "/omp.svg", shell: "/bash.png" };
 const NO_TMUX = "tmux is not running on this host (it does not survive a reboot).";
-const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
+const EMPTY_MESSAGE = { all: "No tmux panes are open.", several: "No panes match the filters.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
 const WIDE = matchMedia("(min-width: 1100px)");
 // The wide Layout picker's choice, global across panes and reloads: a split, or the one tab
@@ -122,9 +122,13 @@ const drafts = new Map();
 let dashboard = false, page = null;
 const CARDS = { heat: "heat-card", usage: "usage-panel", loops: "loops-card" };
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
-let panes = [], statePanes = [], paneIds = null, accountsAt = 0, active = null, view = "summary", filter = "all", loaded = false, booted = false, tmuxRunning = true;
+let panes = [], statePanes = [], paneIds = null, accountsAt = 0, active = null, view = "summary", filter = [], loaded = false, booted = false, tmuxRunning = true;
 let focusPushComposer = false;
+// The sort is a per-browser preference, as the sidebar's grouping is: how you like to read the
+// list, not what a link should show. A phone's Settings and the wide filter menu share it.
 let sort = "updated";
+try { if (localStorage.getItem("tmuxrc-sort") === "session") sort = "session"; } catch {}
+const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
@@ -227,10 +231,9 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id),
   // A phone's list shows its search box, and its tab bar the state: those chips are wide only.
   query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click(),
-  // The wide list's state filter and grouping, each a chip that clears it (focus to the filter button).
-  chips: () => !WIDE.matches ? [] : [...filter !== "all" ? [["state", $("side-filter").querySelector(`[value="${filter}"]`).text]] : [],
-    ...renderSidebar.bySession() ? [["by", "By session"]] : []],
-  clearChip: (k) => { if (k === "state") { filter = "all"; stayPut(); } else renderSidebar.byState(); renderSidebar.picker.firstChild.focus(); } });
+  // The wide list's state filters, each a chip that clears it (focus to the filter button).
+  chips: () => !WIDE.matches ? [] : filter.map((f) => [f, SHOW[f]]),
+  clearChip: (k) => { filter = filter.filter((f) => f !== k); stayPut(); renderSidebar.picker.firstChild.focus(); } });
 
 const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
 // Every user-driven move goes through here: the URL is written first, then the view is
@@ -238,7 +241,7 @@ const writeHash = (next, how = "replace", state = history.state) => history[`${h
 // by hand reach route() through hashchange instead. Never call this from a poll.
 function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
   const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, q: $("search").value, sort });
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, q: $("search").value });
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
@@ -248,7 +251,7 @@ function navigate(id = null, nextView = "summary", { mode, acct = accounts.key()
   route();
 }
 
-// Filter and sort change the list, not the screen: with the sidebar beside an open pane
+// Filters change the list, not the screen: with the sidebar beside an open pane
 // (wide layout) the pane, its tab and a dashboard view must survive them; on a phone a
 // filter tap is a request for the list.
 // Opened from its card, a view's entry says so in history.state, which survives a reload and
@@ -275,7 +278,7 @@ function route() {
   const changed = state.pane !== active;
   active = state.pane;
   focusPushComposer = state.compose;
-  ({ dashboard, view, filter, sort, page } = state);
+  ({ dashboard, view, filter, page } = state);
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
@@ -341,13 +344,13 @@ function updateRow(button, pane) {
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
-  setFilter: (value) => { filter = value; stayPut(); }, repaint: () => renderList() });
+  setFilter: (value) => { filter = value; stayPut(); }, sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
   if (query) return "No matching panes.";
   if (!tmuxRunning) return NO_TMUX;
-  return EMPTY_MESSAGE[filter] || EMPTY_MESSAGE.all;
+  return EMPTY_MESSAGE[filter.length > 1 ? "several" : filter[0] || "all"];
 }
 function renderList() {
   show("clear-search", !!$("search").value);
@@ -367,10 +370,10 @@ function renderList() {
   text($("attention-count"), mine.filter(needsYou).length);
   text($("running-count"), mine.filter(isRunning).length);
   text($("recent-count"), mine.filter((pane) => isRecent(pane)).length);
-  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
+  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && (filter.length ? String(filter) : "all") === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
-  renderSidebar.picker.firstChild.dataset.n = (filter !== "all") + accounts.on() + renderSidebar.bySession() + !!query || ""; // the filter button's count
+  renderSidebar.picker.firstChild.dataset.n = filter.length + accounts.on() + !!query || ""; // the filter button's count: each filter on
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
   // Not before boot: an empty `panes` then would open the dialog in New session mode.
@@ -385,7 +388,7 @@ function renderList() {
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
 function renderPhoneList(subset) {
   const rows = sort === "updated" ? subset.sort(newestFirst)
-    : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
+    : [...new Set(subset.sort(tmuxOrder).map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
     if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
     if (!needsYou(p)) return makeRow(p);
@@ -416,7 +419,7 @@ function renderLanding() {
       : `${NO_TMUX} Start a session to bring it back.`);
   renderAtlas($("session-atlas"), panes.filter(accounts.matches), navigate, LOGOS, term => {
     $("search").value = term;
-    filter = "all";
+    filter = [];
     renderList();
     navigate();
     $("sessions").scrollTop = $("sb-scroll").scrollTop = $("side-list").scrollTop = 0;
@@ -1372,7 +1375,7 @@ const openUsage = () => {
 };
 $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
-$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; stayPut(); }; });
+$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter === "all" ? [] : [button.dataset.filter]; stayPut(); }; });
 // System follows the device, as index.html's boot script does with nothing stored.
 function setTheme(theme) {
   try { if (theme === "system") localStorage.removeItem("tmuxrc-theme"); else localStorage.setItem("tmuxrc-theme", theme); } catch {}
@@ -1398,8 +1401,8 @@ function paintSettings() {
   choices("theme", { system: "System", light: "Light", dark: "Dark" }, savedTheme(), setTheme);
   // Wide, every meter shows, so it is on or off; a phone also has Auto (the urgent ones).
   choices("usage-mode", WIDE.matches ? { auto: "On", off: "Off" } : USAGE_MODES, WIDE.matches && usageMode === "on" ? "auto" : usageMode, setUsageMode);
-  choices("sort", { updated: "Last updated", session: "Session" }, sort, (v) => { sort = v; stayPut(); paintSettings(); });
-  show("sort-row", !WIDE.matches); // wide, the list's own State / Session sorts it
+  choices("sort", SORTS, sort, setSort);
+  show("sort-row", !WIDE.matches); // wide, the filter menu's Sort by sets it
 }
 $("settings-open").onclick = () => {
   if ($("settings").open) return $("settings").close();
@@ -1726,7 +1729,7 @@ function placeChrome() {
   }
   // The account filter (accounts.js): wide, a group in the list's filter menu and its
   // pill under search; on a phone, chips under search and the pill under the header.
-  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter, renderSidebar.by); $("find").after(accounts.pill); }
+  if (WIDE.matches) { renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views); $("find").after(accounts.pill); }
   else { $("find").after(accounts.filter); document.querySelector(".app-header").after(accounts.pill); }
   accounts.strip(accounts.filter, !WIDE.matches);
 }

@@ -14,8 +14,9 @@ const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
 export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery, chips, clearChip }) {
   const $ = (id) => document.getElementById(id);
-  // The filter is the URL's `acct` (url-state.js): app.js routes it here through follow().
-  let profiles = [], defaults = {}, shared = {}, filter = null;
+  // The filter is the URL's `acct` (url-state.js), a list of keys (none is every account):
+  // app.js routes it here through follow().
+  let profiles = [], defaults = {}, shared = {}, filter = [];
   const signedIn = () => profiles.filter((p) => p.signed_in);
   const several = (provider) => signedIn().filter((p) => p.provider === provider).length > 1;
   const any = () => Object.keys(ENV).some(several);
@@ -26,7 +27,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   // usual "~/." dropped so it reads (acct=claude-work). Every other dir keeps its leading
   // "~" or "/", so no two dirs share a name.
   const key = (p) => p.tilde.replace(/^~\/\./, "");
-  const active = () => any() && signedIn().find((p) => key(p) === filter) || null;
+  const active = () => any() ? signedIn().filter((p) => filter.includes(key(p))) : [];
   // The login's email, where the name and organisation leave it unsaid.
   const login = (p) => [p.who, p.name].some((s) => s?.includes(p.login)) ? "" : p.login;
   // The line under a name in a pick list: what the name leaves unsaid, then the dir.
@@ -55,13 +56,14 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (dlg.open && F.step === "list" && !F.renaming) render();
     return true;
   }
+  // Toggles one account in or out of the filter; none (All) clears it. The menu stays open.
   function setFilter(k) {
-    const menu = filterGroup.closest("details"), focused = [filterGroup, pill].some((el) => el.contains(document.activeElement));
-    if (menu) menu.open = false;
-    navigate(k || null); // writes the URL, which routes back to follow()
-    // The button pressed was just redrawn or hidden: keep keyboard focus on the menu's trigger,
-    // else the chip, else (clearing the pill on a phone) the dashboard's tab or a pane's Back.
-    if (focused) [menu?.querySelector("summary"), filterGroup.querySelector('[aria-pressed="true"]'), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")]
+    const on = active().map(key), was = document.activeElement, focused = [filterGroup, pill].some((el) => el.contains(was));
+    navigate(!k ? [] : on.includes(k) ? on.filter((x) => x !== k) : [...on, k]); // writes the URL, which routes back to follow()
+    // The button pressed was just redrawn or hidden: keep keyboard focus on it, else the menu's
+    // trigger, else the chip, else (clearing the pill on a phone) the dashboard's tab or a pane's Back.
+    if (focused) [filterGroup.querySelector(`[data-acct="${CSS.escape(was.dataset?.acct ?? "-")}"]`), filterGroup.closest("details")?.querySelector("summary"),
+      filterGroup.querySelector('[aria-pressed="true"]'), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")]
       .find((el) => el?.getClientRects().length)?.focus();
   }
 
@@ -79,15 +81,15 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     const on = active(), opts = [[null], ...signedIn().map((p) => [p, p.name])];
     filterGroup.hidden = !any();
     draw(filterGroup, any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
-      `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
+      `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${p ? on.includes(p) : !on.length}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
     filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
-    const q = query(), more = chips(), clear = (what) => `<button type="button" aria-label="Clear the ${what}" title="Clear">${licon("x", 14)}</button>`;
+    const q = query(), more = chips(), clear = (what, attr = "") => `<button type="button" ${attr} aria-label="Clear the ${esc(what)}" title="Clear">${licon("x", 14)}</button>`;
     const chip = (attr, label, what) => `<span class="acct-badge" ${attr}><span>${esc(label)}</span>${clear(what)}</span>`;
-    pill.hidden = !on && !q && !more.length;
-    draw(pill, pill.hidden ? "" : `Filtered: ${more.map(([k, label]) => chip(`data-chip="${k}"`, label, label)).join("")}${on ? badge(on, clear("account filter")) : ""}${q ? chip("data-q", `"${q}"`, "search") : ""}`);
+    pill.hidden = !on.length && !q && !more.length;
+    draw(pill, pill.hidden ? "" : `Filtered: ${more.map(([k, label]) => chip(`data-chip="${k}"`, label, label)).join("")}${on.map((p) => badge(p, clear(`${p.name} filter`, `data-acct="${esc(key(p))}"`))).join("")}${q ? chip("data-q", `"${q}"`, "search") : ""}`);
   }
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
-  pill.onclick = (e) => { const b = e.target.closest("button"); if (b) b.closest("[data-q]") ? clearQuery() : b.closest("[data-chip]") ? clearChip(b.closest("[data-chip]").dataset.chip) : setFilter(null); };
+  pill.onclick = (e) => { const b = e.target.closest("button"); if (b) b.closest("[data-q]") ? clearQuery() : b.closest("[data-chip]") ? clearChip(b.closest("[data-chip]").dataset.chip) : setFilter(b.dataset.acct); };
 
   // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
   // A meter's account is the profile of its first listed dir; one no longer listed (removed)
@@ -96,8 +98,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (!profiles.length) return list;
     const on = active();
     // A row's dirs can be several profiles of one login: the filtered one, if it is among them.
-    return list.map((a) => { const mine = (a.dirs || []).map(byDir).filter((p) => p?.signed_in); return { ...a, acct: mine.includes(on) ? on : mine[0] }; })
-      .filter((a) => a.acct && (!on || a.acct === on))
+    return list.map((a) => { const mine = (a.dirs || []).map(byDir).filter((p) => p?.signed_in); return { ...a, acct: mine.find((p) => on.includes(p)) || mine[0] }; })
+      .filter((a) => a.acct && (!on.length || on.includes(a.acct)))
       .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null });
   }
   // Already full first, then full soonest, then the highest pace at the reset; unreadable last.
@@ -290,7 +292,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); // a failed close stops the removal
         F.pane = null;
       }
-      if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); if (byDir(F.removing || F.dir) === active()) setFilter(null); await refresh(); return go("list"); }
+      if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); const gone = byDir(F.removing || F.dir); if (active().includes(gone)) setFilter(key(gone)); await refresh(); return go("list"); }
       if ("create" in d) {
         const link = d.create ? [...dlg.querySelectorAll("[data-link]:checked")].map((i) => i.dataset.link) : [];
         const added = await post("/api/accounts", { provider: F.provider, dir: F.dir, label: F.name, link });
@@ -311,17 +313,17 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   });
   $("accounts-open").onclick = () => open("list");
 
-  function matches(pane) { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; }
+  function matches(pane) { const on = active(); return !on.length || on.includes(profiles.find((p) => p.panes.includes(pane.pane_id))); }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => !!active(),
+    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().length,
     // Settings' list: each account, who it is and where, its sheet a click away.
     rows: () => profiles.map((p) => `<div class="set-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></div>`).join(""),
-    // The URL's account (or null) in, and out for the next URL; follow says whether it changed.
-    key: () => filter, follow: (k) => { if (k === filter) return false; filter = k; paintFilter(); return true; },
+    // The URL's accounts in, and out for the next URL; follow says whether they changed.
+    key: () => filter, follow: (k) => { if (String(k) === String(filter)) return false; filter = k; paintFilter(); return true; },
     matches,
     // Open loops under a filter: only what a pane on the account holds (a PR's or worktree's
     // with no pane belongs to no account, so it is hidden with the rest).
-    loops: (report) => !active() || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
+    loops: (report) => !active().length || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
       [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
     // A session's own default, per provider with several: where its dir differs from the

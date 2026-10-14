@@ -1,10 +1,12 @@
 // Navigation state <-> location.hash, with no DOM so `node --test` can drive it.
 //
-// The hash is the whole addressable state: `#pane=%25N&view=terminal&filter=attention&acct=claude-work&q=api&sort=session`
+// The hash is the whole addressable state: `#pane=%25N&view=terminal&filter=running,attention&acct=claude-work&q=api`
 // or, with no pane, `#view=dashboard`, or one of PAGES: a dashboard card's own view (`#view=heat`, `#view=loops`). A hash (not a path) because the daemon serves /m and
 // nothing under it, and because the installed PWA's start_url stays the plain list. Unknown
 // fields (push's `from=push`) are ignored on read and dropped on write; `compose=1` is
-// read-only, set by push links to focus the reply box.
+// read-only, set by push links to focus the reply box. `filter` and `acct` are lists (a pane
+// shows if it matches any state and any account; empty is all), comma-separated, so an old
+// single-value link reads as a list of one. The sort is a per-browser preference, not here.
 //
 // Also reads the old desktop UI's `#/pane/<id>` and `#/list/<filter>` so links saved from it
 // keep working.
@@ -28,28 +30,27 @@ export function parseHash(hash, tab = "summary") {
     view: ["summary", "terminal"].includes(params.get("view")) ? params.get("view") : tab,
     dashboard: !pane && (params.get("view") === "dashboard" || PAGES.includes(params.get("view"))),
     page: !pane && PAGES.includes(params.get("view")) ? params.get("view") : null,
-    filter: FILTERS.includes(params.get("filter")) ? params.get("filter") : "all",
-    acct: params.get("acct") || null, // the account filter: a name accounts.js resolves
+    filter: FILTERS.filter((f) => list(params, "filter").includes(f)),
+    acct: list(params, "acct"), // the account filter: names accounts.js resolves
     q: params.get("q")?.trim() || "", // the list's search box
-    sort: params.get("sort") === "session" ? "session" : "updated",
     compose: params.get("compose") === "1",
   };
 }
 
 // Defaults are omitted so the bare list is the bare URL.
-export function formatHash({ pane = null, view = "summary", dashboard = false, page = null, filter = "all", acct = null, q = "", sort = "updated" }) {
+export function formatHash({ pane = null, view = "summary", dashboard = false, page = null, filter = [], acct = [], q = "" }) {
   const params = new URLSearchParams();
-  if (filter !== "all") params.set("filter", filter);
-  if (acct) params.set("acct", acct);
+  if (filter.length) params.set("filter", filter.join(","));
+  if (acct.length) params.set("acct", acct.join(","));
   if (q.trim()) params.set("q", q.trim());
-  if (sort !== "updated") params.set("sort", sort);
   if (pane) { params.set("pane", pane); if (view === "terminal") params.set("view", "terminal"); }
   else if (dashboard) params.set("view", page || "dashboard");
-  return params.toString();
+  return params.toString().replace(/%2C/g, ","); // a comma needs no escaping in a hash
 }
+const list = (params, name) => [...new Set((params.get(name) || "").split(",").filter(Boolean))];
 
 // Back should undo a move to another screen (list, dashboard, a card's view or a different pane) and
-// nothing smaller: tab, filter (state, account or search) and sort changes replace, or Back would step through every
+// nothing smaller: tab and filter (state, account or search) changes replace, or Back would step through every
 // tap instead of leaving the pane.
 export function historyMode(fromHash, toHash) {
   const from = parseHash(fromHash), to = parseHash(toHash);

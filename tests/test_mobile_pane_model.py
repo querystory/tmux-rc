@@ -127,50 +127,62 @@ CASES = [
     (
         "matchesFilter: attention keeps panes waiting on the user",
         "matchesFilter",
-        [{"activity": "waiting"}, "attention", NOW_MS],
+        [{"activity": "waiting"}, ["attention"], NOW_MS],
         True,
     ),
     (
         "matchesFilter: attention drops panes waiting on external",
         "matchesFilter",
-        [{"activity": "waiting", "waiting_on": "external"}, "attention", NOW_MS],
+        [{"activity": "waiting", "waiting_on": "external"}, ["attention"], NOW_MS],
         False,
     ),
     (
         "matchesFilter: running keeps compacting panes",
         "matchesFilter",
-        [{"activity": "compacting"}, "running", NOW_MS],
+        [{"activity": "compacting"}, ["running"], NOW_MS],
         True,
     ),
     (
         "matchesFilter: running drops idle panes",
         "matchesFilter",
-        [{"activity": "idle"}, "running", NOW_MS],
+        [{"activity": "idle"}, ["running"], NOW_MS],
         False,
     ),
     (
         "matchesFilter: recent keeps a pane idle for five minutes",
         "matchesFilter",
-        [IDLE_5_MIN_AGO, "recent", NOW_MS],
+        [IDLE_5_MIN_AGO, ["recent"], NOW_MS],
         True,
     ),
     (
         "matchesFilter: recent drops a pane idle for eleven minutes",
         "matchesFilter",
-        [IDLE_11_MIN_AGO, "recent", NOW_MS],
+        [IDLE_11_MIN_AGO, ["recent"], NOW_MS],
         False,
     ),
     (
-        "matchesFilter: all keeps a parked pane",
+        "matchesFilter: none (all) keeps a parked pane",
         "matchesFilter",
-        [IDLE_11_MIN_AGO, "all", NOW_MS],
+        [IDLE_11_MIN_AGO, [], NOW_MS],
         True,
     ),
     (
         "matchesFilter: an unknown filter behaves like all",
         "matchesFilter",
-        [IDLE_11_MIN_AGO, "bogus", NOW_MS],
+        [IDLE_11_MIN_AGO, ["bogus"], NOW_MS],
         True,
+    ),
+    (
+        "matchesFilter: several states are a union",
+        "matchesFilter",
+        [IDLE_5_MIN_AGO, ["running", "recent"], NOW_MS],
+        True,
+    ),
+    (
+        "matchesFilter: a pane matching none of several states drops",
+        "matchesFilter",
+        [IDLE_11_MIN_AGO, ["running", "recent"], NOW_MS],
+        False,
     ),
     # lastActivity
     (
@@ -392,14 +404,14 @@ for tool, model, expected in [
         "modelProvider", [{"tool": tool, "model": model}], expected,
     ))
 
-FILTER_NAMES = ["all", "running", "recent", "attention"]
+FILTER_NAMES = ["running", "recent", "attention"]
 INVALID_FILTERS = (
     "__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None,
 )
 for invalid_filter in INVALID_FILTERS:
     CASES.append((
         f"matchesFilter: unknown filter {invalid_filter!r} behaves like all",
-        "matchesFilter", [IDLE_11_MIN_AGO, invalid_filter, NOW_MS], True,
+        "matchesFilter", [IDLE_11_MIN_AGO, [invalid_filter], NOW_MS], True,
     ))
 
 for invalid in (None, "", "idle extra-class", "__proto__", "constructor", 42, {}):

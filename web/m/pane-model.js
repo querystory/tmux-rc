@@ -58,11 +58,15 @@ export function isRecent(pane, nowMs = Date.now()) {
   const idle = Number.isFinite(since) ? Math.max(0, nowMs / 1000 - since) : pane.idle_seconds || 0;
   return pane.activity !== "idle" || idle < PARKED_IDLE_SECS;
 }
-export const FILTERS = { all: () => true, running: isRunning, recent: (pane, nowMs) => isRecent(pane, nowMs), attention: needsYou };
-export function matchesFilter(pane, filter, nowMs = Date.now()) {
-  const predicate = Object.prototype.hasOwnProperty.call(FILTERS, filter) ? FILTERS[filter] : FILTERS.all;
-  return predicate(pane, nowMs);
+export const FILTERS = { running: isRunning, recent: (pane, nowMs) => isRecent(pane, nowMs), attention: needsYou };
+// `filters` is a list of FILTERS' names: a pane shows if it matches any; none (or only
+// unknown names) shows every pane.
+export function matchesFilter(pane, filters, nowMs = Date.now()) {
+  const known = filters.filter((f) => Object.prototype.hasOwnProperty.call(FILTERS, f));
+  return !known.length || known.some((f) => FILTERS[f](pane, nowMs));
 }
+// tmux's own order: session, then window, then pane.
+export const tmuxOrder = (a, b) => (a.session || "").localeCompare(b.session || "") || a.window_index - b.window_index || a.pane_index - b.pane_index;
 // Is the URL still on pane `id`? Nothing may pull the user out of a pane on the strength of
 // the app's own `active` alone: the involuntary exits (a state poll that no longer lists the
 // pane, its live stream or /select taking a 404) fire asynchronously, by which time the user

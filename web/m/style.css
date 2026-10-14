@@ -416,7 +416,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   .app-header, #pane-list { display: none; }
   #update-notice{ grid-column: 2; grid-row: 1; }
   #notice       { grid-column: 2; grid-row: 2; }
-  #sessions     { grid-column: 1; grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); --card: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+  #sessions     { grid-column: 1; grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); --card: var(--surface); display: flex; flex-direction: column; overflow: hidden; position: relative; z-index: 4; } /* its menus and hover card overlay the main column's sticky panels */
   #detail       { grid-column: 2; grid-row: 3; min-height: 0; }
   #landing      { grid-column: 2; grid-row: 3; min-height: 0; overflow-y: auto; }
   /* Wide only: the title shares the tab row instead of costing a band of its own. The
@@ -1030,21 +1030,19 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .acct-pill .acct-badge { flex-shrink: 1; min-width: 0; font-size: 12px; padding: 1px 2px 1px 8px; }
 .acct-pill [data-chip] { --a: var(--accent); }
 .acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
-/* The account filter. Wide: "Panes from" under the list's own "Show" choices, in one
-   dropdown, each group's pick a check (no radios) and the account's dot on the label. */
+/* The filter menu. Wide: Show, Panes from, Group by and Sort by in one dropdown, each pick a
+   check and each account's dot on its label. */
 #side-filter-picker .header-picker-menu { min-width: 180px; max-width: calc(var(--side-w) - 16px); overflow-y: auto; font-weight: 400; }
 #side-filter-picker .acct-opt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen */
-#side-filter-picker .header-picker-menu::before { content: "Show"; }
-#side-filter-picker .header-picker-menu::before, #side-filter-picker .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
-#side-filter-picker :is(label, .acct-opt) { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
-#side-filter-picker label input { position: absolute; opacity: 0; pointer-events: none; }
-#side-filter-picker :is(label, .acct-opt)::after { content: ""; flex: none; width: 5px; height: 10px; margin: -4px 4px 0 auto; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); visibility: hidden; }
-#side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"]) { font-weight: 600; }
-#side-filter-picker :is(label:has(:checked), .acct-opt[aria-pressed="true"])::after { visibility: visible; }
+#side-filter-picker .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
+#side-filter-picker .acct-opt { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
+#side-filter-picker .acct-opt::after { content: ""; flex: none; width: 5px; height: 10px; margin: -4px 4px 0 auto; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); visibility: hidden; }
+#side-filter-picker .acct-opt[aria-pressed="true"] { font-weight: 600; }
+#side-filter-picker .acct-opt[aria-pressed="true"]::after { visibility: visible; }
 #side-filter-picker .acct-opt:hover { background: var(--raised); }
 #side-filter-picker hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 /* With the accounts' dots, the other groups' names line up with theirs. */
-#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden])) :is(label, #group-by button) { padding-left: 26px; }
+#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden])) [data-v] { padding-left: 26px; }
 /* A phone: one row of chips under search, while the pill under the header speaks for the
    views without that list (the dashboard). */
 @media (max-width: 1099px) {
