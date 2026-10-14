@@ -77,8 +77,9 @@ _TURN_ERROR_RE = {
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
-# content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
-_NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
+# content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit,
+# "⎿  1│" opening a tool result).
+_NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─⎿]*[+*-]?\\d+│")
 # A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
 # the frame, a radio and a digit. The model reads the highlight too but can misplace it
 # (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
@@ -910,11 +911,12 @@ def _final_message(visible: str, tool: str) -> str | None:
 # shell prefix) as inline code or on a row of its own, or a phrase it asks for: 'Say "merge
 # 415"', or a quote that does the work ('"merge all" queues 18 PRs'), not any quote. A row
 # that wraps onto the next is no offer: a guessed join could run the wrong command. A space
-# after the ! keeps out code such as `!=` and `!important`.
+# after the ! keeps out code such as `!=` and `!important`, and "do not say" is no offer.
 _QUOTE = r"[\"“]([^\"”\n]{1,60})[\"”]"
 _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
     rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
-    rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!```[ \t]*$)\S)|\bsay[ \t]+{_QUOTE}"
+    rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!```[ \t]*$)\S)"
+    rf"|(?<!\bnot )(?<!n't )(?<!\bnever )\bsay[ \t]+{_QUOTE}"
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
 
@@ -922,15 +924,17 @@ def _offers(message: str, reply: str | None) -> list[str]:
     """The replies the final message offers, as tap-to-send buttons. The transcript's copy
     comes first (inline code keeps its backticks there, and long rows are not wrapped), but
     only what the screen shows too, whole and bounded (a stale `merge 41` is not the `merge
-    415` on screen): a stale transcript offers nothing. A message with the user's own row
-    in it (a new turn that failed before any reply) offers nothing either."""
+    415` on screen), each space a space or the screen's wrap, so `a  b` is not `a b`: a stale
+    transcript offers nothing. A message with the user's own row in it (a new turn that
+    failed before any reply) offers nothing, and file content behind a gutter is no offer."""
     if _USER_ROW_RE.search(message):
         return []
-    shown = " ".join(message.split())
+    message = "\n".join(r for r in message.splitlines() if not _NOT_ASKING_ROW_RE.match(r))
     found = (m[m.lastindex]  # the payload: each alternative's last group
              for t in (reply or "", message) for m in _OFFER_RE.finditer(t))
     return list(dict.fromkeys(o for o in found if re.search(
-        rf"(?<![^\s\"“`]){re.escape(' '.join(o.split()))}(?![^\s\"”`.,;:?!)])", shown)))[:3]
+        r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
+        + r"(?![^\s\"”`.,;:?!)])", message)))[:3]
 
 
 def _final_ask(visible: str, tool: str, message: str) -> dict | None:
