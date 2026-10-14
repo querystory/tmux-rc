@@ -630,7 +630,8 @@ _FABLE = {"pane_id": "%7", "title": "fable session monitor", "window_index": "5"
     ("now tell fable session monitor to stop", "%3", False),  # named by title
     ("and window 5?", "%3", False),  # or number
     ("address review on PR 412", "%3", False),  # or a PR it worked on
-    ("and the tmuxrc opus 5.5 main session?", "%3", True)])  # naming another pane
+    ("and the tmuxrc opus 5.5 main session?", "%3", True),  # naming another pane
+    ("ask window 2 about PR 412", "%3", True)])  # a named pane wins over a PR number
 def test_a_send_off_the_current_pane_needs_the_user_to_name_it(request_, turn_pane, refused):
     s = Ns(unanchored=False, request=("", request_), turn_pane=turn_pane)
     args = {"pane_id": "%7", "text": "From the user: status?"}
@@ -643,7 +644,8 @@ def test_an_open_button_moves_no_focus(monkeypatch):
     assert "[Current pane" not in _users(s)[-1]
 
 
-@pytest.mark.parametrize("row", ["shell (%2): make test", "shell: make test"])
+@pytest.mark.parametrize("row", ["shell (%2): make test", "shell: make test",
+                                 "other:1 (%2) (not submitted): ls"])
 def test_a_restored_send_names_its_pane_by_id_or_name(row):
     assert L._restored_pane(_Watcher().digest(), "typed", row)["pane_id"] == "%2"
 

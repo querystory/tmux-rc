@@ -316,10 +316,9 @@ def _restored_pane(digest: list[dict], role: str, text: str) -> dict | None:
     its row leads with ("label (%N): text", or "name: text" where clients drop the id)."""
     if role != "typed":
         return _named(digest, text)
-    head = text.split(":", 1)[0]
-    sent = re.search(r"\((%\d+)\)", head)
+    sent = re.match(r".*? \((%\d+)\)(?: \(not submitted\))?: ", text)  # a label may hold ":"
     return next((d for d in digest if d["pane_id"] == sent[1]), None) if sent else _named(
-        digest, head)
+        digest, text.split(": ", 1)[0])
 
 
 def _focus(session, d: dict | None) -> None:
@@ -521,12 +520,14 @@ _ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply accept approve confirm allo
 
 
 def _meant(digest: list[dict], request: str, asked: set[str]) -> set[str]:
-    """The panes the user's words single out, against every pane, so a name or PR two panes
-    share singles out neither: the one a reply names last (_named), and the one pane that
-    worked on a PR the words number."""
+    """The pane the user's words single out, against every pane, so a name or PR two panes
+    share singles out neither: the one they name (_named), which wins outright, else the one
+    pane that worked on a PR they number."""
+    if named := _named(digest, request):
+        return {named["pane_id"]}
     by_pr = [d["pane_id"] for d in digest
              if any(str(p.get("number")) in asked for p in d.get("prs") or [])]
-    return {(_named(digest, request) or {}).get("pane_id"), *by_pr[:len(by_pr) == 1]} - {None}
+    return set(by_pr[:len(by_pr) == 1])
 
 
 def _refusal(session, name: str, args: dict, digest: list[dict]) -> str | None:
