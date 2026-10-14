@@ -139,3 +139,22 @@ def test_hung_calls_are_capped_not_accumulated(monkeypatch):
         assert threading.active_count() - started == 2
     finally:
         release.set()
+        for t in threading.enumerate():
+            if t.name == "vertex":
+                t.join(5)
+
+
+def test_lifting_the_brake_waits_for_one_being_armed(monkeypatch):
+    """The success path's check-and-reset holds the same lock _arm_backoff does, so a
+    failure arming between the check and the reset cannot be erased."""
+    _clear()
+    monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(models=types.SimpleNamespace(
+        generate_content=lambda **_k: types.SimpleNamespace(text="{}", usage_metadata=None))))
+    monkeypatch.setattr(L, "_record", lambda resp: None)
+    monkeypatch.setattr(L, "_emit", lambda *a, **k: None)
+    done = threading.Event()
+    with L._backoff_lock:
+        threading.Thread(target=lambda: (L.classify_text("s", "t"), done.set())).start()
+        assert not done.wait(0.3), "the reset ran without the lock"
+    assert done.wait(5)
+    _clear()

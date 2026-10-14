@@ -123,7 +123,8 @@ _slots = threading.BoundedSemaphore(_MAX_CALLS)
 
 def _generate(**kwargs):
     """generate_content under the overall deadline (see _DEADLINE_S)."""
-    if not _slots.acquire(blocking=False):
+    slots = _slots  # the one this call took, released by this call's thread
+    if not slots.acquire(blocking=False):
         raise TimeoutError(f"{_MAX_CALLS} Vertex calls are still hung")
     future = Future()
 
@@ -133,7 +134,7 @@ def _generate(**kwargs):
         except BaseException as e:  # noqa: BLE001 - handed to the caller, raised there
             future.set_exception(e)
         finally:
-            _slots.release()
+            slots.release()
 
     threading.Thread(target=call, daemon=True, name="vertex").start()
     return future.result(timeout=_DEADLINE_S)
@@ -190,6 +191,7 @@ def _client():
 # and false of a model that returned junk for one particular screen. A per-pane content
 # failure must not pause the other 26; see the JSONDecodeError branch below.
 _backoff = {"delay": 0.0, "until": 0.0, "armed": 0.0}
+_backoff_lock = threading.Lock()  # parallel panes: arming and lifting never interleave
 
 
 def _arm_backoff() -> float:
@@ -197,8 +199,9 @@ def _arm_backoff() -> float:
     new delay. Doubles 15s → 120s so a long outage settles to one attempt every two
     minutes; any success resets it (see classify_text). Only for failures that would hit
     every pane alike — not a per-pane content failure like malformed JSON."""
-    delay = min(_backoff["delay"] * 2, 120.0) or 15.0
-    _backoff.update(delay=delay, until=time.time() + delay, armed=time.time())
+    with _backoff_lock:
+        delay = min(_backoff["delay"] * 2, 120.0) or 15.0
+        _backoff.update(delay=delay, until=time.time() + delay, armed=time.time())
     return delay
 
 
@@ -328,8 +331,9 @@ def classify_text(
         last_error["msg"] = None  # success clears any prior error
         # Healthy again; forget the failure streak. Unless it began after this call did:
         # with panes read in parallel, a call already in flight must not lift that brake.
-        if _backoff.get("armed", 0.0) <= t0:
-            _backoff.update(delay=0.0, until=0.0)
+        with _backoff_lock:
+            if _backoff.get("armed", 0.0) <= t0:
+                _backoff.update(delay=0.0, until=0.0)
         return result
     except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
         _trace.info("ERROR on IN: %r", text[-500:])
