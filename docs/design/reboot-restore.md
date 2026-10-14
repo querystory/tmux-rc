@@ -118,8 +118,8 @@ if any, and its window links: which window ids it shows, at which index, and whi
 current in it); each window (tmux window id, name, whether that name was set by hand or
 by tmux's automatic renaming, tmux layout string, zoomed); and each
 pane (index, active, directory, title, classified tool, the basename of the program in
-its foreground (never its arguments), and for agents the **binding**: harness and
-session id). Each pane also carries a **copy** of its last
+its foreground (never its arguments), and for agents the **binding**: harness, session
+id, and the session's last-message time when the server was last seen). Each pane also carries a **copy** of its last
 activity time, coarse to the minute, its classified state as the watcher reports it
 (`activity` and, for a wait, `waiting_on`), and the cost and context its card last
 showed. The card's defaults, its binding check and the launch order read these, and a
@@ -165,7 +165,8 @@ kilobytes; the cost is one small update a minute.
 
 **Retention.** When a server dies its row stays as the restore candidate, stamped with
 when it was last seen. Every unconsumed one is a restore candidate (below); every row,
-consumed or not, is dropped after 30 days, enough to get back from a long weekend. Unlike inventory intervals
+consumed or not, is dropped after 30 days (except one an unfinished restore run still
+reads, which waits for the run), enough to get back from a long weekend. Unlike inventory intervals
 they are not kept forever, because nobody restores a month-old layout. A new server
 appearing never removes one; that is the checkpoint table's failure (above). A **consumed**
 mark (restored or dismissed) keeps the offer from reappearing until then.
@@ -178,6 +179,9 @@ it reads Claude Code's process registry, which records each live session's pid a
 pane, and for Codex and omp the transcript files their processes hold open. Live Mode's
 `resume_session` uses it, and also checks that the agent's pid descends from the pane's
 process, since a pane id from another server would otherwise match by accident.
+Today `get` and the running check look a session up by bare id, harness by harness; two
+harnesses can share an id, so the new listing, `get` and the running check all take and
+validate the pair (harness, session id).
 
 The snapshot needs the inverse, every live session with its pane, in one call: a listing
 in agent-history in the shape `get` already returns. The daemon calls it once a minute,
@@ -260,7 +264,9 @@ agent was working, waiting on the user, or active in the last 24 hours; unchecke
 idle longer, or a shell with nothing running. Staleness is measured **from when the
 server died, not from now**: a machine powered off all weekend should still treat Friday
 afternoon's work as recent. For an agent pane, "active" means the transcript's last
-user or assistant message, a new agent-history field (`last_message`). The existing
+user or assistant message, a new agent-history field (`last_message`), as the snapshot
+saved it: read after the loss, a conversation the user resumed and finished by hand would
+look freshly active. The existing
 `last_active` is not it and stays as it is: it moves with every transcript record, tool
 output and bookkeeping included, the same false recency again. Nor is it the checkpoint's activity clock: the clock moves with
 anything on screen, and in the field it showed four-day-idle agents as active yesterday.
@@ -269,7 +275,8 @@ The clock remains the measure for shells and for agents with no binding.
 Panes that cannot be restored are shown disabled, with the reason: the directory is gone;
 the transcript is gone (checked on disk by `get` and the listing, at card and again at
 launch time, since the index's `source_missing` is only as fresh as its last
-reconciliation; a check that cannot run counts as gone); or the session is already
+reconciliation; a check that cannot run leaves the pane disabled as "history unavailable,
+retry", not as gone); or the session is already
 running, say because the user resumed it by hand, using the same running check as Live Mode's
 resume; or whether it is running cannot be established (agent-history's
 `running_unknown`). Live Mode's resume refuses that last case rather than risk two processes
