@@ -510,9 +510,9 @@ pane idle for two days over the window titled "qslinux codex installation", and 
 named it only by its tmux address, so nothing on it said which window that was. The card
 now names the pane as the list row does (title, tool and session chip, "qs-app · codex in
 qs-app"), and Open lets the user look before answering. It used to lead with the window
-number and append the tmux address, but the phone never shows either, so both read as
-jargon on the one surface where the user must recognise the target; the address now goes
-only to the audit record. The window number comes back only to tell two otherwise
+number and append the tmux address, but the phone shows the number only in a row's small
+print and the address nowhere, so leading with them read as jargon on the one surface
+where the user must recognise the target; the address now goes only to the audit record. The window number comes back only to tell two otherwise
 identical panes apart, since nothing else on their rows differs. Opening does not answer
 the card: it stays pending on the chat bubble until Send or Cancel, since looking is the
 point and a card that resolved on navigation would force a choice before the look.
