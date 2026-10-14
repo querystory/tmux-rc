@@ -603,7 +603,7 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 // Which meters a phone shows is a per-viewer choice (the Usage item in the "…" menu, Auto
 // by default); the wide sidebar has no such menu and keeps them all.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = false, usageSeq = 0;
+let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = false, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
   $("usage-mode").ariaLabel = `Usage: ${USAGE_MODES[usageMode]}`;
@@ -649,9 +649,10 @@ function cardView(title, node) {
 async function refreshCached(force) {
   if (!force && Date.now() - cachedAt < 60000) return;
   cachedAt = Date.now(); usagePast = page === "usage";
-  const seq = ++usageSeq; // a forced fetch can overlap the minute's: only the latest answer lands
+  const seq = ++cachedSeq;
   const [u, l] = await Promise.allSettled([request(usagePast ? "/api/usage?past=1" : "/api/usage"), request("/api/open-loops")]);
-  if (u.status === "fulfilled" && seq === usageSeq) usage = u.value.accounts || [];
+  if (seq !== cachedSeq) return; // a forced fetch overlapped this one: only the latest answers land
+  if (u.status === "fulfilled") usage = u.value.accounts || [];
   if (l.status === "fulfilled") loops = l.value;
   accounts.refresh();
   paintUsage(); render();
