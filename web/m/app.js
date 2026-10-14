@@ -3,7 +3,7 @@ import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCa
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
-import { answerBody, pickCursorRow, STALE } from "/cursor-pick.js";
+import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
@@ -12,6 +12,7 @@ import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.j
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
 import { renderUsage, shownUsage } from "/m/usage.js";
+import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
 
@@ -97,6 +98,15 @@ const NO_TMUX = "tmux is not running on this host (it does not survive a reboot)
 // What an empty list says was filtered: "No Personal panes are working."
 const STATE_VERB = { attention: "need you", working: "are working", finished: "just finished", idle: "are idle" };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
+// The Layout menu's wireframes, in a 38×24 box: a terminal panel is dark, with a prompt and
+// output lines; an overview panel is tinted, with a title bar and lines of text.
+const strokes = (x, y, room, widths) => widths.filter((_, i) => 3 * i + 2 < room).map((w, i) => `M${x} ${y + 3 * i}h${w}`).join("");
+const box = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.5"/>`;
+const term = (x, y, w, h) => `<g class="term">${box(x, y, w, h)}<path class="prompt" d="M${x + 2.5} ${y + 2.5}l2 1.5-2 1.5M${x + 5.5} ${y + 5.5}h2.5"/><path d="${strokes(x + 2.5, y + 9, h - 9, [Math.min(w - 5, 12), Math.min(w - 5, 7)])}"/></g>`;
+const over = (x, y, w, h) => `<g class="over">${box(x, y, w, h)}${box(x, y, w, 3)}<path d="${strokes(x + 2.5, y + 6, h - 6, [w - 5, w - 9, w - 7])}"/></g>`;
+const svgThumb = (body) => `<svg viewBox="0 0 38 24">${body}</svg>`;
+const LAYOUT_THUMBS = { auto: "✦", side: svgThumb(term(0, 0, 23, 24) + over(25, 0, 13, 24)),
+  stack: svgThumb(over(0, 0, 38, 9) + term(0, 11, 38, 13)), summary: svgThumb(over(0, 0, 38, 24)), terminal: svgThumb(term(0, 0, 38, 24)) };
 const WIDE = matchMedia("(min-width: 1100px)");
 // The wide Layout picker's choice, global across panes and reloads: a split, or the one tab
 // the focus layout shows. "focus" is what the Overview choice was saved as before the tab was.
@@ -404,7 +414,8 @@ function renderList() {
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), accounts.on().join(", "), $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
   const n = filter.length + accounts.on().length + !!query;
-  Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters" }).dataset.n = n || "";
+  // Named for screen readers too: in the rail the chips that say it are hidden.
+  Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters", ariaLabel: on.length ? `Filter panes: ${on.join(" · ")}` : "Filter panes" }).dataset.n = n || "";
   renderSidebar.clearAll.disabled = !n;
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
@@ -658,7 +669,7 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 // The wide sidebar keeps them all unless the same setting is Off, the one choice Settings
 // offers there: someone paying per token has no plan limits to watch.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = false, cachedSeq = 0;
+let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = () => {
   // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
@@ -667,32 +678,30 @@ const paintUsage = () => {
   accounts.strip($("usage"), several);
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
-  // adds the clock times and the forecast. The dashboard's tool chips filter both, and a
+  // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
-  // A labelled group per account, or else one grid of meters (`flat`).
-  const paint = (el, list, grouped, cls, options, flat = () => renderUsage(el, list, options)) => {
-    const mode = grouped ? "groups" : "board";
-    if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = cls; }
-    if (grouped) accounts.groups(el, list, (cells, one) => renderUsage(cells, one, options));
-    else flat();
-  };
   show("usage-panel", board.length > 0);
-  const el = $("usage-board");
-  paint(el, board, several && WIDE.matches, "usage-board", { wide: true }, () => renderUsage(el, order(board), { wide: true }));
+  const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board";
+  if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
+  if (grouped) accounts.groups(el, board, (cells, one) => renderUsage(cells, one, { wide: true }));
+  else renderUsage(el, order(board), { wide: true });
   accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
   if (page !== "usage") return;
-  if (!usagePast) refreshCached(true); // past windows: only this view asks for them
-  // A tool filter with no meters (reached by Forward, say) shows them all rather than a blank view.
-  // Wide, each account's meters share a row under its name, once the accounts have come.
-  const list = board.length ? board : all;
-  paint(cardView("Plan usage", usageView).firstChild, list, WIDE.matches && list.every((a) => a.acct), "usage-board usage-full",
-    { wide: true, detail: true, icon: licon });
+  if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
+  // Every account's meters, whatever the list's account filter: the view picks its own
+  // (usage-view.js). Named and chipped as the list names them; a tool filter with no meters
+  // (reached by Forward, say) shows them all rather than a blank view.
+  const scoped = usage.filter((a) => a.provider === tool), list = (scoped.length ? scoped : usage).map((a) => {
+    const p = (a.dirs || []).map(accounts.profile).find((p) => p?.signed_in);
+    return { ...a, acct: p, chip: p ? accounts.chip(p) : "" };
+  }).filter((a) => a.acct || !accounts.list().length); // a removed account drops out, as in accounts.usage()
+  renderUsageView(cardView("Plan usage", usageView), list, { refetch: () => refreshCached(true), icon: licon("filter", 16) });
 };
 const usageView = document.createElement("section");
 usageView.className = "atlas-panel usage-view";
-usageView.innerHTML = '<div class="usage-board usage-full" role="group" aria-label="Plan usage"></div>';
+usageView.ariaLabel = "Plan usage over time";
 detailCard($("usage-panel"), "Plan usage", "", () => openPage("usage"));
 const loopsView = document.createElement("section");
 loopsView.id = "landing-loops";
@@ -712,11 +721,11 @@ function cardView(title, node) {
 // Plan usage and open loops are both cached by the server; a minute is fresh enough.
 async function refreshCached(force) {
   if (!force && Date.now() - cachedAt < 60000) return;
-  cachedAt = Date.now(); usagePast = page === "usage";
+  cachedAt = Date.now(); usagePast = page === "usage" && usageDays();
   const seq = ++cachedSeq;
   // The accounts with the meters, not after: drawn before them, several accounts' meters
   // stand as one tall grid for a moment before folding into their strip.
-  const [u, l] = await Promise.allSettled([request(usagePast ? "/api/usage?past=1" : "/api/usage"), request("/api/open-loops"), accounts.refresh()]);
+  const [u, l] = await Promise.allSettled([request(usagePast ? `/api/usage?past=${usagePast}` : "/api/usage"), request("/api/open-loops"), accounts.refresh()]);
   if (seq !== cachedSeq) return; // a forced fetch overlapped this one: only the latest answers land
   if (u.status === "fulfilled") usage = u.value.accounts || [];
   if (l.status === "fulfilled") loops = l.value;
@@ -781,10 +790,15 @@ function render() {
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
-  const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
-  if (wide) layouts.unshift(["auto", "Auto"], ["side", "Side by side"], ["stack", "Overview above"]);
+  // Each choice carries a line on what it shows and, wide, a wireframe of it (LAYOUT_THUMBS).
+  const layouts = [["summary", "Overview", "The overview alone"], ["terminal", "Terminal", "The terminal alone"]];
+  if (wide) layouts.unshift(["auto", "Auto", "Side by side or stacked, to fit"], ["side", "Side by side", "Terminal, overview to its right"], ["stack", "Overview above", "Overview over the terminal"]);
   const picker = $("review-layout");
-  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
+  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label, hint]) => {
+    const option = Object.assign(new Option(label, value), { title: hint });
+    option.dataset.thumb = LAYOUT_THUMBS[value];
+    return option;
+  }));
   picker.value = wide && !focusChoice() ? reviewLayout : view;
   refreshViewPicker();
   $("mobile-view-toggle").querySelectorAll("button").forEach(button => {
@@ -1162,8 +1176,10 @@ async function sendKeys(body, id = active) {
   sending = true; notice(); render();
   try {
     const sent = await paneInput.run(id, () => post(paneUrl(id, "send"), body));
-    delivered = sent && "picker" in sent ? sent : true; // a walk's step: the screen it made
-    if (active === id) text($("draft-status"), "Sent");
+    // A menu answer the widget ignored went out, but the card goes live again (answer()).
+    if (sent?.took === false) notice(UNTAKEN);
+    else delivered = sent && "picker" in sent ? sent : true; // a walk's step: the screen it made
+    if (delivered && active === id) text($("draft-status"), "Sent");
     startState();
   } catch (error) {
     // 409 on a cursor walk's step: nothing was sent, and the walk rereads and goes again.
@@ -1829,6 +1845,8 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // gone, the outcome asked for.
 dismissable($("pane-menu"));
 const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
+// The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
+$("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
 $("kill-pane").onclick = async () => {
   closePaneMenu();
@@ -1945,7 +1963,7 @@ setupPush($("push"), notice, licon("bell"));
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, account: accounts.consent });
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, account: accounts.consent, panes: () => panes, logos: LOGOS });
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {

@@ -11,13 +11,14 @@ export function headerPicker(select) {
   menu.className = 'header-picker-menu';
   menu.setAttribute('role', 'radiogroup');
   menu.setAttribute('aria-label', select.getAttribute('aria-label'));
+  if (select.hasAttribute('aria-description')) menu.setAttribute('aria-description', select.getAttribute('aria-description'));
   details.append(summary, menu);
   select.after(details);
   select.hidden = true;
   let signature;
   function refresh() {
     const options = Array.from(select.options);
-    const next = JSON.stringify(options.map(o => [o.value, o.textContent]));
+    const next = JSON.stringify(options.map(o => [o.value, o.textContent, o.title, o.dataset.thumb]));
     if (signature !== next) {
       signature = next;
       details.open = false;
@@ -25,12 +26,19 @@ export function headerPicker(select) {
         const label = document.createElement('label');
         const input = document.createElement('input');
         input.type = 'radio'; input.name = `${select.id}-choice`; input.value = option.value;
-        label.append(input, document.createTextNode(option.textContent));
+        // An option's title, when it has one, is its one-line description under the name.
+        const name = document.createElement('span');
+        name.textContent = option.textContent;
+        if (option.title) name.append(Object.assign(document.createElement('small'), { textContent: option.title }));
+        label.append(input, name);
+        // And its data-thumb, markup drawn at the end of the row (a picture of the choice).
+        if (option.dataset.thumb) label.append(Object.assign(document.createElement('span'), { className: 'thumb', ariaHidden: 'true', innerHTML: option.dataset.thumb }));
         return label;
       }));
     }
     caption.textContent = options.find(o => o.value === select.value)?.textContent || '';
-    summary.setAttribute('aria-label', `${select.getAttribute('aria-label')}: ${caption.textContent}`);
+    summary.title = `${select.getAttribute('aria-label')}: ${caption.textContent}`;
+    summary.setAttribute('aria-label', summary.title);
     menu.querySelectorAll('input').forEach(input => { input.checked = input.value === select.value; });
   }
   menu.addEventListener('change', event => {

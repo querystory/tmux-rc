@@ -111,8 +111,8 @@ cell, with a hint naming the tool they apply to; the session's default is a sent
 checkbox ("Use Work for every new window in qs") and a muted line on what happens otherwise,
 not a "Default for … Not set" select; and each tool is a 52px row with a muted line, the
 account it starts on where it has several, then its model or what it is. Rows the account
-does not apply to carry no chip. It fits unscrolled at 900px tall; at 700 the body scrolls
-under the fixed title.
+does not apply to carry no chip. It fits unscrolled at 900px tall; shorter, the body scrolls under
+the fixed title.
 
 ## The collapsed rail keeps working
 

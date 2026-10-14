@@ -25,12 +25,13 @@ const SHOTS = [
   ["website-atlas", WIDE, "light", "#view=dashboard", (page) => page.locator(".atlas-map").scrollIntoViewIfNeeded()],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
+  ["wide-layout-menu", WIDE, "light", "#pane=%259", (page) => page.click("#review-layout-picker summary")],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
   ["wide-heatmap", WIDE, "light", "#view=dashboard", heatCard],
   ["wide-heatmap-view", WIDE, "dark", "#view=heat", heatCell],
   ["wide-usage-detail", WIDE, "dark", "#view=usage"],
-  ["wide-usage-past", WIDE, "light", "#view=usage", stepBack],
+  ["wide-usage-7d", WIDE, "light", "#view=usage", pickRange("7d")],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
@@ -45,7 +46,7 @@ const SHOTS = [
   ["mobile-settings", PHONE, "light", "", (page) => page.click("#settings-open")],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
-  ["mobile-usage-past", PHONE, "light", "#view=usage", stepBack],
+  ["mobile-usage-weekly", PHONE, "light", "#view=usage", pickRange("Weekly")],
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
@@ -235,9 +236,9 @@ async function confirmExpunge(page) {
   await page.waitForSelector("#expunge-dialog[open]");
 }
 
-// The usage view's history: the 5h meter two windows back (it hit the limit), the 7d one.
-async function stepBack(page) {
-  for (const n of [0, 0, 1]) await page.locator('.usage-nav [data-step="1"]').nth(n).click();
+// The usage view at another range, or (on a phone) another window's chart.
+function pickRange(label) {
+  return (page) => page.locator(".usage-view .fleet-seg button", { hasText: label }).first().click();
 }
 
 async function voice(page) {

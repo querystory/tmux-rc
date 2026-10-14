@@ -1,5 +1,6 @@
 :root {
   --mono: ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace;
+  --term-bg: #101312; --term-dim: #a1ada6; --term-accent: #83ddb3; /* the terminal is dark in both themes */
   color-scheme: dark;
   --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
   --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c; --lift: #2b322f;
@@ -209,9 +210,9 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .copy-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .copy-heading strong { font-weight: 500; overflow-wrap: anywhere; }
 .copyable pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--raised); border-radius: 4px; margin: 0; font-size: 12px; max-height: 200px; overflow: auto; }
-#terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; background: #101312; color: #edf2ef; --raised: #252b28; --accent: #83ddb3; }
+#terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--term-bg); color: #edf2ef; --raised: #252b28; --accent: var(--term-accent); }
 .terminal-toolbar { display: flex; align-items: center; padding: 0 12px; gap: 2px; border-bottom: 1px solid #343d38; }
-#terminal-status { flex: 1; font-size: 12px; color: #a1ada6; }
+#terminal-status { flex: 1; font-size: 12px; color: var(--term-dim); }
 /* The overscroll cue stands in for the status while you pull past the top (overscroll.js). */
 #scroll-cue { flex: 1; min-width: 0; font-size: 12px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .terminal-toolbar:has(#scroll-cue:not([hidden])) #terminal-status { display: none; }
@@ -322,7 +323,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #push.active { background: var(--accent); }
 #push.active::after { left: 19px; }
 /* New window, compact: the session on one line, the accounts as a grid of small chips with
-   Add account as the next cell, the tools as 44px rows. */
+   Add account as the next cell, the tools as 52px rows with a line each. */
 .launch-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .launch-row label { margin: 0; flex: none; }
 #launch-dialog label { margin: 12px 0 6px; }
@@ -368,6 +369,12 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .voice-entry.propose { align-self: stretch; max-width: none; background: transparent; border: 1px solid var(--accent); border-radius: 8px; font-size: 14px; }
 .voice-entry.propose strong { color: var(--accent); }
 .voice-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+/* What a card or a typed line does to a pane: the pane as its row shows it, keys as keycaps,
+   typed text quoted in italics under the line. */
+.voice-pane img { width: 1em; height: 1em; margin-right: 4px; vertical-align: -0.12em; object-fit: contain; }
+.voice-pane > span, .voice-act blockquote > span { color: var(--muted); font-style: normal; }
+.voice-act kbd { font: inherit; font-style: normal; white-space: nowrap; font-size: 0.85em; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); }
+.voice-act blockquote { margin: 6px 0 0 2px; padding: 1px 0 1px 10px; border-left: 3px solid var(--accent); font-style: italic; }
 .voice-actions, .voice-open { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .voice-actions button, .voice-entry button.open { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
 .voice-entry button.open { display: inline-flex; align-items: center; gap: 4px; padding-right: 12px; border-color: var(--accent); color: var(--accent); text-align: left; }
@@ -536,10 +543,12 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 /* A row or card is its pane's button, then its sub-agent lines (and a card's answers). */
 .sb-row, .sb-card { margin: 0 6px; border-radius: 7px; }
 .sb-open { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 10px; border-radius: inherit; text-align: left; white-space: nowrap; }
-.sb-open .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-open .t { flex: 1; min-width: 0; display: flex; align-items: baseline; white-space: pre; }
+/* A long line gives way title first, then session (up to half the line); the account chip never. */
+.sb-open .t > :not(.sb-acct) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sb-open b { font-weight: 500; }
 .sb-card b { font-weight: 600; }
-.sb-open .s { color: var(--muted); font-size: 11.5px; }
+.sb-open .s { flex-shrink: 0; max-width: 50%; color: var(--muted); font-size: 11.5px; }
 .sb-open .a { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sb-n:not([hidden]) { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: -3px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sb-n svg { color: var(--accent); }
@@ -749,20 +758,18 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
 #layout-control { display: flex; align-items: center; flex: none; color: var(--muted); font-size: 13px; }
-#layout-control > span { display: none; }
 #review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 14px; min-height: 44px; max-width: 150px; }
 #session-chips { display: flex; gap: 6px; padding: 7px 12px; flex-wrap: wrap; background: var(--bg); color: var(--muted); border-top: 1px solid var(--line); }
 #session-chips:empty { display: none; }
 #session-chips span { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: var(--surface); color: inherit; border: 1px solid var(--line); overflow-wrap: anywhere; }
 @media (min-width: 1100px) {
-  #layout-control > span { display: inline; }
   #detail { min-width: 0; grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
   /* The sidebar head's height (--bar), so the two columns' top bars line up. No vertical
      padding: the two text lines set tight and the controls drop to 32px (still a full
      pointer target; the phone keeps 44px), so the row hugs its content. */
   #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; min-height: var(--bar); padding: 0 18px; border-bottom: 1px solid var(--line); }
   .pane-heading-text { line-height: 1.3; }
-  :is(#heading, .terminal-toolbar) :is(.icon-button, #review-layout) { min-height: 32px; height: 32px; }
+  :is(#heading, .terminal-toolbar) :is(.icon-button, #review-layout-picker summary) { min-height: 32px; height: 32px; }
   :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode, #key-mode) { width: 32px; }
   #heading > #close-pane { margin: 0 -6px; } /* outranks the base -12px, which is sized for the 44px box */
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
@@ -820,6 +827,27 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
   #mobile-view-toggle { display: none; }
   #review-layout-picker { display: block; }
 }
+/* The wide Layout picker. The trigger is a fixed layout glyph and the value; the menu is
+   titled, and each choice has a line and a wireframe (app.js's LAYOUT_THUMBS) in the panels'
+   own colours, the terminal dark and the overview tinted; Auto's is a sparkle, as it picks. */
+#review-layout-picker summary { font-weight: 600; }
+#review-layout-picker summary > svg { flex: none; }
+#review-layout-picker .header-picker-menu { width: 300px; font-weight: 400; }
+#review-layout-picker .header-picker-menu::before { content: attr(aria-label) "\A" attr(aria-description); display: block; white-space: pre; padding: 6px 10px 4px; font-size: 12px; color: var(--muted); }
+#review-layout-picker .header-picker-menu::first-line { font-size: 14px; font-weight: 600; color: var(--fg); }
+#review-layout-picker label { gap: 10px; }
+#review-layout-picker label > span:not(.thumb) { display: flex; flex-direction: column; line-height: 1.3; }
+.header-picker-menu small { font-size: 12px; color: var(--muted); }
+.thumb { flex: none; display: grid; place-items: center; width: 44px; height: 30px; margin-left: auto; padding: 2px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; color: var(--accent); font-size: 16px; }
+label:has(:checked) > .thumb { border-color: var(--accent); }
+label:has([value="auto"]) > .thumb { border-style: dashed; }
+.thumb svg { width: 100%; height: 100%; fill: none; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; }
+.thumb .term rect { fill: var(--term-bg); }
+.thumb .term path { stroke: var(--term-dim); }
+.thumb .term .prompt { stroke: var(--term-accent); }
+.thumb .over rect { fill: var(--accent-bg); }
+.thumb .over rect + rect { fill: color-mix(in srgb, var(--accent) 55%, transparent); }
+.thumb .over path { stroke: var(--muted); }
 
 /* Mobile reuses the desktop dashboard without squeezing it into the pane list. */
 @media (max-width: 1099px) {
@@ -856,18 +884,10 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
 #usage[hidden], #app.rail :is(#usage, #usage-handle) { display: none; }
 #usage { cursor: pointer; }
-/* The dashboard's card: the same cells, as many to a row as fit, the trend tall enough to read;
-   its view (.usage-full), wider cells (one to a row on a phone, two on desktop) with the times spelled out. */
+/* The dashboard's card: the same cells, as many to a row as fit, the trend tall enough to read. */
 .usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
 .usage-board .usage-spark { height: 56px; margin-top: 6px; }
-.usage-full { grid-template-columns: repeat(auto-fit, minmax(max(280px, 40%), 1fr)); }
-.usage-full .usage-spark { height: 96px; touch-action: pan-y; } /* a sideways swipe steps through past windows */
-/* The arrows back through past windows share the head row with "used", at its end; full-size
-   touch targets that overhang the row rather than heighten it. */
-.usage-cell em, .usage-nav { grid-area: 1 / 3; } /* placed, not flowed, so the two can share the cell */
-.usage-nav { justify-self: end; display: flex; margin: -13px -10px -13px 0; }
-.usage-nav button { width: 40px; display: inline-flex; align-items: center; justify-content: center; }
-.usage-nav button:first-child svg { transform: scaleX(-1); }
+.usage-cell em { grid-area: 1 / 3; }
 .usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
@@ -1043,7 +1063,8 @@ button.picked:disabled { opacity: 1; }
 [data-s="idle"], [data-s^="session:"] { --a: var(--fg); }
 .acct-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: the chip stays in its box */
 .row-acct:empty, .sb-acct:empty { display: none; }
-.sb-acct .acct-badge { margin-left: 4px; font-size: 10.5px; vertical-align: 1px; }
+.sb-open .sb-acct { flex: none; max-width: 50%; padding-left: 4px; } /* a long label takes the badge's own ellipsis */
+.sb-acct .acct-badge { font-size: 10.5px; }
 #pane-location .acct-badge { vertical-align: 1px; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
 /* The active filters: each chip is the rows' account chip (.acct-badge) as is, with a small ×. */
@@ -1057,16 +1078,17 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker .menu-clear { color: var(--muted); }
 #side-filter-picker .menu-clear:disabled { opacity: .45; cursor: default; background: none; }
 .acct-pill button { display: inline-flex; min-height: 0; align-items: center; padding: 0; border-radius: 50%; color: inherit; }
-/* The filter menu. Wide: Show, Panes from, Group by and Sort by in one dropdown, each pick a
-   check and each account's dot on its label. */
+/* A menu's options (.acct-opt in any .header-picker-menu): a check for each pick. The filter
+   menu (wide): State, Account, Group by and Sort by in one dropdown, each account's dot on
+   its label. */
 #side-filter-picker .header-picker-menu { min-width: 180px; max-width: calc(var(--side-w) - 16px); overflow-y: auto; font-weight: 400; }
-#side-filter-picker .acct-opt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen */
-#side-filter-picker .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
-#side-filter-picker .acct-opt { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
-#side-filter-picker .acct-opt::after { content: ""; flex: none; width: 5px; height: 10px; margin: -4px 4px 0 auto; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); visibility: hidden; }
-#side-filter-picker .acct-opt[aria-pressed="true"] { font-weight: 600; }
-#side-filter-picker .acct-opt[aria-pressed="true"]::after { visibility: visible; }
-#side-filter-picker .acct-opt:hover { background: var(--raised); }
+.header-picker-menu .acct-opt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen */
+.header-picker-menu .menu-sec { display: block; padding: 6px 10px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
+.header-picker-menu .acct-opt { position: relative; width: 100%; min-height: 36px; padding: 6px 10px; white-space: nowrap; }
+.header-picker-menu .acct-opt::after { content: ""; flex: none; width: 5px; height: 10px; margin: -4px 4px 0 auto; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); visibility: hidden; }
+.header-picker-menu .acct-opt[aria-pressed="true"] { font-weight: 600; }
+.header-picker-menu .acct-opt[aria-pressed="true"]::after { visibility: visible; }
+.header-picker-menu .acct-opt:hover { background: var(--raised); }
 #side-filter-picker hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 /* The groups without dots line up with the dotted ones' names. */
 #side-filter-picker :is([data-v]:not(:has(.acct-dot)), .menu-clear) { padding-left: 26px; }
@@ -1116,20 +1138,56 @@ button.picked:disabled { opacity: 1; }
 .ug-cells { display: flex; gap: 12px; }
 .ug-cells .usage-cell { flex: 1 1 0; min-width: 130px; }
 .ug-cells .usage-spark { height: 56px; margin-top: 6px; }
-/* The usage view, wide: one grid of equal columns for every chart, so they line up from row
-   to row. Each group spans its meter count, its own columns shared with the grid (subgrid),
-   and its chip on a row of its own; dense packing lets a one-meter group fill a gap beside
-   another. Where a group has more meters than the grid has columns, it spans what there is
-   and wraps within it, still on the same columns. */
-.usage-view { container-type: inline-size; }
-.usage-view .usage-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-flow: row dense; gap: 40px 24px; }
-.usage-view .ug { grid-column: span var(--n); display: grid; grid-template-columns: subgrid; align-content: start; gap: 12px 24px; }
-.usage-view .ug::before { display: none; }
-.usage-view .ug-label { grid-column: 1 / -1; }
-.usage-view .ug-cells { display: contents; }
-.usage-view .ug-cells .usage-spark { height: 96px; }
-@container (max-width: 827px) { .usage-view .ug { grid-column: span min(var(--n), 2); } } /* 3 x 260px + 2 gaps */
-@container (max-width: 543px) { .usage-view .ug { grid-column: span 1; } }
+/* The usage view (usage-view.js): a chart per window type filling the page, the range
+   control at its top right; a phone shows one chart at a time, its tabs under the range. */
+#dash-page:has(> .usage-view) { container: dash-page / inline-size; display: flex; flex-direction: column; height: 100%; }
+.usage-view { flex: 1; min-height: 560px; display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
+.uv-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 16px; }
+.uv-bar .fleet-seg button { font-size: 13px; min-width: 40px; }
+.uv-span { color: var(--muted); font-size: 13px; }
+.uv-span b { color: var(--fg); font-weight: 600; }
+.uv-errs { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-right: auto; } /* unreadable accounts, at the bar's left */
+.uv-errs:empty { display: none; }
+.uv-stack { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.uv-card { min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px 4px; }
+.uv-card[hidden], .uv-tabs[hidden] { display: none; }
+.uv-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; padding: 0 4px; }
+.landing-inner .uv-head h3 { margin: 0; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.uv-head h3 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 4px; }
+.uv-read { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; font-size: 13px; color: var(--muted); }
+.uv-pick, .uv-pick:not(:disabled):hover { display: inline-flex; align-self: center; min-height: 0; padding: 6px 0; margin: -6px 0; background: none; border-radius: 999px; } /* the chip's size, a taller target */
+.uv-pick[aria-pressed="true"] .acct-badge { background: color-mix(in srgb, var(--a) 26%, transparent); border-color: var(--a); } /* the chart's bands follow it */
+.uv-read b { font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; }
+.uv-read b.warn { color: var(--amber); }
+.uv-read :is(b.full, .out) { color: var(--red); }
+.uv-chart { flex: 1; min-height: 140px; }
+.uv-card.empty { padding-bottom: 10px; }
+.uv-card.empty .uv-chart { display: none; }
+.uv-none { color: var(--muted); font-size: 13px; }
+.uv-filter summary { min-height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; }
+.uv-filter summary::after { display: none; }
+.uv-filter summary.on { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
+.uv-filter .header-picker-menu { min-width: 180px; }
+@container dash-page (max-width: 699px) {
+  #landing .usage-view { min-height: 460px; gap: 10px; padding: 12px 6px 4px; }
+  .uv-card { border: 0; padding: 0; }
+  .uv-bar { justify-content: space-between; }
+  .uv-tabs { order: 1; }
+  .uv-span { order: 2; flex-basis: 100%; }
+  .uv-head h3 { display: none; } /* the tab names the chart */
+  /* The legend as a table: a row per account (chip, %, one status), each row one height. */
+  .uv-head { display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: center; gap: 2px 10px; padding: 0 2px; }
+  .uv-read { display: contents; font-size: 13px; cursor: pointer; }
+  .uv-read > * { min-height: 26px; display: flex; align-items: center; }
+  .uv-read b { font-size: 15px; justify-content: flex-end; }
+  .uv-read > span { white-space: nowrap; overflow: hidden; }
+  .uv-pick { min-width: 0; }
+  .uv-pick .acct-badge { min-width: 0; }
+  .uv-at, .uv-read:has(.out) .uv-reset { display: none; }
+  .uv-none { grid-column: 1 / -1; }
+  .uv-bar { gap: 8px; }
+  .uv-bar .fleet-seg button { min-width: 0; padding: 2px 8px; }
+}
 /* New window's picker and the Accounts dialog. */
 .acct-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 6px; }
 .acct-pick button { display: flex; align-items: center; gap: 7px; min-height: 36px; padding: 4px 10px; text-align: left; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 13.5px; }

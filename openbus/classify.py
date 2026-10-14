@@ -97,6 +97,19 @@ _HIGHLIGHT_RE = re.compile(
 _LIVE_COUNT = r"\(\d+ of \d+\)"
 _LIVE_COUNT_RE = re.compile(rf"\s*{_LIVE_COUNT}\s*$")
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
+# Codex's compact key-hint footer, led by its commit key: "enter continue · esc back".
+_ENTER_FOOTER_RE = re.compile(r"\s*enter \w+ · ")
+
+
+def arrow_driven(question: dict, text: str) -> bool:
+    """Whether numbered `question` is a picker to walk, not answer with a digit: the
+    screen ends in Codex's compact key-hint footer, where a digit need not commit (its
+    trust dialog takes "1" as a move to row 1), and shows the highlighted row a walk
+    needs. Its approval box ("Press enter to confirm …") takes digits."""
+    visible, rows = _visible(text), question.get("options")
+    return (any(map(_ENTER_FOOTER_RE.match, visible.rstrip().splitlines()[-3:]))
+            and isinstance(rows, list)
+            and highlighted_row(visible, _question_prompt(question) or "", rows) is not None)
 
 
 def _widget_end(visible: str, start: int) -> int:
@@ -1250,8 +1263,14 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
+    # A numbered picker driven by arrows is walked, not answered with a digit, where the
+    # screen shows its highlighted row, which a walk needs.
+    if (isinstance(question, dict) and question.get("answer_style") == "menu"
+            and arrow_driven(question, text)):
+        question.update(answer_style="cursor", keymap={
+            "next": "Down", "prev": "Up", "select": "Enter", "search": False})
+    # A cursor picker's advertised search binding is evidence, not a model guess.
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
         keymap = question.get("keymap")
         footer = visible.splitlines()[-3:]

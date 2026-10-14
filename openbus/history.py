@@ -195,13 +195,19 @@ def _index_plan_usage(db) -> None:
 
 
 def _index_plan_usage_resets(db) -> None:
-    # A meter's past windows are found newest reset first, by the hour (History.reset_back).
+    # Once used to step a meter back through its past windows; dropped below since the
+    # usage view reads a time range instead.
     db.execute("CREATE INDEX plan_usage_by_reset ON plan_usage(provider, account, window, "
                "CAST(resets_at / 3600 AS INT))")
 
 
+def _drop_plan_usage_resets(db) -> None:
+    db.execute("DROP INDEX plan_usage_by_reset")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
-              _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets)
+              _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets,
+              _drop_plan_usage_resets)
 
 
 class History:
@@ -359,17 +365,6 @@ class History:
             return db.execute("SELECT t, pct, resets_at FROM plan_usage WHERE provider=? "
                               "AND account=? AND window=? AND t BETWEEN ? AND ? ORDER BY t",
                               (provider, account, window, since, until)).fetchall()
-
-    def reset_back(self, provider: str, account: str, window: str, until: float,
-                   n: int) -> float | None:
-        """The hour of the earliest of this meter's last n resets by `until`, counted by the
-        hour: an index walk from the newest, however long the history."""
-        with self.connect() as db:
-            h = db.execute("SELECT min(h) FROM (SELECT CAST(resets_at / 3600 AS INT) AS h "
-                           "FROM plan_usage WHERE provider=? AND account=? AND window=? "
-                           "AND CAST(resets_at / 3600 AS INT) <= ? GROUP BY h ORDER BY h DESC "
-                           "LIMIT ?)", (provider, account, window, until // 3600, n)).fetchone()[0]
-        return h and h * 3600
 
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""

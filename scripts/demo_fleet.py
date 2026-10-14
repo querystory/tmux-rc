@@ -92,9 +92,13 @@ PLANS = [
 PERSONAL = ("claude", "~/.claude-personal", ["research", "docs"],
             [("5h", 5 * 3600, 1 - 185 / 300, 34), ("7d", 7 * 86400, 1 - 74 / 168, 22),
              ("7d Fable", 7 * 86400, 1 - 74 / 168, 9)])
-# Where each past window ended, the latest first; past 100 is a window that hit its limit
-# before the reset (the curve stops at 100%).
-PAST_PEAKS = (74, 118, 61, 92, 38, 104)
+# Where past windows ended, cycled per meter; past 100 is a window that hit its limit before
+# the reset (the curve stops at 100%). USAGE_DAYS of them, so the usage view's 30d range is
+# full: weekly windows back to back, 5h ones through the working day (a 5h window opens at
+# the first prompt after a reset), one a weekend day, and lighter.
+PAST_PEAKS = (74, 118, 61, 92, 38, 104, 55, 83, 27, 66, 47)
+USAGE_DAYS = 45
+FIVE_HOUR_STARTS = (7.5, 13, 18.5)  # o'clock, UTC
 PROFILES = {"~/.claude": ("Work", "Example Org", "Team", 0),
             "~/.claude-personal": ("Personal", "Sam Rivera", "Max", 1),
             "~/.codex": ("Codex", "", "", 2)}
@@ -384,23 +388,46 @@ def seed_history(history: History) -> History:
     return history
 
 
+def past_windows(seconds: int, start: float) -> list[tuple[float, float, float]]:
+    """(start, end, peak scale) of the windows ended before one that opened at `start`."""
+    if seconds > 86400:
+        return [(start - k * seconds, start - (k - 1) * seconds, 1)
+                for k in range(1, USAGE_DAYS * 86400 // seconds + 2)]
+    out, today = [], start - start % 86400
+    for day in range(int(today), int(today) - USAGE_DAYS * 86400, -86400):
+        weekend = datetime.fromtimestamp(day, UTC).weekday() >= 5
+        out += [(day + h * 3600, day + h * 3600 + seconds, 0.4 if weekend else 1)
+                for h in (FIVE_HOUR_STARTS[1:2] if weekend else FIVE_HOUR_STARTS)]
+    return [w for w in out if w[1] <= start]
+
+
 def seed_usage(usage, two: bool = False):
-    """Five-minute samples of each PLANS window, rising a little faster late in it, ending
-    at its share at NOW, after one ended window per PAST_PEAKS, back to back; and the
-    accounts the panes draw on, as discovery would find them. Claude's last read failed,
-    so its samples stop STALE seconds short of NOW."""
+    """Samples of each PLANS window, ending at its share at NOW, after USAGE_DAYS of ended
+    windows (past_windows): five-minute ones for the last eight days, hourly before, as
+    plan_usage keeps them. A weekly window climbs a step a day, and one of Work's quotas
+    resets early, falling to zero before its scheduled reset. And the accounts the panes
+    draw on, as discovery would find them. Claude's last read failed, so its samples stop
+    STALE seconds short of NOW."""
     rows, panes = [], fleet()
-    for tool, name, sessions, windows in plans(two):
+    for i, (tool, name, sessions, windows) in enumerate(plans(two)):
         last = NOW - STALE.get(tool, 0)
         for j, (window, seconds, share, pct) in enumerate(windows):
-            # The current window, then the ended ones, each meter's peaks in its own order.
-            for k, peak in enumerate((pct, *PAST_PEAKS[j:], *PAST_PEAKS[:j])):
-                start = NOW - (share + k) * seconds
-                end = NOW if k == 0 else start + seconds - 1  # its last read, before the reset
-                rows += [(tool, name, window, seconds, t,
-                          min(100, round(peak * ((t - start) / (end - start)) ** 1.2)),
-                          start + seconds)
-                         for t in range(int(last if k == 0 else end), int(start), -300)]
+            start = NOW - share * seconds
+            rows += [(tool, name, window, seconds, t,
+                      min(100, round(pct * ((t - start) / (NOW - start)) ** 1.2)), start + seconds)
+                     for t in range(int(last), int(start), -300)]
+            days = seconds / 86400
+            for k, (s, e, scale) in enumerate(past_windows(seconds, start)):
+                peak = PAST_PEAKS[(k + 2 * j + 5 * i) % len(PAST_PEAKS)] * scale
+                t = e - 1
+                while t > s:
+                    x = (t - s) / seconds
+                    x -= math.sin(2 * math.pi * days * x) / (2 * math.pi * days) if days > 1 else 0
+                    if (i, j, k) == (len(plans(two)) - 2, 1, 1) and x > 0.6:  # Work: early reset
+                        x = (x - 0.6) / 2
+                    rows.append((tool, name, window, seconds, t,
+                                 min(100, round(peak * x ** 1.2)), e))
+                    t -= 300 if t > NOW - 8 * 86400 else 3600
         # "short": what a base tree from before accounts.py labels a meter by.
         usage.accounts[(tool, name)] = {"homes": [name], "short": PROFILES[name][0], "panes": [
             p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions],
