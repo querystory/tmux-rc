@@ -293,16 +293,18 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
 
 def _named(digest: list[dict], text: str) -> dict | None:
     """The pane a reply names last, by its title or "window N" (where a prompt still has it
-    say numbers), or None. The longer name wins a tie, so "main" can't steal "tmuxrc main"."""
-    said, best, pane = f" {' '.join(_words(text))} ", (-1, 0), None
+    say numbers), or None. The longer name wins a tie, so "main" can't steal "tmuxrc main";
+    two panes still tied (a repeated title or number) are ambiguous, so None."""
+    said, spots = f" {' '.join(_words(text))} ", {}
     for d in digest:
         win = d.get("window_index")
         for name in (d.get("title") or d.get("label"), win not in (None, "") and f"window {win}"):
             words = " ".join(_words(str(name))) if name else ""
             at = said.rfind(f" {words} ") if words else -1
-            if at >= 0 and (at + len(words), len(words)) > best:
-                best, pane = (at + len(words), len(words)), d
-    return pane
+            if at >= 0:
+                spots.setdefault((at + len(words), len(words)), set()).add(d["pane_id"])
+    best = spots[max(spots)] if spots else ()
+    return next((d for d in digest if d["pane_id"] in best), None) if len(best) == 1 else None
 
 
 _FOCUS = ("[Current pane: {} (id={}). If the message below says 'the agent' or 'it', it means "
@@ -483,8 +485,8 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
 # the assistant was once about to decline one too. A prompt rule did not hold, so in a text
 # session a key press, or a row number or yes/no typed into a pane with a pending
 # question, needs the user's message, or the question of the assistant's they answer, to ask
-# for it: the key's job by name, or an answer by verb or number; never a bare yes or no,
-# which answers the assistant. Erring towards refusing costs one more line of chat.
+# for it: the key's job by name, or an answer by verb; never a bare yes or no (which answers
+# the assistant) or number (as likely a window's). Refusing costs one more line of chat.
 _PRESS, _PICK = "press hit key keys", "select choose pick option"
 _KEY_ASKS = {k: frozenset(f"{_PRESS} {v}".split()) for k, v in {
     "Escape": "esc escape cancel decline reject dismiss deny",
@@ -513,7 +515,7 @@ def _refusal(session, name: str, args: dict, pane: dict | None) -> str | None:
     if name == "press_key":
         ok = bool(_KEY_ASKS.get(args.get("key"), frozenset()) & asked)
     elif name == "type_in_pane" and pane and pane.get("question") and row:
-        ok = bool(_ANSWERS & asked) or (text.isdigit() and text in asked)
+        ok = bool(_ANSWERS & asked)  # a bare number could be a pane's ("ask window 3")
     else:
         return None
     return None if ok else "unasked_answer"

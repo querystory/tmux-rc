@@ -531,6 +531,7 @@ _MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
     ("decline it", "press_key", {"key": "Escape"}, _ASKING, False),
     ("decline it", "press_key", {"key": "Enter"}, _ASKING, True),  # the wrong key's job
     ("pick 3", "type_in_pane", {"text": "3"}, _ASKING, False),
+    ("ask window 3 for its status", "type_in_pane", {"text": "3"}, _ASKING, True),
     ("approve the command", "type_in_pane", {"text": "1"}, _ASKING, False),
     # A menu takes no message at all: its Enter would pick the highlighted row ("1. Yes").
     ("ask it for status", "type_in_pane", {"text": "From the user: status?"}, _MENU, "menu"),
@@ -587,3 +588,10 @@ def test_a_reconnect_restores_the_pane_the_replies_were_about(monkeypatch):
 def test_only_a_widget_question_is_a_menu(question, menu):
     from openbus.watcher import Watcher
     assert Watcher._question_menu({"question": question}) == menu
+
+
+def test_a_name_two_panes_share_moves_nothing():
+    twins = [{"pane_id": "%1", "title": "tests", "window_index": "1"},
+             {"pane_id": "%2", "title": "tests", "window_index": "1"}]
+    assert L._named(twins, "tests is waiting") is None
+    assert L._named(twins, "window 1 is waiting") is None

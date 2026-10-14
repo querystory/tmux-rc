@@ -551,7 +551,8 @@ The history held everything needed both times; what the model lacked was the str
 each turn now carries it rather than the prompt growing examples:
 
 - A turn starts with the pane the conversation is on: the last one a reply named (by its
-  title; window numbers mean nothing in the UI) or an action reached, and says that "the
+  title, or "window N" where a prompt still has the model say numbers; a name two panes
+  share names neither) or an action reached, and says that "the
   agent" or "it" in the message means that pane. A declined action reached nothing and moves
   nothing. Names in the user's own message were not used: "the agent" names nothing, and a
   pane the user does name already wins outright. A bare marker was not enough: the eval
@@ -566,7 +567,8 @@ each turn now carries it rather than the prompt growing examples:
   press, or a row number or yes/no typed into a pane with a pending question, is refused
   before any card unless the user's message, or the assistant's question it answers, asks
   for it: the key's job by name ("decline it" for Escape, "approve" for Enter) or an answer
-  by verb or number. A bare yes or no never counts, since it answers the assistant. This is
+  by verb ("pick 3"). A bare yes or no never counts, since it answers the assistant, nor
+  does a bare number, which is as likely a window's. This is
   a vocabulary, and it will refuse some phrasings it should allow; a refusal costs one more
   line of chat, while a wrong decline loses the agent's work. Gating every send into a pane
   with a pending question was rejected: "tell it to use main" answering "which branch?" is
