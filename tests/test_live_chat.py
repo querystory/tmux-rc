@@ -484,11 +484,11 @@ def test_the_pane_a_chat_is_on_leads_its_next_turn(monkeypatch):
                ("Ok.", [])])
     _talk(s, monkeypatch, ("what is work doing", None), ("ask the agent for its status", False),
           ("send it to the shell then", True), ("thanks", None))
+    work, shell = (f"[Current pane: {L._pane_name(d)} (id={d['pane_id']})]"
+                   for d in _Watcher().digest())
     first, *rest = _users(s)
     assert "[Current pane" not in first
-    assert [u.split("\n\n")[0] for u in rest if u != C._OUTCOME] == [
-        '[Current pane: window 3 "work" (id=%1)]', '[Current pane: window 3 "work" (id=%1)]',
-        '[Current pane: window 4 "shell" (id=%2)]']
+    assert [u.split("\n\n")[0] for u in rest if u != C._OUTCOME] == [work, work, shell]
 
 
 def test_a_reply_to_the_assistants_question_is_marked_as_one(monkeypatch):
