@@ -150,7 +150,12 @@ From ☰ → Accounts… → Add account, or "+ Add account" in New window's pic
    `/login` there. Both flows finish in a browser on another machine, since tmux-rc users are
    remote: Codex's device-code flow shows a link and a one-time code (plain `codex login`
    waits on a localhost callback a remote browser cannot reach), and Claude's `/login` shows
-   a link whose page hands back a code to paste into the window. tmux-rc never shows a password field, never handles a token and never drives the
+   a link whose page hands back a code to paste into the window.
+   The command after the variable is editable (to add a flag the provider grows), but the
+   server pins the variable to the account's dir, runs the command as argv with no shell,
+   and accepts it only if it starts with the provider's own binary. Codex is signed in
+   when `codex login status` says so, not when `auth.json` exists: its login can live in
+   the OS keyring instead. tmux-rc never shows a password field, never handles a token and never drives the
    login; it only polls the dir's non-secret account info until it appears. That keeps the
    credential boundary exactly where the provider put it.
 4. **Done:** the identity read from that info, and a pre-ticked "make it the default for

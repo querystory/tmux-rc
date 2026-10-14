@@ -5,6 +5,11 @@
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login --device-auth" };
+// The sign-in command as last edited, per provider and per browser (the server still pins
+// the dir and the binary). Kept here too, so typing works where storage is blocked.
+const cmds = {}, cmdKey = (p) => `tmuxrc-signin-${p}`;
+const cmdOf = (p) => cmds[p] ??= (() => { try { return localStorage.getItem(cmdKey(p)); } catch { return null; } })() || LOGIN[p];
+const setCmd = (p, v) => { cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
 const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
@@ -220,7 +225,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       + (F.existed ? `<p class="acct-msg warn"><code>${esc(F.dir)}</code> already existed; tmux-rc kept its files.</p>` : "")
       + (F.pane ? `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open in <b>${esc(F.session)}</b>. ${F.provider === "claude" ? "Finish <code>/login</code> there." : "Open the link and enter the code shown in the sign-in window."} tmux-rc only watches for the account to appear; it never sees the login itself.</p><p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
           + btns('<button class="ghost" data-abandon>Cancel sign-in</button>', "<button data-go>Go to window</button>")
-        : `<p class="acct-note">tmux-rc opens a new window that runs the provider's own sign-in on this dir:</p><code class="acct-cmd">${ENV[F.provider]}=${esc(F.dir)} ${LOGIN[F.provider]}</code>`
+        : `<p class="acct-note">tmux-rc opens a new window that runs the provider's own sign-in on this dir:</p><label class="acct-cmd"><code class="muted">${ENV[F.provider]}=${esc(F.dir)}</code><input id="acct-cmd" value="${esc(cmdOf(F.provider))}" aria-label="Sign-in command" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`
+          + (cmdOf(F.provider) === LOGIN[F.provider] ? "" : `<button type="button" class="ghost" data-reset-cmd>Reset to <code>${LOGIN[F.provider]}</code></button>`)
           + `<label for="acct-session">Open it in session</label><select id="acct-session">${sessions().map((x) => `<option ${x === F.session ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`
           + `<p class="acct-note">You sign in there yourself, so your password and tokens never pass through tmux-rc.</p>`
           + btns('<button class="ghost" data-goto="list">Later</button>', `<button class="primary" data-login ${sessions().length ? "" : "disabled"}>Open sign-in window</button>`));
@@ -252,6 +258,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (e.isComposing) return;
     if (e.target.id === "acct-name") { F.name = e.target.value; if (!F.dirTouched) F.dir = `~/.${F.provider}-${slug(F.name)}`; typed("acct-name"); }
     if (e.target.id === "acct-dir") { F.dir = e.target.value.trim(); F.dirTouched = true; typed("acct-dir"); }
+    if (e.target.id === "acct-cmd") { setCmd(F.provider, e.target.value); typed("acct-cmd"); }
   };
   dlg.addEventListener("input", onType);
   dlg.addEventListener("compositionend", onType);
@@ -276,7 +283,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (!t) return;
     if ("x" in d) return dlg.close();
     if (d.goto) return go(d.goto);
-    if (d.prov) { F.provider = d.prov; if (!F.dirTouched) F.dir = `~/.${F.provider}-${slug(F.name)}`; return render(); }
+    // The dir follows the provider: ~/.claude-x becomes ~/.codex-x, typed or suggested.
+    if (d.prov) { F.dir = F.dir.replace(new RegExp(`^~/\\.${F.provider}(?=-|$)`), `~/.${d.prov}`); F.provider = d.prov; return render(); }
+    if ("resetCmd" in d) { setCmd(F.provider, LOGIN[F.provider]); return render(); }
     if ("add" in d) return open("name");
     if (d.rename) return go("list", { renaming: d.rename });
     if (d.remove) return go("list", { removing: d.remove });
@@ -298,7 +307,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         const dir = added.dir || F.dir; // a dir already signed in needs no sign-in window
         return go(byDir(dir)?.signed_in ? "done" : "login", { dir, existed: added.existed, pane: null });
       }
-      if ("login" in d) { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session })); F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
+      if ("login" in d) { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: cmdOf(F.provider) })); F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
       if ("retry" in d) return go("login", { pane: null });
       if ("later" in d) return go("list");
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }

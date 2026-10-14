@@ -77,7 +77,8 @@ def identity(provider: str, config: Path) -> dict | None:
     """Who is signed in to this dir, from non-secret files only; None when nobody is.
     Codex keeps no such file, so only its login's presence is checked, never read."""
     if provider == "codex":
-        return {"who": "", "plan": ""} if (config / "auth.json").exists() else None
+        signed_in = (config / "auth.json").exists() or _codex_login(config)
+        return {"who": "", "plan": ""} if signed_in else None
     account = plan_usage.oauth_account(config, plan_usage.env_for("claude", config))
     if not account.get("accountUuid"):
         return None
@@ -93,6 +94,19 @@ def identity(provider: str, config: Path) -> dict | None:
             # without the organisation's id, no key, since a name may be shared.
             "_key": account.get("organizationUuid") and [account["accountUuid"],
                                                           account["organizationUuid"]]}
+
+
+def _codex_login(config: Path) -> bool:
+    """Whether Codex itself says this dir is signed in. Its login may live in the OS keyring
+    (cli_auth_credentials_store), where no file shows it; `codex login status` sees both."""
+    env = {k: v for k, v in os.environ.items() if k != ENV["codex"]}
+    env |= plan_usage.env_for("codex", config)
+    env["PATH"] = tmux.server_path() or env.get("PATH", "")
+    try:
+        return subprocess.run(["codex", "login", "status"], env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=5, check=False).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def profiles(pane_dirs=()) -> list[dict]:
