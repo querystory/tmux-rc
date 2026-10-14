@@ -324,13 +324,15 @@ class History:
             db.executemany("INSERT OR IGNORE INTO plan_usage VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
             # Raw samples for the current windows (the longest, 7d, plus a day); past that, the
             # last sample of each hour, per window it belongs to, so a window's final reading
-            # survives the hour it reset in. Once an hour: the scan grows with the history.
+            # survives the hour it reset in, and the first at the limit, so does when it hit
+            # it. Once an hour: the scan grows with the history.
             cutoff = max(r[4] for r in rows) - USAGE_KEEP
             if cutoff // 3600 != self._thinned:
                 db.execute("DELETE FROM plan_usage WHERE t < ?1 AND rowid NOT IN (SELECT rowid "
-                           "FROM (SELECT rowid, max(t) FROM plan_usage WHERE t < ?1 GROUP BY "
-                           "provider, account, window, CAST(t / 3600 AS INT), "
-                           "CAST(resets_at / 3600 AS INT)))", (cutoff,))
+                           "FROM (SELECT rowid, max(CASE WHEN pct >= 100 THEN -t ELSE t END) "
+                           "FROM plan_usage WHERE t < ?1 GROUP BY provider, account, window, "
+                           "CAST(t / 3600 AS INT), CAST(resets_at / 3600 AS INT), pct >= 100))",
+                           (cutoff,))
                 self._thinned = cutoff // 3600
 
     def latest_usage(self, provider: str, account: str) -> list[tuple]:

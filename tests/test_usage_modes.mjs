@@ -40,3 +40,14 @@ test("a reading kept through a failed read says how old it is", () => {
   renderUsage(el, [{ provider: "claude", windows: [win] }], { now });
   assert.doesNotMatch(el.innerHTML, /as of/);
 });
+
+test("the usage view keeps the past window being read across a refresh that adds another", () => {
+  const now = Date.now(), H = 3600e3, el = { addEventListener() {} };
+  const ended = (resets_at, pct) => ({ window: "5h", pct, start: resets_at - 5 * H, resets_at, samples: [], limit_at: null });
+  const meter = (past) => [{ provider: "claude", dirs: ["~/.claude"], windows: [{ window: "5h", pct: 3, past, start: now - H, resets_at: now + 4 * H, samples: [] }] }];
+  const draw = (past) => { renderUsage(el, meter(past), { wide: true, detail: true, now, icon: () => "" }); return el.innerHTML; };
+  draw([ended(now - 11 * H, 74), ended(now - H, 50)]);
+  el._back[Object.keys(el._list)[0]] = now - 11 * H; // stepped back two windows
+  assert.match(draw([ended(now - 11 * H, 74), ended(now - H, 50)]), /ended at 74%/);
+  assert.match(draw([ended(now - 11 * H, 74), ended(now - 6 * H, 50), ended(now - H, 20)]), /ended at 74%/);
+});

@@ -55,7 +55,9 @@ cost in new chart code.
 
 Only the view asks for them (`/api/usage?past=1`): the strip polls the same endpoint every
 minute, and a dozen weeks of trends on every poll would multiply a phone's traffic for a
-view it rarely opens. Windows are told apart by their reset time rather than stored as
+view it rarely opens. The read is bounded too, to four times what twelve back-to-back
+windows span: a 5h window opens only on use, so twelve of them can reach well past 60 hours,
+but a view should not slow down as the history grows. Windows are told apart by their reset time rather than stored as
 records, so nothing new is written; a reset that moves by an hour or less between reads is
 the same window, since no two windows reset closer than five hours apart.
 
@@ -142,7 +144,8 @@ a current window's trend and projection see every poll. Past that they are thinn
 last sample of each hour, per window, rather than deleted: an hour is fine enough to see
 how a past window climbed and when it hit the limit, and keeps a year to under ten
 thousand rows per meter. The hour is split by window as well, so the final reading of a
-window that reset mid-hour survives. Thinning scans every old row, so it runs once an hour,
+window that reset mid-hour survives, and its first sample at the limit is kept rather than
+its last, so "hit the limit" keeps the time it was hit. Thinning scans every old row, so it runs once an hour,
 not on every poll. The long history is also the base for correlating burn with running
 agents (#377). The UI fetches `/api/usage` once a minute; it is a separate endpoint,
 not part of the `/api/state` long-poll, because that one returns on every pane change.

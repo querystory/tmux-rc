@@ -263,14 +263,18 @@ def test_samples_past_eight_days_are_thinned_to_one_an_hour_not_deleted(tmp_path
     tmp_path.chmod(0o700)
     history = History(tmp_path / "h.sqlite3")
     old, reset = NOW - 10 * 86400, NOW - 10 * 86400 + 5400  # a window resets mid-hour
-    thinned = [("claude", "a", "5h", 18000, t, t - old, reset if t < reset else reset + 18000)
+    # 5-minute samples over two hours: one window climbs to its limit at old + 4800 and
+    # resets at old + 5400, mid-hour; the next one idles at 1%.
+    thinned = [("claude", "a", "5h", 18000, t, min(100, (t - old) / 48), reset) if t < reset
+               else ("claude", "a", "5h", 18000, t, 1, reset + 18000)
                for t in range(int(old), int(old) + 7200, 300)]
     raw = [("claude", "a", "5h", 18000, NOW - m, 1, NOW + 60) for m in (120, 60, 0)]
     history.record_usage(thinned + raw)
     assert history.usage_between("claude", "a", "5h", 0, NOW) == [
-        (old + 3300, 3300, reset),  # the first hour's last sample
-        (old + 5100, 5100, reset),  # the ended window's final reading, though its hour went on
-        (old + 6900, 6900, reset + 18000),
+        (old + 3300, 3300 / 48, reset),  # the hour's last sample
+        (old + 4500, 4500 / 48, reset),  # its window's last below the limit, mid-hour
+        (old + 4800, 100, reset),  # the first at the limit: when the window hit it
+        (old + 6900, 1, reset + 18000),  # the next window's last of the hour
         *[r[4:] for r in raw]]  # within eight days: every sample
 
 

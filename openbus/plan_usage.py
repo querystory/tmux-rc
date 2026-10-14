@@ -316,8 +316,10 @@ class PlanUsage:
         name, seconds, observed, pct, resets = row
         out = {"window": name}
         if past:
-            every = self.history.usage_between(tool, key, name, 0, now)
-            out["past"] = ended(name, seconds, every, now)
+            # A few times what PAST back-to-back windows span: a 5h window opens only on use,
+            # so a dozen of them reach further back; still a bounded read as history grows.
+            recent = self.history.usage_between(tool, key, name, now - 4 * PAST * seconds, now)
+            out["past"] = ended(name, seconds, recent, now)
         if resets is None or resets <= now:  # the window reset since: nothing used yet
             return {**out, "pct": 0.0, "resets_at": None, "samples": []}
         # Up to the row's own observation: a poll landing in between can't skew the trend.
