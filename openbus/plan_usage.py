@@ -331,7 +331,9 @@ class PlanUsage:
         return {**out, "pct": pct, "resets_at": resets * 1000,
                 "start": (resets - seconds) * 1000, "samples": thin(samples),
                 "projected": trend["projected"],
-                "limit_at": trend["limit_at"] and trend["limit_at"] * 1000}
+                "limit_at": trend["limit_at"] and trend["limit_at"] * 1000,
+                # When it reached 100%, from every sample: the thinned trend can miss it by hours.
+                "hit_at": next((t * 1000 for t, p in samples if p >= 100), None)}
 
     def report(self, now: float | None = None, past: float = 0) -> list[dict]:
         now = time.time() if now is None else now

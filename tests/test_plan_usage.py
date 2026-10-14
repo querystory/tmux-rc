@@ -299,3 +299,15 @@ def test_the_usage_view_reads_the_windows_ended_in_its_range(tmp_path):
     assert "past" not in usage.report(now=NOW)[0]["windows"][0]  # the strip's minute poll
     # A re-read that moves this window's reset past now leaves it current, not ended.
     assert ended("5h", 18000, [(NOW - 600, 5, NOW - 30), (NOW - 60, 6, NOW + 30)], NOW) == []
+
+
+def test_the_current_window_says_when_it_hit_the_limit_from_every_sample(tmp_path):
+    tmp_path.chmod(0o700)
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"))
+    usage.accounts = {("claude", "a"): {"homes": [], "panes": [], "error": None}}
+    hit = NOW - 3000 * 60 + 7 * 60  # a minute the 120 thinned samples skip
+    minutes = range(int(NOW) - 3000 * 60, int(NOW) + 1, 60)
+    usage.history.record_usage([("claude", "a", "7d", 604800, t, 100 if t >= hit else 50,
+                                 NOW + 86400) for t in minutes])
+    [window] = usage.report(now=NOW)[0]["windows"]
+    assert window["hit_at"] == hit * 1000 and [hit * 1000, 100] not in window["samples"]

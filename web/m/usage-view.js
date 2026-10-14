@@ -43,7 +43,7 @@ function teeth(w, now) {
   if (!(w.resets_at > now)) return { past, cur: [], fc: [], hits, drawn: past };
   const held = [Math.max(now, w.start), w.pct];
   past.push([w.start, 0]);
-  if (w.pct >= 100) hits.push((w.samples.find(s => s[1] >= 100) || held)[0]);
+  if (w.hit_at) hits.push(w.hit_at);
   const cur = [[w.start, 0], ...w.samples, held];
   return { past, hits, cur, drawn: [...past, ...cur], // drawn: what the tooltip reads, built once
     fc: [held, ...(w.limit_at ? [[w.limit_at, 100], [w.resets_at, 100]] : [[w.resets_at, Math.min(100, w.projected ?? w.pct)]])] };
@@ -79,7 +79,8 @@ function option(card, extent, now, slider, css) {
       { ...base, z: 2, data: m.past, lineStyle: { color: m.color, width: 2, opacity: 0.4 } },
       { ...base, z: 4, data: m.cur, lineStyle: { color: m.color, width: 3.5 } },
       { ...base, z: 4, data: m.fc, lineStyle: { color: m.color, width: 2.5, type: [6, 5] } },
-      { name: m.name, type: 'scatter', z: 6, clip: false, // drawn just above the 100% line symbol: 'triangle', symbolRotate: 180, symbolSize: 11, symbolOffset: [0, -9],
+      // Unclipped: the marks sit just above the 100% line.
+      { name: m.name, type: 'scatter', z: 6, clip: false, symbol: 'triangle', symbolRotate: 180, symbolSize: 11, symbolOffset: [0, -9],
         itemStyle: { color: red, borderColor: surface, borderWidth: 1.5 }, tooltip: { show: false },
         data: [...m.hits.map(t => [t, 100]), ...(m.w.limit_at > now ? [{ value: [m.w.limit_at, 100], itemStyle: { color: surface, borderColor: red, borderWidth: 2 } }] : [])] },
     ];
