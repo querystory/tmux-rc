@@ -68,12 +68,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   }
 
   // ---- the filter: "Panes from" in the wide list's filter menu, chips under a phone's search
-  // (app.js places it), and the "Filtered:" pill, which also names the wide list's other
+  // (app.js places it), and the active filters' chips, which also name the wide list's other
   // choices (chips: its state filter and grouping) and the search box's text (query), app.js's.
   const filterGroup = document.createElement("div");
   filterGroup.id = "acct-filter"; filterGroup.setAttribute("role", "group"); filterGroup.ariaLabel = "Panes from";
   const pill = document.createElement("div");
   pill.className = "acct-pill"; // no live region: it would read the whole line out on every keystroke in search
+  pill.setAttribute("role", "group"); pill.ariaLabel = "Active filters"; // the chips need no visible label
   filterGroup.hidden = pill.hidden = true; // until the accounts arrive
   // Redrawn only when changed: the refresh every 20s would otherwise drop a focused button's focus.
   const draw = (el, markup) => { if (el._markup !== markup) el.innerHTML = el._markup = markup; };
@@ -83,10 +84,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     draw(filterGroup, any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
       `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${p ? on.includes(p) : !on.length}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
     filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
-    const q = query(), more = chips(), clear = (what, attr = "") => `<button type="button" ${attr} aria-label="Clear the ${esc(what)}" title="Clear">${licon("x", 14)}</button>`;
-    const chip = (attr, label, what) => `<span class="acct-badge" ${attr}><span>${esc(label)}</span>${clear(what)}</span>`;
+    const q = query(), more = chips(), clear = (what, attr = "") => `<button type="button" ${attr} aria-label="Clear the ${esc(what)}" title="Clear">${licon("x", 11)}</button>`;
+    const chip = (attr, label, what, dot = "") => `<span class="acct-badge" ${attr}>${dot}<span>${esc(label)}</span>${clear(what)}</span>`;
     pill.hidden = !on.length && !q && !more.length;
-    draw(pill, pill.hidden ? "" : `Filtered: ${more.map(([k, label]) => chip(`data-chip="${k}"`, label, label)).join("")}${on.map((p) => badge(p, clear(`${p.name} filter`, `data-acct="${esc(key(p))}"`))).join("")}${q ? chip("data-q", `"${q}"`, "search") : ""}`);
+    draw(pill, pill.hidden ? "" : `${more.map(([k, label]) => chip(`data-chip="${k}" data-s="${k}"`, label, label, '<i class="acct-dot"></i>')).join("")}${on.map((p) => badge(p, clear(`${p.name} filter`, `data-acct="${esc(key(p))}"`))).join("")}${q ? chip("data-q", `"${q}"`, "search") : ""}`);
   }
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
   pill.onclick = (e) => { const b = e.target.closest("button"); if (b) b.closest("[data-q]") ? clearQuery() : b.closest("[data-chip]") ? clearChip(b.closest("[data-chip]").dataset.chip) : setFilter(b.dataset.acct); };
@@ -315,7 +316,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
 
   function matches(pane) { const on = active(); return !on.length || on.includes(profiles.find((p) => p.panes.includes(pane.pane_id))); }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().length,
+    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
     // Settings' list: each account, who it is and where, its sheet a click away.
     rows: () => profiles.map((p) => `<div class="set-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></div>`).join(""),
     // The URL's accounts in, and out for the next URL; follow says whether they changed.

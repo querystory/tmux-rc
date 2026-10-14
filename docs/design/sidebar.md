@@ -33,7 +33,7 @@ The sidebar holds three kinds of thing, and each now has one home.
 
 Between the header and the usage strip everything scrolls as one, so the places scroll out
 of the way as you page through panes, and the Sessions block (its title and +, search and
-the filter, the "Filtered:" chips) sticks under the header with a hairline once it has. The
+the filter, the filter chips) sticks under the header with a hairline once it has. The
 header, with the collapse, stays put: scrolling it away hid the way to fold the sidebar. The
 usage strip stays at the foot.
 
@@ -53,8 +53,12 @@ which reads best grouped by session).
 
 The button is a bordered square, unmistakably clickable, and it opens the menu to the right
 of the sidebar, never over the list, so the list narrows in view as you pick. Everything that
-narrows the list reads as one "Filtered:" row of chips under the search, one per state, per
-account and for the keyword, each with its ×, and the button counts the same. Grouping and
+narrows the list reads as one row of chips under the search, one per state, per account and
+for the keyword, each with its ×; the button counts the same and its tooltip names them. The
+chips are the rows' own account chips, small, with no "Filtered:" label: larger chips with a
+label took two lines for three filters. Each state has its list colour (amber Needs you, green
+Running, muted Recent) on its chip, its dot in the menu and its section's count, so the three
+read as one thing. Grouping and
 sorting are not filters: they change how the list reads, not what is in it, so they neither
 count nor get a chip (a "1" on the button for grouping by session read as a hidden filter).
 They are per-browser preferences rather than URL state, for the same reason, and the sort is

@@ -373,7 +373,9 @@ function renderList() {
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && (filter.length ? String(filter) : "all") === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
-  renderSidebar.picker.firstChild.dataset.n = filter.length + accounts.on() + !!query || ""; // the filter button's count: each filter on
+  // The filter button counts each filter on, and its tooltip names them.
+  const on = [filter.map((f) => SHOW[f]).join(", "), accounts.on().join(", "), $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
+  Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters" }).dataset.n = filter.length + accounts.on().length + !!query || "";
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
   // Not before boot: an empty `panes` then would open the dialog in New session mode.

@@ -103,17 +103,18 @@ export function setupSidebar(ctx) {
   picker.innerHTML = `<summary title="Filter" aria-label="Filter panes" data-n="">${licon("filter", 16)}</summary>`;
   menu.className = "header-picker-menu"; picker.append(menu);
   dismissable(picker);
-  // A group of the menu: options are buttons whose aria-pressed draws the check.
-  const group = (label, opts, pick, rule = "<hr>") => {
+  // A group of the menu: options are buttons whose aria-pressed draws the check (and, for the
+  // states, a dot in the state's colour, as their chips have).
+  const group = (label, opts, pick, rule = "<hr>", dot = "") => {
     const el = document.createElement("div");
     el.setAttribute("role", "group"); el.ariaLabel = label;
-    el.innerHTML = `${rule}<div class="menu-sec">${label}</div>${Object.entries(opts).map(([v, l]) => `<button type="button" class="acct-opt" data-v="${v}">${l}</button>`).join("")}`;
+    el.innerHTML = `${rule}<div class="menu-sec">${label}</div>${Object.entries(opts).map(([v, l]) => `<button type="button" class="acct-opt" data-v="${v}"${dot && ` data-s="${v}"`}>${dot && `<i class="acct-dot${v === "all" ? " none" : ""}"></i>`}<span>${l}</span></button>`).join("")}`;
     el.onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) pick(b.dataset.v); };
     el.mark = (on) => el.querySelectorAll("[data-v]").forEach((b) => b.setAttribute("aria-pressed", String(on(b.dataset.v))));
     return el;
   };
   let filters = [];
-  const show = group("Show", { all: "All", ...SHOW }, (v) => ctx.setFilter(v === "all" ? [] : filters.includes(v) ? filters.filter((f) => f !== v) : [...filters, v]), "");
+  const show = group("Show", { all: "All", ...SHOW }, (v) => ctx.setFilter(v === "all" ? [] : filters.includes(v) ? filters.filter((f) => f !== v) : [...filters, v]), "", "dot"); // each state's dot in its colour
   const by = group("Group by", { state: "State", session: "Session" }, (v) => { prefs.by = v; rerender(); });
   const sortBy = group("Sort by", SORTS, ctx.setSort);
   menu.append(show);
@@ -146,7 +147,7 @@ export function setupSidebar(ctx) {
     node._g = g;
     const fold = node.firstChild, density = node.lastChild, running = g.panes.filter(isRunning).length;
     fold.setAttribute("aria-expanded", String(g.open));
-    ctx.html(fold, `${licon(g.open ? "chevronDown" : "chevron", 14)}${g.alert ? licon("alert", 13) : ""}<span class="l"></span><span class="c">${running && g.id !== "run" ? `<i></i>${running} · ` : ""}${g.panes.length}</span>`);
+    ctx.html(fold, `${licon(g.open ? "chevronDown" : "chevron", 14)}${g.alert ? licon("alert", 13) : ""}<span class="l"></span><span class="c acct-badge" data-s="${g.id}">${running && g.id !== "run" ? `<i></i>${running} · ` : ""}${g.panes.length}</span>`);
     text(fold.querySelector(".l"), g.label);
     density.setAttribute("aria-pressed", String(g.cards));
     density.title = density.ariaLabel = `${g.cards ? "Compact rows" : "Show the latest activity"} for ${g.label}`;

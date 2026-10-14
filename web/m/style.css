@@ -522,7 +522,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-fold > svg { color: var(--muted); }
 .sb-fold > svg + svg { color: var(--amber); }
 .sb-fold .l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-fold .c { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.sb-fold .c { margin-left: auto; font-variant-numeric: tabular-nums; } /* a pill in its state's colour, as the filter chips */
 .sb-fold .c i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 /* A row or card is its pane's button, then its sub-agent lines (and a card's answers). */
 .sb-row, .sb-card { margin: 0 6px; border-radius: 7px; }
@@ -1020,15 +1020,21 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .acct-dot.none { background: none; border: 1px solid var(--muted); }
 .acct-badge { --a: var(--muted); display: inline-flex; align-items: center; gap: 4px; flex: none; max-width: 100%; padding: 0 6px 0 5px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.45; white-space: nowrap; color: var(--a); border: 1px solid color-mix(in srgb, var(--a) 45%, transparent); background: color-mix(in srgb, var(--a) 10%, transparent); }
 .acct-badge .acct-dot { width: 6px; height: 6px; }
+/* A state's colour, as the list uses it: its filter chip and Show item (by filter name) and its
+   section's count (by group id) all match. Recent / Just finished muted, Idle or a session neutral. */
+[data-s] { --a: var(--muted); }
+[data-s="attention"], [data-s="need"] { --a: var(--amber); }
+[data-s="running"], [data-s="run"] { --a: var(--accent); }
+[data-s="idle"], [data-s^="session:"] { --a: var(--fg); }
 .acct-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: the chip stays in its box */
 .row-acct:empty, .sb-acct:empty { display: none; }
 .sb-acct .acct-badge { margin-left: 4px; font-size: 10.5px; vertical-align: 1px; }
 #pane-location .acct-badge { vertical-align: 1px; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
-.acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 16px 6px; font-size: 12px; color: var(--muted); }
-.acct-pill .acct-badge { flex-shrink: 1; min-width: 0; font-size: 12px; padding: 1px 2px 1px 8px; }
-.acct-pill [data-chip] { --a: var(--accent); }
-.acct-pill button { display: inline-flex; min-height: 24px; min-width: 24px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; color: inherit; }
+/* The active filters: each chip is the rows' account chip (.acct-badge) as is, with a small ×. */
+.acct-pill { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 16px 6px; font-size: 11px; color: var(--muted); }
+.acct-pill .acct-badge { flex-shrink: 1; min-width: 0; padding-right: 2px; }
+.acct-pill button { display: inline-flex; min-height: 0; align-items: center; padding: 0; border-radius: 50%; color: inherit; }
 /* The filter menu. Wide: Show, Panes from, Group by and Sort by in one dropdown, each pick a
    check and each account's dot on its label. */
 #side-filter-picker .header-picker-menu { min-width: 180px; max-width: calc(var(--side-w) - 16px); overflow-y: auto; font-weight: 400; }
@@ -1040,8 +1046,8 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #side-filter-picker .acct-opt[aria-pressed="true"]::after { visibility: visible; }
 #side-filter-picker .acct-opt:hover { background: var(--raised); }
 #side-filter-picker hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
-/* With the accounts' dots, the other groups' names line up with theirs. */
-#side-filter-picker .header-picker-menu:has(#acct-filter:not([hidden])) [data-v] { padding-left: 26px; }
+/* The groups without dots line up with the dotted ones' names. */
+#side-filter-picker [data-v]:not(:has(.acct-dot)) { padding-left: 26px; }
 /* A phone: one row of chips under search, while the pill under the header speaks for the
    views without that list (the dashboard). */
 @media (max-width: 1099px) {
