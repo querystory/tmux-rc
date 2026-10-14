@@ -250,9 +250,10 @@ def _read_omp_row(result: dict, visible: str) -> None:
 
 # Claude Code's agent list (under "● main") shows a workflow as fixed-format chrome, read
 # here rather than left to the model: " ○  docs-sweep  ▰▰▱▱  1/2 · 3m37s · ↓ 109.1k tokens".
-# Only rows in that list count (the "● main" line and the ○/◯/● rows right under it), so a
-# row quoted in the conversation is not mistaken for a live worker.
-_AGENT_LIST_RE = re.compile(r"^ *● +main *\n((?: *[○◯●] .*(?:\n|$))*)", re.MULTILINE)
+# Only rows in that live list count: the "● main" line and the ○/◯/● rows under it, which
+# Claude draws as the last thing on screen, below its input box and footer. A row, or a
+# whole list, quoted in the conversation sits above the input box, so it never matches.
+_AGENT_LIST_RE = re.compile(r"(?:^|\n) *● +main *\n((?: *[○◯●] [^\n]*\n?)*)\s*\Z")
 _WORKFLOW_ROW_RE = re.compile(
     r"^ *[○◯●] +(\S+) +[▰▱]+ +((\d+)/(\d+)) · (\S+) · ↓ ?([\d.]+\w?) tokens", re.MULTILINE)
 
@@ -262,7 +263,7 @@ def _read_workflow_rows(result: dict, visible: str) -> None:
     that row (its name as a label, or the bar mistaken for one) with the row's own read."""
     rows = [{"label": m[1], "state": "done" if m[3] == m[4] else "running",
              "progress": m[2], "elapsed": m[5], "tokens": m[6]}
-            for block in _AGENT_LIST_RE.findall(visible)[-1:]
+            for block in _AGENT_LIST_RE.findall(visible)
             for m in _WORKFLOW_ROW_RE.finditer(block)]
     if rows:
         subs, names = result.get("subagents"), {r["label"] for r in rows}

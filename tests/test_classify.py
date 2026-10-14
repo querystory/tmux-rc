@@ -552,6 +552,8 @@ def test_workflow_row_is_read_from_the_agent_list():
     # Only Claude's own agent list: a quoted row, or a shell printing one, gains no worker.
     quoted = screen.replace(" ●  main\n", "")
     assert "subagents" not in classify(_pane(), quoted, _llm({"tool": "claude"}))
+    head, sep, block = screen.partition(" ●  main\n")  # the whole list quoted above the box
+    assert "subagents" not in classify(_pane(), sep + block + "\n" + head, _llm({"tool": "claude"}))
     assert "subagents" not in classify(_pane(), screen, _llm({"tool": "shell"}))
 
 
