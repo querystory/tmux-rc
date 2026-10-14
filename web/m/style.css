@@ -1018,9 +1018,11 @@ button.picked:disabled { opacity: 1; }
 .uv-filter summary::after { display: none; }
 .uv-filter summary.on { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
 .uv-filter .header-picker-menu { min-width: 180px; }
+/* A phone's page grows with its stacked charts. The container below is #dash-page itself, which
+   its own query cannot select, so the viewport decides this one. */
+@media (max-width: 699px) { #dash-page:has(> .usage-view) { height: auto; } }
 @container dash-page (max-width: 699px) {
   /* A phone: the charts stacked to scroll, each landscape, 5-hour and Weekly on the first screen. */
-  #dash-page:has(> .usage-view) { height: auto; }
   #landing .usage-view { flex: none; min-height: 0; gap: 8px; padding: 10px 6px 4px; }
   .uv-bar { justify-content: space-between; gap: 6px 8px; }
   .uv-bar .fleet-seg button { min-width: 0; padding: 2px 8px; }
