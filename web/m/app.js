@@ -686,8 +686,9 @@ const paintUsage = steady(() => {
   const meters = order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode));
   const { shown, idle } = several ? inUse(meters, (p) => panes.filter((x) => p.panes.includes(x.pane_id))) : { shown: meters, idle: [] };
   renderUsage($("usage"), shown, { wide: WIDE.matches });
-  $("usage").querySelector(".usage-more")?.remove();
-  $("usage").insertAdjacentHTML("beforeend", accounts.more(idle));
+  $("usage-more")?.remove(); // outside the swipeable strip, so it shows without a swipe
+  $("usage").insertAdjacentHTML(WIDE.matches ? "beforebegin" : "afterend", accounts.more(idle)); // on its top seam wide, its bottom on a phone
+  if ($("usage-more")) $("usage-more").onclick = openUsage;
   accounts.strip($("usage"), several);
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)

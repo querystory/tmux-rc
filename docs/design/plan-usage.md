@@ -181,8 +181,8 @@ That row once led with whichever meter ran out soonest, and at the sidebar's def
 only about one meter shows, so the one meter anyone read could belong to an account nobody
 was using. So the strip now names only the accounts in use: any of their panes busy, or
 active within the hour. The accounts with the most busy panes come first, and urgency still
-orders the meters within each account. The idle ones fold into a "+N" at the strip's end,
-which opens Plan usage like the rest of the strip, and the dashboard's card still shows every
+orders the meters within each account. The idle ones fold into a "+N" on the strip's seam,
+outside the swipeable row so it shows without a swipe. It opens Plan usage, and the dashboard's card still shows every
 account. When no account is in use, the strip shows them all rather than nothing. Ordering
 the strip by the open pane's account was mocked and rejected. It answers "how is the account
 I'm on?" in the sidebar, away from the pane, and it reshuffles the strip on every switch.
