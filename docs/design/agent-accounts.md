@@ -157,8 +157,9 @@ From Settings → Manage accounts… → Add account, or "+ Add account" in New 
    failed address into the sheet, and the daemon replays it to the waiting `codex login`.
    That replay is the one place tmux-rc touches part of a login: a one-time code that
    only the `codex login` holding its PKCE verifier can redeem. So the server accepts
-   exactly `http://localhost|127.0.0.1:1455/auth/callback?…`, sends one GET to that port,
-   follows no redirect, answers only success or failure, and logs neither the code nor
+   exactly `http://localhost|127.0.0.1:1455/auth/callback?…` and sends it as a GET to that
+   port. It follows a redirect only once, and only to that same local server (see below).
+   It answers only success or a plain reason for failure, and logs neither the code nor
    the state. It also requires a sign-in window this daemon opened, so the endpoint is
    no general proxy. The alternative was to tunnel the remote browser's request to the
    callback. That would need a listener on the user's device, and the paste costs one step.
