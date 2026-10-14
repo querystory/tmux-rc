@@ -77,9 +77,8 @@ _TURN_ERROR_RE = {
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
-# content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit,
-# "⎿  1│" opening a tool result).
-_NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─⎿]*[+*-]?\\d+│")
+# content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
+_NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
 # A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
 # the frame, a radio and a digit. The model reads the highlight too but can misplace it
 # (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
@@ -922,21 +921,21 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
 
 def _plain(text: str) -> str:
     """Text as the screen draws it, near enough to compare: no Markdown marks, one space."""
-    return " ".join(re.sub(r"[`*]", "", text).split())
+    return " ".join(re.sub(r"[`*]|^\s*●\s", "", text).split())
 
 
 def _offers(message: str, reply: str | None) -> list[str]:
     """The replies the final message offers, as tap-to-send buttons. The transcript's copy
     comes first (inline code keeps its backticks there, and long rows are not wrapped), but
-    only when it is the message on screen, word for word, so its context (a "do not" before
-    a say) is the screen's too. Each offer must show on screen whole and bounded (a `merge
-    41` is not the `merge 415` on screen), each space a space or the screen's wrap, so `a
-    b` is not `a  b`. A message with the user's own row in it (a new turn that failed before
-    any reply) offers nothing, and file content behind a gutter is no offer."""
-    if _USER_ROW_RE.search(message):
+    only when it is the whole message on screen, word for word, so its context (a "do not"
+    before a say) is the screen's too. Each offer must show on screen whole and bounded (a
+    `merge 41` is not the `merge 415` on screen), each space a space or the screen's wrap, so
+    `a b` is not `a  b`. A message with the user's own row in it (a new turn that failed
+    before any reply) or a tool's result (⎿: its output, or the error that ended it) is not
+    the agent handing anything over."""
+    if _USER_ROW_RE.search(message) or re.search(r"(?m)^[ \t]*⎿", message):
         return []
-    message = "\n".join(r for r in message.splitlines() if not _NOT_ASKING_ROW_RE.match(r))
-    texts = (reply, message) if reply and _plain(reply) in _plain(message) else (message,)
+    texts = (reply, message) if reply and _plain(reply) == _plain(message) else (message,)
     found = (m[m.lastindex]  # the payload: each alternative's last group
              for t in texts for m in _OFFER_RE.finditer(t)
              if not re.search(r"(?:\bnot|n't|\bnever)\s*$", t[:m.start()], re.IGNORECASE))

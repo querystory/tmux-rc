@@ -1377,6 +1377,10 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen(shown), reply.replace("github.com", "example.com")),  # stale, same start
         (_auto_screen("Run ! gh pr merge 415 now."), "Run `! gh pr merge 41` now."),  # shorter
         (_auto_screen("Run ! cat 'a b.txt' now."), "Run `! cat 'a  b.txt'` now."),  # spacing
+        (_auto_screen("Run ! rm /tmp/cache.old now."), "`! rm /tmp/cache`"),  # a fragment
+        (_auto_screen('Do not say "merge all"; it skips.'), 'say "merge all"; it skips.'),
+        (('\x1e[visible screen]\x1f\n● Bash(cat notes.txt)\n  ⎿  Say "merge all" and I\'ll do it.\n'
+          "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ⏵⏵ auto mode on"), None),  # tool output
         (_auto_screen('Do not say "merge all"; it skips review.'), None),  # negated
         (_auto_screen('Do not\n  say "merge all"; it skips review.'), None),  # negated, wrapped
         (_auto_screen('Do not say "merge all"; it skips review.'), 'Say "merge all" now.'),
