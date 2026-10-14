@@ -77,9 +77,9 @@ _RESTORED = ("[Restored conversation] This session reconnected and lost its hist
 # refuses a pane change for one that has none (unanchored), and warns on the card otherwise.
 # Matched on the words alone, so punctuation ("yes,", "ok - do it") can't slip past it.
 # Politeness ("yes, thanks") adds nothing to agree with either, nor does a lead-in such as
-# "that's" (split at its apostrophe, either kind, to "that s").
-_AGREE = (r"(yes|yeah|yep|yup|y|ok|okay|k|sure|do it|do that|go|go ahead|go for it|please|"
-          r"please do|that s|that is|thats|it s|it is|its|let s|lets|"
+# "that's" (split at its apostrophe, either kind, to "that s"). "Go right" is a key to press.
+_AGREE = (r"(yes|yeah|yep|yup|y|ok|okay|k|sure|do it|do that|go(?! right)|go ahead|go for it|"
+          r"please|please do|that s|that is|thats|it s|it is|its|let s|lets|"
           r"sounds good|alright|all right|fine|great|cool|perfect|absolutely|definitely|correct|"
           r"right|confirm(ed)?|approved?|thanks|thank you|thx|ty|cheers)")
 _BARE = re.compile(rf"{_AGREE}( {_AGREE})*")
