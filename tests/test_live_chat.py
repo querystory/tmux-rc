@@ -532,7 +532,10 @@ _MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
     ("decline it", "press_key", {"key": "Enter"}, _ASKING, True),  # the wrong key's job
     ("pick 3", "type_in_pane", {"text": "3"}, _ASKING, False),
     ("ask window 3 for its status", "type_in_pane", {"text": "3"}, _ASKING, True),
-    ("approve the command", "type_in_pane", {"text": "1"}, _ASKING, False),
+    ("approve the command", "type_in_pane", {"text": "1"}, _MENU, False),
+    ("decline it", "type_in_pane", {"text": "1"}, _MENU, True),  # the wrong side
+    ("press enter", "press_key", {"key": "Escape"}, _ASKING, True),  # "press" names no key
+    ("pick 3", "type_in_pane", {"text": "2"}, _ASKING, True),  # not the row asked for
     # A menu takes no message at all: its Enter would pick the highlighted row ("1. Yes").
     ("ask it for status", "type_in_pane", {"text": "From the user: status?"}, _MENU, "menu"),
     ("pick 3", "type_in_pane", {"text": "3"}, _MENU, False),
@@ -545,7 +548,7 @@ _MENU = {**_ASKING, "menu": ["Yes", "Yes, always", "No"]}
     # Negated, it asks for nothing; a No named with a verb is a row, not a negation.
     ("don't decline it", "press_key", {"key": "Escape"}, _ASKING, True),
     ("no, decline it", "press_key", {"key": "Escape"}, _ASKING, True),
-    ("pick No", "type_in_pane", {"text": "3"}, _ASKING, False),
+    ("pick No", "type_in_pane", {"text": "3"}, _MENU, False),
     # A yes to the assistant's own question carries that question's words.
     (("Want me to cancel its command?", "yes"), "press_key", {"key": "Escape"}, _ASKING, False),
     (("Pick 3. No in fable?", "yes"), "type_in_pane", {"text": "3"}, _ASKING, False)])

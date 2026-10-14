@@ -507,7 +507,8 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
 # answer by verb; never a bare yes or no (which answers the assistant) or number (as likely
 # a window's). Refusing costs one more line of chat.
 _PRESS, _PICK = "press hit key keys", "select choose pick option"
-_KEY_ASKS = {k: frozenset(f"{_PRESS} {v}".split()) for k, v in {
+# Per key, the words for its name or its job: "press" or "key" alone names no key.
+_KEY_ASKS = {k: frozenset(v.split()) for k, v in {
     "Escape": "esc escape cancel decline reject dismiss deny",
     "Enter": f"enter return accept approve confirm submit continue {_PICK}",
     "Up": f"up arrow {_PICK}", "Down": f"down arrow {_PICK}", "Left": "left arrow",
@@ -521,8 +522,22 @@ _KEY_ASKS = {k: frozenset(f"{_PRESS} {v}".split()) for k, v in {
 _AIMED = {"type_in_pane", "press_key", "send_image_to_pane"}
 _NOT = frozenset({"not", "don", "dont", "never", "nope", "nah"})  # _words splits "don't"
 _ROW = re.compile(r"\d+|y(es)?|no?")  # what picks a menu row (or answers y/n) when typed
-_ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply accept approve confirm allow decline reject "
-                     "deny cancel".split())
+# A typed row needs an answering verb, and must be the row asked for: its number, or the
+# side of a Yes/No row the words take ("decline it" never lets "1. Yes" through).
+_ANSWERS = frozenset(f"{_PRESS} {_PICK} answer reply".split())
+_SIDES = {k: frozenset(v.split()) for k, v in {  # each side of a Yes/No row, as words ask it
+    "yes": "yes accept approve confirm allow", "no": "no decline reject deny cancel"}.items()}
+
+
+def _row_asked(row: str, asked: set[str], menu: list[str] | None) -> bool:
+    """Whether the words ask for this typed row (a number, or y/yes/n/no) of the pane's menu."""
+    if row.isdigit():
+        if row in asked and _ANSWERS & asked:
+            return True
+        menu, at = menu or [], int(row) - 1
+        row = menu[at] if 0 <= at < len(menu) else ""
+    side = (_words(row)[:1] or [""])[0]
+    return bool(_SIDES.get({"y": "yes", "n": "no"}.get(side, side), frozenset()) & asked)
 
 
 def _meant(digest: list[dict], request: str, asked: set[str]) -> set[str]:
@@ -561,7 +576,7 @@ def _refusal(session, name: str, args: dict, digest: list[dict]) -> str | None:
     if name == "press_key":
         ok = bool(_KEY_ASKS.get(args.get("key"), frozenset()) & asked)
     elif name == "type_in_pane" and pane and pane.get("question") and row:
-        ok = bool(_ANSWERS & asked)  # a bare number could be a pane's ("ask window 3")
+        ok = _row_asked(text, asked, pane.get("menu"))  # a bare number may be a window's
     else:
         return None
     return None if ok else "unasked_answer"
