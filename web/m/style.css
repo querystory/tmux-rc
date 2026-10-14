@@ -332,6 +332,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #launch-choices .acct-on:not([hidden]) + .desc:not(:empty)::before { content: "· "; }
 #launch-choices small span { flex: 0 1 auto; } /* not .choice-list's flex: 1 */
 #launch-choices .desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#launch-choices [data-unavailable] :is(small, .desc) { white-space: normal; } /* why it cannot run: read in full */
 .panel-sub { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
 .acct-why { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
 .acct-default input { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--accent); }

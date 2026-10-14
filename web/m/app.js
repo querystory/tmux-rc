@@ -228,7 +228,7 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   // An account picked: this very screen, in a URL that names it (or none, for All).
   navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
-  paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => openLaunched(id),
+  paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => { $("settings").close(); openLaunched(id); }, // a phone's Settings sheet would cover the pane
   // A phone's list shows its search box, and its tab bar the state: those chips are wide only.
   query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click(),
   // The wide list's state filters, each a chip that clears it (focus to the filter button).
