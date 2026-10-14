@@ -456,9 +456,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
             result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
-    if meter.text and result["status"] in _DONE:  # a declined one went nowhere
-        _focus(session, next((d for d in watcher.digest() if d["pane_id"] == rec.get("pane_id")),
-                             None))
+    if meter.text and result["status"] in {*_DONE, "already_running"}:  # a declined one isn't
+        # A resumed pane is new to the watcher until its next parse: its result names it.
+        pane = result.get("pane_id") or rec.get("pane_id")
+        _focus(session, next((d for d in watcher.digest() if d["pane_id"] == pane), None) or (
+            pane and {"pane_id": pane, "title": result.get("window") or result.get("pane")}))
     await session.send_tool_result(fc, result)
 
 

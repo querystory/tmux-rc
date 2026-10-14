@@ -595,3 +595,13 @@ def test_a_name_two_panes_share_moves_nothing():
              {"pane_id": "%2", "title": "tests", "window_index": "1"}]
     assert L._named(twins, "tests is waiting") is None
     assert L._named(twins, "window 1 is waiting") is None
+
+
+def test_a_resumed_pane_becomes_the_current_one_before_the_watcher_sees_it(monkeypatch):
+    async def resume(*a, **k):
+        return {"status": "opened", "pane_id": "%9", "window": "auth fix"}
+    monkeypatch.setattr(L.agent_history, "offered", lambda: True)
+    monkeypatch.setitem(L._HISTORY_TOOLS, "resume_session", resume)
+    s = _Fake([("", [("resume_session", {"session_id": "x"})]), ("Reopened.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("resume the auth fix", True), ("tell it to rebase", None))
+    assert _users(s)[-1].startswith(L._FOCUS.format(L._pane_name({"title": "auth fix"}), "%9"))

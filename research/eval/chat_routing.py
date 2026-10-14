@@ -14,7 +14,8 @@ production answers an approved send, so a turn plays out as if the user tapped S
 Each call first meets the gate production applies before any card (live._refusal); a call
 it refuses reaches no pane, and is shown as refused. A run passes when its outcome is the
 case's `expect.outcome`: "relayed" (only messages typed into `expect.pane` got through) or
-"asked" (nothing got through, and the reply names no pane but that one).
+"asked" (nothing got through, and the reply asks the user something, naming no pane but
+that one).
 """
 
 from __future__ import annotations
@@ -78,7 +79,8 @@ async def _run(case: dict, model) -> dict:
 
 def _score(expect: dict, calls: list, reply: str, digest: list[dict]) -> dict:
     """"relayed": only type_in_pane calls got through, all into the expected pane and none a
-    menu row; "asked": nothing got through, and the reply names no other pane. The
+    menu row; "asked": nothing got through, and the reply asks the user something (as
+    production detects a question) naming no other pane. The
     case's `expect.outcome` says which one passes."""
     shown = [(c.name, c.args, *([f"refused: {r}"] if r else [])) for c, r in calls]
     reached = [(c.name, c.args if isinstance(c.args, dict) else {}) for c, r in calls if not r]
@@ -86,6 +88,7 @@ def _score(expect: dict, calls: list, reply: str, digest: list[dict]) -> dict:
     stray = [f"{n} {a}" for n, a in reached if n != "type_in_pane" or a.get("pane_id") != expect[
         "pane"] or live._ROW.fullmatch(str(a.get("text", "")).strip().casefold())]
     outcome = (f"reached {stray}" if stray else "relayed" if reached
+               else "said nothing to answer" if not live_chat._ASKS.search(reply)
                else "asked" if set(named) <= {expect["pane"]} else f"asked, naming {named}")
     verdict = outcome if outcome == expect["outcome"] else f"FAIL {outcome}"
     return {"verdict": verdict, "calls": shown, "reply": reply}
