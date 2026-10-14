@@ -4,7 +4,7 @@
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
-const LOGIN = { claude: "claude", codex: "codex login" };
+const LOGIN = { claude: "claude", codex: "codex login --device-auth" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
 const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
@@ -218,7 +218,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       + btns('<button class="ghost" data-goto="name">Back</button>', "<button data-create>Skip</button>", '<button class="primary" data-create="link">Link and continue</button>');
     else if (s === "login") dlg.innerHTML = head(`Sign in to ${F.name}`, 3)
       + (F.existed ? `<p class="acct-msg warn"><code>${esc(F.dir)}</code> already existed; tmux-rc kept its files.</p>` : "")
-      + (F.pane ? `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open in <b>${esc(F.session)}</b>. Finish ${F.provider === "claude" ? "<code>/login</code>" : "the browser sign-in"} there. tmux-rc only watches for the account to appear; it never sees the login itself.</p><p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
+      + (F.pane ? `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open in <b>${esc(F.session)}</b>. ${F.provider === "claude" ? "Finish <code>/login</code> there." : "Open the link and enter the code shown in the sign-in window."} tmux-rc only watches for the account to appear; it never sees the login itself.</p><p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
           + btns('<button class="ghost" data-abandon>Cancel sign-in</button>', "<button data-go>Go to window</button>")
         : `<p class="acct-note">tmux-rc opens a new window that runs the provider's own sign-in on this dir:</p><code class="acct-cmd">${ENV[F.provider]}=${esc(F.dir)} ${LOGIN[F.provider]}</code>`
           + `<label for="acct-session">Open it in session</label><select id="acct-session">${sessions().map((x) => `<option ${x === F.session ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`
