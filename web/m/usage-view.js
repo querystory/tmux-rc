@@ -101,7 +101,7 @@ function option(card, extent, now, slider, css) {
     dataZoom: [
       { type: 'inside', xAxisIndex: 0, ...range, filterMode: 'none', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
       { type: 'slider', xAxisIndex: 0, show: slider, ...range, filterMode: 'none', height: narrow ? 24 : 28, bottom: narrow ? 6 : 10, left, right,
-        borderColor: line, fillerColor: color('--accent-bg'), textStyle: { color: muted, fontSize: 12 }, showDetail: !narrow, labelFormatter: day,
+        borderColor: line, fillerColor: color('--accent-bg'), textStyle: { color: muted, fontSize: 12 }, showDetail: !narrow, handleLabel: { show: !narrow }, labelFormatter: day, // dated ends: it spans all the history loaded, not the axis above it
         handleStyle: { color: accent, borderColor: accent }, moveHandleStyle: { color: accent },
         dataBackground: { lineStyle: { color: muted, width: 1 }, areaStyle: { color: muted, opacity: 0.25 } },
         selectedDataBackground: { lineStyle: { color: accent, width: 1 }, areaStyle: { color: accent, opacity: 0.3 } } },
