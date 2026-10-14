@@ -383,17 +383,17 @@ function renderList() {
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
   renderSidebar.answers.prune(subset);
-  if (WIDE.matches) { renderSidebar(subset, query, filter); placeRail(); } else { placePill(); renderSidebar.marks(filter); renderPhoneList(subset); }
+  if (WIDE.matches) { renderSidebar(subset, query, filter); placeRail(); } else { $("app").classList.remove("rail"); placePill(); renderSidebar.marks(filter); renderPhoneList(subset); } // a folded sidebar's class would hide the chips
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
   // Empty, while panes the filter hides need you: say so, a click from them.
   const needing = subset.length ? [] : panes.filter(needsYou), hidden = needing.length, accts = accounts.on();
   // A phone's list narrowed to some accounts says so at its foot too, a tap from all of them.
-  const scoped = !hidden && !WIDE.matches && accts.length ? subset.filter((p) => !outside.has(p.pane_id)).length : 0; // not the pinned
-  show("empty-needs", hidden > 0 || scoped > 0);
-  $("empty-needs").dataset.all = scoped ? "accounts" : "needs";
+  const scopedOn = !hidden && !WIDE.matches && accts.length > 0, scoped = subset.filter((p) => !outside.has(p.pane_id)).length; // not the pinned
+  show("empty-needs", hidden > 0 || scopedOn);
+  $("empty-needs").dataset.all = scopedOn ? "accounts" : "needs";
   // "On other accounts" only when that is what hides every one of them.
-  text($("empty-needs"), scoped ? `${scoped} ${accts.join(" or ")} pane${scoped === 1 ? "" : "s"} · Show all accounts`
+  text($("empty-needs"), scopedOn ? `${scoped} ${accts.join(" or ")} pane${scoped === 1 ? "" : "s"} · Show all accounts`
     : `${hidden} pane${hidden === 1 ? "" : "s"} ${needing.some(accounts.matches) || !accts.length ? "outside the filter" : "on other accounts"} need${hidden === 1 ? "s" : ""} you · Show`);
   text($("all-count"), mine.length);
   text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length);
