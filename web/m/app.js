@@ -990,6 +990,7 @@ function renderLinks(el, links) {
 }
 
 function renderRichContent(pane) {
+  accounts.paneCard(pane, $("signin-section"));
   // The link the question asks you to open leads its card instead of waiting in Links.
   const ask = pane?.question && needsYou(pane) ? askLink(pane) : null;
   const links = paneLinks(pane).filter((link) => link.href !== ask?.href);

@@ -162,6 +162,16 @@ From Settings → Manage accounts… → Add account, or "+ Add account" in New 
    the state. It also requires a sign-in window this daemon opened, so the endpoint is
    no general proxy. The alternative was to tunnel the remote browser's request to the
    callback. That would need a listener on the user's device, and the paste costs one step.
+   The sheet reads the sign-in link (and a device code) off the window's screen and offers
+   it as a button, with the paste field beside it. Leaving the sheet to find the link is
+   what lost the field before, and the field is on the window's own card too. Each
+   `codex login` gets a fresh OAuth state, so an address from an older window's link can
+   never work. The server compares the pasted state with the one in this window's link
+   before sending it, and maps Codex's own refusal to that same plain reason. The sheet
+   also lists other sign-in windows open on the account so they can be closed. A
+   successful callback answers with a redirect to Codex's success page, and `codex login`
+   exits only once that page has loaded, so the server loads it too. It follows only a
+   redirect to the same local server, never one to another host.
    The whole line is editable (to add a flag the provider grows), but the server accepts
    it only if its one leading assignment is the provider's variable on this account's dir
    and its program is the provider's own binary, and runs it as argv with no shell, so an

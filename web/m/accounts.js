@@ -14,6 +14,9 @@ const CODEX_WAYS = [["codex login", "Browser sign-in", "sign in, then paste the 
 const cmds = {}, cmdKey = (p) => `tmuxrc-signin-${p}`;
 const cmdOf = (p) => cmds[p] ??= (() => { try { return localStorage.getItem(cmdKey(p)); } catch { return null; } })() || LOGIN[p];
 const LEAD = /^\s*(?:[A-Za-z_]\w*=\S*\s+)*/; // the line's leading VAR=value words
+// Where a browser `codex login` is finished from afar: the sheet's waiting step and the
+// sign-in pane's own card both offer it (server: /api/accounts/login/callback).
+const pasteForm = (id, value = "") => `<label for="${id}">Paste the address your browser ended up on</label><div class="acct-paste"><input id="${id}" value="${esc(value)}" placeholder="http://127.0.0.1:1455/auth/callback?code=…" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" data-callback ${value.trim() ? "" : "disabled"}>Finish</button></div>`;
 const setCmd = (p, v) => { cmds[p] = v; try { v === LOGIN[p] ? localStorage.removeItem(cmdKey(p)) : localStorage.setItem(cmdKey(p), v); } catch {} };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
@@ -227,13 +230,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       + btns('<button class="ghost" data-goto="name">Back</button>', "<button data-create>Skip</button>", '<button class="primary" data-create="link">Link and continue</button>');
     else if (s === "login") dlg.innerHTML = head(`Sign in to ${F.name}`, 3)
       + (F.existed ? `<p class="acct-msg warn"><code>${esc(F.dir)}</code> already existed; tmux-rc kept its files.</p>` : "")
-      + (F.pane ? `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open in <b>${esc(F.session)}</b>. ${F.provider === "claude" ? "Finish <code>/login</code> there." : device() ? "Open the link and enter the code shown in the sign-in window." : "Open the link shown in the sign-in window and sign in. Your browser then lands on a <code>localhost</code> page that does not load. tmux-rc hands that address to the sign-in waiting on this machine, and keeps none of it."} tmux-rc only watches for the account to appear.</p>`
-          + (F.provider === "codex" && !device() ? `<label for="acct-callback">Paste the address your browser ended up on</label><div class="acct-paste"><input id="acct-callback" value="${esc(F.callback || "")}" placeholder="http://127.0.0.1:1455/auth/callback?code=…" autocomplete="off" autocapitalize="off" spellcheck="false"><button data-callback ${F.callback?.trim() ? "" : "disabled"}>Finish</button></div>` : "")
-          + `<p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
-          + btns('<button class="ghost" data-abandon>Cancel sign-in</button>', "<button data-go>Go to window</button>")
+      + (F.pane ? waiting()
         : `<p class="acct-note">tmux-rc opens a new window that runs the provider's own sign-in on this dir:</p><input id="acct-cmd" class="acct-cmd" value="${esc(lineOf())}" aria-label="Sign-in command" autocomplete="off" autocapitalize="off" spellcheck="false">`
           + (lineError() ? `<p class="acct-msg err">${esc(lineError())}</p>` : "")
-          + (F.provider === "codex" ? `<div class="acct-seg">${CODEX_WAYS.map(([cmd, name]) => `<button type="button" data-way="${cmd}" aria-pressed="${device() === cmd.includes("--device-auth")}">${name}</button>`).join("")}</div><p class="acct-note">${CODEX_WAYS.map(([, name, how]) => `<b>${name}</b>: ${how}.`).join(" ")}</p>` : "")
+          + (F.provider === "codex" ? ways() : "")
           + (lineOf() === lineFor(LOGIN[F.provider]) ? "" : `<button type="button" class="ghost" data-reset-cmd>Reset to <code>${LOGIN[F.provider]}</code></button>`)
           + `<label for="acct-session">Open it in session</label><select id="acct-session">${sessions().map((x) => `<option ${x === F.session ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`
           + `<p class="acct-note">You sign in there yourself, so your password and tokens never pass through tmux-rc.</p>`
@@ -261,6 +261,20 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const go = (step, extra = {}) => { Object.assign(F, { renaming: null, removing: null, error: null, line: null, ...extra, step }); render(); };
   // The sign-in line: as edited in this flow, else VAR=<dir> and the remembered command.
   const lineFor = (cmd) => `${ENV[F.provider]}=${F.dir} ${cmd}`, lineOf = () => F.line ?? lineFor(cmdOf(F.provider));
+  const ways = () => `<div class="acct-seg">${CODEX_WAYS.map(([cmd, name]) => `<button type="button" data-way="${cmd}" aria-pressed="${device() === cmd.includes("--device-auth")}">${name}</button>`).join("")}</div><p class="acct-note">${CODEX_WAYS.map(([, name, how]) => `<b>${name}</b>: ${how}.`).join(" ")}</p>`;
+  // The sign-in window is open: its link and code (read off its screen) and the paste field
+  // right here, so nobody has to leave the sheet; and a restart, if the other way was picked.
+  const waiting = () => {
+    const w = F.window, codex = F.provider === "codex", other = codex && w && device() !== w.device;
+    return `<p class="acct-note">Window <b>sign in: ${esc(F.name)}</b> is open${F.session ? ` in <b>${esc(F.session)}</b>` : ""}. ${!codex ? "Finish <code>/login</code> there." : w?.device ? "Open the sign-in page and enter the code." : "Open the sign-in page and sign in. Your browser then lands on a <code>localhost</code> page that does not load: paste its address below. tmux-rc hands it to the sign-in waiting on this machine and keeps none of it."}</p>`
+      + (!codex ? "" : w?.url ? `<a class="acct-open" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">Open sign-in page ↗</a>` : '<p class="acct-wait"><i class="acct-spin"></i>Starting sign-in…</p>')
+      + (w?.others?.length ? `<p class="acct-msg warn">${w.others.length} older sign-in window${w.others.length === 1 ? " is" : "s are"} open for ${esc(F.name)}; a link from ${w.others.length === 1 ? "it" : "them"} will not work here.</p><button type="button" data-close-others>Close the older ${w.others.length === 1 ? "window" : "windows"}</button>` : "")
+      + (w?.device && w.code ? `<p class="acct-note">One-time code: <code class="acct-code">${esc(w.code)}</code></p>` : "")
+      + (codex && w && !w.device ? pasteForm("acct-callback", F.callback) : "")
+      + (codex ? ways() + (other ? `<button type="button" data-restart>Restart as ${device() ? "device code" : "browser sign-in"}</button>` : "") : "")
+      + `<p class="acct-wait"><i class="acct-spin"></i>Waiting for ${esc(F.name)} to sign in…</p>`
+      + btns('<button class="ghost" data-abandon>Cancel sign-in</button>', "<button data-go>Go to window</button>");
+  };
   const device = () => /(^|\s)--device-auth(\s|$)/.test(lineOf());
   // What the server would refuse: another dir or variable, or another program.
   const lineError = () => {
@@ -286,6 +300,11 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   // Closing stops the sign-in watch, unless the user left for the sign-in window (Go to window).
   dlg.addEventListener("close", () => { if (!F.away) clearTimeout(poll); refresh(); });
   // Sign-in is detected, never driven: the dir's account info appearing, or its window gone.
+  const windowOf = (query) => request(`/api/accounts/login/window?${query}`).catch(() => null);
+  const openLogin = async () => {
+    ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() }));
+    Object.assign(F, { window: null, seen: false, openedAt: Date.now() }); render(); return wait();
+  };
   async function wait() {
     clearTimeout(poll);
     if (F.step !== "login" || !F.pane) return;
@@ -296,6 +315,12 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // Gone once seen, or never seen within a grace: the page's state can lag the new window.
     if (paneAlive(F.pane)) F.seen = true;
     else if (F.seen || Date.now() - F.openedAt > 15000) return go("abandoned");
+    const w = await windowOf(`pane_id=${encodeURIComponent(F.pane)}`);
+    if (w && JSON.stringify(w) !== JSON.stringify(F.window)) {
+      F.window = w;
+      const focused = document.activeElement?.id; // the paste field, mid-typing
+      if (dlg.open && F.step === "login") { render(); if (focused) dlg.querySelector(`#${focused}`)?.focus(); }
+    }
     poll = setTimeout(wait, 2000);
   }
   dlg.addEventListener("click", async (e) => {
@@ -305,13 +330,17 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (d.goto) return go(d.goto);
     // The dir follows the provider: ~/.claude-x becomes ~/.codex-x, typed or suggested.
     if (d.prov) { F.dir = F.dir.replace(new RegExp(`^~/\\.${F.provider}(?=-|$)`), `~/.${d.prov}`); F.provider = d.prov; return render(); }
-    if (d.way) { setCmd(F.provider, d.way); F.line = null; return render(); }
+    if (d.way) { setCmd(F.provider, LOGIN[F.provider]); F.line = lineFor(d.way); return render(); } // a pick, not an edit to remember
     if ("resetCmd" in d) { setCmd(F.provider, LOGIN[F.provider]); F.line = null; return render(); }
     if ("add" in d) return open("name");
     if (d.rename) return go("list", { renaming: d.rename });
     if (d.remove) return go("list", { removing: d.remove });
     if (d.resume) { const p = byDir(d.resume); return go("abandoned", { dir: p.dir, name: p.name, provider: p.provider, pane: null }); }
-    if (d.finish) { const p = byDir(d.finish); return go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: null }); }
+    if (d.finish) { // back to its sign-in window, if one is still open
+      const p = byDir(d.finish), w = await windowOf(`dir=${encodeURIComponent(p.dir)}`);
+      go("login", { dir: p.dir, name: p.name, provider: p.provider, pane: w?.pane_id || null, pid: w?.pid, window: w, session: w ? null : F.session, seen: false, openedAt: Date.now() });
+      return w && wait();
+    }
     t.disabled = true;
     try {
       if ("renameSave" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.renaming, label: dlg.querySelector("#acct-rename").value }) }); await refresh(); return go("list"); }
@@ -328,8 +357,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         const dir = added.dir || F.dir; // a dir already signed in needs no sign-in window
         return go(byDir(dir)?.signed_in ? "done" : "login", { dir, existed: added.existed, pane: null });
       }
-      if ("login" in d) { ({ pane_id: F.pane, pid: F.pid } = await post("/api/accounts/login", { dir: F.dir, session: F.session, command: lineOf() })); F.seen = false; F.openedAt = Date.now(); render(); return wait(); }
-      if ("callback" in d) { await post("/api/accounts/login/callback", { pane_id: F.pane, pid: F.pid, url: F.callback }); F.callback = ""; return wait(); }
+      if ("login" in d) return openLogin();
+      if ("closeOthers" in d) { for (const o of F.window.others) await post("/api/accounts/login/close", o); F.window = null; return wait(); }
+      if ("restart" in d) { await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); F.session ||= sessions()[0]; return openLogin(); }
+      if ("callback" in d) { await post("/api/accounts/login/callback", { pane_id: F.pane, url: F.callback }); F.callback = ""; return wait(); }
       if ("retry" in d) return go("login", { pane: null });
       if ("later" in d) return go("list");
       if ("abandon" in d) { clearTimeout(poll); return go("abandoned"); }
@@ -362,6 +393,23 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // The consent card: which account a chat action lands on.
     consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)}</small>` : ""; },
     profile: byDir, list: () => profiles, chip: (p) => badge(p),
+    // A Codex sign-in window's own card: the same paste field as the sheet's waiting step.
+    // Drawn once per pane, so a poll never wipes what is being typed.
+    paneCard: (pane, section) => {
+      const on = !!pane && /^sign in: /.test(pane.window_name || "") && pane.tool !== "claude";
+      section.hidden = !on;
+      if (!on || section.dataset.pane === pane.pane_id) return;
+      section.dataset.pane = pane.pane_id;
+      section.innerHTML = "<h2>Finish sign-in</h2>" + pasteForm("pane-callback");
+      const input = section.querySelector("input"), button = section.querySelector("button");
+      input.oninput = () => { button.disabled = !input.value.trim(); };
+      button.onclick = async () => {
+        button.disabled = true;
+        try { await post("/api/accounts/login/callback", { pane_id: pane.pane_id, url: input.value }); input.value = ""; notice("Sent to the sign-in window.", 4000); }
+        catch (error) { notice(error.detail || "That did not work. Try again.", 6000); }
+        finally { button.disabled = !input.value.trim(); }
+      };
+    },
     // Where "Move to another account" can take a pane: its provider's other signed-in
     // accounts, once it has several, each with its line under the name: one on the pane's
     // own login is listed, and says the copy would stay on that login.
