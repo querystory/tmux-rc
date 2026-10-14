@@ -294,8 +294,13 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 :is(#settings, #launch-dialog) { padding-top: 0; padding-bottom: 0; }
 :is(#settings, #launch-dialog)[open] { display: flex; flex-direction: column; overflow: hidden; }
 :is(#settings, #launch-dialog) .dialog-heading { flex: none; margin: 0 -20px; padding: 10px 20px 6px; box-shadow: 0 1px 0 var(--line); }
-.panel-body { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -20px; padding: 4px 20px max(20px, env(safe-area-inset-bottom)); }
+/* flex-basis auto, not flex: 1's 0%: the sheet has no height of its own (its content, up to
+   max-height), and WebKit sizes a 0% basis to nothing there, leaving only the title on screen. */
+.panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0 -20px; padding: 4px 20px max(20px, env(safe-area-inset-bottom)); }
 :is(#settings, #launch-dialog) .sheet-handle { flex: none; margin: 8px auto 0; }
+/* A phone's sheet: the body also caps itself at the sheet's cap less the title row, in case a
+   WebKit column flexbox does not shrink it to fit (the sheet would run off the screen). */
+@media (max-width: 1099px) { :is(#settings, #launch-dialog) .panel-body { max-height: calc(88dvh - 64px); } }
 #settings h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
 #settings section:has(#push[hidden], #docs[hidden]) { display: none; }
 .set-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
