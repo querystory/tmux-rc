@@ -919,6 +919,11 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
 
+# What forbids the offer after it, read on _plain text: "do **not**\n  run `! make deploy`".
+_NEGATED_RE = re.compile(
+    r"(?:\bnot|n't|\bnever)(?: (?:run|type|use|execute|enter|paste|send|say))?$", re.IGNORECASE)
+
+
 def _plain(text: str) -> str:
     """Text as the screen draws it, near enough to compare: no Markdown marks, one space."""
     return " ".join(re.sub(r"[`*]|^\s*●\s", "", text).split())
@@ -938,7 +943,7 @@ def _offers(message: str, reply: str | None) -> list[str]:
     texts = (reply, message) if reply and _plain(reply) == _plain(message) else (message,)
     found = (m[m.lastindex]  # the payload: each alternative's last group
              for t in texts for m in _OFFER_RE.finditer(t)
-             if not re.search(r"(?:\bnot|n't|\bnever)\s*$", t[:m.start()], re.IGNORECASE))
+             if not _NEGATED_RE.search(_plain(t[:m.start()])))
     return list(dict.fromkeys(o for o in found if re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
         + r"(?![^\s\"”`.,;:?!)])", message)))[:3]

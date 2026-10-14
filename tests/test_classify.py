@@ -1383,6 +1383,10 @@ def test_finished_turn_offers_the_replies_it_hands_over():
           "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ⏵⏵ auto mode on"), None),  # tool output
         (_auto_screen('Do not say "merge all"; it skips review.'), None),  # negated
         (_auto_screen('Do not\n  say "merge all"; it skips review.'), None),  # negated, wrapped
+        (_auto_screen("Do not run\n  ! make deploy; it deploys."),
+         "Do not run `! make deploy`; it deploys."),  # a negated run, wrapped
+        (_auto_screen('Do not say "merge all"; it skips.'),
+         'Do **not** say "merge all"; it skips.'),  # negation behind Markdown
         (_auto_screen('Do not say "merge all"; it skips review.'), 'Say "merge all" now.'),
         (_auto_screen("Run ! gh pr merge 415 --squash --auto now."),
          "Run `! gh pr merge 415 --squash` now."),  # the screen's continues
