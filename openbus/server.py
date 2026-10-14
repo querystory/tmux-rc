@@ -1432,7 +1432,9 @@ def account_login(body: SignInBody, request: Request):
 # The sign-in windows this daemon opened, by pane id: its pid, the account's dir, and
 # whether it runs Codex's device-code flow. The only panes its close and callback touch.
 _SIGN_IN: dict[str, dict] = {}
-_SIGN_IN_LOCK = threading.Lock()
+# Opening, closing, pruning and replaying to sign-in windows, one at a time: the registry
+# and the one callback port then never change under a request that relies on them.
+_SIGN_IN_LOCK = threading.RLock()
 
 
 def _alive(pane_id: str, entry: dict | None) -> bool:
@@ -1447,12 +1449,12 @@ def _live_sign_ins() -> list[tuple[str, dict]]:
     meanwhile; one exited but kept on screen (remain-on-exit) stays registered, so the
     sheet can still close it, but is not live."""
     live = []
-    for pane_id, entry in list(_SIGN_IN.items()):
-        if not entry["pid"] or tmux.pane_pid(pane_id) != entry["pid"]:
-            if _SIGN_IN.get(pane_id) is entry:
+    with _SIGN_IN_LOCK:
+        for pane_id, entry in list(_SIGN_IN.items()):
+            if not entry["pid"] or tmux.pane_pid(pane_id) != entry["pid"]:
                 _SIGN_IN.pop(pane_id, None)
-        elif not tmux.pane_dead(pane_id):
-            live.append((pane_id, entry))
+            elif not tmux.pane_dead(pane_id):
+                live.append((pane_id, entry))
     return live
 
 
@@ -1492,10 +1494,10 @@ def account_login_window(pane_id: str = "", dir: str = ""):  # noqa: A002 - the 
 def account_login_close(body: SignInWindowBody, request: Request):
     """Close a sign-in window that /api/accounts/login opened, by its exact pane and while
     that same process still owns it; any other pane is refused untouched."""
-    if not body.pid or (_SIGN_IN.get(body.pane_id) or {}).get("pid") != body.pid:
-        _refuse(request, "account_login_close", body.pane_id, 404, "not a sign-in window")
-    _kill_window(request, body.pane_id, "account_login_close", pid=body.pid)
-    if (_SIGN_IN.get(body.pane_id) or {}).get("pid") == body.pid:  # not a reuse since
+    with _SIGN_IN_LOCK:
+        if not body.pid or (_SIGN_IN.get(body.pane_id) or {}).get("pid") != body.pid:
+            _refuse(request, "account_login_close", body.pane_id, 404, "not a sign-in window")
+        _kill_window(request, body.pane_id, "account_login_close", pid=body.pid)
         _SIGN_IN.pop(body.pane_id, None)
     _audit(request, "account_login_close", body.pane_id)
     return {"ok": True}
@@ -1513,18 +1515,19 @@ def account_login_callback(body: SignInCallbackBody, request: Request):
     this daemon opened and that still runs Codex. Only that callback is requested, and its
     code and state are never logged."""
     action = "account_login_callback"
-    entry = _sign_in(body.pane_id)
-    if not entry or not entry["codex"] or entry["device"]:
-        _refuse(request, action, body.pane_id, 404, "not a browser sign-in window")
     if not (path := accounts.codex_callback(body.url)):
         _refuse(request, action, body.pane_id, 400,
                 f"Not the http://127.0.0.1:{accounts.CODEX_CALLBACK_PORT}/auth/callback?… address")
-    # The link this window printed carries its state; an address from another window's
-    # link (an older sign-in) would only be refused by codex, so say which up front.
-    shown = accounts.oauth_state(accounts.sign_in_link(_sign_in_screen(body.pane_id))["url"])
-    if shown and shown != accounts.oauth_state(path):
-        _refuse(request, action, body.pane_id, 409, _OLDER_LINK)
-    reply = accounts.replay_codex_callback(path)
+    with _SIGN_IN_LOCK:  # the window checked is the one listening, through the replay
+        entry = _sign_in(body.pane_id)
+        if not entry or not entry["codex"] or entry["device"]:
+            _refuse(request, action, body.pane_id, 404, "not a browser sign-in window")
+        # The link this window printed carries its state; an address from another window's
+        # link (an older sign-in) would only be refused by codex, so say which up front.
+        shown = accounts.oauth_state(accounts.sign_in_link(_sign_in_screen(body.pane_id))["url"])
+        if shown and shown != accounts.oauth_state(path):
+            _refuse(request, action, body.pane_id, 409, _OLDER_LINK)
+        reply = accounts.replay_codex_callback(path)
     status = reply[0] if reply else None
     _audit(request, action, body.pane_id, outcome=f"codex {status}")  # never the code or state
     if reply is None:
