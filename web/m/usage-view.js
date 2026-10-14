@@ -34,9 +34,11 @@ export const usageDays = () => picked === 'All' ? Infinity : 30;
 function teeth(w, now) {
   const past = [], hits = [];
   for (const p of w.past || []) {
-    const last = p.samples.length ? p.samples[p.samples.length - 1][1] : p.pct;
-    past.push([p.start, 0], ...p.samples, [p.resets_at, last], [p.resets_at, 0]);
-    if (p.limit_at) hits.push(p.limit_at);
+    // Within the window's final bounds: a reset re-read up to an hour off groups samples
+    // from either side, and the points must run forward in time.
+    const pts = p.samples.filter(([t]) => t >= p.start && t <= p.resets_at), last = pts.length ? pts[pts.length - 1][1] : p.pct;
+    past.push([p.start, 0], ...pts, [p.resets_at, last], [p.resets_at, 0]);
+    if (p.limit_at >= p.start && p.limit_at <= p.resets_at) hits.push(p.limit_at);
   }
   if (!(w.resets_at > now)) return { past, cur: [], fc: [], hits };
   const held = [Math.max(now, w.start), w.pct];
@@ -138,7 +140,8 @@ export function renderUsageView(root, accounts, { now = Date.now(), chip, refetc
   if (types.join() !== view.types.join()) build(types);
   shown = Math.max(0, Math.min(shown, types.length - 1));
   const all = Object.values(byType).flat(), times = all.flatMap(m => [m.past[0]?.[0], m.cur[0]?.[0], m.w.resets_at]).filter(Boolean);
-  view.extent = { min: Math.min(now - D, ...times), max: Math.max(now + 6 * H, ...times) + H };
+  // At least the days loaded, so a new account's 30d still spans 30 days; All, what there is.
+  view.extent = { min: Math.min(now - (usageDays() === Infinity ? D : usageDays() * D), ...times), max: Math.max(now + 6 * H, ...times) + H };
   for (const card of view.cards) {
     card.meters = byType[card.type];
     const head = `<h3>${esc(title(card.type))} <small>${esc(card.type)}</small></h3>${card.meters.map(m => readout(m, now)).join('')}`;
