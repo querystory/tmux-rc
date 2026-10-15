@@ -73,7 +73,8 @@ export function setupRestore({ mount, request, logos, licon, notice, running, op
     const was = offer?.server;
     try {
       offer = (await request("/api/restore")).candidate;
-    } catch {
+    } catch (err) {
+      if (err.status !== 503) return render(); // a dropped request: keep the offer, its buttons live again
       offer = null; // no history database: no offer, and nothing to say about it
     }
     const changed = offer?.server !== was;

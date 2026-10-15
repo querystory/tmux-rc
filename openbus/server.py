@@ -654,12 +654,14 @@ async def post_restore(body: RestoreBody, request: Request):
     found = await asyncio.to_thread(restore.offer, history)
     if found is None or found["server"] != body.server:
         raise HTTPException(409, "that workspace is no longer on offer")
-    blocked = {(wid, p["index"]) for wid, w in found["windows"].items() for p in w["panes"]
-               if p["blocked"]}
-    chosen = set(body.panes) - blocked
+    # Only panes the offer holds and can bring back: a pick that names nothing else must
+    # not spend the offer on an empty build.
+    restorable = {(wid, p["index"]) for wid, w in found["windows"].items() for p in w["panes"]
+                  if not p["blocked"]}
+    chosen = set(body.panes) & restorable
     if not chosen:
         raise HTTPException(422, "nothing restorable was chosen")
-    if not restore.consume(history, body.server, "restored"):
+    if not await asyncio.to_thread(restore.consume, history, body.server, "restored"):
         raise HTTPException(409, "that workspace is already being restored")
     _audit(request, "restore", "-", f"panes={len(chosen)}")
 
@@ -669,7 +671,8 @@ async def post_restore(body: RestoreBody, request: Request):
     try:
         built = await asyncio.to_thread(restore.build, found, chosen)
     except (OSError, subprocess.CalledProcessError) as e:
-        restore.consume(history, body.server, None)  # offer it again rather than lose it
+        # Offer it again rather than lose it.
+        await asyncio.to_thread(restore.consume, history, body.server, None)
         logger.warning("restore failed while building the layout", exc_info=True)
         raise HTTPException(500, f"tmux refused the layout: {e}") from e
     task = asyncio.create_task(restore.launch(built, app.state.watcher, audit))
