@@ -1032,14 +1032,14 @@ def _plain(text: str) -> str:
 
 
 def _offers(message: str, reply: str | None) -> list[str]:
-    """The replies the final message offers, as tap-to-send buttons. The transcript's copy
-    is read instead of the screen's (inline code keeps its backticks there, and long rows
-    are not wrapped), but only when it is the whole message on screen, word for word, so
-    its context (a "do not" before a say) is the screen's too. Each offer must show on
-    screen whole and bounded (a `merge 41` is not the `merge 415` on screen), each space a
-    space or the screen's wrap, so `a b` is not `a  b`. A message with the user's own row in it (a new turn that failed
-    before any reply) or a tool's result (⎿: its output, or the error that ended it) is not
-    the agent handing anything over."""
+    """The replies the final message offers, as tap-to-send buttons. The transcript's copy is
+    read instead of the screen's (inline code keeps its backticks there, and long rows are not
+    wrapped), but only when it is the whole message on screen, word for word, so its context (a
+    "do not" before a say) is the screen's too. Each offer must show on screen whole and bounded
+    (a `merge 41` is not the `merge 415` on screen), each space a space or the screen's wrap, so
+    `a b` is not `a  b`. A message with the user's own row in it (a new turn that failed before
+    any reply) or a tool's result (⎿: its output, or the error that ended it) is not the agent
+    handing anything over."""
     if _USER_ROW_RE.search(message) or re.search(r"(?m)^[ \t]*⎿", message):
         return []
     # One source, never both: a command's own quotes, unmarked on screen, are no reply.
