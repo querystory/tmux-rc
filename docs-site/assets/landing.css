@@ -505,11 +505,8 @@ footer p,footer>a:last-child {
   .screen img {
     border-radius:3px
   }
-  .showcase {
+  .showcase,.hero-shot {
     --preview-height:340px
-  }
-  .hero-shot {
-    --preview-height:420px
   }
   .phones {
     gap:18px;
