@@ -9,7 +9,7 @@ shows a phone-native dashboard: status at a glance, alerts when an agent is bloc
 a question, tappable answers, and a snapshot timeline.
 
 <p align="center">
-  <img src="docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both, Just #413 and Not yet buttons right on its row" width="280">
+  <img src="docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both, Just #413 and Later buttons right on its row" width="280">
   <img src="docs/img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, the three answers as buttons, and both PRs under Links with their titles" width="280">
 </p>
 

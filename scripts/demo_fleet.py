@@ -72,7 +72,8 @@ ROWS = """\
 7|shell|idle|dotfiles sync|3d||Synced with origin.
 7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1
 7|claude|need|webhook timeouts|4m|Go with A or B?|Go with A,Go with B
-0|claude|need|refund flow|1m|PRs #413 and #414 are green and reviewed. Merge them?|Merge both,Just #413,Not yet"""
+0|claude|need|refunds|1m|PRs #413 and #414 are green and reviewed. Merge?|Merge both,Just #413,Later
+"""
 
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
@@ -252,7 +253,7 @@ DETAIL = {
                         "endpoints. Both break existing clients, so versioning needs a call.",
         "prs": [{"repo": "example-org/shop-api", "number": 409,
               "title": "Structured money type for order totals"}]},
-    "refund flow": {
+    "refunds": {
         "model": "Opus 5", "context_pct": 47, "cost": "$1.96",
         "session_summary": "Both PRs passed CI and have an approving review. #414 builds on "
                            "#413, so merging both ships partial refunds end to end.",
