@@ -12,7 +12,7 @@
 import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
 import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
-import { paneLinks } from "/pr-links.js";
+import { paneLinks, askLink } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
 const prefs = { by: "state", rail: false, fold: {}, cards: {}, subagents: true };
@@ -233,21 +233,21 @@ export function setupSidebar(ctx) {
 
   // The same answers, the same send and the same pending hold as the pane's own question
   // card, its note standing in for Reply; Reply opens a composer that posts to the pane's
-  // /compose like its footer.
+  // /compose like its footer. A question about a link leads with Open link.
   function replies(node, p) {
     const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
-    const options = needsYou(p) ? ctx.answers(p.question) : [];
-    const items = [...options, ...(!needsYou(p) ? [] : answered ? [{ note: answered.note }] : [{ reply: true }])];
-    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
+    const options = needsYou(p) ? ctx.answers(p.question) : [], link = needsYou(p) && askLink(p);
+    const items = [...(link ? [{ link }] : []), ...options, ...(!needsYou(p) ? [] : answered ? [{ note: answered.note }] : [{ reply: true }])];
+    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.link ? `link:${o.link.href}` : `${o.index}:${o.option}`, (o) => {
       if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : ctx.answer(node._p.pane_id, o.option, o.index);
+      button.onclick = () => o.link ? window.open(o.link.href, "_blank", "noopener,noreferrer") : o.reply ? openReply(node._p.pane_id, node._p.secret) : ctx.answer(node._p.pane_id, o.option, o.index);
       return button;
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
-      text(el, o.reply ? "Reply" : o.option); el.title = o.reply ? "" : o.option; el.disabled = busy;
-      el.classList.toggle("picked", !o.reply && ctx.picked(p, o));
+      text(el, o.link ? "Open link" : o.reply ? "Reply" : o.option); el.title = o.link ? o.link.text : o.reply ? "" : o.option; el.disabled = busy && !o.link;
+      el.classList.toggle("picked", !o.reply && !o.link && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;

@@ -28,3 +28,11 @@ export function paneLinks(pane) {
     .filter(accept).slice(0, 3).map(({ href, text }) => ({ href, text }));
   return [...prs, ...transient];
 }
+
+// The link a question asks the user to open ("Open this link", a device-login URL): the
+// first screen link, when the question's own words point at one. PR links never qualify.
+export function askLink(pane) {
+  const q = pane?.question;
+  return q && /\b(link|url|browser)\b|https?:\/\//i.test(`${q.ask || ""}\n${q.prompt || ""}`)
+    ? paneLinks({ links: pane.links })[0] || null : null;
+}

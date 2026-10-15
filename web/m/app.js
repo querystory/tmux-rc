@@ -5,7 +5,7 @@ import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
-import { paneLinks } from "/pr-links.js";
+import { paneLinks, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
@@ -892,10 +892,9 @@ function render() {
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
-function renderRichContent(pane) {
-  const links = paneLinks(pane);
-  show("link-section", !!links.length);
-  reconcile($("links"), links, (link) => link.href, () => {
+// One tappable link row: the Links list's, and the one leading a question's card.
+function renderLinks(el, links) {
+  reconcile(el, links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
@@ -906,6 +905,15 @@ function renderRichContent(pane) {
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
     text(anchor.querySelector("small"), link.detail || host);
   });
+}
+
+function renderRichContent(pane) {
+  // The link the question asks you to open leads its card instead of waiting in Links.
+  const ask = pane?.question && needsYou(pane) ? askLink(pane) : null;
+  const links = paneLinks(pane).filter((link) => link.href !== ask?.href);
+  renderLinks($("ask-link"), ask ? [ask] : []);
+  show("link-section", !!links.length);
+  renderLinks($("links"), links);
   const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter((table) => table && Array.isArray(table.rows));
   show("table-section", !!tables.length);
   // Reconcile inside stable scroll containers so a poll never resets a table's position.
