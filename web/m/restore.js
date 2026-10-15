@@ -31,7 +31,9 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
     const shut = new Set([...card.querySelectorAll(".restore-session:not([open])")].map(d => d.dataset.name));
     const was = card.contains(document.activeElement) ? document.activeElement.dataset : {};
     const again = was.key ? `[data-key="${CSS.escape(was.key)}"]` : was.session ? `[data-session="${CSS.escape(was.session)}"]` : null;
-    if (!offer) { card.innerHTML = '<p class="muted">Nothing to restore.</p>'; return; }
+    // Its own screen, not a dashboard card's: a title, no Back (the sidebar and tab bar reach the dashboard).
+    const head = '<div class="landing-head"><h2>Restore your workspace</h2></div>';
+    if (!offer) { card.innerHTML = `${head}<p class="muted">Nothing to restore.</p>`; return; }
     const chosen = restorable(), agents = chosen.filter(([, p]) => p.binding).length;
     const sessions = offer.sessions.filter(s => panesOf(s).some(([w, p]) => !p.blocked && picked.get(key(w, p))));
     const ago = since({ state_since: offer.died_at }, Date.now());
@@ -40,7 +42,7 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
     mount.innerHTML = `${licon("history", 18)}<span><strong>Restore your workspace</strong><small>${esc(what)}</small></span>${licon("chevron", 16)}`;
     mount.title = `Restore your workspace: ${what}`;
     mount.setAttribute("aria-label", mount.title);
-    card.innerHTML = `<p class="muted">tmux stopped ${esc(ago)} ago. Pick what comes back; agents resume into their conversations.</p>
+    card.innerHTML = `${head}<p class="muted">tmux stopped ${esc(ago)} ago. Pick what comes back; agents resume into their conversations.</p>
       ${offer.sessions.map(s => {
         const rows = panesOf(s), open = rows.filter(([w, p]) => !p.blocked && picked.get(key(w, p))).length;
         const live = rows.filter(([, p]) => !p.blocked).length;

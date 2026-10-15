@@ -333,7 +333,8 @@ function route() {
   render();
   // Focus follows: into the view's Back, then back to the card's Details.
   if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
-  if (page && !wasPage) { $("landing").scrollTop = 0; $("dash-page").querySelector("button")?.focus({ preventScroll: true }); }
+  // Not into Restore: its first button is the Restore itself, which an Enter would press.
+  if (page && !wasPage) { $("landing").scrollTop = 0; if (page !== "restore") $("dash-page").querySelector("button")?.focus({ preventScroll: true }); }
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
   }
@@ -470,7 +471,7 @@ const steady = (paint) => (...args) => {
   try { return paint(...args); } finally { if (landing.scrollTop !== top) landing.scrollTop = top; }
 };
 const renderLanding = steady(() => {
-  if (page === "restore") return cardView("Restore your workspace", restore.card);
+  if (page === "restore") { if (!$("dash-page").contains(restore.card)) $("dash-page").replaceChildren(restore.card); return restore.card; }
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
   if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
