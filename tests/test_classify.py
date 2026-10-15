@@ -443,7 +443,7 @@ def test_working_pr_repo_is_the_panes_origin_or_written_with_its_number():
     # A pane in a plain folder "demo" (no origin) whose agent opened acme/shop-app#5286,
     # with other repos named elsewhere: the model guessed acme/demo from the folder and
     # paired the bare numbers with every repo on screen.
-    screen = ("Opened https://github.com/acme/shop-app/pull/5286\n"
+    screen = ("Opened HTTPS://GitHub.com/acme/shop-app/pull/5286\n"
               "Also see acme/ops-scripts README. Fixed #5283, #5284.\n"
               "Mirrors: https://codeberg.org/acme/ops-scripts/pull/5283 /tmp/acme/demo#5284\n"
               "https://codeberg.org/github.com/acme/demo/pull/5283\n"
