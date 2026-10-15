@@ -440,27 +440,27 @@ def test_working_prs_are_validated_bounded_and_deduped():
 
 
 def test_working_pr_repo_is_the_panes_origin_or_written_with_its_number():
-    # A pane in a plain folder "demo" (no origin) whose agent opened acme/shop-app#5286,
+    # A pane in a plain folder "demo" (no origin) whose agent opened acme/shop-app#215,
     # with other repos named elsewhere: the model guessed acme/demo from the folder and
     # paired the bare numbers with every repo on screen.
-    screen = ("Opened HTTPS://GitHub.com/acme/shop-app/pull/5286\n"
-              "Also see acme/ops-scripts README. Fixed #5283, #5284.\n"
-              "Mirrors: https://codeberg.org/acme/ops-scripts/pull/5283 /tmp/acme/demo#5284\n"
-              "https://codeberg.org/github.com/acme/demo/pull/5283\n"
-              "/tmp/github.com/acme/demo/pull/5284\n"
-              "Next: acme/⟪dim⟫ops-scripts⟪/dim⟫#5287")
-    guessed = [{"repo": r, "number": n} for n in (5286, 5283, 5284)
+    screen = ("Opened HTTPS://GitHub.com/acme/shop-app/pull/215\n"
+              "Also see acme/ops-scripts README. Fixed #212, #213.\n"
+              "Mirrors: https://codeberg.org/acme/ops-scripts/pull/212 /tmp/acme/demo#213\n"
+              "https://codeberg.org/github.com/acme/demo/pull/212\n"
+              "/tmp/github.com/acme/demo/pull/213\n"
+              "Next: acme/⟪dim⟫ops-scripts⟪/dim⟫#216")
+    guessed = [{"repo": r, "number": n} for n in (215, 212, 213)
                for r in ("acme/shop-app", "acme/demo", "acme/ops-scripts")]
-    guessed.append({"repo": "acme/ops-scripts", "number": 5287})  # cited through dim styling
+    guessed.append({"repo": "acme/ops-scripts", "number": 216})  # cited through dim styling
     r = classify(_pane(), screen, _llm({"activity": "idle", "working_prs": guessed}))
-    assert r["working_prs"] == [{"repo": "acme/shop-app", "number": 5286},
-                                {"repo": "acme/ops-scripts", "number": 5287}]
+    assert r["working_prs"] == [{"repo": "acme/shop-app", "number": 215},
+                                {"repo": "acme/ops-scripts", "number": 216}]
     # In a checkout, a bare number belongs to its origin, and to no other repo.
     r = classify(_pane(), screen, _llm({"activity": "idle", "working_prs": guessed}),
                  repository="acme/shop-app")
     assert r["working_prs"] == [
-        *({"repo": "acme/shop-app", "number": n} for n in (5286, 5283, 5284)),
-        {"repo": "acme/ops-scripts", "number": 5287}]
+        *({"repo": "acme/shop-app", "number": n} for n in (215, 212, 213)),
+        {"repo": "acme/ops-scripts", "number": 216}]
 
 
 def test_pipes_llm_json_through():
