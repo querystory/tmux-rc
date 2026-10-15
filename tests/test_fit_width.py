@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import uuid
+from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
@@ -65,25 +66,52 @@ def test_split_window_is_left_alone_unless_the_pane_is_zoomed(pane):
     assert size(pane).startswith("60x")
 
 
-@pytest.mark.parametrize("session", ["s", "grouped"])  # or a session sharing the window
-def test_attached_terminal_needs_the_toggle(pane, session):
-    if session != "s":
-        T._run(["new-session", "-d", "-t", "s", "-s", session])
+@contextmanager
+def attached(session):
+    """A desktop terminal on `session`: a control-mode client, stopped by its own PID."""
     client = subprocess.Popen(["tmux", "-L", os.environ["TMUXRC_TMUX_SOCKET"], "-C", "attach",
                                "-t", session], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
     try:
         while T._run(["display-message", "-p", "-t", session,
                       "#{session_attached}"]).strip() == "0":
             pass
+        yield
+    finally:
+        client.terminate()
+        client.wait()
+
+
+@pytest.mark.parametrize("session", ["s", "grouped"])  # or a session sharing the window
+def test_attached_terminal_needs_the_toggle(pane, session):
+    if session != "s":
+        T._run(["new-session", "-d", "-t", "s", "-s", session])
+    with attached(session):
         assert fit.view(pane, "phone", 60) is True
         assert size(pane) == "200x50 "
         fit.view(pane, "phone", 60, force=True)
         assert size(pane).startswith("60x")
         fit.view(pane, "phone", 60)  # toggled off: put back
         assert size(pane).endswith(" ")
-    finally:
-        client.terminate()
-        client.wait()
+
+
+def test_an_attach_retires_every_unforced_viewer(pane):
+    fit.view(pane, "a", 60)
+    fit.view(pane, "b", 80)
+    with attached("s"):
+        fit.view(pane, "a", 60)  # its next report: neither viewer opted in
+        assert size(pane) == "200x50 "
+
+
+def test_release_after_the_pane_is_gone(pane):
+    sibling = T._run(["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", pane,
+                      "sleep 60"]).strip()
+    T._run(["resize-pane", "-Z", "-t", pane])
+    fit.view(pane, "phone", 60)
+    assert size(sibling).startswith("60x")
+    T._run(["kill-pane", "-t", pane])
+    with pytest.raises(subprocess.CalledProcessError):
+        fit.view(pane, "phone", 0)
+    assert size(sibling).startswith("200x")
 
 
 def test_narrowest_viewer_wins_and_last_out_restores(pane):

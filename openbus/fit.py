@@ -18,75 +18,87 @@ MIN_COLS = 40  # narrower and most TUIs stop laying out sensibly
 IDLE_SECONDS = 180  # a viewer that stops polling for this long has left
 SWEEP_SECONDS = 60
 MARK = "@tmuxrc-fit"
-# The window's sessions and every attached session: a window can be in several (a group,
-# link-window), and a terminal on any of them sees it shrink.
-_FMT = "\t".join(["#{window_id}", "#{window_panes}", "#{window_zoomed_flag}", "#{pane_active}",
-                  "#{window_linked_sessions_list}", "#{S:#{?session_attached,#{session_name}#,,}}",
-                  "#{window_width}", f"#{{{MARK}}}"])
+# A window's row: its id, its sessions and every attached session (a window can be in
+# several, a group or link-window, and a terminal on any of them sees it shrink), its width
+# and our mark.
+_ROW = "\t".join(["#{window_id}", "#{window_linked_sessions_list}",
+                  "#{S:#{?session_attached,#{session_name}#,,}}", "#{window_width}",
+                  f"#{{{MARK}}}"])
 
 
 def _run(args: list[str]) -> str:
     return tmux._run(args)  # noqa: SLF001 - via the module, so a swapped-out tmux (demo, tests) holds
 
 
+def _attached(linked: str, watched: str) -> bool:
+    return bool(set(linked.split(",")) & set(watched.split(",")) - {""})
+
+
 # Held across each read-decide-resize, so a stale read can never undo a newer one.
 _lock = threading.Lock()
-_viewers: dict[str, dict[str, tuple[int, float]]] = {}  # window -> viewer -> (cols, seen)
+# viewer -> (window, cols, seen, force): one page views one pane, so one window at a time.
+_viewers: dict[str, tuple[str, int, float, bool]] = {}
 
 
-def _settle(window: str, width: str, ours: str, *, theirs: bool) -> None:
-    """Size the window for its live viewers (the narrowest), or give it back when none is
-    left. `ours` is the width we gave it; `theirs`, a window-size the user set themselves."""
+def _settle() -> None:
+    """Give every window what its live viewers want: the narrowest width among those it
+    may fit (all of them, or only the ones that forced it while a terminal is attached),
+    else its own size back. A width that is no longer ours is the user's: unmark it and
+    stop fitting it."""
+    try:
+        rows = set(_run(["list-windows", "-a", "-F", _ROW]).splitlines())
+    except subprocess.CalledProcessError:
+        rows = set()  # no server: nothing is narrow
     now = time.monotonic()
-    viewers = _viewers.get(window, {})
-    for viewer in [v for v, (_, seen) in viewers.items() if now - seen >= IDLE_SECONDS]:
-        del viewers[viewer]
-    want = min((cols for cols, _ in viewers.values()), default=0)
-    if ours and width != ours:  # resized by someone else since: theirs now
-        _run(["set-option", "-wu", "-t", window, MARK])
-    elif not want:
-        if ours:  # -A leaves window-size at manual: unset it to inherit again
-            _run(["resize-window", "-A", "-t", window, ";", "set-option", "-wu", "-t", window,
-                  "window-size", ";", "set-option", "-wu", "-t", window, MARK])
-    elif (ours or not theirs) and str(want) != width:
-        _run(["resize-window", "-x", str(want), "-t", window, ";",
-              "set-option", "-w", "-t", window, MARK, str(want)])
+    windows = {row.split("\t")[0] for row in rows}
+    for viewer, (window, _, seen, _) in list(_viewers.items()):
+        if now - seen >= IDLE_SECONDS or window not in windows:
+            del _viewers[viewer]
+    for window, linked, watched, width, ours in (row.split("\t") for row in rows):
+        attached = _attached(linked, watched)
+        want = min((cols for w, cols, _, force in _viewers.values()
+                    if w == window and (force or not attached)), default=0)
+        with suppress(subprocess.CalledProcessError):  # closed meanwhile
+            if ours and width != ours:
+                _run(["set-option", "-wu", "-t", window, MARK])
+                for viewer in [v for v, (w, *_) in _viewers.items() if w == window]:
+                    del _viewers[viewer]
+            elif not want:
+                if ours:  # -A leaves window-size at manual: unset it to inherit again
+                    _run(["resize-window", "-A", "-t", window, ";", "set-option", "-wu", "-t",
+                          window, "window-size", ";", "set-option", "-wu", "-t", window, MARK])
+            elif str(want) != width:
+                _run(["resize-window", "-x", str(want), "-t", window, ";",
+                      "set-option", "-w", "-t", window, MARK, str(want)])
 
 
 def view(pane_id: str, viewer: str, cols: int, force: bool = False) -> bool:
-    """A viewer showing `cols` columns of the pane (0: it left). Fits the window when the
-    pane fills it (its only pane, or zoomed) and no terminal is attached to its session (or
-    the viewer forces it); restores it when nobody wants it fitted any more. Returns whether
-    a terminal is attached, which is when the viewer offers its force toggle."""
+    """A viewer showing `cols` columns of the pane (0: it left). It may fit the window when
+    the pane fills it (its only pane, or zoomed) and its window-size is not one the user
+    set; whether it does depends on attachment (see _settle). Returns whether a terminal
+    is attached, which is when the viewer offers its force toggle."""
     with _lock:
-        out = _run(["display-message", "-p", "-t", pane_id, _FMT, ";",
-                    "show-options", "-wqv", "-t", pane_id, "window-size"]).split("\n")
-        window, panes, zoomed, active, linked, watched, width, ours = out[0].split("\t")
-        if not window:  # tmux 3.7 prints blanks, exit 0, for a pane that is gone
-            raise subprocess.CalledProcessError(1, "display-message")
-        attached = bool(set(linked.split(",")) & set(watched.split(",")) - {""})
-        viewers = _viewers.setdefault(window, {})
-        if cols > 0 and (panes == "1" or zoomed == active == "1") and (force or not attached):
-            viewers[viewer] = (max(MIN_COLS, cols), time.monotonic())
-        else:
-            viewers.pop(viewer, None)
-        _settle(window, width, ours, theirs=bool(out[1].strip()))
-    return attached
+        _viewers.pop(viewer, None)  # wherever it was: a release works even for a pane gone
+        try:
+            out = _run(["display-message", "-p", "-t", pane_id,
+                        f"#{{window_panes}}\t#{{window_zoomed_flag}}\t#{{pane_active}}\t{_ROW}",
+                        ";", "show-options", "-wqv", "-t", pane_id, "window-size"]).split("\n")
+            panes, zoomed, active, window, linked, watched, _, ours = out[0].split("\t")
+            if not window:  # tmux 3.7 prints blanks, exit 0, for a pane that is gone
+                raise subprocess.CalledProcessError(1, "display-message")
+            fills = panes == "1" or zoomed == active == "1"
+            if cols > 0 and fills and (ours or not out[1].strip()):
+                _viewers[viewer] = (window, max(MIN_COLS, cols), time.monotonic(), force)
+        finally:
+            _settle()
+    return _attached(linked, watched)
 
 
 def sweep() -> None:
-    """Restore every marked window no live viewer wants: after viewers go quiet, and on
-    startup for whatever a previous daemon left narrow."""
+    """_settle on a timer: after viewers go quiet, and on startup for whatever a previous
+    daemon left narrow."""
     with _lock:
-        try:
-            rows = _run(["list-windows", "-a", "-F",
-                         f"#{{window_id}}\t#{{window_width}}\t#{{{MARK}}}"]).splitlines()
-        except subprocess.CalledProcessError:
-            return  # no server: nothing is narrow
-        for window, width, ours in (row.split("\t") for row in rows):
-            if ours:
-                with suppress(subprocess.CalledProcessError):  # closed meanwhile
-                    _settle(window, width, ours, theirs=True)
+        _settle()
 
 
 async def run() -> None:
