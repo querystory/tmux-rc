@@ -6,7 +6,7 @@ export class Composer {
     this.error = error;
     this.max = max; // images one draft may hold (the chat turn limit); the pane composer has none
     this.files = new Map();
-    this.spacers = new WeakSet(); // text nodes whose first U+200B holds the caret after a chip
+    this.spacers = new WeakSet(); // text nodes whose leading U+200B holds the caret after a chip
     this.editor = document.createElement("div");
     this.editor.id = id;
     this.editor.contentEditable = "true";
@@ -51,7 +51,8 @@ export class Composer {
     if (!range) { range = document.createRange(); range.selectNodeContents(this.editor); range.collapse(false); }
     this.caret = null;
     // Never in front of a spacer's U+200B: splitting there would move it to an untracked node.
-    if (this.spacers.has(range.startContainer) && !range.startOffset) range.setStart(range.startContainer, 1);
+    const start = range.startContainer;
+    if (this.spacers.has(start) && !range.startOffset && start.nodeValue.startsWith("\u200B")) range.setStart(start, 1);
     range.deleteContents(); range.insertNode(node);
     // iOS moves a caret at the boundary after a non-editable chip to before it, so the caret
     // goes inside a zero-width text node that follows the chip.
@@ -115,7 +116,7 @@ export class Composer {
     const content = () => { text += "\n".repeat(pending); pending = 0; started = true; };
     const walk = (node) => {
       [...node.childNodes].forEach((child, index, children) => {
-        const value = child.nodeType === Node.TEXT_NODE && (this.spacers.has(child) ? child.nodeValue.replace("\u200B", "") : child.nodeValue);
+        const value = child.nodeType === Node.TEXT_NODE && (this.spacers.has(child) ? child.nodeValue.replace(/^\u200B/, "") : child.nodeValue);
         if (value) { content(); text += value; }
         else if (this.files.has(child)) { content(); flush(); segments.push({ file: this.files.get(child), chip: child }); }
         else if (child.nodeName === "BR") {
