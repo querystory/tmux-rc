@@ -1020,15 +1020,14 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
 
-# Command text and code an offer must not be read out of: an inline code span, a fence, a
-# `! ` row with its wrapped continuation, an unmarked `! ` to its row's end (the screen draws
-# inline code without backticks). A quote inside any of them is the code's own; a command
-# inside one is too, unless it is that very span or row, or a command row of its own in a
-# fence (an inline span in a fence is the fence's data).
+# Command text and code a command offer must not be read out of: an inline code span, a
+# fence, a `! ` row with its wrapped continuation, an unmarked `! ` to its row's end (the
+# screen draws inline code without backticks). A command inside one is the code's, unless it
+# is that very span or row, or a command row of its own in a fence (an inline span in a fence
+# is the fence's data).
 _CODE_RE = re.compile(
     r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)"  # a span; a fence closes on a run as long as its opener
     r"|(?P<fence>^[ \t]*(?P<run>`{3,})[\s\S]*?^[ \t]*(?P=run)`*[ \t]*$)"
-    r"|(?<=\n\n)(?:(?: {4}|\t).*(?:\n|$))+"  # an indented block (Markdown's, after a blank row)
     r"|^[ \t]*! \S.*(?:\n[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
 
 
@@ -1064,15 +1063,22 @@ def _offers(message: str, reply: str | None) -> list[str]:
     if _FORBIDS_RE.search(_plain(t)):
         return []
     code = [(c.start(), c.end(), bool(c["fence"])) for c in _CODE_RE.finditer(t)]
-    found = (m[m.lastindex]  # the payload: each alternative's last group (a quote's: 4, 5)
-             for m in _OFFER_RE.finditer(t)
-             if (marked or m.lastindex <= 3) and not any(
-                 a <= m.start() < b and not (  # inside code, and not as itself
-                     m.lastindex <= 3 and (a == m.start() or (fence and m.lastindex == 3)))
-                 for a, b, fence in code))
-    # A command whose quotes do not pair is cut short (a script with a blank row in it).
-    return list(dict.fromkeys(o for o in found if not (
-        o.startswith("! ") and (o.count("'") % 2 or o.count('"') % 2)) and re.search(
+
+    def offered(m: re.Match) -> bool:
+        if m.lastindex > 3:  # a quote: only in a transcript paragraph with no code at all
+            para = (re.split(r"\n[ \t]*\n", t[:m.start()])[-1]
+                    + re.split(r"\n[ \t]*\n", t[m.start():])[0])
+            return marked and not re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE)
+        return not any(a <= m.start() < b and a != m.start() and not (fence and m.lastindex == 3)
+                       for a, b, fence in code)  # inside code, and not as itself
+
+    found = (m[m.lastindex] for m in _OFFER_RE.finditer(t) if offered(m))  # each one's payload
+
+    def cut(o: str) -> bool:  # a command that may be cut short: a script with a blank row
+        return o.startswith("! ") and bool(  # (quotes that do not pair), a heredoc, a "\"
+            o.count("'") % 2 or o.count('"') % 2 or "<<" in o or o.endswith("\\"))
+
+    return list(dict.fromkeys(o for o in found if not cut(o) and re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
         + r"(?![^\s\"”`.,;:?!)])", message)))[:3]
 

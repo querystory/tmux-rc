@@ -1451,6 +1451,12 @@ def test_finished_turn_offers_the_replies_it_hands_over():
          "Use this:\n\n````\n```\nprintf 'say \"merge all\"'\n```\n````"),  # a nested fence
         (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
          "Use this:\n\n    printf 'say \"merge all\"'"),  # an indented code block
+        (_auto_screen("Use this: printf '%s'\n  'say \"merge all\"'"),
+         "Use this: `printf '%s'\n'say \"merge all\"'`"),  # a span over two rows
+        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
+         "Use this:\n \n    printf 'say \"merge all\"'"),  # a blank row holding a space
+        (_auto_screen("Run:\n\n  ! cat <<'EOF'\n\n  hi\n  EOF"),
+         "Run:\n\n```\n! cat <<'EOF'\n\nhi\nEOF\n```"),  # a heredoc
         (_auto_screen("Run:\n\n  ! python -c 'print(1)\n\n  print(2)'"),
          "Run:\n\n```\n! python -c 'print(1)\n\nprint(2)'\n```"),  # a script with a blank row
         (_auto_screen('Use this:\n\n  message = "! make deploy"'),
