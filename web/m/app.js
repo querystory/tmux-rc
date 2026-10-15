@@ -1044,9 +1044,12 @@ function termCols() {
   probe.remove();
   return char ? Math.max(0, Math.floor(($("terminal-scroll").clientWidth - pad) / char)) : 0;
 }
+// One at a time, in order: a release overtaking the report before it would leave the window narrow.
+let fitLine = Promise.resolve();
 function fitTo(id, cols) {
   fitCols = cols; fitAt = cols ? Date.now() : 0;
-  if (id) post(paneUrl(id, "fit"), { session: liveSession, cols, force: $("fit-toggle").checked }).then((r) => show("fit-pane", r.attached), () => {});
+  const body = { session: liveSession, cols, force: $("fit-toggle").checked };
+  if (id) fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body)).then((r) => show("fit-pane", r.attached), () => {});
 }
 const refit = () => { const cols = termCols(); if (active && fitCols && cols && cols !== fitCols) fitTo(active, cols); };
 try { $("fit-toggle").checked = localStorage.getItem("tmuxrc-fit") === "1"; } catch {}

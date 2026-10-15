@@ -65,11 +65,15 @@ def test_split_window_is_left_alone_unless_the_pane_is_zoomed(pane):
     assert size(pane).startswith("60x")
 
 
-def test_attached_terminal_needs_the_toggle(pane):
+@pytest.mark.parametrize("session", ["s", "grouped"])  # or a session sharing the window
+def test_attached_terminal_needs_the_toggle(pane, session):
+    if session != "s":
+        T._run(["new-session", "-d", "-t", "s", "-s", session])
     client = subprocess.Popen(["tmux", "-L", os.environ["TMUXRC_TMUX_SOCKET"], "-C", "attach",
-                               "-t", "s"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
+                               "-t", session], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
     try:
-        while T._run(["display-message", "-p", "-t", pane, "#{session_attached}"]).strip() == "0":
+        while T._run(["display-message", "-p", "-t", session,
+                      "#{session_attached}"]).strip() == "0":
             pass
         assert fit.view(pane, "phone", 60) is True
         assert size(pane) == "200x50 "

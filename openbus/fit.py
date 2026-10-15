@@ -18,8 +18,11 @@ MIN_COLS = 40  # narrower and most TUIs stop laying out sensibly
 IDLE_SECONDS = 180  # a viewer that stops polling for this long has left
 SWEEP_SECONDS = 60
 MARK = "@tmuxrc-fit"
+# The window's sessions and every attached session: a window can be in several (a group,
+# link-window), and a terminal on any of them sees it shrink.
 _FMT = "\t".join(["#{window_id}", "#{window_panes}", "#{window_zoomed_flag}", "#{pane_active}",
-                  "#{session_attached}", "#{window_width}", f"#{{{MARK}}}"])
+                  "#{window_linked_sessions_list}", "#{S:#{?session_attached,#{session_name}#,,}}",
+                  "#{window_width}", f"#{{{MARK}}}"])
 
 
 def _run(args: list[str]) -> str:
@@ -58,10 +61,10 @@ def view(pane_id: str, viewer: str, cols: int, force: bool = False) -> bool:
     with _lock:
         out = _run(["display-message", "-p", "-t", pane_id, _FMT, ";",
                     "show-options", "-wqv", "-t", pane_id, "window-size"]).split("\n")
-        window, panes, zoomed, active, attached, width, ours = out[0].split("\t")
+        window, panes, zoomed, active, linked, watched, width, ours = out[0].split("\t")
         if not window:  # tmux 3.7 prints blanks, exit 0, for a pane that is gone
             raise subprocess.CalledProcessError(1, "display-message")
-        attached = attached not in ("", "0")
+        attached = bool(set(linked.split(",")) & set(watched.split(",")) - {""})
         viewers = _viewers.setdefault(window, {})
         if cols > 0 and (panes == "1" or zoomed == active == "1") and (force or not attached):
             viewers[viewer] = (max(MIN_COLS, cols), time.monotonic())
