@@ -707,7 +707,10 @@ class Watcher:
         # card wait for capture + classification is what made the dock's "+" feel like it
         # had done nothing for a second or more. Panes already classified keep their last
         # state in this pre-publish, so an existing card never flickers back to "unknown".
-        prepublish = not self._booted or bool(fresh)
+        # A card still pending (no parsed_at: its first read failed) is the same case: its
+        # summary shows the moment it lands, not after the slowest other pane.
+        pending = any(not s.get("parsed_at") for s in self.states)
+        prepublish = not self._booted or bool(fresh) or pending
         states = []
         if prepublish:
             # Never seed the parse cache with these placeholders.
