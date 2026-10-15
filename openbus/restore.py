@@ -29,10 +29,11 @@ _SHELLS = frozenset({"bash", "zsh", "fish", "sh"})
 PACE = 3  # agents starting at once: forty Node processes on a just-booted box fight
 READY = 60  # seconds an agent gets to reach its prompt before its slot passes on
 
-_WINDOWS = ("#{session_name}\t#{session_path}\t#{session_group}\t#{window_id}\t#{window_index}"
-            "\t#{window_active}\t#{window_name}\t#{automatic-rename}\t#{window_zoomed_flag}"
-            "\t#{window_layout}")
-_PANES = ("#{window_id}\t#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_pid}"
+# One list-panes call for sessions, windows and panes alike: separate calls could see a
+# window made or split between them, and a layout that disagrees with its pane list.
+_PANES = ("#{session_name}\t#{session_path}\t#{session_group}\t#{window_id}\t#{window_index}"
+          "\t#{window_active}\t#{window_name}\t#{automatic-rename}\t#{window_zoomed_flag}"
+          "\t#{window_layout}\t#{pane_id}\t#{pane_index}\t#{pane_active}\t#{pane_pid}"
           "\t#{pane_current_path}\t#{pane_current_command}")
 
 
@@ -68,6 +69,8 @@ class Recorder:
         try:
             server = identity()
             payload = json.dumps(self._snapshot(states), sort_keys=True, separators=(",", ":"))
+            if identity() != server:  # a replacement's workspace, not the dead one's
+                return
             with self.history.connect() as db:
                 if self._last == (server, payload):
                     db.execute("UPDATE layout_snapshots SET last_seen=? WHERE server=?",
@@ -85,16 +88,17 @@ class Recorder:
         by_pane = {s.get("pane_id"): s for s in states}
         sessions: dict[str, dict] = {}
         windows: dict[str, dict] = {}
-        for name, path, group, wid, index, current, wname, auto, zoomed, layout in tmux.rows(
-                "list-windows", _WINDOWS):
+        rows = tmux.rows("list-panes", _PANES)
+        seen, bound = set(), self._bindings({r[10]: r[13] for r in rows})
+        for (name, path, group, wid, windex, current, wname, auto, zoomed, layout,
+             pane, index, active, _pid, cwd, command) in rows:
             session = sessions.setdefault(name, {"name": name, "path": path, "group": group,
                                                  "windows": []})
-            session["windows"].append({"id": wid, "index": int(index), "current": current == "1"})
+            if not any(w["id"] == wid for w in session["windows"]):
+                session["windows"].append({"id": wid, "index": int(windex),
+                                           "current": current == "1"})
             windows.setdefault(wid, {"name": wname, "manual": auto != "1",
                                      "zoomed": zoomed == "1", "layout": layout, "panes": []})
-        rows = tmux.rows("list-panes", _PANES)
-        seen, bound = set(), self._bindings({r[1]: r[4] for r in rows})
-        for wid, pane, index, active, _pid, cwd, command in rows:
             if pane in seen:  # a grouped or linked window lists its panes once per session
                 continue
             seen.add(pane)
@@ -169,14 +173,16 @@ def offer(history) -> dict | None:
     if found is None:
         return None
     agent_history.reconcile()  # every pane is judged by its transcript's latest state
-    died = found["died_at"]
-    for window in found["windows"].values():
-        for pane in window["panes"]:
-            pane["default"], pane["blocked"] = _judge(pane, died)
+    panes = [p for w in found["windows"].values() for p in w["panes"]]
+    # One lookup for them all: each runs agent-history's liveness scan.
+    entries = agent_history.get_many([p["binding"]["session_id"] for p in panes
+                                      if p.get("binding")]) or {}
+    for pane in panes:
+        pane["default"], pane["blocked"] = _judge(pane, found["died_at"], entries)
     return found
 
 
-def _judge(pane: dict, died: float) -> tuple[bool, str | None]:
+def _judge(pane: dict, died: float, entries: dict) -> tuple[bool, str | None]:
     if not os.path.isdir(pane["cwd"]):
         return False, "its directory is gone"
     activity, binding = pane.get("activity"), pane.get("binding")
@@ -184,7 +190,7 @@ def _judge(pane: dict, died: float) -> tuple[bool, str | None]:
         activity == "waiting" and pane.get("waiting_on") != "external")
     last = pane.get("last_activity") or 0
     if binding:
-        entry = agent_history.get(binding["session_id"])
+        entry = entries.get(binding["session_id"])
         if entry is None or entry.get("source_missing"):
             return False, "its conversation is gone"
         if entry.get("running_unknown"):
@@ -192,6 +198,8 @@ def _judge(pane: dict, died: float) -> tuple[bool, str | None]:
         if entry.get("running"):
             return False, "it's already running"
         pane["cwd"] = entry.get("cwd") or pane["cwd"]  # the harness finds it only there
+        if not os.path.isdir(pane["cwd"]):
+            return False, "its directory is gone"
         # The transcript, not the screen: an idle agent's clock moves with anything drawn.
         spoke = _epoch(entry.get("last_active"))
         last = pane["last_activity"] = last if spoke is None else spoke  # the card shows it

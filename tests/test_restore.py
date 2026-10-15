@@ -100,6 +100,16 @@ def test_unchanged_fleet_rewrites_only_the_stamp(server, tmp_path):
     assert rows(recorder.history)[0][2] != before
 
 
+def test_a_server_replaced_mid_snapshot_writes_nothing(server, tmp_path, monkeypatch):
+    server()
+    tmux("new-session", "-d", "-s", "work")
+    ids = iter(["boot:1:100", "boot:2:200"])  # the old server's, then its replacement's
+    monkeypatch.setattr(R, "identity", lambda: next(ids))
+    recorder = R.Recorder(History(tmp_path / "h.db"))
+    recorder.tick([])
+    assert rows(recorder.history) == []
+
+
 def test_dead_server_is_offered_and_a_live_one_is_not(server, tmp_path, monkeypatch):
     history = History(tmp_path / "h.db")
     server()
@@ -179,10 +189,9 @@ def test_defaults_follow_the_transcript_and_say_why_not(tmp_path, monkeypatch):
     entries = {"recent": {"last_active": "1970-01-12T13:40:00+00:00", "cwd": str(tmp_path)},
                "stale": {"last_active": "1970-01-01T00:00:00+00:00"},
                "live": {"running": {"pid": 1}}, "gone": {"source_missing": True}}
-    monkeypatch.setattr(R.agent_history, "get", entries.get)
 
     def judge(**pane):
-        return R._judge({"cwd": str(tmp_path), **pane}, died)
+        return R._judge({"cwd": str(tmp_path), **pane}, died, entries)
 
     # The screen clock says stale; the transcript says recent, and wins.
     assert judge(binding={"session_id": "recent"}, last_activity=0) == (True, None)
@@ -192,6 +201,9 @@ def test_defaults_follow_the_transcript_and_say_why_not(tmp_path, monkeypatch):
     assert judge(binding={"session_id": "live"}) == (False, "it's already running")
     assert judge(binding={"session_id": "gone"}) == (False, "its conversation is gone")
     assert judge(cwd="/no/such/dir") == (False, "its directory is gone")
+    # The transcript's directory, where the harness will look, is the one that must exist.
+    entries["moved"] = {"cwd": "/no/such/dir"}
+    assert judge(binding={"session_id": "moved"}) == (False, "its directory is gone")
     assert judge(command="bash", last_activity=died) == (False, None)
     assert judge(command="vim", last_activity=died - 60) == (True, None)
 
