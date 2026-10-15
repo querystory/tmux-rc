@@ -72,7 +72,8 @@ strictness is correct:
   given fields of some parsed row (e.g. a workflow row's `label` and `progress`).
 - `working_prs` — opt-in exact comparison of semantic `owner/name#number` associations.
   An explicit empty list pins the important negative case: PRs may be visible without
-  this session actually working on any of them.
+  this session actually working on any of them. An entry marked `"optional": true` may
+  be reported or left out, for a PR whose association the model can fairly miss.
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.

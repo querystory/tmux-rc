@@ -200,4 +200,4 @@ def test_a_real_pane_outside_a_checkout_publishes_only_the_pr_its_screen_names(m
     w._forced_this_tick = set()
     pane = _Pane()
     monkeypatch.setattr(pane, "cwd", "/home/dev/src/bl")
-    assert w._tick_pane(pane)["prs"] == sample["expected"]["working_prs"]
+    assert w._tick_pane(pane)["prs"] == [{"repo": "brightloom/bl-app", "number": 5290}]

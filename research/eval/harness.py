@@ -203,7 +203,8 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
 
         candidate_prs = sorted(map(pr_key, candidate.get("working_prs") or []))
         expected_prs = sorted(map(pr_key, expected.get("working_prs") or []))
-        if candidate_prs != expected_prs:
+        required = {pr_key(pr) for pr in expected["working_prs"] or [] if not pr.get("optional")}
+        if not required <= set(candidate_prs) <= set(expected_prs):
             diffs.append(f"working_prs: got {candidate_prs!r} want {expected_prs!r}")
     subs = candidate.get("subagents")
     subs = [a for a in subs if isinstance(a, dict)] if isinstance(subs, list) else []
