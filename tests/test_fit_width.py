@@ -122,6 +122,16 @@ def test_a_manual_resize_is_never_fought(pane):
         assert size(pane) == "120x50 "
 
 
+def test_a_window_size_the_user_chose_is_never_overwritten(pane):
+    fit.view(pane, 60)
+    T._run(["set-option", "-w", "-t", pane, "window-size", "largest"])  # same width
+    with attached("s"):
+        fit.view(pane, 60, force=True)  # neither a forced fit...
+        fit.release_attached(T.list_panes())  # ...nor a give-back touches their policy
+        assert local_window_size(pane) == "largest"
+        assert size(pane).endswith(" ")  # and the window is no longer ours
+
+
 def test_endpoint_audits(pane, monkeypatch):
     audits = []
     monkeypatch.setattr(S, "_audit", lambda _r, action, pane_id, detail="", outcome="ok":

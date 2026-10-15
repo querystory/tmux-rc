@@ -55,7 +55,9 @@ def view(pane_id: str, cols: int, force: bool = False) -> bool:
         attached = bool(set(linked.split(",")) & set(watched.split(",")) - {""})
         fills = panes == "1" or zoomed == active == "1"
         want = str(max(MIN_COLS, cols))
-        if mark and width != mark.rstrip("!"):  # resized by someone else since: theirs now
+        # Resized, or its window-size changed, by someone else since (our fit leaves it
+        # manual): theirs now.
+        if mark and (width != mark.rstrip("!") or out[1].strip() != "manual"):
             _run(["set-option", "-wu", "-t", pane_id, MARK])
         elif cols and fills and (force or not attached) and (mark or not out[1].strip()) \
                 and (want, want + "!" * force) != (width, mark):
