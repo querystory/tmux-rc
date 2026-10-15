@@ -1062,7 +1062,8 @@ function fitTo(id, cols) {
 // The view on screen has no accepted report and none is queued: send one (the stream's first
 // once rendered, a retry, or the one a stale reply held up).
 const fitDue = () => { if (!fitCols && !fitBusy && terminalVisible()) fitTo(active, termCols()); };
-const refit = () => { const cols = terminalVisible() && termCols(); if (cols && cols !== fitCols) fitTo(active, cols); };
+// Mid-gesture sizes coalesce: while a report is in flight its reply measures again.
+const refit = () => { const cols = !fitBusy && terminalVisible() && termCols(); if (cols && cols !== fitCols) fitTo(active, cols); };
 try { $("fit-toggle").checked = localStorage.getItem("tmuxrc-fit") === "1"; } catch {}
 // A terminal may have attached since: the menu asks again, so the toggle is there to tick.
 $("pane-menu").addEventListener("toggle", () => { if ($("pane-menu").open && terminalVisible()) fitTo(active, termCols()); });
