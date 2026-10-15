@@ -244,6 +244,10 @@ figure {
   object-fit:contain;
   border-radius:5px
 }
+.hero-shot {
+  --preview-height:560px;
+  margin-top:44px
+}
 .phones {
   height:var(--preview-height);
   display:flex;
@@ -503,6 +507,9 @@ footer p,footer>a:last-child {
   }
   .showcase {
     --preview-height:340px
+  }
+  .hero-shot {
+    --preview-height:420px
   }
   .phones {
     gap:18px;

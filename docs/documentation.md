@@ -3,6 +3,13 @@ title: Documentation
 toc: false
 ---
 
+<p align="center">
+  <img src="../img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both, Just #413 and Not yet buttons right on its row" width="280">
+  <img src="../img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, the three answers as buttons, and both PRs under Links with their titles" width="280">
+</p>
+
+<p align="center"><em>Answer your agents in one tap, from your phone.</em></p>
+
 Setup guides, architecture, API reference, and engineering notes for tmux-rc.
 Search the documentation or choose a topic below.
 

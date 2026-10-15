@@ -14,6 +14,9 @@ const HD = { width: 1920, height: 1080 };
 
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
+  // The front page's lead: a question answered from the Needs you list, and its pane.
+  ["one-tap-list", PHONE, "light", "", (page) => page.click("#attention-tab")],
+  ["one-tap-pane", PHONE, "light", "#pane=%2548"],
   ["hero", WIDE, "light", "#pane=%259"],
   ["website-desktop", WIDE, "light", "#pane=%259"],
   ["website-chat", WIDE, "light", "#pane=%259", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
