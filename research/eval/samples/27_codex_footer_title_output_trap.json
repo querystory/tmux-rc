@@ -1,7 +1,7 @@
 {
   "description": "Codex command output contains other panes titles and tmux session names; the live footer below the input is the authoritative conversation name.",
   "current_command": "node",
-  "capture": "• Ran a check of pane titles\n  {'title': 'Webhook Retry Queue', 'session': 'shop-api-0'}\n  {'title': 'coupon rounding', 'session': 'shop-api-0'}\n\n• Both fixes are deployed and all tests passed.\n\nWorked for 17m 43s\n\n› Ask Codex to do anything\n\n  Tidy the order export CSV · gpt-6-astra medium · Context 52% left · 5M used · Context 48% used · ~/src/shop-api · weekly 65% left · Ready",
+  "capture": "• Ran a check of pane titles\n  {'title': 'Webhook Retry Queue', 'session': 'shop-api-0'}\n  {'title': 'coupon rounding', 'session': 'shop-api-0'}\n\n• Both fixes are deployed and all tests passed.\n\nWorked for 9m 05s\n\n› Ask Codex to do anything\n\n  Tidy the order export CSV · gpt-6-astra medium · Context 61% left · 3M used · Context 39% used · ~/src/shop-api · weekly 70% left · Ready",
   "expected": {
     "tool": "codex",
     "activity": "idle",

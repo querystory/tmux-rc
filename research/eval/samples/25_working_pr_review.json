@@ -2,7 +2,7 @@
   "description": "A direct instruction and ongoing edits for one PR are real session work and must emit the semantic association.",
   "current_command": "codex",
   "repository": "example-org/shop-api",
-  "capture": "OpenAI Codex | gpt-6-sol\n\nUser: Review landed on shop-api PR 212. Address the comments and run the focused tests.\n\n• Read app/checkout/coupons.py\n• Editing the rounding fix requested in review\n• Running pytest tests/test_coupons.py\n\n› Addressing PR 212 review feedback (2m 14s)\n\nReview 212 comments · gpt-6-sol medium · ~/src/shop-api · Working",
+  "capture": "OpenAI Codex | gpt-6-sol\n\nUser: Review landed on shop-api PR 212. Address the comments and run the focused tests.\n\n• Read app/checkout/coupons.py\n• Editing the rounding fix requested in review\n• Running pytest tests/test_coupons.py\n\n› Addressing PR 212 review feedback (3m 02s)\n\nReview 212 comments · gpt-6-sol medium · ~/src/shop-api · Working",
   "expected": {
     "tool": "codex",
     "activity": "running",
