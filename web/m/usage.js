@@ -28,20 +28,20 @@ function cell(w, a, now) {
   const used = Math.min(100, w.pct);
   return `<div class="usage-cell ${level}" title="${esc(title)}" style="--p:${used}"><i class="usage-ring"></i>`
     + `<b role="meter" aria-label="${esc([NAMES[a.provider], a.acct?.name ?? a.label, w.window].filter(Boolean).join(' '))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${Math.round(w.pct)}%${note}</b>`
-    + `${label(a.provider, `${who(a)} · ${w.window}`)}</div>`;
+    + `<span>${a.chip || `${logo(a.provider)}${esc(who(a))}`} · ${esc(w.window)}</span></div>`;
 }
 
 // One row of cards rather than a block per account: a weekly-only Codex beside Claude's
-// three windows would leave holes. Each card names its provider (icon) and, with several
-// accounts, its account.
+// three windows would leave holes. Each card names its provider by its logo or, with several
+// accounts, its account by the chip the rows use (accounts.js).
 const who = a => a.label ? `${NAMES[a.provider]} ${a.label}` : NAMES[a.provider];
-const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="" width="12" height="12">${esc(text)}</span>`;
+const logo = provider => `<img src="${LOGOS[provider]}" alt="" width="12" height="12">`;
 
 // Options are named, not positional: a page holding an older copy of this module once read a
 // positional flag as `now`, counting every reset from 1970.
 export function renderUsage(el, accounts, { now = Date.now() } = {}) {
   el.hidden = !accounts.length;
-  const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, `${who(a)} · ${a.error}`)}</div>`
+  const markup = accounts.map(a => a.error ? `<div class="usage-cell none"><span>${a.chip || `${logo(a.provider)}${esc(who(a))}`} · ${esc(a.error)}</span></div>`
     : a.windows.map(w => cell(w, a, now)).join('')).join(''); // a plan without a window shows none
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
 }
