@@ -284,3 +284,38 @@ def test_launch_types_each_resume_and_skips_one_running_meanwhile(server, monkey
         assert time.time() < deadline
         time.sleep(0.05)
     assert "codex resume two" not in tmux("capture-pane", "-p", "-t", b)
+
+
+def _post(monkeypatch, tmp_path, build):
+    """The restore endpoint over a one-pane offer, `build` standing in for the layout."""
+    from fastapi.testclient import TestClient
+
+    import openbus.server as S
+    found = {"server": "dead", "windows": {"@1": {"panes": [{"index": 0, "blocked": None}]}}}
+    spent = []
+    monkeypatch.setattr(S.app.state, "history", History(tmp_path / "h.db"), raising=False)
+    monkeypatch.setattr(R, "offer", lambda _h: found)
+    monkeypatch.setattr(R, "consume", lambda _h, _s, how: spent.append(how) or True)
+    monkeypatch.setattr(R, "build", build)
+    reply = TestClient(S.app).post("/api/restore", json={"server": "dead",
+                                                          "panes": [["@1", 0], ["@9", 3]]})
+    return reply, spent
+
+
+def test_restore_offers_again_only_when_tmux_built_nothing(server, tmp_path, monkeypatch):
+    server()
+
+    def refuse(_found, chosen):
+        assert chosen == {("@1", 0)}  # a pane the offer doesn't hold is never built
+        raise subprocess.CalledProcessError(1, "tmux")
+    reply, spent = _post(monkeypatch, tmp_path, refuse)
+    assert reply.status_code == 500
+    assert spent == ["restored", None]
+
+    def half(_found, _chosen):
+        tmux("new-session", "-d", "-s", "work")
+        raise subprocess.CalledProcessError(1, "tmux")
+    reply, spent = _post(monkeypatch, tmp_path, half)
+    assert reply.status_code == 500
+    assert "work" in reply.json()["detail"]
+    assert spent == ["restored"]  # a retry would build "work" again, as work-restored

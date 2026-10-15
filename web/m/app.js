@@ -236,9 +236,9 @@ function pause(ms, signal) {
 let noticeTimer;
 // Restore is a view of its own, so the dashboard behind it stays whole. An offer that turns up
 // on the bare app (no pane, no view chosen) opens it; a spent one leaves it.
-const restore = setupRestore({ mount: $("restore"), request, logos: LOGOS, licon, notice: (...a) => notice(...a), running: () => tmuxRunning,
+const restore = setupRestore({ mount: $("restore"), request, slow: NO_TIMEOUT, logos: LOGOS, licon, notice: (...a) => notice(...a), running: () => tmuxRunning,
   open: () => openPage("restore"),
-  opened: () => { if (!active && !page) navigate(null, "restore", { mode: "replace" }); },
+  opened: () => { if (!active && !page && !dashboard) navigate(null, "restore", { mode: "replace" }); },
   closed: () => { if (page === "restore") closePage(); } });
 function notice(message = "", ms = 0, action = null) {
   clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
@@ -1129,7 +1129,7 @@ async function pollState(signal) {
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
-      if (wasRunning !== tmuxRunning) restore.refresh(); // a server came or went: the offer changes
+      if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       refreshHistory(); refreshCached();
       pruneDrafts();

@@ -645,6 +645,13 @@ def get_restore():
 _restoring: set[asyncio.Task] = set()  # held so a running restore isn't collected
 
 
+def _session_names() -> set[str]:
+    """The live tmux server's session names; none when no server runs."""
+    if not tmux.server_running():
+        return set()
+    return {r[0] for r in tmux.rows("list-windows", "#{session_name}")}
+
+
 @app.post("/api/restore")
 async def post_restore(body: RestoreBody, request: Request):
     """Restore the chosen panes of the dead server's workspace: the layout at once, then
@@ -668,12 +675,19 @@ async def post_restore(body: RestoreBody, request: Request):
     def audit(action, pane, sid, outcome):
         _audit(request, action, pane, f"session={sid}", outcome=outcome)
 
+    before = await asyncio.to_thread(_session_names)
     try:
         built = await asyncio.to_thread(restore.build, found, chosen)
     except (OSError, subprocess.CalledProcessError) as e:
-        # Offer it again rather than lose it.
-        await asyncio.to_thread(restore.consume, history, body.server, None)
         logger.warning("restore failed while building the layout", exc_info=True)
+        try:
+            left = await asyncio.to_thread(_session_names) - before
+        except (OSError, subprocess.CalledProcessError):
+            left = set()  # no server to ask: nothing it built survived
+        if left:  # offered again, a retry would build it all a second time beside these
+            raise HTTPException(500, f"tmux refused part of the layout ({e}); what it built "
+                                f"stays, its agents not resumed: {', '.join(sorted(left))}") from e
+        await asyncio.to_thread(restore.consume, history, body.server, None)  # offer it again
         raise HTTPException(500, f"tmux refused the layout: {e}") from e
     task = asyncio.create_task(restore.launch(built, app.state.watcher, audit))
     _restoring.add(task)

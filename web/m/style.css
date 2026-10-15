@@ -1264,6 +1264,7 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .restore-session summary .muted { margin-left: auto; font-size: 12px; }
 .restore-session summary::after { content: ""; width: 6px; height: 6px; margin: 0 4px 3px 0; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
 .restore-session[open] summary::after { margin-bottom: -3px; transform: rotate(-135deg); }
+.restore-window { padding: 6px 0 0 22px; color: var(--muted); font-size: 12px; }
 .restore-pane { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0 6px 22px; font-size: 13.5px; }
 .restore-pane img { margin-top: 2px; flex: none; }
 .restore-pane small { display: block; color: var(--muted); font-size: 12px; }
