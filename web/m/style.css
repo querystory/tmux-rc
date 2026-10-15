@@ -1258,6 +1258,8 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 #restore[aria-pressed="true"] { background: var(--accent-bg); }
 #restore > span { flex: 1; }
 #restore small { display: block; color: var(--muted); font-size: 12px; }
+#app.rail #restore:not([hidden]) { order: 4; width: 36px; height: 36px; min-height: 36px; margin: 6px 0 0; padding: 0; justify-content: center; border-radius: 8px; }
+#app.rail #restore > :not(:first-child) { display: none; }
 .restore-card { max-width: 760px; }
 .restore-card > p { margin: 0 0 10px; }
 .restore-session summary { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; }

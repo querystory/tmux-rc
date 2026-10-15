@@ -36,7 +36,10 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
     const sessions = offer.sessions.filter(s => panesOf(s).some(([w, p]) => !p.blocked && picked.get(key(w, p))));
     const ago = since({ state_since: offer.died_at }, Date.now());
     const what = `${agents ? `${agents} agent${agents === 1 ? "" : "s"}` : `${chosen.length} pane${chosen.length === 1 ? "" : "s"}`} in ${sessions.length} session${sessions.length === 1 ? "" : "s"}`;
-    mount.innerHTML = `<span><strong>Restore your workspace</strong><small>${esc(what)}</small></span>${licon("chevron", 16)}`;
+    // The folded rail shows only the icon, so the name rides on the button itself.
+    mount.innerHTML = `${licon("history", 18)}<span><strong>Restore your workspace</strong><small>${esc(what)}</small></span>${licon("chevron", 16)}`;
+    mount.title = `Restore your workspace: ${what}`;
+    mount.setAttribute("aria-label", mount.title);
     card.innerHTML = `<p class="muted">tmux stopped ${esc(ago)} ago. Pick what comes back; agents resume into their conversations.</p>
       ${offer.sessions.map(s => {
         const rows = panesOf(s), open = rows.filter(([w, p]) => !p.blocked && picked.get(key(w, p))).length;
@@ -78,16 +81,18 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
     render();
   });
 
-  let asked = 0;
+  let asked = 0, asks = 0;
   async function refresh() {
     asked = Date.now();
-    const was = offer?.server;
+    const mine = ++asks, was = offer?.server;
+    let next = null; // no history database (503): no offer, and nothing to say about it
     try {
-      offer = (await request("/api/restore")).candidate;
+      next = (await request("/api/restore")).candidate;
     } catch (err) {
-      if (err.status !== 503) return render(); // a dropped request: keep the offer, its buttons live again
-      offer = null; // no history database: no offer, and nothing to say about it
+      if (mine === asks && err.status !== 503) return render(); // a dropped request: keep the offer, its buttons live again
     }
+    if (mine !== asks) return; // a later ask answers instead: an older one would bring a spent offer back
+    offer = next;
     const changed = offer?.server !== was;
     if (changed) picked = new Map(offer ? Object.entries(offer.windows).flatMap(([wid, w]) => w.panes.map(p => [key(wid, p), p.default])) : []);
     render();
