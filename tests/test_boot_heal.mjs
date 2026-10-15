@@ -5,22 +5,24 @@ import vm from "node:vm";
 
 // The inline <head> script of web/m/index.html: the theme pick and the boot watchdog.
 const html = readFileSync(new URL("../web/m/index.html", import.meta.url), "utf8");
-const source = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+const source = html.split("<script>")[1].split("</script>")[0];
 
 class Script {}
 class Link {}
 
-// Boots the watchdog with `last` as the previous start's failure, fails a module load, then
-// answers each /api/version probe from `probes` (true: up, false: down). Returns the probe
-// delays and whether the page reloaded.
-async function boot(probes, last = null) {
+// Boots the watchdog with `last` as the previous start's failure, fails to load `failed`,
+// then answers each /api/version probe from `probes` (true: up, false: down); app.js boots
+// before the probes when `appBoots`. Returns the probe delays and whether the page reloaded.
+async function boot(probes, { last = null, failed = new Script(), appBoots = false, storage = true } = {}) {
   const timers = [], listeners = {}, store = new Map(last ? [["tmuxrc-boot-failure", last]] : []);
   let reloads = 0;
-  const el = { content: "", classList: { toggle() {}, add() {}, contains: () => false } };
+  const classes = new Set();
+  const el = { content: "", classList: { toggle() {}, add: (c) => classes.add(c) },
+    matches: () => classes.has("booted") && !classes.has("unstyled") }; // the one selector asked
   const context = {
     HTMLScriptElement: Script, HTMLLinkElement: Link,
     document: { documentElement: el, querySelector: () => el, hidden: false, addEventListener() {} },
-    localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) },
+    localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => { if (!storage) throw new Error("blocked"); store.set(k, v); }, removeItem: (k) => store.delete(k) },
     matchMedia: () => ({ matches: false }),
     navigator: { onLine: true },
     location: { reload: () => reloads++ },
@@ -33,7 +35,8 @@ async function boot(probes, last = null) {
   };
   vm.runInNewContext(source, context);
   timers.shift(); // the 10s not-booted timer
-  listeners.error({ target: Object.assign(new Script(), { src: "/v/1/m/app.js" }) });
+  listeners.error({ target: Object.assign(failed, { src: "/v/1/m/app.js", href: "/m/style.css" }) });
+  if (appBoots) classes.add("booted");
   const delays = [];
   while (timers.length) {
     const { fn, ms } = timers.shift();
@@ -53,9 +56,23 @@ test("a daemon down past the backoff leaves the Reload button", async () => {
 });
 
 test("a second failure with the daemon up is a real error: no loop", async () => {
-  assert.deepEqual(await boot([true], "failed to load /v/1/m/app.js"), { delays: [2000], reloads: 0 });
+  assert.deepEqual(await boot([true], { last: "failed to load /v/1/m/app.js" }), { delays: [2000], reloads: 0 });
 });
 
 test("a second failure that saw the daemon down still heals", async () => {
-  assert.deepEqual(await boot([false, true], "failed to load /v/1/m/app.js"), { delays: [2000, 4000], reloads: 1 });
+  assert.deepEqual(await boot([false, true], { last: "failed to load /v/1/m/app.js" }), { delays: [2000, 4000], reloads: 1 });
+});
+
+test("a page that booted late is left alone", async () => {
+  assert.deepEqual(await boot([true], { appBoots: true }), { delays: [2000], reloads: 0 });
+});
+
+test("a page that booted without its stylesheet still heals", async () => {
+  const failed = Object.assign(new Link(), { rel: "stylesheet" });
+  assert.deepEqual(await boot([true], { failed, appBoots: true }), { delays: [2000], reloads: 1 });
+});
+
+test("a failure that can't be recorded reloads only after seeing the daemon down", async () => {
+  assert.deepEqual(await boot([true], { storage: false }), { delays: [2000], reloads: 0 });
+  assert.deepEqual(await boot([false, true], { storage: false }), { delays: [2000, 4000], reloads: 1 });
 });
