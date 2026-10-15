@@ -1255,6 +1255,7 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 /* Restore (restore.js): a row heading the list while there is an offer, and its own view. */
 #restore { display: flex; align-items: center; gap: 8px; width: calc(100% - 24px); margin: 8px 12px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 10px; background: var(--bg); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 #restore[hidden] { display: none; }
+#restore[aria-pressed="true"] { background: var(--accent-bg); }
 #restore > span { flex: 1; }
 #restore small { display: block; color: var(--muted); font-size: 12px; }
 .restore-card { max-width: 760px; }

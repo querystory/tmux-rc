@@ -417,8 +417,10 @@ function renderList() {
   text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length);
   for (const f of ["working", "finished"]) text($(`${f}-count`), mine.filter((p) => matchesFilter(p, [f])).length);
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && (filter.length ? String(filter) : "all") === button.dataset.filter));
-  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
-  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
+  // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
+  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && page !== "restore"));
+  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && page !== "restore"));
+  $("restore").setAttribute("aria-pressed", String(page === "restore"));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), accounts.on().join(", "), $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
   const n = filter.length + accounts.on().length + !!query;
