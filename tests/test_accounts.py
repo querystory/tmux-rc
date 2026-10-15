@@ -16,6 +16,7 @@ import openbus.tmux as T
 from openbus import accounts, expunge, plan_usage
 
 STARTED = S._started  # before the moving fixture stubs it
+CODEX_LOGIN = accounts._codex_login  # before the home fixture stubs it
 
 
 def _signed_in(path, uuid, **fields):
@@ -32,6 +33,7 @@ def home(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(accounts, "_codex_login", lambda config: False)  # no real codex
     _signed_in(home / ".claude", "u-work", organizationName="Example Org",
                emailAddress="dev@example.com", organizationType="claude_team")
     _signed_in(home / ".claude-personal", "u-me", emailAddress="sam@example.net",
@@ -134,6 +136,33 @@ def test_an_added_dirs_provider_is_kept_whatever_its_name(home):
     (home / ".claude-work" / "auth.json").touch()
     work = _by_dir(home)["~/.claude-work"]
     assert (work["provider"], work["signed_in"]) == ("codex", True)
+
+
+def test_a_codex_login_in_the_keyring_is_signed_in(home, monkeypatch):
+    (home / ".codex-kr").mkdir()  # no auth.json: the login is where only codex can see it
+    monkeypatch.setattr(accounts, "_codex_login", lambda config: config.name == ".codex-kr")
+    assert _by_dir(home)["~/.codex-kr"]["signed_in"]
+
+
+def test_codex_is_asked_about_that_dir_alone(tmp_path, monkeypatch):
+    # A stand-in codex, found on the tmux server's PATH: signed in only for `login status`
+    # run on the dir it was asked about, whatever CODEX_HOME the daemon itself has, and
+    # never handed the daemon's secrets.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "codex").write_text(
+        f'#!/bin/sh\n[ -z "$OPENAI_API_KEY" ] && [ "$*" = "login status" ] '
+        f'&& [ "$CODEX_HOME" = "{tmp_path / "in"}" ]\n')
+    (bin_dir / "codex").chmod(0o755)
+    monkeypatch.setattr(T, "server_path", lambda: str(bin_dir))
+    monkeypatch.setattr(accounts, "_CODEX_SEEN", {})
+    monkeypatch.setenv("CODEX_HOME", "/elsewhere")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
+    assert CODEX_LOGIN(tmp_path / "in") and not CODEX_LOGIN(tmp_path / "out")  # exit 1: no
+    monkeypatch.setattr(T, "server_path", lambda: str(tmp_path / "nowhere"))
+    assert CODEX_LOGIN(tmp_path / "in")  # asked a moment ago: the answer is kept
+    accounts._CODEX_SEEN.clear()
+    assert not CODEX_LOGIN(tmp_path / "in")  # no codex at all
 
 
 def test_two_people_of_one_organisation_are_told_apart(home):
@@ -243,6 +272,7 @@ def client(home, monkeypatch):
     monkeypatch.setattr(T, "list_panes", lambda: [T.Pane("work", "1", "w", "0", "%9", "bash", "t")])
     calls = []
     monkeypatch.setattr(T, "_run", lambda argv, **_: (calls.append(argv), "%42")[1])
+    monkeypatch.setattr(S, "_SIGN_IN", {})
     c = TestClient(S.app)
     c.calls = calls
     return c
@@ -298,6 +328,154 @@ def test_the_session_default_and_the_sign_in_window(client, home):
         "env", f"CODEX_HOME={home}/.codex-work", "codex", "login"]
     assert client.post("/api/accounts", json={"provider": "claude",
                                               "dir": "~/.claude-personal"}).status_code == 409
+
+
+W = "CODEX_HOME=~/.codex-work"
+
+
+@pytest.mark.parametrize("command,status,tail", [
+    (f"{W} codex login --device-auth -c 'a=b c'", 200,
+     ["codex", "login", "--device-auth", "-c", "a=b c"]),
+    ("CODEX_HOME=$HOME/../home/./.codex-work/ codex login", 400, None),  # no shell: no $HOME
+    ("CODEX_HOME=~/../home/./.codex-work/ codex login", 200, ["codex", "login"]),  # same dir
+    ("  ", 400, None),  # erased is not the default: the line must say what it runs
+    ("codex login", 400, None),  # the dir's variable is not optional
+    ("CODEX_HOME=~/.codex codex login", 400, None),  # nor pointed at another account
+    (f"{W} CLAUDE_CONFIG_DIR=/x codex login", 400, None),  # nor joined by another
+    (f"{W} sh -c 'codex login'", 400, None),  # only the provider's own binary
+    (f"{W} /tmp/codex login", 400, None),
+    (W, 400, None),
+    (f"{W} codex login -v; rm -rf ~", 200, ["codex", "login", "-v;", "rm", "-rf", "~"]),  # argv
+    (f"{W} codex -c a=b login", 400, None),  # `codex login` itself, nothing else
+    (f"{W} codex 'login", 400, None),  # unbalanced quote
+])
+def test_an_edited_sign_in_runs_the_providers_binary_as_argv(client, home, command, status, tail):
+    added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-work"}).json()
+    r = client.post("/api/accounts/login",
+                    json={"session": "work", "dir": added["dir"], "command": command})
+    assert r.status_code == status
+    calls = [a for a in client.calls if a[0] == "new-window"]
+    assert [a[a.index("--") + 1:] for a in calls] == (
+        [["env", f"CODEX_HOME={home}/.codex-work", *tail]] if tail else [])
+
+
+CB = "http://localhost:1455/auth/callback?code=c-1&state=s-2"
+
+
+@pytest.mark.parametrize("url,ok", [
+    (CB, True), (f"  {CB}\n", True), (CB.replace("localhost", "127.0.0.1"), True),
+    (CB.replace("localhost", "LOCALHOST"), True),
+    (CB.replace("http:", "https:"), False), (CB.replace("1455", "1456"), False),
+    ("http://localhost/auth/callback?code=c", False),  # no port: 80
+    (CB.replace("localhost", "example.com"), False), (CB.replace("localhost", "[::1]"), False),
+    (CB.replace("localhost", "localhost.example.com"), False),
+    (CB.replace("//", "//u:p@"), False), (CB.replace("//", "//:@"), False),
+    (CB.replace("//", "//@"), False), (CB + "#x", False), (CB.replace("1455", "x"), False),
+    (CB.replace("/auth/callback", "/auth/callback/../x"), False), (CB.partition("?")[0], False),
+    (CB.replace("c-1", "c 1"), False), (CB.replace("c-1", "c%0d%0aX:1"), True),  # still escaped
+    ("javascript:alert(1)", False), ("", False),
+])
+def test_only_codex_s_own_callback_is_replayed(url, ok):
+    assert accounts.codex_callback(url) == ("/auth/callback?" + url.strip().split("?", 1)[1]
+                                            if ok else None)
+
+
+def test_a_pasted_callback_reaches_the_waiting_login(client, home, monkeypatch):
+    import http.server
+    import threading
+    got, replies, location, page = [], [(302, "")], ["http://example.com/"], [200]
+
+    class Login(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            got.append(self.path)
+            status, text = replies[-1] if self.path.startswith("/auth/") else (page[0], "Page")
+            self.send_response(status)
+            self.send_header("Location", location[0])
+            self.end_headers()
+            self.wfile.write(text.encode())
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Login)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(accounts, "CODEX_CALLBACK_PORT", server.server_port)
+    pids = {"%42": "4242"}
+    monkeypatch.setattr(T, "pane_pid", pids.get)
+    screen = ["https://auth.openai.com/oauth/authorize?response_type=code&state=s-2"]
+    monkeypatch.setattr(T, "capture_pane", lambda pane_id: screen[0])
+    added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-x"}).json()
+    client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
+    url = CB.replace("1455", str(server.server_port))
+    post = lambda **b: client.post("/api/accounts/login/callback",  # noqa: E731
+                                   json={"pane_id": "%42", "url": url, **b})
+    assert post(pane_id="%9").status_code == 404  # only a sign-in window this daemon opened
+    pids["%42"] = "1"
+    assert post().status_code == 404  # and only while its own process still runs there
+    pids["%42"] = "4242"
+    assert post(url=url.replace("/auth/callback", "/x")).status_code == 400
+    older = post(url=url.replace("s-2", "s-1"))  # another window's link: caught here
+    assert older.status_code == 409 and "older sign-in link" in older.json()["detail"]
+    assert got == []  # refused before anything was requested
+    assert post().json() == {"ok": True} and got == ["/auth/callback?code=c-1&state=s-2"]
+    # A redirect to codex's own success page, on its own server, is loaded (codex exits
+    # only then); the one to example.com above was not.
+    location[0] = f"http://127.0.0.1:{server.server_port}/success?id=1"
+    got.clear()
+    assert post().json() == {"ok": True} and got == [CB[21:], "/success?id=1"]
+    location[0] = "/success"
+    got.clear()
+    assert post().json() == {"ok": True} and got == [CB[21:], "/success"]
+    page[0] = 500  # its success page failed: so did the sign-in, as far as anyone can tell
+    assert post().status_code == 502
+    screen[0] = ""  # the link scrolled away: codex's own answer says why
+    replies.append((400, "State mismatch"))
+    assert "older sign-in link" in post().json()["detail"]
+    replies.append((500, "Token exchange failed"))
+    assert "already used or expired" in post().json()["detail"]
+    server.shutdown()
+    server.server_close()
+    assert post().status_code == 502  # nobody waiting any more
+
+
+def test_the_open_sign_in_window_shows_its_link(client, home, monkeypatch):
+    monkeypatch.setattr(T, "pane_pid", lambda pane_id: "4242")
+    screen = ["Starting local login server on http://localhost:1455."]
+    monkeypatch.setattr(T, "capture_pane", lambda pane_id: "\n".join(screen))
+    added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-x"}).json()
+    get = lambda q: client.get(f"/api/accounts/login/window?{q}")  # noqa: E731
+    assert get("dir=~/.codex-x").status_code == 404  # none opened yet
+    client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"],
+                "command": "CODEX_HOME=~/.codex-x codex login --device-auth"})
+    assert get("dir=~/.codex-x").json() == {"pane_id": "%42", "pid": "4242", "dir": added["dir"],
+                                            "codex": True, "device": True, "session": "work",
+                                            "url": "", "code": "",
+                                            "others": []}
+    screen += ["1. Open this link", "   https://auth.openai.com/codex/device", "2. Enter",
+               "   AB12-CD34E"]
+    window = get("pane_id=%2542").json()
+    assert (window["url"], window["code"]) == ("https://auth.openai.com/codex/device", "AB12-CD34E")
+    assert get("dir=~/.codex-y").status_code == 404
+    gone = subprocess.CalledProcessError(1, "tmux")
+    monkeypatch.setattr(T, "capture_pane", lambda pane_id: (_ for _ in ()).throw(gone))
+    assert get("pane_id=%2542").status_code == 404  # closed between the check and the read
+    monkeypatch.setattr(T, "capture_pane", lambda pane_id: "\n".join(screen))
+    monkeypatch.setattr(T, "_run", lambda argv, **_: "%43")  # a second window, same account
+    client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
+    newest = get("dir=~/.codex-x").json()
+    assert (newest["pane_id"], newest["others"]) == ("%43", [{"pane_id": "%42", "pid": "4242"}])
+    assert get("pane_id=%2542").json()["others"] == []  # the newer one is not "older"
+    # One browser sign-in at a time (it holds codex's one callback port); device codes may add.
+    again = client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
+    assert again.status_code == 409 and "already open" in again.json()["detail"]
+    device = {"session": "work", "dir": added["dir"],
+              "command": "CODEX_HOME=~/.codex-x codex login --device-auth"}
+    assert client.post("/api/accounts/login", json=device).status_code == 200
+    monkeypatch.setattr(T, "pane_dead", lambda pane_id: True)  # finished, kept on exit
+    assert get("dir=~/.codex-x").status_code == 404 and "%43" in S._SIGN_IN  # still closable
+    monkeypatch.setattr(T, "pane_dead", lambda pane_id: False)
+    monkeypatch.setattr(T, "pane_pid", lambda pane_id: None)  # all gone: signed in, say
+    assert get("dir=~/.codex-x").status_code == 404 and S._SIGN_IN == {}  # and forgotten
 
 
 def test_an_unfinished_sign_in_is_resumed_not_refused(home):
