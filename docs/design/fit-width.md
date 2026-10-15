@@ -13,7 +13,7 @@ screens wide: you either pan sideways on every line or shrink the font until it 
 unreadable. (Plain text that tmux itself wrapped is no help either: the capture joins it
 back into one long line.)
 
-The fix is to make tmux wrap where the phone does. While a viewer looks at a pane it
+The fix is to give the window the phone's width. While a viewer looks at a pane it
 reports how many columns it can show at its current font, and the daemon resizes the
 window to that width. Only the width: the window's height stays as it is, because the view
 scrolls through capture history natively and never needs to send scroll events to tmux.
