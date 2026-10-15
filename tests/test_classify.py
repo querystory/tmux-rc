@@ -10,10 +10,10 @@ from openbus.tmux import Pane
 
 
 def test_opaque_session_identifiers_are_not_titles():
-    for name in ("01a0e9d1-093d-7c10-84f4-133c9544c971", " ABCDEF0123456789 "):
+    for name in ("00000000-0000-7000-8000-000000000001", " ABCDEF0123456789 "):
         result = classify(_pane(), "text", _llm({"session": name, "activity": "idle"}))
         assert "session" not in result
-    for name in ("gpt-5 migration", "airbyte-value-population", "Review 4955", "deadbeef"):
+    for name in ("gpt-5 migration", "csv-import-retries", "Review 4955", "deadbeef"):
         capture = f"› input\n{name} · gpt-6-sol · ~/src/app"
         result = classify(_pane("node"), capture, _llm({
             "tool": "codex", "session": name, "activity": "idle",
@@ -57,7 +57,7 @@ def test_bootstrap_rejects_junk():
 
 def test_bootstrap_rejects_non_title_names():
     for name in ("~/src/app", "/src/app", "docs/metadata-design",
-                 "01a0e9d1-093d-7c10-84f4-133c9544c971"):
+                 "00000000-0000-7000-8000-000000000001"):
         result = bootstrap(_pane("node"), "ordinary history", _llm({
             "summary": "Working on parser behavior", "name": name,
         }))
@@ -756,7 +756,7 @@ def test_background_terminal_hint_is_scoped_to_current_section():
 
 def test_codex_title_requires_current_ui_evidence():
     capture = ("› Ask Codex to do anything\n\n"
-               "01a0e9d1-093d-7c10-84f4-133c9544c971 · gpt-6-astra medium · "
+               "00000000-0000-7000-8000-000000000001 · gpt-6-astra medium · "
                "Context 52% left · ~/src/tmux-rc · Ready")
     result = classify(_pane("node"), capture, _llm({
         "tool": "codex", "session": "Track PRs per live session",
@@ -824,7 +824,7 @@ def test_failed_identity_retry_preserves_valid_current_state():
 
 
 def test_uuid_footer_does_not_freeze_completed_model_selection():
-    uuid = "01a0e9d1-093d-7c10-84f4-133c9544c971"
+    uuid = "00000000-0000-7000-8000-000000000001"
     capture = ("Select Model and Effort\n1. GPT-6-Sol\n2. GPT-6-Astra\n"
                "\x1e[visible screen]\x1f\nWorked for 8m 32s · 5:16 PM\n"
                f"› Ask Codex to do anything\n{uuid} · GPT-6.1-Sol medium · ~/src/tmux-rc")
@@ -923,10 +923,10 @@ def test_session_grounding_rejects_paths_and_quoted_output():
         capture = "{'session': 'other-pane'}\n\noutput\n\n› input\n\n~/src/app · gpt-6-sol"
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": name}))
         assert "session" not in result
-    capture = ("› input\n\nairbyte-value-population · gpt-5.6-sol medium · "
-               "docs/query-result-metadata-design · ~/src/app · Ready")
+    capture = ("› input\n\ncsv-import-retries · gpt-5.6-sol medium · "
+               "docs/import-retry-design · ~/src/app · Ready")
     result = classify(_pane("node"), capture, _llm({
-        "tool": "codex", "session": "docs/query-result-metadata-design",
+        "tool": "codex", "session": "docs/import-retry-design",
     }))
     assert "session" not in result
 

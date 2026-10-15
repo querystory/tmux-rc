@@ -1,17 +1,23 @@
 {
   "description": "A direct instruction and ongoing edits for one PR are real session work and must emit the semantic association.",
   "current_command": "codex",
-  "repository": "querystory/qs-app",
-  "capture": "OpenAI Codex | gpt-6-sol\n\nUser: Review landed on qs-app PR 4955. Address the comments and run the focused tests.\n\n• Read backend/genai/judge.py\n• Editing the timeout handling requested in review\n• Running pytest backend/genai/test_judge.py\n\n› Addressing PR 4955 review feedback (2m 14s)\n\nReview 4955 comments · gpt-6-sol medium · ~/src/qs/qs-app · Working",
+  "repository": "example-org/shop-api",
+  "capture": "OpenAI Codex | gpt-6-sol\n\nUser: Review landed on shop-api PR 212. Address the comments and run the focused tests.\n\n• Read app/checkout/coupons.py\n• Editing the rounding fix requested in review\n• Running pytest tests/test_coupons.py\n\n› Addressing PR 212 review feedback (2m 14s)\n\nReview 212 comments · gpt-6-sol medium · ~/src/shop-api · Working",
   "expected": {
     "tool": "codex",
     "activity": "running",
     "tasks": [
-      {"text": "Address review feedback and run focused tests", "done": false}
+      {
+        "text": "Address review feedback and run focused tests",
+        "done": false
+      }
     ],
     "working_prs": [
-      {"repo": "querystory/qs-app", "number": 4955}
+      {
+        "repo": "example-org/shop-api",
+        "number": 212
+      }
     ],
-    "headline": "Addressing review feedback on qs-app PR 4955"
+    "headline": "Addressing review feedback on shop-api PR 212"
   }
 }
