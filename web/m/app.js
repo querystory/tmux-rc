@@ -685,14 +685,16 @@ const paintUsage = steady(() => {
   const draw = (el, list) => accounts.groups(el, list, renderUsage);
   const panesOf = (m) => panes.filter((x) => m.dirs?.some((d) => accounts.profile(d)?.panes.includes(x.pane_id)));
   const { shown, idle } = several ? inUse(accounts.byUrgency(all), panesOf) : { shown: all, idle: [] };
+  const focused = document.activeElement?.id === "usage-more"; // a redrawn strip takes it along
   draw($("usage"), shownUsage(shown, WIDE.matches && usageMode !== "off" ? "on" : usageMode));
-  // Redrawn only when changed, so a repaint keeps a focused button's focus.
+  // Redrawn only when changed or wiped, then given its focus back.
   const more = accounts.more($("usage").hidden ? [] : idle), was = $("usage-more");
   if (was?._html !== more || $("usage").lastElementChild !== was) {
     was?.remove();
     $("usage").insertAdjacentHTML("beforeend", more);
     if ($("usage-more")) $("usage-more")._html = more; // a tap opens Plan usage, as the strip's does
   }
+  if (focused) $("usage-more")?.focus({ preventScroll: true });
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter whatever the mode; its view (#view=usage)
   // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
