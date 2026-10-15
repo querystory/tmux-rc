@@ -48,6 +48,10 @@ try:  # likewise for open loops
     from openbus.open_loops import OpenLoops
 except ImportError:
     OpenLoops = None
+try:  # likewise for reboot restore
+    from openbus import restore
+except ImportError:
+    restore = None
 
 from . import demo_fleet as demo
 
@@ -136,6 +140,8 @@ async def lifespan(app):
         if OpenLoops:
             app.state.loops = demo.seed_loops(OpenLoops())
             app.state.loops.report = partial(app.state.loops.report, now=demo.NOW)
+        if restore and hasattr(demo, "seed_restore"):
+            demo.seed_restore(app.state.history)
         yield
 
 
@@ -150,6 +156,9 @@ def install() -> None:
         accounts.report = lambda *_: {**demo.accounts(TWO_ACCOUNTS, _since_sign_in()),
                                       "shared": accounts.SHARED}
     tmux.capture_pane = _capture
+    if restore and hasattr(demo, "restore_seams"):
+        for name, seam in demo.restore_seams().items():
+            setattr(restore, name, seam)
     # A fixed model menu, so the chat button shows on every machine whatever keys it holds;
     # the socket itself is dropped (the screenshot browser stubs it), so no provider is called.
     server.DOCS_MOUNTED = True  # the Docs link shows as on a real deploy, built or not

@@ -10,9 +10,12 @@ History is generated from a seed, not stored, so it costs a few lines instead of
 """
 from __future__ import annotations
 
+import json
 import math
+import os
 import random
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from openbus.history import COVERAGE, History
 
@@ -486,3 +489,70 @@ def seed_loops(loops):
          "unpushed": unpushed, "active_at": NOW - 2 * 86400}
         for path, repo, branch, dirty, unpushed in LOOP_TREES], NOW - 7 * 60
     return loops
+
+
+# Reboot restore: the workspace of a tmux server that died this morning, as the recorder
+# would have saved it (openbus/restore.py), and agent-history's word on each conversation.
+# session | window id, index, name | pane: tool | title | cwd | activity | cost | minutes idle
+# at shutdown, or "-" for a plain shell | its conversation's state (running, or blank).
+DIED = NOW - 3 * 3600
+RESTORE = """\
+shop-api|@1 0 api|claude|Rate-limit the public API|/work/shop-api|waiting|$3.10|4|
+shop-api|@1 0 api|shell||/work/shop-api|||-|
+shop-api|@2 1 checkout|codex|Fix the checkout retry loop|/work/shop-api|running|$1.45|0|
+shop-api|@3 2 webhooks|claude|Answer webhooks before reserving stock|/work/shop-api|idle|$0.80|95|
+research|@4 0 tokenizer|claude|Tokenizer v2 benchmarks|/work/research|idle|$6.20|5760|
+research|@4 0 tokenizer|codex|Eval harness flakes|/work/research|idle|$0.35|40|running
+research|@5 1 papers|claude|Survey of retrieval papers|/work/research|waiting|$2.05|12|"""
+
+
+def restore_snapshot() -> tuple[dict, dict]:
+    """(the snapshot's payload, agent-history's entries by session id)."""
+    sessions, windows, entries = {}, {}, {}
+    for n, line in enumerate(RESTORE.splitlines()):
+        session, window, tool, title, cwd, activity, cost, idle, state = line.split("|")
+        wid, index, name = window.split()
+        s = sessions.setdefault(session, {"name": session, "path": cwd, "group": "",
+                                          "windows": []})
+        if not any(w["id"] == wid for w in s["windows"]):
+            s["windows"].append({"id": wid, "index": int(index), "current": not s["windows"]})
+        w = windows.setdefault(wid, {"name": name, "manual": True, "zoomed": False,
+                                     "layout": "", "panes": []})
+        shell = tool == "shell"
+        at = 0 if shell else int(DIED - int(idle) * 60) // 60 * 60
+        sid = None if shell else f"demo-{n}"
+        w["panes"].append({"index": len(w["panes"]), "active": not w["panes"], "cwd": cwd,
+                           "command": "zsh" if shell else tool,
+                           "binding": sid and {"harness": tool, "session_id": sid},
+                           "title": title or None, "tool": None if shell else tool,
+                           "activity": activity or None, "waiting_on": None,
+                           "cost": cost or None, "context_pct": None, "last_activity": at})
+        if sid:
+            entries[sid] = {"cwd": cwd, "resume_argv": [tool, "resume", sid],
+                            "last_active": datetime.fromtimestamp(at, UTC).isoformat(),
+                            "running": {"pid": 1} if state == "running" else None}
+    for w in windows.values():  # 178x41, the panes side by side
+        width = (178 - len(w["panes"]) + 1) // len(w["panes"])
+        cells = ",".join(f"{width}x41,{i * (width + 1)},0,{i}" for i in range(len(w["panes"])))
+        w["layout"] = f"0000,178x41,0,0{{{cells}}}" if len(w["panes"]) > 1 else "0000,178x41,0,0,0"
+    return {"sessions": list(sessions.values()), "windows": windows}, entries
+
+
+def restore_seams() -> dict:
+    """What restore.offer reads besides the database, over the fleet: agent-history answers
+    from it, and its invented directories pass for present. The demo server swaps these in;
+    Restore and Start fresh are mutations there, answered without running."""
+    entries = restore_snapshot()[1]
+    return {"agent_history": SimpleNamespace(reconcile=lambda: None, get_many=lambda ids: {
+                i: entries[i] for i in ids if i in entries}),
+            "os": SimpleNamespace(path=SimpleNamespace(
+                isdir=lambda d: d.startswith("/work/"), basename=os.path.basename))}
+
+
+def seed_restore(history: History) -> History:
+    """The dead server's row; its id's boot never matches this machine's, so it reads dead."""
+    payload, _ = restore_snapshot()
+    with history.connect() as db:
+        db.execute("INSERT INTO layout_snapshots VALUES (?, ?, ?, NULL)",
+                   ("demo-boot:4242:1", DIED, json.dumps(payload)))
+    return history
