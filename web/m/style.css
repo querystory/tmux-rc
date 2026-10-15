@@ -938,11 +938,15 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
 .atlas-tool-filter img { object-fit: contain; }
-/* A phone swaps the agent chips, which wrap there, for a select beside the session one. */
-.atlas-tool-picker { display: none; }
-@media (max-width: 699px) {
-  .atlas-controls > :is(.atlas-controls-label, .atlas-tool-filter) { display: none; }
-  .atlas-controls > .atlas-picker { display: block; flex: 1 1 0; min-width: 0; margin-left: 0; }
+/* Below the wide layout the dashboard opens on its cards: its filter row folds behind the
+   list's filter button, which moves into its header (app.js placePill) and opens the same
+   menu, where Agent, Session and Account apply and the list's State and Sort by do not.
+   Wide, the dashboard keeps its own session select, so the menu leaves Session out. */
+#side-filter-picker [aria-label="Session"] { display: none; }
+@media (max-width: 1099px) {
+  #session-atlas .atlas-controls { display: none; }
+  #app:has(#landing:not([hidden])) #side-filter-picker [aria-label="Session"] { display: block; }
+  #app:has(#landing:not([hidden])) #side-filter-picker :is([aria-label="State"], [aria-label="Sort by"]) { display: none; }
 }
 
 /* Keep the standalone root in normal flow to avoid WebKit fixed-root clipping.
@@ -1124,6 +1128,9 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 /* The groups without dots line up with the dotted ones' names. */
 #side-filter-picker :is([data-v]:not(:has(.acct-dot)), .menu-clear) { padding-left: 26px; }
+#side-filter-picker [data-v]:has(img) { padding-left: 6px; } /* an agent's logo stands where a dot would */
+#side-filter-picker .acct-opt img { flex: none; margin-right: 4px; border-radius: 3px; }
+#side-filter-picker .acct-opt small { margin-left: 6px; color: var(--muted); }
 /* Under an empty or narrowed list, both layouts: the panes the filter hides, a click away. */
 .empty-needs { align-self: center; margin: -8px auto 12px; padding: 4px 8px; font-size: 12.5px; color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
 .empty-needs[data-all="accounts"] { margin-top: 8px; color: var(--muted); }

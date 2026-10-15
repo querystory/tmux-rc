@@ -49,6 +49,17 @@ checked state and any checked account, and none checked is All. One-of was wrong
 "running or recently finished" and "these two accounts" are natural questions. The menu stays
 open while you check, since one click is rarely the whole choice.
 
+Agent sits between State and Account: the kinds of pane present (Claude, Codex, Shell,
+opencode and so on), each with its logo and count, multi-select like the others. It is the
+same filter as the dashboard's agent chips, one list in the URL (`agent=claude,codex`) that
+the list, the dashboard's charts and its Plan usage card all read. Before, the chips filtered
+the dashboard alone, so a pick there and a list that ignored it said two different things
+about the same fleet. On a phone the dashboard's filter row, the chips and the session select,
+folds behind the list's filter button, moved into the dashboard's header, so the page opens
+on its cards. It opens the same menu, with Agent, a tmux Session group (the wide dashboard
+keeps its own select for that) and Account; State and Sort by belong to the list and stay
+out.
+
 State's options are the list's sections, in their order and colours: Needs you, Working, Just
 finished, Idle, each showing exactly that section's panes. They were Running, Recent and Needs
 you, which named different sets from the sections beside them: Recent was any pane not idle,

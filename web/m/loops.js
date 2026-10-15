@@ -3,9 +3,8 @@
 // and the full lanes on its own page. Panes blocked on you are the sidebar's and the Needs
 // you tab's, so they are not repeated here. A row's pane buttons open the window that owns
 // it. See docs/design/open-loops.md.
-import { since, paneName } from "/m/pane-model.js";
+import { since, paneName, esc } from "/m/pane-model.js";
 
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const LANES = { waiting: "Waiting on you", moving: "Moving", dropped: "Dropped" };
 export const REASONS = {
   review_requested: "your review is requested", approved: "approved and green, not merged",

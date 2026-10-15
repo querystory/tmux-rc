@@ -3,8 +3,7 @@
 // window's trend, dashed on to the reset at the fitted pace. See docs/design/plan-usage.md.
 const NAMES = { claude: 'Claude', codex: 'Codex' };
 const LOGOS = { claude: '/claude.png', codex: '/openai.svg' };
-import { isRecent } from './pane-model.js';
-const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+import { isRecent, esc } from './pane-model.js';
 
 export function countdown(ms) {
   const m = Math.max(0, Math.round(ms / 60000)), d = Math.floor(m / 1440), h = Math.floor(m / 60) % 24;

@@ -2,7 +2,7 @@
 // for a provider with two or more signed-in accounts; with one each, everything here is a
 // no-op and the app looks as it always did. The one exception is Settings' Accounts,
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+import { esc } from "/m/pane-model.js";
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
@@ -89,7 +89,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     const kind = (label, chips) => chips.length ? `<span class="pill-lead"><span class="pill-kind">${label}</span>${chips[0]}</span>${chips.slice(1).join("")}` : "";
     const n = on.length + !!q + more.length;
     pill.hidden = !n;
-    draw(pill, pill.hidden ? "" : kind("State", more.map(([k, label]) => chip(`data-chip="${k}" data-s="${k}"`, label, label, '<i class="acct-dot"></i>')))
+    const of = (name, dot) => more.filter(([k]) => k === name).map(([, k, label]) => chip(`data-chip="${esc(k)}"${dot ? ` data-s="${esc(k)}"` : ""}`, label, label, dot));
+    draw(pill, pill.hidden ? "" : kind("State", of("State", '<i class="acct-dot"></i>')) + kind("Agent", of("Agent", ""))
       + kind("Account", on.map((p) => badge(p, clear(`${p.name} filter`, `data-acct="${esc(key(p))}"`))))
       + kind("Search", q ? [chip("data-q", `"${q}"`, "search")] : [])
       + (n > 1 ? '<button type="button" class="pill-clear" data-all>Clear all</button>' : ""));

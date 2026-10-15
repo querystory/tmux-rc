@@ -2,6 +2,8 @@ import { parseHash } from "./url-state.js";
 // Pure pane predicates for the mobile UI: no DOM, no clock of their own (time is injected),
 // so tests/test_mobile_pane_model.py can run them under node against fixture panes.
 
+// Markup-escaped text, for every module that builds HTML from strings.
+export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 // An idle pane older than this is parked, so it drops out of "Recent".
 export const PARKED_IDLE_SECS = 600;
 const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
