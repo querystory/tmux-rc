@@ -22,28 +22,43 @@
       document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
     })();
     // Boot watchdog. app.js adds .booted once the chrome is built; until then the markup is
-    // a skeleton (style.css). If it never gets there (a module that failed to load, a throw
+    // a skeleton (the <style> below). If it never gets there (a module that failed to load, a throw
     // at boot, a timer that runs out), say so with a Reload button rather than reveal the
     // half-built chrome, and report why: a phone has no devtools, and app.js's own reporter
     // never ran. The reason is also kept for the next start to re-send, since a network
     // that failed the boot fails its report too.
+    // A failed boot is usually the daemon mid-restart, so heal it: probe /api/version at
+    // 2s, 4s, 8s, 16s and reload once it answers. A start after a failed one (or one that
+    // can't record its failure) reloads only if it saw the daemon down, so a real code error
+    // gets one retry, not a loop. A missing stylesheet marks the page .unstyled: app.js
+    // booting without it still counts as failed, as the half-styled app is unusable.
     (() => {
-      const root = document.documentElement, KEY = "tmuxrc-boot-failure", booted = () => root.classList.contains("booted");
+      const root = document.documentElement, KEY = "tmuxrc-boot-failure", booted = () => root.matches(".booted:not(.unstyled)");
       const send = (message) => navigator.sendBeacon?.("/api/client-error", JSON.stringify({ kind: "boot", message }));
-      let reason;
+      let reason, last;
+      // Each probe gets a deadline: a request stalled in the tunnel would hold up the next.
+      const heal = (n, down) => setTimeout(() => {
+        const deadline = new AbortController();
+        setTimeout(() => deadline.abort(), 5000);
+        fetch("/api/version", { cache: "no-store", signal: deadline.signal })
+          .then((r) => { if (!r.ok) throw r.status; if (!booted() && (down || !last)) location.reload(); })
+          .catch(() => n < 3 && heal(n + 1, true));
+      }, 2000 << n);
       const fail = (why) => {
         if (booted() || reason) return;
         reason = why;
         root.classList.add("boot-failed");
         send(why);
-        try { localStorage.setItem(KEY, why); } catch {}
+        try { localStorage.setItem(KEY, why); } catch { last = why; }
+        heal(0);
       };
       try {
-        const last = localStorage.getItem(KEY);
+        last = localStorage.getItem(KEY);
         if (last) { localStorage.removeItem(KEY); send(`previous start: ${last}`); }
       } catch {}
       addEventListener("error", (e) => {
-        const t = e.target, src = t instanceof HTMLScriptElement ? t.src : t?.rel === "modulepreload" && t.href;
+        const t = e.target, src = t instanceof HTMLScriptElement ? t.src : t instanceof HTMLLinkElement && t.href;
+        if (t?.rel === "stylesheet") root.classList.add("unstyled");
         if (e.filename) fail(`${e.message} at ${e.filename}:${e.lineno}:${e.colno}`);
         else if (src) fail(`failed to load ${src}`);
       }, true);
@@ -59,6 +74,21 @@
       document.addEventListener("visibilitychange", () => document.hidden ? (away = true) : retry(away && reason));
     })();
   </script>
+  <!-- Until app.js runs, the markup is a skeleton: icon buttons ship empty and both brand
+       rows show, since app.js picks the layout. Over a slow tunnel that lasts seconds, so
+       show a plain loading line instead of the half-built chrome. If app.js never gets
+       there, the watchdog above swaps the line for a Reload button. Inline, with its own
+       colours, because a boot that failed may have failed to load style.css too. -->
+  <style>
+    html:not(.booted) #app, .unstyled #app { visibility: hidden; }
+    #booting { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px;
+      background: var(--bg, #101312); color: var(--muted, #a1ada6); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .light #booting { background: var(--bg, #f5f7f6); color: var(--muted, #53655b); }
+    #booting p { margin: 0; }
+    #booting button { padding: 0 24px; min-height: 44px; border: 0; border-radius: 6px; }
+    #booting > :not(:first-child), .boot-failed #booting > :first-child, .booted:not(.unstyled) #booting { display: none; }
+    .boot-failed #booting > :not(:first-child) { display: revert; }
+  </style>
   <link rel="stylesheet" href="/m/style.css">
   <link rel="stylesheet" href="/live-chat.css">
   <!-- /v/0/ is the server's asset version: see mobile_ui in openbus/server.py -->

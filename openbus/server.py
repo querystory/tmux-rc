@@ -1998,6 +1998,10 @@ def main() -> None:
     # is what the trust model needs.
     # log_config=None: don't install uvicorn's own handlers/formatters — its loggers
     # (uvicorn.access etc.) then propagate to root and share the timestamped format above.
+    # timeout_graceful_shutdown: by default a restart waits for every connection to close,
+    # and a phone's live stream or long poll never does, so the daemon sat ~50s with its
+    # listener closed and pages loading mid-restart lost their scripts. Clients reconnect
+    # anyway; the lifespan teardown still runs in full after the cut.
     host, port = _bind()
     uvicorn.run(
         "openbus.server:app" if reload else app,
@@ -2007,6 +2011,7 @@ def main() -> None:
         port=port,
         reload=reload,
         reload_dirs=[str(_PKG_DIR)] if reload else None,
+        timeout_graceful_shutdown=3,
     )
 
 

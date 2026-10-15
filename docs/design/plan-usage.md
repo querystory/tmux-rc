@@ -195,6 +195,25 @@ request:
   account id lives only inside `auth.json`'s tokens, and keeping the Codex path entirely
   credential-free was worth more than merging the rare case of two homes on one login.
 
+**omp** can sign in to a Claude plan too, and its use counts against the same 5h and 7d as
+Claude Code's. Without it, an account used only from omp panes read as idle, so the strip
+could fold it into "+N" while omp burned it. omp ignores `CLAUDE_CONFIG_DIR`: each omp
+profile (`--profile`, else `OMP_PROFILE`) keeps its own logins, and may rotate between
+several. So rather than read omp's credential store, the daemon asks omp, at most once a
+minute per profile its panes run: `omp usage --json --provider anthropic` names each login
+by an account id that equals Claude's `accountUuid`. It runs omp the way that pane does
+(its executable, and the script bun or a wrapper runs, from the pane's cwd) and with its
+`HOME`, since the daemon's PATH need not hold a bun install and a profile's logins live
+under that HOME. An omp pane then counts as a pane of
+every listed Claude account its profile holds, for the chip and for "in use". Every one,
+not a guess at one: which login a rotating profile is on at a given moment is not exposed.
+The pane still wears one chip, the first such account's: several chips would claim more
+than is known, and the account filter matches the pane on any of them.
+Only `--provider anthropic`, since asking every provider takes about 15 seconds against
+about one. A request never waits on omp; it reads the last answer, which a failed read
+keeps. omp's numbers are not new meters (yet): the account's own Claude meters already
+show them, and a Claude login only omp uses would be one that tmux-rc has not listed.
+
 Each row reports the config dirs it was read from, and the UI names it after the account
 those dirs belong to. A meter shows just its provider's icon while there is one account
 per provider; with several, each card names its account too, ordered by urgency (see
@@ -209,9 +228,8 @@ it sits with the meters it stands for rather than over the search row's seam. It
 account. When no account is in use, the strip shows them all rather than nothing. Ordering
 the strip by the open pane's account was mocked and rejected. It answers "how is the account
 I'm on?" in the sidebar, away from the pane, and it reshuffles the strip on every switch.
-The open pane's chip in the header carries that answer instead: its account's 5h and 7d,
-coloured by the same verdict as the meters. A phone gives the chip its own line, because
-the path needs that header row.
+Putting the open pane's 5h and 7d on its account chip in the header was tried and removed:
+it crowded the header, truncated the pane title, and a red percentage there read as an error.
 
 ## Sources, and why each
 

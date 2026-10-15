@@ -25,16 +25,6 @@ html, body { position: fixed; inset: 0; overflow: hidden; }
 /* iOS Safari's text autosizing boosts some blocks (long terminal lines in a wide scroller)
    to about twice the set size after a layout change. The page sizes its own text. */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-/* Until app.js runs, the markup is a skeleton: icon buttons ship empty and both brand rows
-   show, since app.js picks the layout. Over a slow tunnel that lasts seconds, so show a
-   plain loading line instead of the half-built chrome. If app.js never gets there, the
-   watchdog in index.html swaps the line for a Reload button: the skeleton is never shown. */
-html:not(.booted) #app { visibility: hidden; }
-#booting { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--muted); }
-#booting p { margin: 0; }
-#booting button { padding: 0 24px; }
-#booting > :not(:first-child), .boot-failed #booting > :first-child, .booted #booting { display: none; }
-.boot-failed #booting > :not(:first-child) { display: revert; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, a, input, textarea, select { touch-action: manipulation; }
 button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; min-height: 44px; }
@@ -767,6 +757,22 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .atlas-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
 
+/* In a dashboard column wider than a phone, the agent chips are one hairline segmented control,
+   and the row with its session select stands one small control tall instead of a row of 44px
+   boxes. The column's width, not the window's: a narrower one (a docked chat) would wrap the
+   segments, so it keeps the standalone chips. */
+@container dash (min-width: 700px) {
+  .atlas-controls > select { min-height: 32px; padding: 2px 8px; font-size: 13px; border-radius: 6px; }
+  .atlas-controls > .atlas-filter { min-height: 32px; min-width: 0; padding: 0 10px; gap: 5px; border-radius: 0; }
+  .atlas-filter + .atlas-filter { margin-left: -9px; } /* the row's 8px gap and one shared hairline */
+  .atlas-controls-label + .atlas-filter { border-radius: 6px 0 0 6px; }
+  .atlas-filter:not(:has(+ .atlas-filter)) { border-radius: 0 6px 6px 0; }
+  .atlas-filter[aria-pressed=true] { position: relative; } /* its accent border over the neighbours' */
+  .atlas-filter img { width: 16px; height: 16px; }
+}
+/* Beside the sidebar, the filter row is the page's first line: centred on the sidebar's brand row. */
+@media (min-width: 1100px) { #landing-main:has(> #landing-sub:empty) { padding-top: 10px; } }
+
 .atlas-range { margin: 0 0 0 auto; min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 4px 8px; }
 
 .atlas-panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
@@ -955,11 +961,15 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
 .atlas-tool-filter img { object-fit: contain; }
-/* A phone swaps the agent chips, which wrap there, for a select beside the session one. */
-.atlas-tool-picker { display: none; }
-@media (max-width: 699px) {
-  .atlas-controls > :is(.atlas-controls-label, .atlas-tool-filter) { display: none; }
-  .atlas-controls > .atlas-picker { display: block; flex: 1 1 0; min-width: 0; margin-left: 0; }
+/* Below the wide layout the dashboard opens on its cards: its filter row folds behind the
+   list's filter button, which moves into its header (app.js placePill) and opens the same
+   menu, where Agent, Session and Account apply and the list's State and Sort by do not.
+   Wide, the dashboard keeps its own session select, so the menu leaves Session out. */
+#side-filter-picker [aria-label="Session"] { display: none; }
+@media (max-width: 1099px) {
+  #session-atlas .atlas-controls { display: none; }
+  #app:has(#landing:not([hidden])) #side-filter-picker [aria-label="Session"] { display: block; }
+  #app:has(#landing:not([hidden])) #side-filter-picker :is([aria-label="State"], [aria-label="Sort by"]) { display: none; }
 }
 
 /* Keep the standalone root in normal flow to avoid WebKit fixed-root clipping.
@@ -1107,9 +1117,6 @@ button.picked:disabled { opacity: 1; }
 .sb-open .sb-acct { flex: none; max-width: 50%; padding-left: 4px; } /* a long label takes the badge's own ellipsis */
 .sb-acct .acct-badge { font-size: 10.5px; }
 #pane-location .acct-badge { vertical-align: 1px; }
-#pane-location .acct-badge b { font-variant-numeric: tabular-nums; } /* its account's 5h and 7d (usage.js inlineUsage), coloured as the strip's meters */
-@media (max-width: 1099px) { #pane-location .acct-badge { display: flex; width: fit-content; margin-bottom: 2px; } } /* a phone's chip, meter and all, gets its own line: the path keeps the next */
-.acct-badge .warn { color: var(--amber); } .acct-badge .full { color: var(--red); }
 /* The strip's last card (app.js usageEnd): the accounts not in use, folded into a "+N"
    (usage.js inUse), and how old a kept reading is. */
 .usage-end { flex: none; scroll-snap-align: start; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 4px; padding: 0 4px; }
@@ -1142,6 +1149,9 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 /* The groups without dots line up with the dotted ones' names. */
 #side-filter-picker :is([data-v]:not(:has(.acct-dot)), .menu-clear) { padding-left: 26px; }
+#side-filter-picker [data-v]:has(img) { padding-left: 6px; } /* an agent's logo stands where a dot would */
+#side-filter-picker .acct-opt img { flex: none; margin-right: 4px; border-radius: 3px; }
+#side-filter-picker .acct-opt small { margin-left: 6px; color: var(--muted); }
 /* Under an empty or narrowed list, both layouts: the panes the filter hides, a click away. */
 .empty-needs { align-self: center; margin: -8px auto 12px; padding: 4px 8px; font-size: 12.5px; color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
 .empty-needs[data-all="filters"] { margin-top: 8px; color: var(--muted); }

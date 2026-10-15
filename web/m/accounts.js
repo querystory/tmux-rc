@@ -2,7 +2,7 @@
 // for a provider with two or more signed-in accounts; with one each, everything here is a
 // no-op and the app looks as it always did. The one exception is Settings' Accounts,
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+import { esc } from "./pane-model.js"; // relative, so node's tests can load this module
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
@@ -89,7 +89,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     const kind = (label, chips) => chips.length ? `<span class="pill-lead"><span class="pill-kind">${label}</span>${chips[0]}</span>${chips.slice(1).join("")}` : "";
     const n = on.length + !!q + more.length;
     pill.hidden = !n;
-    draw(pill, pill.hidden ? "" : kind("State", more.map(([k, label]) => chip(`data-chip="${k}" data-s="${k}"`, label, label, '<i class="acct-dot"></i>')))
+    const of = (name, dot) => more.filter(([k]) => k === name).map(([, k, label]) => chip(`data-chip="${esc(k)}"${dot ? ` data-s="${esc(k)}"` : ""}`, label, label, dot));
+    draw(pill, pill.hidden ? "" : kind("State", of("State", '<i class="acct-dot"></i>')) + kind("Agent", of("Agent", ""))
       + kind("Account", on.map((p) => badge(p, clear(`${p.name} filter`, `data-acct="${esc(key(p))}"`))))
       + kind("Search", q ? [chip("data-q", `"${q}"`, "search")] : [])
       + (n > 1 ? '<button type="button" class="pill-clear" data-all>Clear all</button>' : ""));
@@ -313,7 +314,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   });
   $("accounts-open").onclick = () => open("list");
 
-  function matches(pane) { const on = active(); return !on.length || on.includes(profiles.find((p) => p.panes.includes(pane.pane_id))); }
+  // An omp pane can be on several (plan_usage.py): it matches any of them.
+  function matches(pane) { const on = active(); return !on.length || on.some((p) => p.panes.includes(pane.pane_id)); }
   return {
     refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
     // Settings' list: each account, who it is and where, its sheet a click away.
@@ -325,7 +327,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // with no pane belongs to no account, so it is hidden with the rest).
     loops: (report) => !active().length || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
       [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
-    badge: (paneId, after = () => "") => { const p = ofPane(paneId); return p ? badge(p, after(p)) : ""; },
+    badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
     // On the strip's foot: the accounts it leaves out as not in use (usage.js inUse), a tap from Plan usage.
     more: (idle) => idle.length ? `<button type="button" id="usage-more" title="${esc(`Not in use: ${idle.map((p) => p.name).join(", ")}`)}">${idle.map(dot).join("")}+${idle.length}</button>` : "",
     // A session's own default, per provider with several: where its dir differs from the

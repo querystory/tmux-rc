@@ -5,8 +5,7 @@
 // See docs/design/plan-usage.md.
 const NAMES = { claude: 'Claude', codex: 'Codex' };
 const LOGOS = { claude: '/claude.png', codex: '/openai.svg' };
-import { isRecent } from './pane-model.js';
-const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+import { isRecent, esc } from './pane-model.js';
 
 export function countdown(ms) {
   const m = Math.max(0, Math.round(ms / 60000)), d = Math.floor(m / 1440), h = Math.floor(m / 60) % 24;
@@ -36,7 +35,7 @@ function reading(w, a, now) {
   const stale = a.as_of ? `as of ${countdown(now - a.as_of)} ago` : ''; // the last read failed: an older reading
   const title = `${who(a)} ${w.window}: ${Math.round(w.pct)}% used${full && `, ${full}`}${when && `, resets in ${when}`}${stale && `, ${stale}`}`
     + (w.projected != null ? `; at this pace ${Math.round(w.projected)}% by the reset` : '');
-  return { used: Math.min(100, w.pct), level: levelOf(w), when, full, stale, title };
+  return { used: Math.min(100, w.pct), level: w.limit_at || w.pct >= 100 ? 'full' : Math.min(100, w.projected ?? w.pct) >= 90 ? 'warn' : '', when, full, stale, title };
 }
 
 // A meter that fills up: the fill is what is used, the faint stretch past it is where the
@@ -103,14 +102,6 @@ export const staleUsage = (accounts, now = Date.now()) => {
 export const HIGH_PCT = 70;
 export const shownUsage = (accounts, mode) => mode === 'on' ? accounts : mode === 'off' ? []
   : accounts.map(a => ({ ...a, windows: (a.windows || []).filter(w => w.limit_at || w.pct >= HIGH_PCT) })).filter(a => !a.error && a.windows.length);
-
-// Amber where the fitted pace fills the window by its reset, red once it is full or will be
-// before: the strip's meters and the pane header's chip both colour by this.
-export const levelOf = w => w.limit_at || w.pct >= 100 ? 'full' : Math.min(100, w.projected ?? w.pct) >= 90 ? 'warn' : '';
-
-// The pane header's chip: its account's 5h and 7d, as the strip colours them.
-export const inlineUsage = a => (a?.windows || []).filter(w => ['5h', '7d'].includes(w.window))
-  .map(w => ` · ${w.window} <b class="${levelOf(w)}">${Math.round(w.pct)}%</b>`).join('');
 
 // Several accounts' strip names only those in use: any of their panes busy or active in the
 // last hour, the most busy panes first (ties keep the meters' order). The rest are `idle`,

@@ -43,6 +43,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from openbus import classify as classify_mod
+from openbus import tmux
 from openbus.classify import classify
 from openbus.tmux import Pane
 
@@ -118,7 +119,7 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         pid="0" if procs else "",
     )
     with patch.object(classify_mod, "processes", lambda _pid: list(procs)), \
-         patch.object(classify_mod, "proc_read", lambda p, _name: procs[p]):
+         patch.object(tmux, "proc_read", lambda p, _name: procs[p]):  # program() reads it
         return classify(
             pane, sample.capture, llm_fn=llm_fn, prior=list(sample.prior),
             repository=sample.repository, replies_fn=llm_fn, reply=sample.reply,
