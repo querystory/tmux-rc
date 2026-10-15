@@ -1035,8 +1035,8 @@ _CODE_RE = re.compile(
 # text ("do **not**\n  run"): which command or phrase a warning covers (the next one, a whole
 # fence, a list) is not worth guessing when a wrong guess prefills the forbidden thing.
 _FORBIDS_RE = re.compile(
-    r"(?:\bnot|\bnever|n['’]t)(?:\s+\w+){0,2}?\s+(?:run|type|use|execute|enter|paste|send|say)\b",
-    re.IGNORECASE)  # with a word or two between: "do not ever say", "don't you run"
+    r"(?:\b(?:not|never)|n['’]t)\b[^.?!;]{0,60}?\b(?:run|type|use|execute|enter|paste|send|say)\b",
+    re.IGNORECASE)  # anywhere in its clause: "do not ever say", "do not, in any case, run"
 
 
 def _plain(text: str) -> str:
@@ -1088,13 +1088,14 @@ def _offers(message: str, reply: str | None) -> list[str]:
     def cut(o: str) -> bool:  # a command a blank row in its script may have cut short
         return o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:]))
 
-    def shown(o: str) -> bool:
+    def shown(o: str) -> bool:  # a run of spaces must show as is: a wrap there hides its width
+        gap = " " if "  " in o else r"(?: |[ \t]*\n[ \t]*)"
         return bool(re.search(
-            r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
+            r"(?<![^\s\"“`])" + gap.join(map(re.escape, o.split(" ")))
             + r"(?![^\s\"”`.,;:?!)])", message))
 
-    # Three at most, checked one at a time: a command past the third never reaches bash.
-    return list(islice((o for o in dict.fromkeys(found) if shown(o) and not cut(o)), 3))
+    # Three at most, counted before bash checks them: a fourth never reaches bash, cut or not.
+    return [o for o in islice((o for o in dict.fromkeys(found) if shown(o)), 3) if not cut(o)]
 
 
 @lru_cache(maxsize=256)

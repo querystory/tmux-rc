@@ -1382,13 +1382,15 @@ def test_codex_offers_nothing_yet():
     assert "offers" not in result and result["question"]["options"] == ["try again"]
 
 
-def test_offers_stop_at_three_before_asking_bash(monkeypatch):
+@pytest.mark.parametrize("parses", [True, False])  # a cut command spends the budget too
+def test_offers_stop_at_three_before_asking_bash(monkeypatch, parses):
     import openbus.classify as C
     asked = []
-    monkeypatch.setattr(C, "_parses", lambda command: asked.append(command) or True)
+    monkeypatch.setattr(C, "_parses", lambda command: asked.append(command) or parses)
     reply = " ".join(f"`! make t{i}`" for i in range(8))
     result = classify(_pane("claude"), _auto_screen(reply.replace("`", "")), _llm({}), reply=reply)
-    assert result["offers"] == ["! make t0", "! make t1", "! make t2"] and len(asked) == 3
+    assert result.get("offers", []) == ["! make t0", "! make t1", "! make t2"][:3 * parses]
+    assert len(asked) == 3
 
 
 def test_finished_turn_offers_the_replies_it_hands_over():
@@ -1447,6 +1449,7 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen(shown), reply.replace("github.com", "example.com")),  # stale, same start
         (_auto_screen("Run ! gh pr merge 415 now."), "Run `! gh pr merge 41` now."),  # shorter
         (_auto_screen("Run ! cat 'a b.txt' now."), "Run `! cat 'a  b.txt'` now."),  # spacing
+        (_auto_screen("Run ! cat 'a\n  b.txt' now."), "Run `! cat 'a  b.txt'` now."),  # wrapped
         (_auto_screen("Run ! rm /tmp/cache.old now."), "`! rm /tmp/cache`"),  # a fragment
         (_auto_screen("Run ! rm /tmp/cache * now."), "Run `! rm /tmp/cache` now."),  # a glob
         (_auto_screen("""Run ! printf 'say "merge all"' now."""), None),  # a command's quotes
@@ -1468,6 +1471,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen('Don’t say "merge all"; it skips review.'), None),  # a typographic n’t
         (_auto_screen('Do not ever say "merge all"; it skips.'),
          'Do not ever say "merge all"; it skips.'),  # a word between
+        (_auto_screen("Do not, under any circumstances, run ! make deploy."),
+         "Do not, under any circumstances, run `! make deploy`."),  # a punctuated clause
         (_auto_screen("Do not run these:\n\n  ! make reset\n\n  ! make deploy"),
          "Do not run these:\n\n```bash\n! make reset\n! make deploy\n```"),  # a whole fence
         (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
