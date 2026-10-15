@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shlex
 import sqlite3
 import subprocess
@@ -240,7 +241,7 @@ def build(snapshot: dict, chosen: set[tuple[str, int]]) -> list[tuple[str, dict]
         else:
             fresh = next((w for w in links if w["id"] not in built), None)
             first = fresh and _picked(windows[fresh["id"]], fresh["id"], chosen)[0]["cwd"]
-            seed = tmux.new_session(name, first or session["path"])
+            seed = tmux.new_session(name, first or session["path"], size=_size(windows, session))
             for link in links:
                 target = f"{name}:{link['index']}"
                 if link["id"] in built:
@@ -264,6 +265,14 @@ def build(snapshot: dict, chosen: set[tuple[str, int]]) -> list[tuple[str, dict]
         current = next((w for w in links if w["current"]), links[0])
         tmux.run("select-window", "-t", f"{name}:{current['index']}")
     return out
+
+
+def _size(windows: dict, session: dict) -> tuple[int, int] | None:
+    """The session's size as its current window recorded it (`<csum>,<W>x<H>,...`): with no
+    client attached, tmux would build it 80x24. None, tmux's default, for a layout without one."""
+    current = next((w for w in session["windows"] if w["current"]), session["windows"][0])
+    found = re.match(r"[0-9a-f]+,(\d+)x(\d+),", windows[current["id"]].get("layout") or "")
+    return (int(found[1]), int(found[2])) if found else None
 
 
 def _window(window: dict, wid: str, head: str, chosen) -> list[tuple[str, dict]]:

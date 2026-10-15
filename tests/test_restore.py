@@ -336,3 +336,22 @@ def test_restore_offers_again_only_when_tmux_built_nothing(server, tmp_path, mon
     reply, spent = _post(monkeypatch, tmp_path, refuse)
     assert reply.status_code == 500
     assert spent == ["restored"]  # what it built can't be told: kept spent, not built twice
+
+
+def test_build_gives_each_session_its_recorded_size(server, tmp_path, monkeypatch):
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    history = History(tmp_path / "h.db")
+    server()
+    tmux("new-session", "-d", "-s", "work", "-x", "178", "-y", "41")
+    tmux("split-window", "-t", "work:0")
+    tmux("split-window", "-t", "work:0")
+    tmux("new-window", "-d", "-t", "work:1")
+    R.Recorder(history).tick([], now=1000)
+    stop()
+    server()
+    found = R.candidate(history)
+    first, second = found["sessions"][0]["windows"]
+    # Two of three panes: the saved layout can't apply, so tiled runs at the window's size.
+    R.build(found, {(first["id"], 0), (first["id"], 1), (second["id"], 0)})
+    sizes = tmux("list-windows", "-t", "work", "-F", "#{window_width}x#{window_height}")
+    assert sizes.split() == ["178x41", "178x41"]
