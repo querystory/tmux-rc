@@ -1037,8 +1037,9 @@ _FORBIDS_RE = re.compile(
 
 
 def _plain(text: str) -> str:
-    """Text as the screen draws it, near enough to compare: no Markdown marks, one space."""
-    return " ".join(re.sub(r"[`*]|^\s*●\s", "", text).split())
+    """Text as the screen draws it, near enough to compare: no Markdown marks or fence rows
+    (with their language tag), one space."""
+    return " ".join(re.sub(r"(?m)^[ \t]*```.*$|[`*]|^\s*●\s", "", text).split())
 
 
 def _offers(message: str, reply: str | None) -> list[str]:
@@ -1052,15 +1053,19 @@ def _offers(message: str, reply: str | None) -> list[str]:
     handing anything over."""
     if _USER_ROW_RE.search(message) or re.search(r"(?m)^[ \t]*⎿", message):
         return []
-    # One source, never both: a command's own quotes, unmarked on screen, are no reply.
-    t = reply if reply and _plain(reply) == _plain(message) else message
+    # One source, never both: a command's own quotes, unmarked on screen, are no reply. And a
+    # quoted phrase only from the transcript: the screen draws code unmarked, so a quote on
+    # it may be any program's argument.
+    marked = bool(reply) and _plain(reply) == _plain(message)
+    t = reply if marked else message
     if _FORBIDS_RE.search(_plain(t)):
         return []
     code = [(c.start(), c.end(), bool(c["fence"])) for c in _CODE_RE.finditer(t)]
     found = (m[m.lastindex]  # the payload: each alternative's last group (a quote's: 4, 5)
              for m in _OFFER_RE.finditer(t)
-             if not any(a <= m.start() < b and not (  # inside code, and not as itself:
-                 m.lastindex <= 3 and (a == m.start() or (fence and m.lastindex == 3)))
+             if (marked or m.lastindex <= 3) and not any(
+                 a <= m.start() < b and not (  # inside code, and not as itself
+                     m.lastindex <= 3 and (a == m.start() or (fence and m.lastindex == 3)))
                  for a, b, fence in code))
     return list(dict.fromkeys(o for o in found if re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))

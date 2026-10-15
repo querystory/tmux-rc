@@ -156,7 +156,9 @@ when the screen shows all of it, so a stale transcript offers nothing (a prefix 
 would let `merge 412` stand in for the `merge 415` on screen). The field is the screen's
 alone: whatever the model returns under that name is dropped first. Two more rules came
 from review, both trading recall for never prefilling the wrong thing: nothing is read out
-of code (a quote in a command's arguments, a command quoted in a fixture), and a message
+of code (a quote in a command's arguments, a command quoted in a fixture), a quoted phrase
+is offered only from the transcript, where code is marked (the screen draws it plain, so a
+quote there may be any program's argument), and a message
 that says "do not run" or "don't say" anywhere offers nothing at all, since which command a
 warning covers is not worth guessing. It is Claude Code's
 alone for now, too: Codex's screen has no message boundary this reads yet, so its tool

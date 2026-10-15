@@ -1387,8 +1387,14 @@ def test_finished_turn_offers_the_replies_it_hands_over():
     command = "! gh pr update-branch 5269 && gh pr merge 5269 --squash --auto"
     message = (f"Run it yourself with the ! prefix:\n\n  {command}\n\n  That updates the branch."
                '\n\n  Say "merge 415" and I\'ll queue it. "merge all ✅" queues 18 PRs.')
-    assert classify(_pane("claude"), _auto_screen(message), _llm({"offers": ["rm -rf ~"]}))[
-        "offers"] == [command, "merge 415", "merge all ✅"]
+    screen, model = _auto_screen(message), _llm({"offers": ["rm -rf ~"]})
+    assert classify(_pane("claude"), screen, model, reply=message)["offers"] == [
+        command, "merge 415", "merge all ✅"]
+    # Without the transcript, a quote may be any program's argument: commands only.
+    assert classify(_pane("claude"), screen, model)["offers"] == [command]
+    fixture = "Fixture:\n\n```bash\nprintf 'say \"merge all\"'\n```\n\nSay \"ship it\" to go on."
+    shown = _auto_screen("Fixture:\n\n  printf 'say \"merge all\"'\n\n  Say \"ship it\" to go on.")
+    assert classify(_pane("claude"), shown, model, reply=fixture)["offers"] == ["ship it"]
     # Inline code only the transcript marks, and a command the screen wraps: the
     # transcript's copy, held to what the screen shows.
     shown = "Not logged in; type ! gh auth login --hostname\n  github.com to fix it."
@@ -1423,6 +1429,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen("""Run ! printf 'say "merge all"' now."""), None),  # a command's quotes
         (_auto_screen("""Use printf 'say "merge all"' as the fixture."""),
          """Use `printf 'say "merge all"'` as the fixture."""),  # quotes inside inline code
+        (_auto_screen("""Use printf 'say "merge all"' as the fixture."""), None),  # unmarked
+        (_auto_screen("Run ! printf '%s' '\n  say \"merge all\"' now."), None),  # wrapped
         (_auto_screen("Run:\n\n  ! printf '%s' '`! gh pr merge 415`' &&\n  echo done"), None),
         (_auto_screen("""Run:\n\n  ! printf 'x' &&\n  printf 'say "merge all"'"""), "other"),
         (_auto_screen('Do not say "merge all"; it skips.'), 'say "merge all"; it skips.'),
@@ -1437,6 +1445,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen('Don’t say "merge all"; it skips review.'), None),  # a typographic n’t
         (_auto_screen("Do not run these:\n\n  ! make reset\n\n  ! make deploy"),
          "Do not run these:\n\n```bash\n! make reset\n! make deploy\n```"),  # a whole fence
+        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
+         "Use this:\n\n```bash\nprintf 'say \"merge all\"'\n```"),  # a tagged fence's data
         (_auto_screen('Use this:\n\n  message = "! make deploy"'),
          'Use this:\n\n```\nmessage = "`! make deploy`"\n```'),  # a fixture in a fence
         (_auto_screen("Do not run this:\n\n  ! make deploy"),
