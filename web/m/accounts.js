@@ -325,7 +325,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // with no pane belongs to no account, so it is hidden with the rest).
     loops: (report) => !active().length || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
       [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
-    badge: (paneId, after = () => "") => { const p = ofPane(paneId); return p ? badge(p, after(p)) : ""; },
+    badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
     // On the strip's foot: the accounts it leaves out as not in use (usage.js inUse), a tap from Plan usage.
     more: (idle) => idle.length ? `<button type="button" id="usage-more" title="${esc(`Not in use: ${idle.map((p) => p.name).join(", ")}`)}">${idle.map(dot).join("")}+${idle.length}</button>` : "",
     // A session's own default, per provider with several: where its dir differs from the

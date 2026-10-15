@@ -186,9 +186,8 @@ outside the swipeable row so it shows without a swipe. It opens Plan usage, and 
 account. When no account is in use, the strip shows them all rather than nothing. Ordering
 the strip by the open pane's account was mocked and rejected. It answers "how is the account
 I'm on?" in the sidebar, away from the pane, and it reshuffles the strip on every switch.
-The open pane's chip in the header carries that answer instead: its account's 5h and 7d,
-coloured by the same verdict as the meters. A phone gives the chip its own line, because
-the path needs that header row.
+Putting the open pane's 5h and 7d on its account chip in the header was tried and removed:
+it crowded the header, truncated the pane title, and a red percentage there read as an error.
 
 ## Sources, and why each
 

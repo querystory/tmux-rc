@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { inUse, inlineUsage, IN_USE_SECS } from "../web/m/usage.js";
+import { inUse, IN_USE_SECS } from "../web/m/usage.js";
 
 const NOW = 1_800_000_000_000, ago = (s) => NOW / 1000 - s;
 const pane = (activity, idleFor = 0) => ({ activity, state_since: ago(idleFor) });
@@ -30,10 +30,4 @@ test("ties keep the urgency order they came in", () => {
 test("nothing in use shows every account, with no +N", () => {
   const meters = [meter(demo, "7d"), meter({ name: "Spare" }, "5h")];
   assert.deepEqual(inUse(meters, panesOf, NOW), { shown: meters, idle: [] });
-});
-
-test("the header chip's 5h and 7d, coloured as the strip colours them", () => {
-  const row = { windows: [{ window: "5h", pct: 15.4 }, { window: "7d", pct: 89, projected: 95 }, { window: "7d Fable", pct: 99, limit_at: 1 }] };
-  assert.equal(inlineUsage(row), ' · 5h <b class="">15%</b> · 7d <b class="warn">89%</b>');
-  assert.equal(inlineUsage(undefined), "");
 });
