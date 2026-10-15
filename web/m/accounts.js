@@ -106,7 +106,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // A row's dirs can be several profiles of one login: the filtered one, if it is among them.
     return list.map((a) => { const mine = (a.dirs || []).map(byDir).filter((p) => p?.signed_in); return { ...a, acct: mine.find((p) => on.includes(p)) || mine[0] }; })
       .filter((a) => a.acct && (!on.length || on.includes(a.acct)))
-      .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null });
+      .map((a) => several(a.provider) ? { ...a, label: a.acct.name } : { ...a, label: null });
   }
   // Already full first, then full soonest, then the highest pace at the reset; unreadable last.
   const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
@@ -126,13 +126,13 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   }
   // Meters, in the list's order: with more than one account among them, each account's under
   // its chip (in the order the account first comes), details in its tooltip. The chip names
-  // the account once, so its meters drop it; with one account shown, nothing names it.
+  // the account once, so its meters' tooltips drop it; with one account shown, nothing names it.
   function groups(el, list, render) {
     const by = new Map();
-    for (const a of list) by.set(a.acct, [...by.get(a.acct) || [], { ...a, label: null, chip: null }]);
+    for (const a of list) by.set(a.acct, [...by.get(a.acct) || [], { ...a, label: null }]);
     const several = by.size > 1;
     el.classList.toggle("usage-groups", several);
-    if (!several) { el._groups = null; return render(el, list.map((a) => ({ ...a, chip: null }))); }
+    if (!several) { el._groups = null; return render(el, list); }
     el.hidden = false; el._html = null; // renderUsage's own cache, for when it draws here again
     const markup = [...by].map(([p, metered], i) => {
       const tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");

@@ -897,38 +897,35 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 
 /* Plan limits (usage.js): one flat grid of gauges, two to a row. A phone's list opens on it
    (it scrolls away under the pinned search); wide, it sits on the sidebar's foot. */
-#usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
+#usage { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
 #usage[hidden], #app.rail :is(#usage, #usage-handle) { display: none; }
 #usage { cursor: pointer; }
 /* The dashboard's card: the same cells, as many to a row as fit. */
 .usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
-.usage-cell em { grid-area: 1 / 3; }
-.usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
+.usage-cell { --u: var(--accent); min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
-.usage-cell > span:not(.acct-badge), .usage-cell :is(em, small), .usage-cell.none { color: var(--muted); } /* not the chip */
-.usage-cell em { font-style: normal; font-size: 11px; }
-@container (max-width: 130px) { .usage-cell em { display: none; } } /* the sidebar's narrowest cells keep the window and %, not the word */
-.usage-cell > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* account names are user-chosen: truncate, never push the % out */
+/* Its first line: the window shrinks (an ellipsis) before the % or the reset do. */
+.usage-line { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.usage-cell span, .usage-cell small, .usage-cell.none, .usage-stale { color: var(--muted); white-space: nowrap; }
+.usage-cell span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .usage-cell img { vertical-align: -2px; margin-right: 5px; border-radius: 3px; }
-.usage-cell b { font-variant-numeric: tabular-nums; margin-left: 2px; }
-.usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast stacks over the reset, which always shows */
-.usage-cell small { display: block; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* The notes on the left, the account's chip (several only) in the corner across from them. */
-.usage-foot { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
-.usage-foot > div { flex: 1; min-width: 0; }
-.usage-foot .acct-badge { flex-shrink: 1; min-width: 0; max-width: 60%; margin-bottom: 1px; } /* a long name truncates, the reset keeps the rest */
-.usage-bar { grid-column: 1 / -1; display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
+.usage-cell b { flex: none; font-variant-numeric: tabular-nums; margin-left: 2px; }
+.usage-cell small { flex: none; margin-left: auto; padding-left: 4px; font-size: 11px; }
+.usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast takes the reset's place */
+.usage-bar { display: block; position: relative; height: 5px; margin: 3px 0 1px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
 .usage-bar > .ahead { opacity: .3; }
 .usage-bar > .pace { width: 2px; inset: -2px auto -2px auto; margin-left: -1px; border-radius: 1px; background: var(--fg); opacity: .55; }
 @media (max-width: 1099px) { #usage { order: -1; border-bottom: 1px solid var(--line); } }
 @media (min-width: 1100px) {
-  #usage { gap: 4px 14px; max-height: 60%; overflow-y: auto; padding: 8px 14px 10px; border-top: 1px solid var(--line); } /* many accounts scroll, the list keeps the rest */
+  /* One gauge to a row, so the reset fits beside the window; many accounts scroll, the list keeps the rest. */
+  #usage { grid-template-columns: 1fr; gap: 4px; max-height: 35%; overflow-y: auto; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
+  #usage .ug-cells { grid-template-columns: 1fr; gap: 4px; }
   /* Its seam (app.js sizeUsage), over the border it moves. Dragged, the strip takes the chosen
      height, scrolling what it cannot show. Under one row the strip dims: let go to close it. */
   #usage-handle { flex: none; position: relative; z-index: 5; height: 9px; margin-bottom: -5px; cursor: row-resize; touch-action: none; }
-  #usage.sized { row-gap: 10px; height: var(--usage-h); }
+  #usage.sized { height: var(--usage-h); max-height: 60%; }
   #usage.closing { opacity: .4; }
 }
 
@@ -1089,8 +1086,10 @@ button.picked:disabled { opacity: 1; }
 #pane-location .acct-badge b { font-variant-numeric: tabular-nums; } /* its account's 5h and 7d (usage.js inlineUsage), coloured as the strip's meters */
 @media (max-width: 1099px) { #pane-location .acct-badge { display: flex; width: fit-content; margin-bottom: 2px; } } /* a phone's chip, meter and all, gets its own line: the path keeps the next */
 .acct-badge .warn { color: var(--amber); } .acct-badge .full { color: var(--red); }
-/* The accounts not in use, folded into a "+N" (usage.js inUse): the strip's last cell (app.js). */
-#usage-more { justify-self: start; align-self: center; display: inline-flex; align-items: center; gap: 3px; min-height: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; cursor: pointer; }
+/* The strip's last row (app.js usageEnd): the accounts not in use, folded into a "+N"
+   (usage.js inUse), and how old a kept reading is. */
+.usage-end { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 11px; }
+#usage-more { display: inline-flex; align-items: center; gap: 3px; min-height: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; cursor: pointer; }
 #usage-more:hover { color: var(--fg); border-color: var(--muted); }
 #app.rail #usage-more { display: none; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
@@ -1152,18 +1151,18 @@ button.picked:disabled { opacity: 1; }
 /* Several accounts' meters: each account's chip once, over its gauges two to a row (the
    strip, the sidebar's foot, a phone's card). The wide dashboard lays the groups on one
    line, never wrapped, one thin divider between them; a group grows by its meter count, so
-   the gauges share the line evenly down to 130px each, past which the line scrolls. */
-.ug { grid-column: 1 / -1; position: relative; display: flex; flex-direction: column; gap: 4px; }
+   the gauges share the line evenly down to 165px each (a gauge's first line), past which the line scrolls. */
+.ug { grid-column: 1 / -1; position: relative; display: flex; flex-direction: column; gap: 2px; }
 .ug + .ug { margin-top: 4px; }
 .ug-label { display: flex; font-size: 12px; color: var(--muted); cursor: default; }
-.ug-label .acct-badge { pointer-events: none; } /* hover reads the label's fuller tooltip, not the chip's */
-.ug-cells { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+.ug-label .acct-badge { pointer-events: none; font-size: 10px; line-height: 13px; } /* small; and hover reads the label's fuller tooltip, not the chip's */
+.ug-cells { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
 @media (min-width: 1100px) {
   #usage-board.usage-groups:not([hidden]) { display: flex; gap: 0 33px; align-items: flex-start; }
   #usage-board .ug { flex: var(--n) 1 0; gap: 8px; margin: 0; scroll-snap-align: start; }
   #usage-board .ug + .ug::before { content: ""; position: absolute; inset: 0 auto 0 -17px; border-left: 1px solid var(--line); }
   #usage-board .ug-cells { display: flex; gap: 12px; }
-  #usage-board .ug-cells .usage-cell { flex: 1 1 0; min-width: 130px; }
+  #usage-board .ug-cells .usage-cell { flex: 1 1 0; min-width: 165px; } /* the window, %, and reset on one line */
 }
 /* The usage view (usage-view.js): a chart per window type filling the page, the range
    control at its top right; a phone shows one chart at a time, its tabs under the range. */

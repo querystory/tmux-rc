@@ -90,8 +90,9 @@ alike; see [sidebar.md](sidebar.md).
 - **Dashboard Plan usage:** wide, every meter on one line, grouped per account with one thin
   divider between groups. Each group is headed by its chip, flush left over its first meter,
   with the details (who, plan, dir, panes) in its tooltip, and Codex gets a chip like the
-  rest. The meters share the line evenly, down to 130px each, which fits ten on a 1500px
-  card; below that the line scrolls with the strip's edge fades rather than wrapping. A
+  rest. The meters share the line evenly, down to 165px each (room for a gauge's one-line
+  window, percentage and reset), which fits eight on a 1500px card; below that the line
+  scrolls with edge fades rather than wrapping. A
   wrapped second row looked broken: its chips floated in the gap, and its groups did not
   line up with the first row's. Chips centred over their groups, on the heading line to
   save a row, read as loose labels rather than headings, so they now take a row. The chip

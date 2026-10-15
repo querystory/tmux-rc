@@ -12,9 +12,11 @@ export function countdown(ms) {
   return d ? `${d}d${h}h` : h ? `${h}h${m % 60}m` : `${m}m`; // statusline-compact: 2d12h, 1h8m
 }
 
-// A meter that fills up: the fill is what is used, the faint stretch past it is where the
-// fitted pace ends by the reset, and the tick is the even pace (the share of the window
-// gone), so a fill past the tick is ahead of it. Coloured by the projection's verdict.
+// Two lines: the window, its percentage and, across from them, when it resets (or, in its
+// colour, when it runs out); then a meter that fills up. The fill is what is used, the faint
+// stretch past it is where the fitted pace ends by the reset, and the tick is the even pace
+// (the share of the window gone), so a fill past the tick is ahead of it. Coloured by the
+// projection's verdict. The tooltip holds the whole sentence.
 function cell(w, a, now) {
   const projected = Math.min(100, w.projected ?? w.pct), used = Math.min(100, w.pct);
   const level = levelOf(w);
@@ -22,21 +24,19 @@ function cell(w, a, now) {
   const when = live ? countdown(w.resets_at - now) : '';
   const full = live && w.limit_at > now ? `full in ${countdown(w.limit_at - now)}` : '';
   const stale = a.as_of ? `as of ${countdown(now - a.as_of)} ago` : ''; // the last read failed: an older reading
-  const note = (full && `<small class="out">${full}</small>`) + (when && `<small>resets ${when}</small>`) + (stale && `<small>${stale}</small>`);
+  const note = full ? `<small class="out">${full}</small>` : when ? `<small>resets ${when}</small>` : '';
   const title = `${who(a)} ${w.window}: ${Math.round(w.pct)}% used${full && `, ${full}`}${when && `, resets in ${when}`}${stale && `, ${stale}`}`
     + (w.projected != null ? `; at this pace ${Math.round(w.projected)}% by the reset` : '');
   const pace = w.resets_at && Math.min(100, Math.max(0, (now - w.start) / (w.resets_at - w.start) * 100));
   const bar = `<i class="usage-bar"><i style="width:${projected}%" class="ahead"></i><i style="width:${used}%"></i>`
     + (pace ? `<i class="pace" style="left:${pace.toFixed(1)}%"></i>` : '') + '</i>';
-  return `<div class="usage-cell ${level}" title="${esc(title)}">${label(a.provider, w.window)}<b role="meter" aria-label="${esc([NAMES[a.provider], a.acct?.name ?? a.label, w.window].filter(Boolean).join(' '))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${Math.round(w.pct)}%</b><em>used</em>`
-    + `${bar}<div class="usage-foot"><div>${note}</div>${a.chip || ''}</div></div>`;
+  return `<div class="usage-cell ${level}" title="${esc(title)}"><div class="usage-line">${label(a.provider, w.window)}<b role="meter" aria-label="${esc([NAMES[a.provider], a.acct?.name ?? a.label, w.window].filter(Boolean).join(' '))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${Math.round(w.pct)}%</b>${note}</div>${bar}</div>`;
 }
 
-// One flat grid of meters, two to a row, rather than a block per account: a weekly-only
-// Codex beside Claude's three windows would leave holes. So each label carries its
-// provider's icon, and when a provider has several accounts the meter's foot carries the
-// account's chip (accounts.js), across from the reset. Accounts come sorted by provider,
-// windows by name (5h, 7d, then per-model "7d Fable").
+// One flat grid of meters rather than a block per account: a weekly-only Codex beside
+// Claude's three windows would leave holes. So each label carries its provider's icon;
+// several accounts' meters sit under a heading each (accounts.js groups). Accounts come
+// sorted by provider, windows by name (5h, 7d, then per-model "7d Fable").
 const who = a => a.label ? `${NAMES[a.provider]} ${a.label}` : NAMES[a.provider];
 const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NAMES[provider]}" width="14" height="14">${esc(text)}</span>`;
 
@@ -44,10 +44,17 @@ const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NA
 // positional flag as `now`, counting every reset from 1970.
 export function renderUsage(el, accounts, { now = Date.now() } = {}) {
   el.hidden = !accounts.length;
-  const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, a.error)}${a.chip || ''}</div>`
+  const markup = accounts.map(a => a.error ? `<div class="usage-cell none">${label(a.provider, a.error)}</div>`
     : a.windows.map(w => cell(w, a, now)).join('')).join(''); // a plan without a window shows none
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
 }
+
+// A reading kept through failed reads, said once under the meters rather than on each: the
+// oldest one's age.
+export const staleUsage = (accounts, now = Date.now()) => {
+  const oldest = Math.min(...accounts.map(a => a.as_of || Infinity));
+  return oldest < Infinity ? `<small class="usage-stale">as of ${countdown(now - oldest)} ago</small>` : '';
+};
 
 // The phone's Usage setting: "on" is every meter, "off" none, and "auto" only the meters
 // that call for a decision, those the server's projection has filling before the reset

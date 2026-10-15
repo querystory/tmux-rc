@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderUsage, shownUsage, HIGH_PCT } from "../web/m/usage.js";
+import { renderUsage, shownUsage, staleUsage, HIGH_PCT } from "../web/m/usage.js";
 
 const w = (window, pct, limit_at = null) => ({ window, pct, limit_at });
 const ACCOUNTS = [
@@ -32,13 +32,14 @@ test("countdowns and the even-pace mark run from the real clock unless told othe
   assert.match(el.innerHTML, /class="pace" style="left:40\.0%"/);
 });
 
-test("a reading kept through a failed read says how old it is", () => {
+test("a reading kept through a failed read says how old it is, once, by the oldest", () => {
   const now = Date.now(), el = {};
   const win = { window: "5h", pct: 40, start: now - 3600e3, resets_at: now + 3600e3, samples: [] };
   renderUsage(el, [{ provider: "claude", as_of: now - 6 * 60e3, windows: [win] }], { now });
-  assert.match(el.innerHTML, /<small>as of 6m ago<\/small>/);
-  renderUsage(el, [{ provider: "claude", windows: [win] }], { now });
-  assert.doesNotMatch(el.innerHTML, /as of/);
+  assert.doesNotMatch(el.innerHTML, /<small>as of/); // not on the meter: the strip says it once
+  assert.match(el.innerHTML, /title="[^"]*as of 6m ago/); // its tooltip still does
+  assert.equal(staleUsage([{ as_of: now - 6 * 60e3 }, {}, { as_of: now - 20 * 60e3 }], now), '<small class="usage-stale">as of 20m ago</small>');
+  assert.equal(staleUsage([{}], now), "");
 });
 
 test("a reading from before its window reset counts nothing down to zero", () => {
