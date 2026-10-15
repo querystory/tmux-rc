@@ -1549,6 +1549,29 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         assert "offers" not in result
 
 
+def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
+    one = 'Run this yourself: ! echo "send-it test $(date +%T)"'
+    assert classify(_pane("claude"), _auto_screen(one), _llm({}), reply=one)["offers"] == [
+        '! echo "send-it test $(date +%T)"']
+    command = ("! export PYTHONPATH=/tmp/demo/lib P=demo-app; source ~/.config/demo/api.env && "
+               'printf %s "$DEMO_API_KEY" | gcloud secrets create demo-key --project "$P" '
+               '--data-file=- && gcloud run deploy demo-app --project "$P" --region us-east1')
+    reply = f"Done.\n\nSo please run this one command yourself. It never prints the key: {command}"
+    words, rows = reply.split(" "), []  # the screen wraps it over several rows
+    while words:
+        rows.append(" ".join(words[:9]))
+        words = words[9:]
+    screen = _auto_screen("\n  ".join(rows))
+    assert classify(_pane("claude"), screen, _llm({}), reply=reply)["offers"] == [command]
+    for message in (
+        "Run:\n! make clean\nmake deploy",  # a bare row followed by another row
+        "Run this yourself: ! make clean\nmake deploy",  # an inline command going on
+        "Run it with the ! prefix", "Run it with the ! prefix.",  # no colon: prose about "!"
+    ):
+        result = classify(_pane("claude"), _auto_screen(message), _llm({}), reply=message)
+        assert "offers" not in result
+
+
 @pytest.mark.parametrize("message", [
     "Done.\n  Should I send this to\n  Copilot, then merge\n  after approval?",
     ("Done.\n\n  - first item\n  - second item\n\n  Should I send this to\n"

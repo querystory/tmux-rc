@@ -1005,14 +1005,18 @@ def _final_message(visible: str, tool: str) -> str | None:
 # What a finished turn hands the user to type back, verbatim: a `! command` (Claude Code's
 # shell prefix) as inline code or on a row of its own, or a phrase it asks for: 'Say "merge
 # 415"', or a quote that does the work ('"merge all" queues 18 PRs'), not any quote. A row
-# that wraps onto the next is no offer: a guessed join could run the wrong command. A space
-# after the ! keeps out code such as `!=` and `!important`, and "do not say" is no offer.
+# that wraps onto the next is no offer: a guessed join could run the wrong command. A bare
+# command after a colon ("Run this: ! make deploy") is one when its transcript row (never
+# wrapped) ends the paragraph: no script row can follow it, and prose naming "the ! prefix"
+# has no colon before it. A space after the ! keeps out code such as `!=` and `!important`,
+# and "do not say" is no offer.
 # Straight or curly, each closing its own; a straight one with a backslash in it may be
 # escaping a quote, so none is read there.
 _QUOTE = r"(?:(?<!\\)\"([^\"\\\n]{1,60})\"(?!\")|“([^”\n]{1,60})”)"
 _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
     rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
     rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!(?:`{{3,}}|~{{3,}})[ \t]*$)\S)"
+    rf"|(?<=:[ \t])(! \S.*?)[ \t]*$(?!\n[ \t]*\S)"
     rf"|\bsay[ \t]+{_QUOTE}"
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
@@ -1068,18 +1072,18 @@ def _offers(message: str, reply: str | None) -> list[str]:
             for c in _CODE_RE.finditer(t)]
 
     def offered(m: re.Match) -> bool:
-        if m.lastindex > 3:  # a quote: only in a transcript paragraph with no code at all,
+        if m.lastindex > 4:  # a quote: only in a transcript paragraph with no code at all,
             para = (re.split(r"\n[ \t]*\n", t[:m.start()])[-1]  # nor inside a fence's
                     + re.split(r"\n[ \t]*\n", t[m.start():])[0])
             return not any(a <= m.start() < b for a, b, _ in code) and not (
                 re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
-        # A command: only as an inline span or as the one row of a fence (a bare row may be
-        # the first of a script, and nothing after it says otherwise); never where a heredoc
+        # A command: only as an inline span, after a colon ending its paragraph, or as the one
+        # row of a fence (a bare row may be the first of a script); never where a heredoc
         # may hold it as data, nor in an indented block, nor inside other code.
         row = t[t.rfind("\n", 0, m.start()) + 1:m.start(m.lastindex)]
         lone = any(a < m.start() < b and rows == 1 for a, b, rows in code)
         return "<<" not in t and not re.match(r" {4}|\t", row) and (
-            m.lastindex == 2 or lone) and not any(
+            m.lastindex in (2, 4) or lone) and not any(
             a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
             for a, b, rows in code)
 
