@@ -133,17 +133,20 @@ A copyable's destination is *somewhere else*. The sibling case is text whose des
 is the same pane: Claude Code ending a turn with "run it yourself: `! gh pr merge …`" or
 "say "merge 415" and I'll queue it". Copying that, opening the composer, pasting and
 sending is four steps for what should be one tap, so a finished turn's offers are answers
-on the pane's question card, where a question's options already are. A command is its text
-once, on a row that unfolds when it is longer than the row, then Send it and Copy; a reply
-is not code, so it is one answer, Send "ship it". The list card carries the first offer
-only, so a row stays a row. A tap sends the exact text plus Enter by the path a tapped option takes, with its
-"Sending…" hold. Two earlier versions were dropped. A native confirm dialog blocked the
+on the pane's question card, where a question's options already are: each offer's exact
+text, as it will be sent (a `! ` included), on a row that unfolds when it is longer than
+the row, then Send it and Copy. Commands and replies look the same, since what matters is
+seeing what goes; special-casing them (hiding the `! `, a Send "…" button for replies) was
+tried and hid exactly that. The list card carries the first offer only, so a row stays a
+row. A tap sends the text plus Enter by the path a tapped option takes, with its "Sending…"
+hold. Two earlier versions were dropped. A native confirm dialog blocked the
 page and looked foreign on a phone. Filling the composer instead put a block of monospace
 above it and the command in the input box, which took half a phone's screen and read as
 something new rather than one more answer to tap; the card is where a user already looks
 for what the agent wants, so the offer belongs there, styled the same. Run was renamed Send
 it: the button sends text to the agent's prompt (a `! ` there runs it in Claude Code's
-shell), and the same word fits a quoted reply. They are not tied to Needs you: an agent that finishes
+shell), and the same word fits a quoted reply.
+They are not tied to Needs you: an agent that finishes
 with "if it looks fine, "merge all" queues 18 PRs" is idle, not asking, and the offer is
 still the fastest way on.
 

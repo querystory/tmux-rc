@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName, offerText, sendLabel } from "../web/m/pane-model.js";
+import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName } from "../web/m/pane-model.js";
 import { paneLinks, askLink } from "../web/pr-links.js";
 
 test("PR titles are primary, with the repository and number beneath", () => {
@@ -111,11 +111,4 @@ test("a question that points at a link leads with the first screen link, never a
   assert.equal(askLink({ ...pane, links: [login] }), null);
   const pr = "https://github.com/querystory/qs-app/pull/4955";
   for (const href of [pr, pr + "/"]) assert.deepEqual(askLink({ ...ask("Open this link"), links: [{ href, text: "PR" }, login] }), login);
-});
-
-test("an offer shows and copies without Claude Code's shell-mode bang", () => {
-  assert.equal(offerText("! make deploy-preview"), "make deploy-preview");
-  assert.equal(offerText("ship it"), "ship it");
-  assert.equal(sendLabel("! make deploy-preview"), "Send it");
-  assert.equal(sendLabel("ship it"), 'Send "ship it"');
 });

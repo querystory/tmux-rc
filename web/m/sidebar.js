@@ -11,7 +11,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, offerText, isCommand, sendLabel, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
 import { paneLinks, askLink } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -237,22 +237,21 @@ export function setupSidebar(ctx) {
   function replies(node, p) {
     const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
     const options = needsYou(p) ? ctx.answers(p.question) : [], link = needsYou(p) && askLink(p);
-    // A finished turn's first offer rides every card, Needs you or not, as on its pane's
-    // (app.js render), which shows them all.
-    const [offer] = ctx.offers(p), offers = (!offer ? [] : isCommand(offer) ? ["text", "send", "copy"] : ["send"]).map((part) => ({ offer, part, option: offer, index: -1 }));
+    // A finished turn's first offer rides every card, Needs you or not (app.js render shows all).
+    const offers = ctx.offers(p).slice(0, 1).flatMap((offer) => ["text", "send", "copy"].map((part) => ({ offer, part, option: offer, index: -1 })));
     const items = [...(link ? [{ link }] : []), ...options, ...offers, ...(answered ? [{ note: answered.note }] : needsYou(p) ? [{ reply: true }] : [])];
     reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.link ? `link:${o.link.href}` : o.part ? `${o.part}:${o.offer}` : `${o.index}:${o.option}`, (o) => {
       if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
       if (o.part === "text") return Object.assign(document.createElement("code"), { className: "sb-offer" });
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.link ? window.open(o.link.href, "_blank", "noopener,noreferrer") : o.reply ? openReply(node._p.pane_id, node._p.secret) : o.part === "copy" ? ctx.copy(offerText(o.offer)) : ctx.answer(node._p.pane_id, o.option, o.index, !!o.part);
+      button.onclick = () => o.link ? window.open(o.link.href, "_blank", "noopener,noreferrer") : o.reply ? openReply(node._p.pane_id, node._p.secret) : o.part === "copy" ? ctx.copy(o.offer) : ctx.answer(node._p.pane_id, o.option, o.index, !!o.part);
       return button;
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
-      if (o.part === "text") return text(el, offerText(o.offer));
-      const label = o.link ? "Open link" : o.reply ? "Reply" : o.part === "send" ? sendLabel(o.offer) : o.part === "copy" ? "Copy" : o.option;
-      text(el, label); el.title = o.link ? o.link.text : o.reply ? "" : o.part ? offerText(o.offer) : label; el.disabled = busy && !o.link && o.part !== "copy";
+      if (o.part === "text") return text(el, o.offer);
+      const label = o.link ? "Open link" : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
+      text(el, label); el.title = o.link ? o.link.text : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
       el.classList.toggle("picked", !o.reply && !o.link && o.part !== "copy" && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
