@@ -43,16 +43,26 @@ not wrapped ones.
 `resize-window -A` alone leaves it manual, so restoring is the pair: size the window to its
 clients again, then unset the window's own `window-size` so it inherits the session or
 global value once more. That happens when the viewer leaves the pane (or its terminal view,
-or hides the page), when its heartbeat stops for three minutes (each live round is one, so
-a closed laptop or a dropped tunnel counts), and at daemon startup.
+or hides the page), when its heartbeat (a report each minute) stops for three minutes, so a closed
+laptop or a dropped tunnel counts, and at daemon startup.
 
 **The mark lives on the window.** Which windows tmux-rc narrowed is stored as a window
 option on the window itself, holding the width it was given. It needs no file, cannot drift
 from reality, and dies with the window. A daemon that crashed while a window was narrow
 finds the mark on its first sweep and restores it.
 
+**Reports are POSTs, never part of the live GET.** Folding the heartbeat into the live
+long poll would have been free, but a GET that resizes a real terminal breaks the rule the
+preview sandbox relies on: that a page able to load our URLs still cannot change anything.
+
+**One lock around read, decide and resize.** Two viewers' reports, or a report and the
+sweep, would otherwise each read the window, and the slower one would write back a width
+that the faster one had just replaced.
+
 **Never fight the user.** If the window's width is no longer the width we set, someone
-resized it by hand: the mark is dropped and the window is theirs, with no restore. A window
+resized it by hand: the mark is dropped and the window is theirs, with no restore. The
+sweep applies the same check, so a resize made while the daemon was down survives its
+restart. A window
 whose `window-size` the user set locally before we ever touched it is never fitted at all.
 
 ## Alternatives rejected

@@ -53,11 +53,14 @@ def test_clamps_to_a_usable_width(pane):
     assert size(pane).startswith(f"{fit.MIN_COLS}x")
 
 
-def test_split_window_is_left_alone_unless_zoomed(pane):
-    T._run(["split-window", "-d", "-t", pane, "sleep 60"])
+def test_split_window_is_left_alone_unless_the_pane_is_zoomed(pane):
+    hidden = T._run(["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", pane,
+                     "sleep 60"]).strip()
     fit.view(pane, "phone", 60)
     assert size(pane) == "200x50 "
     T._run(["resize-pane", "-Z", "-t", pane])
+    fit.view(hidden, "phone", 60)  # the zoomed pane fills the window, not this one
+    assert size(pane) == "200x50 "
     fit.view(pane, "phone", 60)
     assert size(pane).startswith("60x")
 
@@ -106,6 +109,15 @@ def test_sweep_restores_what_no_viewer_wants(pane, monkeypatch):
     monkeypatch.setattr(fit, "_viewers", {})  # a restarted daemon: nobody is watching
     fit.sweep()
     assert size(pane) == "200x50 "
+
+
+def test_sweep_never_undoes_a_manual_resize(pane, monkeypatch):
+    fit.view(pane, "phone", 60)
+    T._run(["resize-window", "-x", "120", "-t", pane])  # while the daemon was down
+    monkeypatch.setattr(fit, "_viewers", {})
+    fit.sweep()
+    assert size(pane) == "120x50 "
+    assert local_window_size(pane) == "manual"  # their setting, left alone
 
 
 def test_endpoint(pane):

@@ -1033,9 +1033,10 @@ function restartDetail() {
 }
 
 // Fit width (docs/design/fit-width.md): the columns this view shows at its font, which the
-// daemon sizes a lone pane's window to so its lines wrap at the screen's edge. Every live
-// round re-reports them; fitTo says so at once, and 0 says this view has left the pane.
-let fitCols = 0;
+// daemon sizes a lone pane's window to so its app lays out at the screen's edge. fitTo
+// reports them; a stream re-reports each minute as its heartbeat, and 0 says it has left.
+const FIT_BEAT_MS = 60000;
+let fitCols = 0, fitAt = 0;
 function termCols() {
   const probe = $("capture").appendChild(document.createElement("span"));
   probe.textContent = "0".repeat(100);
@@ -1044,7 +1045,7 @@ function termCols() {
   return char ? Math.max(0, Math.floor(($("terminal-scroll").clientWidth - pad) / char)) : 0;
 }
 function fitTo(id, cols) {
-  fitCols = cols;
+  fitCols = cols; fitAt = cols ? Date.now() : 0;
   if (id) post(paneUrl(id, "fit"), { session: liveSession, cols, force: $("fit-toggle").checked }).then((r) => show("fit-pane", r.attached), () => {});
 }
 const refit = () => { const cols = termCols(); if (active && fitCols && cols && cols !== fitCols) fitTo(active, cols); };
@@ -1099,13 +1100,13 @@ async function streamTerminal(id, signal) {
   text($("terminal-status"), "Connecting");
   while (!signal.aborted) {
     try {
-      const query = new URLSearchParams({ frame, cols: fitCols = termCols() });
+      const cols = termCols();
+      if (cols && Date.now() - fitAt > FIT_BEAT_MS) fitTo(id, cols);
+      const query = new URLSearchParams({ frame });
       if (liveSession) query.set("session", liveSession);
-      if ($("fit-toggle").checked) query.set("force", "1");
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      show("fit-pane", data.attached);
       if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);

@@ -839,8 +839,6 @@ async def live_frame(
     request: Request = None,
     frame: str = "",
     session: str = "",
-    cols: int = 0,
-    force: bool = False,
 ):
     """One long-poll round: the client sends the hash of the frame it's showing and
     we answer with a newer colored frame, or {frame: same} after ~25s of no change
@@ -855,16 +853,8 @@ async def live_frame(
 
     `session` is the client's per-page-load UUID: the summable spine for live-time /
     usage telemetry (see docs/design/live-telemetry.md). We stamp presence once per
-    round after the first successful capture and emit ONE telemetry record per round.
-
-    `cols` is how many columns the client shows; each round is its heartbeat to fit the
-    window's width (openbus/fit.py), `force` its "Fit to my screen" toggle. `attached`
-    in the answer says a terminal is attached, the one case the toggle matters."""
+    round after the first successful capture and emit ONE telemetry record per round."""
     started = time.monotonic()
-    fitted = {}
-    if cols:
-        with suppress(subprocess.CalledProcessError):  # a gone pane 404s at the capture
-            fitted["attached"] = await asyncio.to_thread(fit.view, pane_id, session, cols, force)
     deadline = started + LIVE_HOLD_SECONDS
     stamped = False
     while True:
@@ -894,7 +884,7 @@ async def live_frame(
                 len(data) if changed else None,
             )
             # changed ⇒ send the new colored frame; else unchanged, client re-holds.
-            return {"frame": h, **fitted, **({"text": text} if changed else {})}
+            return {"frame": h, "text": text} if changed else {"frame": h}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
 
 
@@ -1102,8 +1092,11 @@ class FitBody(BaseModel):
 
 @app.post("/api/panes/{pane_id}/fit")
 def fit_width(pane_id: str, body: FitBody):
-    """Fit (or, with cols 0, stop fitting) the pane's window to this viewer now, rather
-    than at its next live round: on leaving, zooming or flipping the toggle."""
+    """Fit the pane's window to this viewer (openbus/fit.py); cols 0 means it left. The
+    view posts this as it opens the terminal, on zoom, resize or the toggle, and once a
+    minute as its heartbeat. A POST, never a GET: it resizes a real terminal, and the
+    preview sandbox relies on GETs changing nothing. `attached` says a terminal is
+    attached, the one case the "Fit to my screen" toggle matters."""
     try:
         return {"attached": fit.view(pane_id, body.session, body.cols, body.force)}
     except subprocess.CalledProcessError as e:
