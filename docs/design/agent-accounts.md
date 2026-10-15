@@ -77,14 +77,23 @@ alike; see [sidebar.md](sidebar.md).
   environment already does: a session that starts new windows on an account other
   sessions do not is worth seeing at a glance; a default every session shares is not.
 - **Usage strip:** one card per window (plan-usage.md) in one row that swipes, most urgent
-  first (full soonest, then the highest pace at the reset). Each card names its account and
-  window on its own short line, "Claude Work · 7d", rather than a chip in a corner. On a real
+  first (full soonest, then the highest pace at the reset). Each card names its account by
+  the rows' chip, then the window ("● Work · 7d") on its own short line, rather than a chip in
+  a meter's corner. On a real
   phone, a chip under every bar gauge read as noise, and a heading per account over a grid
   made the strip two thirds of the screen. A name in the window's title was tried first: it
   was truncated first and read as part of the window ("7d QSI"). The card's line has room for
   both, and it never truncates.
-- **Dashboard Plan usage:** the same cards, wrapping since the card has room, most urgent
-  first, so nothing hides behind a swipe there.
+- **Dashboard Plan usage:** wide, every meter on one line, grouped per account with one thin
+  divider between groups. Each group is headed by its chip, flush left over its first meter,
+  with the details (who, plan, dir, panes) in its tooltip, and Codex gets a chip like the
+  rest. The meters share the line evenly, down to 130px each, which fits ten on a 1500px
+  card; below that the line scrolls with the strip's edge fades rather than wrapping. A
+  wrapped second row looked broken: its chips floated in the gap, and its groups did not
+  line up with the first row's. Chips centred over their groups, on the heading line to
+  save a row, read as loose labels rather than headings, so they now take a row. The chip
+  names the account once over its meters, so the meters carry none. A phone's dashboard
+  uses the strip, a chip on each meter.
 - **Filter** is a list filter, so it sits with the list's other one rather than in Settings:
   on wide, an "Account" group (All accounts, then each account, several at once) under
   "State" in the filter button's menu beside the search box, combining with it (Working +

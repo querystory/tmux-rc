@@ -11,17 +11,16 @@ or let a pane idle. So the UI shows each window's percentage all the time (atop 
 list, the sidebar foot on desktop; the collapsed rail leaves it out, as it leaves out every
 card's text), as one small card per window (colours below), and the usage view draws the trends.
 
-Every small surface (the phone's strip, the sidebar's foot, the dashboard's card) draws the
-same card, the tab bar mock's "modern pass", which the user picked over everything else in
-it: a 30px ring that fills with what is used, "89% · resets 7h30m", and a short line naming
+The session list's strip (the phone's list top, the sidebar's foot) draws the tab bar mock's
+"modern pass" card, which the user picked over everything else in it: a 30px ring that fills with what is used, "89% · resets 7h30m", and a short line naming
 the account and window. The cards sit in one row that swipes sideways and snaps per card,
-and the next card peeks in at the edge so the row reads as one that scrolls. The dashboard's
-card has room, so there they wrap. Nothing in a card truncates.
+and the next card peeks in at the edge so the row reads as one that scrolls. Nothing in a card
+truncates. The dashboard's Plan usage card is not a strip and keeps its own design, a meter
+per window with each wide one's trend (below): a card there was tried and taken back the same
+day, because the dashboard is where the detail belongs.
 
 This replaced three earlier designs, and each one taught something.
-- **Sparklines** (24px, in the sidebar and on the card) said less than a number does at
-  that size. Once the usage view showed the history properly, they were a second, weaker
-  chart to maintain.
+- **Sparklines** (24px, in the sidebar's strip) said less than a number does at that size.
 - **Bar gauges in a grid**, two to a row under a heading per account, kept everything
   visible but made the strip about 550px tall on a phone with three accounts, two thirds of
   the screen above the list. Compacted to two lines, they still read as "all these charts".
@@ -31,13 +30,13 @@ This replaced three earlier designs, and each one taught something.
 The ring card is a single fixed-size object, so a row of them is one line high however many
 accounts there are. The peek, unlike a hard cut, says there is more.
 
-The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So the time says "resets". Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. In that case "full in 2d12h" in red takes the reset's place. The reset and the projected end stay in the tooltip and the usage view. A reading kept through failed reads is noted once, by the oldest, in the row's last card beside the "+N", rather than on every card.
+On a card, "full in 2d12h" in red takes the reset's place (the tooltip, the dashboard's meter and the usage view keep both), and a reading kept through failed reads is noted once, by the oldest, in the row's last card beside the "+N", rather than on every card.
 
-Cards come in one row rather than a block per account with fixed 5h and 7d columns, because the windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, "7d Fable"; a weekly-only Codex plan has one), and fixed columns left holes. Each card names its provider by icon and, with several accounts, its account.
+The dashboard's card draws a meter per window. Its first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So each meter now says "used", the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. That case adds a "full in" line, in the meter's colour, above the reset countdown rather than in place of it: the reset is still when the room comes back, and a forecast without it left no way to plan around the stall. All meters share one flat grid, two to a row, instead of a block per account under a header. The windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, "7d Fable"; a weekly-only Codex plan has one), so per-account rows with fixed 5h and 7d columns left holes and spent a whole row on each header. Packed, Claude's three and Codex's one make a 2×2. Each label carries its provider's icon instead of a header, and the order (provider, then 5h, 7d, per-model) keeps an account's meters together. In the narrowest cells the word "used" drops out so the window name and percentage still fit; the trend line already shows direction there.
 
 ### When the phone shows it
 
-Even packed, the strip takes two rows above the list, and most of the time nothing in it
+Even as one row, the strip sits above the list, and most of the time nothing in it
 asks for anything. So Settings has a Plan usage choice of Auto, On and Off,
 remembered per browser like the theme. On is the full strip and Off hides it. Auto, the
 default, shows only the meters that call for a decision and hides the strip when none do.
@@ -56,7 +55,7 @@ token, with no plan limits at all, turns it off once.
 
 On a phone the strip scrolls away with the list instead of staying pinned over it, while the
 search row (search and the filter button) stays pinned. The meters are a glance on the way in,
-and once the list is scrolled two rows of them only cost room; search is what you reach for
+and once the list is scrolled they only cost room; search is what you reach for
 mid-list.
 
 The strip's top edge is a seam, as the fleet chart's is: dragged taller, its cards wrap into
@@ -72,9 +71,9 @@ reaching up the sidebar, then collapsed into their row.
 
 ### The dashboard panel
 
-The cards say where a window stands but not how it got there. So the dashboard has a Plan
-usage panel, right under the activity chart: every meter, whatever the Usage setting, its
-Details opening the usage view where the history reads. It sits under the
+A phone's bar says where a window stands but not how it got there, and the sidebar's trend
+is a thumbnail. So the dashboard has a Plan usage panel, right under the activity chart:
+every meter, whatever the Usage setting, as a trend tall enough to read. It sits under the
 chart, not above it, because the activity chart is what the dashboard is for; above it, the
 panel pushed the page's main subject below the fold on a phone. Tapping the strip, on the phone or in the
 sidebar, opens the dashboard at that panel rather than a sheet of its own, so there is one
@@ -287,6 +286,8 @@ The anchor keeps a single sample meaningful (it becomes the window's average pac
 stops one noisy reading from swinging the line. A fit over the whole window lags a sudden
 burst, which we accept: it is meant to answer "at this rate", not to forecast. The server
 computes it, so it is tested in Python and phone and desktop agree. Only ~120 thinned
-samples per window are sent; the fit uses all of them.
+samples per window are sent, the sparkline's width; the fit uses all of them.
 
-Only the usage view, which is about the charts, loads ECharts; the cards are plain markup.
+The dashboard's sparklines are a few lines of inline SVG rather than ECharts:
+four 24px trends do not justify loading a chart library on screens that otherwise would
+not. The usage view, which is about the charts, loads it.
