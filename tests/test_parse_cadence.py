@@ -73,8 +73,8 @@ def test_explicit_title_wins_over_inferred_name_on_parse_cache_and_rename(monkey
         "activity": "idle", "events": [], "tool": "codex",
         "session": "Webhook Retry Queue",
         "label": "Webhook Retry Queue", "tmux_label": pane.label})
-    pane = _Pane(label="qs-app-0:17")
-    pane.display_title = "Working | qs-app | docs/order-sync"
+    pane = _Pane(label="shop-api-0:17")
+    pane.display_title = "Working | shop-api | docs/order-sync"
     for _ in range(2):
         w._forced_this_tick = set()
         state = w._tick_pane(pane)
