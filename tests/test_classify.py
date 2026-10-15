@@ -41,6 +41,7 @@ def test_bootstrap_shapes_result_and_flags_history():
                 "events": [{"text": "Merged PR #24"}, {"junk": 1}, "nope"],
             }
         ),
+        repository="querystory/tmux-rc",
     )
     assert r["name"] == "tmux-rc overhaul"
     assert r["summary"] == "shipping PRs #24 and #26"
@@ -428,13 +429,30 @@ def test_working_prs_are_validated_bounded_and_deduped():
         {"repo": "querystory/qs-app", "number": 0},
         "junk",
     ] + [{"repo": "querystory/tmux-rc", "number": n} for n in range(1, 12)]
-    r = classify(_pane(), "…", _llm({"activity": "running", "working_prs": raw}))
+    r = classify(_pane(), "shipped querystory/qs-app#4955", _llm(
+        {"activity": "running", "working_prs": raw}), repository="querystory/tmux-rc")
     assert r["working_prs"][0] == {"repo": "querystory/qs-app", "number": 4955}
     assert len(r["working_prs"]) == 8
     assert len({(p["repo"].lower(), p["number"]) for p in r["working_prs"]}) == 8
     assert "working_prs" not in classify(
         _pane(), "…", _llm({"activity": "idle", "working_prs": "all PRs"})
     )
+
+
+def test_working_pr_repo_is_the_panes_origin_or_written_with_its_number():
+    # A pane in a plain folder "demo" (no origin) whose agent opened acme/shop-app#5286,
+    # with other repos named elsewhere: the model guessed acme/demo from the folder and
+    # paired the bare numbers with every repo on screen.
+    screen = ("Opened https://github.com/acme/shop-app/pull/5286\n"
+              "Also see acme/ops-scripts README. Fixed #5283, #5284.")
+    guessed = [{"repo": r, "number": n} for n in (5286, 5283, 5284)
+               for r in ("acme/shop-app", "acme/demo", "acme/ops-scripts")]
+    r = classify(_pane(), screen, _llm({"activity": "idle", "working_prs": guessed}))
+    assert r["working_prs"] == [{"repo": "acme/shop-app", "number": 5286}]
+    # In a checkout, a bare number belongs to its origin, and to no other repo.
+    r = classify(_pane(), screen, _llm({"activity": "idle", "working_prs": guessed}),
+                 repository="acme/shop-app")
+    assert r["working_prs"] == [{"repo": "acme/shop-app", "number": n} for n in (5286, 5283, 5284)]
 
 
 def test_pipes_llm_json_through():

@@ -1,0 +1,11 @@
+{
+  "description": "The pane sits in a plain folder named 'demo' (no GitHub origin) while the agent works across worktrees. Only the PR named with its repo survives; bare numbers are not attached to a repo guessed from the folder or to another repo the screen mentions.",
+  "current_command": "claude",
+  "capture": "╭───────────────────────────────╮\n│ ✻ Welcome to Claude Code!     │\n│   cwd: /home/dev/src/demo     │\n╰───────────────────────────────╯\n\n> ship the eval PR, then rebase #5283-#5285 on it\n\n● Bash(cd demo-app-eval && gh pr create --fill)\n  ⎿ https://github.com/acme/demo-app/pull/5286\n\n● Opened acme/demo-app#5286 (eval for the fact-checker). Rebasing #5283, #5284 and #5285 onto it next; #5287 is waiting on acme/ops-scripts deploy config.\n\n✻ Rebasing… (12s · esc to interrupt)\n\n>\n  ? for shortcuts",
+  "expected": {
+    "tool": "claude",
+    "activity": "running",
+    "working_prs": [{"repo": "acme/demo-app", "number": 5286}],
+    "headline": "Opened demo-app PR 5286 and rebasing PRs 5283-5285 onto it"
+  }
+}
