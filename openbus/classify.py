@@ -1023,15 +1023,17 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
 # Command text and code an offer must not be read out of: an inline code span, a fence, a
 # `! ` row with its wrapped continuation, an unmarked `! ` to its row's end (the screen draws
 # inline code without backticks). A quote inside any of them is the code's own; a command
-# inside one is too, unless it is that very span or row. A fence holds a command to run.
+# inside one is too, unless it is that very span or row, or a command row of its own in a
+# fence (an inline span in a fence is the fence's data).
 _CODE_RE = re.compile(r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)|(?P<fence>^[ \t]*```[\s\S]*?^[ \t]*```)"
                       r"|^[ \t]*! \S.*(?:\n[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
 
 
-# What forbids the offer after it, read on _plain text: "do **not**\n  run `! make deploy`",
-# or "Do not run this:" over a fenced block.
-_NEGATED_RE = re.compile(r"(?:\bnot|n't|\bnever)(?: (?:run|type|use|execute|enter|paste|send|say))?"
-                         r"(?: (?:this|these|it))?:?$", re.IGNORECASE)
+# A message that forbids running or saying something offers nothing at all, read on _plain
+# text ("do **not**\n  run"): which command or phrase a warning covers (the next one, a whole
+# fence, a list) is not worth guessing when a wrong guess prefills the forbidden thing.
+_FORBIDS_RE = re.compile(
+    r"(?:\bnot|\bnever|n['’]t)\s+(?:run|type|use|execute|enter|paste|send|say)\b", re.IGNORECASE)
 
 
 def _plain(text: str) -> str:
@@ -1052,11 +1054,13 @@ def _offers(message: str, reply: str | None) -> list[str]:
         return []
     # One source, never both: a command's own quotes, unmarked on screen, are no reply.
     t = reply if reply and _plain(reply) == _plain(message) else message
+    if _FORBIDS_RE.search(_plain(t)):
+        return []
     code = [(c.start(), c.end(), bool(c["fence"])) for c in _CODE_RE.finditer(t)]
     found = (m[m.lastindex]  # the payload: each alternative's last group (a quote's: 4, 5)
              for m in _OFFER_RE.finditer(t)
-             if not _NEGATED_RE.search(_plain(t[:m.start()])) and not any(
-                 a <= m.start() < b and (m.lastindex > 3 or (a != m.start() and not fence))
+             if not any(a <= m.start() < b and not (  # inside code, and not as itself:
+                 m.lastindex <= 3 and (a == m.start() or (fence and m.lastindex == 3)))
                  for a, b, fence in code))
     return list(dict.fromkeys(o for o in found if re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))

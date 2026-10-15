@@ -154,7 +154,11 @@ command the screen wraps is skipped rather than rejoined (a guessed join could r
 wrong thing), unless the transcript holds it whole; and the transcript's copy counts only
 when the screen shows all of it, so a stale transcript offers nothing (a prefix match
 would let `merge 412` stand in for the `merge 415` on screen). The field is the screen's
-alone: whatever the model returns under that name is dropped first. It is Claude Code's
+alone: whatever the model returns under that name is dropped first. Two more rules came
+from review, both trading recall for never prefilling the wrong thing: nothing is read out
+of code (a quote in a command's arguments, a command quoted in a fixture), and a message
+that says "do not run" or "don't say" anywhere offers nothing at all, since which command a
+warning covers is not worth guessing. It is Claude Code's
 alone for now, too: Codex's screen has no message boundary this reads yet, so its tool
 output could pass for an offer. A missed offer costs
 the old copy-paste; a false one would cost a command the user never meant, which is why

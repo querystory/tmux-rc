@@ -1434,6 +1434,11 @@ def test_finished_turn_offers_the_replies_it_hands_over():
          "Do not run `! make deploy`; it deploys."),  # a negated run, wrapped
         (_auto_screen('Do not say "merge all"; it skips.'),
          'Do **not** say "merge all"; it skips.'),  # negation behind Markdown
+        (_auto_screen('Don’t say "merge all"; it skips review.'), None),  # a typographic n’t
+        (_auto_screen("Do not run these:\n\n  ! make reset\n\n  ! make deploy"),
+         "Do not run these:\n\n```bash\n! make reset\n! make deploy\n```"),  # a whole fence
+        (_auto_screen('Use this:\n\n  message = "! make deploy"'),
+         'Use this:\n\n```\nmessage = "`! make deploy`"\n```'),  # a fixture in a fence
         (_auto_screen("Do not run this:\n\n  ! make deploy"),
          "Do not run this:\n\n```\n! make deploy\n```"),  # a forbidden fenced command
         (_auto_screen('Do not say "merge all"; it skips review.'), 'Say "merge all" now.'),
