@@ -194,7 +194,7 @@ def _judge(pane: dict, died: float) -> tuple[bool, str | None]:
         pane["cwd"] = entry.get("cwd") or pane["cwd"]  # the harness finds it only there
         # The transcript, not the screen: an idle agent's clock moves with anything drawn.
         spoke = _epoch(entry.get("last_active"))
-        last = last if spoke is None else spoke
+        last = pane["last_activity"] = last if spoke is None else spoke  # the card shows it
     elif pane.get("tool") in AGENT_TOOLS:
         pane["note"] = "no conversation was recorded for it, so it returns as a shell"
         return False, None
