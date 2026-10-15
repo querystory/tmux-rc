@@ -73,6 +73,7 @@ ROWS = """\
 7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1
 7|claude|need|webhook timeouts|4m|Go with A or B?|Go with A,Go with B
 0|claude|need|refunds|1m|PRs #413 and #414 are green and reviewed. Merge?|Merge both,Just #413,Later
+5|claude|need|prod deploy|2m|Production waits on an approval. Approve it at the link?|Done,Skip
 """
 
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
@@ -261,6 +262,9 @@ DETAIL = {
                  "title": "Partial refunds in the payments service"},
                 {"repo": "example-org/shop-api", "number": 414,
                  "title": "Refund button on the order page"}]},
+    # A question that sends you to a link: it leads the card as Open link.
+    "prod deploy": {"links": [{"href": f"https://{ORG}/shop-api/actions/runs/1029384799",
+                               "text": "Review the production deployment"}]},
     # A finished turn that hands the user replies to type: classify()'s offers.
     "preview deploy": {"offers": ["! gh pr merge 412 --squash --auto", "ship it"],
                        "headline": "Preview deployed; the merge is yours to run."},

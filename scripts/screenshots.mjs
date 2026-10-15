@@ -53,6 +53,7 @@ const SHOTS = [
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
+  ["mobile-open-link", PHONE, "light", "#pane=%2549"],
   ["mobile-question-items", PHONE, "light", "#pane=%2546"],
   ["mobile-question-subject", PHONE, "light", "#pane=%2547"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
