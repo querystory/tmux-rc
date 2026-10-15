@@ -220,6 +220,7 @@ def test_an_omp_pane_wears_the_chip_of_the_claude_account_it_signs_in_to(home, m
     monkeypatch.setattr(plan_usage, "omp_launch", lambda pid: (["/bin/omp"], ()))
     monkeypatch.setattr(plan_usage, "_omp", {(): (0.0, {"u-me"})})  # as PlanUsage last read
     monkeypatch.setattr(plan_usage, "read_omp", pytest.fail)  # a request never waits on omp
+    monkeypatch.setattr(T, "show_env", lambda session=None: {})
     report = accounts.report([{"pane_id": "%1", "tool": "omp"}], lambda pane_id: pane_id[1:])
     assert {p["tilde"]: p["panes"] for p in report["profiles"]}["~/.claude-personal"] == ["%1"]
     assert sum(p["panes"] == ["%1"] for p in report["profiles"]) == 1

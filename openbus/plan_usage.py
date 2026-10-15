@@ -94,7 +94,9 @@ def omp_launch(pid: str) -> tuple[list[str], tuple]:
     argv = tmux.proc_read(agent, "cmdline").split("\0")
     at = next((i for i, a in enumerate(argv) if os.path.basename(a) == "omp"), None)
     try:  # at 0 omp is the executable itself; else the script, which may be relative
-        launch = [os.readlink(f"/proc/{agent}/exe"), *argv[1:at], os.path.join(
+        exe = os.readlink(f"/proc/{agent}/exe")  # replaced since it started: the link runs it
+        exe = exe if os.path.exists(exe) else f"/proc/{agent}/exe"
+        launch = [exe, *argv[1:at], os.path.join(
             os.readlink(f"/proc/{agent}/cwd"), argv[at])][:at + 1] if at is not None else []
     except OSError:  # gone, or not ours
         launch = []

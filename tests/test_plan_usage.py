@@ -390,6 +390,7 @@ def test_an_omp_pane_says_how_its_omp_runs_and_whose_logins(monkeypatch):
     monkeypatch.setattr(plan_usage.tmux, "proc_read", lambda pid, name: procs[pid][
         ("comm", "cmdline", "environ").index(name)])
     monkeypatch.setattr(plan_usage.os, "readlink", lambda path: links[path.rsplit("/", 1)[1]])
+    monkeypatch.setattr(plan_usage.os.path, "exists", lambda path: "(deleted)" not in path)
     assert plan_usage.omp_launch("1") == (["/usr/bin/bash", "/usr/local/bin/omp"],
                                           (("HOME", "/h"), ("OMP_PROFILE", "inline")))
     for argv in ("--profile\0work\0", "--profile=work\0"):
@@ -397,8 +398,8 @@ def test_an_omp_pane_says_how_its_omp_runs_and_whose_logins(monkeypatch):
         assert plan_usage.omp_launch("1")[1] == WORK
     procs["2"], links["exe"] = ("bun", "bun\0./omp\0", ""), BUN[0]
     assert plan_usage.omp_launch("1") == ([BUN[0], "/src/./omp"], ())  # from its cwd
-    procs["2"], links["exe"] = ("omp", "omp\0", ""), "/opt/omp"
-    assert plan_usage.omp_launch("1")[0] == ["/opt/omp"]  # omp's own binary
+    procs["2"], links["exe"] = ("omp", "omp\0", ""), "/opt/omp (deleted)"
+    assert plan_usage.omp_launch("1")[0] == ["/proc/2/exe"]  # its own binary, since replaced
     del procs["2"]
     assert plan_usage.omp_launch("1")[0] == []  # no omp process: nothing to run
 
