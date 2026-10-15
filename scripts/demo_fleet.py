@@ -255,6 +255,7 @@ DETAIL = {
         "prs": [{"repo": "example-org/shop-api", "number": 409,
               "title": "Structured money type for order totals"}]},
     "refunds": {
+        "headline": "Refund PRs ready to merge", "status_line": "Refund PRs ready to merge",
         "model": "Opus 5", "context_pct": 47, "cost": "$1.96",
         "session_summary": "Both PRs passed CI and have an approving review. #414 builds on "
                            "#413, so merging both ships partial refunds end to end.",
