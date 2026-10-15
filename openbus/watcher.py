@@ -899,6 +899,7 @@ class Watcher:
         and items are in `asked`, so a new ask under the same prompt is untouched."""
         if state and Watcher._pending_key(state)[1:] in asked:
             state.update(question=None, activity="running", waiting_on=None)
+            state.pop("offers", None)  # the user is acting on that screen already
             return True
         return False
 
@@ -925,6 +926,7 @@ class Watcher:
                 s.get("session_summary"),
                 Watcher._question_prompt(s), s.get("parsed_at"),
                 s.get("last_activity_at"),
+                tuple(s.get("offers") or ()),  # re-read on an unreparsed screen (_tick_pane)
             ))
             for s in states
         ]
