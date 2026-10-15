@@ -67,10 +67,10 @@ def home(provider: str, env: dict) -> Path:
 
 
 def _agent(pid: str, tool: str) -> str:
-    """The tool's own process under the pane, else the pane's (an inline `VAR=… tool` sets
-    VAR only in the tool's process)."""
-    return next((p for p in tmux.processes(pid) if tmux.proc_read(p, "comm").strip() == tool),
-                pid)
+    """The tool's own process under the pane, by name or the script bun/node runs, else the
+    pane's (an inline `VAR=… tool` sets VAR only in the tool's process)."""
+    return next((p for p in tmux.processes(pid)
+                 if tool in (tmux.proc_read(p, "comm").strip(), tmux.program(p))), pid)
 
 
 def _environ(pid: str, keys: tuple[str, ...]) -> dict:

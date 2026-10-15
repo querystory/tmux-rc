@@ -387,6 +387,8 @@ def test_the_omp_profile_comes_from_its_flag_else_its_environment(monkeypatch):
     for argv in ("--profile\0work\0", "--profile=work\0"):
         procs["2"] = ("omp", f"/bin/bash\0/usr/local/bin/omp\0{argv}", "OMP_PROFILE=inline\0")
         assert plan_usage.omp_profile("1") == "work"
+    procs["2"] = ("bun", "bun\0/home/x/.bun/bin/omp\0--profile\0bun\0", "")  # bun-hosted
+    assert plan_usage.omp_profile("1") == "bun"
 
 
 def test_an_omp_pane_is_a_pane_of_each_claude_account_its_profile_holds(tmp_path, monkeypatch):

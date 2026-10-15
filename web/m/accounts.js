@@ -313,7 +313,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   });
   $("accounts-open").onclick = () => open("list");
 
-  function matches(pane) { const on = active(); return !on.length || on.includes(profiles.find((p) => p.panes.includes(pane.pane_id))); }
+  // An omp pane can be on several (plan_usage.py): it matches any of them.
+  function matches(pane) { const on = active(); return !on.length || on.some((p) => p.panes.includes(pane.pane_id)); }
   return {
     refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
     // Settings' list: each account, who it is and where, its sheet a click away.
