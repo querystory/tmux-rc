@@ -8,15 +8,17 @@ that stamp stands for when the server died. Nothing from a pane's command line o
 environment is stored; a resume command is rebuilt from agent-history at restore time."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import shlex
 import sqlite3
 import subprocess
 import time
 from datetime import datetime
 
-from . import agent_history, tmux
+from . import accounts, agent_history, tmux
 from .history import AGENT_TOOLS
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,8 @@ EVERY = 60
 KEEP = 30 * 86400  # a dead server's snapshot is offered this long, then dropped
 RECENT = 86400  # pane defaults: active this close to the server's death is recent
 _SHELLS = frozenset({"bash", "zsh", "fish", "sh"})
+PACE = 3  # agents starting at once: forty Node processes on a just-booted box fight
+READY = 60  # seconds an agent gets to reach its prompt before its slot passes on
 
 _WINDOWS = ("#{session_name}\t#{session_path}\t#{session_group}\t#{window_id}\t#{window_index}"
             "\t#{window_active}\t#{window_name}\t#{automatic-rename}\t#{window_zoomed_flag}"
@@ -151,11 +155,12 @@ def candidate(history) -> dict | None:
     return None
 
 
-def consume(history, server: str, how: str) -> bool:
-    """Mark a snapshot restored or dismissed; False if someone else already did."""
+def consume(history, server: str, how: str | None) -> bool:
+    """Mark a snapshot restored or dismissed, False if someone else already did; None
+    puts it back on offer (a restore that failed before building anything)."""
     with history.connect() as db:
         return db.execute("UPDATE layout_snapshots SET consumed=? WHERE server=? AND "
-                          "consumed IS NULL", (how, server)).rowcount == 1
+                          "(consumed IS NULL) = ?", (how, server, how is not None)).rowcount == 1
 
 
 def offer(history) -> dict | None:
@@ -189,7 +194,7 @@ def _judge(pane: dict, died: float) -> tuple[bool, str | None]:
         pane["cwd"] = entry.get("cwd") or pane["cwd"]  # the harness finds it only there
         # The transcript, not the screen: an idle agent's clock moves with anything drawn.
         spoke = _epoch(entry.get("last_active"))
-        last = last if spoke is None else spoke
+        last = pane["last_activity"] = last if spoke is None else spoke  # the card shows it
     elif pane.get("tool") in AGENT_TOOLS:
         pane["note"] = "no conversation was recorded for it, so it returns as a shell"
         return False, None
@@ -203,3 +208,124 @@ def _epoch(iso: str | None) -> float | None:
         return datetime.fromisoformat(iso).timestamp() if iso else None
     except ValueError:
         return None
+
+
+def build(snapshot: dict, chosen: set[tuple[str, int]]) -> list[tuple[str, dict]]:
+    """Rebuild the chosen panes' sessions, windows and splits as a person would, starting
+    the tmux server if none runs (new_session puts it in its own scope with the login
+    shell's environment). Every pane starts as the user's shell in its directory; agents
+    are resumed afterwards, paced (launch). Returns each built pane with its snapshot
+    entry. A session name already taken gets a suffix, never a merge into a live session;
+    a window shared by a group or a link is built once and shared again."""
+    taken = {r[0] for r in tmux.rows("list-windows", "#{session_name}")} \
+        if tmux.server_running() else set()
+    windows, built, groups, out = snapshot["windows"], {}, {}, []
+    for session in snapshot["sessions"]:
+        links = sorted((w for w in session["windows"] if _picked(windows[w["id"]], w["id"],
+                                                                  chosen)),
+                       key=lambda w: w["index"])
+        if not links:
+            continue
+        name = _free(session["name"], taken)
+        if session["group"] in groups:  # a group member shares the windows already built
+            tmux.run("new-session", "-d", "-s", name, "-t", groups[session["group"]])
+        else:
+            fresh = next((w for w in links if w["id"] not in built), None)
+            first = fresh and _picked(windows[fresh["id"]], fresh["id"], chosen)[0]["cwd"]
+            seed = tmux.new_session(name, first or session["path"])
+            for link in links:
+                target = f"{name}:{link['index']}"
+                if link["id"] in built:
+                    tmux.run("link-window", "-d", "-s", built[link["id"]], "-t", target)
+                    continue
+                if link is fresh:
+                    if tmux.run("display-message", "-p", "-t", seed, "#{window_index}") \
+                            != str(link["index"]):
+                        tmux.run("move-window", "-s", seed, "-t", target)
+                    out += _window(windows[link["id"]], link["id"], seed, chosen)
+                else:
+                    cwd = _picked(windows[link["id"]], link["id"], chosen)[0]["cwd"]
+                    head = tmux.run("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", target,
+                                    "-c", cwd)
+                    out += _window(windows[link["id"]], link["id"], head, chosen)
+                built[link["id"]] = target
+            if not fresh:  # only shared windows here: the seed window was a placeholder
+                tmux.run("kill-pane", "-t", seed)
+        groups.setdefault(session["group"] or None, name)
+        taken.add(name)
+        current = next((w for w in links if w["current"]), links[0])
+        tmux.run("select-window", "-t", f"{name}:{current['index']}")
+    return out
+
+
+def _window(window: dict, wid: str, head: str, chosen) -> list[tuple[str, dict]]:
+    """Split the window's chosen panes off its first, then its geometry, name and focus."""
+    panes = _picked(window, wid, chosen)
+    ids = [head]
+    for pane in panes[1:]:
+        ids.append(tmux.run("split-window", "-d", "-P", "-F", "#{pane_id}", "-t", ids[-1],
+                            "-c", pane["cwd"]))
+    try:  # the saved string names every pane; with some left out tmux refuses it
+        tmux.run("select-layout", "-t", head, window["layout"] if len(panes) == len(
+            window["panes"]) else "tiled")
+    except subprocess.CalledProcessError:
+        tmux.run("select-layout", "-t", head, "tiled")
+    if window["manual"]:  # else tmux renames it after the agent the moment it starts
+        tmux.run("set-option", "-w", "-t", head, "automatic-rename", "off")
+        tmux.run("rename-window", "-t", head, window["name"])
+    active = next((i for i, p in zip(ids, panes, strict=True) if p["active"]), ids[0])
+    tmux.run("select-pane", "-t", active)
+    if window["zoomed"] and len(ids) > 1:
+        tmux.run("resize-pane", "-Z", "-t", active)
+    return list(zip(ids, panes, strict=True))
+
+
+def _picked(window: dict, wid: str, chosen) -> list[dict]:
+    return [p for p in window["panes"] if (wid, p["index"]) in chosen]
+
+
+def _free(name: str, taken: set[str]) -> str:
+    if name not in taken:
+        return name
+    n = 1
+    while f"{name}-restored{n if n > 1 else ''}" in taken:
+        n += 1
+    return f"{name}-restored{n if n > 1 else ''}"
+
+
+async def launch(built: list[tuple[str, dict]], watcher, audit) -> None:
+    """Resume each bound agent in its prebuilt pane, PACE at a time: waiting on the user
+    first, then working, then by recency. Each resume is typed into the pane's shell, so
+    the login shell's PATH finds the agent and an agent that exits leaves a shell in its
+    place. Right before each, the running check runs again: a session resumed by hand
+    meanwhile is skipped, never started twice."""
+    def rank(item):
+        p = item[1]
+        return (p.get("activity") != "waiting", p.get("activity") not in ("running", "compacting"),
+                -(p.get("last_activity") or 0))
+
+    slots = asyncio.Semaphore(PACE)
+
+    async def one(pane: str, entry: dict) -> None:
+        sid = entry["binding"]["session_id"]
+        async with slots:
+            found = await asyncio.to_thread(agent_history.get, sid) or {}
+            argv = found.get("resume_argv") or []
+            if found.get("running") or found.get("running_unknown") or not argv or \
+                    argv[0] not in agent_history.RESUMABLE:
+                audit("restore_resume", pane, sid, "skipped: running, unknown or not resumable")
+                return
+            line = shlex.join(accounts.resume_command(found))
+            await asyncio.to_thread(tmux.run, "send-keys", "-t", pane, "-l", line)
+            await asyncio.to_thread(tmux.run, "send-keys", "-t", pane, "Enter")
+            audit("restore_resume", pane, sid, "ok")
+            for _ in range(READY):  # its slot passes on at its prompt, or after READY
+                state = next((s for s in watcher.states if s.get("pane_id") == pane), {})
+                if state.get("activity") in ("idle", "waiting") and \
+                        state.get("tool") in AGENT_TOOLS:
+                    return
+                watcher.request_reparse(pane)
+                await asyncio.sleep(1)
+
+    agents = sorted(((p, e) for p, e in built if e.get("binding")), key=rank)
+    await asyncio.gather(*(one(p, e) for p, e in agents))
