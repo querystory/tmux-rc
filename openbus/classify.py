@@ -1030,8 +1030,9 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
 # is that very span or row, or a command row of its own in a fence (an inline span in a fence
 # is the fence's data).
 _CODE_RE = re.compile(
-    r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)"  # a span; a fence closes on a run as long as its opener,
-    r"|(?P<fence>^[ \t]*(?P<run>`{3,}|~{3,})[\s\S]*?(?:^[ \t]*(?P=run)[`~]*[ \t]*$|\Z))"  # or ends
+    # A span; a fence (indented 3 at most) closes on a run as long as its opener, or ends.
+    r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)"
+    r"|(?P<fence>^ {0,3}(?P<run>`{3,}|~{3,})[\s\S]*?(?:(?P<close>^ {0,3}(?P=run)[`~]*[ \t]*$)|\Z))"
     r"|^[ \t]*! \S.*(?:\n[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
 
 
@@ -1065,8 +1066,8 @@ def _offers(message: str, reply: str | None) -> list[str]:
     t = reply
     # Each code range, with a fence's count of rows: a command row is a fence's to offer only
     # when it is all the fence holds (any more may be a script it belongs to, or data).
-    code = [(c.start(), c.end(),
-             c["fence"] and len(re.findall(r"(?m)^[ \t]*(?!```|~~~)\S", c["fence"])))
+    code = [(c.start(), c.end(),  # its rows: all non-blank ones but its own two fences
+             c["fence"] and len(re.findall(r"(?m)^[ \t]*\S", c["fence"])) - 1 - bool(c["close"]))
             for c in _CODE_RE.finditer(t)]
 
     def offered(m: re.Match) -> bool:
