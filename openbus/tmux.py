@@ -926,6 +926,15 @@ def proc_read(pid: int | str, name: str) -> str:
         return ""
 
 
+INTERPRETERS = ("bun", "node")  # an agent installed through npm or bun runs as one
+
+
+def program(pid: int | str) -> str:
+    """The program a process runs: its argv[0], or the script bun/node runs."""
+    argv = [os.path.basename(a) for a in proc_read(pid, "cmdline").split("\0")[:2]]
+    return argv[-1] if argv[0] in INTERPRETERS else argv[0]
+
+
 def ancestors(pid: int):
     """pid, its parent, and so on up, read from /proc; stops at init or a gone process."""
     while pid > 1:
@@ -994,12 +1003,12 @@ def send_keys(
     `expected_pid` binds the complete send transaction to that pane incarnation.
     `guard`, when present, runs only after the per-pane send lock is held."""
     with _pane_lock(pane_id):
-        if guard is not None:
-            guard()
         if expected_pid is not None:
             check_pane(pane_id, expected_pid)
         if (keys if literal else keys not in PROMPT_KEYS) and at_password_prompt(pane_id):
             raise PasswordPromptError(AT_PASSWORD)
+        if guard is not None:
+            guard()  # last before delivery: its capture is as fresh as tmux allows
         if literal:
             identity = expected_pid if keys and expected_pid is not None else (
                 pane_pid(pane_id) if keys else None

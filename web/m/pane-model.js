@@ -2,6 +2,8 @@ import { parseHash } from "./url-state.js";
 // Pure pane predicates for the mobile UI: no DOM, no clock of their own (time is injected),
 // so tests/test_mobile_pane_model.py can run them under node against fixture panes.
 
+// Markup-escaped text, for every module that builds HTML from strings.
+export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 // An idle pane older than this is parked, so it drops out of "Recent".
 export const PARKED_IDLE_SECS = 600;
 const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
@@ -53,15 +55,20 @@ export const since = (p, nowMs = Date.now()) => {
   return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 };
 export const age = (p, nowMs) => isRunning(p) ? "now" : since(p, nowMs);
-export function isRecent(pane, nowMs = Date.now()) {
+export function isRecent(pane, nowMs = Date.now(), within = PARKED_IDLE_SECS) {
   const since = pane.state_since == null ? NaN : Number(pane.state_since);
   const idle = Number.isFinite(since) ? Math.max(0, nowMs / 1000 - since) : pane.idle_seconds || 0;
-  return pane.activity !== "idle" || idle < PARKED_IDLE_SECS;
+  return pane.activity !== "idle" || idle < within;
 }
-export const FILTERS = { all: () => true, running: isRunning, recent: (pane, nowMs) => isRecent(pane, nowMs), attention: needsYou };
-export function matchesFilter(pane, filter, nowMs = Date.now()) {
-  const predicate = Object.prototype.hasOwnProperty.call(FILTERS, filter) ? FILTERS[filter] : FILTERS.all;
-  return predicate(pane, nowMs);
+// The list's sections, each its own pane set, so a filter shows exactly one section's panes:
+// Needs you, then Working, Just finished and Idle among the rest, each the first that fits.
+const working = (pane) => !needsYou(pane) && isRunning(pane), finished = (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && isRecent(pane, nowMs);
+export const FILTERS = { attention: needsYou, working, finished, idle: (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && !isRecent(pane, nowMs) };
+// `filters` is a list of FILTERS' names: a pane shows if it matches any; none (or only
+// unknown names) shows every pane.
+export function matchesFilter(pane, filters, nowMs = Date.now()) {
+  const known = filters.filter((f) => Object.prototype.hasOwnProperty.call(FILTERS, f));
+  return !known.length || known.some((f) => FILTERS[f](pane, nowMs));
 }
 // Is the URL still on pane `id`? Nothing may pull the user out of a pane on the strength of
 // the app's own `active` alone: the involuntary exits (a state poll that no longer lists the
@@ -124,11 +131,22 @@ export function lastActivity(pane) {
 // ("misc-5:1") and nothing about what is in it, which is useless as a heading when a
 // session holds five unrelated projects. The phone used to render `label` alone and threw
 // the agent's name away.
+// With one tmux session its name tells no row apart, so its tmux label ("misc-0:4") reads
+// as the window it is ("Window 4"), the same words the details line and search use.
 export function paneName(pane) {
-  return pane.title || pane.label || pane.window_name || pane.pane_id;
+  const label = pane.label && !sessionOf(pane) && pane.label === `${pane.session}:${pane.window_index}` ? `Window ${pane.window_index}` : pane.label;
+  return pane.title || label || pane.window_name || pane.pane_id;
 }
-// The list rows a question names by number ("do 1 now?"), one per line, so it reads alone.
-export const questionItems = (question) => Array.isArray(question?.items) ? question.items.join("\n") : "";
+// The session a pane is in, where that tells it apart: "" when every pane shares one, so a
+// single-session user never sees tmux plumbing. Every surface that names a session asks
+// here; app.js notes the panes on each poll (noteSessions).
+let solo = null;
+export const noteSessions = (panes) => { const s = new Set(panes.map((p) => p.session)); solo = s.size === 1 ? [...s][0] : null; };
+export const oneSession = () => solo !== null;
+export const sessionOf = (pane) => pane?.session === solo ? "" : pane?.session || "";
+// What a question decides, then the list rows it names ("do 1 now?", "A or B?"), one per
+// line, so it reads alone.
+export const questionItems = (question) => Array.isArray(question?.items) ? [question.subject, ...question.items].filter(Boolean).join("\n") : "";
 // The line a list shows under the name: the question it is stuck on, else what it is doing.
 // A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare
 // "Do you want to proceed?" says nothing on a card.
@@ -136,6 +154,14 @@ export const paneActivity = (pane) => pane.question?.ask || pane.question?.promp
 // The pane overview's headline and its stats line (model / context / cost / elapsed); the
 // sidebar's hover card shows the same two, so they are defined once.
 export const paneHeadline = (pane) => pane?.headline || pane?.status_line || pane?.session_summary || "";
+// A card the daemon has not read since it started is a placeholder (no parsed_at): its
+// silence means "not yet", not "nothing", so a blank line spins "Summarizing…" instead.
+export const panePending = (pane) => !!pane && !pane.parsed_at;
+export const markLine = (node, line, pane, empty = "No recent activity") => {
+  const pending = !line && panePending(pane), value = line || (pending ? "Summarizing…" : empty);
+  node.classList.toggle("pending", pending);
+  if (node.textContent !== value) node.textContent = value;
+};
 // A list field (tasks, subagents) as its object entries: what the model emits can be junk.
 export const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
 export const itemDone = (item) => !!item.done || item.state === "done";

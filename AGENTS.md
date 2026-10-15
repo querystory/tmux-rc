@@ -4,6 +4,24 @@ Conventions for AI agents (and humans) working in this repo. The philosophy note
 harness/session prompt still apply (minimize LOC, DRY, KISS, why-focused docs); this file
 captures repo-specific workflow that isn't obvious from the code.
 
+## This repository is public
+
+Everything committed here is readable by anyone, forever. Agents see the user's private
+work all day; none of it belongs in this repo.
+
+- **Test fixtures, eval samples (`research/eval/samples`), demo data and screenshots are
+  invented from scratch.** Renaming or redacting a real capture is not sanitizing: its
+  shape, wording and details still describe the private work it came from. Rebuild only
+  the structure that triggers the bug, around an unrelated invented topic, as short as it
+  can be. `tests/test_public_data.py` rejects the usual tells (identity and credential
+  shapes, provenance words like "real capture", an oversized capture), but it is no proof.
+- **Never commit** session transcripts, the user's prompts, costs or usage, product or
+  client details, internal hostnames, or anything copied from a real pane, log, or private
+  repo.
+- **Before every push, read your own added lines for real content.** A local pre-push hook
+  may block a push for private terms; never bypass it. Rewrite the content and tell the
+  user what it caught.
+
 ## The repo root is the live deploy — and it is always the integration branch
 
 The daemon is a systemd `--user` unit (`tmux-rc.service`, installed by `make install-units`)
@@ -37,7 +55,9 @@ before either lands.
   within ~1min.
 - To show the user a preview (mock, build, report), put it in a subfolder of the directory
   `TMUXRC_SCRATCH_DIR` names (served at `/scratch/<folder>/`) rather than starting a server
-  or tunnel; see `docs/deploy/previews.md`.
+  or tunnel; see `docs/deploy/previews.md`. A UI mock is variants of the real app in the
+  shared harness (`make mock`, `make mock-check`; its "Mocks" section), never a hand-built
+  page, and the decision it leads to is recorded in `docs/design/`.
 
 ## Develop in worktrees, off main
 
@@ -98,8 +118,9 @@ Mutations answer `{"ok": true}` without running, and tmux is unplugged, so it ca
 reach a real pane.
 
 - `make screenshots` shoots the set in `scripts/screenshots.mjs` into `.screenshots/` and
-  refreshes the README images in `docs/img/`. Only those few are committed; the rest exist
-  to be diffed, and committing them would make every UI PR churn binary files.
+  refreshes the README and website (`website-*`) images in `docs/img/`. Only those are
+  committed; the rest exist to be diffed, and committing them would make every UI PR churn
+  binary files.
 - `make screenshots-diff` (default `BASE=origin/main`) shoots the base and this tree with
   the same fleet and writes per-shot diff images plus `summary.md`, whose image table
   links the PNGs relative to itself. A pixel counts as changed only if no pixel next to it

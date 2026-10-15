@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from openbus import server, tmux
+from openbus import push, server, tmux
 from openbus.classify import classify, highlighted_row, picker_digest
 from openbus.tmux import Pane
 
@@ -154,6 +154,124 @@ def test_a_picker_prompt_may_close_on_a_count():
     assert picker_digest(other, "Resume session") is None
 
 
+# Claude Code's trust dialog, wrapped at 60 columns: its question opens a paragraph.
+TRUST = """────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /home/x/src/harbor-notes
+
+ Quick safety check: Is this a project you created or one
+ you trust? (Like your own code, a well-known open source
+ project, or work from your team). If not, take a moment to
+ review what's in this folder first.
+
+ ❯ No, exit
+   Yes, I trust this folder
+
+ Enter to confirm · Esc to cancel"""
+
+
+def test_a_prompt_sentence_may_open_a_wrapped_paragraph():
+    sentence = "Quick safety check: Is this a project you created or one you trust?"
+    rows = ["No, exit", "Yes, I trust this folder"]
+    for asked in (sentence, "Accessing workspace:"):
+        assert highlighted_row(TRUST, asked, rows) == rows[0]
+    assert picker_digest(TRUST, sentence) == picker_digest(TRUST, "Accessing workspace:")
+    misread = {"tool": "claude", "question": {
+        "prompt": sentence, "answer_style": "cursor", "options": rows, "selected": 1,
+        "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
+    question = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{TRUST}", lambda s, t: misread)["question"]
+    assert question["selected"] == 0
+    assert question["picker"] == picker_digest(TRUST, sentence)
+    # Only a whole sentence may run on: a phrase cut mid-sentence is not the prompt.
+    assert picker_digest(TRUST, "Quick safety check: Is this a project") is None
+    assert picker_digest(TRUST, "Quick safety check:") is None  # a colon introduces more
+
+
+# Codex 0.162's trust dialog: numbered rows, yet "1" only moves the highlight to row 1.
+CODEX_TRUST = """  Folder access
+  /home/x/src/harbor-notes
+
+  Trust this folder? Codex can read, edit, and run files here, subject to your permission
+  settings. Your trust decision will be saved.
+
+› 1. Trust and continue
+  2. Back to Agent Command Center
+
+  enter continue · esc back"""
+CODEX_PANE = Pane("work", "0", "codex", "0", "%0", "codex", "t", "/home/x/proj")
+
+
+def test_a_codex_enter_footer_picker_is_walked_not_digited():
+    asked, rows = "Trust this folder?", ["Trust and continue", "Back to Agent Command Center"]
+    read = {"tool": "codex", "question": {"prompt": asked, "answer_style": "menu", "options": rows}}
+
+    def parse(screen):
+        model = {**read, "question": dict(read["question"])}
+        text = f"{tmux.VISIBLE_SCREEN}\n{screen}"
+        return classify(CODEX_PANE, text, lambda s, t: model)["question"]
+
+    question = parse(CODEX_TRUST)
+    assert question["answer_style"] == "cursor"
+    assert question["selected"] == 0
+    assert question["keymap"] == {"next": "Down", "prev": "Up", "select": "Enter", "search": False}
+    assert question["picker"] == picker_digest(CODEX_TRUST, asked)
+    # Codex's approval box takes its digits, and a highlight the screen does not show
+    # leaves a walk nothing to hold to: both stay menus.
+    approval = CODEX_TRUST.replace("enter continue · esc back",
+                                   "Press enter to confirm or esc to cancel")
+    assert parse(approval)["answer_style"] == "menu"
+    assert parse(CODEX_TRUST.replace("› 1.", "  1."))["answer_style"] == "menu"
+
+
+def test_a_menu_answer_the_screen_ignores_is_reported(monkeypatch):
+    # A digit-taking box that ignored this one anyway (a stuck or busy TUI).
+    screens = [CODEX_TRUST.replace("enter continue · esc back", "Press enter to confirm")]
+    sent, reparsed = [], []
+    monkeypatch.setattr(tmux, "find_pane", lambda p: CODEX_PANE)
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens[-1])
+    monkeypatch.setattr(tmux, "at_password_prompt", lambda p: False)
+    monkeypatch.setattr(tmux, "_run", lambda args, *a, **k: sent.append(args) or "")
+    monkeypatch.setattr(server, "claim_question", lambda *a: None)
+    monkeypatch.setattr(server, "PICKER_SETTLE_S", 0)
+    server.app.state.watcher = SimpleNamespace(request_reparse=reparsed.append,
+                                               pane_birth=lambda p: None)
+    body = {"keys": "1", "enter": False, "literal": True, "question": "d:1:f"}
+
+    def send():
+        return TestClient(server.app).post(f"/api/panes/{CODEX_PANE.id}/send", json=body)
+
+    assert send().json() == {"ok": True, "took": False}
+    # Only a timer ticking under the box is no answer either.
+    ticks = iter([f"{screens[0]}\nWorking ({n}s)" for n in range(99)])
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: next(ticks))
+    assert send().json() == {"ok": True, "took": False}
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens[-1])
+    screens.append("Ask Codex to do anything")  # answered: the dialog is gone
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens.pop(0))
+    assert send().json() == {"ok": True}
+
+
+def test_a_stale_cards_digit_is_refused_at_an_arrow_driven_picker(monkeypatch):
+    """A card parsed before the trust dialog counted as arrow-driven (cached across a
+    deploy) still offers "1": the claim refuses it unsent, so the reread walks it."""
+    rows = ["Trust and continue", "Back to Agent Command Center"]
+    stale = {"pane_id": CODEX_PANE.id, "activity": "waiting", "question": {
+        "prompt": "Trust this folder?", "answer_style": "menu", "options": rows}}
+    watcher = SimpleNamespace(
+        is_stale=lambda: False, pane_parse_valid=lambda p: True, states=[stale],
+        pane_birth=lambda p: "b", pane_input_generation=lambda p: 1,
+        frame_fp=lambda *a: "f", consume_answer=lambda *a: None)
+    digest = push.contract(stale, "b")[0]
+    claim = lambda: push.claim_question(watcher, CODEX_PANE.id, digest, 1, "f")  # noqa: E731
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: CODEX_TRUST)
+    with pytest.raises(ValueError, match="arrows"):
+        claim()
+    # Where the screen shows no highlight a walk could hold to, the digit is all there is.
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: CODEX_TRUST.replace("› 1.", "  1."))
+    claim()
+
+
 def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     sent, reparsed = [], []
     monkeypatch.setattr(tmux, "find_pane", lambda p: PANE)
@@ -198,7 +316,7 @@ while (key := sys.stdin.read(1)) != "\\r":
     if key == "\\x1b":
         at = min(max(at + {"B": 1, "A": -1}.get(sys.stdin.read(2)[-1], 0), 0), 1)
         draw()
-sys.stdout.write(f"SELECTED {rows[at]}\\r\\n")
+sys.stdout.write(f"\\x1b[H\\x1b[2JSELECTED {rows[at]}\\r\\n")  # erased, as agents do
 sys.stdout.flush()
 time.sleep(30)
 """
@@ -224,8 +342,10 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
             screen = tmux.capture_pane(pane, mark_dim=True)
             parsed["question"]["picker"] = picker_digest(screen, "Remove it?")
 
-        server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None,
-                                                   states=[parsed])
+        dropped = []
+        server.app.state.watcher = SimpleNamespace(
+            request_reparse=lambda p: None, states=[parsed],
+            drop_question=lambda *a: dropped.append(a))
         client = TestClient(server.app)
 
         def screen_until(text):
@@ -254,8 +374,11 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
         # /send read the screen its key made back: the next step is held to that, no parse.
         assert moved.json()["row"] == "Yes"
         parsed["question"]["picker"] = moved.json()["picker"]
+        assert not dropped  # a move leaves the question up
         assert send("Enter").status_code == 200
         assert "SELECTED Yes" in screen_until("SELECTED")
+        # Answered and erased: the card drops it with no parse.
+        assert dropped == [(pane, "Remove it?")]
     finally:
         subprocess.run(["tmux", "-L", socket, "kill-pane", "-t", pane], env=env,
                        check=False, capture_output=True)

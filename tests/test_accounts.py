@@ -151,6 +151,26 @@ def test_two_people_of_one_organisation_are_told_apart(home):
     assert "_more" not in accounts.profiles()[0]
 
 
+def test_two_dirs_on_one_login_flag_each_other(home):
+    # A /login in the wrong dir: ~/.claude-demo now holds ~/.claude's login, under a label.
+    for d in (".claude", ".claude-demo"):
+        _signed_in(home / d, "u-work", organizationName="Example Org", organizationUuid="o-x",
+                   emailAddress="dev@example.com", organizationType="claude_team")
+    # Without an organisation id, a match is never asserted: names may be shared.
+    _signed_in(home / ".claude-side", "u-work", organizationName="Example Org",
+               emailAddress="dev@example.com")
+    # One email in another organisation is another login, even under the same name.
+    for d, org in (("a", "o-1"), ("b", "o-2")):
+        _signed_in(home / f".claude-{d}", "u-work", organizationName="Twin Org",
+                   organizationUuid=org, emailAddress="dev@example.com")
+    accounts.edit(str(home / ".claude-demo"), "Demo")
+    found = _by_dir(home)
+    assert found["~/.claude"]["same_as"] == [str(home / ".claude-demo")]
+    assert found["~/.claude-demo"]["same_as"] == [str(home / ".claude")]
+    assert found["~/.claude"]["login"] == "dev@example.com"
+    assert [p for p, f in found.items() if f["same_as"]] == ["~/.claude", "~/.claude-demo"]
+
+
 def test_a_forgotten_dir_comes_back_when_added_again(home):
     accounts.edit(str(home / ".claude-personal"), forget=True)
     accounts.add("claude", str(home / ".claude-personal"), "Personal", [])
@@ -196,12 +216,23 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
     assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"] == {}
 
 
+def test_an_omp_pane_wears_the_chip_of_the_claude_account_it_signs_in_to(home, monkeypatch):
+    monkeypatch.setattr(plan_usage, "omp_launch", lambda pid: (["/bin/omp"], ()))
+    monkeypatch.setattr(plan_usage, "_omp", {(): (0.0, {"u-me"})})  # as PlanUsage last read
+    monkeypatch.setattr(plan_usage, "read_omp", pytest.fail)  # a request never waits on omp
+    monkeypatch.setattr(T, "show_env", lambda session=None: {})
+    report = accounts.report([{"pane_id": "%1", "tool": "omp"}], lambda pane_id: pane_id[1:])
+    assert {p["tilde"]: p["panes"] for p in report["profiles"]}["~/.claude-personal"] == ["%1"]
+    assert sum(p["panes"] == ["%1"] for p in report["profiles"]) == 1
+
+
 def test_plan_usage_meters_the_listed_accounts_not_the_daemons_env(home, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / "elsewhere"))
     accounts.edit(str(home / ".claude-personal"), forget=True)
     usage = plan_usage.PlanUsage(None, profiles=accounts.metered)
     found = usage.discover([], lambda _: None)
-    assert sorted(k for _, k in found) == [str(home / ".codex"), "u-work"]  # .codex2: no logs
+    # .codex2 has logged nothing yet: listed all the same, as "no data yet"
+    assert sorted(k for _, k in found) == [str(home / ".codex"), str(home / ".codex2"), "u-work"]
 
 
 @pytest.fixture

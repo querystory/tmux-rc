@@ -67,7 +67,6 @@ if os.environ.get("TMUXRC_PREFER_IPV4", "1") != "0":
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import (  # noqa: E402
-    FileResponse,
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
@@ -77,14 +76,14 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import accounts, agent_history, expunge, telemetry, tmux  # noqa: E402
-from .classify import picker_digest, picker_read  # noqa: E402
+from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import PlanUsage  # noqa: E402
-from .push import PushManager  # noqa: E402
-from .watcher import Watcher  # noqa: E402
+from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
+from .watcher import Watcher, _fingerprint  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
 # passes log_config=None so its loggers propagate here instead of using its own):
@@ -161,10 +160,10 @@ IMG_MAX_BYTES = (
 # anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
 # telemetry too — this bounds the READ so a huge body can't balloon memory).
 CLIENT_ERROR_MAX_BYTES = 8 * 2**10
-# After a cursor walk's key, how often and how long /send waits for the screen to redraw
-# before it reads the picker back: a terminal redraws in milliseconds, a key that moved
-# nothing never redraws, so a second bounds it.
-PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 20
+# After a menu answer or a cursor walk's key, how often and how long /send waits for the
+# screen to redraw: a terminal redraws in milliseconds, a key that did nothing never
+# redraws, so a second and a half bounds it.
+PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 30
 # A boot failure (web/m/index.html's watchdog) also goes to the journal, at most this often,
 # so a reload loop can't flood it; one line is enough to see what broke.
 BOOT_WARN_INTERVAL_S = 10.0
@@ -181,6 +180,7 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+    question: str | None = None  # a menu answer's question fingerprint (its `fp`)
     # A cursor walk's step: the picker digest of the frame it was computed from (classify's
     # `picker`) and the prompt that locates that picker. Sent only to that very screen.
     picker: str | None = None
@@ -586,6 +586,15 @@ async def no_cache(request, call_next):
     return resp
 
 
+def _web_version() -> str:
+    h = hashlib.md5()
+    for p in sorted(WEB_DIR.rglob("*")):
+        if p.is_file():
+            h.update(p.relative_to(WEB_DIR).as_posix().encode())
+            h.update(str(p.stat().st_mtime_ns).encode())
+    return h.hexdigest()
+
+
 @app.get("/api/version")
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
@@ -596,11 +605,6 @@ def get_version():
     live_enabled is false when the table is empty even with the flag on. An all-keyless
     table still shows the button: its picker is every row greyed with the key it needs,
     which is the one place the user can learn why nothing runs."""
-    h = hashlib.md5()
-    for p in sorted(WEB_DIR.rglob("*")):
-        if p.is_file():
-            h.update(p.relative_to(WEB_DIR).as_posix().encode())
-            h.update(str(p.stat().st_mtime_ns).encode())
     # The menu is live.offered() and nothing else — the same list the socket gates on, so
     # the picker can never show a row the socket would refuse. The label is the only thing
     # the browser ever sends back; hints are rendered by the entry (see LiveModel.hint).
@@ -610,7 +614,7 @@ def get_version():
                for m in live.offered()]
     keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
                for m in live_providers.models() if not m.available()]
-    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered or keyless),
+    return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
             "live_models": offered + keyless, "docs": DOCS_MOUNTED}
 
 
@@ -652,10 +656,11 @@ def put_goal(body: GoalBody, request: Request):
 
 
 @app.get("/api/usage")
-def get_usage():
-    """Each Claude and Codex account's plan windows, trend and projection."""
+def get_usage(past: float = 0):
+    """Each Claude and Codex account's plan windows, trend and projection; with ?past=<days>,
+    the windows that ended in those days too (the usage view's sawtooth)."""
     usage = getattr(app.state, "usage", None)
-    return {"accounts": usage.report() if usage else []}
+    return {"accounts": usage.report(past=past) if usage else []}
 
 
 @app.get("/api/open-loops")
@@ -688,6 +693,18 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
     version = w.state_version()
     panes = [dict(s) for s in w.states]
+    # Each question carries what a push nonce binds: its contract digest and the input
+    # generation its parse captured, plus that parse's frame. A menu answer names all
+    # three, and /send refuses it once the pane holds a different ask, has taken input
+    # since (a double tap, a second client, a refetch before the reparse lands), or shows
+    # a different screen (advanced from the keyboard, its parse not yet published).
+    # Menu questions only: no other answer sends it, and a changed fp would re-enable an
+    # answered text card's buttons (app.js pendingAnswers) before its reply has landed.
+    for s in panes:
+        if isinstance(s.get("question"), dict) and s["question"].get("answer_style") == "menu":
+            fp = ":".join((contract(s, s.get("birth"))[0],
+                           str(s.get("input_generation", 0)), s.get("frame", "")))
+            s["question"] = {**s["question"], "fp": fp}
     return {
         "version": version,  # echo so the client re-holds on the next value
         "stale": w.is_stale(),
@@ -910,14 +927,18 @@ def _emit_live_round(
         logger.debug("live emit failed", exc_info=True)
 
 
-def _invalidate_input_actions(pane_id: str) -> None:
-    """Invalidate push actions before competing for the pane's send lock."""
-    watcher = getattr(app.state, "watcher", None)
-    if watcher is None:
-        return
-    invalidate = getattr(watcher, "invalidate_input_actions", None)
-    if invalidate is not None:
-        tmux.before_send(pane_id, lambda: invalidate(pane_id))
+def _pane_input(pane_id: str, *, invalidate: bool = True, watcher=None):
+    """push.pane_input on the app's watcher unless one is given."""
+    return pane_input(watcher or getattr(app.state, "watcher", None), pane_id,
+                      invalidate=invalidate)
+
+
+def _input_attempt(pane_id: str, deliver: Callable, *args, watcher=None):
+    """deliver(*args) inside _pane_input, synchronously: run it in a worker thread whole.
+    Cancelling an await does not stop the thread behind it, so a context held around
+    `await asyncio.to_thread(...)` would reparse while the delivery is still typing."""
+    with _pane_input(pane_id, watcher=watcher):
+        return deliver(*args)
 
 
 @app.post("/api/panes/{pane_id}/send")
@@ -942,7 +963,18 @@ def send(pane_id: str, body: SendBody, request: Request):
             outcome="rejected: pane not found",
         )
         raise HTTPException(404, "pane not found")
-    _invalidate_input_actions(pane.id)
+    # A menu digit means nothing on its own: the "1" that said Yes to one ask says Yes to
+    # whatever replaced it. So a menu answer names its question, claimed under the send
+    # lock exactly as a push action is.
+    w, fp = app.state.watcher, body.question
+    birth = w.pane_birth(pane.id) if fp else None  # the incarnation the question names
+
+    shown = []  # the screen a menu answer lands on, read under the send lock
+
+    def claim() -> None:
+        digest, generation, frame = fp.split(":")  # a malformed token: ValueError, 409
+        claim_question(w, pane.id, digest, int(generation), frame)
+        shown.append(_screen(pane.id))
 
     def same_picker() -> None:
         # The whole guard on a cursor walk, under the send lock: the picker, from its
@@ -963,13 +995,15 @@ def send(pane_id: str, body: SendBody, request: Request):
             raise tmux.PaneChangedError(msg)
 
     try:
-        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
-                       guard=None if body.picker is None else same_picker)
+        with _pane_input(pane.id, invalidate=not fp):  # a menu answer's claim bumps it
+            tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
+                           expected_pid=birth,
+                           guard=claim if fp else None if body.picker is None else same_picker)
     except Exception as e:
         # Keys refused at a password prompt are probably the password: never recorded.
         keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
         _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
-        if isinstance(e, tmux.PaneChangedError):
+        if isinstance(e, (tmux.PaneChangedError, ValueError)):
             # The watcher reuses a card while its fingerprint holds, and that ignores
             # repaints (a timer, a cost) the picker digest counts: reread, so a refused
             # walk can go again on the next parse instead of staying refused.
@@ -977,13 +1011,34 @@ def send(pane_id: str, body: SendBody, request: Request):
             raise HTTPException(409, str(e)) from e
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)
-    # Input changes the screen — force an immediate re-parse so an answered question /
-    # closed menu reflects on the card within a capture, not a poll interval later. The
-    # canonical id again: the watcher matches this set against pane.id, so a request
-    # queued under an alias would simply never fire and the card would go stale until the
-    # next poll.
-    app.state.watcher.request_reparse(pane.id)
-    return {"ok": True} if body.picker is None else {"ok": True, **_picker_after(pane.id, body)}
+    # A walk's step forces a second reparse once /send has read the redraw back: the one
+    # pane_input forced as the key was queued can read the answered dialog still up.
+    after = {} if body.picker is None else _picker_after(pane.id, body)
+    if after:
+        w.request_reparse(pane.id)
+    # A digit the widget ignores (Codex's trust dialog and "1") leaves the card saying so
+    # instead of waiting on an agent that never heard it.
+    if shown and shown[0] is not None and not _redrawn(pane.id, shown[0]):
+        after = {"took": False}
+    return {"ok": True, **after}
+
+
+def _screen(pane_id: str) -> str | None:
+    try:
+        return tmux.capture_pane(pane_id)
+    except subprocess.CalledProcessError:  # closed: nothing to compare
+        return None
+
+
+def _redrawn(pane_id: str, before: str) -> bool:
+    """Whether the screen moves off `before` within the settle window, past the timer
+    and spinner churn that redraws it with no answer at all."""
+    was = _fingerprint(before)
+    for _ in range(PICKER_SETTLE_POLLS):
+        time.sleep(PICKER_SETTLE_S)
+        if (now := _screen(pane_id)) is None or _fingerprint(now) != was:
+            return True
+    return False
 
 
 def _picker_after(pane_id: str, body: SendBody) -> dict:
@@ -995,11 +1050,23 @@ def _picker_after(pane_id: str, body: SendBody) -> dict:
     for _ in range(PICKER_SETTLE_POLLS):
         time.sleep(PICKER_SETTLE_S)
         try:
-            read = picker_read(tmux.capture_pane(pane_id, mark_dim=True), body.prompt)
+            screen = tmux.capture_pane(pane_id, mark_dim=True)
         except subprocess.CalledProcessError:  # the pane closed: nothing to read
             return {"picker": None, "row": None}
+        read = picker_read(screen, body.prompt)
         if not read or read[0] != body.picker:  # redrawn, or the picker is gone
             break
+    # Answered and erased: the card leaves Needs you now, not a model parse later. Gone
+    # from two frames apart, so a repaint caught blank in between does not count.
+    if not read and prompt_gone(screen, body.prompt):
+        time.sleep(PICKER_SETTLE_S * 3)
+        try:
+            screen = tmux.capture_pane(pane_id, mark_dim=True)
+        except subprocess.CalledProcessError:  # closed: its card is going anyway
+            return {"picker": None, "row": None}
+        read = picker_read(screen, body.prompt)  # repainted: the walk goes on from this
+        if not read and prompt_gone(screen, body.prompt):
+            app.state.watcher.drop_question(pane_id, body.prompt)
     return {"picker": read and read[0], "row": read and read[1]}
 
 
@@ -1009,12 +1076,9 @@ def click(pane_id: str, body: ClickBody, request: Request):
     them (tmux.click). `sent: false` is a normal answer — the tap landed on a shell, or
     on history — so the client just lets it be a tap."""
     def deliver(pane: tmux.Pane) -> bool:
-        _invalidate_input_actions(pane.id)
-        sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid,
-                          expected_frame=body.frame)
-        if sent:
-            app.state.watcher.request_reparse(pane.id)
-        return sent
+        with _pane_input(pane.id):
+            return tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid,
+                              expected_frame=body.frame)
     return {"sent": _mouse("click", pane_id, f"from_bottom={body.from_bottom} col={body.col}",
                            request, deliver)}
 
@@ -1330,12 +1394,13 @@ def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
 
 
 @app.post("/api/panes/{pane_id}/close")
-def close_window(pane_id: str, request: Request):
+def close_window(pane_id: str, request: Request, birth: str | None = None):
     """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
     Destructive: any process in the window is killed. Its panes leave the published deck at
     once, so the client's next poll no longer has it; the watcher's next tick then evicts it
-    (emitting pane_removed), the same path as a window closed on the host."""
-    killed = _kill_window(request, pane_id, "kill_window")
+    (emitting pane_removed), the same path as a window closed on the host. `birth`, the
+    incarnation the client's menu or sheet describes, refuses a newer pane under its %N."""
+    killed = _kill_window(request, pane_id, "kill_window", pid=birth or None)
     _audit(request, "kill_window", pane_id)
     return {"ok": True, "killed": killed}
 
@@ -1363,8 +1428,14 @@ def _pane_session(pane_id: str, birth: str, expected: str | None = None):
 
 @app.get("/api/panes/{pane_id}/expunge")
 def expunge_preview(pane_id: str, birth: str):
-    """What Expunge would delete, for the confirmation to name."""
-    _, s, (own, shared) = _pane_session(pane_id, birth)
+    """What Expunge would delete, for the confirmation to name, or {"nothing": true} when
+    the pane has no saved conversation (a sign-in window), which the client offers to close."""
+    try:
+        _, s, (own, shared) = _pane_session(pane_id, birth)
+    except HTTPException as e:
+        if isinstance(e.__cause__, expunge.Empty):
+            return {"nothing": True}
+        raise
     return {"harness": s.harness, "session_id": s.session_id,
             "files": [p.name for p in own], "shared": [p.name for p in shared]}
 
@@ -1608,7 +1679,6 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
             raise HTTPException(409, str(error)) from error
         raise
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
-    app.state.watcher.request_reparse(pane.id)
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
 
@@ -1620,13 +1690,14 @@ async def attach_image(
     delivery path for the pane composer's endpoint and Live Chat's send_image_to_pane.
     With a caption (even ""), the image, the caption and the submitting Enter go in as one
     composer draft under a single pane lock, so no other sender can land between them."""
-    _invalidate_input_actions(pane_id)
     path = _stage_image(data, mime)
     # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
     if caption is None:
-        return path, await asyncio.to_thread(_deliver_image, pane_id, data, path, expected_pid)
+        return path, await asyncio.to_thread(
+            _input_attempt, pane_id, _deliver_image, pane_id, data, path, expected_pid)
     segments = [(data, path), *([caption] if caption else [])]
-    return path, await asyncio.to_thread(_deliver_composer, pane_id, expected_pid, segments)
+    return path, await asyncio.to_thread(
+        _input_attempt, pane_id, _deliver_composer, pane_id, expected_pid, segments)
 
 
 def _stage_image(data: bytes, mime: str) -> str:
@@ -1709,14 +1780,13 @@ async def _compose(pane_id: str, request: Request):
         raise HTTPException(400, "send a draft or a secret")
     if not (secret or "").isprintable():  # a newline or ^D would end the read early,
         raise HTTPException(400, "a password is printable text")  # the rest run as input
-    _invalidate_input_actions(pane.id)
     if secret:
-        await asyncio.to_thread(tmux.send_secret, pane, secret)
+        await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
     else:
-        await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
+        await asyncio.to_thread(
+            _input_attempt, pane.id, _deliver_composer, pane.id, pane.pid, segments)
     _audit(request, "compose", pane_id,
            detail="secret" if secret else f"{len(segments)} segments")
-    app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 
 
@@ -1860,19 +1930,22 @@ def _advertise_scratch() -> None:
     except (subprocess.CalledProcessError, OSError):  # no server yet, or no tmux binary
         logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 
-# Bare /m needs its own route; /m/ does not. The "/" mount below (html=True) serves
-# web/m/index.html for /m/, but answers bare /m with a 307 built from the request's own
-# scheme/host — behind the TLS-terminating phone tunnel that is http://…/m/, an origin
-# the phone can't reach (#174). GET and HEAD both, since phones/PWAs probe with HEAD.
-# The 404 is inline HTML rather than HTTPException(404): the JSON {"detail":"Not Found"}
-# body made the phone browser download an "m.json" file (#174), whereas text/html is
-# rendered. The check is per-request, so a daemon started before the assets were
-# deployed recovers without a restart. (Starlette's TestClient follows that 307 by
-# default, so a naive test would pass without this route; test_mobile_entrypoint sets
-# follow_redirects=False on purpose to pin it.) response_model=None: FastAPI can't build
-# a response model from a union of Response classes and refuses to import otherwise.
-@app.api_route("/m", methods=["GET", "HEAD"], include_in_schema=False, response_model=None)
-def mobile_ui() -> FileResponse | HTMLResponse:
+# The app's page, at every address it answers: /m/ and /m/index.html, and bare /m, which the
+# "/" mount below would answer with a 307 built from the request's own scheme/host — behind
+# the TLS-terminating phone tunnel that is http://…/m/, an origin the phone can't reach
+# (#174). GET and HEAD both, since phones/PWAs probe with HEAD. The 404 is inline HTML
+# rather than HTTPException(404): the JSON {"detail":"Not Found"} body made the phone
+# browser download an "m.json" file (#174), whereas text/html is rendered. The check is
+# per-request, so a daemon started before the assets were deployed recovers without a
+# restart. (Starlette's TestClient follows that 307 by default; test_mobile_entrypoint sets
+# follow_redirects=False on purpose to pin the bare /m route.)
+#
+# Its module URLs carry the assets' version (/v/0/ in the file, /v/<version>/ as served, any
+# version serving today's web/), and its import map sends every import there too. no-store
+# is not enough: WebKit keeps a module in its in-memory module map across reloads by URL, so
+# a deploy that changed app.js and sidebar.js booted the new app.js against the old sidebar.
+# New files are new URLs, and a reload (the boot screen's included) fetches them all.
+def mobile_ui() -> HTMLResponse:
     entrypoint = WEB_DIR / "m" / "index.html"
     if not entrypoint.is_file():
         return HTMLResponse(
@@ -1880,7 +1953,11 @@ def mobile_ui() -> FileResponse | HTMLResponse:
             "<h1>Mobile UI assets are not installed</h1>",
             status_code=404,
         )
-    return FileResponse(entrypoint)
+    return HTMLResponse(entrypoint.read_text().replace("/v/0/", f"/v/{_web_version()}/"))
+
+
+for _path in ("/m", "/m/", "/m/index.html"):
+    app.add_api_route(_path, mobile_ui, methods=["GET", "HEAD"], include_in_schema=False)
 
 
 # "/" was the retired desktop UI's address, so bookmarks and Home Screen apps installed from
@@ -1896,6 +1973,7 @@ def root_redirect(request: Request) -> RedirectResponse:
 
 # Static files last so /api/* and /docs win. html=True serves index.html at /m/.
 if WEB_DIR.is_dir():
+    app.mount("/v/{version}", StaticFiles(directory=str(WEB_DIR)), name="versioned")
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 
 
@@ -1920,6 +1998,10 @@ def main() -> None:
     # is what the trust model needs.
     # log_config=None: don't install uvicorn's own handlers/formatters — its loggers
     # (uvicorn.access etc.) then propagate to root and share the timestamped format above.
+    # timeout_graceful_shutdown: by default a restart waits for every connection to close,
+    # and a phone's live stream or long poll never does, so the daemon sat ~50s with its
+    # listener closed and pages loading mid-restart lost their scripts. Clients reconnect
+    # anyway; the lifespan teardown still runs in full after the cut.
     host, port = _bind()
     uvicorn.run(
         "openbus.server:app" if reload else app,
@@ -1929,6 +2011,7 @@ def main() -> None:
         port=port,
         reload=reload,
         reload_dirs=[str(_PKG_DIR)] if reload else None,
+        timeout_graceful_shutdown=3,
     )
 
 

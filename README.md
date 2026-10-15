@@ -1,5 +1,7 @@
 # tmux-rc
 
+[Website & documentation](https://querystory.github.io/tmux-rc/)
+
 Watch and control whatever runs in a tmux pane — AI coding agents like Codex, Claude
 Code, Gemini CLI, OpenCode and omp, or any other program that prints text — from your
 phone. A small local service reads a `tmux` pane, figures out what's happening, and
@@ -111,8 +113,8 @@ Use **Safari or Chrome → Share → Add to Home Screen**, then launch the insta
 a browser tab—for this workflow. Push continues independently of Live Mode; uninterrupted
 background voice is not guaranteed by iOS.
 
-Open `/m` in Safari or Chrome, use **Add to Home Screen**, launch that installed app, then tap
-the bell in its header. iOS only permits Web Push permission from an installed web app
+Open `/m` in Safari or Chrome, use **Add to Home Screen**, launch that installed app, then turn on
+Push notifications in its Settings (the gear in the header). iOS only permits Web Push permission from an installed web app
 and a user gesture. A notification tap opens the exact pane that needs attention, where
 you can use its answer buttons or composer. iOS Web Push does not expose inline text
 replies or notification action buttons; platforms that do support action buttons can
@@ -120,7 +122,7 @@ send the first two structured options directly from the notification.
 
 Subscriptions and the VAPID key are stored owner-only at
 `~/.local/state/tmux-rc/push.json`, outside the checkout. Removing a device is available
-from the same bell; `POST /api/push/revoke-all` revokes every saved device.
+from the same Push notifications switch; `POST /api/push/revoke-all` revokes every saved device.
 Delivery is deliberately best-effort: relay failures are logged and dropped instead of
 replaying a stale question after an outage.
 The push sender contact defaults to `mailto:tmux-rc@openbus.io`; operators can override

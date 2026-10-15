@@ -1,9 +1,14 @@
 """PR associations are semantic classifier evidence accumulated for a pane lifetime."""
 
+import json
+from pathlib import Path
+
 import pytest
 
 import openbus.watcher as W
 from openbus.watcher import Watcher
+
+SAMPLES = Path(__file__).parent.parent / "research/eval/samples"
 
 
 class _Pane:
@@ -176,3 +181,22 @@ def test_scrollback_bootstrap_rehydrates_pr_associations(monkeypatch):
 
     assert w._prs["%1"] == [{"repo": "querystory/qs-app", "number": 4955}]
     assert "working_prs" not in w._boot["%1"]
+
+
+def test_a_pane_outside_a_checkout_publishes_only_the_pr_its_screen_names(monkeypatch):
+    # Eval sample 104: the model pairs the bare #812-#816 with the folder's guessed repo
+    # and with a repo the status line links to; only the PR whose URL is on screen survives.
+    sample = json.loads((SAMPLES / "104_bare_pr_numbers_beside_another_repos_link.json")
+                        .read_text(encoding="utf-8"))
+    guessed = [{"repo": f"acme/{name}", "number": n}
+               for name in ("acme", "ops-tools", "shop") for n in range(812, 818)]
+    monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: sample["capture"])
+    monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "server:%1")
+    monkeypatch.setattr(W, "github_repository", lambda cwd: None)
+    monkeypatch.setattr(W, "classify_text", lambda *args, **kwargs: {
+        "tool": "claude", "activity": "idle", "events": [], "working_prs": guessed})
+    w = Watcher(None, use_llm=True)
+    w._forced_this_tick = set()
+    pane = _Pane()
+    monkeypatch.setattr(pane, "cwd", "/home/dev/src/acme")
+    assert w._tick_pane(pane)["prs"] == [{"repo": "acme/shop", "number": 817}]

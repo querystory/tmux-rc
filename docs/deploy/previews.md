@@ -191,6 +191,85 @@ to need WebSockets for hot reload and absolute paths at the site root, so a path
 proxy would half-work in confusing ways. Build the site and drop the output in scratch, or
 use a separate tunnel client.
 
+## Mocks
+
+A UI decision in tmux-rc is usually made by looking at two or three versions of a screen
+side by side. Hand-built mock pages kept re-inventing the same frame (snapshotting the app,
+A/B slots, viewport presets, a phone mode, a theme toggle, swiping) and kept growing the
+same bugs: desktop frames squeezed into half-width slots that showed the narrow layout, a
+phone showing two cramped slots, controls covering the app, snapshots gone stale. So there
+is one harness, and a mock is only what differs.
+
+**A mock is variants of the real app.** Each variant is `/m` over the [demo
+fleet](https://github.com/querystory/tmux-rc/blob/main/scripts/demo_fleet.py) plus a
+small script that patches its DOM and CSS, so every mock gets the same fictional data and
+the app's real stylesheet and markup instead of a hand-rolled copy that drifts. A mock's
+source is a folder outside every checkout, by default
+`~/.local/share/tmux-rc/mocks/<name>/`, holding `variants.json` and the files it names:
+
+- `title`, and `variants`: each a `name`, a `label`, an optional `short` label for the
+  phone, a one-line `description`, and the `script` that patches the app. The script runs
+  last, with `MOCK` set to the variant, view, theme and width being shown.
+- `views`: the app states to show, each a `name`, `label`, URL `hash`, selectors to `click`
+  and one to `wait` for, or a `chat` message for the canned chat (snapshots only). One
+  plain view if left out.
+- `widths`: the desktop widths to offer (default 1280, 1440 and 1920; 390 is always there).
+- `states`: switches the design itself has, such as one account or two: each a `name`, a
+  `label` and `options` as value/label pairs, plus an optional `default` value (else the
+  first option). The harness shows each as a menu under its label and hands the current
+  values to the script as `MOCK.state`.
+- `fragments`: single elements to capture once, such as a populated New window sheet,
+  given as the same steps as a view plus a `selector`. The script can drop them into any
+  frame (`MOCK.fragments`).
+- `note`: the working design note, in Markdown, shown in the harness's Note panel.
+- `doc`: the name of the decision record in `docs/design/`, shown under the note.
+
+**What gets committed is the decision, not the mock.** When a design is chosen, write
+`docs/design/<doc>.md` with the final design and why, plus at most one line per rejected
+option. When it changes later, edit the same page, so its history is the history of the
+decision. The variants and their pages are throwaway, which is why they live outside the
+repo.
+
+**Two ways to run one.** `make mock NAME=<name>` boots the demo server, opens each view at
+each width in both themes, keeps the finished DOM with its stylesheet and images inlined,
+stops the server, and writes the harness to `$TMUXRC_SCRATCH_DIR/<name>/`. Scratch pages
+cannot fetch, so that snapshot is the only way to put a mock on the phone, and it is
+reproducible. `make mock-live NAME=<name>` instead serves the harness from the demo server
+itself on `http://127.0.0.1:18039/mock/live/`, over the running app, and re-reads the
+variant scripts on every reload: that is the loop for writing a variant, on this machine.
+
+**The harness follows a few rules**, the ones the hand-built mocks kept breaking:
+
+- Every choice (option, view, each state, width) is one menu under its own small label,
+  ruled off from the next. A row of buttons per choice spread a mock with eight states
+  over three rows of unlabelled chips where nothing said which belonged together. Each
+  menu is as wide as its current value, never cut short: reading every choice at a
+  glance matters more than one line, so a busy mock wraps, a whole choice at a time.
+  The width menu and the theme, Note, Hide and A|B toggles stay small at the right end.
+  Option text need not repeat its label ("All", not "Show: All").
+
+- On a desktop, a frame is the app at exactly the chosen width, at 100%, scrolling
+  sideways if the window is narrower. Two options sit side by side only when both fit at
+  that width; otherwise ← and → flip between them.
+- On a phone (narrower than 700px) the app fills the screen as the phone would show it,
+  and the controls start folded into the pill. Unfolded, they are one row of menus
+  (option, view, each state) with no width choices, and a swipe moves between options. A
+  mock with one variant shows no option menu, and each variant's description sits in the
+  Note panel.
+- `h`, or the Hide button, folds the controls into a small pill, remembered per page, so
+  what is left is the app alone. The light/dark toggle swaps in that theme's snapshot.
+- A prototype can be played rather than only looked at: a frame posts
+  `{ mock: { view, theme, state, once } }` to its parent to move to another view, flip the
+  theme or change a state, and `once` carries state for the next frame only, such as a
+  toast.
+- The state is in the URL hash (`v`, `b`, `view`, `w`, `ab`, `theme`, `hide`, `note`), so
+  a link opens the same comparison.
+
+**Check every mock the same way.** `make mock-check NAME=<name>` shoots the published
+harness at 1920×1080 and as an iPhone (390×844, mobile, touch), served with the same
+sandbox policy as `/scratch/`, into the mock's `shots/` folder. It fails on a page
+error or on a frame that is not the width it claims, which is the squeezed-slot bug.
+
 ## Mocks worth keeping are committed instead
 
 A mock that explains a PR should outlive the scratch dir. Put it under

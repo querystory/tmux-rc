@@ -127,6 +127,57 @@ own rhetorical question — the distinction [#85](https://github.com/querystory/
 was about), `tables`, and the headline itself. `copyables` is the first that creates an
 *action* rather than describing state, which is why it feels different in the hand.
 
+### The counter-example: replies the agent hands back
+
+A copyable's destination is *somewhere else*. The sibling case is text whose destination
+is the same pane: Claude Code ending a turn with "run it yourself: `! gh pr merge …`" or
+"say "merge 415" and I'll queue it". Copying that, opening the composer, pasting and
+sending is four steps for what should be one tap, so a finished turn's offers are answers
+on the pane's question card, where a question's options already are: each offer's exact
+text, as it will be sent (a `! ` included), on a row that unfolds when it is longer than
+the row, then Send it and Copy. Commands and replies look the same, since what matters is
+seeing what goes; special-casing them (hiding the `! `, a Send "…" button for replies) was
+tried and hid exactly that. The list card carries the first offer only, so a row stays a
+row. A tap sends the text plus Enter by the path a tapped option takes, with its "Sending…"
+hold. Two earlier versions were dropped. A native confirm dialog blocked the
+page and looked foreign on a phone. Filling the composer instead put a block of monospace
+above it and the command in the input box, which took half a phone's screen and read as
+something new rather than one more answer to tap; the card is where a user already looks
+for what the agent wants, so the offer belongs there, styled the same. Run was renamed Send
+it: the button sends text to the agent's prompt (a `! ` there runs it in Claude Code's
+shell), and the same word fits a quoted reply.
+They are not tied to Needs you: an agent that finishes
+with "if it looks fine, "merge all" queues 18 PRs" is idle, not asking, and the offer is
+still the fastest way on.
+
+This one is deliberately *not* a model decision, and the reason is the test above run
+backwards. The judgment is easy to express as a rule — the agent marks the text itself,
+with the shell prefix, or quotes that follow "say" or precede what the phrase does
+("queues", "merges"), never any quote — and the output is an action with side effects, so
+a hallucinated or re-typed command is the one failure worth paying code to rule out. The
+field is never the model's: whatever it returns under that name is dropped first.
+
+Detection reads the finished turn's last message, and only from the transcript. The screen
+draws Markdown as plain text, so on screen alone a quote may be any program's argument and
+a `!` row the first line of a script; the transcript still marks code with backticks and
+fences, and does not wrap long rows. The screen is the authority on *which* message is
+live: the transcript counts only when it is the message on screen word for word (so a
+stale transcript, or a "do not" the screen shows before a "say", is caught), and only once
+the turn has ended with nothing typed since.
+
+The remaining rules all came out of review, and all trade recall for never prefilling the
+wrong thing. Nothing is read out of code: a quoted phrase only from a paragraph with no
+code in it, and a command only as an inline code span or as the one row of a fence (a bare
+`!` row may be the first line of a script, and nothing after it reliably says otherwise). A command that may be cut short by a blank row in its script is not
+offered, and the shell itself judges that (`bash -n`, which runs nothing): every
+hand-written check of quotes and keywords passed some grammar bash rejects. A message with
+a heredoc anywhere offers no command; and a message that says "do
+not run" or "don't say" anywhere offers nothing at all, since which command a warning
+covers is not worth guessing. It is Claude Code's alone for now: Codex's screen has no
+message boundary this reads yet. A missed offer costs the old copy-paste; a false one
+would cost a command the user never meant, which is why the card shows the text before
+Send it and nothing is sent without that tap.
+
 The broader bet: **any interface over content it doesn't control** has a backlog of
 affordances it never shipped because they couldn't be done generically. A thin semantic
 pass is how those become cheap.

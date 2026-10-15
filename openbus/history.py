@@ -25,7 +25,7 @@ STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
 AGENT_TOOLS = {"claude", "codex", "gemini", "opencode", "omp"}
 MAX_SPAN = 90 * 86400  # bounds a request; the database itself is never pruned
 GOAL_KEY = "running_goal"
-USAGE_KEEP = 8 * 86400  # plan_usage, unlike pane history, is pruned: see record_usage
+USAGE_KEEP = 8 * 86400  # plan_usage keeps raw samples this long, then one an hour: see record_usage
 LEAD_BUCKETS = 2880  # 24h of 5-minute buckets plus a 7d lead fits; a 90d lead at 1h does not
 
 
@@ -194,8 +194,20 @@ def _index_plan_usage(db) -> None:
     db.execute("CREATE INDEX plan_usage_by_time ON plan_usage(provider, account, t)")
 
 
+def _index_plan_usage_resets(db) -> None:
+    # Once used to step a meter back through its past windows; dropped below since the
+    # usage view reads a time range instead.
+    db.execute("CREATE INDEX plan_usage_by_reset ON plan_usage(provider, account, window, "
+               "CAST(resets_at / 3600 AS INT))")
+
+
+def _drop_plan_usage_resets(db) -> None:
+    db.execute("DROP INDEX plan_usage_by_reset")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
-              _add_checkpoints, _add_plan_usage, _index_plan_usage)
+              _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets,
+              _drop_plan_usage_resets)
 
 
 class History:
@@ -237,6 +249,7 @@ class History:
         self._last = None
         self._written = 0.0
         self._failed = 0.0
+        self._thinned = 0  # the hour plan_usage was last thinned through: see record_usage
 
     @contextmanager
     def connect(self):
@@ -321,9 +334,20 @@ class History:
         stamped with its log event's time, so re-reading the same event is a no-op."""
         with self.connect() as db:
             db.executemany("INSERT OR IGNORE INTO plan_usage VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
-            # Only a current window is ever drawn: keep the longest one (7d) plus a day.
-            db.execute("DELETE FROM plan_usage WHERE t < ?",
-                       (max(r[4] for r in rows) - USAGE_KEEP,))
+            # Raw samples for the current windows (the longest, 7d, plus a day); past that, the
+            # last sample of each hour, per window it belongs to, so a window's final reading
+            # survives the hour it reset in, and the first at the limit, so does when it hit
+            # it. A window not yet opened (no reset) has nothing to keep. Once an hour: the
+            # scan grows with the history.
+            cutoff = max(r[4] for r in rows) - USAGE_KEEP
+            if cutoff // 3600 != self._thinned:
+                db.execute("DELETE FROM plan_usage WHERE t < ?1 AND rowid NOT IN (SELECT rowid "
+                           "FROM (SELECT rowid, max(CASE WHEN pct >= 100 THEN -t ELSE t END) "
+                           "FROM plan_usage WHERE t < ?1 AND resets_at IS NOT NULL "
+                           "GROUP BY provider, account, window, "
+                           "CAST(t / 3600 AS INT), CAST(resets_at / 3600 AS INT), pct >= 100))",
+                           (cutoff,))
+                self._thinned = cutoff // 3600
 
     def latest_usage(self, provider: str, account: str) -> list[tuple]:
         """(window, seconds, t, pct, resets_at) of the latest observation. One read stamps
@@ -336,9 +360,10 @@ class History:
 
     def usage_between(self, provider: str, account: str, window: str,
                       since: float, until: float) -> list[tuple]:
+        """(t, pct, resets_at), oldest first."""
         with self.connect() as db:
-            return db.execute("SELECT t, pct FROM plan_usage WHERE provider=? AND account=? "
-                              "AND window=? AND t BETWEEN ? AND ? ORDER BY t",
+            return db.execute("SELECT t, pct, resets_at FROM plan_usage WHERE provider=? "
+                              "AND account=? AND window=? AND t BETWEEN ? AND ? ORDER BY t",
                               (provider, account, window, since, until)).fetchall()
 
     def import_logs(self, observations: list[tuple]) -> int:

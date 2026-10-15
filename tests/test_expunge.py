@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import expunge, server, tmux, watcher
-from openbus.expunge import Refused, Session
+from openbus.expunge import Empty, Refused, Session
 
 A, B = "0f0f0f0f-1111-4222-8333-444444444444", "0e0e0e0e-5555-4666-8777-888888888888"
 CODEX_SCREEN = f"› \n  gpt-5.5 high · ~/src/example-org/api · {A}\n"
@@ -156,8 +156,10 @@ def fake_procs(monkeypatch, tmp_path, procs):
         return env if name == "environ" else ""
     (tmp_path / "config.toml").write_text(CODEX_LINE)
     (tmp_path / "sessions/2026/10/08").mkdir(parents=True)
-    for sid in (A, B):  # Codex threads that exist here
+    (tmp_path / "projects/-src").mkdir(parents=True)
+    for sid in (A, B):  # Codex threads and Claude transcripts that exist here
         (tmp_path / f"sessions/2026/10/08/rollout-2026-10-08T10-00-00-{sid}.jsonl").touch()
+        (tmp_path / f"projects/-src/{sid}.jsonl").touch()
     for pid, (_, _, sid) in procs.items():
         if sid:
             (tmp_path / "sessions" / f"{pid}.json").write_text(
@@ -196,6 +198,63 @@ def test_identify_refuses_rather_than_guess(monkeypatch, tmp_path, procs, screen
         expunge.identify("10", screen)
 
 
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_an_agent_with_no_saved_conversation_is_empty(monkeypatch, tmp_path, harness):
+    # A fresh agent, or Claude's sign-in, has an id but has written no transcript yet.
+    fake_procs(monkeypatch, tmp_path, {10: (harness, [], A if harness == "claude" else None)})
+    for p in tmp_path.glob(f"*/**/*{A}.jsonl"):
+        p.unlink()
+    with pytest.raises(Empty, match="not saved a conversation"):
+        expunge.identify("10", CODEX_SCREEN)
+    s_index = expunge._index(10, harness)  # agent-history's entry outlives the transcript
+    s_index.mkdir(parents=True)
+    (s_index / f"{A}.md").touch()
+    assert expunge.identify("10", CODEX_SCREEN).session_id == A
+
+
+def test_a_fresh_codex_without_session_id_configured_is_empty(monkeypatch, tmp_path):
+    # Without the id no thread can be named, so it refuses with the hint while any rollout
+    # was written since Codex started; with none written, a fresh one has no conversation.
+    fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
+    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model", "git-branch"]\n')
+    with pytest.raises(Refused, match="session-id"):
+        expunge.identify("10", CODEX_SCREEN)
+    for p in tmp_path.glob("sessions/*/*/*/*.jsonl"):
+        os.utime(p, (0, 0))  # all before Codex started (777 ticks after boot)
+    with pytest.raises(Empty, match="not saved a conversation"):
+        expunge.identify("10", CODEX_SCREEN)
+    read = tmux.proc_read  # a resume names a conversation it has not written to yet
+    monkeypatch.setattr(tmux, "proc_read", lambda pid, name: "codex\0--yolo\0resume"
+                        if name == "cmdline" else read(pid, name))
+    with pytest.raises(Refused, match="session-id") as e:
+        expunge.identify("10", CODEX_SCREEN)
+    assert not isinstance(e.value, Empty)
+
+
+def test_a_fresh_codex_beside_a_saved_session_is_more_than_one(monkeypatch, tmp_path):
+    fake_procs(monkeypatch, tmp_path, {10: ("bash", [11, 12], None), 11: ("codex", [], None),
+                                       12: ("claude", [], A)})
+    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model"]\n')
+    for p in tmp_path.glob("sessions/*/*/*/*.jsonl"):
+        os.utime(p, (0, 0))
+    with pytest.raises(Refused, match="more than one"):
+        expunge.identify("10", "")
+
+
+def test_codex_sign_in_is_no_session(monkeypatch, tmp_path):
+    # The search goes on past it: a conversation beside it is still found, and alone it is
+    # nothing to expunge, whatever its screen shows.
+    fake_procs(monkeypatch, tmp_path, {10: ("bash", [11, 12], None), 11: ("codex", [], None),
+                                       12: ("claude", [], A)})
+    read = tmux.proc_read
+    for argv in (["codex", "login"], ["node", "/usr/lib/node_modules/codex/bin/codex", "login"]):
+        monkeypatch.setattr(tmux, "proc_read", lambda pid, name, argv=argv: "\0".join(argv)
+                            if name == "cmdline" and pid == 11 else read(pid, name))
+        assert expunge.identify("10", "").session_id == A
+        with pytest.raises(Empty, match="no Claude Code or Codex"):
+            expunge.identify("11", "")
+
+
 def test_codex_thread_comes_from_its_status_line(monkeypatch, tmp_path):
     fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
     assert expunge.identify("10", CODEX_SCREEN).session_id == A
@@ -215,6 +274,11 @@ def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
     server.app.state.watcher = SimpleNamespace()
     client = TestClient(server.app)
     assert client.get("/api/panes/%251/expunge?birth=1234").json()["session_id"] == A
+    monkeypatch.setattr(expunge, "identify", lambda *_a: (_ for _ in ()).throw(
+        Empty("this agent has not saved a conversation yet")))
+    assert client.get("/api/panes/%251/expunge?birth=1234").json() == {"nothing": True}
+    assert client.post("/api/panes/%251/expunge", json=CONFIRM).status_code == 409
+    monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
     # A menu drawn for an earlier pane under the same %N reaches nothing.
     r = client.get("/api/panes/%251/expunge?birth=999")
     assert r.status_code == 409 and "different window" in r.json()["detail"]
@@ -316,3 +380,17 @@ def test_route_refuses_when_the_identified_agent_is_gone(monkeypatch, claude):
     server.app.state.watcher = SimpleNamespace(checkpoint_key=lambda *_a: "uid")
     r = TestClient(server.app).post("/api/panes/%251/expunge", json=CONFIRM)
     assert r.status_code == 409 and not killed
+
+
+def test_close_with_a_birth_kills_only_that_incarnation(monkeypatch):
+    # The no-conversation sheet's Kill window may outlive the pane it was drawn for.
+    killed = []
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id="%1", pid="1234"))
+    monkeypatch.setattr(tmux, "kill_window", lambda pane_id, pid=None: killed.append(pid) or (
+        [] if pid not in (None, "1234") else [("%1", "1234")]))
+    server.app.state.watcher = SimpleNamespace(drop_panes=lambda _ids: None)
+    client = TestClient(server.app)
+    assert client.post("/api/panes/%251/close?birth=999").status_code == 409
+    assert client.post("/api/panes/%251/close?birth=1234").json()["killed"] == [["%1", "1234"]]
+    assert client.post("/api/panes/%251/close?birth=").status_code == 200  # no birth: unguarded
+    assert killed == ["999", "1234", None]

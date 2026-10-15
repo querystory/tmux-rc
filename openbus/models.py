@@ -18,7 +18,7 @@ Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
 
 
 # HOW an answer reaches the widget. "text" types the option and hits Enter; "menu"
-# sends one keystroke (a digit / y|n). "cursor" is a highlighted list you ARROW through
+# sends one keystroke (the row's digit). "cursor" is a highlighted list you ARROW through
 # — neither of the other two works on it, because both a digit and the option's text
 # land in the picker's search box instead of selecting (the /resume bug, issue #206).
 AnswerStyle = Literal["text", "menu", "cursor"]
@@ -74,6 +74,7 @@ class SubAgent(BaseModel):
     state: Literal["running", "waiting", "idle", "compacting", "unknown", "done"] = "unknown"
     elapsed: str | None = None  # e.g. "2m", if the row shows it
     tokens: str | None = None  # e.g. "88.7k", if the row shows it
+    progress: str | None = None  # a workflow row's "done/total" steps, e.g. "1/2"
 
 
 class RewindEntry(BaseModel):
@@ -149,6 +150,7 @@ class PaneState(BaseModel):
     subagents: list[SubAgent] = []
     agents: int = 0  # count of RUNNING subagents (derived from subagents[])
     copyables: list[Copyable] = []  # paste-me-elsewhere text, one-tap copy in the card
+    offers: list[str] = []  # replies a finished turn hands over to type: tap to send
 
     snapshot_id: str | None = None  # latest snapshot for the timeline
     updated_at: float = 0.0

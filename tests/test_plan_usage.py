@@ -7,7 +7,7 @@ import pytest
 
 from openbus import plan_usage
 from openbus.history import History
-from openbus.plan_usage import PlanUsage, claude_samples, codex_samples, project, read_codex
+from openbus.plan_usage import PlanUsage, claude_samples, codex_samples, ended, project, read_codex
 
 NOW = datetime(2026, 10, 8, 12, tzinfo=UTC).timestamp()
 
@@ -224,6 +224,26 @@ def test_an_account_with_no_samples_yet_is_not_limitless(tmp_path, monkeypatch):
     assert usage.report(now=NOW)[0]["error"] == "no data yet"
 
 
+def test_each_codex_home_is_its_own_account_before_and_after_it_logs(tmp_path):
+    tmp_path.chmod(0o700)
+    main, demo = tmp_path / ".codex", tmp_path / ".codex-demo"
+    demo.mkdir()  # just signed in: no sessions dir until its first turn
+    (main / "sessions/2026/10/08").mkdir(parents=True)
+    week = lambda pct: {"primary": {"used_percent": pct, "window_minutes": 10080,  # noqa: E731
+                                    "resets_at": NOW + 60}}
+    (main / "sessions/2026/10/08/a.jsonl").write_text(json.dumps(_event(week(9))))
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"),
+                      profiles=lambda: [("codex", main), ("codex", demo)])
+    usage.poll([], lambda _: None, now=NOW)
+    shown = lambda: [(a["dirs"], a["error"], [w["pct"] for w in a["windows"]])  # noqa: E731
+                     for a in usage.report(now=NOW)]
+    assert shown() == [([str(main)], None, [9.0]), ([str(demo)], "no data yet", [])]
+    (demo / "sessions/2026/10/08").mkdir(parents=True)
+    (demo / "sessions/2026/10/08/b.jsonl").write_text(json.dumps(_event(week(30))))
+    usage.poll([], lambda _: None, now=NOW + 60)
+    assert shown() == [([str(main)], None, [9.0]), ([str(demo)], None, [30.0])]
+
+
 def test_a_redirect_never_carries_the_token():
     request = plan_usage.urllib.request.Request(plan_usage.USAGE_URL)
     assert plan_usage._NoRedirect().redirect_request(
@@ -259,9 +279,145 @@ def test_a_failed_account_stays_unavailable_when_it_reappears_within_the_ttl(tmp
     assert usage.report(now=NOW)[0]["error"] == "unavailable"
 
 
-def test_samples_older_than_the_longest_window_are_pruned(tmp_path):
+def test_samples_past_eight_days_are_thinned_to_one_an_hour_not_deleted(tmp_path):
     tmp_path.chmod(0o700)
     history = History(tmp_path / "h.sqlite3")
-    history.record_usage([("codex", "a", "7d", 604800, NOW - 9 * 86400, 50, NOW - 2 * 86400)])
-    history.record_usage([("codex", "a", "7d", 604800, NOW, 5, NOW + 60)])
-    assert history.usage_between("codex", "a", "7d", 0, NOW) == [(NOW, 5.0)]
+    old, reset = NOW - 10 * 86400, NOW - 10 * 86400 + 5400  # a window resets mid-hour
+    # 5-minute samples over two hours: one window climbs to its limit at old + 4800 and
+    # resets at old + 5400, mid-hour; the next one idles at 1%.
+    thinned = [("claude", "a", "5h", 18000, t, min(100, (t - old) / 48), reset) if t < reset
+               else ("claude", "a", "5h", 18000, t, 1, reset + 18000)
+               for t in range(int(old), int(old) + 7200, 300)]
+    unopened = [("claude", "a", "5h", 18000, old - m, 0, None) for m in (60, 120)]
+    raw = [("claude", "a", "5h", 18000, NOW - m, 1, NOW + 60) for m in (120, 60, 0)]
+    history.record_usage(thinned + unopened + raw)
+    assert history.usage_between("claude", "a", "5h", 0, NOW) == [
+        (old + 3300, 3300 / 48, reset),  # the hour's last sample
+        (old + 4500, 4500 / 48, reset),  # its window's last below the limit, mid-hour
+        (old + 4800, 100, reset),  # the first at the limit: when the window hit it
+        (old + 6900, 1, reset + 18000),  # the next window's last of the hour
+        *[r[4:] for r in raw]]  # within eight days: every sample
+
+
+def test_the_usage_view_reads_the_windows_ended_in_its_range(tmp_path):
+    tmp_path.chmod(0o700)
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"))
+    usage.accounts = {("claude", "a"): {"homes": [], "panes": [], "error": None}}
+    first, second = NOW - 30000, NOW - 5000  # two ended 5h windows' resets, then this one
+    usage.history.record_usage([("claude", "a", "5h", 18000, t, p, r) for t, p, r in (
+        (NOW - 3 * 86400, 50, NOW - 3 * 86400 + 60),  # three days back: out of a 1-day range
+        (NOW - 86400 - 600, 30, NOW - 86400 - 60),  # read within a window of it, ended before it
+        (first - 9000, 20, first), (first - 60, 40, first + 2),  # re-read: the same window
+        (second - 4000, 100, second), (second - 60, 100, second),
+        (NOW - 600, 10, NOW + 9000), (NOW, 12, None))])  # a closed window is none of them
+    [window] = usage.report(now=NOW, past=1)[0]["windows"]
+    assert [(w["pct"], w["start"] / 1000, w["limit_at"]) for w in window["past"]] == [
+        (40, first + 2 - 18000, None), (100, second - 18000, (second - 4000) * 1000)]
+    assert window["past"][0]["samples"] == [[(first - 9000) * 1000, 20], [(first - 60) * 1000, 40]]
+    assert len(usage.report(now=NOW, past=7)[0]["windows"][0]["past"]) == 4
+    assert len(usage.report(now=NOW, past=float("inf"))[0]["windows"][0]["past"]) == 4  # All
+    assert "past" not in usage.report(now=NOW)[0]["windows"][0]  # the strip's minute poll
+    # A re-read that moves this window's reset past now leaves it current, not ended.
+    assert ended("5h", 18000, [(NOW - 600, 5, NOW - 30), (NOW - 60, 6, NOW + 30)], NOW) == []
+
+
+def test_the_current_window_says_when_it_hit_the_limit_from_every_sample(tmp_path):
+    tmp_path.chmod(0o700)
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"))
+    usage.accounts = {("claude", "a"): {"homes": [], "panes": [], "error": None}}
+    hit = NOW - 3000 * 60 + 7 * 60  # a minute the 120 thinned samples skip
+    minutes = range(int(NOW) - 3000 * 60, int(NOW) + 1, 60)
+    usage.history.record_usage([("claude", "a", "7d", 604800, t, 100 if t >= hit else 50,
+                                 NOW + 86400) for t in minutes])
+    [window] = usage.report(now=NOW)[0]["windows"]
+    assert window["hit_at"] == hit * 1000 and [hit * 1000, 100] not in window["samples"]
+
+
+# `omp usage --json --provider anthropic`, trimmed to the fields read, ids made up.
+OMP_USAGE = {"generatedAt": 1, "reports": [
+    {"provider": "anthropic", "fetchedAt": 1, "metadata": {"accountId": "u-omp"},
+     "limits": [{"id": "anthropic:5h", "window": {"durationMs": 18000000, "resetsAt": 2},
+                 "amount": {"usedFraction": 0.4}}]},
+    {"provider": "anthropic", "metadata": {"email": "x@example.com"}, "limits": []}],
+    "accountsWithoutUsage": []}
+
+
+BUN = ["/usr/bin/bun", "/home/x/.bun/bin/omp"]  # how a bun-installed omp runs
+
+
+WORK = (("HOME", "/h"), ("OMP_PROFILE", "work"))
+
+
+def _omp(monkeypatch, answer):
+    """omp answering `answer` (or failing); returns the (argv, HOME, profile) of each run."""
+    runs = []
+
+    def run(argv, env, **_):
+        runs.append((argv, env.get("HOME"), env.get("OMP_PROFILE", "")))
+        if isinstance(answer, Exception):
+            raise answer
+        return type("Done", (), {"stdout": json.dumps(answer)})
+
+    monkeypatch.setattr(plan_usage.subprocess, "run", run)
+    monkeypatch.setattr(plan_usage, "_omp", {})
+    return runs
+
+
+def test_omp_names_its_anthropic_accounts_run_as_the_pane_runs_it(monkeypatch):
+    runs = _omp(monkeypatch, OMP_USAGE)
+    assert plan_usage.read_omp(BUN, WORK) == {"u-omp"}
+    assert runs == [([*BUN, *plan_usage.OMP], "/h", "work")]
+    _omp(monkeypatch, plan_usage.subprocess.TimeoutExpired("omp", 20))
+    assert plan_usage.read_omp(BUN, ()) is None
+
+
+def test_omp_logins_are_read_at_most_once_a_poll_and_a_failure_keeps_the_last(monkeypatch):
+    runs = _omp(monkeypatch, OMP_USAGE)
+    assert plan_usage.omp_accounts(BUN, WORK, fresh=True) == {"u-omp"}
+    assert plan_usage.omp_accounts(BUN, WORK, fresh=True) == {"u-omp"} and len(runs) == 1
+    assert plan_usage.omp_accounts([], WORK) == {"u-omp"}  # a request reads the cache only
+    assert plan_usage.omp_accounts(BUN, (("HOME", "/other"),)) == set()  # another store
+    runs = _omp(monkeypatch, OSError())
+    plan_usage._omp[WORK] = (0.0, {"u-omp"})  # a poll later, omp fails
+    assert plan_usage.omp_accounts(BUN, WORK, fresh=True) == {"u-omp"} and len(runs) == 1
+
+
+def test_an_omp_pane_says_how_its_omp_runs_and_whose_logins(monkeypatch):
+    procs = {"1": ("bash", "bash\0", "OMP_PROFILE=shell\0"),
+             "2": ("omp", "/bin/bash\0/usr/local/bin/omp\0", "OMP_PROFILE=inline\0HOME=/h\0")}
+    links = {"exe": "/usr/bin/bash", "cwd": "/src"}
+    monkeypatch.setattr(plan_usage.tmux, "processes", lambda pid: list(procs))
+    monkeypatch.setattr(plan_usage.tmux, "proc_read", lambda pid, name: procs[pid][
+        ("comm", "cmdline", "environ").index(name)])
+    monkeypatch.setattr(plan_usage.os, "readlink", lambda path: links[path.rsplit("/", 1)[1]])
+    monkeypatch.setattr(plan_usage.os.path, "exists", lambda path: "(deleted)" not in path)
+    assert plan_usage.omp_launch("1") == (["/usr/bin/bash", "/usr/local/bin/omp"],
+                                          (("HOME", "/h"), ("OMP_PROFILE", "inline")))
+    for argv in ("--profile\0work\0", "--profile=work\0"):
+        procs["2"] = ("omp", f"/bin/bash\0/usr/local/bin/omp\0{argv}", "HOME=/h\0")
+        assert plan_usage.omp_launch("1")[1] == WORK
+    procs["2"], links["exe"] = ("bun", "bun\0./omp\0", ""), BUN[0]
+    assert plan_usage.omp_launch("1") == ([BUN[0], "/src/./omp"], ())  # from its cwd
+    procs["2"], links["exe"] = ("omp", "omp\0", ""), "/opt/omp (deleted)"
+    assert plan_usage.omp_launch("1")[0] == ["/proc/2/exe"]  # its own binary, since replaced
+    del procs["2"]
+    assert plan_usage.omp_launch("1")[0] == []  # no omp process: nothing to run
+
+
+def test_an_omp_pane_is_a_pane_of_each_claude_account_its_profile_holds(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    monkeypatch.setattr(plan_usage.os, "environ", {"HOME": str(home)})
+    work = _claude_home(tmp_path / "claude-work", "u-omp", "dev@example.com")
+    again = _claude_home(tmp_path / "claude-again", "u-omp", "dev@example.com")  # same login
+    _claude_home(home / ".claude", "u-home", "me@example.com")
+    (home / ".claude.json").write_text((home / ".claude/.claude.json").read_text())
+    runs = _omp(monkeypatch, OMP_USAGE)
+    monkeypatch.setattr(plan_usage, "omp_launch",
+                        lambda pid: (BUN, {"1": (), "2": (("OMP_PROFILE", "spare"),)}[pid]))
+    usage = PlanUsage(None, fetch=lambda config, now: [], profiles=lambda: [
+        ("claude", home / ".claude"), ("claude", work), ("claude", again)])
+    found = usage.discover([{"pane_id": "%1", "tool": "omp"}, {"pane_id": "%2", "tool": "omp"}],
+                           lambda pane_id: pane_id[1:])
+    assert {k: a["panes"] for (_, k), a in found.items()} == {"u-home": [], "u-omp": ["%1", "%2"]}
+    assert found[("claude", "u-omp")]["homes"] == [work, again]
+    assert sorted(p for *_, p in runs) == ["", "spare"]

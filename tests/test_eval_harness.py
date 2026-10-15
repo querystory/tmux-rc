@@ -29,6 +29,16 @@ def test_structured_exact_match_passes():
     assert ok and diffs == []
 
 
+def test_an_optional_working_pr_may_be_missed_but_nothing_unlisted_passes():
+    pr = {"repo": "acme/app", "number": 7}
+    expected = {"working_prs": [{**pr, "optional": True}, {"repo": "acme/app", "number": 8}]}
+    assert score_structured({"working_prs": [{"repo": "acme/app", "number": 8}]}, expected)[0]
+    assert score_structured({"working_prs": [pr, {"repo": "acme/app", "number": 8}]}, expected)[0]
+    assert not score_structured({"working_prs": [pr]}, expected)[0]
+    assert not score_structured({"working_prs": [{"repo": "acme/demo", "number": 8},
+                                                 {"repo": "acme/app", "number": 8}]}, expected)[0]
+
+
 def test_successful_parse_model_and_cost_expectations_are_opt_in():
     assert score_structured({"parse_ok": False}, {})[0]
     assert score_structured({}, {"parse_ok": True})[0]
@@ -272,3 +282,9 @@ def test_reply_buttons_expectation_wants_accept_then_decline():
         assert not ok and any("options" in d for d in diffs)
     ok, _ = score_structured({"question": "free text"}, want)  # malformed: a mismatch, no crash
     assert not ok
+    none = {"question": {"answer_style": "text", "reply_buttons": False}}
+    assert score_structured({"question": {"answer_style": "text", "options": []}}, none)[0]
+    assert not score_structured(good, none)[0]
+    chips = {"status_entries_exclude": ["16% ctx"]}
+    assert score_structured({"status_entries": ["4h49m"]}, chips)[0]
+    assert not score_structured({"status_entries": ["16% ctx", "4h49m"]}, chips)[0]

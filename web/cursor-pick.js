@@ -16,6 +16,8 @@
 //                     card's picker lags the screen (the refusal asks for a reparse).
 //   io.sendText(t, q) → type literal text, NO Enter appended. Same contract.
 //   io.note(msg)    → say something to the user
+//   io.committed()  → optional: the select was delivered (the walk then waits for the
+//                     picker to close before it resolves)
 //
 // The delivery contract on sendKey/sendText is load-bearing, not politeness: a move that
 // was never delivered leaves the highlight where it was, so every later step computed
@@ -31,10 +33,17 @@
 // comes NEXT (model picker → reasoning menu) and confirms that menu's default. Nothing
 // follows the shortcut: a follow-up key can misfire into a live agent just the same, and
 // if the tap changed nothing the card simply stays for the user to act on.
+// A menu's shortcut is always its row's digit, even when the rows read Yes / No: Claude
+// Code's "❯ 1. Yes / 2. No" permission box ignores a bare y, so a y/n shortcut left the
+// tap doing nothing. Digits are what the classifier requires to call a widget a menu.
+// Rows 10 and later have no one-key shortcut (Codex commits the "1" of "10" as row 1),
+// so answerBody returns null for them and the caller sends nothing.
+// A digit names a row, not an ask: a stale "1" would approve whatever prompt replaced
+// the one on the card. So a menu answer carries its question's fingerprint (`fp`, from
+// /api/state), and the server refuses it once the pane holds a different question.
 export function answerBody(q, opt, i) {
   if (q.answer_style !== "menu") return { keys: opt, enter: true, literal: true };
-  const yn = q.options.length === 2 && /^(yes|no)$/i.test(opt);
-  return { keys: yn ? opt[0].toLowerCase() : String(i + 1), enter: false, literal: true };
+  return i < 9 ? { keys: String(i + 1), enter: false, literal: true, question: q.fp } : null;
 }
 
 // How many moves we will walk before handing over to the widget's own search box; each is
@@ -52,6 +61,8 @@ const POLL_MS = 120;
 // this UI cannot drive that widget — and the alternative to saying it is the silent
 // no-op the whole feature exists to remove.
 const STUCK = "Can't select that row from here — use the keyboard.";
+// An answer delivered to a screen that did not change: the widget ignored it.
+export const UNTAKEN = "That didn't take; try Keys.";
 // A walk spans several seconds and several sends. Each step releases the surface's own
 // send guard while it waits for the next frame, which is exactly the gap a second tap
 // falls into — and two interleaved walks commit on whichever row their mixed moves happen
@@ -105,7 +116,8 @@ async function waitForFrame(io, after, changed) {
   return false;
 }
 
-// MOVE, VERIFY, THEN SELECT — returns true only once the row is committed.
+// MOVE, VERIFY, THEN SELECT — returns true only once the row is committed, null when the
+// select was delivered and the screen did not change.
 //
 // The anchor (question.selected) comes from a frame that is already stale by the time a
 // tap arrives, so each pass re-reads the screen instead of firing move+move+Enter in one
@@ -159,6 +171,10 @@ function after(q, sent) {
   const at = sent.picker === q.picker ? q.selected : rowIndex(q.options, sent.row);
   return at === null ? null : { ...q, picker: sent.picker, selected: at };
 }
+
+// A delivered select: true, or null where /send read the very screen it went to back
+// (the widget ignored it, which the user is told and nothing retries).
+const took = (sent, picker) => (sent?.picker && sent.picker === picker ? null : !!sent);
 
 // A control character typed into a search box would act, not filter (Enter submits, Esc
 // cancels, ^C interrupts), so a row carrying one is never typed.
@@ -223,7 +239,7 @@ async function walk(io, targetText, targetIndex) {
       return false;
     }
     if (!sent) return false; // undelivered: the anchor is now a lie
-    if (at === want) return true;
+    if (at === want) return took(sent, q.picker);
     read = after(q, sent);
     if (read) { if (read.selected === at) return false; continue; } // a key that moved nothing
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
@@ -251,6 +267,7 @@ export async function pickCursorRow(io, targetText, targetIndex) {
     const read = io.question, asked = read()?.prompt;
     io = { ...io, question: () => { const q = read(); return q?.prompt === asked ? q : null; } };
     const done = await pick(io, targetText, targetIndex);
+    if (done === null) io.note(UNTAKEN);
     // Hold the lock PAST the commit, until a frame arrives that has noticed it. The picker
     // does not vanish the instant Enter is delivered — the phone goes on rendering the
     // stale question with live buttons until the next parse — and a second tap in that
@@ -260,10 +277,11 @@ export async function pickCursorRow(io, targetText, targetIndex) {
     // ever best-effort — the row is already selected either way, so a screen that never
     // settles must not leave picking disabled for the life of the page.
     if (done) {
+      io.committed?.();
       const deadline = Date.now() + SETTLE_MS;
       while (Date.now() < deadline && picker(io)) await sleep(POLL_MS);
     }
-    return done;
+    return !!done;
   } finally {
     walking = false;
   }
@@ -273,7 +291,9 @@ async function pick(io, targetText, targetIndex) {
   const first = picker(io), sole = first ? soleIndex(first.options, targetText) : -1;
   const far = sole >= 0 && bindings(first).search && typable(targetText)
     && !(Math.abs(sole - first.selected) <= NEAR);
-  if (!far && await walk(io, targetText, targetIndex)) return true;
+  // Each walk's answer stands unless it is false: null, an ignored select, is final too.
+  const walked = !far && await walk(io, targetText, targetIndex);
+  if (walked !== false) return walked;
   // Fallback: the widget's own search box. It needs BOTH bindings advertised — typing
   // filters the list but does not commit it, so the obvious shortcut of appending Enter
   // is precisely the unadvertised guess this file exists to stop. A picker that binds Tab
@@ -299,13 +319,15 @@ async function pick(io, targetText, targetIndex) {
   const was = q.options, wasAt = q.selected;
   const typed = await io.sendText(targetText, q);
   // Refused unsent: walk from the frame the refusal's reparse brings instead.
-  if (typed === STALE && await waitForFrame(io, before, () => true)
-      && await walk(io, targetText, targetIndex)) return true;
+  if (typed === STALE && await waitForFrame(io, before, () => true)) {
+    const again = await walk(io, targetText, targetIndex);
+    if (again !== false) return again;
+  }
   // Read back on the row already: commit it off that read, with no parse in between.
   // Named against the whole list, so "Fix  login bug" is never taken for "Fix".
   if (typed?.picker && rowIndex(q.options, typed.row) === soleIndex(q.options, targetText)) {
     const done = await io.sendKey(km.select, { ...q, picker: typed.picker });
-    if (done !== STALE) return !!done; // undelivered: never press it twice
+    if (done !== STALE) return took(done, typed.picker); // undelivered: never press it twice
   }
   const filtered = typed && typed !== STALE
     && await waitForFrame(io, before, (f) => !sameRows(was, f.options) || f.selected !== wasAt);
@@ -313,7 +335,8 @@ async function pick(io, targetText, targetIndex) {
   // -1, not 0: the filter renumbered everything, so the tapped index is spent and no index
   // we pass here means anything. An index that can never match says that plainly and sends
   // walk() down the by-text path, which is the only identity the row still has.
-  if (filtered && await walk(io, targetText, -1)) return true;
+  const refiltered = filtered ? await walk(io, targetText, -1) : false;
+  if (refiltered !== false) return refiltered;
   io.note(STUCK);
   return false;
 }

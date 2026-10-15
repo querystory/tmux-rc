@@ -92,12 +92,14 @@ function el(tag, cls, text) {
   if (text != null) node.textContent = text;
   return node;
 }
-// One scope of the history: the whole fleet, or one tool's and/or one session's panes.
+// One scope of the history: the whole fleet, or some tools' and/or one session's panes. The
+// tools are the app's agent filter (app.js), shared with the list.
+const inTools = (scope, tool) => !scope.tools?.length || scope.tools.includes(tool);
 function scoped(scope, samples = history) {
-  if (!scope.tool && !scope.session) return samples;
+  if (!scope.tools?.length && !scope.session) return samples;
   return samples.map(s => {
     if (s.n === null) return s;
-    const groups = (s.groups || []).filter(g => (!scope.tool || g.tool === scope.tool) && (!scope.session || g.session === scope.session));
+    const groups = (s.groups || []).filter(g => inTools(scope, g.tool) && (!scope.session || g.session === scope.session));
     // A partial log reconstruction cannot prove a filtered fleet was empty. Keep
     // its timestamp as a gap, including at either end of the selected range.
     if (!s.groups || (s.source === 'logs' && !groups.length)) return { ...s, n: null, groups: [], source: 'gap' };
@@ -155,7 +157,8 @@ function refreshHeat() {
 }
 const pad = h => String(h).padStart(2, '0');
 const shade = (v, low, top) => v < 0.05 ? 'var(--raised)' : `color-mix(in oklab, var(--chart-s1) ${Math.round(12 + 88 * Math.max(0, Math.min(1, (v - low) / (top - low))))}%, var(--surface))`;
-const fig = (value, label) => { const node = el('span', 'heat-fig'); node.append(el('b', '', value), el('span', 'muted', label)); return node; };
+const fig = (value, label, cls = 'heat-fig') => { const node = el('span', cls); node.append(el('b', '', value), el('span', 'muted', label)); return node; };
+const hourName = h => `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`;
 // The metric's population, as the activity chart's unit names it: every pane, shells too, plus agents.
 const heatUnit = () => fleet.metric === 'panes' ? 'pane-hours' : 'pane+agent hours';
 const heatWaiting = () => el('p', 'muted', heat === false ? 'History unavailable. Retrying automatically.' : 'Loading saved history…');
@@ -169,10 +172,11 @@ function heatDays(scope) {
     const t = new Date(s.t), day = new Date(s.t).setHours(0, 0, 0, 0), n = countsOf(s);
     if (!days.has(day)) days.set(day, []);
     if (!n) return;
-    const cell = days.get(day)[t.getHours()] ||= { sum: 0, tools: {} };
+    const cell = days.get(day)[t.getHours()] ||= { sum: 0, seen: 0, tools: {} };
     // Each bucket covers its step, the newest only to the query's now, the oldest only from the first record.
     const hours = Math.max(0, Math.min(s.t + heat.step, heat.now) - Math.max(s.t, heat.first)) / 3600000;
     cell.sum += running(n) * hours;
+    cell.seen += hours; // how much of the hour was recorded, for an average running in it
     (s.groups || []).forEach(g => { const c = countsOf(g); if (c) cell.tools[g.tool] = (cell.tools[g.tool] || 0) + running(c) * hours; });
   });
   // Until history runs out, the oldest day loaded may be cut by the chunk; it waits for the next.
@@ -196,7 +200,7 @@ function heatGrid(data, days, compact) {
   const grid = el('div', compact ? 'heat-grid heat-compact' : 'heat-grid');
   grid.setAttribute('role', compact ? 'img' : 'group');
   grid.setAttribute('aria-label', heatLabel(data, compact));
-  grid.append(el('span'), ...Array.from({ length: 24 }, (_, h) => el('span', 'heat-hour', h % (compact ? 12 : 6) ? '' : `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`)),
+  grid.append(el('span'), ...Array.from({ length: 24 }, (_, h) => el('span', 'heat-hour', h % (compact ? 12 : 6) ? '' : hourName(h))),
     el('span', 'heat-hour heat-total', compact ? '' : 'Hours'));
   heatRows(grid, data, 0, days);
   return grid;
@@ -244,11 +248,35 @@ export function pageHead(title, icon, back) {
   return head;
 }
 
-// The Dashboard's heatmap card: the last week, compact.
+// The Dashboard's heatmap card: the last week, compact, its rows growing into the height the
+// cards beside it give the row, over the figures the grid only implies, in Open loops' tiles.
 function heatCard(scope, open) {
   const card = detailCard(el('section', 'atlas-heat-card'), 'Running by hour', `last 7 days · ${heatUnit()}`, open);
-  card.append(heat ? heatGrid(heatDays(scope), 7, true) : heatWaiting());
+  if (!heat) return card.append(heatWaiting()), card;
+  // Labels short enough for one line in a tile, so the tiles never set the row's height.
+  const data = heatDays(scope), w = heatWeek(data), figs = el('div', 'kpis heat-kpis'), kpi = (value, label) => figs.append(fig(value, label, 'kpi'));
+  const pct = w.change === null ? null : Math.round(w.change * 100);
+  kpi(w.peak < 0 ? '–' : hourName(w.peak), 'peak hour');
+  kpi(w.busy < 0 ? '–' : `${Math.round(data.totals[w.busy])}h`, `busiest day${w.busy < 0 ? '' : `, ${dayName(data.all[w.busy][0])}`}`);
+  kpi(w.avg === null ? '–' : w.avg.toFixed(1), 'running on average');
+  kpi(pct === null ? '–' : `${pct > 0 ? '+' : ''}${pct}%`, 'vs the week before');
+  card.append(heatGrid(data, 7, true), figs);
   return card;
+}
+// The card's figures, over the last 7 days (today too): the hour of day with the most running
+// on average, the busiest day (its index; each -1 if none was recorded), the average running
+// in any hour, and the change in average running over the 7 full days before today against
+// the 7 before those (null until both hold a recording). Each average is over the time
+// recorded (null if none), so gaps, part-recorded hours and history starting mid-week weigh
+// only what was seen, never as idle.
+export function heatWeek({ all, totals }) {
+  const add = v => v.reduce((a, b) => a + b, 0), seen = (days, h) => days.flatMap(c => (h === undefined ? c : [c[h]]).filter(Boolean));
+  const avg = cells => { const t = add(cells.map(c => c.seen)); return t ? add(cells.map(c => c.sum)) / t : null; };
+  const days = all.map(([, cells]) => cells), week = days.slice(0, 7), seven = totals.slice(0, 7), full = all[0]?.[0] === today() ? 1 : 0;
+  const best = (vals, ok) => vals.reduce((b, v, i) => ok(i) && (b < 0 || v > vals[b]) ? i : b, -1); // the largest of those ok, or -1
+  const hours = Array.from({ length: 24 }, (_, h) => avg(seen(week, h))), peak = best(hours, h => hours[h] !== null);
+  const now = avg(seen(days.slice(full, full + 7))), before = avg(seen(days.slice(full + 7, full + 14)));
+  return { peak, busy: best(seven, i => seen([week[i]]).length > 0), avg: avg(seen(week)), change: now === null || !before ? null : now / before - 1 };
 }
 
 function heatFigs({ all, totals, most }) {
@@ -265,11 +293,11 @@ function heatFigs({ all, totals, most }) {
 // older days only appends its rows; a new filter, setting or fresh newest chunk rebuilds.
 export function renderHeatView(root, scope, icon, back) {
   refreshHeat();
-  if (unchanged(root, [heat, settings, scope.tool, scope.session])) return;
+  if (unchanged(root, [heat, settings, String(scope.tools), scope.session])) return;
   root._older?.disconnect();
   const focus = focusKey(root);
   if (!heat) return rebuild(root, [pageHead('Running by hour', icon, back), heatWaiting()], focus);
-  const data = heatDays(scope), unit = heatUnit(), key = [settings, scope.tool, scope.session, heat.at];
+  const data = heatDays(scope), unit = heatUnit(), key = [settings, String(scope.tools), scope.session, heat.at];
   let view = root._view;
   if (!view || view.key.some((v, i) => v !== key[i]) || !root.contains(view.grid)) {
     const legend = el('div', 'heat-legend muted'), panel = el('section', 'atlas-panel atlas-heat');
@@ -356,7 +384,7 @@ function averageText(data, target = goal) {
   return text;
 }
 
-function segmented(label, options, value, pick) {
+export function segmented(label, options, value, pick) {
   const group = el('span', 'fleet-seg');
   group.setAttribute('role', 'group');
   group.setAttribute('aria-label', label);
@@ -499,7 +527,7 @@ export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
   count.append(el('b', '', String(now[0])), el('span', 'muted', ' running'));
   const board = el('button', 'fleet-chip');
   board.dataset.key = 'dashboard';
-  board.innerHTML = `${icon('layers', 14)}<span>Dashboard</span>`;
+  board.innerHTML = `${icon('gauge', 14)}<span>Dashboard</span>`;
   board.onclick = dashboard;
   strip.append(fold, count, averageText(data), goalControl(icon), ...(open
     ? [el('span', 'fleet-gap'), stateChip('Running', now[3]), stateChip('Needs you', now[1]), stateChip('Idle', now[2]),
@@ -517,18 +545,18 @@ const STOP = new Set(('the a an and or to of in on for with from is are was were
 // `openHeat` opens the heatmap's own view.
 export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after, foot, openHeat, radar, chip = () => '') {
   const allPanes = panes;
-  const scope = root._scope ||= { tool: '', session: '' };
+  const scope = root._scope ||= { tools: [], session: '' };
   // The session cards chart the last week (the heatmap's history, the chart's until it loads)
   // and need one averaging window before it. The filters offer what the chart and that week hold.
   const src = heat ? heat.samples : history, step = heat ? heat.step : historyData?.step || 60000, end = src.at(-1)?.t ?? 0, recent = src.filter(s => s.t > end - ms('7d') - ms(fleet.average));
   const weekGroups = recent.filter(s => s.t > end - ms('7d')).flatMap(s => s.groups || []), seen = [...history.flatMap(s => s.groups), ...weekGroups];
   const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...seen.map(g => g.tool)].filter(isAgent))];
   const sessions = [...new Set([...allPanes.map(p => p.session), ...seen.map(g => g.session)].filter(Boolean))].sort();
-  panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
+  panes = allPanes.filter(p => inTools(scope, toolOf(p)) && (!scope.session || p.session === scope.session));
   // Preserve focus and pointer targets across unchanged long polls.
   // draft too: the goal editor is shared, so an edit on one surface refreshes the other.
   refreshHeat();
-  if (unchanged(root, [heat, ...sessions.map(chip), scope.tool, scope.session, history, historyData, historyError, settings, goal, draft, draftInvalid, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
+  if (unchanged(root, [heat, ...sessions.map(chip), String(scope.tools), scope.session, history, historyData, historyError, settings, goal, draft, draftInvalid, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
     p.waiting_on, p.tool, p.model, p.session_summary, p.status_line, p.agents, JSON.stringify(p.subagents)])])) return;
   const focus = focusKey(root);
   const charts = root._charts ||= atlasCharts();
@@ -538,8 +566,12 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const controls = el('div', 'atlas-controls');
   controls.append(el('span', 'atlas-controls-label muted', 'Sessions'));
   const redraw = () => setFleet({}); // through app.js, which repaints what follows the filters (Plan usage)
-  ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].forEach(tool => {
-    const count = allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length;
+  // The tmux sessions to pick from: the history's too, and the one picked. The app's filter
+  // menu offers the same list (scope.sessions), and both pick through the app (app.js).
+  scope.sessions = [...new Set([...sessions, ...(scope.session ? [scope.session] : [])])];
+  const choices = ['', ...tools, ...scope.tools.filter(t => !tools.includes(t))].map(tool =>
+    [tool, allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length]);
+  choices.forEach(([tool, count]) => {
     const button = el('button', 'atlas-filter atlas-tool-filter');
     const label = `${tool || 'All tools'} · ${count} panes`;
     button.setAttribute('aria-label', label);
@@ -554,18 +586,21 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     }
     button.append(el('span', 'count', String(count)));
     button.dataset.key = `tool:${tool}`;
-    button.setAttribute('aria-pressed', String(scope.tool === tool));
-    button.onclick = () => { scope.tool = tool; redraw(); };
+    button.setAttribute('aria-pressed', String(tool ? scope.tools.includes(tool) : !scope.tools.length));
+    // Several at once, as the list's menu picks them; All clears them. The app owns the filter.
+    button.onclick = () => scope.pick(!tool ? [] : scope.tools.includes(tool) ? scope.tools.filter(t => t !== tool) : [...scope.tools, tool]);
     controls.append(button);
   });
-  const sessionPicker = el('select', 'atlas-session-picker');
-  sessionPicker.dataset.key = 'session-filter';
-  sessionPicker.setAttribute('aria-label', 'Filter atlas by tmux session');
-  sessionPicker.append(new Option('All tmux sessions', ''));
-  [...new Set([...sessions, ...(scope.session ? [scope.session] : [])])].forEach(session => sessionPicker.append(new Option(session, session)));
-  sessionPicker.value = scope.session;
-  sessionPicker.onchange = () => { scope.session = sessionPicker.value; redraw(); };
-  controls.append(sessionPicker); nodes.push(controls);
+  if (sessions.length > 1 || scope.session) { // one session has nothing to pick
+    const select = el('select', 'atlas-picker atlas-session-picker');
+    select.dataset.key = 'session-filter';
+    select.setAttribute('aria-label', 'Filter atlas by tmux session');
+    [['', 'All tmux sessions'], ...scope.sessions.map(s => [s, s])].forEach(([value, text]) => select.append(new Option(text, value)));
+    select.value = scope.session;
+    select.onchange = () => scope.pickSession(select.value);
+    controls.append(select);
+  }
+  nodes.push(controls);
 
   // The big chart: the fleet over time, against the goal.
   const samples = scoped(scope), data = rows(samples);
@@ -598,7 +633,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   metricControls.value = fleet.metric;
   metricControls.onchange = () => setFleet({ metric: metricControls.value });
   // The goal is fleet-wide: a page filtered to one tool or session draws none.
-  const target = scope.tool || scope.session ? null : goal;
+  const target = scope.tools.length || scope.session ? null : goal;
   heading.append(el('h3', '', 'Activity over time'), now, averageText(data, target), info, el('span', 'fleet-gap'),
     metricControls, rangeControl(), averageControl(), goalControl(icon));
   pulse.append(heading);
@@ -632,7 +667,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // One card per tmux session: its running count, who needs you, its trend on the shared
   // scale, and its panes by state underneath. Sessions with live panes come first.
   // Their keys are the live panes plus the week's sessions (in the tool filter).
-  const week = weekGroups.filter(g => !scope.tool || g.tool === scope.tool).map(g => g.session);
+  const week = weekGroups.filter(g => inTools(scope, g.tool)).map(g => g.session);
   const live = new Set(panes.map(p => p.session)), keys = scope.session ? [scope.session]
     : [...new Set([...live, ...week].filter(Boolean))].sort().sort((a, b) => live.has(b) - live.has(a));
   const multiples = el('section', 'atlas-panel atlas-multiples');
@@ -641,7 +676,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // Slices depend on history and settings, not on pane state, so live updates reuse them.
   const slices = root._slices ||= {};
   // A fixed week whatever the chart's range, from the heatmap's 15-minute history.
-  if (!unchanged(slices, [heat, history, historyData, settings, scope.tool, scope.session, ...keys])) slices.series = keys.map(key => [key, rows(scoped({ ...scope, session: key }, recent), '7d', step)]);
+  if (!unchanged(slices, [heat, history, historyData, settings, String(scope.tools), scope.session, ...keys])) slices.series = keys.map(key => [key, rows(scoped({ ...scope, session: key }, recent), '7d', step)]);
   const { series } = slices;
   const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
   // Folded, not spread: a long history across many sessions would pass Math.max too many arguments.
@@ -707,7 +742,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   topics.append(charts.cloud, topicLinks);
   if (!words.size) topics.append(el('p', 'muted', 'Topics appear as panes acquire titles and summaries.'));
   // The heatmap card, in the row of cards; like the slices, rebuilt only when its inputs change.
-  if (!unchanged(foot, [heat, settings, scope.tool, scope.session])) foot.replaceChildren(heatCard(scope, openHeat));
+  if (!unchanged(foot, [heat, settings, String(scope.tools), scope.session])) foot.replaceChildren(heatCard(scope, openHeat));
   radar.replaceChildren(topics); // the third card in the row under the controls
   nodes.push(sentinel, pulse);
   rebuild(root, nodes, focus);

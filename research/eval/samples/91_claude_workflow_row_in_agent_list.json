@@ -1,0 +1,20 @@
+{
+  "description": "Claude Code's agent list mixes sub-agent rows with a WORKFLOW row: a name, a progress bar, done/total steps, elapsed and tokens. The workflow is one background worker (progress '1/2', not a sub-agent whose title is the bar); the parent is waiting on all of them. Synthetic.",
+  "current_command": "node",
+  "capture": "● Started the docs-sweep workflow and two agents for the chart fixes. I'll merge\n  their results once they finish.\n\n✻ Waiting for 2 background agents and 1 dynamic workflow to finish… (4m 12s)\n\n──────────────────────────────────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────────────────────────────────\n  ~/src/demo-shop on feat/chart-polish | Opus 5.5 | 41% context\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ↓ to manage\n\n ●  main\n ○  general-purpose  Fixing tooltip overlap in the revenue chart\n ○  general-purpose  Mock: weekly orders chart with a date picker\n ○  docs-sweep       ▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱  1/2 · 3m37s · ↓ 109.1k tokens",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "agents": 3,
+    "subagents_include": [
+      {
+        "label": "docs-sweep",
+        "progress": "1/2",
+        "elapsed": "3m37s",
+        "tokens": "109.1k"
+      }
+    ],
+    "headline": "Waiting for 2 background agents and a docs-sweep workflow to finish"
+  }
+}
