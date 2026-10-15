@@ -1,44 +1,44 @@
-                                                                                     
-                                                                                                                                                                                                            
-  Ran 1 shell command                                                                                                                                                                                       
 
-● Pane %0 exists and list_panes() finds it, so find_pane(None) should return it. The "no pane found" must be a stale error — likely the probe ran before with a different issue. Let me re-run directly.    
-                                                                                                                                                                                                           
-  Ran 1 shell command                                                                                                                                                                                       
 
-● Still "no pane found" — but only inside the probe. The difference: --save working — my arg parsing. args = [a for a in sys.argv[1:] if not a.startswith("--")] → ["working"] (the value after --save      
-  doesn't start with --, so it's treated as the pane target!). So target="working" → no pane matches. Bug in my arg parsing. Let me fix it.                                                             
-                                                                                                                                                                                                     
-● Update(~/src/tmux-rc/research/probe.py)                                                                                                                                                             
-  ⎿  Added 7 lines, removed 3 lines                                                                                                                                                                  
-      113  def main() -> None:
-      114      from google.genai import types                                                                                                                                                        
-      115                                                                                                                                                                                            
-      116 -    args = [a for a in sys.argv[1:] if not a.startswith("--")]                                                                                                                                   
-      117 -    target = args[0] if args else None                                                                                                                                                           
-      118 -    save_name = sys.argv[sys.argv.index("--save") + 1] if "--save" in sys.argv else None                                                                                                  
-      116 +    save_name = None                                                                                                                                                                             
-      117 +    argv = sys.argv[1:]                                                                                                                                                                   
-      118 +    if "--save" in argv:                                                                                                                                                                  
-      119 +        i = argv.index("--save")                                                                                                                                                          
-      120 +        save_name = argv[i + 1]                                                                                                                                                           
-      121 +        argv = argv[:i] + argv[i + 2:]  # drop --save and its value                                                                                                                       
-      122 +    target = argv[0] if argv else None                                                                                                                                                    
-      123                                                                                                                                                                                                   
-      124      pane = tmux.find_pane(target)                                                                                                                                                         
-      125      if pane is None:                                                                                                                                                                         
-                                                                                                                                                                                                     
-● Running 1 shell command…                                                                                                                                                                            
-  ⎿  $ cd ~/src/tmux-rc                                                                                                                                                                
-     GOOGLE_CLOUD_PROJECT=example-project .venv/bin/python -m research.probe --save working 2>&1 | grep -vE 'Traceback|File "|raise|resp =|self\.|return await|^\s+\^|warnings\.warn|UserWarning|for that 
-     reason' | tail -80                                                                                                                                                                                     
-                                                                                                                                                                                                            
-✢ Wrangling… (2m 19s · ↓ 5.9k tokens)                                                 
-  ⎿  Tip: Say "fan out subagents" and Claude sends a team. Each one digs deep so nothing gets missed.                                                                                                      
-                                                                                                                                                                                                           
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── tmux-rc-dev ──
-❯                                                                                                                                                                                                          
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ~/src/example-app on docs/query-result-metadata-design | Opus 4.8 (1M context)   |  telemetry: •stats •prompts •tools
-  session: +571/-423 lines · 47% ctx · 22m · $17.70   |  history: 542 prompts · 449 tools · 12.6MB · 22 imgs                                                                                                
-  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents                                                                                                                               
+  Ran 1 shell command
+
+● The importer reads dates as month/day, so "03/04" became March 4 for the European recipe cards. The cards say
+  day/month on their header row, so the parser should use that hint instead of guessing.
+
+  Ran 1 shell command
+
+● Still wrong on two cards — they have no header row, so there is no hint to read. For those, fall back to the
+  collection's locale setting. Let me fix the parser.
+
+● Update(~/src/recipe-box/recipe_box/importer.py)
+  ⎿  Added 7 lines, removed 3 lines
+       88  def parse_date(raw: str, hint: str | None) -> date:
+       89      from dateutil import parser
+       90
+       91 -    order = "MD"
+       92 -    if hint == "day/month":
+       93 -        order = "DM"
+       91 +    if hint == "day/month":
+       92 +        order = "DM"
+       93 +    elif hint == "month/day":
+       94 +        order = "MD"
+       95 +    else:
+       96 +        order = settings.collection_locale.date_order
+       97 +    # an explicit hint always wins over the locale
+       98      return parser.parse(raw, dayfirst=order == "DM").date()
+       99
+      100  def parse_card(card: Card) -> Recipe:
+
+● Running 1 shell command…
+  ⎿  $ cd ~/src/recipe-box
+     .venv/bin/python -m pytest tests/test_importer.py -q 2>&1 | tail -20
+
+✢ Simmering… (2m 19s · ↓ 5.9k tokens)
+  ⎿  Tip: Use /rewind to go back to an earlier point in the conversation.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── recipe-box ──
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ~/src/recipe-box on fix/card-date-order | Opus 4.8 (1M context)
+  session: +38/-12 lines · 21% ctx · 9m · $1.40
+  -- INSERT -- ⏵⏵ accept edits on (shift+tab to cycle)
