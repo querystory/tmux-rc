@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shlex
 import textwrap
 from itertools import islice
 from pathlib import Path
@@ -1073,20 +1074,29 @@ def _offers(message: str, reply: str | None) -> list[str]:
                     + re.split(r"\n[ \t]*\n", t[m.start():])[0])
             return marked and not any(a <= m.start() < b for a, b, _ in code) and not (
                 re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
-        # A command: never where a heredoc may hold it as data, nor as an inline span in an
-        # indented block, nor inside code other than as itself.
+        # A command: never where a heredoc may hold it as data, nor as an inline span but from
+        # the transcript (backticks on screen are text) and outside an indented block, nor
+        # inside code other than as itself.
         row = t[t.rfind("\n", 0, m.start()) + 1:m.start()]
-        return "<<" not in t and not (m.lastindex == 2 and re.match(r" {4}|\t", row)) and not any(
+        span = m.lastindex == 2 and (not marked or re.match(r" {4}|\t", row))
+        return "<<" not in t and not span and not any(
             a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
             for a, b, rows in code)
 
     found = (m[m.lastindex] for m in _OFFER_RE.finditer(t) if offered(m))  # each one's payload
 
-    def cut(o: str) -> bool:  # a command that may be cut short: a script with a blank row
-        return o.startswith("! ") and bool(  # (quotes or brackets that do not pair, or an end
-            any(o.count(q) % 2 for q in "'\"`")  # that goes on: "\", "&&", "; do", "{")
-            or o.count("(") != o.count(")") or o.count("{") != o.count("}")
-            or re.search(r"(?:[\\&|;({]|\b(?:do|then|else|in))$", o))
+    def cut(o: str) -> bool:  # a command that may be cut short by a blank row in its script:
+        if not o.startswith("! "):  # quotes the shell would not close, backticks or brackets
+            return False  # that do not pair, an end that goes on ("&&", "; do", "{"), or a
+        try:  # compound command ("for", "if") without its closing word
+            shlex.split(o[2:])
+        except ValueError:
+            return True
+        return bool(o.count("`") % 2 or o.count("(") != o.count(")")
+                    or o.count("{") != o.count("}")
+                    or re.search(r"(?:[&|;({]|\b(?:do|then|else|in))$", o)
+                    or (re.match(r"! (?:for|if|while|until|case|select)\b", o)
+                        and not re.search(r"\b(?:done|fi|esac)$", o)))
 
     return list(dict.fromkeys(o for o in found if not cut(o) and re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
