@@ -1017,7 +1017,7 @@ def _final_message(visible: str, tool: str) -> str | None:
 _QUOTE = r"(?:\"([^\"\n]{1,60})\"|“([^”\n]{1,60})”)"  # straight or curly, each closing its own
 _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
     rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
-    rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!```[ \t]*$)\S)"
+    rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!(?:`{{3,}}|~{{3,}})[ \t]*$)\S)"
     rf"|\bsay[ \t]+{_QUOTE}"
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 

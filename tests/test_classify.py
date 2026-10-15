@@ -1408,6 +1408,10 @@ def test_finished_turn_offers_the_replies_it_hands_over():
     assert "offers" not in classify(_pane("claude"), _auto_screen(wrapped), _llm({}))
     fence = "Run:\n\n```\n! make deploy\n```"
     assert classify(_pane("claude"), _auto_screen(fence), _llm({}))["offers"] == ["! make deploy"]
+    for mark in ("~~~", "````"):  # any fence, with its transcript
+        fenced = f"Run:\n\n{mark}\n! make deploy\n{mark}"
+        assert classify(_pane("claude"), _auto_screen("Run:\n\n  ! make deploy"), _llm({}),
+                        reply=fenced)["offers"] == ["! make deploy"]
     longer = "Run ``! printf '```x```' && make deploy`` now."  # a longer run inside the span
     screen = _auto_screen("Run ! printf '```x```' && make deploy now.")
     assert classify(_pane("claude"), screen, _llm({}), reply=longer)["offers"] == [
