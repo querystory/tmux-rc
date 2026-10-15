@@ -1,7 +1,7 @@
 # Fit Width
 
-Status: implemented (`openbus/fit.py`, the live view's `cols`, and "Fit to my screen" in a
-pane's ⋯ menu).
+Status: implemented (`openbus/fit.py`, `POST /api/panes/{id}/fit`, and "Fit to my
+screen" in a pane's ⋯ menu).
 
 ## Why
 
@@ -13,57 +13,66 @@ screens wide: you either pan sideways on every line or shrink the font until it 
 unreadable. (Plain text that tmux itself wrapped is no help either: the capture joins it
 back into one long line.)
 
-The fix is to give the window the phone's width. While a viewer looks at a pane it
-reports how many columns it can show at its current font, and the daemon resizes the
-window to that width. Only the width: the window's height stays as it is, because the view
-scrolls through capture history natively and never needs to send scroll events to tmux.
+The fix is to give the window the phone's width. When the phone opens a pane's terminal
+it reports how many columns it can show at its current font, and again on zoom, rotation
+or the toggle; the daemon resizes the window to that width. Only the width: the window's
+height stays as it is, because the view scrolls through capture history natively and never
+needs to send scroll events to tmux.
 
 ## Decisions
 
 **Automatic only when nobody is at a real terminal.** A window belongs to every client of
-its session. If a desktop terminal is attached, shrinking the window shrinks it there too,
-which is a surprise nobody at that desk asked for. So when the session's attached count is
-zero, fitting just happens; when a terminal is attached, it waits for the viewer to opt in
-through "Fit to my screen", which is off by default and only appears in that case. The
-choice is remembered per browser, because it describes the viewer's habit, not the pane.
+every session that contains it. If a desktop terminal is attached, shrinking the window
+shrinks it there too, which is a surprise nobody at that desk asked for. So when no client
+is attached to any of those sessions, fitting just happens; otherwise it waits for the
+viewer to opt in through "Fit to my screen", which is off by default and only appears in
+that case. The choice is remembered per browser, because it describes the viewer's habit,
+not the pane.
 
 **Lone panes only.** Resizing a window that is split squeezes every pane in it, including
-ones the viewer is not looking at. A single-pane window, or a pane that is zoomed (and so
-fills its window), is the only case where the window width is the viewed pane's width.
+ones the viewer is not looking at. A single-pane window, or the zoomed pane of a window
+(which fills it), is the only case where the window width is the viewed pane's width.
 Anything else is left alone.
 
 **A floor of 40 columns.** Below that most TUIs stop laying out usefully, and a phone in
 portrait at a readable font is already above it.
 
-**Several viewers: the narrowest wins.** Two phones on one pane would otherwise take turns
-resizing it every poll. The narrowest width serves both: the wider one sees short lines,
-not wrapped ones.
+**No restore when the viewer leaves.** A fitted window keeps the phone's width. Nobody is
+looking at a window nobody is attached to, so its width costs nothing, and it is the
+right width the next time the phone opens it. Putting it back on leave would cost more
+than it saves: every restore makes the app redraw at the old width, so a quiet pane is
+resized twice per glance. Restoring also needs a way to tell when the viewer has gone
+(heartbeats, idle timers, a startup sweep for the crash case), all for a window that
+nobody sees in the meantime.
 
-**Always put it back.** The resize sets the window's `window-size` to manual, and
-`resize-window -A` alone leaves it manual, so restoring is the pair: size the window to its
-clients again, then unset the window's own `window-size` so it inherits the session or
-global value once more. That happens when the viewer leaves the pane (or its terminal view,
-or hides the page), when its heartbeat (a report each minute) stops for three minutes, so a closed
-laptop or a dropped tunnel counts, and at daemon startup.
+**Given back only when it matters.** Two cases, and only these. A real terminal attaches
+to a session holding a window we fitted on our own: the watcher sees it on its regular
+poll (no new timer) and hands the window back. Or the viewer unticks "Fit to my screen".
+Handing back is `resize-window -A` and then unsetting the window's `window-size`, because
+on tmux 3.7 `-A` leaves the option at `manual`; without the unset the window would stop
+following its clients for good. A fit the viewer forced while a terminal was attached is
+marked as forced, and the watcher leaves it alone.
 
-**The mark lives on the window.** Which windows tmux-rc narrowed is stored as a window
-option on the window itself, holding the width it was given. It needs no file, cannot drift
-from reality, and dies with the window. A daemon that crashed while a window was narrow
-finds the mark on its first sweep and restores it.
-
-**Reports are POSTs, never part of the live GET.** Folding the heartbeat into the live
-long poll would have been free, but a GET that resizes a real terminal breaks the rule the
-preview sandbox relies on: that a page able to load our URLs still cannot change anything.
-
-**One lock around read, decide and resize.** Two viewers' reports, or a report and the
-sweep, would otherwise each read the window, and the slower one would write back a width
-that the faster one had just replaced.
+**The mark lives on the window.** A fitted window carries the width it was given as a
+window option, so the mark needs no file, cannot drift from reality, and dies with the
+window. That mark is also how the watcher knows which windows are ours to give back,
+read from the pane listing it already makes every tick.
 
 **Never fight the user.** If the window's width is no longer the width we set, someone
-resized it by hand: the mark is dropped and the window is theirs, with no restore. The
-sweep applies the same check, so a resize made while the daemon was down survives its
-restart. A window
-whose `window-size` the user set locally before we ever touched it is never fitted at all.
+resized it by hand: the mark is dropped and the window is theirs, with no restore. A
+window whose `window-size` the user set before we ever touched it is never fitted at all.
+
+**Our resize is not activity.** Measured on an isolated tmux server with an app that lays
+itself out at the terminal's width: each resize made an idle pane look busy. The app
+redraws, so the capture changes, which reset the pane's idle clock, stamped it as just
+active (moving it to the top of the list), took a snapshot and spent a parse, an LLM call
+in production. So the watcher treats a screen change within a few seconds of our own
+resize, on a pane whose previous screen it had already read, as the same screen reflowed:
+no activity, no parse. A real change after that window is counted as usual.
+
+**Reports are POSTs, never part of the live GET.** Folding the report into the live long
+poll would have been free, but a GET that resizes a real terminal breaks the rule the
+preview sandbox relies on: that a page able to load our URLs still cannot change anything.
 
 ## Alternatives rejected
 
@@ -79,3 +88,8 @@ recently active, and tmux-rc types through `send-keys`, which is not activity fr
 client, so the size would follow whichever terminal last saw a keystroke rather than the
 screen being looked at. It would also be a long-lived attached client per viewer, visible
 to every tool that counts clients, including our own attached check above.
+
+**Restore on leave, with a heartbeat.** The first version of this feature did it: restore
+when the view left, after a few quiet minutes, and at startup for whatever a crash left
+narrow. It worked, but it was most of the code, it doubled the redraws, and it solved a
+problem nobody has (see "No restore when the viewer leaves").

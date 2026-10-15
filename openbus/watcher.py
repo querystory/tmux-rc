@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 
-from . import tmux, transcript
+from . import fit, tmux, transcript
 from .classify import (
     _OMP_CTX_RE,
     _OPENCODE_RUNNING_RE,
@@ -681,7 +681,9 @@ class Watcher:
                 )
             panes = [p] if p else []
         else:
-            panes = tmux.dedupe_grouped(tmux.list_panes())
+            rows = tmux.list_panes()
+            fit.release_attached(rows)  # every session's rows: any attached one counts
+            panes = tmux.dedupe_grouped(rows)
         if history_server and self._checkpoints is None:
             self._load_checkpoints(history_server, None if self.target else panes)
         self._server = history_server
@@ -1354,6 +1356,13 @@ class Watcher:
         # a snapshot every tick and pin idle_seconds at 0, so the pane never aged out of
         # "Recent" for as long as the outage lasted.
         moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
+        if moved and fit.just_resized(pane.id) and \
+                self._prev_fp.get(pane.id) == self._seen_fp.get(pane.id):
+            # Our own resize (openbus/fit.py) made the app redraw at the new width: the same
+            # screen, reflowed. Not activity, and not worth a parse; a screen still unread
+            # (_prev_fp behind) is parsed as usual.
+            self._prev_fp[pane.id] = fp
+            moved = False
         self._seen_fp[pane.id] = fp
         if moved:
             self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN

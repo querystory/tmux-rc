@@ -20,6 +20,7 @@ class _Pane:
         self.window_index = "0"
         self.window_name = label
         self.session_active = True
+        self.fit = ""  # never fitted (openbus/fit.py)
 
 
 def _harness(monkeypatch, frame_holder):

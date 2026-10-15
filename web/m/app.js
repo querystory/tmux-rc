@@ -1021,7 +1021,7 @@ function restartDetail() {
   eventsKey = null;
   // Leaving the terminal, by pane, view or hidden page, sends a scrolled app home first, so the
   // watcher never keeps parsing old history nobody is looking at.
-  if (detailId !== active || !terminalVisible() || document.hidden) { wheelHome(detailId); if (fitCols) fitTo(detailId, 0); }
+  if (detailId !== active || !terminalVisible() || document.hidden) wheelHome(detailId);
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
     latestCapture = ""; clearCapture(); detailId = active;
@@ -1033,10 +1033,10 @@ function restartDetail() {
 }
 
 // Fit width (docs/design/fit-width.md): the columns this view shows at its font, which the
-// daemon sizes a lone pane's window to so its app lays out at the screen's edge. fitTo
-// reports them; a stream re-reports each minute as its heartbeat, and 0 says it has left.
-const FIT_BEAT_MS = 60000;
-let fitCols = 0, fitAt = 0;
+// daemon sizes a lone pane's window to so its app lays out at the screen's edge: reported
+// as the terminal opens, and again on zoom, resize or the toggle. The window keeps the
+// width after the view leaves (see the design note for why there is no restore).
+let fitCols = 0;
 function termCols() {
   const probe = $("capture").appendChild(document.createElement("span"));
   probe.textContent = "0".repeat(100);
@@ -1044,14 +1044,13 @@ function termCols() {
   probe.remove();
   return char ? Math.max(0, Math.floor(($("terminal-scroll").clientWidth - pad) / char)) : 0;
 }
-// One at a time, in order: a release overtaking the report before it would leave the window narrow.
-let fitLine = Promise.resolve();
 function fitTo(id, cols) {
-  fitCols = cols; fitAt = cols ? Date.now() : 0;
-  const body = { session: liveSession, cols, force: $("fit-toggle").checked };
-  if (id) fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body)).then((r) => show("fit-pane", r.attached), () => {});
+  if (!cols) return; // a hidden view measures nothing
+  fitCols = cols;
+  const body = { cols, force: $("fit-toggle").checked };
+  if (id) post(paneUrl(id, "fit"), body).then((r) => show("fit-pane", r.attached), () => {});
 }
-const refit = () => { const cols = termCols(); if (active && fitCols && cols && cols !== fitCols) fitTo(active, cols); };
+const refit = () => { const cols = termCols(); if (active && terminalVisible() && cols !== fitCols) fitTo(active, cols); };
 try { $("fit-toggle").checked = localStorage.getItem("tmuxrc-fit") === "1"; } catch {}
 $("fit-toggle").onchange = () => {
   try { localStorage.setItem("tmuxrc-fit", $("fit-toggle").checked ? "1" : "0"); } catch {}
@@ -1100,11 +1099,10 @@ function paintCapture() {
 }
 async function streamTerminal(id, signal) {
   let frame = "";
+  fitTo(id, termCols());
   text($("terminal-status"), "Connecting");
   while (!signal.aborted) {
     try {
-      const cols = Date.now() - fitAt > FIT_BEAT_MS && termCols(); // measuring forces a layout: only when due
-      if (cols) fitTo(id, cols);
       const query = new URLSearchParams({ frame });
       if (liveSession) query.set("session", liveSession);
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);

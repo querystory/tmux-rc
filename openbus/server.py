@@ -503,8 +503,7 @@ async def lifespan(app: FastAPI):
     app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered)
     app.state.loops = OpenLoops()
     tasks = [asyncio.create_task(app.state.usage.run(app.state.watcher)),
-             asyncio.create_task(app.state.loops.run(app.state.watcher)),
-             asyncio.create_task(fit.run())]  # its first sweep restores what a crash left narrow
+             asyncio.create_task(app.state.loops.run(app.state.watcher))]
     try:
         yield
     finally:
@@ -1085,27 +1084,23 @@ def click(pane_id: str, body: ClickBody, request: Request):
 
 
 class FitBody(BaseModel):
-    session: str = ""
-    cols: int = Field(ge=0)  # 0: this viewer left the pane
-    force: bool = False
+    cols: int = Field(ge=1)
+    force: bool = False  # "Fit to my screen": fit even with a terminal attached
 
 
 @app.post("/api/panes/{pane_id}/fit")
 def fit_width(pane_id: str, body: FitBody, request: Request):
-    """Fit the pane's window to this viewer (openbus/fit.py); cols 0 means it left. The
-    view posts this as it opens the terminal, on zoom, resize or the toggle, and once a
-    minute as its heartbeat. A POST, never a GET: it resizes a real terminal, and the
-    preview sandbox relies on GETs changing nothing. `attached` says a terminal is
-    attached, the one case the "Fit to my screen" toggle matters. Audited when it resizes
-    something or fails; a heartbeat that changes nothing is not a change."""
+    """Fit the pane's window width to the phone (openbus/fit.py), posted as the terminal
+    opens, on zoom or resize, and on the toggle. A POST, never part of the live GET: it
+    resizes a real terminal, and the preview sandbox relies on GETs changing nothing.
+    `attached` says a terminal is attached, the one case the toggle matters."""
     detail = f"cols={body.cols} force={body.force}"
     try:
-        attached, done = fit.view(pane_id, body.session, body.cols, body.force)
+        attached = fit.view(pane_id, body.cols, body.force)
     except subprocess.CalledProcessError as e:
         _audit(request, "fit", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
         raise _pane_err(e) from None
-    if done:
-        _audit(request, "fit", pane_id, f"{detail}: {', '.join(done)}")
+    _audit(request, "fit", pane_id, detail)
     return {"attached": attached}
 
 
