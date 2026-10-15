@@ -1,5 +1,5 @@
 {
-  "description": "Codex 0.162 with automatic approval review: its own reviewer weighs a command, and the live status row reads 'Reviewing approval request (17m 00s • esc to interrupt)' with the command under it, while the footer still says Working. No menu is drawn and nothing waits on the user; it resolves on its own a few seconds later. Read live as a user wait, it flipped the card to Needs you and pushed a notification for every reviewed command. The screen also carries a previous review's denial ('✗ Request denied for codex to run …', 'Automatic approval review rejected a PATCH') in the transcript: history, not an ask. Real capture, anonymised (paths, ids).",
+  "description": "Codex 0.162 with automatic approval review: its own reviewer weighs a command, and the live status row reads 'Reviewing approval request (17m 00s • esc to interrupt)' with the command under it, while the footer still says Working. No menu is drawn and nothing waits on the user; it resolves on its own a few seconds later. Read live as a user wait, it flipped the card to Needs you and pushed a notification for every reviewed command. The screen also carries a previous review's denial ('✗ Request denied for codex to run …', 'Automatic approval review rejected a PATCH') in the transcript: history, not an ask.",
   "current_command": "node",
   "processes": [
     "bash",
