@@ -15,7 +15,8 @@ SAMPLES = sorted((ROOT / "research/eval/samples").glob("*.json"))
 
 # A login, an address outside the example domains, or a credential shape.
 IDENTITY = (r"shapor|/Users/"
-            r"|[\w.+-]+@(?!(?:[\w-]+\.)*example(?:-org)?\.(?:com|net|org)(?![\w-]|\.\w))[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
+            r"|[\w.+-]+@(?!(?:[\w-]+\.)*(?:example\.(?:com|net|org)|example-org\.com)(?![\w-]|\.\w))"
+            r"[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
             r"|AKIA[0-9A-Z]{8}|AIza[0-9A-Za-z_-]{10}|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY")
 PRIVATE = re.compile(IDENTITY, re.IGNORECASE)
 # How a sample says it was copied off a real screen.
@@ -33,7 +34,8 @@ FIXTURES = [*SAMPLES, *(ROOT / "research/eval/closing_questions").glob("*.json")
 @pytest.mark.parametrize(("text", "private"), [
     ("user@example.com.", False), ("dev@ci.example-org.com", False), ("x@4.149.0", False),
     ("x@example.com.other.invalid", True), ("x@example.com-mail.invalid", True),
-    ("x@examplebusiness.invalid", True), ("x@1mail.invalid", True)])
+    ("x@examplebusiness.invalid", True), ("x@1mail.invalid", True),
+    ("x@example-org.net", True), ("x@a.example-org.org", True)])
 def test_only_example_addresses_pass(text, private):
     assert bool(PRIVATE.search(text)) is private
 
@@ -47,5 +49,6 @@ def test_fixture_names_no_one(path):
 def test_sample_is_invented_and_short(path):
     sample = json.loads(path.read_text(encoding="utf-8"))
     assert not PROVENANCE.search(f"{sample.get('title', '')} {sample['description']}")
-    frames = [sample["capture"], *sample.get("prior", ())]  # every frame the classifier reads
+    # Every text the classifier reads: the screen, earlier frames, the transcript's reply.
+    frames = [sample["capture"], *sample.get("prior", ()), sample.get("reply") or ""]
     assert max(map(len, frames)) <= CAPTURE_CAP or path.stem in OVERSIZED
