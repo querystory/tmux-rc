@@ -152,6 +152,21 @@ def test_sweep_never_undoes_a_manual_resize(pane, monkeypatch):
     assert local_window_size(pane) == "manual"  # their setting, left alone
 
 
+def test_a_split_ends_the_fit_without_a_new_report(pane):
+    fit.view(pane, "phone", 60, force=True)
+    T._run(["split-window", "-d", "-t", pane, "sleep 60"])
+    fit.sweep()
+    assert size(pane) == "200x50 "
+
+
+def test_sweep_never_fits_a_window_the_user_took(pane):
+    with attached("s"):
+        fit.view(pane, "phone", 60)  # registered, but a terminal is attached: no fit
+        T._run(["resize-window", "-x", "120", "-t", pane])
+    fit.sweep()  # detached again before the phone's next report
+    assert size(pane) == "120x50 "
+
+
 def test_endpoint(pane):
     client = TestClient(S.app)
     assert client.post(f"/api/panes/{pane}/fit", json={"cols": 70}).json() == {"attached": False}

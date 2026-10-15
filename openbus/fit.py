@@ -24,6 +24,7 @@ MARK = "@tmuxrc-fit"
 _ROW = "\t".join(["#{window_id}", "#{window_linked_sessions_list}",
                   "#{S:#{?session_attached,#{session_name}#,,}}", "#{window_width}",
                   f"#{{{MARK}}}"])
+_PANE = f"#{{pane_id}}\t#{{window_panes}}\t#{{window_zoomed_flag}}\t#{{pane_active}}\t{_ROW}"
 
 
 def _run(args: list[str]) -> str:
@@ -36,61 +37,67 @@ def _attached(linked: str, watched: str) -> bool:
 
 # Held across each read-decide-resize, so a stale read can never undo a newer one.
 _lock = threading.Lock()
-# viewer -> (window, cols, seen, force): one page views one pane, so one window at a time.
+# viewer -> (pane, cols, seen, force): one page views one pane at a time.
 _viewers: dict[str, tuple[str, int, float, bool]] = {}
 
 
-def _settle() -> None:
-    """Give every window what its live viewers want: the narrowest width among those it
-    may fit (all of them, or only the ones that forced it while a terminal is attached),
-    else its own size back. A width that is no longer ours is the user's: unmark it and
-    stop fitting it."""
+def _settle(checked: str = "") -> None:
+    """Give every window what its live viewers want: the narrowest width among viewers
+    whose pane still fills it (its only pane, or zoomed) and who may fit it (all, or only
+    those that forced it while a terminal is attached); else its own size back. A width
+    that is no longer ours is the user's: unmark it and drop its viewers. An unmarked
+    window is fitted only when it is `checked`, the one whose window-size view() just
+    found the user had not set."""
     try:
-        rows = set(_run(["list-windows", "-a", "-F", _ROW]).splitlines())
+        rows = set(_run(["list-panes", "-a", "-F", _PANE]).splitlines())
     except subprocess.CalledProcessError:
         rows = set()  # no server: nothing is narrow
+    fills, windows = {}, {}
+    for pane, panes, zoomed, active, window, linked, watched, width, ours in (
+            row.split("\t") for row in rows):
+        fills[pane] = window if panes == "1" or zoomed == active == "1" else ""
+        windows[window] = (_attached(linked, watched), width, ours)
     now = time.monotonic()
-    windows = {row.split("\t")[0] for row in rows}
-    for viewer, (window, _, seen, _) in list(_viewers.items()):
-        if now - seen >= IDLE_SECONDS or window not in windows:
+    for viewer, (pane, _, seen, _) in list(_viewers.items()):
+        if now - seen >= IDLE_SECONDS or pane not in fills:
             del _viewers[viewer]
-    for window, linked, watched, width, ours in (row.split("\t") for row in rows):
-        attached = _attached(linked, watched)
-        want = min((cols for w, cols, _, force in _viewers.values()
-                    if w == window and (force or not attached)), default=0)
+    for window, (attached, width, ours) in windows.items():
+        want = min((cols for pane, cols, _, force in _viewers.values()
+                    if fills[pane] == window and (force or not attached)), default=0)
         with suppress(subprocess.CalledProcessError):  # closed meanwhile
             if ours and width != ours:
                 _run(["set-option", "-wu", "-t", window, MARK])
-                for viewer in [v for v, (w, *_) in _viewers.items() if w == window]:
+                for viewer in [v for v, (p, *_) in _viewers.items() if fills[p] == window]:
                     del _viewers[viewer]
             elif not want:
                 if ours:  # -A leaves window-size at manual: unset it to inherit again
                     _run(["resize-window", "-A", "-t", window, ";", "set-option", "-wu", "-t",
                           window, "window-size", ";", "set-option", "-wu", "-t", window, MARK])
-            elif str(want) != width:
+            elif str(want) != width and (ours or window == checked):
                 _run(["resize-window", "-x", str(want), "-t", window, ";",
                       "set-option", "-w", "-t", window, MARK, str(want)])
 
 
 def view(pane_id: str, viewer: str, cols: int, force: bool = False) -> bool:
-    """A viewer showing `cols` columns of the pane (0: it left). It may fit the window when
-    the pane fills it (its only pane, or zoomed) and its window-size is not one the user
-    set; whether it does depends on attachment (see _settle). Returns whether a terminal
-    is attached, which is when the viewer offers its force toggle."""
+    """A viewer showing `cols` columns of the pane (0: it left). It may fit the window
+    unless the user set the window's window-size themselves; _settle decides whether it
+    does. Returns whether a terminal is attached, which is when the viewer offers its
+    force toggle."""
     with _lock:
         _viewers.pop(viewer, None)  # wherever it was: a release works even for a pane gone
+        checked = ""
         try:
-            out = _run(["display-message", "-p", "-t", pane_id,
-                        f"#{{window_panes}}\t#{{window_zoomed_flag}}\t#{{pane_active}}\t{_ROW}",
-                        ";", "show-options", "-wqv", "-t", pane_id, "window-size"]).split("\n")
-            panes, zoomed, active, window, linked, watched, _, ours = out[0].split("\t")
+            out = _run(["display-message", "-p", "-t", pane_id, f"#{{pane_id}}\t{_ROW}", ";",
+                        "show-options", "-wqv", "-t", pane_id, "window-size"]).split("\n")
+            pane, window, linked, watched, _, ours = out[0].split("\t")
             if not window:  # tmux 3.7 prints blanks, exit 0, for a pane that is gone
                 raise subprocess.CalledProcessError(1, "display-message")
-            fills = panes == "1" or zoomed == active == "1"
-            if cols > 0 and fills and (ours or not out[1].strip()):
-                _viewers[viewer] = (window, max(MIN_COLS, cols), time.monotonic(), force)
+            if ours or not out[1].strip():
+                checked = window
+                if cols > 0:
+                    _viewers[viewer] = (pane, max(MIN_COLS, cols), time.monotonic(), force)
         finally:
-            _settle()
+            _settle(checked)
     return _attached(linked, watched)
 
 
