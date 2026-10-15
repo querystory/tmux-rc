@@ -13,9 +13,10 @@ import pytest
 ROOT = Path(__file__).parents[1]
 SAMPLES = sorted((ROOT / "research/eval/samples").glob("*.json"))
 
-# A login, a real address (example domains are fine) or a credential shape.
-IDENTITY = (r"shapor|/Users/|[\w.+-]+@(?!example)[a-z][\w-]*\.[a-z]|sk-[A-Za-z0-9]|ghp_|gho_"
-            r"|github_pat_|AKIA[0-9A-Z]{8}|AIza[0-9A-Za-z_-]{10}|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY")
+# A login, an address outside the example domains, or a credential shape.
+IDENTITY = (r"shapor|/Users/|[\w.+-]+@(?!(?:[\w-]+\.)*example(?:-org)?\.(?:com|net|org)\b)"
+            r"[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
+            r"|AKIA[0-9A-Z]{8}|AIza[0-9A-Za-z_-]{10}|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY")
 PRIVATE = re.compile(IDENTITY, re.IGNORECASE)
 # How a sample says it was copied off a real screen.
 PROVENANCE = re.compile(r"real (?:capture|pane)|anonymi[sz]ed|saniti[sz]ed", re.IGNORECASE)
@@ -38,4 +39,5 @@ def test_fixture_names_no_one(path):
 def test_sample_is_invented_and_short(path):
     sample = json.loads(path.read_text(encoding="utf-8"))
     assert not PROVENANCE.search(f"{sample.get('title', '')} {sample['description']}")
-    assert len(sample["capture"]) <= CAPTURE_CAP or path.stem in OVERSIZED
+    frames = [sample["capture"], *sample.get("prior", ())]  # every frame the classifier reads
+    assert max(map(len, frames)) <= CAPTURE_CAP or path.stem in OVERSIZED
