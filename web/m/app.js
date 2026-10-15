@@ -415,7 +415,7 @@ function renderList() {
   show("empty-needs", hidden > 0 || scopedOn);
   $("empty-needs").dataset.all = scopedOn ? "accounts" : "needs";
   // "On other accounts" only when that is what hides every one of them.
-  text($("empty-needs"), scopedOn ? `${scoped} ${accts.join(" or ")} pane${scoped === 1 ? "" : "s"} · Show all accounts`
+  text($("empty-needs"), scopedOn ? `${scoped} ${[...scope.tools, ...accts].map((a) => `${a} `).join("or ")}pane${scoped === 1 ? "" : "s"} · Show all${scope.tools.length ? "" : " accounts"}`
     : `${hidden} pane${hidden === 1 ? "" : "s"} ${needing.some(accounts.matches) || !accts.length ? "outside the filter" : "on other accounts"} need${hidden === 1 ? "s" : ""} you · Show`);
   text($("all-count"), mine.length);
   text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length);
@@ -1413,7 +1413,7 @@ new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("gauge")}</span><span>Dashboard</span>`); // the gauge is Dashboard's everywhere; the 2×2 grid is the layout picker's
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-$("empty-needs").onclick = () => { if ($("empty-needs").dataset.all === "needs") { filter = ["attention"]; $("search").value = ""; } stayPut({ acct: [] }); };
+$("empty-needs").onclick = () => { if ($("empty-needs").dataset.all === "needs") { filter = ["attention"]; $("search").value = ""; } scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.

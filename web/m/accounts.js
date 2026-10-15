@@ -2,7 +2,7 @@
 // for a provider with two or more signed-in accounts; with one each, everything here is a
 // no-op and the app looks as it always did. The one exception is Settings' Accounts,
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
-import { esc } from "/m/pane-model.js";
+import { esc } from "./pane-model.js"; // relative, so node's tests can load this module
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
