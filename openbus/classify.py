@@ -1012,7 +1012,7 @@ def _final_message(visible: str, tool: str) -> str | None:
 # 415"', or a quote that does the work ('"merge all" queues 18 PRs'), not any quote. A row
 # that wraps onto the next is no offer: a guessed join could run the wrong command. A space
 # after the ! keeps out code such as `!=` and `!important`, and "do not say" is no offer.
-_QUOTE = r"[\"“]([^\"”\n]{1,60})[\"”]"
+_QUOTE = r"(?:\"([^\"\n]{1,60})\"|“([^”\n]{1,60})”)"  # straight or curly, each closing its own
 _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
     rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
     rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!```[ \t]*$)\S)"
@@ -1062,7 +1062,10 @@ def _offers(message: str, reply: str | None) -> list[str]:
     t = reply if marked else message
     if _FORBIDS_RE.search(_plain(t)):
         return []
-    code = [(c.start(), c.end(), bool(c["fence"])) for c in _CODE_RE.finditer(t)]
+    # Each code range, with a fence's count of rows: a command row is a fence's to offer only
+    # when it is all the fence holds (any more may be a script it belongs to, or data).
+    code = [(c.start(), c.end(), c["fence"] and len(re.findall(r"(?m)^[ \t]*[^\s`]", c["fence"])))
+            for c in _CODE_RE.finditer(t)]
 
     def offered(m: re.Match) -> bool:
         if m.lastindex > 3:  # a quote: only in a transcript paragraph with no code at all,
@@ -1070,17 +1073,20 @@ def _offers(message: str, reply: str | None) -> list[str]:
                     + re.split(r"\n[ \t]*\n", t[m.start():])[0])
             return marked and not any(a <= m.start() < b for a, b, _ in code) and not (
                 re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
-        row = t[t.rfind("\n", 0, m.start()) + 1:m.start()]  # an inline span in an indented
-        return not (m.lastindex == 2 and re.match(r" {4}|\t", row)) and not any(  # block, too
-            a <= m.start() < b and a != m.start() and not (fence and m.lastindex == 3)
-            for a, b, fence in code)  # inside code, and not as itself
+        # A command: never where a heredoc may hold it as data, nor as an inline span in an
+        # indented block, nor inside code other than as itself.
+        row = t[t.rfind("\n", 0, m.start()) + 1:m.start()]
+        return "<<" not in t and not (m.lastindex == 2 and re.match(r" {4}|\t", row)) and not any(
+            a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
+            for a, b, rows in code)
 
     found = (m[m.lastindex] for m in _OFFER_RE.finditer(t) if offered(m))  # each one's payload
 
     def cut(o: str) -> bool:  # a command that may be cut short: a script with a blank row
-        return o.startswith("! ") and bool(  # (quotes that do not pair), a heredoc, or an
-            any(o.count(q) % 2 for q in "'\"`") or "<<" in o  # end that goes on ("\", "&&")
-            or re.search(r"[\\&|]$", o))
+        return o.startswith("! ") and bool(  # (quotes or brackets that do not pair, or an end
+            any(o.count(q) % 2 for q in "'\"`")  # that goes on: "\", "&&", "; do", "{")
+            or o.count("(") != o.count(")") or o.count("{") != o.count("}")
+            or re.search(r"(?:[\\&|;({]|\b(?:do|then|else|in))$", o))
 
     return list(dict.fromkeys(o for o in found if not cut(o) and re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))

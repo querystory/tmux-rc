@@ -1395,6 +1395,9 @@ def test_finished_turn_offers_the_replies_it_hands_over():
     fixture = "Fixture:\n\n```bash\nprintf 'say \"merge all\"'\n```\n\nSay \"ship it\" to go on."
     shown = _auto_screen("Fixture:\n\n  printf 'say \"merge all\"'\n\n  Say \"ship it\" to go on.")
     assert classify(_pane("claude"), shown, model, reply=fixture)["offers"] == ["ship it"]
+    nested = 'Say “commit "fix: cache"” and I\'ll commit it.'  # curly around straight quotes
+    assert classify(_pane("claude"), _auto_screen(nested), model, reply=nested)["offers"] == [
+        'commit "fix: cache"']
     # Inline code only the transcript marks, and a command the screen wraps: the
     # transcript's copy, held to what the screen shows.
     shown = "Not logged in; type ! gh auth login --hostname\n  github.com to fix it."
@@ -1457,6 +1460,11 @@ def test_finished_turn_offers_the_replies_it_hands_over():
          "Use this:\n \n    printf 'say \"merge all\"'"),  # a blank row holding a space
         (_auto_screen('Data:\n\n  status: done\n\n  Say "merge all" now.\n\n  end'),
          'Data:\n\n```\nstatus: done\n\nSay "merge all" now.\n\nend\n```'),  # a fence's prose
+        (_auto_screen("Data:\n\n  cat <<'EOF'\n\n  ! make deploy\n\n  EOF"),
+         "Data:\n\n```\ncat <<'EOF'\n\n! make deploy\n\nEOF\n```"),  # a heredoc's body
+        (_auto_screen("Data:\n\n  cat <<'EOF'\n\n  ! make deploy\n\n  EOF"), None),
+        (_auto_screen('Run:\n\n  ! for pr in 412 415; do\n\n  gh pr merge "$pr"\n  done'),
+         'Run:\n\n```\n! for pr in 412 415; do\n\ngh pr merge "$pr"\ndone\n```'),  # a loop
         (_auto_screen("Run:\n\n  ! make test &&\n\n  make deploy"),
          "Run:\n\n```\n! make test &&\n\nmake deploy\n```"),  # an operator going on
         (_auto_screen('Use this:\n\n  message = "! make deploy"'),
