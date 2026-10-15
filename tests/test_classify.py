@@ -1572,6 +1572,11 @@ def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
     spaced = "Run this yourself: ! printf '%s' 'a  b'"  # its own spacing, as the screen shows
     result = classify(_pane("claude"), _auto_screen(spaced), _llm({}), reply=spaced)
     assert result["offers"] == ["! printf '%s' 'a  b'"] and result["question"]["options"] == []
+    for reply, shown in (('Run this yourself: ! echo "Ready?"',) * 2,  # its own "?"
+                         ("Run this yourself: ! echo hello world",  # wrapped onto a "! " row
+                          "Run this yourself:\n  ! echo hello\n  world")):
+        result = classify(_pane("claude"), _auto_screen(shown), _llm({}), reply=reply)
+        assert result["question"] == {"prompt": reply, "answer_style": "text", "options": []}
     for message in (
         "Run:\n! make clean\nmake deploy",  # a bare row followed by another row
         "Run this yourself: ! make clean\nmake deploy",  # an inline command going on

@@ -1133,16 +1133,17 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
         return None
-    paragraph = _final_paragraph(message)
-    handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
-    if paragraph.rstrip("*_\"'`)").endswith("?"):
-        return {"prompt": paragraph, "answer_style": "text"}
-    if handoff is not None:
-        paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
-    else:  # the whole last paragraph: a wrapped "* glob" row would read as a list item
-        paragraph = " ".join(re.split(r"\n\s*\n", message.strip())[-1].split())
-        if not any(o.startswith("! ") and paragraph.endswith(" ".join(o.split())) for o in offers):
+    # An offered command ending the message hands it over, its own "?" or wrapped rows and
+    # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
+    paragraph = " ".join(re.split(r"\n\s*\n", message.strip())[-1].split())
+    if not any(o.startswith("! ") and paragraph.endswith(" ".join(o.split())) for o in offers):
+        paragraph = _final_paragraph(message)
+        if paragraph.rstrip("*_\"'`)").endswith("?"):
+            return {"prompt": paragraph, "answer_style": "text"}
+        handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
+        if handoff is None:
             return None
+        paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 
