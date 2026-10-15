@@ -5,7 +5,7 @@ const esc = (text) => renderChatText(text); // no names: plain escaping
 const KEYCAPS = { Up: "↑", Down: "↓", Left: "←", Right: "→", Escape: "Esc", Enter: "⏎ Enter", PageUp: "Page Up", PageDown: "Page Down", "C-c": "Ctrl C", "C-d": "Ctrl D" };
 const keycap = (key) => `<kbd>${esc(KEYCAPS[key] || key)}</kbd>`;
 import { chatStarters } from "/chat-starters.js";
-import { since, paneName } from "/m/pane-model.js";
+import { since, paneName, sessionOf } from "/m/pane-model.js";
 // Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
 // what the server expects (see docs/design/live-mode.md).
 const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
@@ -260,7 +260,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const pane = panes().find((p) => p.pane_id === id);
     if (!pane) return `<strong>${esc(label || id)}</strong>${esc(window)}`;
     const logo = Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
-    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${pane.session ? `<span> · ${esc(pane.session)}</span>` : ""}${window && `<span>${esc(window)}</span>`}</span>`;
+    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}${window && `<span>${esc(window)}</span>`}</span>`;
   }
   // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
   // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The

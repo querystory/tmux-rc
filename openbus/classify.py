@@ -15,21 +15,23 @@ minimal dict (idle vs running) so the pipe never breaks.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
+import subprocess
 import textwrap
+from functools import lru_cache
 from itertools import islice
 from pathlib import Path
 
 from .tmux import (
+    INTERPRETERS,
     OMP_TITLE_RE,
     PLACEHOLDER_CLOSE,
     PLACEHOLDER_OPEN,
     PROMPT_GLYPHS,
     VISIBLE_SCREEN,
     Pane,
-    proc_read,
     processes,
+    program,
     strip_dim,
 )
 
@@ -46,6 +48,10 @@ _OUTPUT_LABELS = frozenset({
     "status", "title", "warn", "warning",
 })
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# A PR named with its repository on screen: a GitHub pull/issue URL, or a standalone
+# "owner/name#N" that is not the tail of a path or of another host's URL.
+_QUALIFIED_PR_RE = re.compile(r"(?<![\w./:-])((?i:(?:https?://)?(?:www\.)?github\.com/))?"
+                              r"([\w.-]+/[\w.-]+)(?(1)/(?:pull|issues)/|#)(\d{1,16})")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
     # ~[ ] todo~ is deliberately unmatched, since it is neither open nor finished work.
@@ -62,9 +68,10 @@ _OPENCODE_RUNNING_RE = re.compile(
 _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
     # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
-    # A stamp's trailing shell/monitor count is background work, not the agent's turn.
+    # A stamp's trailing shell/monitor count is background work, not the agent's turn, and
+    # a bar after it is the frame Claude Code draws down the right of its transcript.
     r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
-    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:·|$))",
+    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
 # Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
@@ -248,16 +255,9 @@ _PROCESS_TOOLS = {
 # trusted there because it outlives omp, but the title plus a live omp process under the
 # pane can. Other agents get no such shell walk: without a title to corroborate it, a
 # suspended or backgrounded agent under an idle shell would claim the pane.
-_INTERPRETERS = ("bun", "node")
-
-
 def _programs(pid: str) -> set[str]:
-    """Programs among `pid` and its descendants: argv[0], or the script bun/node runs."""
-    names = set()
-    for p in processes(pid):
-        argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
-        names.add(argv[-1] if argv[0] in _INTERPRETERS else argv[0])
-    return names
+    """Programs among `pid` and its descendants."""
+    return {program(p) for p in processes(pid)}
 
 
 def _host_tool(pane: Pane) -> str | None:
@@ -265,7 +265,7 @@ def _host_tool(pane: Pane) -> str | None:
     if tool := _PROCESS_TOOLS.get(pane.current_command):
         return tool
     omp_title = OMP_TITLE_RE.match(pane.title)
-    hosted = pane.current_command in _INTERPRETERS
+    hosted = pane.current_command in INTERPRETERS
     if hosted and omp_title:
         return "omp"
     if not pane.pid or not (hosted or omp_title):
@@ -796,7 +796,10 @@ def _restate(question: dict, replies_fn) -> str | None:
     return _asks.get(key)
 
 
+_CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
 _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
+# A box's side bars, and the bar Claude Code draws down the right of its transcript.
+_FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$")
 
 
 def _final_paragraph(message: str) -> str:
@@ -911,6 +914,7 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
     the screen: the parser, told to carry them, did not reliably. The nearest row wins a
     label, so an older list above loses to the one the question closes; numbers with no
     row (a count, a time) name nothing here."""
+    visible = _FRAME_BARS_RE.sub("", visible)  # as _final_ask read the prompt
     found = _last_occurrence(prompt, visible)
     rows: dict[str, list[str]] = {}
     leads: dict[str, str] = {}
@@ -988,31 +992,164 @@ def _restates(table: object, rows: dict[str, str]) -> bool:
     return 2 * sum(copied) > len(copied)
 
 
-def _final_ask(visible: str, tool: str) -> dict | None:
-    """What a finished turn leaves blocked on the user: a provider error to retry, or in
-    auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run. Anything typed after it means the user already acted."""
+def _final_message(visible: str, tool: str) -> str | None:
+    """A finished turn's final assistant message, up to its stamp or through the provider
+    error that stopped it, or None while it runs. Anything typed after: the user acted."""
     error_re = _TURN_ERROR_RE[tool]
     turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
     stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
     if stop is None or stop.groupdict().get("live") or _USER_ROW_RE.search(visible, stop.end()):
         return None
     end = stop.end() if stop.re is error_re else stop.start()
-    message = visible[:end].rsplit("\n● ", 1)[-1]  # the turn's final assistant message
+    # The turn's final assistant message, without the bars framing its rows: a bar left on
+    # a blank row joins paragraphs, and one after a "?" hides that the row asks.
+    return _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
+
+
+# What a finished turn hands the user to type back, verbatim: a `! command` (Claude Code's
+# shell prefix) as inline code or on a row of its own, or a phrase it asks for: 'Say "merge
+# 415"', or a quote that does the work ('"merge all" queues 18 PRs'), not any quote. A row
+# that wraps onto the next is no offer: a guessed join could run the wrong command. A bare
+# command after a colon ("Run this: ! make deploy") is one when its transcript row (never
+# wrapped) ends the paragraph: no script row can follow it, and prose naming "the ! prefix"
+# has no colon before it. A space after the ! keeps out code such as `!=` and `!important`,
+# and "do not say" is no offer.
+# Straight or curly, each closing its own; a straight one with a backslash in it may be
+# escaping a quote, so none is read there.
+_QUOTE = r"(?:(?<!\\)\"([^\"\\\n]{1,60})\"(?!\")|“([^”\n]{1,60})”)"
+_OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
+    rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
+    rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!(?:`{{3,}}|~{{3,}})[ \t]*$)\S)"
+    rf"|(?<=:[ \t])(! \S.*?)[ \t]*$(?!\n[ \t]*\S)"
+    rf"|\bsay[ \t]+{_QUOTE}"
+    rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
+
+
+# Command text and code a command offer must not be read out of: an inline code span, a
+# fence, a `! ` row with its wrapped continuation, an unmarked `! ` to its row's end (the
+# screen draws inline code without backticks). A command inside one is the code's, unless it
+# is that very span or row, or a command row of its own in a fence (an inline span in a fence
+# is the fence's data).
+_CODE_RE = re.compile(
+    # A fence (indented 3 at most) closes on a run of its own kind as long as its opener, or
+    # ends; a span closes on its own run, within its paragraph.
+    r"(?P<fence>^ {0,3}(?P<run>`{3,}|~{3,})[\s\S]*?"
+    r"(?:(?P<close>^ {0,3}(?P=run)(?:(?<=`)`*|(?<=~)~*)[ \t]*$)|\Z))"
+    r"|(?<!`)(?P<tick>`+)(?!`)(?:[^\n]|\n(?![ \t]*\n))+?(?<!`)(?P=tick)(?!`)"
+    r"|^[ \t]*! \S.*(?:\n(?! {0,3}(?:```|~~~))[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
+
+
+# A message that forbids running or saying something offers nothing at all, read on _plain
+# text ("do **not**\n  run"): which command or phrase a warning covers (the next one, a whole
+# fence, a list) is not worth guessing when a wrong guess prefills the forbidden thing.
+_FORBIDS_RE = re.compile(
+    r"(?:\b(?:not|never)|n['’]t)\b[^.?!;]{0,60}?\b(?:run|type|use|execute|enter|paste|send|say)\b",
+    re.IGNORECASE)  # anywhere in its clause: "do not ever say", "do not, in any case, run"
+
+
+def _plain(text: str) -> str:
+    """Text as the screen draws it, near enough to compare: no fence rows (with their language
+    tag), backticks or emphasis marks, one space. A `*` standing alone is a glob, and kept."""
+    return " ".join(re.sub(r"(?m)^[ \t]*(?:```|~~~).*$|`|\*\*|(?<![\w*])\*(?=[^\s*])"
+                           r"|(?<=[^\s*])\*(?![\w*])|^\s*●\s", "", text).split())
+
+
+def _offers(message: str, reply: str | None) -> list[str]:
+    """The replies the final message offers, as tap-to-send buttons, read off the transcript's
+    copy of it (code is marked there, and long rows are not wrapped), and only when that is the
+    whole message on screen, word for word, so its context (a "do not" before a say) is the
+    screen's too. The screen alone offers nothing: it draws code as plain text, so a quote may
+    be any program's argument and a command row the first of a script. Each offer must show on
+    screen whole and bounded (a `merge 41` is not the `merge 415` on screen), each space a space
+    or the screen's wrap, so `a b` is not `a  b`. A message with the user's own row in it (a new
+    turn that failed before any reply) or a tool's result (⎿: its output, or the error that
+    ended it) is not the agent handing anything over."""
+    if _USER_ROW_RE.search(message) or re.search(r"(?m)^[ \t]*⎿", message):
+        return []
+    if not reply or _plain(reply) != _plain(message) or _FORBIDS_RE.search(_plain(reply)):
+        return []
+    t = reply
+    # Each code range, with a fence's count of rows: a command row is a fence's to offer only
+    # when it is all the fence holds (any more may be a script it belongs to, or data).
+    code = [(c.start(), c.end(),  # its rows: all non-blank ones but its own two fences
+             c["fence"] and len(re.findall(r"(?m)^[ \t]*\S", c["fence"])) - 1 - bool(c["close"]))
+            for c in _CODE_RE.finditer(t)]
+
+    def offered(m: re.Match) -> bool:
+        if m.lastindex > 4:  # a quote: only in a transcript paragraph with no code at all,
+            para = (re.split(r"\n[ \t]*\n", t[:m.start()])[-1]  # nor inside a fence's
+                    + re.split(r"\n[ \t]*\n", t[m.start():])[0])
+            return not any(a <= m.start() < b for a, b, _ in code) and not (
+                re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
+        # A command: only as an inline span, after a colon ending its paragraph, or as the one
+        # row of a fence (a bare row may be the first of a script); never where a heredoc
+        # may hold it as data, nor in an indented block, nor inside other code.
+        row = t[t.rfind("\n", 0, m.start()) + 1:m.start(m.lastindex)]
+        lone = any(a < m.start() < b and rows == 1 for a, b, rows in code)
+        return "<<" not in t and not re.match(r" {4}|\t", row) and (
+            m.lastindex in (2, 4) or lone) and not any(
+            a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
+            for a, b, rows in code)
+
+    found = (m[m.lastindex] for m in _OFFER_RE.finditer(t) if offered(m))  # each one's payload
+
+    def cut(o: str) -> bool:  # a command a blank row in its script may have cut short
+        return o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:]))
+
+    def shown(o: str) -> bool:  # a run of spaces must show as is: a wrap there hides its width
+        gap = " " if "  " in o else r"(?: |[ \t]*\n[ \t]*)"
+        return bool(re.search(
+            r"(?<![^\s\"“`])" + gap.join(map(re.escape, o.split(" ")))
+            + r"(?![^\s\"”`.,;:?!)])", message))
+
+    # Three at most, counted before bash checks them: a fourth never reaches bash, cut or not.
+    return [o for o in islice((o for o in dict.fromkeys(found) if shown(o)), 3) if not cut(o)]
+
+
+@lru_cache(maxsize=256)
+def _parses(command: str) -> bool:
+    """Whether bash reads `command` whole (`bash -n` runs nothing): the first part of a script
+    split by a blank row ("for ... in", "&&", an open quote, "f()") does not parse. Quoting
+    checks alone pass grammar the shell rejects, so the shell is asked."""
+    try:
+        return subprocess.run(["bash", "-n"], input=command, capture_output=True, text=True,
+                              timeout=2, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def screen_offers(text: str, tool: str | None, reply: str | None) -> list[str]:
+    """A finished turn's offers (_offers), read off `text`: classify's, and the watcher's
+    on a screen it does not reparse (its fingerprint ignores a duration a command holds).
+    Claude Code's only: Codex's messages and tool output have no boundary read here yet."""
+    final = tool == "claude" and _final_message(_visible(text), tool)
+    return _offers(final, reply) if final else []
+
+
+def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
+    """What a finished turn leaves blocked on the user: a provider error to retry, or in
+    auto mode (where the agent stops only when it needs the user) a closing question or a
+    `! command` handed over to run: on a row of its own, or an offer ending the message."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
-    if error := error_re.match(lines[-1]):
+    if error := _TURN_ERROR_RE[tool].match(lines[-1]):
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
         return None
-    paragraph = _final_paragraph(message)
-    handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
-    if paragraph.rstrip("*_\"'`)").endswith("?"):
-        return {"prompt": paragraph, "answer_style": "text"}
-    if handoff is None:
-        return None
-    return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
+    # An offered command ending the message hands it over, its own "?" or wrapped rows and
+    # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
+    paragraph = " ".join(re.split(r"\n\s*\n", message.strip())[-1].split())
+    if not any(o.startswith("! ") and paragraph.endswith(" ".join(o.split())) for o in offers):
+        paragraph = _final_paragraph(message)
+        if paragraph.rstrip("*_\"'`)").endswith("?"):
+            return {"prompt": paragraph, "answer_style": "text"}
+        handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
+        if handoff is None:
+            return None
+        paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
+    # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
+    return {"prompt": paragraph, "answer_style": "text", "options": []}
 
 
 def _row_number(option: object) -> str | None:
@@ -1123,12 +1260,18 @@ def _parser_context(pane: Pane, repository: str | None, host_tool: str | None) -
     return context + "]"
 
 
-def _working_prs(value) -> list[dict]:
-    """Validate the model's semantic PR associations before they become sticky state."""
+def _working_prs(value, repository: str | None, text: str) -> list[dict]:
+    """Validate the model's semantic PR associations before they become sticky state.
+
+    A PR's repository must be grounded: the pane's own origin, or that exact repo and
+    number written together on screen. Left to itself the model names a repo after the
+    cwd folder ("qs") or pairs a bare #N with every repo the screen mentions."""
     if not isinstance(value, list):
         return []
     out = []
     seen = set()
+    cited = {(m[2].lower(), int(m[3])) for m in _QUALIFIED_PR_RE.finditer(strip_dim(text))}
+    own = (repository or "").lower()
     for item in value:
         if not isinstance(item, dict) or not isinstance(item.get("repo"), str):
             continue
@@ -1148,7 +1291,7 @@ def _working_prs(value) -> list[dict]:
         ):
             continue
         key = (repo.lower(), number)
-        if key in seen:
+        if key in seen or (key[0] != own and key not in cited):
             continue
         seen.add(key)
         out.append({"repo": repo, "number": number})
@@ -1179,7 +1322,7 @@ def bootstrap(
         "summary": result["summary"].strip(),
         "name": name,
         "events": events,
-        "working_prs": _working_prs(result.get("working_prs")),
+        "working_prs": _working_prs(result.get("working_prs"), repository, text),
     }
 
 
@@ -1352,12 +1495,15 @@ def classify(
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
-    if result.get("tool") in _TURN_ERROR_RE and (
-        ask := _final_ask(visible, result["tool"])
-    ):
+    tool = result.get("tool")
+    final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
+    result.pop("offers", None)  # buttons that send: the screen's alone, never the model's
+    if offers := screen_offers(text, tool, reply):
+        result["offers"] = offers
+    if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
-        if not ask.get("options") and (
+        if "options" not in ask and (
             options := _model_options(result.get("question"), ask)
             or _reply_options(ask["prompt"], replies_fn)
         ):
@@ -1517,8 +1663,7 @@ def classify(
                 ).split()))
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
-    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", visible)
-    copy_source = copy_source.replace("\\\n", "")
+    copy_source = _FRAME_BARS_RE.sub("", visible).replace("\\\n", "")
 
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
@@ -1569,7 +1714,16 @@ def classify(
         result["copyables"] = good
     else:
         result.pop("copyables", None)
-    working_prs = _working_prs(result.get("working_prs"))
+    # The status line's model, context and cost have chips of their own; the parser copies
+    # them into status_entries too ("16% ctx" beside 16% context, "$4.96" twice).
+    entries = result.get("status_entries")
+    if isinstance(entries, list):
+        result["status_entries"] = [e for e in entries if not (
+            e in (result.get("model"), result.get("cost")) or (
+                result.get("context_pct") is not None and isinstance(e, str)
+                and _CONTEXT_ENTRY_RE.fullmatch(e.strip())))]
+    working_prs = _working_prs(
+        result.get("working_prs"), repository, "\n".join([*(prior or []), text]))
     if working_prs:
         result["working_prs"] = working_prs
     else:

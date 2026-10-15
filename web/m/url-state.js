@@ -4,8 +4,8 @@
 // or, with no pane, `#view=dashboard`, or one of PAGES: a dashboard card's own view (`#view=heat`, `#view=loops`). A hash (not a path) because the daemon serves /m and
 // nothing under it, and because the installed PWA's start_url stays the plain list. Unknown
 // fields (push's `from=push`) are ignored on read and dropped on write; `compose=1` is
-// read-only, set by push links to focus the reply box. `filter` and `acct` are lists (a pane
-// shows if it matches any state and any account; empty is all), comma-separated, so an old
+// read-only, set by push links to focus the reply box. `filter`, `acct` and `agent` are lists (a
+// pane shows if it matches any state, any account and any agent; empty is all), comma-separated, so an old
 // single-value link reads as a list of one. The sort is a per-browser preference, not here.
 //
 // Also reads the old desktop UI's `#/pane/<id>` and `#/list/<filter>` so links saved from it
@@ -34,18 +34,19 @@ export function parseHash(hash, tab = "summary") {
     page: !pane && PAGES.includes(params.get("view")) ? params.get("view") : null,
     filter: FILTERS.filter((f) => list(lists, "filter").map((v) => OLD[v] || v).includes(f)),
     acct: list(lists, "acct"), // the account filter: names accounts.js resolves
+    agent: list(lists, "agent"), // the agent filter (a pane's tool), the list's and the dashboard's alike
     q: params.get("q")?.trim() || "", // the list's search box
     compose: params.get("compose") === "1",
   };
 }
 
 // Defaults are omitted so the bare list is the bare URL.
-export function formatHash({ pane = null, view = "summary", dashboard = false, page = null, filter = [], acct = [], q = "" }) {
+export function formatHash({ pane = null, view = "summary", dashboard = false, page = null, filter = [], acct = [], agent = [], q = "" }) {
   const params = new URLSearchParams();
   if (q.trim()) params.set("q", q.trim());
   if (pane) { params.set("pane", pane); if (view === "terminal") params.set("view", "terminal"); }
   else if (dashboard) params.set("view", page || "dashboard");
-  const lists = Object.entries({ filter, acct }).filter(([, v]) => v.length).map(([k, v]) => `${k}=${v.map(encodeURIComponent).join(",")}`);
+  const lists = Object.entries({ filter, acct, agent }).filter(([, v]) => v.length).map(([k, v]) => `${k}=${v.map(encodeURIComponent).join(",")}`);
   return [...lists, params.toString()].filter(Boolean).join("&");
 }
 // A list is read from the raw hash: a literal comma divides it, and each item is encoded on

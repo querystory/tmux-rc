@@ -154,7 +154,7 @@ def _agent(pid: int, screen: str) -> Session | None:
     if "session-id" not in shown:
         # No thread can be named, but a fresh Codex (not a resume) that has written no
         # rollout since it started has none to name: its first turn creates one.
-        if args[:1] not in (["resume"], ["fork"]) and not _rollout_since(home, start):
+        if not {"resume", "fork"} & set(args) and not _rollout_since(home, start):
             raise Empty("this agent has not saved a conversation yet")
         raise Refused("Expunge can't tell which Codex conversation this is: Codex's status "
                       "line doesn't show its thread id. Add \"session-id\" to status_line "
@@ -173,24 +173,33 @@ def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session
     """The one agent session running in the pane, and `expected` if given (the session a
     confirmation named). The search stops at the first agent down each branch, so an
     agent's own subprocesses never count as a second session."""
-    found, todo = [], [int(pane_pid)]
+    found, fresh, todo = [], [], [int(pane_pid)]
     while todo:
         pid = todo.pop()
-        if agent := _agent(pid, screen):
+        try:
+            agent = _agent(pid, screen)
+        except Empty as e:  # still an agent: the walk goes on, and it counts toward "more than one"
+            fresh.append(e)
+            continue
+        if agent:
             found.append(agent)
         else:
             todo += _children(pid)
+    if len(found) + len(fresh) > 1:
+        raise Refused("more than one agent session is running in this pane")
+    if fresh:
+        raise fresh[0]
     if not found:
         raise Empty("no Claude Code or Codex session is running in this pane")
-    if len(found) > 1:
-        raise Refused("more than one agent session is running in this pane")
     if not _ID.fullmatch(found[0].session_id):
         raise Refused("the session id is not one this daemon recognizes")
     if expected not in (None, found[0].session_id):
         raise Refused("this pane is running a different session now")
-    # Each harness writes its transcript (the first two of _FILES) only once there is a turn.
+    # Each harness writes its transcript (the first two of _FILES) only once there is a turn;
+    # agent-history's entry outlives the transcript's retention, so it counts as saved too.
     s = found[0]
-    if not any(True for g in _FILES[s.harness][:2] for _ in s.root.glob(g.format(id=s.session_id))):
+    if not (any(True for g in _FILES[s.harness][:2] for _ in s.root.glob(g.format(id=s.session_id)))
+            or (s.index / f"{s.session_id}.md").exists() or (s.index / s.session_id).is_dir()):
         raise Empty("this agent has not saved a conversation yet")
     return s
 

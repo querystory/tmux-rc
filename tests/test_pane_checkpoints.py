@@ -16,7 +16,7 @@ SCREEN = f"old scrollback\n{W.tmux.VISIBLE_SCREEN}\n› done, tests pass"
 
 
 def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity="9000",
-           history=None, listed=True, server=lambda **_kwargs: "boot:1"):
+           history=None, listed=True, server=lambda **_kwargs: "boot:1", prs=()):
     pane = W.tmux.Pane("work", "0", "agent", "0", "%1", "node", "Task", pid=pid,
                        window_activity=activity)
     monkeypatch.setattr(W.tmux, "server_running", lambda: True)
@@ -31,7 +31,7 @@ def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity=
     def parse(pane, text, llm_fn=None, **_kwargs):
         calls.append("parse")
         return {"pane_id": pane.id, "activity": "idle", "tool": "codex",
-                "headline": "Fixed the flaky test",
+                "headline": "Fixed the flaky test", "working_prs": list(prs),
                 "events": [{"text": "ran the suite"}]}
 
     def boot(*_args, **_kwargs):
@@ -87,6 +87,16 @@ def test_changed_screen_or_recycled_pid_falls_back(monkeypatch, tmp_path, change
         uids = {r[0] for r in db_.execute("SELECT uid FROM pane_checkpoints")}
     # A recycled pid is a new pane; the old occupant's row is pruned as gone.
     assert uids == {f"boot:1:%1:{change.get('pid', '101')}"}
+
+
+@pytest.mark.parametrize("bump", [0, 1])
+def test_a_card_version_bump_drops_prs_an_older_parser_saved(monkeypatch, tmp_path, bump):
+    db = tmp_path / "h.db"
+    daemon(monkeypatch, db, prs=[{"repo": "acme/demo", "number": 212}])  # a guessed repo
+    monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + bump)
+    w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
+    assert calls == (["parse", "bootstrap"] if bump else [])
+    assert w._prs.get("%1", []) == ([] if bump else [{"repo": "acme/demo", "number": 212}])
 
 
 def test_database_failure_falls_back(monkeypatch, tmp_path):

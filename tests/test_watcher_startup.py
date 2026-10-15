@@ -24,8 +24,8 @@ def inventory(monkeypatch):
     return w, panes
 
 
-def parsed(pane):
-    state = {"pane_id": pane.id, "activity": "idle", "tool": "codex"}
+def parsed(pane, **fields):  # a successful read, as _tick_pane returns it (parsed_at set)
+    state = {"pane_id": pane.id, "activity": "idle", "tool": "codex", "parsed_at": 1, **fields}
     W._stamp_identity(state, pane)
     return state
 
@@ -441,14 +441,80 @@ def test_failed_pane_collection_reports_stale(inventory, monkeypatch):
 
 def test_slow_tick_still_beats_per_pane(inventory, monkeypatch):
     w, _ = inventory
-    w._last_tick = time.time() - 60  # the previous tick ended long ago
+    w._last_tick = ended = time.time() - 60  # the previous tick ended long ago
     seen = []
 
-    def read(pane):  # the second pane checks mid-tick, after only the first was read
+    def read(pane):  # the second pane checks mid-tick, once the first was read
         if pane.id == "%1":
+            deadline = time.time() + 3
+            while w._last_tick == ended and time.time() < deadline:
+                time.sleep(.001)
             seen.append(w.is_stale())
         return parsed(pane)
 
     monkeypatch.setattr(w, "_tick_pane", read)
     w._tick()
     assert seen == [False], "the first pane's read should have moved the heartbeat"
+
+
+def test_a_pending_card_publishes_its_first_read_without_waiting(inventory, monkeypatch):
+    """Copilot: once booted, a card whose first read failed must not wait on the slowest
+    other pane to show the read that finally lands."""
+    w, _ = inventory
+    monkeypatch.setattr(w, "_tick_pane",
+                        lambda pane: parsed(pane, parsed_at=None if pane.id == "%1" else 1))
+    w._tick()  # booted; %1's first read failed, so it is still pending
+    landed, release = threading.Event(), threading.Event()
+
+    def read(pane):
+        if pane.id == "%0":
+            assert release.wait(10)  # held past the check below, so only a mid-tick publish passes
+            return parsed(pane)
+        landed.set()
+        return parsed(pane, activity="working")
+
+    monkeypatch.setattr(w, "_tick_pane", read)
+    tick = threading.Thread(target=w._tick)
+    tick.start()
+    try:
+        assert landed.wait(3)
+        deadline = time.time() + 2
+        while w.states[1]["activity"] != "working" and time.time() < deadline:
+            time.sleep(.001)
+        assert w.states[1]["activity"] == "working", "the pending card waited on %0"
+    finally:
+        release.set()
+        tick.join(10)
+
+
+def test_one_slow_pane_does_not_hold_up_the_others(inventory, monkeypatch):
+    """Panes are read in parallel: a pane whose model call hangs (a restart's first token
+    refresh did, for 10 minutes) must not keep every other card a placeholder."""
+    w, _ = inventory
+    other_read = threading.Event()
+
+    def read(pane):
+        if pane.id == "%0":  # read one after another, this would never see %1
+            assert other_read.wait(3), "%1 waited behind %0"
+        else:
+            other_read.set()
+        return parsed(pane)
+
+    monkeypatch.setattr(w, "_tick_pane", read)
+    w._tick()
+    assert [s["activity"] for s in w.states] == ["idle", "idle"]
+
+
+def test_a_boot_tick_that_never_finishes_reads_stale(monkeypatch):
+    """The stale clock starts with the loop, so a first tick that hangs is visible."""
+    async def scenario():
+        w = W.Watcher(None, use_llm=False)
+        monkeypatch.setattr(w, "_loop", lambda: asyncio.sleep(0))
+        w.start()
+        await w._task
+        assert not w.is_stale()
+        later = time.time() + 60
+        monkeypatch.setattr(W.time, "time", lambda: later)
+        assert w.is_stale()
+
+    asyncio.run(scenario())

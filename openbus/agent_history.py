@@ -87,7 +87,10 @@ def reconcile() -> None:
     restore judged on it saw sessions from that morning as days idle, or not at all."""
     exe = binary()
     if exe:
-        subprocess.run([exe, "reconcile"], capture_output=True, timeout=60, check=False)
+        try:  # a stale index judges worse, but must not fail the offer
+            subprocess.run([exe, "reconcile"], capture_output=True, timeout=60, check=False)
+        except (subprocess.SubprocessError, OSError):
+            pass
 
 
 def live() -> dict | None:

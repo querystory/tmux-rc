@@ -41,6 +41,7 @@ def test_bootstrap_shapes_result_and_flags_history():
                 "events": [{"text": "Merged PR #24"}, {"junk": 1}, "nope"],
             }
         ),
+        repository="querystory/tmux-rc",
     )
     assert r["name"] == "tmux-rc overhaul"
     assert r["summary"] == "shipping PRs #24 and #26"
@@ -190,8 +191,7 @@ def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
 def test_host_tool_from_the_process_tree(monkeypatch, command, title, child, tool):
     proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
             ("11", "cmdline"): child}
-    for module in (classify_mod, tmux):  # the process walk lives in tmux
-        monkeypatch.setattr(module, "proc_read", lambda pid, name: proc.get((pid, name), ""))
+    monkeypatch.setattr(tmux, "proc_read", lambda pid, name: proc.get((pid, name), ""))
     pane = Pane("work", "0", "bash", "0", "%0", command, title, "/x", pid="10")
     r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
     assert r["tool"] == tool
@@ -429,13 +429,38 @@ def test_working_prs_are_validated_bounded_and_deduped():
         {"repo": "querystory/qs-app", "number": 0},
         "junk",
     ] + [{"repo": "querystory/tmux-rc", "number": n} for n in range(1, 12)]
-    r = classify(_pane(), "…", _llm({"activity": "running", "working_prs": raw}))
+    r = classify(_pane(), "shipped querystory/qs-app#4955", _llm(
+        {"activity": "running", "working_prs": raw}), repository="querystory/tmux-rc")
     assert r["working_prs"][0] == {"repo": "querystory/qs-app", "number": 4955}
     assert len(r["working_prs"]) == 8
     assert len({(p["repo"].lower(), p["number"]) for p in r["working_prs"]}) == 8
     assert "working_prs" not in classify(
         _pane(), "…", _llm({"activity": "idle", "working_prs": "all PRs"})
     )
+
+
+def test_working_pr_repo_is_the_panes_origin_or_written_with_its_number():
+    # A pane in a plain folder "demo" (no origin) whose agent opened acme/shop-app#215,
+    # with other repos named elsewhere: the model guessed acme/demo from the folder and
+    # paired the bare numbers with every repo on screen.
+    screen = ("Opened HTTPS://GitHub.com/acme/shop-app/pull/215\n"
+              "Also see acme/ops-scripts README. Fixed #212, #213.\n"
+              "Mirrors: https://codeberg.org/acme/ops-scripts/pull/212 /tmp/acme/demo#213\n"
+              "https://codeberg.org/github.com/acme/demo/pull/212\n"
+              "/tmp/github.com/acme/demo/pull/213\n"
+              "Next: acme/⟪dim⟫ops-scripts⟪/dim⟫#216")
+    guessed = [{"repo": r, "number": n} for n in (215, 212, 213)
+               for r in ("acme/shop-app", "acme/demo", "acme/ops-scripts")]
+    guessed.append({"repo": "acme/ops-scripts", "number": 216})  # cited through dim styling
+    r = classify(_pane(), screen, _llm({"activity": "idle", "working_prs": guessed}))
+    assert r["working_prs"] == [{"repo": "acme/shop-app", "number": 215},
+                                {"repo": "acme/ops-scripts", "number": 216}]
+    # In a checkout, a bare number belongs to its origin, and to no other repo.
+    r = classify(_pane(), screen, _llm({"activity": "idle", "working_prs": guessed}),
+                 repository="acme/shop-app")
+    assert r["working_prs"] == [
+        *({"repo": "acme/shop-app", "number": n} for n in (215, 212, 213)),
+        {"repo": "acme/ops-scripts", "number": 216}]
 
 
 def test_pipes_llm_json_through():
@@ -1273,6 +1298,38 @@ def test_finished_turn_blocked_on_the_user_is_a_text_wait():
     assert result["question"]["options"] == ["try again"]
 
 
+def test_handoff_in_a_barred_transcript_is_the_agents_words_with_no_buttons():
+    # Claude Code's right-hand bar must not join paragraphs or hide a closing "?", and a
+    # `! command` handed over is not a question: typed-back "Yes, proceed" runs nothing.
+    screen = _sample("100_claude_handoff_beside_suggested_command")
+    replies = lambda _s, _q: {"options": ["Yes, proceed", "No, cancel"]}  # noqa: E731
+    model = {"tool": "claude", "question": {"prompt": "! gh pr merge 812", "options": ["Yes"]}}
+    bare = screen.replace("✻ Worked for 29s · done 1:58 PM ", "✻ Baked for 16s" + " " * 16)
+    for shown in (screen, bare):  # the stamp's "· done …" is optional
+        q = classify(_pane("claude"), shown, _llm(model), replies_fn=replies)["question"]
+        assert q == {"answer_style": "text", "options": [], "prompt": (
+            "The quickest way is to run it yourself with the ! prefix, so it runs here in this "
+            "session: ! gh pr update-branch 812 && gh pr merge 812 --squash --auto")}
+    asking = screen.replace("#815 is still waiting on its Copilot review.", "Shall I watch CI?")
+    q = classify(_pane("claude"), asking, _llm({}), replies_fn=replies)["question"]
+    assert q["prompt"].endswith("Shall I watch CI?")
+    assert q["options"] == ["Yes, proceed", "No, cancel"]
+    rows = ("  1. Watch CI", "  2. Merge #815", "", "  Want me to do 1 and 2 now?")
+    listed = screen.replace("#815 is still waiting on its Copilot review.", "").replace(
+        "\n✻ Worked", "".join(f"\n{r:<122}│" for r in rows) + "\n✻ Worked")
+    q = classify(_pane("claude"), listed, _llm({}))["question"]
+    assert q["items"] == ["1. Watch CI", "2. Merge #815"]  # read past the bar
+
+
+def test_status_entries_drop_what_has_its_own_chip():
+    parsed = {"model": "Opus 5.5", "context_pct": 16, "cost": "$4.96",
+              "status_entries": ["16% ctx", "4h49m", "$4.96", "Opus 5.5", "2%/61% 5h/7d"]}
+    result = classify(_pane("claude"), "❯", _llm(parsed))
+    assert result["status_entries"] == ["4h49m", "2%/61% 5h/7d"]
+    kept = classify(_pane("claude"), "❯", _llm({"status_entries": ["16% ctx", "$4.96"]}))
+    assert kept["status_entries"] == ["16% ctx", "$4.96"]  # no field holds them
+
+
 def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
     decision = _sample("56_claude_turn_ends_with_decision")
     error = _sample("57_codex_turn_aborted_by_provider_error")
@@ -1342,6 +1399,217 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
 
 def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
+
+
+def test_codex_offers_nothing_yet():
+    screen = ('\x1e[visible screen]\x1f\n• Ran cat notes.txt\n  └ Say "merge all" now.\n'
+              "■ Selected model is at capacity. Please try a different model.\n\n› ")
+    result = classify(_pane("codex"), screen, _llm({}))
+    assert "offers" not in result and result["question"]["options"] == ["try again"]
+
+
+@pytest.mark.parametrize("parses", [True, False])  # a cut command spends the budget too
+def test_offers_stop_at_three_before_asking_bash(monkeypatch, parses):
+    import openbus.classify as C
+    asked = []
+    monkeypatch.setattr(C, "_parses", lambda command: asked.append(command) or parses)
+    reply = " ".join(f"`! make t{i}`" for i in range(8))
+    result = classify(_pane("claude"), _auto_screen(reply.replace("`", "")), _llm({}), reply=reply)
+    assert result.get("offers", []) == ["! make t0", "! make t1", "! make t2"][:3 * parses]
+    assert len(asked) == 3
+
+
+def test_finished_turn_offers_the_replies_it_hands_over():
+    command = "! gh pr update-branch 5269 && gh pr merge 5269 --squash --auto"
+    message = (f"Run it yourself with the ! prefix:\n\n  {command}\n\n  That updates the branch."
+               '\n\n  Say "merge 415" and I\'ll queue it. "merge all ✅" queues 18 PRs.')
+    screen, model = _auto_screen(message), _llm({"offers": ["rm -rf ~"]})
+    marked = message.replace(command, f"`{command}`")  # the transcript marks it as code
+    assert classify(_pane("claude"), screen, model, reply=marked)["offers"] == [
+        command, "merge 415", "merge all ✅"]
+    # A bare row may be the first of a script: only a span or a one-row fence is a command.
+    assert classify(_pane("claude"), screen, model, reply=message)["offers"] == [
+        "merge 415", "merge all ✅"]
+    # Without the transcript, nothing: the screen draws code as plain text.
+    assert "offers" not in classify(_pane("claude"), screen, model)
+    fixture = "Fixture:\n\n```bash\nprintf 'say \"merge all\"'\n```\n\nSay \"ship it\" to go on."
+    shown = _auto_screen("Fixture:\n\n  printf 'say \"merge all\"'\n\n  Say \"ship it\" to go on.")
+    assert classify(_pane("claude"), shown, model, reply=fixture)["offers"] == ["ship it"]
+    escaped = 'Say "commit \\"fix: cache\\"" and I will commit it.'  # escaped quotes: none
+    assert "offers" not in classify(_pane("claude"), _auto_screen(escaped), model, reply=escaped)
+    nested = 'Say “commit "fix: cache"” and I\'ll commit it.'  # curly around straight quotes
+    assert classify(_pane("claude"), _auto_screen(nested), model, reply=nested)["offers"] == [
+        'commit "fix: cache"']
+    # Inline code only the transcript marks, and a command the screen wraps: the
+    # transcript's copy, held to what the screen shows.
+    shown = "Not logged in; type ! gh auth login --hostname\n  github.com to fix it."
+    reply = "Not logged in; type `! gh auth login --hostname github.com` to fix it."
+    assert classify(_pane("claude"), _auto_screen(shown), _llm({}), reply=reply)["offers"] == [
+        "! gh auth login --hostname github.com"]
+    wrapped = "Run:\n\n  ! gh pr merge\n  `cat /tmp/pr` --squash"  # a row the screen wraps
+    assert "offers" not in classify(_pane("claude"), _auto_screen(wrapped), _llm({}))
+    fence = "Run:\n\n```\n! make deploy\n```"
+    assert classify(_pane("claude"), _auto_screen("Run:\n\n  ! make deploy"), _llm({}),
+                    reply=fence)["offers"] == ["! make deploy"]
+    for mark in ("~~~", "````"):  # any fence, with its transcript
+        fenced = f"Run:\n\n{mark}\n! make deploy\n{mark}"
+        assert classify(_pane("claude"), _auto_screen("Run:\n\n  ! make deploy"), _llm({}),
+                        reply=fenced)["offers"] == ["! make deploy"]
+    longer = "Run ``! printf '```x```' && make deploy`` now."  # a longer run inside the span
+    screen = _auto_screen("Run ! printf '```x```' && make deploy now.")
+    assert classify(_pane("claude"), screen, _llm({}), reply=longer)["offers"] == [
+        "! printf '```x```' && make deploy"]
+    quoted = """Run `! printf 'say "merge all"'` now."""  # a command's own quotes are no reply
+    assert classify(_pane("claude"), _auto_screen(quoted.replace("`", "")), _llm({}),
+                    reply=quoted)["offers"] == ["""! printf 'say "merge all"'"""]
+    ticks = "Run ! gh pr merge `cat /tmp/pr` --squash."  # a span around a shell backtick
+    assert classify(_pane("claude"), _auto_screen(ticks), _llm({}), reply=ticks.replace(
+        "Run ! gh", "Run ``! gh").replace("--squash", "--squash``"))["offers"] == [
+        "! gh pr merge `cat /tmp/pr` --squash"]
+    for screen, stale in (
+        (_auto_screen(shown), None),  # inline code the screen does not mark
+        (_auto_screen("Run:\n\n  ! gh pr merge 5269\n  --squash"), None),  # a wrapped row
+        (_auto_screen("Edited `src/app.py`; `x != y` holds."), None),  # ordinary code
+        (_auto_screen('It printed "connection refused" and stopped.'), None),  # just a quote
+        (_auto_screen("Done."), "Run `! make deploy` to ship."),  # a stale transcript
+        (_auto_screen(shown), reply.replace("github.com", "example.com")),  # stale, same start
+        (_auto_screen("Run ! gh pr merge 415 now."), "Run `! gh pr merge 41` now."),  # shorter
+        (_auto_screen("Run ! cat 'a b.txt' now."), "Run `! cat 'a  b.txt'` now."),  # spacing
+        (_auto_screen("Run ! cat 'a\n  b.txt' now."), "Run `! cat 'a  b.txt'` now."),  # wrapped
+        (_auto_screen("Run ! rm /tmp/cache.old now."), "`! rm /tmp/cache`"),  # a fragment
+        (_auto_screen("Run ! rm /tmp/cache * now."), "Run `! rm /tmp/cache` now."),  # a glob
+        (_auto_screen("""Run ! printf 'say "merge all"' now."""), None),  # a command's quotes
+        (_auto_screen("""Use printf 'say "merge all"' as the fixture."""),
+         """Use `printf 'say "merge all"'` as the fixture."""),  # quotes inside inline code
+        (_auto_screen("""Use printf 'say "merge all"' as the fixture."""), None),  # unmarked
+        (_auto_screen("Run ! printf '%s' '\n  say \"merge all\"' now."), None),  # wrapped
+        (_auto_screen("Run:\n\n  ! printf '%s' '`! gh pr merge 415`' &&\n  echo done"), None),
+        (_auto_screen("""Run:\n\n  ! printf 'x' &&\n  printf 'say "merge all"'"""), "other"),
+        (_auto_screen('Do not say "merge all"; it skips.'), 'say "merge all"; it skips.'),
+        (('\x1e[visible screen]\x1f\n● Bash(cat notes.txt)\n  ⎿  Say "merge all" and I\'ll do it.\n'
+          "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ⏵⏵ auto mode on"), None),  # tool output
+        (_auto_screen('Do not say "merge all"; it skips review.'), None),  # negated
+        (_auto_screen('Do not\n  say "merge all"; it skips review.'), None),  # negated, wrapped
+        (_auto_screen("Do not run\n  ! make deploy; it deploys."),
+         "Do not run `! make deploy`; it deploys."),  # a negated run, wrapped
+        (_auto_screen('Do not say "merge all"; it skips.'),
+         'Do **not** say "merge all"; it skips.'),  # negation behind Markdown
+        (_auto_screen('Don’t say "merge all"; it skips review.'), None),  # a typographic n’t
+        (_auto_screen('Do not ever say "merge all"; it skips.'),
+         'Do not ever say "merge all"; it skips.'),  # a word between
+        (_auto_screen("Do not, under any circumstances, run ! make deploy."),
+         "Do not, under any circumstances, run `! make deploy`."),  # a punctuated clause
+        (_auto_screen("Do not run these:\n\n  ! make reset\n\n  ! make deploy"),
+         "Do not run these:\n\n```bash\n! make reset\n! make deploy\n```"),  # a whole fence
+        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
+         "Use this:\n\n```bash\nprintf 'say \"merge all\"'\n```"),  # a tagged fence's data
+        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
+         "Use this:\n\n````\n```\nprintf 'say \"merge all\"'\n```\n````"),  # a nested fence
+        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
+         "Use this:\n\n    printf 'say \"merge all\"'"),  # an indented code block
+        (_auto_screen("Use this: printf '%s'\n  'say \"merge all\"'"),
+         "Use this: `printf '%s'\n'say \"merge all\"'`"),  # a span over two rows
+        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
+         "Use this:\n \n    printf 'say \"merge all\"'"),  # a blank row holding a space
+        (_auto_screen('Data:\n\n  status: done\n\n  Say "merge all" now.\n\n  end'),
+         'Data:\n\n```\nstatus: done\n\nSay "merge all" now.\n\nend\n```'),  # a fence's prose
+        (_auto_screen('Data:\n\n  status: done\n\n  Say "merge all" now.\n\n  end'),
+         'Data:\n\n```\nstatus: done\n\nSay "merge all" now.\n\nend'),  # a fence never closed
+        (_auto_screen("Data:\n\n  cat <<'EOF'\n\n  ! make deploy\n\n  EOF"),
+         "Data:\n\n```\ncat <<'EOF'\n\n! make deploy\n\nEOF\n```"),  # a heredoc's body
+        (_auto_screen("Data:\n\n  cat <<'EOF'\n\n  ! make deploy\n\n  EOF"), None),
+        (_auto_screen('Run:\n\n  ! for pr in 412 415; do\n\n  gh pr merge "$pr"\n  done'),
+         'Run:\n\n```\n! for pr in 412 415; do\n\ngh pr merge "$pr"\ndone\n```'),  # a loop
+        (_auto_screen('Use this:\n\n  message = "`! make deploy`"'), None),  # backticks as text
+        (_auto_screen('Use this:\n\n  message = "`! make deploy`"'), "Other text."),
+        (_auto_screen('Run:\n\n  ! printf \'%s\' "first \\"\n\n  second"'), None),  # escaped
+        (_auto_screen("Run:\n\n  ! for pr in 412 415\n\n  do gh pr merge $pr; done"), None),
+        (_auto_screen("Run:\n\n  ! if gh pr checks 415\n\n  then echo ok; fi"), None),
+        (_auto_screen("Run:\n\n  ! make test\n\n  make deploy"),
+         "Run:\n\n~~~bash\n! make test\n\nmake deploy\n~~~"),  # a tilde fence's script
+        (_auto_screen("Use: printf '%s'\n  '! make deploy'"),
+         "Use: ``printf '%s'\n'`! make deploy`'``"),  # a span over two rows holding one
+        (_auto_screen('Use:\n\n  x\n\n  Say "merge all" now.'),
+         'Use:\n\n```\nx\n```~~~\n\nSay "merge all" now.\n```'),  # not its own closer
+        (_auto_screen("Use:\n\n  ! make deploy"),
+         "Use:\n\n````\n```bash\n! make deploy\n```\n````"),  # a fence inside a fence
+        (_auto_screen('Use:\n\n  x\n\n  Say "merge all" now.'),
+         'Use:\n\n```text\n    ```\nx\n\nSay "merge all" now.\n```'),  # not a closing fence
+        (_auto_screen("Run:\n\n  ! make clean\n\n  `command -v make` deploy"),
+         "Run:\n\n```\n! make clean\n\n`command -v make` deploy\n```"),  # a row opening "`"
+        (_auto_screen("Run:\n\n  ! deploy()\n\n  { make deploy; }"), None),  # a function
+        (_auto_screen("Run:\n\n  ! if true; then if true; then echo ok; fi\n\n  fi"), None),
+        (_auto_screen("Run:\n\n  ! make clean\n\n  cmake .."), "Run:\n\n! make clean\n\ncmake .."),
+        (_auto_screen("Run:\n\n  ! make clean\n\n  (make deploy)"),
+         "Run:\n\n! make clean\n\n(make deploy)"),  # a bare row before more script
+        (_auto_screen('Run:\n\n  ! make test\n  status: done\n\n  Say "merge all" now.'),
+         'Run:\n\n! make test\n```\nstatus: done\n\nSay "merge all" now.\n```'),  # adjacent
+        (_auto_screen("Run:\n\n  ! make clean\n\n  make deploy"),
+         "Run:\n\n! make clean\n\nmake deploy"),  # more of its script after a blank row
+        (_auto_screen("Fixture:\n\n  ! make test\n\n  make deploy"),
+         "Fixture:\n\n    ! make test\n\n    make deploy"),  # an indented script
+        (_auto_screen("Run:\n\n  ! make test &&\n\n  make deploy"),
+         "Run:\n\n```\n! make test &&\n\nmake deploy\n```"),  # an operator going on
+        (_auto_screen('Use this:\n\n  message = "! make deploy"'),
+         'Use this:\n\n    message = "`! make deploy`"'),  # a span in an indented block
+        (_auto_screen("Run:\n\n  ! cat <<'EOF'\n\n  hi\n  EOF"),
+         "Run:\n\n```\n! cat <<'EOF'\n\nhi\nEOF\n```"),  # a heredoc
+        (_auto_screen("Run:\n\n  ! python -c 'print(1)\n\n  print(2)'"),
+         "Run:\n\n```\n! python -c 'print(1)\n\nprint(2)'\n```"),  # a script with a blank row
+        (_auto_screen('Use this:\n\n  message = "! make deploy"'),
+         'Use this:\n\n```\nmessage = "`! make deploy`"\n```'),  # a fixture in a fence
+        (_auto_screen("Do not run this:\n\n  ! make deploy"),
+         "Do not run this:\n\n```\n! make deploy\n```"),  # a forbidden fenced command
+        (_auto_screen('Do not say "merge all"; it skips review.'), 'Say "merge all" now.'),
+        (_auto_screen("Run ! gh pr merge 415 --squash --auto now."),
+         "Run `! gh pr merge 415 --squash` now."),  # the screen's continues
+        (('\x1e[visible screen]\x1f\n● Read(notes.md)\n  ⎿  2│ Say "merge all" and I\'ll do it.\n'
+          "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ⏵⏵ auto mode on"), None),  # file content
+        # A new turn that failed before any reply: the old ask is not live again.
+        (('\x1e[visible screen]\x1f\n● Say "merge 415" and I\'ll queue it.\n\n❯ check the logs\n'
+          "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ⏵⏵ auto mode on"), None),
+        (_auto_screen(message).replace("\n❯\n", "\n❯ merge 415\n"), None),  # already typed
+        (_auto_screen(message).replace("Baked for 16s", "Baking… (3s · esc to interrupt)"), None),
+    ):
+        result = classify(_pane("claude"), screen, _llm({"offers": ["x"]}), reply=stale)
+        assert "offers" not in result
+
+
+def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
+    one = 'Run this yourself: ! echo "send-it test $(date +%T)"'
+    result = classify(_pane("claude"), _auto_screen(one), _llm({}), reply=one)
+    assert result["offers"] == ['! echo "send-it test $(date +%T)"']
+    assert result["question"] == {"prompt": one, "answer_style": "text", "options": []}
+    command = ("! export PYTHONPATH=/tmp/demo/lib P=demo-app; source ~/.config/demo/api.env && "
+               'printf %s "$DEMO_API_KEY" | gcloud secrets create demo-key --project "$P" '
+               '--data-file=- && gcloud run deploy demo-app --project "$P" --region us-east1')
+    reply = f"Done.\n\nSo please run this one command yourself. It never prints the key: {command}"
+    words, rows = reply.split(" "), []  # the screen wraps it over several rows
+    while words:
+        rows.append(" ".join(words[:9]))
+        words = words[9:]
+    result = classify(_pane("claude"), _auto_screen("\n  ".join(rows)), _llm({}), reply=reply)
+    assert result["offers"] == [command] and result["question"]["options"] == []
+    assert result["question"]["prompt"] == reply.split("\n\n")[1]  # a user-wait, not a question
+    glob = "Run this yourself: ! cp * /tmp/backup"  # a wrap before a glob is no list item
+    result = classify(_pane("claude"), _auto_screen(glob.replace(" * ", "\n  * ")), _llm({}),
+                      reply=glob)
+    assert result["offers"] == ["! cp * /tmp/backup"] and result["question"]["prompt"] == glob
+    spaced = "Run this yourself: ! printf '%s' 'a  b'"  # its own spacing, as the screen shows
+    result = classify(_pane("claude"), _auto_screen(spaced), _llm({}), reply=spaced)
+    assert result["offers"] == ["! printf '%s' 'a  b'"] and result["question"]["options"] == []
+    for reply, shown in (('Run this yourself: ! echo "Ready?"',) * 2,  # its own "?"
+                         ("Run this yourself: ! echo hello world",  # wrapped onto a "! " row
+                          "Run this yourself:\n  ! echo hello\n  world")):
+        result = classify(_pane("claude"), _auto_screen(shown), _llm({}), reply=reply)
+        assert result["question"] == {"prompt": reply, "answer_style": "text", "options": []}
+    for message in (
+        "Run:\n! make clean\nmake deploy",  # a bare row followed by another row
+        "Run this yourself: ! make clean\nmake deploy",  # an inline command going on
+        "Run it with the ! prefix", "Run it with the ! prefix.",  # no colon: prose about "!"
+    ):
+        result = classify(_pane("claude"), _auto_screen(message), _llm({}), reply=message)
+        assert "offers" not in result
 
 
 @pytest.mark.parametrize("message", [
