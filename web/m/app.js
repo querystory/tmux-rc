@@ -1022,8 +1022,9 @@ function restartDetail() {
   // Leaving the terminal, by pane, view or hidden page, sends a scrolled app home first, so the
   // watcher never keeps parsing old history nobody is looking at.
   if (detailId !== active || !terminalVisible() || document.hidden) wheelHome(detailId);
+  // A terminal stream reports afresh (attachment may have changed), and only it shows the toggle.
+  fitCols = 0; show("fit-pane", false);
   if (detailId !== active) {
-    fitCols = 0; show("fit-pane", false); // the next pane reports for itself
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
     latestCapture = ""; clearCapture(); detailId = active;
   }
@@ -1046,12 +1047,15 @@ function termCols() {
 }
 // One at a time, in the order asked: a tick and untick must reach the daemon in that order.
 // fitCols is what the daemon last took; a failed report leaves it 0 for the stream to retry.
-let fitLine = Promise.resolve();
+let fitLine = Promise.resolve(), fitBusy = 0; // fitBusy: reports queued or in flight
 function fitTo(id, cols) {
   if (!id || !cols) return; // a hidden view measures nothing
   const body = { cols, force: $("fit-toggle").checked };
-  fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body)).then((r) => {
-    if (id === active) { fitCols = cols; show("fit-pane", r.attached); }
+  fitBusy++;
+  fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body)).finally(() => fitBusy--).then((r) => {
+    if (id !== active || !terminalVisible()) return;
+    fitCols = cols; show("fit-pane", r.attached);
+    refit(); // resized while this was in flight: the last size wins
   }, () => { if (id === active) fitCols = 0; });
 }
 const refit = () => { const cols = terminalVisible() && termCols(); if (cols && cols !== fitCols) fitTo(active, cols); };
@@ -1114,7 +1118,7 @@ async function streamTerminal(id, signal) {
       if (signal.aborted) return;
       frame = data.frame || "";
       if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
-      if (!fitCols) fitTo(id, termCols()); // first report once the terminal is rendered, or a retry
+      if (!fitCols && !fitBusy) fitTo(id, termCols()); // first report once rendered, or a retry
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {
