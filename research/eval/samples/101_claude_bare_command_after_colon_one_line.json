@@ -1,0 +1,18 @@
+{
+  "description": "Finished auto-mode turn whose whole final message is one line handing the user a bare `! command` after a colon, with no backticks in the transcript either. Live, no tap-to-send button appeared (only an inline span or a one-row fence was read as a command); a bare command after a colon that ends its transcript row and paragraph is one.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ give me a command to test the send button\n\n● Run this yourself: ! echo \"send-it test $(date +%T)\"\n\n✻ Worked for 4s · done 10:12 AM\n──────────────────────────────────────────────────────────────────────────────── send test ─\n❯\n────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | user@example.com\n  session: +0/-0 lines · 8% ctx · 2h10m · $0.41\n  ⏵⏵ auto mode on · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "User should run the echo send-it test command",
+    "offers": [
+      "! echo \"send-it test $(date +%T)\""
+    ]
+  },
+  "reply": "Run this yourself: ! echo \"send-it test $(date +%T)\""
+}

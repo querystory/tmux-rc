@@ -15,21 +15,23 @@ minimal dict (idle vs running) so the pipe never breaks.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
+import subprocess
 import textwrap
+from functools import lru_cache
 from itertools import islice
 from pathlib import Path
 
 from .tmux import (
+    INTERPRETERS,
     OMP_TITLE_RE,
     PLACEHOLDER_CLOSE,
     PLACEHOLDER_OPEN,
     PROMPT_GLYPHS,
     VISIBLE_SCREEN,
     Pane,
-    proc_read,
     processes,
+    program,
     strip_dim,
 )
 
@@ -46,6 +48,10 @@ _OUTPUT_LABELS = frozenset({
     "status", "title", "warn", "warning",
 })
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# A PR named with its repository on screen: a GitHub pull/issue URL, or a standalone
+# "owner/name#N" that is not the tail of a path or of another host's URL.
+_QUALIFIED_PR_RE = re.compile(r"(?<![\w./:-])((?i:(?:https?://)?(?:www\.)?github\.com/))?"
+                              r"([\w.-]+/[\w.-]+)(?(1)/(?:pull|issues)/|#)(\d{1,16})")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
     # ~[ ] todo~ is deliberately unmatched, since it is neither open nor finished work.
@@ -62,11 +68,20 @@ _OPENCODE_RUNNING_RE = re.compile(
 _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
     # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
-    # A stamp's trailing shell/monitor count is background work, not the agent's turn.
+    # A stamp's trailing shell/monitor count is background work, not the agent's turn, and
+    # a bar after it is the frame Claude Code draws down the right of its transcript.
     r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
-    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:·|$))",
+    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
+# Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
+# own reviewer weighs an approval: "Reviewing approval request (17m 00s • esc to interrupt)".
+# Unindented, its elapsed time, and nothing under it but its own detail rows (└ the command,
+# ↳ a queued message) above the input row. Codex hides it while a menu waits on the user,
+# so under it nothing is asking.
+_CODEX_LIVE_RE = re.compile(
+    r"^(?:• )?\w[^\n(]*\(\d+[hms](?: \d+[hms])* • esc to interrupt\).*"
+    r"(?=(?:\n(?:[ \t]+[└↳⌥].*|[ \t]*))*\n[ \t]*›)", re.MULTILINE)
 # A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
 # capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
 _TURN_ERROR_RE = {
@@ -82,6 +97,29 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
+# A tabbed panel the user opened and is browsing (/config, /plugin): a strip of 3+ short
+# tab labels under a dialog's top rule ("Settings  Status  Config  Usage  Stats"), a search
+# box or a ❯ cursor on a "name  value" row below it, and the panel's own key-hint footer
+# as the screen's last row. The agent is not asking: a row toggles a setting or opens a
+# page and the panel stays. The footer closes, clears, goes back or exits on Esc, where a
+# question's cancels; any other wording fails safe as a question, as does a later dialog
+# below a lookalike strip. Read by structure, not one panel's exact tabs or hints, which
+# Claude Code keeps rewording.
+_TAB_LABEL = r"\w\S*(?: \S+)?"
+_TAB_STRIP_RE = re.compile(
+    rf"▔{{3,}}.*\n[ \t]*{_TAB_LABEL}(?:[ \t]{{2,}}{_TAB_LABEL}){{2,}}[ \t]*$", re.MULTILINE)
+_PANEL_BODY_RE = re.compile(r"⌕|^[ \t]*❯[ \t]*\S.*?\S[ \t]{2,}\S", re.MULTILINE)
+_PANEL_FOOTER_RE = re.compile(r"\bEsc to (?:close|clear|(?:go )?back|exit)\b", re.IGNORECASE)
+
+
+def _tabbed_panel_open(visible: str) -> bool:
+    """Whether the screen ends in an open tabbed panel (see _TAB_STRIP_RE)."""
+    *_, strip = (None, *_TAB_STRIP_RE.finditer(visible))
+    body = visible[strip.end():].rstrip() if strip else ""
+    return bool(_PANEL_BODY_RE.search(body)
+                and _PANEL_FOOTER_RE.search(body.rsplit("\n", 1)[-1]))
+
+
 # A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
 # the frame, a radio and a digit. The model reads the highlight too but can misplace it
 # (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
@@ -100,6 +138,19 @@ _HIGHLIGHT_RE = re.compile(
 _LIVE_COUNT = r"\(\d+ of \d+\)"
 _LIVE_COUNT_RE = re.compile(rf"\s*{_LIVE_COUNT}\s*$")
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
+# Codex's compact key-hint footer, led by its commit key: "enter continue · esc back".
+_ENTER_FOOTER_RE = re.compile(r"\s*enter \w+ · ")
+
+
+def arrow_driven(question: dict, text: str) -> bool:
+    """Whether numbered `question` is a picker to walk, not answer with a digit: the
+    screen ends in Codex's compact key-hint footer, where a digit need not commit (its
+    trust dialog takes "1" as a move to row 1), and shows the highlighted row a walk
+    needs. Its approval box ("Press enter to confirm …") takes digits."""
+    visible, rows = _visible(text), question.get("options")
+    return (any(map(_ENTER_FOOTER_RE.match, visible.rstrip().splitlines()[-3:]))
+            and isinstance(rows, list)
+            and highlighted_row(visible, _question_prompt(question) or "", rows) is not None)
 
 
 def _widget_end(visible: str, start: int) -> int:
@@ -207,16 +258,9 @@ _PROCESS_TOOLS = {
 # trusted there because it outlives omp, but the title plus a live omp process under the
 # pane can. Other agents get no such shell walk: without a title to corroborate it, a
 # suspended or backgrounded agent under an idle shell would claim the pane.
-_INTERPRETERS = ("bun", "node")
-
-
 def _programs(pid: str) -> set[str]:
-    """Programs among `pid` and its descendants: argv[0], or the script bun/node runs."""
-    names = set()
-    for p in processes(pid):
-        argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
-        names.add(argv[-1] if argv[0] in _INTERPRETERS else argv[0])
-    return names
+    """Programs among `pid` and its descendants."""
+    return {program(p) for p in processes(pid)}
 
 
 def _host_tool(pane: Pane) -> str | None:
@@ -224,7 +268,7 @@ def _host_tool(pane: Pane) -> str | None:
     if tool := _PROCESS_TOOLS.get(pane.current_command):
         return tool
     omp_title = OMP_TITLE_RE.match(pane.title)
-    hosted = pane.current_command in _INTERPRETERS
+    hosted = pane.current_command in INTERPRETERS
     if hosted and omp_title:
         return "omp"
     if not pane.pid or not (hosted or omp_title):
@@ -510,12 +554,14 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     # agent asking; a live spinner below the text means the agent is working again; and a
     # finished turn's question followed by typed input has been answered.
     idle_box = _EMPTY_INPUT_RE.search(visible)
+    row = found and visible.rfind("\n", 0, found.start()) + 1
     return found is not None and not (
         (idle_box and found.start() > idle_box.start())
-        or _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
+        or _NOT_ASKING_ROW_RE.match(visible[row:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
+        or (tool == "codex" and _CODEX_LIVE_RE.search(visible, row))  # the prompt's own row too
     )
 
 
@@ -753,7 +799,10 @@ def _restate(question: dict, replies_fn) -> str | None:
     return _asks.get(key)
 
 
+_CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
 _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
+# A box's side bars, and the bar Claude Code draws down the right of its transcript.
+_FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$")
 
 
 def _final_paragraph(message: str) -> str:
@@ -788,20 +837,40 @@ def _final_paragraph(message: str) -> str:
 # Precision beats recall: a missed reference leaves the bare question the card showed
 # before, while a count read as a reference would show an unrelated row as what the
 # question means.
-_NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
-_ITEM_REF_RE = re.compile(
-    # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
-    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)(?=\s*(?:[^\w\s]|$|"
+#
+# Options are lettered as often as numbered ("A. Retry inline", "(b) Queue it", a bulleted
+# "- Option A: Retry inline", or a row opening the agent's turn after its "●"), and "Go
+# with A or B?" names them just as "do 1?" does. A letter A-H in parentheses ("(a)",
+# "(B)") is a label. So is a bare capital followed by what follows a reference ("A quick
+# fix?" and "Grade A beef?" are not) when the prompt names another letter too ("A or
+# B?"), it chains onto a reference, or an option noun or choosing verb precedes it
+# ("option A", "go with B"). The article in "A really quick check?" and the grade in
+# "Grade A only?" are not labels, and an article "a" is lowercase. "Option A" needs a
+# separator after it (or nothing, as a table key), so prose such as "Option A is
+# fastest" is not a row.
+_ROW_LABEL = (
+    r"(?:[-*•●⏺][ \t]+)?(?:(?i:option|plan|approach|choice)[ \t]+([A-H]|\d{1,2})\b"
+    r"(?:[.):]|[ \t]*(?:[—–]|-(?=[ \t]))|(?=\s*$))[ \t]*|\(?([A-Ha-h]|\d{1,2})[.)][ \t]+)")
+_LABELED_ROW_RE = re.compile(rf"[ \t│┃╎]*{_ROW_LABEL}(\S.*)")
+_REF_AFTER = (
+    r"(?=\s*(?:[^\w\s]|$|"
     r"(?i:and|or|now|first|then|next|too|also|only|but|before|after|later|today|tomorrow|"
     r"tonight|instead|together|please|right|again|as|asap|soon|yet|on|in|for|with|without|"
     r"into|onto|via|using|across|against|under|over|here|there|(?!(?:family|supply|reply|"
     r"ally|rally|assembly|anomaly|daily|weekly|monthly|yearly)\b)[a-z]+ly)\b))")
+_ITEM_REF_RE = re.compile(
+    # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
+    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)" + _REF_AFTER)
+_LETTER_REF_RE = re.compile(
+    r"(?<![\w#$.:/'’-])(?<!(?i:grade) )(?:\(([A-Ha-h])\)|([A-H]))(?![\w%:/'’-]|\.\w)" + _REF_AFTER)
 # The nouns an agent numbers what it proposes by ("edit 2", "Recommendation 2").
 _ITEM_LABEL = (
     r"(?i:items?|edits?|steps?|options?|choices?|points?|rows?|tasks?|fix(?:es)?|"
     r"recommendations?|suggestions?|changes?|ideas?|approach(?:es)?|plans?|proposals?|"
     r"actions?|issues?|findings?|comments?|bullets?|entry|entries|parts?|phases?|stages?|"
     r"number|no\.?)")
+_LETTER_BEFORE_RE = re.compile(
+    rf"\b(?:{_ITEM_LABEL}|(?i:with|for|pick|choose|select|take|use|prefer|do|go))\s+$")
 _COUNT_BEFORE_RE = re.compile(
     r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
     r"had|got|need|needs|want|wants|own|owns|keep|keeps|to|from|equals?)\s+$|=\s*$"
@@ -821,7 +890,10 @@ _FUNCTION_WORDS = frozenset((
     "should", "have", "been", "were", "what", "when", "which", "while", "your", "yours",
     "first", "next", "please"))
 # A reply, whatever row number it carries: "1. Yes, but check with me before sending".
-_REPLY_RE = re.compile(r"(?i)\s*(?:\d{1,2}[.)]\s*)?(?:yes|no|ok|okay|sure|go|skip|hold)\b")
+# An option written as a list row: "1. Fix the cache", "B) Queue it", "Option A: Redis".
+_ROW_LABEL_RE = re.compile(rf"^\s*{_ROW_LABEL}")
+_REPLY_RE = re.compile(
+    rf"(?i)(?:{_ROW_LABEL_RE.pattern})?\s*(?:yes|no|ok|okay|sure|go|skip|hold)\b")
 
 
 def _copies(text: object, row: str) -> bool:
@@ -833,35 +905,74 @@ def _copies(text: object, row: str) -> bool:
 
     def words(value: object) -> set[str]:
         return set(_WORD_RE.findall(str(value).lower())) - _FUNCTION_WORDS
-    quoted = re.sub(r"^\s*\d{1,2}[.)]\s*", "", str(text)).strip(" .").lower()
+    quoted = _ROW_LABEL_RE.sub("", str(text), count=1).strip(" .").lower()
     return (bool(quoted) and quoted in row.lower()) or len(words(text) & words(row)) >= 2
 
 
-def _referenced_rows(prompt: str, visible: str) -> dict[str, str]:
-    """The numbered rows above a typed-answer question that its prompt names by number
-    ("Want me to do 1 now and prepare 2?"), whole and in the prompt's order, so the card
-    can say what 1 and 2 are. Read off the screen: the parser, told to carry them, did not
-    reliably. The nearest row wins a number, so an older list above loses to the one the
-    question closes; numbers with no row (a count, a time) name nothing here."""
+def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
+    """The labelled rows above a typed-answer question that its prompt names ("Want me to
+    do 1 now and prepare 2?", "Go with A or B?"), whole and in the prompt's order, so the
+    card can say what 1 and 2 are; and the paragraph that leads into the first one's list
+    (a heading, "Two ways to fix the retries:"), which says what is being decided. Read off
+    the screen: the parser, told to carry them, did not reliably. The nearest row wins a
+    label, so an older list above loses to the one the question closes; numbers with no
+    row (a count, a time) name nothing here."""
+    visible = _FRAME_BARS_RE.sub("", visible)  # as _final_ask read the prompt
     found = _last_occurrence(prompt, visible)
     rows: dict[str, list[str]] = {}
-    item, indent = None, 0
+    leads: dict[str, str] = {}
+    lists: dict[int, tuple[str, str]] = {}  # by indent: the last row's label, its list's lead
+    item, indent, para, gap = None, 0, [], False
     for row in visible[:found.start() if found else 0].splitlines():
-        if m := _NUMBERED_ROW_RE.match(row):
-            item, indent = rows.setdefault(m[1], []), _indent(row)
-            item[:] = [m[2]]
+        if row.lstrip(" \t│┃╎").startswith(("●", "⏺")):  # a new turn: nothing above leads in
+            para, lists = [], {}
+        if m := _LABELED_ROW_RE.match(row):
+            label = (m[1] or m[2]).upper()
+            item, indent = rows.setdefault(label, []), _indent(row)
+            item[:] = [m[3]]
+            # The next label in sequence at the same indent (B after A, 3 after 2)
+            # continues its list and keeps the list's lead-in, across blank lines, a
+            # nested list or a deeper note between rows. Any other row starts a list, led
+            # by the paragraph just above it or by nothing, never by an earlier list's. A
+            # row ends the lists nested deeper than it.
+            lists = {i: v for i, v in lists.items() if i <= indent}
+            prev, lead = lists.get(indent, ("", ""))
+            if label != _next_label(prev):
+                lead = " ".join(para)
+            lists[indent], leads[label], para = (label, lead), lead, []
         elif item is not None and row.strip() and _indent(row) > indent:
             item.append(row.strip())  # the item's wrapped continuation
+        elif row.strip():
+            # Prose at a list's indent or left of it ends that list.
+            lists = {i: v for i, v in lists.items() if i < _indent(row)}
+            para = [*(para if not gap else ()), row.strip(" \t│┃╎●⏺•")]
+            item, gap = None, False
         else:
-            item = None
-    refs, last = [], None
-    for m in _ITEM_REF_RE.finditer(prompt):
-        chained = last is not None and _REF_CHAIN_RE.fullmatch(prompt, last, m.start())
-        if (chained or _REF_BEFORE_RE.search(prompt, 0, m.start())) and not (
-                _COUNT_BEFORE_RE.search(prompt, 0, m.start())):
+            item, gap = None, True
+    # One pass over numbers and letters in prompt order, so either chains onto the one
+    # before it ("Do A and 1?", "Do 1 and A?").
+    letters = list(_LETTER_REF_RE.finditer(prompt))
+    several = len({(m[1] or m[2]).upper() for m in letters}) > 1
+    refs, ends = [], []
+    for m in sorted([*_ITEM_REF_RE.finditer(prompt), *letters], key=re.Match.start):
+        before = prompt[:m.start()]
+        chained = any(_REF_CHAIN_RE.fullmatch(before, e) for e in ends)
+        if m.re is _LETTER_REF_RE:
+            if m[1] or several or chained or _LETTER_BEFORE_RE.search(before):
+                refs.append((m[1] or m[2]).upper())
+                ends.append(m.end())
+        elif (chained or _REF_BEFORE_RE.search(before)) and not _COUNT_BEFORE_RE.search(before):
             refs += map(str, range(int(m[1]), int(m[2] or m[1]) + 1))
-            last = m.end()
-    return {n: " ".join(rows[n]) for n in dict.fromkeys(refs) if n in rows}
+            ends.append(m.end())
+    named = [n for n in dict.fromkeys(refs) if n in rows]
+    return {n: " ".join(rows[n]) for n in named}, leads[named[0]] if named else ""
+
+
+def _next_label(label: str) -> str | None:
+    """The label after this one in its sequence ("3" after "2", "B" after "A")."""
+    if not label:
+        return None
+    return str(int(label) + 1) if label.isdigit() else chr(ord(label) + 1)
 
 
 def _item(number: str, text: str) -> str:
@@ -876,45 +987,178 @@ def _restates(table: object, rows: dict[str, str]) -> bool:
     not all). A table that is merely numbered 1, 2 (a ranking, an
     index) or shares one generic verb ("Update ...") with the rows stays."""
     body = table.get("rows") if isinstance(table, dict) else None
-    keys = [str(r[0]).strip().rstrip(".)") if isinstance(r, list) and r else None
-            for r in body] if isinstance(body, list) else []
+    keys = [_row_number(f"{r[0]} ") or str(r[0]).strip().upper() if isinstance(r, list) and r
+            else None for r in body] if isinstance(body, list) else []
     if not keys or not all(k in rows for k in keys):
         return False
     copied = [_copies(" ".join(map(str, r[1:])), rows[k]) for r, k in zip(body, keys, strict=True)]
     return 2 * sum(copied) > len(copied)
 
 
-def _final_ask(visible: str, tool: str) -> dict | None:
-    """What a finished turn leaves blocked on the user: a provider error to retry, or in
-    auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run. Anything typed after it means the user already acted."""
+def _final_message(visible: str, tool: str) -> str | None:
+    """A finished turn's final assistant message, up to its stamp or through the provider
+    error that stopped it, or None while it runs. Anything typed after: the user acted."""
     error_re = _TURN_ERROR_RE[tool]
     turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
     stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
     if stop is None or stop.groupdict().get("live") or _USER_ROW_RE.search(visible, stop.end()):
         return None
     end = stop.end() if stop.re is error_re else stop.start()
-    message = visible[:end].rsplit("\n● ", 1)[-1]  # the turn's final assistant message
+    # The turn's final assistant message, without the bars framing its rows: a bar left on
+    # a blank row joins paragraphs, and one after a "?" hides that the row asks.
+    return _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
+
+
+# What a finished turn hands the user to type back, verbatim: a `! command` (Claude Code's
+# shell prefix) as inline code or on a row of its own, or a phrase it asks for: 'Say "merge
+# 415"', or a quote that does the work ('"merge all" queues 18 PRs'), not any quote. A row
+# that wraps onto the next is no offer: a guessed join could run the wrong command. A bare
+# command after a colon ("Run this: ! make deploy") is one when its transcript row (never
+# wrapped) ends the paragraph: no script row can follow it, and prose naming "the ! prefix"
+# has no colon before it. A space after the ! keeps out code such as `!=` and `!important`,
+# and "do not say" is no offer.
+# Straight or curly, each closing its own; a straight one with a backslash in it may be
+# escaping a quote, so none is read there.
+_QUOTE = r"(?:(?<!\\)\"([^\"\\\n]{1,60})\"(?!\")|“([^”\n]{1,60})”)"
+_OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
+    rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
+    rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!(?:`{{3,}}|~{{3,}})[ \t]*$)\S)"
+    rf"|(?<=:[ \t])(! \S.*?)[ \t]*$(?!\n[ \t]*\S)"
+    rf"|\bsay[ \t]+{_QUOTE}"
+    rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
+
+
+# Command text and code a command offer must not be read out of: an inline code span, a
+# fence, a `! ` row with its wrapped continuation, an unmarked `! ` to its row's end (the
+# screen draws inline code without backticks). A command inside one is the code's, unless it
+# is that very span or row, or a command row of its own in a fence (an inline span in a fence
+# is the fence's data).
+_CODE_RE = re.compile(
+    # A fence (indented 3 at most) closes on a run of its own kind as long as its opener, or
+    # ends; a span closes on its own run, within its paragraph.
+    r"(?P<fence>^ {0,3}(?P<run>`{3,}|~{3,})[\s\S]*?"
+    r"(?:(?P<close>^ {0,3}(?P=run)(?:(?<=`)`*|(?<=~)~*)[ \t]*$)|\Z))"
+    r"|(?<!`)(?P<tick>`+)(?!`)(?:[^\n]|\n(?![ \t]*\n))+?(?<!`)(?P=tick)(?!`)"
+    r"|^[ \t]*! \S.*(?:\n(?! {0,3}(?:```|~~~))[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
+
+
+# A message that forbids running or saying something offers nothing at all, read on _plain
+# text ("do **not**\n  run"): which command or phrase a warning covers (the next one, a whole
+# fence, a list) is not worth guessing when a wrong guess prefills the forbidden thing.
+_FORBIDS_RE = re.compile(
+    r"(?:\b(?:not|never)|n['’]t)\b[^.?!;]{0,60}?\b(?:run|type|use|execute|enter|paste|send|say)\b",
+    re.IGNORECASE)  # anywhere in its clause: "do not ever say", "do not, in any case, run"
+
+
+def _plain(text: str) -> str:
+    """Text as the screen draws it, near enough to compare: no fence rows (with their language
+    tag), backticks or emphasis marks, one space. A `*` standing alone is a glob, and kept."""
+    return " ".join(re.sub(r"(?m)^[ \t]*(?:```|~~~).*$|`|\*\*|(?<![\w*])\*(?=[^\s*])"
+                           r"|(?<=[^\s*])\*(?![\w*])|^\s*●\s", "", text).split())
+
+
+def _offers(message: str, reply: str | None) -> list[str]:
+    """The replies the final message offers, as tap-to-send buttons, read off the transcript's
+    copy of it (code is marked there, and long rows are not wrapped), and only when that is the
+    whole message on screen, word for word, so its context (a "do not" before a say) is the
+    screen's too. The screen alone offers nothing: it draws code as plain text, so a quote may
+    be any program's argument and a command row the first of a script. Each offer must show on
+    screen whole and bounded (a `merge 41` is not the `merge 415` on screen), each space a space
+    or the screen's wrap, so `a b` is not `a  b`. A message with the user's own row in it (a new
+    turn that failed before any reply) or a tool's result (⎿: its output, or the error that
+    ended it) is not the agent handing anything over."""
+    if _USER_ROW_RE.search(message) or re.search(r"(?m)^[ \t]*⎿", message):
+        return []
+    if not reply or _plain(reply) != _plain(message) or _FORBIDS_RE.search(_plain(reply)):
+        return []
+    t = reply
+    # Each code range, with a fence's count of rows: a command row is a fence's to offer only
+    # when it is all the fence holds (any more may be a script it belongs to, or data).
+    code = [(c.start(), c.end(),  # its rows: all non-blank ones but its own two fences
+             c["fence"] and len(re.findall(r"(?m)^[ \t]*\S", c["fence"])) - 1 - bool(c["close"]))
+            for c in _CODE_RE.finditer(t)]
+
+    def offered(m: re.Match) -> bool:
+        if m.lastindex > 4:  # a quote: only in a transcript paragraph with no code at all,
+            para = (re.split(r"\n[ \t]*\n", t[:m.start()])[-1]  # nor inside a fence's
+                    + re.split(r"\n[ \t]*\n", t[m.start():])[0])
+            return not any(a <= m.start() < b for a, b, _ in code) and not (
+                re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
+        # A command: only as an inline span, after a colon ending its paragraph, or as the one
+        # row of a fence (a bare row may be the first of a script); never where a heredoc
+        # may hold it as data, nor in an indented block, nor inside other code.
+        row = t[t.rfind("\n", 0, m.start()) + 1:m.start(m.lastindex)]
+        lone = any(a < m.start() < b and rows == 1 for a, b, rows in code)
+        return "<<" not in t and not re.match(r" {4}|\t", row) and (
+            m.lastindex in (2, 4) or lone) and not any(
+            a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
+            for a, b, rows in code)
+
+    found = (m[m.lastindex] for m in _OFFER_RE.finditer(t) if offered(m))  # each one's payload
+
+    def cut(o: str) -> bool:  # a command a blank row in its script may have cut short
+        return o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:]))
+
+    def shown(o: str) -> bool:  # a run of spaces must show as is: a wrap there hides its width
+        gap = " " if "  " in o else r"(?: |[ \t]*\n[ \t]*)"
+        return bool(re.search(
+            r"(?<![^\s\"“`])" + gap.join(map(re.escape, o.split(" ")))
+            + r"(?![^\s\"”`.,;:?!)])", message))
+
+    # Three at most, counted before bash checks them: a fourth never reaches bash, cut or not.
+    return [o for o in islice((o for o in dict.fromkeys(found) if shown(o)), 3) if not cut(o)]
+
+
+@lru_cache(maxsize=256)
+def _parses(command: str) -> bool:
+    """Whether bash reads `command` whole (`bash -n` runs nothing): the first part of a script
+    split by a blank row ("for ... in", "&&", an open quote, "f()") does not parse. Quoting
+    checks alone pass grammar the shell rejects, so the shell is asked."""
+    try:
+        return subprocess.run(["bash", "-n"], input=command, capture_output=True, text=True,
+                              timeout=2, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def screen_offers(text: str, tool: str | None, reply: str | None) -> list[str]:
+    """A finished turn's offers (_offers), read off `text`: classify's, and the watcher's
+    on a screen it does not reparse (its fingerprint ignores a duration a command holds).
+    Claude Code's only: Codex's messages and tool output have no boundary read here yet."""
+    final = tool == "claude" and _final_message(_visible(text), tool)
+    return _offers(final, reply) if final else []
+
+
+def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
+    """What a finished turn leaves blocked on the user: a provider error to retry, or in
+    auto mode (where the agent stops only when it needs the user) a closing question or a
+    `! command` handed over to run: on a row of its own, or an offer ending the message."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
-    if error := error_re.match(lines[-1]):
+    if error := _TURN_ERROR_RE[tool].match(lines[-1]):
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
         return None
-    paragraph = _final_paragraph(message)
-    handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
-    if paragraph.rstrip("*_\"'`)").endswith("?"):
-        return {"prompt": paragraph, "answer_style": "text"}
-    if handoff is None:
-        return None
-    return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
+    # An offered command ending the message hands it over, its own "?" or wrapped rows and
+    # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
+    paragraph = " ".join(re.split(r"\n\s*\n", message.strip())[-1].split())
+    if not any(o.startswith("! ") and paragraph.endswith(" ".join(o.split())) for o in offers):
+        paragraph = _final_paragraph(message)
+        if paragraph.rstrip("*_\"'`)").endswith("?"):
+            return {"prompt": paragraph, "answer_style": "text"}
+        handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
+        if handoff is None:
+            return None
+        paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
+    # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
+    return {"prompt": paragraph, "answer_style": "text", "options": []}
 
 
 def _row_number(option: object) -> str | None:
-    """The number of an option written as a list row ("1. Fix the cache"), else None."""
-    m = isinstance(option, str) and re.match(r"\s*(\d{1,2})[.)]\s", option)
-    return m[1] if m else None
+    """The label of an option written as a list row ("1. Fix the cache"), else None."""
+    m = isinstance(option, str) and _ROW_LABEL_RE.match(option)
+    return (m[1] or m[2]).upper() if m else None
 
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
@@ -1019,12 +1263,18 @@ def _parser_context(pane: Pane, repository: str | None, host_tool: str | None) -
     return context + "]"
 
 
-def _working_prs(value) -> list[dict]:
-    """Validate the model's semantic PR associations before they become sticky state."""
+def _working_prs(value, repository: str | None, text: str) -> list[dict]:
+    """Validate the model's semantic PR associations before they become sticky state.
+
+    A PR's repository must be grounded: the pane's own origin, or that exact repo and
+    number written together on screen. Left to itself the model names a repo after the
+    cwd folder ("qs") or pairs a bare #N with every repo the screen mentions."""
     if not isinstance(value, list):
         return []
     out = []
     seen = set()
+    cited = {(m[2].lower(), int(m[3])) for m in _QUALIFIED_PR_RE.finditer(strip_dim(text))}
+    own = (repository or "").lower()
     for item in value:
         if not isinstance(item, dict) or not isinstance(item.get("repo"), str):
             continue
@@ -1044,7 +1294,7 @@ def _working_prs(value) -> list[dict]:
         ):
             continue
         key = (repo.lower(), number)
-        if key in seen:
+        if key in seen or (key[0] != own and key not in cited):
             continue
         seen.add(key)
         out.append({"repo": repo, "number": number})
@@ -1075,7 +1325,7 @@ def bootstrap(
         "summary": result["summary"].strip(),
         "name": name,
         "events": events,
-        "working_prs": _working_prs(result.get("working_prs")),
+        "working_prs": _working_prs(result.get("working_prs"), repository, text),
     }
 
 
@@ -1237,16 +1487,26 @@ def classify(
               and not _USER_ROW_RE.search(visible, turn.end())):  # no newer turn began
             result["activity"] = "idle"  # The turn is over; background shells don't count.
             result.pop("parse_ok", None)
+    # Codex's live row is a read too: a user wait with no question under it, or an ask the
+    # re-read could not place, is its turn running. A finished turn's "idle" stands.
+    if (result.get("tool") == "codex" and result.get("activity") in ("waiting", "unknown", None)
+            and not result.get("question") and result.get("waiting_on") != "external"
+            and _CODEX_LIVE_RE.search(visible)):
+        result["activity"] = "running"
+        result.pop("parse_ok", None)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
-    if result.get("tool") in _TURN_ERROR_RE and (
-        ask := _final_ask(visible, result["tool"])
-    ):
+    tool = result.get("tool")
+    final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
+    result.pop("offers", None)  # buttons that send: the screen's alone, never the model's
+    if offers := screen_offers(text, tool, reply):
+        result["offers"] = offers
+    if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
-        if not ask.get("options") and (
+        if "options" not in ask and (
             options := _model_options(result.get("question"), ask)
             or _reply_options(ask["prompt"], replies_fn)
         ):
@@ -1266,8 +1526,21 @@ def classify(
         result["activity"] = "idle"
         result.pop("question", None)
         result.pop("parse_ok", None)  # Grounded in Claude's own chrome, not the model.
-    # A cursor picker's advertised search binding is evidence, not a model guess.
+    if result.get("tool") == "claude" and _tabbed_panel_open(visible):
+        # Authoritative over the model, a failed parse included: the screen is a settings
+        # panel, so nothing is asked. Only a turn the model saw still running stays running
+        # (not one a failed parse carried over).
+        result.pop("question", None)
+        if result.pop("parse_ok", True) is False or result.get("activity") != "running":
+            result["activity"] = "idle"
     question = result.get("question")
+    # A numbered picker driven by arrows is walked, not answered with a digit, where the
+    # screen shows its highlighted row, which a walk needs.
+    if (isinstance(question, dict) and question.get("answer_style") == "menu"
+            and arrow_driven(question, text)):
+        question.update(answer_style="cursor", keymap={
+            "next": "Down", "prev": "Up", "select": "Enter", "search": False})
+    # A cursor picker's advertised search binding is evidence, not a model guess.
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
         keymap = question.get("keymap")
         footer = visible.splitlines()[-3:]
@@ -1286,7 +1559,7 @@ def classify(
             question["selected"] = rows.index(row)
             question["picker"] = picker_digest(text, asked)
     if isinstance(question, dict):  # read off the screen, never passed through from the model
-        for key in ("context", "ask", "items"):
+        for key in ("context", "ask", "items", "subject"):
             question.pop(key, None)
         # A question with no style is answered as text (models.py), so it may name rows.
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
@@ -1312,8 +1585,11 @@ def classify(
             style = question["answer_style"] = "text"
             question.pop("options", None)
         # A menu's own numbers are its options, so only a typed answer names list items.
-        if rows := style == "text" and asked and _referenced_rows(asked, visible):
+        rows, lead = _referenced_rows(asked, visible) if style == "text" and asked else ({}, "")
+        if rows:
             question["items"] = [_item(n, text) for n, text in rows.items()]
+            if lead:  # what is being decided, so "A or B?" reads alone on the card
+                question["subject"] = textwrap.shorten(lead, 140, placeholder="…")
             # The parser's own copy of those rows would show them twice: as answer buttons
             # (a row's number and its words: "1. Resolve the merge conflict", not "1. Yes,
             # move it now"; the reply call fills in when nothing else is left), or as a table.
@@ -1403,8 +1679,7 @@ def classify(
                 ).split()))
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
-    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", visible)
-    copy_source = copy_source.replace("\\\n", "")
+    copy_source = _FRAME_BARS_RE.sub("", visible).replace("\\\n", "")
 
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
@@ -1455,7 +1730,16 @@ def classify(
         result["copyables"] = good
     else:
         result.pop("copyables", None)
-    working_prs = _working_prs(result.get("working_prs"))
+    # The status line's model, context and cost have chips of their own; the parser copies
+    # them into status_entries too ("16% ctx" beside 16% context, "$4.96" twice).
+    entries = result.get("status_entries")
+    if isinstance(entries, list):
+        result["status_entries"] = [e for e in entries if not (
+            e in (result.get("model"), result.get("cost")) or (
+                result.get("context_pct") is not None and isinstance(e, str)
+                and _CONTEXT_ENTRY_RE.fullmatch(e.strip())))]
+    working_prs = _working_prs(
+        result.get("working_prs"), repository, "\n".join([*(prior or []), text]))
     if working_prs:
         result["working_prs"] = working_prs
     else:

@@ -4,6 +4,24 @@ Conventions for AI agents (and humans) working in this repo. The philosophy note
 harness/session prompt still apply (minimize LOC, DRY, KISS, why-focused docs); this file
 captures repo-specific workflow that isn't obvious from the code.
 
+## This repository is public
+
+Everything committed here is readable by anyone, forever. Agents see the user's private
+work all day; none of it belongs in this repo.
+
+- **Test fixtures, eval samples (`research/eval/samples`), demo data and screenshots are
+  invented from scratch.** Renaming or redacting a real capture is not sanitizing: its
+  shape, wording and details still describe the private work it came from. Rebuild only
+  the structure that triggers the bug, around an unrelated invented topic, as short as it
+  can be. `tests/test_public_data.py` rejects the usual tells (identity and credential
+  shapes, provenance words like "real capture", an oversized capture), but it is no proof.
+- **Never commit** session transcripts, the user's prompts, costs or usage, product or
+  client details, internal hostnames, or anything copied from a real pane, log, or private
+  repo.
+- **Before every push, read your own added lines for real content.** A local pre-push hook
+  may block a push for private terms; never bypass it. Rewrite the content and tell the
+  user what it caught.
+
 ## The repo root is the live deploy — and it is always the integration branch
 
 The daemon is a systemd `--user` unit (`tmux-rc.service`, installed by `make install-units`)

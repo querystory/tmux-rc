@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderUsage, shownUsage, HIGH_PCT } from "../web/m/usage.js";
+import { renderUsage, renderStrip, staleUsage, byUrgency, shownUsage, moreUsage, HIGH_PCT } from "../web/m/usage.js";
 
 const w = (window, pct, limit_at = null) => ({ window, pct, limit_at });
 const ACCOUNTS = [
@@ -8,26 +8,41 @@ const ACCOUNTS = [
   { provider: "codex", windows: [w("7d", 40)] },
   { provider: "claude", label: "b", error: "unavailable", windows: [] },
 ];
-const names = (accounts) => accounts.map((a) => `${a.provider}:${a.windows.map((x) => x.window)}`);
+const name = (a) => `${a.label ?? a.provider} ${a.windows[0]?.window ?? ""}`;
 
-test("on shows every meter, off none", () => {
-  assert.equal(shownUsage(ACCOUNTS, "on"), ACCOUNTS);
-  assert.deepEqual(shownUsage(ACCOUNTS, "off"), []);
+test("every meter in one order, most urgent first, whatever its account", () => {
+  const list = byUrgency([
+    { provider: "claude", label: "Work", windows: [{ ...w("5h", 20), projected: 30 }, { ...w("7d", 60), projected: 95 }] },
+    { provider: "codex", label: "Spare", windows: [w("7d", 40, 5), w("5h", 100)] },
+    { provider: "claude", label: "Gone", error: "unavailable", windows: [] },
+  ]);
+  assert.deepEqual(list.map(name), ["Spare 5h", "Spare 7d", "Work 7d", "Work 5h", "Gone "]);
 });
 
-test("auto keeps meters filling before the reset or at the threshold, and drops empty or unreadable accounts", () => {
-  assert.deepEqual(names(shownUsage(ACCOUNTS, "auto")), ["claude:7d,7d Fable"]);
+test("on shows every meter, off none, neither folds", () => {
+  const list = byUrgency(ACCOUNTS);
+  assert.deepEqual(shownUsage(list, "on"), { shown: list, quiet: [] });
+  assert.deepEqual(shownUsage(list, "off"), { shown: [], quiet: [] });
 });
 
-test("auto with nothing worth showing hides the strip", () => {
-  assert.deepEqual(shownUsage([{ provider: "codex", windows: [w("7d", HIGH_PCT - 1)] }], "auto"), []);
+test("auto shows meters filling before the reset or at the threshold, folding the rest into +N", () => {
+  const { shown, quiet } = shownUsage(byUrgency(ACCOUNTS), "auto");
+  assert.deepEqual(shown.map(name), ["claude 7d Fable", "claude 7d"]);
+  assert.deepEqual(quiet.map(name), ["codex 7d", "claude 5h", "b "]);
+  assert.match(moreUsage(quiet), /title="Quiet: Codex 7d 40%, Claude 5h 16%, Claude b">\+3</);
+  assert.equal(moreUsage([]), "");
+});
+
+test("auto with nothing worth a glance still shows the most urgent meter", () => {
+  const { shown, quiet } = shownUsage(byUrgency([{ provider: "codex", windows: [w("7d", HIGH_PCT - 1), w("5h", 10)] }]), "auto");
+  assert.deepEqual([shown.map(name), quiet.map(name)], [["codex 7d"], ["codex 5h"]]);
 });
 
 test("countdowns and the trend run from the real clock unless told otherwise", () => {
   const now = Date.now(), H = 3600e3, el = {};
   const win = { window: "5h", pct: 40, projected: 80, start: now - 2 * H, resets_at: now + 3 * H, samples: [[now - H, 20]] };
-  renderUsage(el, [{ provider: "claude", windows: [win] }], { wide: true, detail: true });
-  assert.match(el.innerHTML, /resets 3h0m, /);
+  renderUsage(el, [{ provider: "claude", windows: [win] }], { wide: true });
+  assert.match(el.innerHTML, /resets 3h0m</);
   // The held point sits at now, 40% of the way across the 120-wide trend, not back at its start.
   assert.match(el.innerHTML, /<polyline class="proj" points="48\.0,/);
 });
@@ -41,27 +56,38 @@ test("a reading kept through a failed read says how old it is", () => {
   assert.doesNotMatch(el.innerHTML, /as of/);
 });
 
-test("the usage view keeps the past window being read across a refresh that adds another", () => {
-  const now = Date.now(), H = 3600e3, el = { addEventListener(type, f) { this[type] = f; }, querySelectorAll: () => [] };
-  const nav = { dataset: { k: "claude ~/.claude 5h" } }, earlier = { dataset: { step: "1" }, parentNode: nav };
-  const ended = (resets_at, pct) => ({ window: "5h", pct, start: resets_at - 5 * H, resets_at, samples: [], limit_at: null });
-  const meter = (past) => [{ provider: "claude", dirs: ["~/.claude"], windows: [{ window: "5h", pct: 3, past, start: now - H, resets_at: now + 4 * H, samples: [] }] }];
-  const draw = (past) => { renderUsage(el, meter(past), { wide: true, detail: true, now, icon: () => "" }); return el.innerHTML; };
-  draw([ended(now - 16 * H, 60), ended(now - 11 * H, 74), ended(now - H, 50)]);
-  for (const _ of [1, 2]) { const e = { target: { closest: () => earlier } }; el.click(e); el.click(e); } // two back, each once though seen twice
-  assert.match(draw([ended(now - 16 * H, 60), ended(now - 11 * H, 74), ended(now - H, 50)]), /ended at 74%/);
-  assert.match(draw([ended(now - 16 * H, 60), ended(now - 11 * H, 74), ended(now - 6 * H, 50), ended(now - H, 20)]), /ended at 74%/);
-  assert.match(draw([ended(now - 16 * H, 60), ended(now - 11 * H + 60e3, 74), ended(now - H, 50)]), /ended at 74%/); // its reset re-read a minute on
+test("a reading from before its window reset counts nothing down to zero", () => {
+  const now = Date.now(), el = {};
+  renderUsage(el, [{ provider: "claude", windows: [{ window: "5h", pct: 90, start: now - 6 * 3600e3, resets_at: now - 60e3, limit_at: now - 120e3, samples: [] }] }], { now });
+  assert.doesNotMatch(el.innerHTML, /resets|full in/);
 });
 
-test("a window not yet opened (no reset) is not drawn as an ended one", () => {
+test("a window not yet opened (no reset) draws a bar, not a trend", () => {
   const el = {};
-  renderUsage(el, [{ provider: "claude", windows: [{ window: "7d Fable", pct: 0, resets_at: null, samples: [] }] }], { wide: true, detail: true });
-  assert.doesNotMatch(el.innerHTML, /ended|Invalid/);
+  renderUsage(el, [{ provider: "claude", windows: [{ window: "7d Fable", pct: 0, resets_at: null, samples: [] }] }], { wide: true });
+  assert.doesNotMatch(el.innerHTML, /usage-spark|Invalid|resets/);
 });
 
 test("each meter is named by its account and window", () => {
   const el = {};
   renderUsage(el, [{ provider: "claude", acct: { name: "Work" }, windows: [{ window: "5h", pct: 3, resets_at: null, samples: [] }] }]);
   assert.match(el.innerHTML, /role="meter" aria-label="Claude Work 5h"/);
+});
+
+test("the session list's strip draws a ring card per window, the account by its chip", () => {
+  const now = Date.now(), H = 3600e3, el = {};
+  const win = { window: "7d", pct: 40, projected: 80, start: now - 2 * H, resets_at: now + 3 * H, samples: [] };
+  renderStrip(el, [{ provider: "claude", label: "Work", chip: '<span class="acct-badge">Work</span>', windows: [win] }], { now });
+  assert.match(el.innerHTML, /class="usage-card " [^>]*style="--p:40"><i class="usage-ring">/);
+  assert.match(el.innerHTML, /<small>· resets 3h0m<\/small>/);
+  assert.match(el.innerHTML, /<span><span class="acct-badge">Work<\/span> · 7d<\/span>/);
+  renderStrip(el, [{ provider: "claude", windows: [{ ...win, limit_at: now + H }] }], { now });
+  assert.match(el.innerHTML, /<small class="out">· full in 1h0m<\/small>/);
+  assert.match(el.innerHTML, /alt="" width="12" height="12">Claude · 7d/); // one account: the provider, by its logo
+});
+
+test("a kept reading's age is said once for the strip, by the oldest", () => {
+  const now = Date.now();
+  assert.equal(staleUsage([{ as_of: now - 6 * 60e3 }, {}, { as_of: now - 20 * 60e3 }], now), '<small class="usage-stale">as of 20m ago</small>');
+  assert.equal(staleUsage([{}], now), "");
 });

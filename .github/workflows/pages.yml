@@ -38,7 +38,7 @@ jobs:
         run: make docs DOCS_BASE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" DOCS_DESTINATION=public
       - name: Check links and content
         run: python3 docs-site/check-links.py docs-site/public
-      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.event_name != 'pull_request'
         with:
           path: docs-site/public

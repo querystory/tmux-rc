@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
+from concurrent.futures import Future
 from functools import cache
 
 from .telemetry import emit_parse
@@ -105,6 +107,39 @@ if not _trace.handlers:
     _trace.propagate = False
 
 
+_TIMEOUT_MS = int(os.environ.get("TMUXRC_LLM_TIMEOUT_MS", "20000"))
+# The HTTP timeout bounds only Vertex's own request. A fresh process first refreshes its
+# ADC token (google-auth: 120s per attempt, retried) and resolves DNS (no timeout at all),
+# and one of those hanging held a restart's first parse — and every pane queued behind
+# it — for 10.5 minutes. So each call also gets an overall deadline, measured on a worker
+# thread; a call past it fails as a timeout, and its thread is left to finish on its own.
+# A thread per call, not a pool, so hung calls never queue the next ones behind them; but
+# at most _MAX_CALLS live at once. A hung refresh does end (google-auth's retries are
+# bounded), so past the cap a call fails fast as a timeout until one of them returns.
+_DEADLINE_S = _TIMEOUT_MS / 1000 + 10
+_MAX_CALLS = 8
+_slots = threading.BoundedSemaphore(_MAX_CALLS)
+
+
+def _generate(**kwargs):
+    """generate_content under the overall deadline (see _DEADLINE_S)."""
+    slots = _slots  # the one this call took, released by this call's thread
+    if not slots.acquire(blocking=False):
+        raise TimeoutError(f"{_MAX_CALLS} Vertex calls are still hung")
+    future = Future()
+
+    def call():
+        try:
+            future.set_result(_client().models.generate_content(**kwargs))
+        except BaseException as e:  # noqa: BLE001 - handed to the caller, raised there
+            future.set_exception(e)
+        finally:
+            slots.release()
+
+    threading.Thread(target=call, daemon=True, name="vertex").start()
+    return future.result(timeout=_DEADLINE_S)
+
+
 @cache
 def _client():
     """Lazily construct the Vertex client once. Cached so we don't rebuild per call."""
@@ -126,7 +161,6 @@ def _client():
     # description). That unit has historically been seconds in some clients, so a future
     # SDK bump that flipped it would silently turn 20s into a ~5.5h no-op timeout — assert
     # the ms contract so such a change fails loudly at startup instead.
-    timeout_ms = int(os.environ.get("TMUXRC_LLM_TIMEOUT_MS", "20000"))
     _desc = (types.HttpOptions.model_fields["timeout"].description or "").lower()
     if "millisecond" not in _desc:  # not assert: must survive `python -O`
         raise RuntimeError(
@@ -137,7 +171,7 @@ def _client():
         vertexai=True,
         project=project,
         location=location,
-        http_options=types.HttpOptions(timeout=timeout_ms),
+        http_options=types.HttpOptions(timeout=_TIMEOUT_MS),
     )
 
 
@@ -156,7 +190,8 @@ def _client():
 # which is true of an endpoint that is down, rate-limiting or refusing our credentials,
 # and false of a model that returned junk for one particular screen. A per-pane content
 # failure must not pause the other 26; see the JSONDecodeError branch below.
-_backoff = {"delay": 0.0, "until": 0.0}
+_backoff = {"delay": 0.0, "until": 0.0, "armed": 0.0}
+_backoff_lock = threading.Lock()  # parallel panes: arming and lifting never interleave
 
 
 def _arm_backoff() -> float:
@@ -164,8 +199,9 @@ def _arm_backoff() -> float:
     new delay. Doubles 15s → 120s so a long outage settles to one attempt every two
     minutes; any success resets it (see classify_text). Only for failures that would hit
     every pane alike — not a per-pane content failure like malformed JSON."""
-    delay = min(_backoff["delay"] * 2, 120.0) or 15.0
-    _backoff.update(delay=delay, until=time.time() + delay)
+    with _backoff_lock:
+        delay = min(_backoff["delay"] * 2, 120.0) or 15.0
+        _backoff.update(delay=delay, until=time.time() + delay, armed=time.time())
     return delay
 
 
@@ -261,20 +297,22 @@ def classify_text(
     back). `image_png` is wired for the future image-input mode; text-only by default.
     `changed` (a real content-change parse vs a heartbeat re-parse) and the pane's stable
     `pane_uid`/`pane_label` are passed straight through to the benchmark telemetry."""
-    wait = _backoff_remaining()
+    # Admitted and stamped under the arming lock: a brake armed in between would otherwise
+    # look older than this call, and this call's success would lift it.
+    with _backoff_lock:
+        wait, t0 = _backoff_remaining(), time.time()
     if wait > 0:
         # Rate-limited: skip the call entirely (no tokens burned, no telemetry — nothing
         # happened). The UI still shows why cards are degrading via last_error.
         last_error["msg"] = f"rate limited (429) — retrying in {wait:.0f}s"
         return None
-    t0 = time.time()
     try:
         types = genai_types()
 
         parts: list = [text]
         if image_png is not None:
             parts.append(types.Part.from_bytes(data=image_png, mime_type="image/png"))
-        resp = _client().models.generate_content(
+        resp = _generate(
             model=_MODEL,
             contents=parts,
             config=types.GenerateContentConfig(
@@ -292,8 +330,13 @@ def classify_text(
             text, result, time.time() - t0, resp, changed, pane_uid, pane_label, None,
             kind,
         )  # OTLP benchmark record
-        last_error["msg"] = None  # success clears any prior error
-        _backoff.update(delay=0.0, until=0.0)  # healthy again; forget the failure streak
+        # Healthy again; forget the failure streak and its reason. Unless it began after
+        # this call did: with panes read in parallel, a call already in flight must not
+        # lift that brake, nor hide why it is on.
+        with _backoff_lock:
+            if _backoff.get("armed", 0.0) < t0:
+                _backoff.update(delay=0.0, until=0.0)
+                last_error["msg"] = None
         return result
     except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
         _trace.info("ERROR on IN: %r", text[-500:])
@@ -320,7 +363,7 @@ def summarize_events(event_texts: list[str]) -> str | None:
         types = genai_types()
 
         joined = "\n".join(f"- {t}" for t in event_texts[-60:])
-        resp = _client().models.generate_content(
+        resp = _generate(
             model=_MODEL,
             contents=[
                 (

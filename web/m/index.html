@@ -22,28 +22,43 @@
       document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
     })();
     // Boot watchdog. app.js adds .booted once the chrome is built; until then the markup is
-    // a skeleton (style.css). If it never gets there (a module that failed to load, a throw
+    // a skeleton (the <style> below). If it never gets there (a module that failed to load, a throw
     // at boot, a timer that runs out), say so with a Reload button rather than reveal the
     // half-built chrome, and report why: a phone has no devtools, and app.js's own reporter
     // never ran. The reason is also kept for the next start to re-send, since a network
     // that failed the boot fails its report too.
+    // A failed boot is usually the daemon mid-restart, so heal it: probe /api/version at
+    // 2s, 4s, 8s, 16s and reload once it answers. A start after a failed one (or one that
+    // can't record its failure) reloads only if it saw the daemon down, so a real code error
+    // gets one retry, not a loop. A missing stylesheet marks the page .unstyled: app.js
+    // booting without it still counts as failed, as the half-styled app is unusable.
     (() => {
-      const root = document.documentElement, KEY = "tmuxrc-boot-failure", booted = () => root.classList.contains("booted");
+      const root = document.documentElement, KEY = "tmuxrc-boot-failure", booted = () => root.matches(".booted:not(.unstyled)");
       const send = (message) => navigator.sendBeacon?.("/api/client-error", JSON.stringify({ kind: "boot", message }));
-      let reason;
+      let reason, last;
+      // Each probe gets a deadline: a request stalled in the tunnel would hold up the next.
+      const heal = (n, down) => setTimeout(() => {
+        const deadline = new AbortController();
+        setTimeout(() => deadline.abort(), 5000);
+        fetch("/api/version", { cache: "no-store", signal: deadline.signal })
+          .then((r) => { if (!r.ok) throw r.status; if (!booted() && (down || !last)) location.reload(); })
+          .catch(() => n < 3 && heal(n + 1, true));
+      }, 2000 << n);
       const fail = (why) => {
         if (booted() || reason) return;
         reason = why;
         root.classList.add("boot-failed");
         send(why);
-        try { localStorage.setItem(KEY, why); } catch {}
+        try { localStorage.setItem(KEY, why); } catch { last = why; }
+        heal(0);
       };
       try {
-        const last = localStorage.getItem(KEY);
+        last = localStorage.getItem(KEY);
         if (last) { localStorage.removeItem(KEY); send(`previous start: ${last}`); }
       } catch {}
       addEventListener("error", (e) => {
-        const t = e.target, src = t instanceof HTMLScriptElement ? t.src : t?.rel === "modulepreload" && t.href;
+        const t = e.target, src = t instanceof HTMLScriptElement ? t.src : t instanceof HTMLLinkElement && t.href;
+        if (t?.rel === "stylesheet") root.classList.add("unstyled");
         if (e.filename) fail(`${e.message} at ${e.filename}:${e.lineno}:${e.colno}`);
         else if (src) fail(`failed to load ${src}`);
       }, true);
@@ -59,22 +74,39 @@
       document.addEventListener("visibilitychange", () => document.hidden ? (away = true) : retry(away && reason));
     })();
   </script>
+  <!-- Until app.js runs, the markup is a skeleton: icon buttons ship empty and both brand
+       rows show, since app.js picks the layout. Over a slow tunnel that lasts seconds, so
+       show a plain loading line instead of the half-built chrome. If app.js never gets
+       there, the watchdog above swaps the line for a Reload button. Inline, with its own
+       colours, because a boot that failed may have failed to load style.css too. -->
+  <style>
+    html:not(.booted) #app, .unstyled #app { visibility: hidden; }
+    #booting { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px;
+      background: var(--bg, #101312); color: var(--muted, #a1ada6); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .light #booting { background: var(--bg, #f5f7f6); color: var(--muted, #53655b); }
+    #booting p { margin: 0; }
+    #booting button { padding: 0 24px; min-height: 44px; border: 0; border-radius: 6px; }
+    #booting > :not(:first-child), .boot-failed #booting > :first-child, .booted:not(.unstyled) #booting { display: none; }
+    .boot-failed #booting > :not(:first-child) { display: revert; }
+  </style>
   <link rel="stylesheet" href="/m/style.css">
   <link rel="stylesheet" href="/live-chat.css">
-  <link rel="modulepreload" href="/terminal.js">
-  <link rel="modulepreload" href="/m/live.js">
-  <link rel="modulepreload" href="/live-close.js">
-  <link rel="modulepreload" href="/live-chat.js">
-  <link rel="modulepreload" href="/m/composer.js">
-  <link rel="modulepreload" href="/m/pane-model.js">
-  <link rel="modulepreload" href="/m/url-state.js">
-  <link rel="modulepreload" href="/m/overscroll.js">
-  <link rel="modulepreload" href="/m/keys.js">
-  <link rel="modulepreload" href="/m/sidebar.js">
-  <link rel="modulepreload" href="/m/usage.js">
-  <link rel="modulepreload" href="/m/accounts.js">
-  <link rel="modulepreload" href="/m/loops.js">
-  <link rel="modulepreload" href="/cursor-pick.js">
+  <!-- /v/0/ is the server's asset version: see mobile_ui in openbus/server.py -->
+  <script type="importmap">{ "imports": { "/": "/v/0/", "/v/": "/v/" } }</script>
+  <link rel="modulepreload" href="/v/0/terminal.js">
+  <link rel="modulepreload" href="/v/0/m/live.js">
+  <link rel="modulepreload" href="/v/0/live-close.js">
+  <link rel="modulepreload" href="/v/0/live-chat.js">
+  <link rel="modulepreload" href="/v/0/m/composer.js">
+  <link rel="modulepreload" href="/v/0/m/pane-model.js">
+  <link rel="modulepreload" href="/v/0/m/url-state.js">
+  <link rel="modulepreload" href="/v/0/m/overscroll.js">
+  <link rel="modulepreload" href="/v/0/m/keys.js">
+  <link rel="modulepreload" href="/v/0/m/sidebar.js">
+  <link rel="modulepreload" href="/v/0/m/usage.js">
+  <link rel="modulepreload" href="/v/0/m/accounts.js">
+  <link rel="modulepreload" href="/v/0/m/loops.js">
+  <link rel="modulepreload" href="/v/0/cursor-pick.js">
 </head>
 <body>
   <div id="app">
@@ -86,36 +118,34 @@
       <h1 id="list-title">tmux-rc</h1>
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
       <span id="connection" role="status">Connecting</span>
-      <button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button>
-      <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
-      <!-- A phone keeps Chat and the mic in reach; the settings-like controls fold in here. -->
-      <details id="more-menu" class="header-picker"><summary id="more-button" class="icon-button" aria-label="Menu" title="Menu"></summary><div class="header-picker-menu">
-        <button id="accounts-open" class="icon-button" aria-label="Accounts…" title="Agent accounts"></button>
-        <button id="push" class="icon-button" aria-label="Notifications" aria-pressed="false" hidden></button>
-        <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
-        <a id="docs" class="icon-button" href="/docs/" hidden aria-label="Documentation" title="Documentation"></a>
-        <button id="sort" class="icon-button" title="Switch the sort order"></button>
-        <button id="usage-mode" class="icon-button" title="Choose when the usage meters show"></button>
-      </div></details>
+      <!-- A phone's Chat and mic sit in its tab bar, in thumb's reach; the header keeps New
+           window and the gear, which opens Settings as the sidebar's row does. -->
+      <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
+      <button id="settings-open" class="icon-button" aria-label="Settings" title="Settings"></button>
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
     <!-- Wide screens: #sessions is the sidebar. app.js moves the header's brand and buttons
          into these slots (and back for a phone), so each control exists once. -->
     <section id="sessions" aria-label="Sessions">
+      <!-- Wide, the head stays put; below it everything down to the list scrolls as one, the
+           Sessions block sticking under the head; the usage strip stays at the foot. A phone's
+           #sessions is the scroller (style.css). -->
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
+      <div id="sb-scroll">
+      <!-- The places you go, as rows: Dashboard and Settings (app.js moves Settings in). Chat and
+           Voice are toggles, icons in the head. -->
       <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button></div>
-      <div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div>
+      <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div>
+      <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
+      <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div></div>
       <div id="pane-list"></div>
       <div id="side-list" class="sb-only"></div>
-      <p id="empty" class="empty" role="status">Loading sessions...</p><button id="list-start" class="primary start-session" hidden>Start a tmux session</button>
-      <!-- A phone's floating action button, pinned to the list's foot (sticky, so the list's
-           end scrolls clear of it). -->
-      <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
-      <!-- Plan limits (usage.js): pinned over a phone's list by CSS, above the wide foot. -->
+      <p id="empty" class="empty" role="status">Loading sessions...</p><button type="button" id="empty-needs" class="empty-needs" hidden></button><button id="list-start" class="primary start-session" hidden>Start a tmux session</button>
+      </div>
+      <!-- Plan limits (usage.js): atop a phone's list by CSS (it scrolls away), the wide foot. -->
       <div id="usage-handle" class="sb-only" role="separator" aria-orientation="horizontal" aria-label="Resize plan usage" tabindex="0" hidden></div>
       <div id="usage" role="link" aria-label="Plan usage" tabindex="0" title="Open plan usage in the dashboard" hidden></div>
-      <div id="sb-foot" class="sb-only"></div>
     </section>
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
     <section id="landing" aria-label="Dashboard" hidden>
@@ -137,14 +167,14 @@
            it does not describe. Kept as ONE node for both layouts — narrow stacks it above
            the tabs exactly as the old header row read, wide sits it on the tab line. -->
       <div id="heading" hidden><div class="pane-heading-text"><h1 id="pane-title" tabindex="-1"></h1><p id="pane-location"></p></div>
-        <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" data-view="summary" aria-pressed="true">Overview</button><button type="button" data-view="terminal" aria-pressed="false">Terminal</button></div><span>Layout</span><select id="review-layout" aria-label="Session view"><option value="auto">Auto</option><option value="side">Side by side</option><option value="stack">Overview above</option><option value="summary">Overview</option><option value="terminal">Terminal</option></select></div>
+        <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" data-view="summary" aria-pressed="true">Overview</button><button type="button" data-view="terminal" aria-pressed="false">Terminal</button></div><select id="review-layout" aria-label="Pane layout" aria-description="Applies to all panes · remembered in this browser"></select></div>
         <details id="pane-menu" class="header-picker"><summary id="pane-menu-button" class="icon-button" aria-label="More actions" title="More actions"></summary><div class="header-picker-menu"><button id="kill-pane" type="button"></button><button id="move-pane" hidden type="button"></button><hr id="expunge-rule" hidden><button id="expunge-pane" hidden type="button"></button></div></details>
         <button id="close-pane" class="icon-button" aria-label="Close" title="Close"></button>
       </div>
       <div id="review-divider" role="separator" tabindex="0" aria-label="Resize overview" hidden></div>
       <div id="overview" class="scroller">
         <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="session-summary" hidden></p><p id="metadata"></p></section>
-        <section id="question" hidden><h2 id="prompt"></h2><p id="question-items" class="q-items"></p><details id="question-command" class="q-command" hidden><summary>Details</summary><pre class="q-cmd"></pre></details><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
+        <section id="question" hidden><h2 id="prompt"></h2><p id="question-items" class="q-items"></p><div id="ask-link"></div><details id="question-command" class="q-command" hidden><summary>Details</summary><pre class="q-cmd"></pre></details><div id="offers" role="group" aria-label="Replies the agent offered"></div><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
         <section id="link-section" hidden><h2>Links</h2><div id="links"></div></section>
         <section id="table-section" hidden><div id="tables"></div></section>
         <section id="task-section" hidden><h2>Tasks <span id="task-count"></span></h2><div id="tasks"></div></section>
@@ -169,9 +199,17 @@
       <div id="fleet-handle" role="separator" aria-orientation="horizontal" aria-label="Resize the fleet chart" title="Drag to resize. Double-click to fold or unfold." tabindex="0" hidden></div>
       <section id="fleet" aria-label="Fleet chart" hidden></section>
     </section>
-    <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="running-tab" data-filter="running" aria-pressed="false"></button><button id="recent-tab" data-filter="recent" aria-pressed="false"></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
-    <dialog id="launch-dialog" aria-labelledby="launch-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><label for="launch-session">Session</label><select id="launch-session" required></select><div id="launch-new" hidden><label for="launch-dir">Directory</label><input id="launch-dir" list="launch-dirs" value="~" autocomplete="off" autocapitalize="off" spellcheck="false"><datalist id="launch-dirs"></datalist><label for="launch-name">Session name</label><input id="launch-name" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9_\-]{1,64}"></div><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></dialog>
-    <dialog id="expunge-dialog" aria-labelledby="expunge-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="expunge-title">Expunge session</h2><button type="button" id="close-expunge" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="expunge-what"></p><p id="expunge-caveat">Copies already sent via OpenTelemetry, or kept by Anthropic or OpenAI, are not affected.</p><button type="button" id="expunge-confirm"></button></dialog>
+    <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button><button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
+    <dialog id="launch-dialog" aria-labelledby="launch-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><div class="panel-body"><p class="panel-sub">Start an agent or shell in a new tmux window.</p><div class="launch-row"><label for="launch-session">Session</label><select id="launch-session" required></select></div><div id="launch-new" hidden><label for="launch-dir">Directory</label><input id="launch-dir" list="launch-dirs" value="~" autocomplete="off" autocapitalize="off" spellcheck="false"><datalist id="launch-dirs"></datalist><label for="launch-name">Session name</label><input id="launch-name" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9_\-]{1,64}"></div><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></div></dialog>
+    <!-- Settings: what you set once, not a place you go (docs/design/sidebar.md). Wide, a panel
+         beside the sidebar; a phone, a sheet. -->
+    <dialog id="settings" aria-labelledby="settings-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="settings-title">Settings</h2><button type="button" id="close-settings" class="icon-button" aria-label="Close" title="Close"></button></div><div class="panel-body">
+      <h3>Accounts</h3><div class="set-card"><div id="settings-accounts"></div><button type="button" id="accounts-open" class="set-row set-link">Manage accounts…</button></div>
+      <section><h3>Notifications</h3><div class="set-card"><div class="set-row"><span><b>Push notifications</b><small>Alert this device when a pane needs you.</small></span><button type="button" id="push" class="switch" aria-pressed="false" hidden></button></div></div></section>
+      <h3>Appearance</h3><div class="set-card"><div class="set-row"><b>Theme</b><span id="theme" class="seg" role="group" aria-label="Theme"></span></div><div class="set-row"><b>Plan usage</b><span id="usage-mode" class="seg" role="group" aria-label="Plan usage"></span></div><div class="set-row"><span><b>Always show panes that need you</b><small>Even when a filter leaves them out (they are marked so).</small></span><span id="pin-needs" class="seg" role="group" aria-label="Always show panes that need you"></span></div><div id="sort-row" class="set-row"><b>Sort by</b><span id="sort" class="seg" role="group" aria-label="Sort by"></span></div></div>
+      <section><h3>Help</h3><div class="set-card"><a id="docs" class="set-row set-link" href="/docs/" hidden>Documentation</a></div></section>
+    </div></dialog>
+    <dialog id="expunge-dialog" aria-labelledby="expunge-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="expunge-title">Expunge session</h2><button type="button" id="close-expunge" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="expunge-what"></p><p id="expunge-caveat">Copies already sent via OpenTelemetry, or kept by Anthropic or OpenAI, are not affected.</p><button type="button" id="expunge-confirm"></button><button type="button" id="expunge-cancel">Cancel</button></dialog>
     <dialog id="move-dialog" aria-labelledby="move-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="move-title">Move to another account</h2><button type="button" id="close-move" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="move-what" role="status"></p><div id="move-choices" class="choice-list" aria-label="Account"></div></dialog>
     <dialog id="voice-dialog" aria-labelledby="voice-title" tabindex="-1">
       <div class="sheet-handle"></div>
@@ -185,6 +223,6 @@
     </dialog>
   </div>
   <div id="booting" role="status"><p>Loading…</p><p>tmux-rc couldn't start.</p><button type="button" class="primary" onclick="location.reload()">Reload</button></div>
-  <script type="module" src="/m/app.js"></script>
+  <script type="module" src="/v/0/m/app.js"></script>
 </body>
 </html>

@@ -216,12 +216,23 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
     assert accounts.report(states, lambda pane_id: pane_id[1:])["sessions"] == {}
 
 
+def test_an_omp_pane_wears_the_chip_of_the_claude_account_it_signs_in_to(home, monkeypatch):
+    monkeypatch.setattr(plan_usage, "omp_launch", lambda pid: (["/bin/omp"], ()))
+    monkeypatch.setattr(plan_usage, "_omp", {(): (0.0, {"u-me"})})  # as PlanUsage last read
+    monkeypatch.setattr(plan_usage, "read_omp", pytest.fail)  # a request never waits on omp
+    monkeypatch.setattr(T, "show_env", lambda session=None: {})
+    report = accounts.report([{"pane_id": "%1", "tool": "omp"}], lambda pane_id: pane_id[1:])
+    assert {p["tilde"]: p["panes"] for p in report["profiles"]}["~/.claude-personal"] == ["%1"]
+    assert sum(p["panes"] == ["%1"] for p in report["profiles"]) == 1
+
+
 def test_plan_usage_meters_the_listed_accounts_not_the_daemons_env(home, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / "elsewhere"))
     accounts.edit(str(home / ".claude-personal"), forget=True)
     usage = plan_usage.PlanUsage(None, profiles=accounts.metered)
     found = usage.discover([], lambda _: None)
-    assert sorted(k for _, k in found) == [str(home / ".codex"), "u-work"]  # .codex2: no logs
+    # .codex2 has logged nothing yet: listed all the same, as "no data yet"
+    assert sorted(k for _, k in found) == [str(home / ".codex"), str(home / ".codex2"), "u-work"]
 
 
 @pytest.fixture
