@@ -1565,6 +1565,10 @@ def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
     result = classify(_pane("claude"), _auto_screen("\n  ".join(rows)), _llm({}), reply=reply)
     assert result["offers"] == [command] and result["question"]["options"] == []
     assert result["question"]["prompt"] == reply.split("\n\n")[1]  # a user-wait, not a question
+    glob = "Run this yourself: ! cp * /tmp/backup"  # a wrap before a glob is no list item
+    result = classify(_pane("claude"), _auto_screen(glob.replace(" * ", "\n  * ")), _llm({}),
+                      reply=glob)
+    assert result["offers"] == ["! cp * /tmp/backup"] and result["question"]["prompt"] == glob
     for message in (
         "Run:\n! make clean\nmake deploy",  # a bare row followed by another row
         "Run this yourself: ! make clean\nmake deploy",  # an inline command going on
