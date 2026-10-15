@@ -127,6 +127,50 @@ own rhetorical question — the distinction [#85](https://github.com/querystory/
 was about), `tables`, and the headline itself. `copyables` is the first that creates an
 *action* rather than describing state, which is why it feels different in the hand.
 
+### The counter-example: replies the agent hands back
+
+A copyable's destination is *somewhere else*. The sibling case is text whose destination
+is the same pane: Claude Code ending a turn with "run it yourself: `! gh pr merge …`" or
+"say "merge 415" and I'll queue it". Copying that, opening the composer, pasting and
+sending is four steps for what should be two taps, so a finished turn's offers render as
+Run/Send buttons: on the overview's grey block (where a copyable of the same text would
+sit, so the two never stack), on the pane's list card, and on a phone also as a chip above
+the composer, which on a wide screen would only repeat the overview beside it. A tap fills
+the pane's own composer with the exact text; its Send button is the confirmation. A native
+confirm dialog was tried first and dropped: it blocks the page, looks foreign on a phone,
+and leaves no way to edit the text, while the composer is editable, already familiar, and
+the one send path the pane has. They are not tied to Needs you: an agent that finishes
+with "if it looks fine, "merge all" queues 18 PRs" is idle, not asking, and the offer is
+still the fastest way on.
+
+This one is deliberately *not* a model decision, and the reason is the test above run
+backwards. The judgment is easy to express as a rule — the agent marks the text itself,
+with the shell prefix, or quotes that follow "say" or precede what the phrase does
+("queues", "merges"), never any quote — and the output is an action with side effects, so
+a hallucinated or re-typed command is the one failure worth paying code to rule out. The
+field is never the model's: whatever it returns under that name is dropped first.
+
+Detection reads the finished turn's last message, and only from the transcript. The screen
+draws Markdown as plain text, so on screen alone a quote may be any program's argument and
+a `!` row the first line of a script; the transcript still marks code with backticks and
+fences, and does not wrap long rows. The screen is the authority on *which* message is
+live: the transcript counts only when it is the message on screen word for word (so a
+stale transcript, or a "do not" the screen shows before a "say", is caught), and only once
+the turn has ended with nothing typed since.
+
+The remaining rules all came out of review, and all trade recall for never prefilling the
+wrong thing. Nothing is read out of code: a quoted phrase only from a paragraph with no
+code in it, and a command only as an inline code span or as the one row of a fence (a bare
+`!` row may be the first line of a script, and nothing after it reliably says otherwise). A command that may be cut short by a blank row in its script is not
+offered, and the shell itself judges that (`bash -n`, which runs nothing): every
+hand-written check of quotes and keywords passed some grammar bash rejects. A message with
+a heredoc anywhere offers no command; and a message that says "do
+not run" or "don't say" anywhere offers nothing at all, since which command a warning
+covers is not worth guessing. It is Claude Code's alone for now: Codex's screen has no
+message boundary this reads yet. A missed offer costs the old copy-paste; a false one
+would cost a command the user never meant, which is why the tap only fills the composer
+and never sends by itself.
+
 The broader bet: **any interface over content it doesn't control** has a backlog of
 affordances it never shipped because they couldn't be done generically. A thin semantic
 pass is how those become cheap.

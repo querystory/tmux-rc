@@ -39,6 +39,15 @@ def test_a_flash_gone_on_the_second_capture_never_needs_you(monkeypatch):
     assert _tick(w)["activity"] == "running"  # and the next parse never shows it at all
 
 
+def test_a_held_question_takes_its_offers_with_it(monkeypatch):
+    # The user typed before the recapture: neither the ask nor its Run prefill is live.
+    w = _harness(monkeypatch, ["working", "! make deploy", "typed"],
+                 [WORK, {**ASK, "offers": ["! make deploy"]}, WORK])
+    _tick(w)
+    card = _tick(w)
+    assert card["question"] is None and "offers" not in card
+
+
 def test_a_question_still_on_the_second_capture_needs_you_at_once(monkeypatch):
     w = _harness(monkeypatch, ["working", "menu"], [WORK, ASK])
     _tick(w)

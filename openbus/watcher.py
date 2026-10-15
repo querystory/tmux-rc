@@ -21,7 +21,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 
 from . import tmux, transcript
-from .classify import _OMP_CTX_RE, _OPENCODE_RUNNING_RE, bootstrap, classify, question_rows
+from .classify import (
+    _OMP_CTX_RE,
+    _OPENCODE_RUNNING_RE,
+    bootstrap,
+    classify,
+    question_rows,
+    screen_offers,
+)
 from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
@@ -55,7 +62,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 16
+CARD_VERSION = 17
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -892,6 +899,7 @@ class Watcher:
         and items are in `asked`, so a new ask under the same prompt is untouched."""
         if state and Watcher._pending_key(state)[1:] in asked:
             state.update(question=None, activity="running", waiting_on=None)
+            state.pop("offers", None)  # the user is acting on that screen already
             return True
         return False
 
@@ -918,6 +926,7 @@ class Watcher:
                 s.get("session_summary"),
                 Watcher._question_prompt(s), s.get("parsed_at"),
                 s.get("last_activity_at"),
+                tuple(s.get("offers") or ()),  # re-read on an unreparsed screen (_tick_pane)
             ))
             for s in states
         ]
@@ -1392,6 +1401,11 @@ class Watcher:
             cached["updated_at"] = now
             cached["last_activity_at"] = last_activity
             cached["snapshot_id"] = self.snapshots[pane.id][-1]["id"]  # a restore's is stale
+            # Offers send what they say: read off this very screen, which the fingerprint
+            # may call unchanged while a command's "10s" became "20s".
+            cached.pop("offers", None)
+            if offers := screen_offers(text, cached.get("tool"), reply):
+                cached["offers"] = offers
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
@@ -1579,7 +1593,10 @@ class Watcher:
             # Identity, timers and the snapshot id are re-stamped below from live tmux.
             # Links are the exception: a parse fails when its question or rewind is
             # rejected, yet the URLs it read off the screen still stand, and a login
-            # link printed in that turn would otherwise never reach the card.
+            # link printed in that turn would otherwise never reach the card. Offers are the
+            # other: buttons that send, read off this screen alone (classify's _offers),
+            # never the last card's, which the user may have answered since.
+            offers = state.get("offers")
             replacement_tool = state.get("identity_tool")
             previous_tool = previous.get("identity_tool", previous.get("tool"))
             known_replacement = (
@@ -1587,6 +1604,9 @@ class Watcher:
                 and replacement_tool != previous_tool
             )
             state = {**previous, "links": state.get("links") or previous.get("links")}
+            state.pop("offers", None)
+            if offers:
+                state["offers"] = offers
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)

@@ -166,12 +166,25 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row .badge.running { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* the animated logo says it; the text stays for screen readers */
 .badge.compacting { color: var(--purple); }
 .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
-#list-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); flex: none; border-top: 1px solid var(--line); background: var(--surface); padding: 6px 8px max(8px, env(safe-area-inset-bottom)); gap: 4px; }
-#list-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 56px; padding: 6px 2px; font-size: 12px; color: var(--muted); }
-.nav-icon { display: flex; align-items: center; gap: 5px; }
-#list-nav button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
-#list-nav button:last-child[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
+/* The phone's tab bar: Dashboard, Sessions, the mic, Chat and Needs you on a glass pill that
+   floats over the page's foot (which leaves it --bar-room), so the list shows through it.
+   Chat and the mic are toggles in the thumb's reach; only Needs you carries a count. */
+#app { --bar-room: calc(84px + max(8px, env(safe-area-inset-bottom))); }
+#list-nav { position: absolute; z-index: 3; left: 14px; right: 14px; bottom: max(8px, env(safe-area-inset-bottom)); max-width: 480px; margin: 0 auto; display: flex; height: 64px; padding: 4px; border-radius: 32px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent); -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%);
+  border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); box-shadow: 0 12px 32px rgb(0 0 0 / .16), 0 2px 6px rgb(0 0 0 / .08); }
+#list-nav button { flex: 1 1 0; min-width: 0; width: auto; height: auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 2px; border-radius: 28px; font-size: 10.5px; font-weight: 600; white-space: nowrap; color: var(--muted); box-shadow: none; }
+#list-nav svg { width: 22px; height: 22px; }
+#list-nav :is([aria-pressed="true"], #chat.active) { background: var(--accent-bg); color: var(--accent); }
+#list-nav #attention-tab[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
+#list-nav #chat::after { content: attr(aria-label); }
+#list-nav #live-mode { flex: 0 0 52px; height: 52px; align-self: center; margin: 0 4px; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent); }
+#list-nav #live-mode.active { background: var(--red); }
+#list-nav #live-mode svg { width: 26px; height: 26px; }
+.nav-icon { position: relative; display: grid; place-items: center; }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
+#list-nav .count { position: absolute; left: calc(50% + 5px); top: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: var(--surface); line-height: 18px; font-weight: 700; text-align: center; }
+#list-nav .count:empty { display: none; }
 #detail { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .scroller { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 #overview > section { padding: 20px; border-bottom: 1px solid var(--line); }
@@ -201,7 +214,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #events-empty { font-size: 13px; margin-top: 10px; }
 .copyable { margin-top: 12px; }
 .copy-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.copy-heading strong { font-weight: 500; overflow-wrap: anywhere; }
+.copy-heading strong { font-weight: 500; overflow-wrap: anywhere; margin-right: auto; }
+.copy-offer { min-height: 36px; padding: 0 16px; border-radius: 18px; }
 .copyable pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--raised); border-radius: 4px; margin: 0; font-size: 12px; max-height: 200px; overflow: auto; }
 #terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--term-bg); color: #edf2ef; --raised: #252b28; --accent: var(--term-accent); }
 .terminal-toolbar { display: flex; align-items: center; padding: 0 12px; gap: 2px; border-bottom: 1px solid #343d38; }
@@ -261,6 +275,10 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent); }
 #keys::-webkit-scrollbar { display: none; }
+#offers { display: grid; gap: 6px; padding-bottom: 6px; max-height: 25dvh; overflow-y: auto; } /* never pushes the editor off screen */
+#offers:empty { display: none; }
+#offers button { min-height: 44px; padding: 8px 12px; background: var(--raised); text-align: left; font: 13px/1.35 var(--mono); overflow-wrap: anywhere; }
+#offers button::before { content: attr(data-verb); margin-right: 8px; color: var(--accent); font-weight: 600; }
 #keys button { background: var(--raised); padding: 0 12px; flex: none; min-width: 44px; font-size: 13px; }
 #reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
 #reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
@@ -872,7 +890,6 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   #landing .landing-inner { padding: 20px 16px; }
   #landing .atlas-panel { padding: 16px; }
   #landing .atlas-panel > .atlas-panel-heading:first-child { margin-top: -8px; } /* less pull: a phone wraps the controls off the title's line */
-  #list-nav button { font-size: 11px; }
   .sb-only { display: none !important; }
   #sb-scroll, #sb-sticky { display: contents; }
   .search { margin: 8px 16px; border: 0; border-radius: 10px; background: var(--raised); }
@@ -884,23 +901,32 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   .pane-card .sb-replies button { min-height: 40px; padding: 0 14px; border-radius: 20px; font-size: 14px; }
   .pane-card .sb-icon { width: 40px; height: 40px; min-height: 40px; }
   .pane-card #side-reply { min-height: 40px; padding: 9px 12px; border-radius: 20px; font-size: 16px; line-height: 20px; } /* 16px: iOS zooms a smaller field */
-  /* New window floats over the list's foot; sticky, so the list's end scrolls clear of it, and
-     an auto top margin in a column, so a short list still puts it at the bottom. It steps
-     aside while a field has the keyboard up. */
-  body { --fab: 56px; --fab-gap: 16px; }
+  /* The list and the dashboard end clear of the tab bar. */
   #sessions { display: flex; flex-direction: column; }
-  #new-window { position: sticky; bottom: var(--fab-gap); z-index: 5; display: flex; width: var(--fab); height: var(--fab); margin: auto var(--fab-gap) var(--fab-gap) auto; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px rgb(0 0 0 / .3); }
-  #sessions:has(input:focus, [contenteditable]:focus) #new-window { display: none; }
-  /* Its spot is where the minimized chat sits, so on the list the chat rises a button and a gap. */
-  body:has(#sessions:not([hidden])) .chat-bubble { bottom: calc(var(--chat-bubble-bottom) + var(--fab) + var(--fab-gap)); }
+  #sessions, #landing { padding-bottom: var(--bar-room); }
+  .app-header #new-window { color: var(--accent); background: none; }
 }
 
 
-/* Plan limits (usage.js): one flat grid of meters, two to a row. A phone pins it over the
-   list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
-#usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
+/* Plan limits in the session list's strip (usage.js renderStrip): one row of small ring cards
+   (the tab bar mock's modern pass), swiped sideways and snapping per card; the next peeks in
+   at the edge to say there is more. A phone's list opens on it (it scrolls away under the
+   pinned search); wide, it sits on the sidebar's foot. */
+#usage:not([hidden]) { display: flex; gap: 8px; }
+#usage { padding: 8px 16px 10px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; flex: none; cursor: pointer; }
+#usage::-webkit-scrollbar { display: none; }
 #usage[hidden], #app.rail :is(#usage, #usage-handle) { display: none; }
-#usage { cursor: pointer; }
+.usage-card { --u: var(--accent); flex: 0 0 auto; scroll-snap-align: start; display: grid; grid-template-columns: 30px auto; gap: 1px 10px; align-items: center; padding: 8px 14px 8px 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.usage-card.warn { --u: var(--amber); }
+.usage-card.full { --u: var(--red); }
+.usage-ring { grid-row: 1 / 3; width: 30px; height: 30px; border-radius: 50%; background: conic-gradient(var(--u) calc(var(--p) * 1%), var(--raised) 0); display: grid; place-items: center; }
+.usage-ring::after { content: ""; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); }
+.usage-card b { font-size: 14px; line-height: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.usage-card b small { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.usage-card b small.out { color: var(--red); }
+.usage-card > span, .usage-stale { display: flex; align-items: center; gap: 5px; font-size: 11.5px; line-height: 15px; color: var(--muted); white-space: nowrap; }
+.usage-card img { width: 12px; height: 12px; border-radius: 3px; }
+.usage-card.none { grid-template-columns: auto; }
 /* The dashboard's card: the same cells, as many to a row as fit, the trend tall enough to read. */
 .usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
 .usage-board .usage-spark { height: 56px; margin-top: 6px; }
@@ -929,18 +955,14 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 .usage-spark :is(polyline, line) { fill: none; stroke: var(--u); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .usage-spark .proj { stroke-dasharray: 3 3; }
 .usage-spark .limit { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
-@media (max-width: 1099px) { #usage { order: -1; position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); } }
+@media (max-width: 1099px) { #usage { order: -1; border-bottom: 1px solid var(--line); } }
 @media (min-width: 1100px) {
-  #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); scroll-padding-inline: 14px; }
-  /* Its seam (app.js sizeUsage), over the border it moves. Dragged, the cells fill the chosen
-     height and each trend takes what its cell has spare; several accounts' strip stacks
-     --rows of meters, still swiped sideways. Under one row the strip dims: let go to close it. */
+  #usage { padding: 8px 14px 10px; scroll-padding-inline: 14px; border-top: 1px solid var(--line); }
+  /* Its seam (app.js sizeUsage), over the border it moves. Dragged taller, the cards wrap into
+     rows rather than swipe, scrolling what the height cannot show. Under one row the strip
+     dims: let go to close it. */
   #usage-handle { flex: none; position: relative; z-index: 5; height: 9px; margin-bottom: -5px; cursor: row-resize; touch-action: none; }
-  #usage.sized { row-gap: 10px; height: var(--usage-h); max-height: 60%; align-items: stretch; grid-auto-rows: minmax(min-content, 1fr); overflow-y: auto; }
-  #usage.sized.acct-strip:not([hidden]) { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows), minmax(min-content, 1fr)); grid-auto-columns: max-content; overflow-y: hidden; }
-  #usage.sized.acct-strip > .usage-cell { width: calc((100cqw - var(--n) * 16px) / (var(--n) + .3)); }
-  #usage.sized .usage-cell { grid-template-rows: auto 1fr auto; }
-  #usage.sized .usage-spark { height: 100%; min-height: 24px; }
+  #usage.sized { flex-wrap: wrap; align-content: flex-start; height: var(--usage-h); max-height: 60%; overflow-y: auto; }
   #usage.closing { opacity: .4; }
 }
 
@@ -1102,10 +1124,11 @@ button.picked:disabled { opacity: 1; }
 .sb-open .sb-acct { flex: none; max-width: 50%; padding-left: 4px; } /* a long label takes the badge's own ellipsis */
 .sb-acct .acct-badge { font-size: 10.5px; }
 #pane-location .acct-badge { vertical-align: 1px; }
-/* The accounts not in use, folded into a "+N" (usage.js inUse): on the strip's seam (app.js), right, taking no height. */
-#usage-more { flex: none; align-self: flex-end; position: relative; z-index: 5; display: inline-flex; align-items: center; gap: 3px; min-height: 0; margin: -10px 12px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; cursor: pointer; }
+/* The strip's last card (app.js usageEnd): the accounts not in use, folded into a "+N"
+   (usage.js inUse), and how old a kept reading is. */
+.usage-end { flex: none; scroll-snap-align: start; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 4px; padding: 0 4px; }
+#usage-more { display: inline-flex; align-items: center; gap: 3px; min-height: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; cursor: pointer; }
 #usage-more:hover { color: var(--fg); border-color: var(--muted); }
-@media (max-width: 1099px) { #usage-more { order: -1; position: sticky; top: calc(var(--usage-shown, 0px) - 10px); } } /* follows the sticky strip at the list's top (#usage) */
 #app.rail #usage-more { display: none; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
 /* The active filters: each chip is the rows' account chip (.acct-badge) as is, with a small ×. */
@@ -1138,7 +1161,7 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker .acct-opt small { margin-left: 6px; color: var(--muted); }
 /* Under an empty or narrowed list, both layouts: the panes the filter hides, a click away. */
 .empty-needs { align-self: center; margin: -8px auto 12px; padding: 4px 8px; font-size: 12.5px; color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
-.empty-needs[data-all="accounts"] { margin-top: 8px; color: var(--muted); }
+.empty-needs[data-all="filters"] { margin-top: 8px; color: var(--muted); }
 /* The filter button, in both layouts: a bordered square that counts the filters on. */
 #side-filter-picker summary { position: relative; width: 30px; height: 30px; min-height: 30px; padding: 0; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); }
 #side-filter-picker summary:hover, #side-filter-picker[open] summary { background: var(--raised); }
@@ -1146,21 +1169,23 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker summary:not([data-n=""]) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-bg); color: var(--accent); }
 #side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
 #side-filter-picker summary[data-n=""]::after { display: none; }
-/* A phone: the button beside search opens the menu as a bottom sheet, its state left to the
-   tab bar (and its grouping to the wide list); the active filters' chips sit under search. */
+/* A phone: the list opens on plan usage, which scrolls away under search and the filter
+   button, pinned. The button opens the menu as a bottom sheet (its grouping is the wide
+   list's), and it and the list's foot say what is filtered: no chips under search. */
 @media (max-width: 1099px) {
-  #find { display: flex; align-items: center; padding-right: 16px; }
+  #find { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; padding-right: 16px; background: var(--bg); }
+  #sessions .acct-pill { display: none; }
   #find .search { flex: 1; min-width: 0; margin-right: 8px; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
   #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
-  #side-filter-picker :is([aria-label="State"], [aria-label="Group by"]) { display: none; }
+  #side-filter-picker [aria-label="Group by"] { display: none; }
   #side-filter-picker .acct-opt { min-height: 44px; font-size: 15px; }
 }
 #app.rail .acct-pill { display: none; }
 /* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third
    of the next peeks in under the fade, so the row reads as one that scrolls: two on a phone,
    one in a narrow sidebar, three where there is room. */
-:is(#usage, #usage-board).acct-strip:not([hidden]) { display: flex; }
+#usage-board.acct-strip:not([hidden]) { display: flex; }
 .acct-strip { container: strip / inline-size; gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; }
 #usage-board.acct-strip { scroll-padding-inline: 0; }
 .acct-strip::-webkit-scrollbar { display: none; }
