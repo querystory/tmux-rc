@@ -572,19 +572,20 @@ def test_failed_parse_never_restores_the_last_cards_offers(monkeypatch):
 
 def test_an_unreparsed_screen_still_reads_its_own_offers(monkeypatch):
     """The fingerprint ignores durations, so "10s" -> "20s" reuses the card, but its offer
-    must be the command now on screen."""
+    must still be what the screen shows: the 10s transcript no longer is."""
     screen = "● Run:\n\n  ! timeout {} make deploy\n\n✻ Worked for 3s\n\n❯\n"
     frame = [screen.format("10s")]
     w, calls = _harness(monkeypatch, frame)
+    monkeypatch.setattr(W.transcript, "last_reply",
+                        lambda *_a: "Run:\n\n```\n! timeout 10s make deploy\n```")
     monkeypatch.setattr(W, "classify", lambda *_a, **_kw: calls.__setitem__("n", calls["n"] + 1)
                         or {"activity": "idle", "tool": "claude", "events": [],
                             "offers": ["! timeout 10s make deploy"]})
     pane = _Pane(current_command="node")
-    for duration in ("10s", "20s"):
+    for duration, offers in (("10s", ["! timeout 10s make deploy"]), ("20s", None)):
         frame[0] = screen.format(duration)
         w._forced_this_tick = set()
-        state = w._tick_pane(pane)
-        assert state["offers"] == [f"! timeout {duration} make deploy"]
+        assert w._tick_pane(pane).get("offers") == offers
     assert calls["n"] == 1, "the second screen was not reparsed"
 
 

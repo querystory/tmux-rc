@@ -1049,23 +1049,20 @@ def _plain(text: str) -> str:
 
 
 def _offers(message: str, reply: str | None) -> list[str]:
-    """The replies the final message offers, as tap-to-send buttons. The transcript's copy is
-    read instead of the screen's (inline code keeps its backticks there, and long rows are not
-    wrapped), but only when it is the whole message on screen, word for word, so its context (a
-    "do not" before a say) is the screen's too. Each offer must show on screen whole and bounded
-    (a `merge 41` is not the `merge 415` on screen), each space a space or the screen's wrap, so
-    `a b` is not `a  b`. A message with the user's own row in it (a new turn that failed before
-    any reply) or a tool's result (⎿: its output, or the error that ended it) is not the agent
-    handing anything over."""
+    """The replies the final message offers, as tap-to-send buttons, read off the transcript's
+    copy of it (code is marked there, and long rows are not wrapped), and only when that is the
+    whole message on screen, word for word, so its context (a "do not" before a say) is the
+    screen's too. The screen alone offers nothing: it draws code as plain text, so a quote may
+    be any program's argument and a command row the first of a script. Each offer must show on
+    screen whole and bounded (a `merge 41` is not the `merge 415` on screen), each space a space
+    or the screen's wrap, so `a b` is not `a  b`. A message with the user's own row in it (a new
+    turn that failed before any reply) or a tool's result (⎿: its output, or the error that
+    ended it) is not the agent handing anything over."""
     if _USER_ROW_RE.search(message) or re.search(r"(?m)^[ \t]*⎿", message):
         return []
-    # One source, never both: a command's own quotes, unmarked on screen, are no reply. And a
-    # quoted phrase only from the transcript: the screen draws code unmarked, so a quote on
-    # it may be any program's argument.
-    marked = bool(reply) and _plain(reply) == _plain(message)
-    t = reply if marked else message
-    if _FORBIDS_RE.search(_plain(t)):
+    if not reply or _plain(reply) != _plain(message) or _FORBIDS_RE.search(_plain(reply)):
         return []
+    t = reply
     # Each code range, with a fence's count of rows: a command row is a fence's to offer only
     # when it is all the fence holds (any more may be a script it belongs to, or data).
     code = [(c.start(), c.end(),
@@ -1076,14 +1073,18 @@ def _offers(message: str, reply: str | None) -> list[str]:
         if m.lastindex > 3:  # a quote: only in a transcript paragraph with no code at all,
             para = (re.split(r"\n[ \t]*\n", t[:m.start()])[-1]  # nor inside a fence's
                     + re.split(r"\n[ \t]*\n", t[m.start():])[0])
-            return marked and not any(a <= m.start() < b for a, b, _ in code) and not (
+            return not any(a <= m.start() < b for a, b, _ in code) and not (
                 re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
         # A command: never where a heredoc may hold it as data, nor in an indented block (a
-        # Markdown script, any row of which may be the whole), nor as an inline span but from
-        # the transcript (backticks on screen are text), nor inside code other than as itself.
+        # Markdown script, any row of which may be the whole), nor inside code other than as
+        # itself; and a row of its own outside a fence only before prose (a sentence), not
+        # before more of what may be its script ("make deploy" after a blank row).
         row = t[t.rfind("\n", 0, m.start()) + 1:m.start(m.lastindex)]
-        return "<<" not in t and not re.match(r" {4}|\t", row) and (
-            m.lastindex == 3 or marked) and not any(
+        fenced = any(a < m.start() < b and rows for a, b, rows in code)
+        after = re.split(r"\n[ \t]*\n", t[m.end():].strip(), maxsplit=1)[0].strip()
+        return "<<" not in t and not re.match(r" {4}|\t", row) and not (
+            m.lastindex == 3 and not fenced and after and not re.search(r"[.!?:)]$", after)
+        ) and not any(
             a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
             for a, b, rows in code)
 

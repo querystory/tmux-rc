@@ -1390,8 +1390,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
     screen, model = _auto_screen(message), _llm({"offers": ["rm -rf ~"]})
     assert classify(_pane("claude"), screen, model, reply=message)["offers"] == [
         command, "merge 415", "merge all ✅"]
-    # Without the transcript, a quote may be any program's argument: commands only.
-    assert classify(_pane("claude"), screen, model)["offers"] == [command]
+    # Without the transcript, nothing: the screen draws code as plain text.
+    assert "offers" not in classify(_pane("claude"), screen, model)
     fixture = "Fixture:\n\n```bash\nprintf 'say \"merge all\"'\n```\n\nSay \"ship it\" to go on."
     shown = _auto_screen("Fixture:\n\n  printf 'say \"merge all\"'\n\n  Say \"ship it\" to go on.")
     assert classify(_pane("claude"), shown, model, reply=fixture)["offers"] == ["ship it"]
@@ -1409,7 +1409,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
     wrapped = "Run:\n\n  ! gh pr merge\n  `cat /tmp/pr` --squash"  # a row the screen wraps
     assert "offers" not in classify(_pane("claude"), _auto_screen(wrapped), _llm({}))
     fence = "Run:\n\n```\n! make deploy\n```"
-    assert classify(_pane("claude"), _auto_screen(fence), _llm({}))["offers"] == ["! make deploy"]
+    assert classify(_pane("claude"), _auto_screen("Run:\n\n  ! make deploy"), _llm({}),
+                    reply=fence)["offers"] == ["! make deploy"]
     for mark in ("~~~", "````"):  # any fence, with its transcript
         fenced = f"Run:\n\n{mark}\n! make deploy\n{mark}"
         assert classify(_pane("claude"), _auto_screen("Run:\n\n  ! make deploy"), _llm({}),
@@ -1484,6 +1485,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
          "Run:\n\n```\n! make clean\n\n`command -v make` deploy\n```"),  # a row opening "`"
         (_auto_screen("Run:\n\n  ! deploy()\n\n  { make deploy; }"), None),  # a function
         (_auto_screen("Run:\n\n  ! if true; then if true; then echo ok; fi\n\n  fi"), None),
+        (_auto_screen("Run:\n\n  ! make clean\n\n  make deploy"),
+         "Run:\n\n! make clean\n\nmake deploy"),  # more of its script after a blank row
         (_auto_screen("Fixture:\n\n  ! make test\n\n  make deploy"),
          "Fixture:\n\n    ! make test\n\n    make deploy"),  # an indented script
         (_auto_screen("Run:\n\n  ! make test &&\n\n  make deploy"),
