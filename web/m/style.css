@@ -1259,6 +1259,8 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 #landing-main > #restore h3 { margin: 0 0 4px; font-size: 22px; text-transform: none; letter-spacing: normal; color: inherit; }
 #landing-main > #restore > p { font-size: 15px; }
 #landing-main:has(> #restore:not([hidden])) > :is(#landing-title, #landing-sub, #landing-start) { display: none; }
+/* Heading an empty list, the offer is the whole screen: nothing to search, and Start fresh says start. */
+#sessions:has(#restore:not([hidden]) + #pane-list:empty) :is(#find, #usage, #usage-handle, #empty, #list-start) { display: none; }
 #restore h3 { margin: 0 0 4px; font-size: 15px; }
 #restore > p { margin: 0 0 10px; font-size: 13px; }
 .restore-session summary { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; }
