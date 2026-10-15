@@ -706,7 +706,7 @@ const paintUsage = steady(() => {
   const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
   show("usage-panel", board.length > 0);
   draw($("usage-board"), several ? accounts.byUrgency(board) : board);
-  usageEnd($("usage-board"), board);
+  usageEnd($("usage-panel"), board); // under the board, which may scroll sideways
   accounts.strip($("usage-board"), WIDE.matches && $("usage-board").classList.contains("usage-groups")); // a row of groups too narrow scrolls rather than wraps
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them

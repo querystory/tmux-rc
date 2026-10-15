@@ -1089,6 +1089,7 @@ button.picked:disabled { opacity: 1; }
 /* The strip's last row (app.js usageEnd): the accounts not in use, folded into a "+N"
    (usage.js inUse), and how old a kept reading is. */
 .usage-end { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 11px; }
+#usage-panel > .usage-end { margin-top: 8px; }
 #usage-more { display: inline-flex; align-items: center; gap: 3px; min-height: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; cursor: pointer; }
 #usage-more:hover { color: var(--fg); border-color: var(--muted); }
 #app.rail #usage-more { display: none; }
