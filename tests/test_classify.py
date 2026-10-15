@@ -1455,6 +1455,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
          "Use this: `printf '%s'\n'say \"merge all\"'`"),  # a span over two rows
         (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
          "Use this:\n \n    printf 'say \"merge all\"'"),  # a blank row holding a space
+        (_auto_screen('Data:\n\n  status: done\n\n  Say "merge all" now.\n\n  end'),
+         'Data:\n\n```\nstatus: done\n\nSay "merge all" now.\n\nend\n```'),  # a fence's prose
         (_auto_screen("Run:\n\n  ! cat <<'EOF'\n\n  hi\n  EOF"),
          "Run:\n\n```\n! cat <<'EOF'\n\nhi\nEOF\n```"),  # a heredoc
         (_auto_screen("Run:\n\n  ! python -c 'print(1)\n\n  print(2)'"),

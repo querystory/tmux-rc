@@ -1065,10 +1065,11 @@ def _offers(message: str, reply: str | None) -> list[str]:
     code = [(c.start(), c.end(), bool(c["fence"])) for c in _CODE_RE.finditer(t)]
 
     def offered(m: re.Match) -> bool:
-        if m.lastindex > 3:  # a quote: only in a transcript paragraph with no code at all
-            para = (re.split(r"\n[ \t]*\n", t[:m.start()])[-1]
+        if m.lastindex > 3:  # a quote: only in a transcript paragraph with no code at all,
+            para = (re.split(r"\n[ \t]*\n", t[:m.start()])[-1]  # nor inside a fence's
                     + re.split(r"\n[ \t]*\n", t[m.start():])[0])
-            return marked and not re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE)
+            return marked and not any(a <= m.start() < b for a, b, _ in code) and not (
+                re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
         return not any(a <= m.start() < b and a != m.start() and not (fence and m.lastindex == 3)
                        for a, b, fence in code)  # inside code, and not as itself
 
