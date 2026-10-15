@@ -357,12 +357,12 @@ killed, restored agents and all, on the next deploy: the incident again. The ser
 start in its own scope or unit.
 
 It also must not inherit the unit's deliberately minimal PATH, under which an
-nvm-installed `claude` does not resolve. Panes start under the user's login shell, which
-receives the resume argv as positional arguments, runs it, and then continues as an
-interactive shell in the same directory. PATH comes from the user's profile; the
-arguments are never parsed as shell syntax, the promise agent-history's `resume_argv`
-makes; and when the agent exits, normally or at once, the pane survives as a shell
-instead of closing and taking its place in the layout with it.
+nvm-installed `claude` does not resolve. Every pane starts as the user's login shell in
+its directory, and an agent's resume is typed into that shell, as the hand restore did:
+PATH comes from the user's profile, and when the agent exits, normally or at once, the
+pane survives as a shell instead of closing and taking its place in the layout with it.
+The typed line is agent-history's `resume_argv` shell-quoted word by word, so nothing in
+it is interpreted as shell syntax, the promise `resume_argv` makes.
 
 ### Per pane
 
@@ -439,7 +439,7 @@ tag rather than creating it again beside the first. A window link (`link-window`
 a relation, not an object, so it carries no tag of its own: recovery checks whether the
 tagged window already sits at its saved index in the tagged session, and links it only if
 not. A launch is different: an agent that
-started and already exited leaves nothing to find. So before each respawn the run
+started and already exited leaves nothing to find. So before each launch the run
 records the attempt, and recovery treats an attempt with no outcome as indeterminate: the
 pane is marked on the card for a manual retry, never launched again unconfirmed. tmux ids are only unique within one server, and a replacement server reuses them,
 so all of it is scoped to that destination identity. A daemon that restarts mid-restore
@@ -465,7 +465,13 @@ runs again, so a session resumed by hand meanwhile is skipped. That check and it
 come from Live Mode's `resume_session`, which today always opens a new window. They move into
 one shared primitive, "start this session in this pane unless it is already running",
 that takes a target pane: Live Mode passes a pane it just opened, restore passes the prebuilt
-one, which the primitive respawns with the launch command. One path, not two.
+one, whose shell the primitive types the launch into. One path, not two.
+The reservation's lifetime changes with it. Live Mode's holds a session while the pane's
+pid is the one it launched, which works because its window runs the agent directly, so
+that pid dies with the agent. Under restore's launcher the pane's pid is the shell that
+outlives the agent, and that test would block every later resume or retry of a session
+whose launch failed. So the primitive holds the reservation through startup and releases
+it when the agent process exits or its launch fails, not when the pane goes away.
 
 **Audit.** Each launch writes a record of an explicit allowlist: actor, harness, session id,
 pane id and an outcome code. It is not Live Mode's resume record, which also carries window
