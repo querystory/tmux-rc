@@ -1376,6 +1376,13 @@ def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 
 
+def test_codex_offers_nothing_yet():
+    screen = ('\x1e[visible screen]\x1f\n• Ran cat notes.txt\n  └ Say "merge all" now.\n'
+              "■ Selected model is at capacity. Please try a different model.\n\n› ")
+    result = classify(_pane("codex"), screen, _llm({}))
+    assert "offers" not in result and result["question"]["options"] == ["try again"]
+
+
 def test_finished_turn_offers_the_replies_it_hands_over():
     command = "! gh pr update-branch 5269 && gh pr merge 5269 --squash --auto"
     message = (f"Run it yourself with the ! prefix:\n\n  {command}\n\n  That updates the branch."

@@ -1417,7 +1417,8 @@ def classify(
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
     result.pop("offers", None)  # buttons that send: the screen's alone, never the model's
-    if final and (offers := _offers(final, reply)):
+    # Claude's only: Codex's messages and tool output have no boundary read here yet.
+    if final and tool == "claude" and (offers := _offers(final, reply)):
         result["offers"] = offers
     if final and (ask := _final_ask(visible, tool, final)):
         if ask.get("options") == ["try again"]:
