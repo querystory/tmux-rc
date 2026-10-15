@@ -222,8 +222,8 @@ corpus dir, and `tests/test_public_data.py` rejects the usual tells.
 
 ## Adding a sample
 
-1. Capture or author the pane text. If real, scrub only other-codebase content / secrets
-   (see above).
+1. Author the pane text from scratch (see above): a local capture may show you the shape
+   that triggers the bug, but none of its text goes in the sample.
 2. Decide the blessed `expected` — the structured fields the UI must get right, plus a
    headline that captures the situation.
 3. Write `samples/NN_short_name.json` in the shape above.
