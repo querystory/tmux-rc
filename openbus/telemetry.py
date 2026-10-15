@@ -22,7 +22,7 @@ Config (env):
   OTEL_EXPORTER_OTLP_ENDPOINT   receiver URL (gRPC). Unset ⇒ telemetry disabled.
   OTEL_EXPORTER_OTLP_HEADERS    e.g. "authorization=Bearer <token>"
   TMUXRC_QSDEBUG=1              attach raw pane text + output JSON (default: off)
-Both values come from whoever runs your receiver; nothing here names one.
+The endpoint and token come from whoever runs your receiver.
 """
 
 from __future__ import annotations
