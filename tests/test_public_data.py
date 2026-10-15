@@ -16,7 +16,7 @@ SAMPLES = sorted((ROOT / "research/eval/samples").glob("*.json"))
 # A login, an address outside the example domains, or a credential shape.
 IDENTITY = (r"shapor|/Users/"
             r"|[\w.+-]+@(?!(?:[\w-]+\.)*(?:example\.(?:com|net|org)|example-org\.com)(?![\w-]|\.\w))"
-            r"[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
+            r"[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{2,}\b|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
             r"|AKIA[0-9A-Z]{8}|AIza[0-9A-Za-z_-]{10}|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY")
 PRIVATE = re.compile(IDENTITY, re.IGNORECASE)
 # How a sample says it was copied off a real screen.
@@ -35,7 +35,8 @@ FIXTURES = [*SAMPLES, *(ROOT / "research/eval/closing_questions").glob("*.json")
     ("user@example.com.", False), ("dev@ci.example-org.com", False), ("x@4.149.0", False),
     ("x@example.com.other.invalid", True), ("x@example.com-mail.invalid", True),
     ("x@examplebusiness.invalid", True), ("x@1mail.invalid", True),
-    ("x@example-org.net", True), ("x@a.example-org.org", True)])
+    ("x@example-org.net", True), ("x@a.example-org.org", True),
+    ("x@mail.рф", True), ("x@mail.公司", True)])
 def test_only_example_addresses_pass(text, private):
     assert bool(PRIVATE.search(text)) is private
 
