@@ -1,8 +1,9 @@
 // Ordered text/image model: what is sent is the draft in the order it was typed.
-// U+200B holds the caret after an image (see insert()). Every one is dropped from what is
+// U+200B holds the caret after an image (see insert()); every chip is followed by one. Every one is dropped from what is
 // sent: it is invisible, so a draft that kept the user's own could not show it, and the
 // spacer survives typing, copy and paste in places no marker could follow.
 const ZW = /\u200B/g;
+const spacer = () => document.createTextNode("\u200B");
 export class Composer {
   // The Live chat (/live-chat.js) reuses this editor under its own id and label.
   constructor(changed, error, { id = "reply", label = "Message this pane", max = Infinity } = {}) {
@@ -56,7 +57,7 @@ export class Composer {
     range.deleteContents(); range.insertNode(node);
     // iOS moves a caret at the boundary after a non-editable chip to before it, so the caret
     // goes inside a zero-width text node that follows the chip.
-    const holder = this.files.has(node) ? document.createTextNode("\u200B") : null;
+    const holder = this.files.has(node) ? spacer() : null;
     holder && node.after(holder);
     this.edited(); // before the caret is placed, so a chip's filler <br> is already there
     if (!node.isConnected) return; // an empty paste into an empty box, which edited() cleared
@@ -129,7 +130,7 @@ export class Composer {
     return segments;
   }
   replace(segments) {
-    this.editor.replaceChildren(...segments.map((segment) => segment.chip || document.createTextNode(segment.text)));
+    this.editor.replaceChildren(...segments.flatMap((s) => s.chip ? [s.chip, spacer()] : [document.createTextNode(s.text)]));
     this.edited();
   }
 }
