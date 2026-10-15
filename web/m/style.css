@@ -22,6 +22,9 @@
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 html, body { position: fixed; inset: 0; overflow: hidden; }
+/* iOS Safari's text autosizing boosts some blocks (long terminal lines in a wide scroller)
+   to about twice the set size after a layout change. The page sizes its own text. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 /* Until app.js runs, the markup is a skeleton: icon buttons ship empty and both brand rows
    show, since app.js picks the layout. Over a slow tunnel that lasts seconds, so show a
    plain loading line instead of the half-built chrome. If app.js never gets there, the
@@ -371,9 +374,13 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .voice-entry.error, .voice-entry.typed { align-self: stretch; max-width: none; background: transparent; border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; }
 .voice-entry.error, .voice-entry.error strong { color: var(--red); }
 .voice-entry.typed, .voice-entry.typed strong { color: var(--amber); }
+/* A status line (a restored reconnect): one quiet line, no bubble, no heading. */
+.voice-entry.note { align-self: center; padding: 0; background: none; color: var(--muted); font-size: 12px; }
+.voice-entry.note > strong { display: none; }
 .voice-entry.propose { align-self: stretch; max-width: none; background: transparent; border: 1px solid var(--accent); border-radius: 8px; font-size: 14px; }
 .voice-entry.propose strong { color: var(--accent); }
 .voice-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.voice-warn { color: var(--amber); }
 /* What a card or a typed line does to a pane: the pane as its row shows it, keys as keycaps,
    typed text quoted in italics under the line. */
 .voice-pane img { width: 1em; height: 1em; margin-right: 4px; vertical-align: -0.12em; object-fit: contain; }
@@ -528,15 +535,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #find .search-clear { width: 24px; height: 24px; min-height: 24px; margin: 0; }
 #find .search-clear svg { width: 15px; height: 15px; }
 /* The filter: a bordered button the box's height; on, it is tinted and counts its filters. */
-#side-filter-picker summary { position: relative; width: 30px; height: 30px; min-height: 30px; padding: 0; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); }
-#side-filter-picker summary:hover, #side-filter-picker[open] summary { background: var(--raised); }
-#side-filter-picker summary > span { display: none; }
-#side-filter-picker summary:not([data-n=""]) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-bg); color: var(--accent); }
-#side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
-#side-filter-picker summary[data-n=""]::after { display: none; }
 #side-list { flex: none; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
-.empty-needs { align-self: center; margin: -8px auto 12px; padding: 4px 8px; font-size: 12.5px; color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
 #app.rail .empty-needs { display: none; }
 /* The Sessions title's counts, muted (green is the +'s): the panes beside the title, and the
    sub-agents with the eye that says whether those are listed, right-aligned just left of the +.
@@ -682,13 +682,14 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .loop-orphan { font-size: 12px; color: var(--amber); }
 .loop-notes { margin-top: 16px; }
 /* The Open loops card: a tile per lane (each opens the page at its lane), then the top rows. */
-.loop-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
-.loop-count { display: flex; flex-direction: column; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--c); }
-.loop-count b { font-size: 24px; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.loop-count span { font-size: 12px; color: var(--muted); }
-.loop-count.waiting { --c: var(--amber); background: var(--amber-bg); border-color: transparent; }
-.loop-count.moving { --c: var(--accent); }
-.loop-count.dropped { --c: var(--red); }
+/* The dashboard's KPI tiles: a big coloured number over its label (Open loops, Running by hour). */
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
+.kpi { display: flex; flex-direction: column; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--c); }
+.kpi b { font-size: 24px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 12px; color: var(--muted); }
+.kpi.waiting { --c: var(--amber); background: var(--amber-bg); border-color: transparent; }
+.kpi.moving { --c: var(--accent); }
+.kpi.dropped { --c: var(--red); }
 #loops-card h4 { margin: 8px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 #loops-card .loop-row:first-of-type { border-top: 0; }
 #loops-card .loop-row a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -756,7 +757,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .atlas-controls-label { font-size: 13px; }
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
-.atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
+.atlas-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
 
 .atlas-range { margin: 0 0 0 auto; min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 4px 8px; }
 
@@ -824,7 +825,8 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #pane-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 #expunge-pane, #expunge-confirm { color: var(--red); }
 #expunge-caveat { color: var(--muted); font-size: 13px; }
-#expunge-confirm { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
+#expunge-confirm, #expunge-cancel { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
+#expunge-cancel { margin-top: 8px; border-color: var(--line); font-weight: 400; }
 .header-picker-menu input { accent-color: var(--accent); }
 
 .header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -941,6 +943,12 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
 .atlas-tool-filter img { object-fit: contain; }
+/* A phone swaps the agent chips, which wrap there, for a select beside the session one. */
+.atlas-tool-picker { display: none; }
+@media (max-width: 699px) {
+  .atlas-controls > :is(.atlas-controls-label, .atlas-tool-filter) { display: none; }
+  .atlas-controls > .atlas-picker { display: block; flex: 1 1 0; min-width: 0; margin-left: 0; }
+}
 
 /* Keep the standalone root in normal flow to avoid WebKit fixed-root clipping.
    Include the top safe area for translucent installs; opaque installs report
@@ -1034,6 +1042,14 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 .heat-total { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 8px; padding-left: 8px; --u: var(--chart-s1); }
 .heat-total .usage-bar { margin: 0; grid-column: auto; }
 .heat-total b { min-width: 4ch; text-align: right; font-weight: normal; } /* regular: bold glyphs in this grid rasterised differently run to run */
+/* The card's grid takes the height its row leaves (contain: size, so it never sets the row),
+   its rows sharing it, over the figures: 2×2, or one row once the card is wide. */
+.atlas-heat-card { display: flex; flex-direction: column; container-type: inline-size; }
+.atlas-heat-card > .heat-grid { flex: 1 1 auto; contain: size; min-height: calc(14px + 7 * (var(--rh) + 2px)); grid-template-rows: 14px; grid-auto-rows: minmax(0, 1fr); }
+.atlas-heat-card .heat-cell { height: auto; align-self: stretch; }
+.heat-kpis { --c: var(--accent); grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 12px 0 0; }
+.heat-kpis .kpi span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (min-width: 600px) { .heat-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .atlas-detail-card { cursor: pointer; }
 .atlas-detail-card:hover { border-color: var(--muted); }
 .heat-foot { margin: 12px 0 0; font-size: 12px; text-align: center; }
@@ -1055,11 +1071,12 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   .heat-total .usage-bar { display: none; }
 }
 /* A window being killed or expunged from here (markEnding): greyed, its label under a spinner.
-   A tapped answer (button.picked) spins the same way while its send and the agent catch up. */
+   A tapped answer (button.picked) spins the same way while its send and the agent catch up,
+   and so does a card line the daemon has not summarized yet (markLine's .pending). */
 .ending { opacity: .55; }
 .ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
-:is(.ending :is(.badge, .sb-open .a, .m), button.picked)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
-@media (prefers-reduced-motion: no-preference) { :is(.ending :is(.badge, .sb-open .a, .m), button.picked)::before { animation: logo-spin .8s linear infinite; } }
+:is(.ending :is(.badge, .sb-open .a, .m), button.picked, .pending)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) { :is(.ending :is(.badge, .sb-open .a, .m), button.picked, .pending)::before { animation: logo-spin .8s linear infinite; } }
 button.picked:disabled { opacity: 1; }
 
 /* Agent accounts (accounts.js): drawn only for a provider with two or more. */
@@ -1104,14 +1121,25 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 /* The groups without dots line up with the dotted ones' names. */
 #side-filter-picker :is([data-v]:not(:has(.acct-dot)), .menu-clear) { padding-left: 26px; }
-/* A phone: one row of chips under search, while the pill under the header speaks for the
-   views without that list (the dashboard). */
+/* Under an empty or narrowed list, both layouts: the panes the filter hides, a click away. */
+.empty-needs { align-self: center; margin: -8px auto 12px; padding: 4px 8px; font-size: 12.5px; color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
+.empty-needs[data-all="accounts"] { margin-top: 8px; color: var(--muted); }
+/* The filter button, in both layouts: a bordered square that counts the filters on. */
+#side-filter-picker summary { position: relative; width: 30px; height: 30px; min-height: 30px; padding: 0; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); }
+#side-filter-picker summary:hover, #side-filter-picker[open] summary { background: var(--raised); }
+#side-filter-picker summary > span { display: none; }
+#side-filter-picker summary:not([data-n=""]) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-bg); color: var(--accent); }
+#side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
+#side-filter-picker summary[data-n=""]::after { display: none; }
+/* A phone: the button beside search opens the menu as a bottom sheet, its state left to the
+   tab bar (and its grouping to the wide list); the active filters' chips sit under search. */
 @media (max-width: 1099px) {
-  #acct-filter:not([hidden]) { display: flex; flex: none; gap: 6px; padding: 0 16px 10px; }
-  #acct-filter :is(hr, .menu-sec, .acct-dot.none, .acct-all) { display: none; }
-  #acct-filter .acct-opt { display: inline-flex; align-items: center; flex: none; gap: 5px; min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; white-space: nowrap; color: var(--fg); }
-  #acct-filter .acct-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
-  body:has(#sessions:not([hidden])) .acct-pill { display: none; }
+  #find { display: flex; align-items: center; padding-right: 16px; }
+  #find .search { flex: 1; min-width: 0; margin-right: 8px; }
+  #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
+  #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
+  #side-filter-picker :is([aria-label="State"], [aria-label="Group by"]) { display: none; }
+  #side-filter-picker .acct-opt { min-height: 44px; font-size: 15px; }
 }
 #app.rail .acct-pill { display: none; }
 /* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third
@@ -1150,8 +1178,7 @@ button.picked:disabled { opacity: 1; }
 .uv-errs { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-right: auto; } /* unreadable accounts, at the bar's left */
 .uv-errs:empty { display: none; }
 .uv-stack { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-.uv-card { min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px 4px; }
-.uv-card[hidden], .uv-tabs[hidden] { display: none; }
+.uv-card { position: relative; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px 4px; }
 .uv-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; padding: 0 4px; }
 .landing-inner .uv-head h3 { margin: 0; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--fg); }
 .uv-head h3 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 4px; }
@@ -1160,8 +1187,18 @@ button.picked:disabled { opacity: 1; }
 .uv-pick[aria-pressed="true"] .acct-badge { background: color-mix(in srgb, var(--a) 26%, transparent); border-color: var(--a); } /* the chart's bands follow it */
 .uv-read b { font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; }
 .uv-read b.warn { color: var(--amber); }
+.uv-status { white-space: nowrap; }
 .uv-read :is(b.full, .out) { color: var(--red); }
 .uv-chart { flex: 1; min-height: 140px; }
+.uv-tip { position: absolute; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 0 7px; padding: 1px 4px; font-size: 11.5px; line-height: 18px; color: var(--fg); background: var(--surface); border-bottom: 1px solid var(--line); white-space: nowrap; pointer-events: none; }
+.uv-tip[hidden] { display: none; }
+.uv-tip em { display: inline-block; max-width: 4.5em; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; font-style: normal; color: var(--muted); }
+.uv-key { display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: flex-end; font-size: 11.5px; color: var(--muted); }
+.uv-key span { display: inline-flex; align-items: center; gap: 4px; }
+.uv-key i { width: 16px; height: 11px; border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 2px; }
+.uv-key i.now { background: color-mix(in srgb, var(--chart-s5) 16%, transparent); } /* as the chart's band (usage-view.js) */
+.uv-key i.was { background: color-mix(in srgb, var(--raised) 60%, transparent); margin-right: -4px; }
+.uv-key i.fc { width: 20px; height: 0; border: 0; border-top: 2px dashed var(--muted); }
 .uv-card.empty { padding-bottom: 10px; }
 .uv-card.empty .uv-chart { display: none; }
 .uv-none { color: var(--muted); font-size: 13px; }
@@ -1169,25 +1206,31 @@ button.picked:disabled { opacity: 1; }
 .uv-filter summary::after { display: none; }
 .uv-filter summary.on { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
 .uv-filter .header-picker-menu { min-width: 180px; }
+/* A phone's page grows with its stacked charts. The container below is #dash-page itself, which
+   its own query cannot select, so the viewport decides this one. */
+@media (max-width: 699px) { #dash-page:has(> .usage-view) { height: auto; } }
 @container dash-page (max-width: 699px) {
-  #landing .usage-view { min-height: 460px; gap: 10px; padding: 12px 6px 4px; }
+  /* A phone: the charts stacked to scroll, each landscape, 5-hour and Weekly on the first screen. */
+  #landing .usage-view { flex: none; min-height: 0; gap: 8px; padding: 10px 6px 4px; }
+  .uv-bar { justify-content: space-between; gap: 6px 8px; }
+  .uv-bar .fleet-seg button { min-width: 0; padding: 2px 8px; }
+  .uv-span { order: 2; flex-basis: 100%; font-size: 12px; }
+  .uv-stack { display: flex; flex-direction: column; gap: 14px; }
   .uv-card { border: 0; padding: 0; }
-  .uv-bar { justify-content: space-between; }
-  .uv-tabs { order: 1; }
-  .uv-span { order: 2; flex-basis: 100%; }
-  .uv-head h3 { display: none; } /* the tab names the chart */
+  .uv-chart { flex: none; min-height: 0; height: 180px; }
+  .uv-card.slid .uv-chart { height: 218px; } /* the zoom slider's room, under the chart that has it */
   /* The legend as a table: a row per account (chip, %, one status), each row one height. */
-  .uv-head { display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: center; gap: 2px 10px; padding: 0 2px; }
+  .uv-head { display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: center; gap: 0 10px; padding: 0 2px; }
+  .landing-inner .uv-head h3 { grid-column: 1 / -1; font-size: 14px; }
   .uv-read { display: contents; font-size: 13px; cursor: pointer; }
-  .uv-read > * { min-height: 26px; display: flex; align-items: center; }
+  .uv-read > * { min-height: 24px; display: flex; align-items: center; }
   .uv-read b { font-size: 15px; justify-content: flex-end; }
   .uv-read > span { white-space: nowrap; overflow: hidden; }
   .uv-pick { min-width: 0; }
   .uv-pick .acct-badge { min-width: 0; }
-  .uv-at, .uv-read:has(.out) .uv-reset { display: none; }
+  .uv-at { display: none; }
+  .uv-read > .uv-status { display: block; line-height: 24px; overflow: hidden; text-overflow: ellipsis; }
   .uv-none { grid-column: 1 / -1; }
-  .uv-bar { gap: 8px; }
-  .uv-bar .fleet-seg button { min-width: 0; padding: 2px 8px; }
 }
 /* New window's picker and the Accounts dialog. */
 .acct-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 6px; }

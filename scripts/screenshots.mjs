@@ -37,7 +37,7 @@ const SHOTS = [
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
   ["wide-sessions", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
   ["mobile-open-loops", PHONE, "light", "#view=loops", showLoops],
-  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card .loop-count")],
+  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card [data-lane]")],
   ["mobile-sessions", PHONE, "dark", "#view=dashboard", reach(".atlas-multiples")],
   ["wide-activity", WIDE, "light", "#view=dashboard", reach(".atlas-pulse", true)],
   ["mobile-activity", PHONE, "dark", "#view=dashboard", reach(".atlas-pulse", true)],
@@ -46,11 +46,12 @@ const SHOTS = [
   ["mobile-settings", PHONE, "light", "", (page) => page.click("#settings-open")],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
-  ["mobile-usage-weekly", PHONE, "light", "#view=usage", pickRange("Weekly")],
+  ["mobile-usage-30d", PHONE, "light", "#view=usage", pickRange("30d")],
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-question-items", PHONE, "light", "#pane=%2546"],
+  ["mobile-question-subject", PHONE, "light", "#pane=%2547"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
@@ -89,7 +90,7 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-list", PHONE, "light", "", two()],
   ["accounts-mobile-list-dark", PHONE, "dark", "", two()],
   ["accounts-mobile-settings", PHONE, "light", "", two((page) => page.click("#settings-open"))],
-  ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { await page.click('#list-nav [data-filter="working"]'); await page.click('#acct-filter [data-acct="claude-personal"]'); })],
+  ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { await page.click('#list-nav [data-filter="working"]'); await page.click("#side-filter-picker summary"); await page.click('#acct-filter [data-acct="claude-personal"]'); await page.click("#side-filter-picker summary"); })],
   ["accounts-wide-filter", WIDE, "light", "", two((page) => page.click("#side-filter-picker summary"))],
   ["accounts-wide-rail", WIDE, "dark", "#pane=%2513", two((page) => page.click("#collapse"))],
   ["accounts-wide-filtered", WIDE, "dark", "", two(async (page) => { await page.click("#side-filter-picker summary"); await page.click('#side-filter-picker [data-v="working"]'); await page.click('#acct-filter [data-acct="claude"]'); await page.click("#side-filter-picker summary"); })],
@@ -140,7 +141,7 @@ function addFlow(until) {
 // from before accounts, or before the item, is shot as it is.
 function moveMenu(item, done) {
   return async (page) => {
-    if (!await page.locator('link[href="/m/accounts.js"]').count() || (item && !await page.locator(item).count())) return;
+    if (!await page.locator('link[href$="/m/accounts.js"]').count() || (item && !await page.locator(item).count())) return;
     await page.locator("#pane-location .acct-badge").waitFor();
     await page.click("#pane-menu-button");
     if (item) { await page.click(item); await page.waitForSelector("#move-dialog[open]"); }
@@ -152,7 +153,7 @@ function moveMenu(item, done) {
 // (no accounts.js preload) is shot as it is; on any other, a missing badge fails the shot.
 function two(step) {
   return async (page) => {
-    if (!await page.locator('link[href="/m/accounts.js"]').count()) return;
+    if (!await page.locator('link[href$="/m/accounts.js"]').count()) return;
     // Attached, not visible: a phone's dashboard has its badged rows hidden.
     await page.locator(".acct-badge").first().waitFor({ state: "attached" })
       .catch((e) => { throw Object.assign(new Error(`no account badge: ${e.message}`), { loud: true }); });
@@ -180,7 +181,7 @@ async function noTmux(page) {
 // scrolls to the page's foot instead (Activity, which grows from its strip there).
 function reach(selector, end = false) {
   return async (page) => {
-    for (const node of ["#loops-card .loop-count", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
+    for (const node of ["#loops-card [data-lane]", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(500); // the panels above settle their height first
     await page.locator(selector).first().evaluate((el, end) => {
       const pane = document.getElementById("landing"); // scroll the dashboard, never the page
@@ -238,7 +239,7 @@ async function confirmExpunge(page) {
   await page.waitForSelector("#expunge-dialog[open]");
 }
 
-// The usage view at another range, or (on a phone) another window's chart.
+// The usage view at another range.
 function pickRange(label) {
   return (page) => page.locator(".usage-view .fleet-seg button", { hasText: label }).first().click();
 }

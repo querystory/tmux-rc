@@ -18,6 +18,18 @@ the page).
   and the top item waiting on you; Running by hour shows the heatmap. Details › opens the
   full queue or the full heatmap as a page of its own. A dashboard is for noticing; the
   long lists it used to inline belong one tap away, where they can be read properly.
+- **Running by hour fills its card.** The top row is as tall as its tallest card (usually
+  Open loops), so a fixed-height week of rows left the heatmap card half empty. The rows now
+  grow into whatever height the row leaves, without ever setting it, and four figures sit
+  under them that the grid only implies: the peak hour, the busiest day, the average running
+  at any hour, and the change in average running over the last 7 full days against the 7
+  before (the only week-over-week number on the dashboard). Every figure averages over the
+  time actually recorded, so a sleeping laptop or history that starts mid-week reads as
+  missing, not as idle. They use Open loops' own KPI tiles, one style for every figure on
+  the page, with one-line labels so a tile never makes the row taller; the detail behind a
+  figure is in the full heatmap, not in a hover-only tooltip a phone cannot reach. Chosen over showing more weeks (denser rows whose count changes with
+  the window), an hour-of-day profile (a second chart form in one card) and a full-width
+  strip (a taller page), from the "use the space" mock.
 - **One card per session** (from option C), with its 7-day trend, its pane icons and an
   "N need you" note. It replaces both the atlas and Running by session, which drew the same
   sessions twice in two shapes.

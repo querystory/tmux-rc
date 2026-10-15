@@ -129,11 +129,22 @@ export function lastActivity(pane) {
 // ("misc-5:1") and nothing about what is in it, which is useless as a heading when a
 // session holds five unrelated projects. The phone used to render `label` alone and threw
 // the agent's name away.
+// With one tmux session its name tells no row apart, so its tmux label ("misc-0:4") reads
+// as the window it is ("Window 4"), the same words the details line and search use.
 export function paneName(pane) {
-  return pane.title || pane.label || pane.window_name || pane.pane_id;
+  const label = pane.label && !sessionOf(pane) && pane.label === `${pane.session}:${pane.window_index}` ? `Window ${pane.window_index}` : pane.label;
+  return pane.title || label || pane.window_name || pane.pane_id;
 }
-// The list rows a question names by number ("do 1 now?"), one per line, so it reads alone.
-export const questionItems = (question) => Array.isArray(question?.items) ? question.items.join("\n") : "";
+// The session a pane is in, where that tells it apart: "" when every pane shares one, so a
+// single-session user never sees tmux plumbing. Every surface that names a session asks
+// here; app.js notes the panes on each poll (noteSessions).
+let solo = null;
+export const noteSessions = (panes) => { const s = new Set(panes.map((p) => p.session)); solo = s.size === 1 ? [...s][0] : null; };
+export const oneSession = () => solo !== null;
+export const sessionOf = (pane) => pane?.session === solo ? "" : pane?.session || "";
+// What a question decides, then the list rows it names ("do 1 now?", "A or B?"), one per
+// line, so it reads alone.
+export const questionItems = (question) => Array.isArray(question?.items) ? [question.subject, ...question.items].filter(Boolean).join("\n") : "";
 // The line a list shows under the name: the question it is stuck on, else what it is doing.
 // A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare
 // "Do you want to proceed?" says nothing on a card.
@@ -141,6 +152,14 @@ export const paneActivity = (pane) => pane.question?.ask || pane.question?.promp
 // The pane overview's headline and its stats line (model / context / cost / elapsed); the
 // sidebar's hover card shows the same two, so they are defined once.
 export const paneHeadline = (pane) => pane?.headline || pane?.status_line || pane?.session_summary || "";
+// A card the daemon has not read since it started is a placeholder (no parsed_at): its
+// silence means "not yet", not "nothing", so a blank line spins "Summarizing…" instead.
+export const panePending = (pane) => !!pane && !pane.parsed_at;
+export const markLine = (node, line, pane, empty = "No recent activity") => {
+  const pending = !line && panePending(pane), value = line || (pending ? "Summarizing…" : empty);
+  node.classList.toggle("pending", pending);
+  if (node.textContent !== value) node.textContent = value;
+};
 // A list field (tasks, subagents) as its object entries: what the model emits can be junk.
 export const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
 export const itemDone = (item) => !!item.done || item.state === "done";

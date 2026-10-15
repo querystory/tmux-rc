@@ -56,6 +56,11 @@ class Refused(Exception):  # noqa: N818 - a refusal, not an error: nothing was t
     audited."""
 
 
+class Empty(Refused):
+    """The pane has no saved conversation to expunge: a sign-in window, or an agent that
+    has not started one. Not a fault, so the client offers to close the window instead."""
+
+
 @dataclass(frozen=True)
 class Session:
     harness: str
@@ -111,6 +116,17 @@ def _registration(path: Path) -> dict:
     return reg
 
 
+def _rollout_since(home: Path, start: str) -> bool:
+    """Whether any Codex rollout under `home` was written since a process with kernel start
+    time `start` (clock ticks after boot) began. Unknown counts as yes."""
+    if not start:
+        return True
+    btime = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
+                 if line.startswith("btime "))
+    began = btime + int(start) / os.sysconf("SC_CLK_TCK")
+    return any(p.stat().st_mtime >= began for p in home.glob("sessions/*/*/*/rollout-*.jsonl"))
+
+
 def _agent(pid: int, screen: str) -> Session | None:
     """The Claude or Codex session this process is, if it is one."""
     start = "".join(_stat(pid)[19:20])
@@ -121,14 +137,19 @@ def _agent(pid: int, screen: str) -> Session | None:
     if reg.get("pid") == pid and start and reg.get("procStart") == start:
         return Session("claude", str(reg.get("sessionId")), home, _index(pid, "claude"), pid,
                        start)
+    # Codex's sign-in, `codex login` (accounts.LOGIN), is no session: the search goes on
+    # past it. Under npm, argv starts node and the wrapper script before the subcommand.
     if tmux.proc_read(pid, "comm").strip() != "codex":
+        return None
+    args = [a for a in tmux.proc_read(pid, "cmdline").split("\0")[1:] if not a.endswith("/codex")]
+    if args[:1] == ["login"]:
         return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the
     # rollout open; the thread id is only on the pane's status line (see live._codex_pane).
     # It is the segment at session-id's place in the configured order: never just any
     # UUID-shaped one, which a branch can be. Codex leaves out an empty item (no branch
     # outside a repo), so that place is certain only when every item shows, or when it
-    # comes first; anything else refuses. Its rollout must exist here too.
+    # comes first; anything else refuses.
     home = _home(pid, "CODEX_HOME", ".codex")
     try:
         tui = tomllib.loads((home / "config.toml").read_text()).get("tui", {})
@@ -136,13 +157,20 @@ def _agent(pid: int, screen: str) -> Session | None:
         tui = {}
     shown = tui.get("status_line", [])
     if "session-id" not in shown:
-        raise Refused("Codex's status line does not show the thread id "
-                      "(add session-id to [tui] status_line)")
+        # No thread can be named, but a fresh Codex (not a resume) that has written no
+        # rollout since it started has none to name: its first turn creates one.
+        if not {"resume", "fork"} & set(args) and not _rollout_since(home, start):
+            raise Empty("this agent has not saved a conversation yet")
+        raise Refused("Expunge can't tell which Codex conversation this is: Codex's status "
+                      "line doesn't show its thread id. Add \"session-id\" to status_line "
+                      "under [tui] in Codex's config.toml, then try again.")
     segments, at = codex_status_segments(screen), shown.index("session-id")
     sid = segments[at] if segments and (len(segments) == len(shown) or at == 0) else ""
-    if not (_ID.fullmatch(sid) and any(home.glob(f"sessions/*/*/*/rollout-*-{sid}*.jsonl"))):
-        raise Refused("Codex's status line does not show this thread's id where it is "
-                      "configured")
+    if not _ID.fullmatch(sid):
+        raise Refused("Expunge can't find this conversation's thread id on Codex's status "
+                      'line. Close any menu covering it, or move "session-id" to the '
+                      "front of status_line under [tui] in Codex's config.toml, then try "
+                      "again.")
     return Session("codex", sid, home, _index(pid, "codex"), pid, start)
 
 
@@ -150,22 +178,35 @@ def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session
     """The one agent session running in the pane, and `expected` if given (the session a
     confirmation named). The search stops at the first agent down each branch, so an
     agent's own subprocesses never count as a second session."""
-    found, todo = [], [int(pane_pid)]
+    found, fresh, todo = [], [], [int(pane_pid)]
     while todo:
         pid = todo.pop()
-        if agent := _agent(pid, screen):
+        try:
+            agent = _agent(pid, screen)
+        except Empty as e:  # still an agent: the walk goes on, and it counts toward "more than one"
+            fresh.append(e)
+            continue
+        if agent:
             found.append(agent)
         else:
             todo += _children(pid)
-    if not found:
-        raise Refused("no Claude Code or Codex session is running in this pane")
-    if len(found) > 1:
+    if len(found) + len(fresh) > 1:
         raise Refused("more than one agent session is running in this pane")
+    if fresh:
+        raise fresh[0]
+    if not found:
+        raise Empty("no Claude Code or Codex session is running in this pane")
     if not _ID.fullmatch(found[0].session_id):
         raise Refused("the session id is not one this daemon recognizes")
     if expected not in (None, found[0].session_id):
         raise Refused("this pane is running a different session now")
-    return found[0]
+    # Each harness writes its transcript (the first two of _FILES) only once there is a turn;
+    # agent-history's entry outlives the transcript's retention, so it counts as saved too.
+    s = found[0]
+    if not (any(True for g in _FILES[s.harness][:2] for _ in s.root.glob(g.format(id=s.session_id)))
+            or (s.index / f"{s.session_id}.md").exists() or (s.index / s.session_id).is_dir()):
+        raise Empty("this agent has not saved a conversation yet")
+    return s
 
 
 def targets(s: Session) -> tuple[list[Path], list[Path]]:

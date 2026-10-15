@@ -272,3 +272,9 @@ def test_reply_buttons_expectation_wants_accept_then_decline():
         assert not ok and any("options" in d for d in diffs)
     ok, _ = score_structured({"question": "free text"}, want)  # malformed: a mismatch, no crash
     assert not ok
+    none = {"question": {"answer_style": "text", "reply_buttons": False}}
+    assert score_structured({"question": {"answer_style": "text", "options": []}}, none)[0]
+    assert not score_structured(good, none)[0]
+    chips = {"status_entries_exclude": ["16% ctx"]}
+    assert score_structured({"status_entries": ["4h49m"]}, chips)[0]
+    assert not score_structured({"status_entries": ["16% ctx", "4h49m"]}, chips)[0]

@@ -257,8 +257,8 @@ class PlanUsage:
         sources = [(t, env_for(t, d), None) for t, d in self.profiles()] + pane_envs(panes, birth)
         for tool, env, pane_id in sources:
             config = home(tool, env)
-            if tool == "codex":
-                ident = (config / "sessions").is_dir() and {"key": str(config)}
+            if tool == "codex":  # a home that has logged nothing yet reads "no data yet"
+                ident = config.is_dir() and {"key": str(config)}
             else:
                 uuid = oauth_account(config, env).get("accountUuid")
                 ident = uuid and {"key": uuid}

@@ -162,8 +162,8 @@ def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     model that says "cursor" with a wrong anchor selects the WRONG SESSION — silently,
     and with an eval that was still green. Scored only where a sample asks for it, since
     most screens have nothing to say about either. `context` (the widget rows classify()
-    reads around a menu's prompt) and `items` (the list rows a typed question names by
-    number) are pinned the same way, exactly; an `ask`
+    reads around a menu's prompt), `items` (the list rows a typed question names) and
+    `subject` (the paragraph leading into them) are pinned the same way, exactly; an `ask`
     pinned null asserts a menu is NOT restated (a present one is left to the judge)."""
     if field is None:
         return None
@@ -210,22 +210,28 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         states = sorted(str(a.get("state")) for a in subs)
         if states != sorted(expected["subagent_states"]):
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
+    entries = candidate.get("status_entries")
+    diffs.extend(f"status_entries: {e!r} repeats a field with its own chip"
+                 for e in expected.get("status_entries_exclude", [])
+                 if isinstance(entries, list) and e in entries)
     diffs.extend(f"subagents: no row matches {want!r}"  # each must match some row exactly
                  for want in expected.get("subagents_include", [])
                  if not any(all(a.get(k) == v for k, v in want.items()) for a in subs))
     # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
     extra = tuple(k for k in ("selected", "keymap", "context", "items",
-                              "ask")  # ask: only its absence
+                              "subject", "ask")  # ask: only its absence
                   if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")
     # Model-written reply buttons vary in wording: a sample opts in to "accept first, decline
-    # second" with `reply_buttons`, instead of pinning text.
+    # second" with `reply_buttons`, instead of pinning text; false pins that there are none.
+    got_q = candidate.get("question")
+    opts = got_q.get("options") if isinstance(got_q, dict) else None
+    if isinstance(want_q, dict) and want_q.get("reply_buttons") is False and opts:
+        diffs.append(f"question.options: want none, got {opts!r}")
     if isinstance(want_q, dict) and want_q.get("reply_buttons"):
-        got_q = candidate.get("question")
-        opts = got_q.get("options") if isinstance(got_q, dict) else None
         first = [str(o).lower() for o in opts[:2]] if isinstance(opts, list) else []
         if len(first) < 2 or not re.match(r"yes\b", first[0]) or not re.match(r"no\b", first[1]):
             diffs.append(f"question.options: want accept then decline, got {opts!r}")

@@ -81,8 +81,8 @@ follow ("8 days shown"). Each range also runs on past now by a fifth of itself (
 six hours), so the forecasts show without a short range spending its width on the future.
 
 **Bands for one account's windows.** Behind the lines, the current window is shaded a
-light blue from its start to its reset (not amber, which the app uses for "needs you"), and the windows before it alternate grey and
-clear, so "where we are in this window, and how it is going" reads before any line does.
+light blue from its start to its reset (not amber, which the app uses for "needs you"), and the windows before it alternate clear
+and grey (clear first, against the blue), so "where we are in this window, and how it is going" reads before any line does.
 A chart holds several accounts whose windows start and end at different times, and bands
 for all of them overlapped into mush, so the bands follow one account per chart: the
 fullest by default, or the one whose chip was clicked. That account's lines go bold and
@@ -90,7 +90,7 @@ the others step back, and its chip is filled. A window's band runs from its star
 reset, but a quota sometimes resets early: when the samples fall from well up to near 0
 before the scheduled reset, the band ends at the fall and a fresh one starts there. A
 stretch with no known window (a 5h quota not yet opened, a gap in the history) is left
-unshaded rather than guessed at.
+unshaded rather than guessed at. A one-line key under the charts names the shading and the dashes.
 
 **Which accounts: the view's own pick.** A filter button beside the range opens the same
 menu the list's account filter uses (its markup and styles: a check on each pick, "All
@@ -111,10 +111,15 @@ for this sweep?"). Grouping by window keeps every y axis meaning the same thing.
 sample times, so echarts' per-series nearest point would show different instants side by
 side. The tooltip interpolates each meter at the pointer's time instead.
 
-**A phone shows one chart at a time.** Three stacked charts at 390px are three slivers.
-The range sits on top, the window tabs under it (a sideways swipe on the heading moves
-between them too). The range starts at a week on both: enough 5h teeth to compare days,
-and the current weekly window whole; a month of 5h teeth was a wall of spikes.
+**A phone scrolls, like the page it is.** The first phone layout showed one chart at a time
+behind window tabs. That was a control where none was needed, and each chart came out tall
+and thin, the wrong shape for time. Now the charts stack as they do on a wide screen and
+the page scrolls. Each chart is landscape, about 180px tall at 390px wide, with its
+legend as a small table above it: a row per account with the chip, the %, and one status.
+5-hour and Weekly fit on the first screen, and Weekly Fable is a scroll away. A drag on a
+phone's chart scrolls the page rather than panning it, because a stray pan once pushed
+the charts into the empty forecast. Zooming on a phone is the range control and the slider
+under the last chart.
 
 **Data.** `/api/usage?past=<days>` adds, per window, the windows that ended in those days,
 each with its samples thinned to the same 120 points as a current window. The view asks

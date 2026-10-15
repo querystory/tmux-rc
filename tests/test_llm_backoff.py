@@ -4,6 +4,12 @@ also means a sustained outage would retry every pane every tick. The backoff is 
 brake; without it a 27-pane server on a 1.5s tick attempts ~18 calls a second."""
 
 
+import threading
+import time
+import types
+
+import pytest
+
 import openbus.llm as L
 
 
@@ -72,3 +78,112 @@ def test_an_armed_backoff_skips_the_call_entirely():
     finally:
         L._client = real_client
         _clear()
+
+
+def test_a_hung_call_fails_at_the_overall_deadline(monkeypatch):
+    """The HTTP timeout never covered the token refresh or DNS before it; the overall
+    deadline does, and its expiry is handled like any Vertex timeout."""
+    _clear()
+    release = threading.Event()
+
+    def hang(**_kwargs):
+        release.wait(5)
+
+    monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(
+        models=types.SimpleNamespace(generate_content=hang)))
+    monkeypatch.setattr(L, "_DEADLINE_S", 0.05)
+    try:
+        started = time.monotonic()
+        assert L.classify_text("system", "text") is None
+        assert time.monotonic() - started < 2
+        assert "timed out" in L.last_error["msg"]
+        assert L.backing_off()
+    finally:
+        release.set()
+        _clear()
+
+
+def test_a_call_in_flight_does_not_lift_a_brake_armed_after_it_started(monkeypatch):
+    """Panes are read in parallel: a success that began before another pane's 429 must
+    not clear that pane's brake, nor the reason the UI shows for it."""
+    _clear()
+
+    def generate(**_kwargs):  # another pane fails meanwhile, as classify_text records it
+        L.last_error["msg"] = L._handle_llm_error(Exception("429 RESOURCE_EXHAUSTED"))
+        return types.SimpleNamespace(text="{}", usage_metadata=None)
+
+    monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(
+        models=types.SimpleNamespace(generate_content=generate)))
+    monkeypatch.setattr(L, "_record", lambda resp: None)
+    monkeypatch.setattr(L, "_emit", lambda *a, **k: None)
+    try:
+        assert L.classify_text("system", "text") == {}
+        assert L.backing_off()
+        assert L.last_error["msg"]
+    finally:
+        _clear()
+        L.last_error["msg"] = None
+
+
+
+def test_a_brake_armed_while_a_call_is_admitted_stays_on(monkeypatch):
+    """Copilot: another pane arming between this call's admission check and its start
+    stamp made the brake look older than the call, so the call's success lifted it."""
+    _clear()
+    check, armer = L._backoff_remaining, []
+
+    def remaining():  # another pane fails just after this one passed the check
+        wait = check()
+        armer.append(threading.Thread(target=L._handle_llm_error,
+                                      args=(Exception("429 RESOURCE_EXHAUSTED"),)))
+        armer[0].start()
+        armer[0].join(0.3)
+        return wait
+
+    monkeypatch.setattr(L, "_backoff_remaining", remaining)
+    monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(models=types.SimpleNamespace(
+        generate_content=lambda **_k: types.SimpleNamespace(text="{}", usage_metadata=None))))
+    monkeypatch.setattr(L, "_record", lambda resp: None)
+    monkeypatch.setattr(L, "_emit", lambda *a, **k: None)
+    try:
+        L.classify_text("s", "t")
+        armer[0].join(5)
+        assert check() > 0, "the call's success lifted a brake armed after it was admitted"
+    finally:
+        _clear()
+
+def test_hung_calls_are_capped_not_accumulated(monkeypatch):
+    """Each timed-out call leaves its thread running until the hang ends; past the cap a
+    call fails fast as a timeout instead of starting yet another thread."""
+    release = threading.Event()
+    monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(
+        models=types.SimpleNamespace(generate_content=lambda **_k: release.wait(5))))
+    monkeypatch.setattr(L, "_DEADLINE_S", 0.01)
+    monkeypatch.setattr(L, "_slots", threading.BoundedSemaphore(2))
+    started = threading.active_count()
+    try:
+        for _ in range(4):
+            with pytest.raises(TimeoutError):
+                L._generate()
+        assert threading.active_count() - started == 2
+    finally:
+        release.set()
+        for t in threading.enumerate():
+            if t.name == "vertex":
+                t.join(5)
+
+
+def test_lifting_the_brake_waits_for_one_being_armed(monkeypatch):
+    """The success path's check-and-reset holds the same lock _arm_backoff does, so a
+    failure arming between the check and the reset cannot be erased."""
+    _clear()
+    monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(models=types.SimpleNamespace(
+        generate_content=lambda **_k: types.SimpleNamespace(text="{}", usage_metadata=None))))
+    monkeypatch.setattr(L, "_record", lambda resp: None)
+    monkeypatch.setattr(L, "_emit", lambda *a, **k: None)
+    done = threading.Event()
+    with L._backoff_lock:
+        threading.Thread(target=lambda: (L.classify_text("s", "t"), done.set())).start()
+        assert not done.wait(0.3), "the reset ran without the lock"
+    assert done.wait(5)
+    _clear()

@@ -344,6 +344,11 @@ CASES += [
     ("age: a running pane reads now", "age",
      [{"activity": "running", "state_since": NOW_S - 600}, NOW_MS], "now"),
     ("age: an idle pane reads its since", "age", [idle_since(600), NOW_MS], "10m"),
+    # A startup placeholder is not yet read: "Summarizing…", not "No recent activity".
+    ("panePending: a placeholder card is pending", "panePending",
+     [{"activity": "unknown"}], True),
+    ("panePending: a parsed card with nothing to say is not", "panePending",
+     [{"activity": "idle", "parsed_at": NOW_S}], False),
 ]
 
 # stillOnPane guards every involuntary exit from a pane. `active` lags a tap by one task, so
