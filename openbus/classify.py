@@ -1066,7 +1066,8 @@ def _offers(message: str, reply: str | None) -> list[str]:
         return []
     # Each code range, with a fence's count of rows: a command row is a fence's to offer only
     # when it is all the fence holds (any more may be a script it belongs to, or data).
-    code = [(c.start(), c.end(), c["fence"] and len(re.findall(r"(?m)^[ \t]*[^\s`]", c["fence"])))
+    code = [(c.start(), c.end(),
+             c["fence"] and len(re.findall(r"(?m)^[ \t]*(?!```|~~~)\S", c["fence"])))
             for c in _CODE_RE.finditer(t)]
 
     def offered(m: re.Match) -> bool:
