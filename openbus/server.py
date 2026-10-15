@@ -668,6 +668,7 @@ async def post_restore(body: RestoreBody, request: Request):
     chosen = set(body.panes) & restorable
     if not chosen:
         raise HTTPException(422, "nothing restorable was chosen")
+    before = await asyncio.to_thread(_session_names)  # what a failed build is told apart from
     if not await asyncio.to_thread(restore.consume, history, body.server, "restored"):
         raise HTTPException(409, "that workspace is already being restored")
     _audit(request, "restore", "-", f"panes={len(chosen)}")
@@ -675,16 +676,17 @@ async def post_restore(body: RestoreBody, request: Request):
     def audit(action, pane, sid, outcome):
         _audit(request, action, pane, f"session={sid}", outcome=outcome)
 
-    before = await asyncio.to_thread(_session_names)
     try:
         built = await asyncio.to_thread(restore.build, found, chosen)
     except (OSError, subprocess.CalledProcessError) as e:
         logger.warning("restore failed while building the layout", exc_info=True)
+        # Offered again, a retry would build it all a second time beside what this left.
         try:
             left = await asyncio.to_thread(_session_names) - before
-        except (OSError, subprocess.CalledProcessError):
-            left = set()  # no server to ask: nothing it built survived
-        if left:  # offered again, a retry would build it all a second time beside these
+        except (OSError, subprocess.CalledProcessError) as unknown:
+            raise HTTPException(500, f"tmux refused the layout ({e}) and can't say what it "
+                                "built; the offer stays spent") from unknown
+        if left:
             raise HTTPException(500, f"tmux refused part of the layout ({e}); what it built "
                                 f"stays, its agents not resumed: {', '.join(sorted(left))}") from e
         await asyncio.to_thread(restore.consume, history, body.server, None)  # offer it again

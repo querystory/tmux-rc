@@ -237,7 +237,7 @@ let noticeTimer;
 // Restore is a view of its own, so the dashboard behind it stays whole. An offer that turns up
 // on the bare app (no pane, no view chosen) opens it; a spent one leaves it.
 const restore = setupRestore({ mount: $("restore"), request, slow: NO_TIMEOUT, logos: LOGOS, licon, notice: (...a) => notice(...a), running: () => tmuxRunning,
-  open: () => openPage("restore"),
+  open: () => { if (page !== "restore") openPage("restore"); }, // again would leave Back nowhere to go
   opened: () => { if (!active && !page && !dashboard) navigate(null, "restore", { mode: "replace" }); },
   closed: () => { if (page === "restore") closePage(); } });
 function notice(message = "", ms = 0, action = null) {

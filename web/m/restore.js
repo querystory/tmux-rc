@@ -91,7 +91,7 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
     const changed = offer?.server !== was;
     if (changed) picked = new Map(offer ? Object.entries(offer.windows).flatMap(([wid, w]) => w.panes.map(p => [key(wid, p), p.default])) : []);
     render();
-    if (changed && !offer) closed();
+    if (!offer) closed(); // a spent offer, or a link to one, shows the dashboard
     else if (changed && !running()) opened();
   }
   // Asked again now and then, so an offer spent elsewhere goes and a failed ask is retried.

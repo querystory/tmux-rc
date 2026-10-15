@@ -319,3 +319,16 @@ def test_restore_offers_again_only_when_tmux_built_nothing(server, tmp_path, mon
     assert reply.status_code == 500
     assert "work" in reply.json()["detail"]
     assert spent == ["restored"]  # a retry would build "work" again, as work-restored
+
+    import openbus.server as S
+    asks = []  # the ask before the build answers; the one after times out
+
+    def ask():
+        asks.append(1)
+        if len(asks) > 1:
+            raise subprocess.CalledProcessError(1, "tmux")
+        return set()
+    monkeypatch.setattr(S, "_session_names", ask)
+    reply, spent = _post(monkeypatch, tmp_path, refuse)
+    assert reply.status_code == 500
+    assert spent == ["restored"]  # what it built can't be told: kept spent, not built twice
