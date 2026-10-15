@@ -34,8 +34,9 @@ both where topics are shown and how they are computed.
 
 The earlier rounds mocked layouts that did not exist yet. This one varies a layout that
 does, so every frame is the shipped sidebar and dashboard redrawn in the mock page, filled
-with the demo fleet that `make screenshots` serves (45 panes in eight sessions, invented
-names like shop-api and ci). Real screenshots of integration, shot from that same fleet, were
+with the demo fleet that `make screenshots` served when these frames were measured (45 panes
+in eight sessions, invented names like shop-api and ci; the fleet has grown since, and the mock
+keeps that snapshot so the measurements below still describe it). Real screenshots of integration, shot from that same fleet, were
 kept beside the mocks while building them. The mock reproduces the shipped word counting,
 so the cloud in frame T0 holds the same 40 words as the real one. The frames and screenshots
 predate #313, which dropped the dashboard's "Session atlas" heading and subtitle and instead

@@ -886,8 +886,9 @@ let FW=1440,FH=900;
 const stage=(v,cls='',sz=dims(v))=>{[FW,FH]=sz;return `<div class="stage ${cls}" data-w="${FW}" data-h="${FH}"><div class="scaler" style="--fw:${FW}px;--fh:${FH}px">${v.build()}</div></div>`;};
 const DEV=[['iPhone SE',375,667],['iPhone 15',393,852],['Pixel',412,915],['iPad',820,1180],['Laptop',1280,800],['1440',1440,900],['1920',1920,1080]];
 /* ================= Round 4: where topics live, built on the shipped sidebar (#298) and dashboard (#299) =================
-   Every frame here is the shipped UI redrawn with the demo fleet (scripts/demo_fleet.py), the same fleet `make screenshots`
-   shoots, so a mock and a real screenshot can sit side by side. Only the place the topics live changes between frames. */
+   Every frame here is the shipped UI redrawn with a snapshot of the demo fleet (scripts/demo_fleet.py) taken when these
+   frames were measured; the demo fleet has changed since (more panes, one renamed), so counts here are the snapshot's.
+   Only the place the topics live changes between frames. */
 const G4='8 · Topics and search (round 4)';
 Object.assign(IC,{book:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
  updown:'<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',list:'<path d="M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13"/>',
@@ -954,7 +955,7 @@ function topics4(){const k=S.tm4;if(TC4[k])return TC4[k];const m=new Map();
   if(!m.has(s))m.set(s,{forms:{},rows:new Set()});const e=m.get(s);e.forms[w]=(e.forms[w]||0)+1;e.rows.add(r);}));
  return TC4[k]=[...m.values()].map(e=>({w:Object.entries(e.forms).sort((a,b)=>b[1]-a[1]||a[0].length-b[0].length)[0][0],n:e.rows.size,rows:e.rows}))
   .filter(e=>k=='current'||e.n>1).sort((a,b)=>b.n-a.n||a.w.localeCompare(b.w)).slice(0,40);}
-const hit4=r=>!S.q4||`${r.t} ${r.x} ${r.s}`.toLowerCase().includes(stem4(S.q4));
+const hit4=r=>!S.q4||`${r.t} ${r.x} ${r.s}`.toLowerCase().includes(S.tm4=='clean'?stem4(S.q4):S.q4);
 const who4=t=>`${t.n} panes: ${[...t.rows].map(r=>r.t).join(', ')}`;
 const P4=(id,k,d)=>S.p4[id+'.'+k]??d;
 Object.assign(S,{tm4:'current',q4:'',p4:{}});
@@ -1004,7 +1005,7 @@ const pane4=(id,mw)=>`<section class="pv4" data-card><div class="ph4"><div><b>e2
  <div class="cm4">${ico('cmd',18)}<span>Message this pane</span>${ib('up','Send','sm acc')}</div><div class="cs4">${ico('up',14)}${run2(16)}<span class="mut">${S.ma} avg vs goal ${S.goal2}</span>${chart2({w:Math.max(200,mw-420),h:24})}<span class="sp" style="flex:1"></span><button class="tbtn" data-act="p4:${id}.view=dash">Dashboard</button></div></section>`;
 /* one frame: sidebar, the optional ultra-wide panel (2400px and up; below that it folds into the chip strip), the work area */
 const frame4=(id,o)=>()=>{const dock=o.dock&&FW>=2400,mw=FW-300-(dock?280:0);
- return `<div class="fr">${sb4(id,{...o,strip:o.strip||o.dock&&!dock})}${dock?dock4():''}<main class="wk4" data-m="work">${P4(id,'view',o.view)=='dash'?dash4(id,o,mw):pane4(id,mw)}</main></div>`;};
+ return `<div class="fr">${sb4(id,{...o,strip:o.strip||o.dock&&!dock})}${dock?dock4():''}<div class="wk4" data-m="work">${P4(id,'view',o.view)=='dash'?dash4(id,o,mw):pane4(id,mw)}</div></div>`;};
 const R4=(id,o,n)=>{if(o.dd&&o.ddOpen)DEF['dd4:'+id]=1;return{id,grp:G4,frame:'wide',dims:[1920,1080],ilab:'Interaction',clab:'At other sizes',esc:o.dd?'dd4:'+id:null,...n,build:frame4(id,o)};};
 const R4V=[
 R4('T0',{view:'dash',topics:'right'},{name:'Shipped: cloud beside Running by',line:'The baseline as merged for #299: the dashboard\'s word cloud sits right of the small multiples. Clicking a word types it into the sidebar search.',
