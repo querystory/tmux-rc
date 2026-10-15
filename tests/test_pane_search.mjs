@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName } from "../web/m/pane-model.js";
+import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName, offerText } from "../web/m/pane-model.js";
 import { paneLinks } from "../web/pr-links.js";
 
 test("PR titles are primary, with the repository and number beneath", () => {
@@ -100,4 +100,9 @@ test("one tmux session drops its name; two keep it", () => {
   assert.equal(sessionOf(shell), "misc-0");
   assert.equal(paneName(shell), "misc-0:4");
   noteSessions([]);
+});
+
+test("an offer shows and copies without Claude Code's shell-mode bang", () => {
+  assert.equal(offerText("! make deploy-preview"), "make deploy-preview");
+  assert.equal(offerText("ship it"), "ship it");
 });

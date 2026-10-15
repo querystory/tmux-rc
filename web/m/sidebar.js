@@ -11,7 +11,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, offerText, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -237,19 +237,22 @@ export function setupSidebar(ctx) {
   function replies(node, p) {
     const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
     const options = needsYou(p) ? ctx.answers(p.question) : [];
-    // A finished turn's offers ride every card, Needs you or not (app.js takeOffer).
-    const items = [...options, ...ctx.offers(p).map((offer) => ({ offer })), ...(!needsYou(p) ? [] : answered ? [{ note: answered.note }] : [{ reply: true }])];
-    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.offer ? `offer:${o.offer}` : `${o.index}:${o.option}`, (o) => {
+    // A finished turn's offers ride every card, Needs you or not, as on its pane's (app.js render).
+    const offers = ctx.offers(p).flatMap((offer) => ["text", "send", "copy"].map((part) => ({ offer, part, option: offer, index: -1 })));
+    const items = [...options, ...offers, ...(answered ? [{ note: answered.note }] : needsYou(p) ? [{ reply: true }] : [])];
+    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.part ? `${o.part}:${o.offer}` : `${o.index}:${o.option}`, (o) => {
       if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
+      if (o.part === "text") return Object.assign(document.createElement("code"), { className: "sb-offer" });
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : o.offer ? ctx.takeOffer(node._p.pane_id, o.offer) : ctx.answer(node._p.pane_id, o.option, o.index);
+      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : o.part === "copy" ? ctx.copy(offerText(o.offer)) : ctx.answer(node._p.pane_id, o.option, o.index, !!o.part);
       return button;
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
-      const label = o.reply ? "Reply" : o.offer || o.option;
-      text(el, label); el.title = o.reply ? "" : label; el.disabled = busy;
-      el.classList.toggle("picked", !o.reply && !o.offer && ctx.picked(p, o));
+      if (o.part === "text") return text(el, offerText(o.offer));
+      const label = o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
+      text(el, label); el.title = o.reply ? "" : o.part ? offerText(o.offer) : label; el.disabled = busy && o.part !== "copy";
+      el.classList.toggle("picked", !o.reply && o.part !== "copy" && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;

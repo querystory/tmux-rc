@@ -132,14 +132,17 @@ was about), `tables`, and the headline itself. `copyables` is the first that cre
 A copyable's destination is *somewhere else*. The sibling case is text whose destination
 is the same pane: Claude Code ending a turn with "run it yourself: `! gh pr merge …`" or
 "say "merge 415" and I'll queue it". Copying that, opening the composer, pasting and
-sending is four steps for what should be two taps, so a finished turn's offers render as
-Run/Send buttons: on the overview's grey block (where a copyable of the same text would
-sit, so the two never stack), on the pane's list card, and on a phone also as a chip above
-the composer, which on a wide screen would only repeat the overview beside it. A tap fills
-the pane's own composer with the exact text; its Send button is the confirmation. A native
-confirm dialog was tried first and dropped: it blocks the page, looks foreign on a phone,
-and leaves no way to edit the text, while the composer is editable, already familiar, and
-the one send path the pane has. They are not tied to Needs you: an agent that finishes
+sending is four steps for what should be one tap, so a finished turn's offers are answers
+on the pane's question card, where a question's options already are: the text once, on a
+row that unfolds to show all of it, then Send it and Copy, and the same three on the pane's
+list card. A tap sends the exact text plus Enter by the path a tapped option takes, with its
+"Sending…" hold. Two earlier versions were dropped. A native confirm dialog blocked the
+page and looked foreign on a phone. Filling the composer instead put a block of monospace
+above it and the command in the input box, which took half a phone's screen and read as
+something new rather than one more answer to tap; the card is where a user already looks
+for what the agent wants, so the offer belongs there, styled the same. Run was renamed Send
+it: the button sends text to the agent's prompt (a `! ` there runs it in Claude Code's
+shell), and the same word fits a quoted reply. They are not tied to Needs you: an agent that finishes
 with "if it looks fine, "merge all" queues 18 PRs" is idle, not asking, and the offer is
 still the fastest way on.
 
@@ -168,8 +171,8 @@ a heredoc anywhere offers no command; and a message that says "do
 not run" or "don't say" anywhere offers nothing at all, since which command a warning
 covers is not worth guessing. It is Claude Code's alone for now: Codex's screen has no
 message boundary this reads yet. A missed offer costs the old copy-paste; a false one
-would cost a command the user never meant, which is why the tap only fills the composer
-and never sends by itself.
+would cost a command the user never meant, which is why the card shows the text before
+Send it and nothing is sent without that tap.
 
 The broader bet: **any interface over content it doesn't control** has a backlog of
 affordances it never shipped because they couldn't be done generically. A thin semantic
