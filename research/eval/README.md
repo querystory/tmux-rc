@@ -178,6 +178,7 @@ actually hit:
 | `25_working_pr_review` | active review work associates the pane with that PR |
 | `26_pr_list_is_not_work` | a visible `gh pr list` does not create associations |
 | `101_bare_pr_numbers_outside_a_checkout` | synthetic: a pane outside any checkout → only the PR written with its repo; bare `#N`s get no repo guessed from the folder or another mention |
+| `104_bare_pr_numbers_beside_another_repos_link` | real pane, sanitized: outside a checkout, bare `#N`s beside a status-line link to another repo → only the PR whose github.com URL is on screen |
 | `28_opencode_claude_model` | OpenCode using Claude/Bedrock → tool=opencode, not claude |
 | `29_opencode_interrupt_spinner` | OpenCode `esc interrupt` spinner → running, not idle |
 | `54_claude_user_turn_is_not_question` | the user's own ❯ turn above a live spinner → running, no question |
