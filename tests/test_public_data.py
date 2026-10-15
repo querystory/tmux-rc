@@ -23,9 +23,6 @@ PRIVATE = re.compile(IDENTITY, re.IGNORECASE)
 PROVENANCE = re.compile(r"real (?:capture|pane)|anonymi[sz]ed|saniti[sz]ed", re.IGNORECASE)
 # The longest invented sample is under 5k; a whole real pane runs to 9k and more.
 CAPTURE_CAP = 6000
-# Real captures from before this rule, kept until each is rebuilt from scratch.
-OVERSIZED = {"19_codex_orchestrating_claude", "64_omp_wrapped_by_bash",
-             "65_omp_gutter_code_is_not_question"}
 
 FIXTURES = [*SAMPLES, *(ROOT / "research/eval/closing_questions").glob("*.json"),
             *(ROOT / "research/samples").glob("*.txt")]
@@ -55,4 +52,4 @@ def test_sample_is_invented_and_short(path):
     assert not PROVENANCE.search(f"{sample.get('title', '')} {sample['description']}")
     # Every text the classifier reads: the screen, earlier frames, the transcript's reply.
     frames = [sample["capture"], *sample.get("prior", ()), sample.get("reply") or ""]
-    assert max(map(len, frames)) <= CAPTURE_CAP or path.stem in OVERSIZED
+    assert max(map(len, frames)) <= CAPTURE_CAP

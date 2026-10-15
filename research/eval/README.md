@@ -189,7 +189,7 @@ actually hit:
 | `62_omp_ask_picker` | omp `ask` cursor picker → user-wait with the selected option |
 | `63_omp_folder_segment_running` | synthetic: omp outside a repo (`📁 <path>` segment) with a `↻` activity line → running, title not a question |
 | `64_omp_wrapped_by_bash` | omp behind a bash wrapper (`current_command=bash`) → tool=omp from its chrome, running with two workers |
-| `65_omp_gutter_code_is_not_question` | real omp capture + one earlier frame: a question string inside a line-numbered Edit diff (`+246│`) is code, not a prompt → running, no question |
+| `65_omp_gutter_code_is_not_question` | omp screen + one earlier frame: a question string inside a line-numbered Edit diff (`+246│`) is code, not a prompt → running, no question |
 | `66_omp_queued_user_question` | omp's outgoing numbered Steering message → running, no question, even without dim styling |
 | `67_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
 | `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
@@ -213,18 +213,12 @@ flipped the unrelated sample 47.
 
 ### Committed vs local — what's repo-safe
 
-The corpus is **committed** and runnable by anyone/CI. tmux-rc dogfooding content is
-fine verbatim: cwd like `~/src/qs/termiphone`, tmux-rc code/output, PR numbers — the repo
-watches itself. The `samples/.gitignore` guards against dropping **raw scratch captures**
-(`.txt`, `.png` from `probe.py --save`) into the corpus dir. When you turn a real capture
-into a `.json` sample, only scrub content from **another codebase** (proprietary source
-that happened to be on screen) or an **actual secret/token/credential**.
-
-Samples here are a mix of **real tmux-rc captures** (the working/running case) and
-**faithful synthetic reproductions** (the permission boxes, rewind picker, external-wait,
-the log-trap) — synthesized where the only real example would drag in another codebase's
-content, or where hand-authoring reproduces the pattern more cleanly than hunting a live
-occurrence.
+The corpus is **committed** and public, so every sample is invented (AGENTS.md: "This
+repository is public"). A real capture, even renamed or redacted, still describes the work it
+came from: use it only to learn the shape that triggers the bug, then rebuild that shape from
+scratch around an unrelated topic, as short as it can be. The `samples/.gitignore` guards
+against dropping **raw scratch captures** (`.txt`, `.png` from `probe.py --save`) into the
+corpus dir, and `tests/test_public_data.py` rejects the usual tells.
 
 ## Adding a sample
 
