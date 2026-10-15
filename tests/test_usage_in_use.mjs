@@ -11,7 +11,7 @@ const PANES = new Map([
   [codex, [pane("running"), pane("running"), pane("running")]],
   [demo, [pane("idle", IN_USE_SECS + 60)]],
 ]);
-const panesOf = (a) => PANES.get(a) || [];
+const panesOf = (m) => PANES.get(m.acct) || [];
 const meter = (acct, window) => ({ acct, windows: [{ window }] });
 const names = (list) => list.map((m) => `${m.acct.name} ${m.windows[0].window}`);
 

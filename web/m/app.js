@@ -682,12 +682,13 @@ try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAG
 const paintUsage = steady(() => {
   // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
   const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
-  // The strip names only the accounts in use; the idle ones fold into a "+N" at its end (usage.js).
-  const meters = order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode));
-  const { shown, idle } = several ? inUse(meters, (p) => panes.filter((x) => p.panes.includes(x.pane_id))) : { shown: meters, idle: [] };
-  renderUsage($("usage"), shown, { wide: WIDE.matches });
+  // The strip names only the accounts in use, judged before Auto drops quiet meters; the idle
+  // ones fold into a "+N" by it (usage.js). A login's panes are those of every dir it covers.
+  const panesOf = (m) => panes.filter((x) => m.dirs?.some((d) => accounts.profile(d)?.panes.includes(x.pane_id)));
+  const { shown, idle } = several ? inUse(accounts.byUrgency(all), panesOf) : { shown: all, idle: [] };
+  renderUsage($("usage"), shownUsage(shown, WIDE.matches && usageMode !== "off" ? "on" : usageMode), { wide: WIDE.matches });
   $("usage-more")?.remove(); // outside the swipeable strip, so it shows without a swipe
-  $("usage").insertAdjacentHTML(WIDE.matches ? "beforebegin" : "afterend", accounts.more(idle)); // on its top seam wide, its bottom on a phone
+  $("usage").insertAdjacentHTML(WIDE.matches ? "beforebegin" : "afterend", accounts.more($("usage").hidden ? [] : idle)); // on its top seam wide, its bottom on a phone
   if ($("usage-more")) $("usage-more").onclick = openUsage;
   accounts.strip($("usage"), several);
   $("usage-handle").hidden = $("usage").hidden;

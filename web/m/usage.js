@@ -82,11 +82,14 @@ export const inlineUsage = a => (a?.windows || []).filter(w => ['5h', '7d'].incl
 
 // Several accounts' strip names only those in use: any of their panes busy or active in the
 // last hour, the most busy panes first (ties keep the meters' order). The rest are `idle`,
-// for the "+N" at the strip's end; with none in use, every account shows rather than none.
+// for the "+N" by the strip; with none in use, every account shows rather than none.
+// `panesOf(meter)` is the panes on a meter's login, across every config dir it covers.
 export const IN_USE_SECS = 3600;
 export function inUse(meters, panesOf, now = Date.now()) {
-  const accts = [...new Set(meters.map(m => m.acct))], busy = a => panesOf(a).filter(p => p.activity !== 'idle').length;
-  const used = accts.filter(a => panesOf(a).some(p => isRecent(p, now, IN_USE_SECS))).sort((x, y) => busy(y) - busy(x));
+  const of = new Map();
+  for (const m of meters) if (!of.has(m.acct)) of.set(m.acct, panesOf(m));
+  const accts = [...of.keys()], busy = a => of.get(a).filter(p => p.activity !== 'idle').length;
+  const used = accts.filter(a => of.get(a).some(p => isRecent(p, now, IN_USE_SECS))).sort((x, y) => busy(y) - busy(x));
   if (!used.length) return { shown: meters, idle: [] };
   return { shown: used.flatMap(a => meters.filter(m => m.acct === a)), idle: accts.filter(a => !used.includes(a)) };
 }
