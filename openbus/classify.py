@@ -1042,11 +1042,14 @@ def _offers(message: str, reply: str | None) -> list[str]:
     handing anything over."""
     if _USER_ROW_RE.search(message) or re.search(r"(?m)^[ \t]*⎿", message):
         return []
-    # One source, never both: a command's own quotes, unmarked on screen, are no reply.
+    # One source, never both, and a quote after a `! ` in its paragraph is no reply: it may
+    # be the command's own argument, which the screen does not mark.
     t = reply if reply and _plain(reply) == _plain(message) else message
-    found = (m[m.lastindex]  # the payload: each alternative's last group
+    found = (m[m.lastindex]  # the payload: each alternative's last group (a quote's: 4, 5)
              for m in _OFFER_RE.finditer(t)
-             if not _NEGATED_RE.search(_plain(t[:m.start()])))
+             if not _NEGATED_RE.search(_plain(t[:m.start()])) and not (
+                 m.lastindex > 3
+                 and re.search(r"(?:^|\s)! \S", re.split(r"\n[ \t]*\n", t[:m.start()])[-1])))
     return list(dict.fromkeys(o for o in found if re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
         + r"(?![^\s\"”`.,;:?!)])", message)))[:3]
