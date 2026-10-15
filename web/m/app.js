@@ -11,7 +11,7 @@ import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
-import { renderUsage, shownUsage, inUse, inlineUsage, staleUsage } from "/m/usage.js";
+import { renderUsage, renderStrip, shownUsage, inUse, inlineUsage, staleUsage } from "/m/usage.js";
 import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
@@ -694,17 +694,21 @@ const paintUsage = steady(() => {
   const { shown, idle } = several ? inUse(accounts.byUrgency(all), panesOf) : { shown: all, idle: [] };
   const focused = document.activeElement?.id === "usage-more"; // a redrawn strip takes it along
   const strip = shownUsage(shown, WIDE.matches && usageMode !== "off" ? "on" : usageMode);
-  renderUsage($("usage"), strip);
+  renderStrip($("usage"), strip);
   usageEnd($("usage"), strip, accounts.more($("usage").hidden ? [] : idle)); // a tap on "+N" opens Plan usage, as the strip's does
   if (focused) $("usage-more")?.focus({ preventScroll: true });
   $("usage-handle").hidden = $("usage").hidden;
-  // The dashboard's card draws every meter whatever the mode; its view (#view=usage)
+  // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
   // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
-  // tool with no plan meters hides the card.
+  // tool with no plan meters hides the card. Several accounts: a labelled group each when
+  // wide, the strip on a phone.
   const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
   show("usage-panel", board.length > 0);
-  renderUsage($("usage-board"), several ? accounts.byUrgency(board) : board);
-  usageEnd($("usage-board"), board);
+  const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board", order = (list) => several ? accounts.byUrgency(list) : list;
+  if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
+  if (grouped) accounts.groups(el, board, (cells, one) => renderUsage(cells, one, { wide: true }));
+  else renderUsage(el, order(board), { wide: true });
+  accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
   // Every account's meters, whatever the list's account filter: the view picks its own

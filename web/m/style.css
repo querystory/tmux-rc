@@ -709,9 +709,9 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #landing-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(min(100%, 320px), calc((100% - 32px) / 3)), 1fr)); gap: 16px; margin-top: 16px; }
 #landing-cards .atlas-panel { height: 100%; margin-top: 0; }
 @container dash (min-width: 992px) { #usage-panel { grid-column: 1 / -1; } #loops-card[hidden] ~ #usage-panel { grid-column: auto; } }
-/* Plan usage follows its own width: wide, its meters sit in one row. */
+/* Plan usage follows its own width: wide, its meters sit in one row with short trends. */
 #usage-panel { container-name: usage; }
-@container usage (min-width: 720px) { #usage-panel > .atlas-panel-heading { margin-bottom: 4px; } }
+@container usage (min-width: 720px) { #usage-board .usage-spark { height: 28px; margin-top: 2px; } #usage-panel > .atlas-panel-heading { margin-bottom: 4px; } }
 /* With one card missing (Open loops still loading, or no plan meters), three are left: at
    three columns they share the row, and at two the lone last card takes its row. */
 @container dash (min-width: 656px) and (max-width: 991.98px) {
@@ -895,29 +895,53 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 }
 
 
-/* Plan limits (usage.js): one row of small ring cards (the tab bar mock's modern pass),
-   swiped sideways and snapping per card; the next peeks in at the edge to say there is
-   more. A phone's list opens on it (it scrolls away under the pinned search); wide, it sits
-   on the sidebar's foot; the dashboard's card wraps them instead. */
-:is(#usage, .usage-board):not([hidden]) { display: flex; gap: 8px; }
+/* Plan limits in the session list's strip (usage.js renderStrip): one row of small ring cards
+   (the tab bar mock's modern pass), swiped sideways and snapping per card; the next peeks in
+   at the edge to say there is more. A phone's list opens on it (it scrolls away under the
+   pinned search); wide, it sits on the sidebar's foot. */
+#usage:not([hidden]) { display: flex; gap: 8px; }
 #usage { padding: 8px 16px 10px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; flex: none; cursor: pointer; }
 #usage::-webkit-scrollbar { display: none; }
 #usage[hidden], #app.rail :is(#usage, #usage-handle) { display: none; }
-.usage-board:not([hidden]) { flex-wrap: wrap; }
-.usage-cell { --u: var(--accent); flex: 0 0 auto; scroll-snap-align: start; display: grid; grid-template-columns: 30px auto; gap: 1px 10px; align-items: center; padding: 8px 14px 8px 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
-.usage-cell.warn { --u: var(--amber); }
-.usage-cell.full { --u: var(--red); }
+.usage-card { --u: var(--accent); flex: 0 0 auto; scroll-snap-align: start; display: grid; grid-template-columns: 30px auto; gap: 1px 10px; align-items: center; padding: 8px 14px 8px 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.usage-card.warn { --u: var(--amber); }
+.usage-card.full { --u: var(--red); }
 .usage-ring { grid-row: 1 / 3; width: 30px; height: 30px; border-radius: 50%; background: conic-gradient(var(--u) calc(var(--p) * 1%), var(--raised) 0); display: grid; place-items: center; }
 .usage-ring::after { content: ""; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); }
-.usage-cell b { font-size: 14px; line-height: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.usage-cell b small { font-size: 12.5px; font-weight: 500; color: var(--muted); }
-.usage-cell b small.out { color: var(--red); }
-.usage-cell > span, .usage-stale { display: flex; align-items: center; gap: 5px; font-size: 11.5px; line-height: 15px; color: var(--muted); white-space: nowrap; }
-.usage-cell img { width: 12px; height: 12px; border-radius: 3px; }
-.usage-cell.none { grid-template-columns: auto; }
-/* The heatmap's row totals borrow the bar. */
-.usage-bar { display: block; position: relative; height: 5px; border-radius: 3px; background: var(--raised); }
+.usage-card b { font-size: 14px; line-height: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.usage-card b small { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.usage-card b small.out { color: var(--red); }
+.usage-card > span, .usage-stale { display: flex; align-items: center; gap: 5px; font-size: 11.5px; line-height: 15px; color: var(--muted); white-space: nowrap; }
+.usage-card img { width: 12px; height: 12px; border-radius: 3px; }
+.usage-card.none { grid-template-columns: auto; }
+/* The dashboard's card: the same cells, as many to a row as fit, the trend tall enough to read. */
+.usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
+.usage-board .usage-spark { height: 56px; margin-top: 6px; }
+.usage-cell em { grid-area: 1 / 3; }
+.usage-cell { --u: var(--accent); container-type: inline-size; display: grid; grid-template-columns: minmax(0, max-content) auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
+.usage-cell.warn { --u: var(--amber); }
+.usage-cell.full { --u: var(--red); }
+.usage-cell > span:not(.acct-badge), .usage-cell :is(em, small), .usage-cell.none { color: var(--muted); } /* not the chip */
+.usage-cell em { font-style: normal; font-size: 11px; }
+@container (max-width: 130px) { .usage-cell em { display: none; } } /* the sidebar's narrowest cells keep the window and %, not the word */
+.usage-cell > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* account names are user-chosen: truncate, never push the % out */
+.usage-cell img { vertical-align: -2px; margin-right: 5px; border-radius: 3px; }
+.usage-cell b { font-variant-numeric: tabular-nums; margin-left: 2px; }
+.usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast stacks over the reset, which always shows */
+.usage-cell small { display: block; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The notes on the left, the account's chip (several only) in the corner across from them. */
+.usage-foot { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
+.usage-foot > div { flex: 1; min-width: 0; }
+.usage-foot .acct-badge { flex-shrink: 1; min-width: 0; max-width: 60%; margin-bottom: 1px; } /* a long name truncates, the reset keeps the rest */
+.usage-bar, .usage-spark { grid-column: 1 / -1; }
+.usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
+.usage-bar > .ahead { opacity: .3; }
+.usage-bar > .pace { width: 2px; inset: -2px auto -2px auto; margin-left: -1px; border-radius: 1px; background: var(--fg); opacity: .55; }
+.usage-spark { display: block; width: 100%; height: 24px; margin-top: 3px; overflow: visible; }
+.usage-spark :is(polyline, line) { fill: none; stroke: var(--u); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.usage-spark .proj { stroke-dasharray: 3 3; }
+.usage-spark .limit { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
 @media (max-width: 1099px) { #usage { order: -1; border-bottom: 1px solid var(--line); } }
 @media (min-width: 1100px) {
   #usage { padding: 8px 14px 10px; scroll-padding-inline: 14px; border-top: 1px solid var(--line); }
@@ -1141,6 +1165,31 @@ button.picked:disabled { opacity: 1; }
   #side-filter-picker .acct-opt { min-height: 44px; font-size: 15px; }
 }
 #app.rail .acct-pill { display: none; }
+/* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third
+   of the next peeks in under the fade, so the row reads as one that scrolls: two on a phone,
+   one in a narrow sidebar, three where there is room. */
+#usage-board.acct-strip:not([hidden]) { display: flex; }
+.acct-strip { container: strip / inline-size; gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; }
+#usage-board.acct-strip { scroll-padding-inline: 0; }
+.acct-strip::-webkit-scrollbar { display: none; }
+.acct-strip > .usage-cell { --n: 1; flex: 0 0 calc((100% - var(--n) * 16px) / (var(--n) + .3)); scroll-snap-align: start; }
+@container strip (min-width: 320px) { .acct-strip > .usage-cell { --n: 2; } }
+@container strip (min-width: 480px) { .acct-strip > .usage-cell { --n: 3; } }
+.acct-strip.more-r { mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
+.acct-strip.more-l { mask-image: linear-gradient(90deg, transparent, #000 36px); }
+.acct-strip.more-l.more-r { mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
+/* The wide dashboard: every account's meters on one line, never wrapped. Each group is
+   headed by its account's chip, in flow and flush left over its first chart, with one thin
+   divider between groups. A group grows by its meter count, so the charts share the line
+   evenly down to 130px each; past that the line scrolls, as the phone's strip does. */
+.usage-groups { display: flex; gap: 0 33px; align-items: flex-start; font-size: 13px; line-height: 18px; }
+.ug { position: relative; flex: var(--n) 1 0; display: flex; flex-direction: column; gap: 8px; scroll-snap-align: start; }
+.ug + .ug::before { content: ""; position: absolute; inset: 0 auto 0 -17px; border-left: 1px solid var(--line); }
+.ug-label { display: flex; font-size: 12px; color: var(--muted); cursor: default; }
+.ug-label .acct-badge { pointer-events: none; } /* hover reads the label's fuller tooltip, not the chip's */
+.ug-cells { display: flex; gap: 12px; }
+.ug-cells .usage-cell { flex: 1 1 0; min-width: 130px; }
+.ug-cells .usage-spark { height: 56px; margin-top: 6px; }
 /* The usage view (usage-view.js): a chart per window type filling the page, the range
    control at its top right; a phone shows one chart at a time, its tabs under the range. */
 #dash-page:has(> .usage-view) { container: dash-page / inline-size; display: flex; flex-direction: column; height: 100%; }
