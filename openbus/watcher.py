@@ -26,6 +26,7 @@ from .classify import (
     _OPENCODE_RUNNING_RE,
     bootstrap,
     classify,
+    put_offers,
     question_rows,
     screen_offers,
 )
@@ -1403,9 +1404,7 @@ class Watcher:
             cached["snapshot_id"] = self.snapshots[pane.id][-1]["id"]  # a restore's is stale
             # Offers send what they say: read off this very screen, which the fingerprint
             # may call unchanged while a command's "10s" became "20s".
-            cached.pop("offers", None)
-            if offers := screen_offers(text, cached.get("tool"), reply):
-                cached["offers"] = offers
+            put_offers(cached, screen_offers(text, cached.get("tool"), reply))
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
@@ -1604,9 +1603,7 @@ class Watcher:
                 and replacement_tool != previous_tool
             )
             state = {**previous, "links": state.get("links") or previous.get("links")}
-            state.pop("offers", None)
-            if offers:
-                state["offers"] = offers
+            put_offers(state, offers)
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)

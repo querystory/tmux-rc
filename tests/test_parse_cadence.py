@@ -22,6 +22,10 @@ class _Pane:
         self.session_active = True
 
 
+def needs_you(state):  # the phone's needsYou (web/m/pane-model.js)
+    return state.get("activity") == "waiting" and state.get("waiting_on") != "external"
+
+
 def _harness(monkeypatch, frame_holder):
     """A Watcher whose capture returns frame_holder[0] and whose classify is a counter."""
     calls = {"n": 0}
@@ -558,8 +562,8 @@ def test_failed_parse_never_restores_the_last_cards_offers(monkeypatch):
     screen no longer shows (the user may have typed since)."""
     frame = ["Done"]
     w, _calls = _harness(monkeypatch, frame)
-    seq = [{"activity": "idle", "tool": "claude", "events": [], "headline": "Done",
-            "offers": ["merge 415"]},
+    seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
+            "headline": "Done", "offers": ["merge 415"]},
            {"activity": "unknown", "tool": "claude", "events": [], "parse_ok": False}]
     monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0)))
     pane = _Pane(current_command="node")
@@ -568,6 +572,7 @@ def test_failed_parse_never_restores_the_last_cards_offers(monkeypatch):
         w._forced_this_tick = set()
         state = w._tick_pane(pane)
         assert state["headline"] == "Done" and state.get("offers") == offers
+        assert needs_you(state) == bool(offers), "the offer's wait leaves with it"
 
 
 def test_an_unreparsed_screen_still_reads_its_own_offers(monkeypatch):
@@ -579,13 +584,14 @@ def test_an_unreparsed_screen_still_reads_its_own_offers(monkeypatch):
     monkeypatch.setattr(W.transcript, "last_reply",
                         lambda *_a: "Run:\n\n```\n! timeout 10s make deploy\n```")
     monkeypatch.setattr(W, "classify", lambda *_a, **_kw: calls.__setitem__("n", calls["n"] + 1)
-                        or {"activity": "idle", "tool": "claude", "events": [],
-                            "offers": ["! timeout 10s make deploy"]})
+                        or {"activity": "waiting", "waiting_on": "user", "tool": "claude",
+                            "events": [], "offers": ["! timeout 10s make deploy"]})
     pane = _Pane(current_command="node")
     for duration, offers in (("10s", ["! timeout 10s make deploy"]), ("20s", None)):
         frame[0] = screen.format(duration)
         w._forced_this_tick = set()
-        assert w._tick_pane(pane).get("offers") == offers
+        state = w._tick_pane(pane)
+        assert state.get("offers") == offers and needs_you(state) == bool(offers)
     assert calls["n"] == 1, "the second screen was not reparsed"
 
 
