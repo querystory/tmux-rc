@@ -42,7 +42,7 @@ def local_window_size(pane):
 
 
 def test_fits_width_only_and_restores_on_leave(pane):
-    assert fit.view(pane, "phone", 52) is False  # nothing attached
+    assert fit.view(pane, "phone", 52) == (False, ["@0 52 cols"])  # nothing attached
     assert size(pane) == "52x50 52"  # height untouched: scrollback is capture's
     fit.view(pane, "phone", 0)
     assert size(pane) == "200x50 "
@@ -86,7 +86,7 @@ def test_attached_terminal_needs_the_toggle(pane, session):
     if session != "s":
         T._run(["new-session", "-d", "-t", "s", "-s", session])
     with attached(session):
-        assert fit.view(pane, "phone", 60) is True
+        assert fit.view(pane, "phone", 60) == (True, [])
         assert size(pane) == "200x50 "
         fit.view(pane, "phone", 60, force=True)
         assert size(pane).startswith("60x")
@@ -167,8 +167,15 @@ def test_sweep_never_fits_a_window_the_user_took(pane):
     assert size(pane) == "120x50 "
 
 
-def test_endpoint(pane):
+def test_endpoint_audits_changes_not_heartbeats(pane, monkeypatch):
+    audits = []
+    monkeypatch.setattr(S, "_audit", lambda _r, action, pane_id, detail="", outcome="ok":
+                        audits.append((action, detail, outcome)))
     client = TestClient(S.app)
-    assert client.post(f"/api/panes/{pane}/fit", json={"cols": 70}).json() == {"attached": False}
+    for _ in range(2):  # the second is a heartbeat: nothing changes, nothing audited
+        reply = client.post(f"/api/panes/{pane}/fit", json={"cols": 70})
+        assert reply.json() == {"attached": False}
     assert size(pane) == "70x50 70"
     assert client.post("/api/panes/%25999/fit", json={"cols": 70}).status_code == 404
+    assert audits == [("fit", "cols=70 force=False: @0 70 cols", "ok"),
+                      ("fit", "cols=70 force=False", "error: tmux rc 1")]

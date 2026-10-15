@@ -1091,16 +1091,22 @@ class FitBody(BaseModel):
 
 
 @app.post("/api/panes/{pane_id}/fit")
-def fit_width(pane_id: str, body: FitBody):
+def fit_width(pane_id: str, body: FitBody, request: Request):
     """Fit the pane's window to this viewer (openbus/fit.py); cols 0 means it left. The
     view posts this as it opens the terminal, on zoom, resize or the toggle, and once a
     minute as its heartbeat. A POST, never a GET: it resizes a real terminal, and the
     preview sandbox relies on GETs changing nothing. `attached` says a terminal is
-    attached, the one case the "Fit to my screen" toggle matters."""
+    attached, the one case the "Fit to my screen" toggle matters. Audited when it resizes
+    something or fails; a heartbeat that changes nothing is not a change."""
+    detail = f"cols={body.cols} force={body.force}"
     try:
-        return {"attached": fit.view(pane_id, body.session, body.cols, body.force)}
+        attached, done = fit.view(pane_id, body.session, body.cols, body.force)
     except subprocess.CalledProcessError as e:
+        _audit(request, "fit", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
         raise _pane_err(e) from None
+    if done:
+        _audit(request, "fit", pane_id, f"{detail}: {', '.join(done)}")
+    return {"attached": attached}
 
 
 @app.post("/api/panes/{pane_id}/wheel")

@@ -1103,8 +1103,8 @@ async function streamTerminal(id, signal) {
   text($("terminal-status"), "Connecting");
   while (!signal.aborted) {
     try {
-      const cols = termCols();
-      if (cols && Date.now() - fitAt > FIT_BEAT_MS) fitTo(id, cols);
+      const cols = Date.now() - fitAt > FIT_BEAT_MS && termCols(); // measuring forces a layout: only when due
+      if (cols) fitTo(id, cols);
       const query = new URLSearchParams({ frame });
       if (liveSession) query.set("session", liveSession);
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);

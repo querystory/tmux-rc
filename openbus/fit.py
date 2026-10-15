@@ -41,13 +41,14 @@ _lock = threading.Lock()
 _viewers: dict[str, tuple[str, int, float, bool]] = {}
 
 
-def _settle(checked: str = "") -> None:
+def _settle(checked: str = "") -> list[str]:
     """Give every window what its live viewers want: the narrowest width among viewers
     whose pane still fills it (its only pane, or zoomed) and who may fit it (all, or only
     those that forced it while a terminal is attached); else its own size back. A width
     that is no longer ours is the user's: unmark it and drop its viewers. An unmarked
     window is fitted only when it is `checked`, the one whose window-size view() just
-    found the user had not set."""
+    found the user had not set. Returns what it changed, for the audit log."""
+    done = []
     try:
         rows = set(_run(["list-panes", "-a", "-F", _PANE]).splitlines())
     except subprocess.CalledProcessError:
@@ -67,22 +68,26 @@ def _settle(checked: str = "") -> None:
         with suppress(subprocess.CalledProcessError):  # closed meanwhile
             if ours and width != ours:
                 _run(["set-option", "-wu", "-t", window, MARK])
+                done.append(f"{window} left to the user")
                 for viewer in [v for v, (p, *_) in _viewers.items() if fills[p] == window]:
                     del _viewers[viewer]
             elif not want:
                 if ours:  # -A leaves window-size at manual: unset it to inherit again
                     _run(["resize-window", "-A", "-t", window, ";", "set-option", "-wu", "-t",
                           window, "window-size", ";", "set-option", "-wu", "-t", window, MARK])
+                    done.append(f"{window} restored")
             elif str(want) != width and (ours or window == checked):
                 _run(["resize-window", "-x", str(want), "-t", window, ";",
                       "set-option", "-w", "-t", window, MARK, str(want)])
+                done.append(f"{window} {want} cols")
+    return done
 
 
-def view(pane_id: str, viewer: str, cols: int, force: bool = False) -> bool:
+def view(pane_id: str, viewer: str, cols: int, force: bool = False) -> tuple[bool, list[str]]:
     """A viewer showing `cols` columns of the pane (0: it left). It may fit the window
     unless the user set the window's window-size themselves; _settle decides whether it
     does. Returns whether a terminal is attached, which is when the viewer offers its
-    force toggle."""
+    force toggle, and what changed."""
     with _lock:
         _viewers.pop(viewer, None)  # wherever it was: a release works even for a pane gone
         checked = ""
@@ -97,8 +102,8 @@ def view(pane_id: str, viewer: str, cols: int, force: bool = False) -> bool:
                 if cols > 0:
                     _viewers[viewer] = (pane, max(MIN_COLS, cols), time.monotonic(), force)
         finally:
-            _settle(checked)
-    return _attached(linked, watched)
+            done = _settle(checked)
+    return _attached(linked, watched), done
 
 
 def sweep() -> None:
