@@ -1388,8 +1388,12 @@ def test_finished_turn_offers_the_replies_it_hands_over():
     message = (f"Run it yourself with the ! prefix:\n\n  {command}\n\n  That updates the branch."
                '\n\n  Say "merge 415" and I\'ll queue it. "merge all ✅" queues 18 PRs.')
     screen, model = _auto_screen(message), _llm({"offers": ["rm -rf ~"]})
-    assert classify(_pane("claude"), screen, model, reply=message)["offers"] == [
+    marked = message.replace(command, f"`{command}`")  # the transcript marks it as code
+    assert classify(_pane("claude"), screen, model, reply=marked)["offers"] == [
         command, "merge 415", "merge all ✅"]
+    # A bare row may be the first of a script: only a span or a one-row fence is a command.
+    assert classify(_pane("claude"), screen, model, reply=message)["offers"] == [
+        "merge 415", "merge all ✅"]
     # Without the transcript, nothing: the screen draws code as plain text.
     assert "offers" not in classify(_pane("claude"), screen, model)
     fixture = "Fixture:\n\n```bash\nprintf 'say \"merge all\"'\n```\n\nSay \"ship it\" to go on."
@@ -1489,6 +1493,11 @@ def test_finished_turn_offers_the_replies_it_hands_over():
          "Run:\n\n```\n! make clean\n\n`command -v make` deploy\n```"),  # a row opening "`"
         (_auto_screen("Run:\n\n  ! deploy()\n\n  { make deploy; }"), None),  # a function
         (_auto_screen("Run:\n\n  ! if true; then if true; then echo ok; fi\n\n  fi"), None),
+        (_auto_screen("Run:\n\n  ! make clean\n\n  cmake .."), "Run:\n\n! make clean\n\ncmake .."),
+        (_auto_screen("Run:\n\n  ! make clean\n\n  (make deploy)"),
+         "Run:\n\n! make clean\n\n(make deploy)"),  # a bare row before more script
+        (_auto_screen('Run:\n\n  ! make test\n  status: done\n\n  Say "merge all" now.'),
+         'Run:\n\n! make test\n```\nstatus: done\n\nSay "merge all" now.\n```'),  # adjacent
         (_auto_screen("Run:\n\n  ! make clean\n\n  make deploy"),
          "Run:\n\n! make clean\n\nmake deploy"),  # more of its script after a blank row
         (_auto_screen("Fixture:\n\n  ! make test\n\n  make deploy"),

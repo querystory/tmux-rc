@@ -1033,7 +1033,7 @@ _CODE_RE = re.compile(
     # A span; a fence (indented 3 at most) closes on a run as long as its opener, or ends.
     r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)"
     r"|(?P<fence>^ {0,3}(?P<run>`{3,}|~{3,})[\s\S]*?(?:(?P<close>^ {0,3}(?P=run)[`~]*[ \t]*$)|\Z))"
-    r"|^[ \t]*! \S.*(?:\n[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
+    r"|^[ \t]*! \S.*(?:\n(?! {0,3}(?:```|~~~))[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
 
 
 # A message that forbids running or saying something offers nothing at all, read on _plain
@@ -1076,16 +1076,13 @@ def _offers(message: str, reply: str | None) -> list[str]:
                     + re.split(r"\n[ \t]*\n", t[m.start():])[0])
             return not any(a <= m.start() < b for a, b, _ in code) and not (
                 re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
-        # A command: never where a heredoc may hold it as data, nor in an indented block (a
-        # Markdown script, any row of which may be the whole), nor inside code other than as
-        # itself; and a row of its own outside a fence only before prose (a sentence), not
-        # before more of what may be its script ("make deploy" after a blank row).
+        # A command: only as an inline span or as the one row of a fence (a bare row may be
+        # the first of a script, and nothing after it says otherwise); never where a heredoc
+        # may hold it as data, nor in an indented block, nor inside other code.
         row = t[t.rfind("\n", 0, m.start()) + 1:m.start(m.lastindex)]
-        fenced = any(a < m.start() < b and rows for a, b, rows in code)
-        after = re.split(r"\n[ \t]*\n", t[m.end():].strip(), maxsplit=1)[0].strip()
-        return "<<" not in t and not re.match(r" {4}|\t", row) and not (
-            m.lastindex == 3 and not fenced and after and not re.search(r"[.!?:)]$", after)
-        ) and not any(
+        lone = any(a < m.start() < b and rows == 1 for a, b, rows in code)
+        return "<<" not in t and not re.match(r" {4}|\t", row) and (
+            m.lastindex == 2 or lone) and not any(
             a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
             for a, b, rows in code)
 

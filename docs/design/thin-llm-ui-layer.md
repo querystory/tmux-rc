@@ -160,12 +160,11 @@ the turn has ended with nothing typed since.
 
 The remaining rules all came out of review, and all trade recall for never prefilling the
 wrong thing. Nothing is read out of code: a quoted phrase only from a paragraph with no
-code in it, a command only as its own span or row, a fenced command only when it is the
-fence's one row. A command that may be cut short by a blank row in its script is not
+code in it, and a command only as an inline code span or as the one row of a fence (a bare
+`!` row may be the first line of a script, and nothing after it reliably says otherwise). A command that may be cut short by a blank row in its script is not
 offered, and the shell itself judges that (`bash -n`, which runs nothing): every
-hand-written check of quotes and keywords passed some grammar bash rejects. A command row
-outside a fence is offered only before a sentence, never before what may be more of its
-script; a message with a heredoc anywhere offers no command; and a message that says "do
+hand-written check of quotes and keywords passed some grammar bash rejects. A message with
+a heredoc anywhere offers no command; and a message that says "do
 not run" or "don't say" anywhere offers nothing at all, since which command a warning
 covers is not worth guessing. It is Claude Code's alone for now: Codex's screen has no
 message boundary this reads yet. A missed offer costs the old copy-paste; a false one
