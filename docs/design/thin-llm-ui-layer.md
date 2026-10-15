@@ -133,9 +133,10 @@ A copyable's destination is *somewhere else*. The sibling case is text whose des
 is the same pane: Claude Code ending a turn with "run it yourself: `! gh pr merge …`" or
 "say "merge 415" and I'll queue it". Copying that, opening the composer, pasting and
 sending is four steps for what should be one tap, so a finished turn's offers are answers
-on the pane's question card, where a question's options already are: the text once, on a
-row that unfolds to show all of it, then Send it and Copy, and the same three on the pane's
-list card. A tap sends the exact text plus Enter by the path a tapped option takes, with its
+on the pane's question card, where a question's options already are. A command is its text
+once, on a row that unfolds when it is longer than the row, then Send it and Copy; a reply
+is not code, so it is one answer, Send "ship it". The list card carries the first offer
+only, so a row stays a row. A tap sends the exact text plus Enter by the path a tapped option takes, with its
 "Sending…" hold. Two earlier versions were dropped. A native confirm dialog blocked the
 page and looked foreign on a phone. Filling the composer instead put a block of monospace
 above it and the command in the input box, which took half a phone's screen and read as

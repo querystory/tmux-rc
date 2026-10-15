@@ -11,7 +11,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, offerText, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, offerText, isCommand, sendLabel, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -237,8 +237,9 @@ export function setupSidebar(ctx) {
   function replies(node, p) {
     const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
     const options = needsYou(p) ? ctx.answers(p.question) : [];
-    // A finished turn's offers ride every card, Needs you or not, as on its pane's (app.js render).
-    const offers = ctx.offers(p).flatMap((offer) => ["text", "send", "copy"].map((part) => ({ offer, part, option: offer, index: -1 })));
+    // A finished turn's first offer rides every card, Needs you or not, as on its pane's
+    // (app.js render), which shows them all.
+    const [offer] = ctx.offers(p), offers = (!offer ? [] : isCommand(offer) ? ["text", "send", "copy"] : ["send"]).map((part) => ({ offer, part, option: offer, index: -1 }));
     const items = [...options, ...offers, ...(answered ? [{ note: answered.note }] : needsYou(p) ? [{ reply: true }] : [])];
     reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.part ? `${o.part}:${o.offer}` : `${o.index}:${o.option}`, (o) => {
       if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
@@ -250,7 +251,7 @@ export function setupSidebar(ctx) {
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
       if (o.part === "text") return text(el, offerText(o.offer));
-      const label = o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
+      const label = o.reply ? "Reply" : o.part === "send" ? sendLabel(o.offer) : o.part === "copy" ? "Copy" : o.option;
       text(el, label); el.title = o.reply ? "" : o.part ? offerText(o.offer) : label; el.disabled = busy && o.part !== "copy";
       el.classList.toggle("picked", !o.reply && o.part !== "copy" && ctx.picked(p, o));
     });

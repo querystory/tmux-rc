@@ -198,12 +198,13 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 :is(#options, .offer-choices) button:hover:not(:disabled) { border-color: var(--amber); }
 /* An offer: its text on one row (a tap unfolds it), then Send it and Copy as two answers. */
 #offers:not(:empty) { display: grid; gap: 14px; margin-top: 14px; }
-#options:empty:has(+ #offers:not(:empty)), .offer-choices .picked svg { display: none; } /* no gap for no answers; the spinner stands in for the icon */
-#prompt:empty ~ #offers { margin-top: 0; } /* a finished turn's card: no question above */
+#offers:not(:empty) + #options:empty, .offer-choices .picked svg { display: none; } /* no gap for no answers; the spinner stands in for the icon */
+#prompt:empty ~ :is(#offers, #offers:empty + #options) { margin-top: 0; } /* a finished turn's card: no question above */
 .offer-text { display: flex; align-items: flex-start; gap: 6px; width: 100%; min-height: 40px; padding: 9px 6px 9px 12px; text-align: left; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 60%, transparent); }
 .offer-text code { flex: 1; min-width: 0; font: 12.5px/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .offer-text[aria-expanded="true"] code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .offer-text svg { color: var(--muted); margin-top: 1px; }
+.offer-text.fits svg { display: none; }
 .offer-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .offer-choices button { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 #answer-status { color: var(--muted); font-size: 12px; padding-top: 10px; }

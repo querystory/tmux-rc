@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, offerText, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, offerText, isCommand, sendLabel, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -882,16 +882,16 @@ function render() {
   $("question").classList.toggle("answered", !!answered);
   show("answer-status", !!answered);
   text($("answer-status"), answered?.note || "");
-  reconcile($("options"), answerOptions(question), (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
+  reconcile($("options"), answerOptions(question).concat(offers.filter((o) => !isCommand(o)).map((option) => ({ option, index: -1, offer: true }))), (o) => `${active}:${question?.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
-    button.onclick = () => answer(active, button._option.option, button._option.index);
+    button.onclick = () => answer(active, button._option.option, button._option.index, button._option.offer);
     return button;
   }, (button, option) => {
-    button._option = option; text(button, option.option); button.disabled = sending || !!answered;
+    button._option = option; text(button, option.offer ? sendLabel(option.option) : option.option); button.disabled = sending || !!answered;
     button.classList.toggle("picked", picked(pane, option));
   });
-  // An offer: its text once, folded to a row (a tap unfolds it), then Send it and Copy.
-  reconcile($("offers"), offers, (o) => `${active}:${o}`, () => {
+  // A command: its text once, folded to a row (a tap unfolds it), then Send it and Copy.
+  reconcile($("offers"), offers.filter(isCommand), (o) => `${active}:${o}`, () => {
     const node = document.createElement("div"); node.className = "offer";
     node.innerHTML = `<button type="button" class="offer-text" aria-expanded="false"><code></code>${licon("chevronDown", 16)}</button>
       <div class="offer-choices"><button type="button">${licon("up", 18)}Send it</button><button type="button">${licon("clipboard", 18)}Copy</button></div>`;
@@ -904,6 +904,8 @@ function render() {
     node._offer = value; text(node.querySelector("code"), offerText(value));
     const send = node.querySelector(".offer-choices button"); send.disabled = sending || !!answered; send.classList.toggle("picked", picked(pane, { option: value, index: -1 }));
   });
+  // The chevron only where a folded row has more to show.
+  for (const fold of $("offers").querySelectorAll('[aria-expanded="false"]')) fold.classList.toggle("fits", fold.firstChild.scrollWidth <= fold.firstChild.clientWidth);
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
