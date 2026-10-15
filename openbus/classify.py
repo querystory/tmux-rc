@@ -1070,14 +1070,17 @@ def _offers(message: str, reply: str | None) -> list[str]:
                     + re.split(r"\n[ \t]*\n", t[m.start():])[0])
             return marked and not any(a <= m.start() < b for a, b, _ in code) and not (
                 re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
-        return not any(a <= m.start() < b and a != m.start() and not (fence and m.lastindex == 3)
-                       for a, b, fence in code)  # inside code, and not as itself
+        row = t[t.rfind("\n", 0, m.start()) + 1:m.start()]  # an inline span in an indented
+        return not (m.lastindex == 2 and re.match(r" {4}|\t", row)) and not any(  # block, too
+            a <= m.start() < b and a != m.start() and not (fence and m.lastindex == 3)
+            for a, b, fence in code)  # inside code, and not as itself
 
     found = (m[m.lastindex] for m in _OFFER_RE.finditer(t) if offered(m))  # each one's payload
 
     def cut(o: str) -> bool:  # a command that may be cut short: a script with a blank row
-        return o.startswith("! ") and bool(  # (quotes that do not pair), a heredoc, a "\"
-            o.count("'") % 2 or o.count('"') % 2 or "<<" in o or o.endswith("\\"))
+        return o.startswith("! ") and bool(  # (quotes that do not pair), a heredoc, or an
+            any(o.count(q) % 2 for q in "'\"`") or "<<" in o  # end that goes on ("\", "&&")
+            or re.search(r"[\\&|]$", o))
 
     return list(dict.fromkeys(o for o in found if not cut(o) and re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
