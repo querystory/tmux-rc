@@ -7,36 +7,61 @@ Status: **implemented** (`openbus/plan_usage.py`, `web/m/usage.js`, `web/m/usage
 A fleet of agents burns subscription limits much faster than one person typing. The
 moment that matters is not "you are at 100%", it is "at this pace you hit 100% an hour
 before the window resets": that is when you pause a sweep, move work to another account,
-or let a pane idle. So the UI shows each window's percentage all the time (a pinned strip
-on the phone's list, the sidebar foot on desktop; the collapsed rail leaves it out, as it
-leaves out every card's text), and on desktop a trend with a dashed projection to
-the reset (colours below).
+or let a pane idle. So the UI shows each window's percentage all the time (atop the phone's
+list, the sidebar foot on desktop; the collapsed rail leaves it out, as it leaves out every
+card's text), as one small card per window (colours below), and the usage view draws the trends.
 
-The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So each meter now says "used", the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. That case adds a "full in" line, in the meter's colour, above the reset countdown rather than in place of it: the reset is still when the room comes back, and a forecast without it left no way to plan around the stall. All meters share one flat grid, two to a row, instead of a block per account under a header. The windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, "7d Fable"; a weekly-only Codex plan has one), so per-account rows with fixed 5h and 7d columns left holes and spent a whole row on each header. Packed, Claude's three and Codex's one make a 2×2. Each label carries its provider's icon instead of a header, and the order (provider, then 5h, 7d, per-model) keeps an account's meters together. In the sidebar's narrowest cells the word "used" drops out so the window name and percentage still fit; the trend line already shows direction there.
+The session list's strip (the phone's list top, the sidebar's foot) draws the tab bar mock's
+"modern pass" card, which the user picked over everything else in it: a 30px ring that fills with what is used, "89% · resets 7h30m", and a short line naming
+the account and window. The cards sit in one row that swipes sideways and snaps per card,
+and the next card peeks in at the edge so the row reads as one that scrolls. Nothing in a card
+truncates. The dashboard's Plan usage card is not a strip and keeps its own design, a meter
+per window with each wide one's trend (below): a card there was tried and taken back the same
+day, because the dashboard is where the detail belongs.
+
+This replaced three earlier designs, and each one taught something.
+- **Sparklines** (24px, in the sidebar's strip) said less than a number does at that size.
+- **Bar gauges in a grid**, two to a row under a heading per account, kept everything
+  visible but made the strip about 550px tall on a phone with three accounts, two thirds of
+  the screen above the list. Compacted to two lines, they still read as "all these charts".
+- **One swiped row of bar gauges**, each with its account chip in a corner, cut the third
+  gauge off at the edge and repeated the chip at a different spot under every gauge.
+
+The ring card is a single fixed-size object, so a row of them is one line high however many
+accounts there are. The peek, unlike a hard cut, says there is more.
+
+On a card, "full in 2d12h" in red takes the reset's place (the tooltip, the dashboard's meter and the usage view keep both), and a reading kept through failed reads is noted once, by the oldest, in the row's last card beside the "+N", rather than on every card.
+
+The dashboard's card draws a meter per window. Its first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So each meter now says "used", the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. That case adds a "full in" line, in the meter's colour, above the reset countdown rather than in place of it: the reset is still when the room comes back, and a forecast without it left no way to plan around the stall. All meters share one flat grid, two to a row, instead of a block per account under a header. The windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, "7d Fable"; a weekly-only Codex plan has one), so per-account rows with fixed 5h and 7d columns left holes and spent a whole row on each header. Packed, Claude's three and Codex's one make a 2×2. Each label carries its provider's icon instead of a header, and the order (provider, then 5h, 7d, per-model) keeps an account's meters together. In the narrowest cells the word "used" drops out so the window name and percentage still fit; the trend line already shows direction there.
 
 ### When the phone shows it
 
-Even packed, the strip takes two rows above the list, and most of the time nothing in it
+Even as one row, the strip sits above the list, and most of the time nothing in it
 asks for anything. So Settings has a Plan usage choice of Auto, On and Off,
 remembered per browser like the theme. On is the full strip and Off hides it. Auto, the
-default, shows only the meters that call for a decision and hides the strip when none do.
-A meter qualifies when the projection has it full before the reset (the same `limit_at`
-that draws "full in", so phone and server cannot disagree), or when it is at 70% used or
-more. The threshold is needed because the fit lags a sudden burst (see Projection): a
-sweep started late in a window can burn the last 30% before the line catches up, and 70%
-is where that remainder gets small enough to matter. Lower and a steady week's ordinary
-pace would keep the strip up most of the time, which is what Auto exists to avoid. An
-account that can't be read drops out under Auto too, because there is nothing to act on.
+default, shows the meters worth a glance and folds the rest into a "+N", the strip's last
+card, which opens Plan usage. A meter qualifies when the projection has it full before the
+reset (the same `limit_at` that draws "full in", so phone and server cannot disagree), or
+when it is at 50% used or more. The threshold is needed because the fit lags a sudden burst
+(see Projection): a sweep started late in a window can burn what is left before the line
+catches up, and past half used that remainder is worth watching. Auto once hid every meter
+under 70% and the strip with them; a steady week's pace then kept nothing in view, and the
+strip came and went with no say in why. Folding instead keeps the count of what is quiet in
+sight, and when nothing qualifies the single most urgent meter still shows, so the strip
+never stands empty. An unreadable account folds too, named in the "+N"'s tooltip.
 The desktop sidebar has room to spare, so it keeps every meter, and the same setting is
 one choice in Settings, "Plan usage", that is On (Auto and On, since every meter shows) or
 Off. It is the one setting rather than a second, desktop-only one, so a browser that crosses
 the breakpoint never shows a strip its other layout was told to hide; someone paying per
 token, with no plan limits at all, turns it off once.
 
-The strip's top edge is a seam, as the fleet chart's is: dragged taller, each trend takes
-the height and, a row per hundred pixels, several accounts' strip stacks more rows of
-meters while still swiping sideways, so a tall strip shows more meters rather than just
-bigger ones. The height is per browser, like the sidebar's width, and a double-click
+On a phone the strip scrolls away with the list instead of staying pinned over it, while the
+search row (search and the filter button) stays pinned. The meters are a glance on the way in,
+and once the list is scrolled they only cost room; search is what you reach for
+mid-list.
+
+The strip's top edge is a seam, as the fleet chart's is: dragged taller, its cards wrap into
+rows rather than swipe, so a tall strip shows more cards rather than bigger ones. The height is per browser, like the sidebar's width, and a double-click
 restores the natural one. Dragged under one row it closes, which sets the switch Off with
 an Undo in the notice, rather than snapping back with a hint. Snapping back fights a
 gesture that plainly meant "away", and a zero height would hide the strip somewhere
@@ -172,10 +197,44 @@ request:
   account id lives only inside `auth.json`'s tokens, and keeping the Codex path entirely
   credential-free was worth more than merging the rare case of two homes on one login.
 
+**omp** can sign in to a Claude plan too, and its use counts against the same 5h and 7d as
+Claude Code's. Without it, an account used only from omp panes read as idle, so the strip
+could fold it into "+N" while omp burned it. omp ignores `CLAUDE_CONFIG_DIR`: each omp
+profile (`--profile`, else `OMP_PROFILE`) keeps its own logins, and may rotate between
+several. So rather than read omp's credential store, the daemon asks omp, at most once a
+minute per profile its panes run: `omp usage --json --provider anthropic` names each login
+by an account id that equals Claude's `accountUuid`. It runs omp the way that pane does
+(its executable, and the script bun or a wrapper runs, from the pane's cwd) and with its
+`HOME`, since the daemon's PATH need not hold a bun install and a profile's logins live
+under that HOME. An omp pane then counts as a pane of
+every listed Claude account its profile holds, for the chip and the account filter. Every one,
+not a guess at one: which login a rotating profile is on at a given moment is not exposed.
+The pane still wears one chip, the first such account's: several chips would claim more
+than is known, and the account filter matches the pane on any of them.
+Only `--provider anthropic`, since asking every provider takes about 15 seconds against
+about one. A request never waits on omp; it reads the last answer, which a failed read
+keeps. omp's numbers are not new meters (yet): the account's own Claude meters already
+show them, and a Claude login only omp uses would be one that tmux-rc has not listed.
+
 Each row reports the config dirs it was read from, and the UI names it after the account
 those dirs belong to. A meter shows just its provider's icon while there is one account
-per provider; with several, each meter carries the account's chip in its corner, and the
-strip becomes one swipeable row ordered by urgency (see [agent accounts](agent-accounts.md)).
+per provider; with several, each card names its account too, ordered by urgency (see
+[agent accounts](agent-accounts.md)).
+
+The strip orders every card by urgency alone: already full, then full soonest, then the
+highest projected fill at the reset, whatever the account. It once named only the accounts
+in use (any pane busy, or active within the hour), most busy panes first, with urgency only
+within an account and the idle accounts folded into the "+N". That answered a question
+nobody asked: the order looked arbitrary, and the card that most needed a glance could sit
+behind a busier account's quiet ones. A limit binds whether or not a pane is on it right
+now, so one global order reads at a glance and Auto's fold keeps the row short. The cost is
+the sidebar at its default height, where about one card shows: it is now the most urgent
+meter, which may be an account no pane is using; dragging the strip taller shows more.
+The dashboard's card is unchanged, and still shows every account. Ordering
+the strip by the open pane's account was mocked and rejected. It answers "how is the account
+I'm on?" in the sidebar, away from the pane, and it reshuffles the strip on every switch.
+Putting the open pane's 5h and 7d on its account chip in the header was tried and removed:
+it crowded the header, truncated the pane title, and a red percentage there read as an error.
 
 ## Sources, and why each
 
@@ -252,6 +311,6 @@ burst, which we accept: it is meant to answer "at this rate", not to forecast. T
 computes it, so it is tested in Python and phone and desktop agree. Only ~120 thinned
 samples per window are sent, the sparkline's width; the fit uses all of them.
 
-The sidebar's and dashboard's sparklines are a few lines of inline SVG rather than ECharts:
+The dashboard's sparklines are a few lines of inline SVG rather than ECharts:
 four 24px trends do not justify loading a chart library on screens that otherwise would
 not. The usage view, which is about the charts, loads it.

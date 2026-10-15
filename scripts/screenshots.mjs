@@ -37,7 +37,7 @@ const SHOTS = [
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
   ["wide-sessions", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
   ["mobile-open-loops", PHONE, "light", "#view=loops", showLoops],
-  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card .loop-count")],
+  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card [data-lane]")],
   ["mobile-sessions", PHONE, "dark", "#view=dashboard", reach(".atlas-multiples")],
   ["wide-activity", WIDE, "light", "#view=dashboard", reach(".atlas-pulse", true)],
   ["mobile-activity", PHONE, "dark", "#view=dashboard", reach(".atlas-pulse", true)],
@@ -56,6 +56,8 @@ const SHOTS = [
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
   ["mobile-pane-menu", PHONE, "dark", "#pane=%259", (page) => page.click("#pane-menu-button")],
+  ["mobile-offers", PHONE, "light", "#pane=%255"],
+  ["mobile-offers-terminal", PHONE, "dark", "#pane=%255&view=terminal"],
   ["mobile-expunge", PHONE, "light", "#pane=%259", confirmExpunge],
   ["mobile-shell-menu", PHONE, "dark", "#pane=%256", (page) => page.click("#pane-menu-button")],
   ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .voice-open button")],
@@ -88,7 +90,7 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-list", PHONE, "light", "", two()],
   ["accounts-mobile-list-dark", PHONE, "dark", "", two()],
   ["accounts-mobile-settings", PHONE, "light", "", two((page) => page.click("#settings-open"))],
-  ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { await page.click('#list-nav [data-filter="working"]'); await page.click("#side-filter-picker summary"); await page.click('#acct-filter [data-acct="claude-personal"]'); await page.click("#side-filter-picker summary"); })],
+  ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { const tab = page.locator('#list-nav [data-filter="working"]'), base = await tab.count(); if (base) await tab.click(); await page.click("#side-filter-picker summary"); if (!base) await page.click('#side-filter-picker [data-v="working"]'); await page.click('#acct-filter [data-acct="claude-personal"]'); await page.click("#side-filter-picker summary"); })],
   ["accounts-wide-filter", WIDE, "light", "", two((page) => page.click("#side-filter-picker summary"))],
   ["accounts-wide-rail", WIDE, "dark", "#pane=%2513", two((page) => page.click("#collapse"))],
   ["accounts-wide-filtered", WIDE, "dark", "", two(async (page) => { await page.click("#side-filter-picker summary"); await page.click('#side-filter-picker [data-v="working"]'); await page.click('#acct-filter [data-acct="claude"]'); await page.click("#side-filter-picker summary"); })],
@@ -179,7 +181,7 @@ async function noTmux(page) {
 // scrolls to the page's foot instead (Activity, which grows from its strip there).
 function reach(selector, end = false) {
   return async (page) => {
-    for (const node of ["#loops-card .loop-count", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
+    for (const node of ["#loops-card [data-lane]", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(500); // the panels above settle their height first
     await page.locator(selector).first().evaluate((el, end) => {
       const pane = document.getElementById("landing"); // scroll the dashboard, never the page

@@ -1,0 +1,11 @@
+{
+  "description": "The pane sits in a plain folder named 'demo' (no GitHub origin) while the agent works across worktrees. Only the PR named with its repo survives; bare numbers are not attached to a repo guessed from the folder or to another repo the screen mentions.",
+  "current_command": "claude",
+  "capture": "╭───────────────────────────────╮\n│ ✻ Welcome to Claude Code!     │\n│   cwd: /home/dev/src/demo     │\n╰───────────────────────────────╯\n\n> ship the CSV export fix, then rebase #212-#214 on it\n\n● Bash(cd demo-app-csv && gh pr create --fill)\n  ⎿ https://github.com/acme/demo-app/pull/215\n\n● Opened acme/demo-app#215 (the order-export CSV fix). Rebasing #212, #213 and #214 onto it next; #216 is waiting on acme/ops-scripts deploy config.\n\n✻ Rebasing… (12s · esc to interrupt)\n\n>\n  ? for shortcuts",
+  "expected": {
+    "tool": "claude",
+    "activity": "running",
+    "working_prs": [{"repo": "acme/demo-app", "number": 215}],
+    "headline": "Opened demo-app PR 215 and rebasing PRs 212-214 onto it"
+  }
+}

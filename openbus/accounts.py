@@ -196,12 +196,13 @@ def report(states: list[dict], birth) -> dict:
     # A pane on another HOME's default dir is outside this user's accounts: it could be
     # neither read (its .claude.json sits beside that dir) nor launched on as one.
     mine = str(Path.home())
-    panes = {pane_id: (tool, plan_usage.home(tool, env))
-             for tool, env, pane_id in plan_usage.pane_envs(states, birth)
-             if env.get(ENV[tool]) or _canonical(env.get("HOME") or mine) == _canonical(mine)}
-    listed = profiles(panes.values())
+    claude = [d for t, d in metered() if t == "claude"]  # omp panes join these (plan_usage)
+    panes = [(pane_id, tool, plan_usage.home(tool, env))
+             for tool, env, pane_id in plan_usage.pane_envs(states, birth, claude)
+             if env.get(ENV[tool]) or _canonical(env.get("HOME") or mine) == _canonical(mine)]
+    listed = profiles([(tool, config) for _, tool, config in panes])
     by_dir = {p["dir"]: p for p in listed}
-    for pane_id, (_, config) in panes.items():
+    for pane_id, _, config in panes:
         if profile := by_dir.get(_canonical(str(config))):
             profile["panes"].append(pane_id)
     several = any(sum(p["provider"] == t and p["signed_in"] for p in listed) > 1 for t in ENV)

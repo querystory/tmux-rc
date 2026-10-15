@@ -184,7 +184,7 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
 
     The main column must never be blank: with no pane picked it answers what the sidebar
     cannot, which is what the whole fleet is doing. Its counts come from the same helpers
-    the filter tabs use, because a second count that disagreed with the tabs would be
+    the tab bar uses, because a second count that disagreed with the tabs would be
     worse than showing none. The sidebar width is a clamped CSS variable, so a value
     stored from a wider window can still never squeeze out the list or the terminal. And
     the pane's identity lives over the pane: the header spans both columns here, so a
@@ -198,9 +198,8 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
     assert 'show("landing", dashboardVisible())' in app
     assert "!active && (WIDE.matches || dashboard)" in app
     assert "renderLanding()" in app
-    # The tabs count with the filters' own predicates, which are the list's sections — not a
-    # parallel definition that can drift.
-    assert ".filter(asks).length" in app and "mine.filter((p) => matchesFilter(p, [f]))" in app
+    # Needs you counts with the list's own predicate, not a parallel definition that can drift.
+    assert ".filter(asks).length" in app
 
     # The drag handle writes a variable the grid clamps; the clamp is the real guard.
     assert "--sidebar" in css and "clamp(260px" in css
@@ -293,8 +292,14 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     assert 'reconcile($("options"), answerOptions(question)' in app
     assert 'compose(active, $("secret").hidden ? draft() : $("secret"))' in app
     assert "await ctx.compose(id, value)" in side
-    assert "ctx.answer(node._p.pane_id, o.option, o.index)" in side
+    assert "ctx.answer(node._p.pane_id, o.option, o.index, !!o.part)" in side
+    # An offer is sent by the same path, from the card and the list, never via the composer.
+    assert "send.onclick = () => answer(active, node._offer, -1, true);" in app
+    assert "takeOffer" not in app + side
     assert 'show("list-nav", !inPane && !wide)' in app
+    # The tab bar hides in a pane, so Chat and the mic move to the header rather than vanish.
+    assert 'const callTo = inPane ? $("settings-open") : $("attention-tab");' in app
+    assert 'callTo.before($("live-mode"), $("chat"))' in app
     assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app
     assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
     # Every group starts open (Idle too, by the user's call); only a fold the user made persists.

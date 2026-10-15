@@ -25,7 +25,7 @@ test("every addressable state round-trips", () => {
 
 test("unknown fields and bad values are ignored", () => {
   const state = parseHash("#from=push&pane=%254&filter=bogus&view=nope&x=1");
-  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: [], acct: [], q: "", compose: false });
+  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: [], acct: [], agent: [], q: "", compose: false });
   assert.equal(parseHash("#pane=%254&compose=1").compose, true);
   assert.equal(formatHash(parseHash("#pane=%254&from=push&compose=1")), "pane=%254");
   assert.equal(parseHash("").pane, null);
@@ -88,6 +88,13 @@ test("the account filter rides along: in the URL only when set, and a change rep
   assert.deepEqual(parseHash("#acct=").acct, []);
   assert.equal(historyMode("filter=running", "filter=running&acct=claude-work"), "replace");
   assert.equal(historyMode("pane=%251&acct=work", "pane=%251"), "replace");
+});
+
+test("the agent filter rides along: a list, in the URL only when set, and a change replaces", () => {
+  assert.equal(formatHash({ filter: ["working"], agent: ["claude", "codex"] }), "filter=working&agent=claude,codex");
+  assert.equal(formatHash({ agent: [] }), "");
+  assert.deepEqual(parseHash("#agent=codex,codex,shell").agent, ["codex", "shell"]);
+  assert.equal(historyMode("view=dashboard", "view=dashboard&agent=claude"), "replace");
 });
 
 test("the search rides along too: trimmed, absent when blank, and a change replaces", () => {

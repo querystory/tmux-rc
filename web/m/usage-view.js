@@ -7,12 +7,12 @@ import { load } from './atlas-charts.js';
 import { segmented } from './atlas.js';
 import { dismissable } from './header-picker.js';
 import { countdown } from './usage.js';
+import { esc } from './pane-model.js';
 
 const H = 3600e3, D = 24 * H, NARROW = 700;
 const RANGES = { '1d': D, '7d': 7 * D, '30d': 30 * D, All: Infinity };
 const SPAN = { '1d': 'last 24 hours', '7d': 'last 7 days', '30d': 'last 30 days', All: 'all history' };
 const NAMES = { claude: 'Claude', codex: 'Codex' };
-const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const title = name => name === '5h' ? '5-hour' : name.replace(/^7d\b/, 'Weekly');
 const order = name => name === '5h' ? 0 : name === '7d' ? 1 : 2;
 const day = t => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });

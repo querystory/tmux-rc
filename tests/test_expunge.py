@@ -206,6 +206,10 @@ def test_an_agent_with_no_saved_conversation_is_empty(monkeypatch, tmp_path, har
         p.unlink()
     with pytest.raises(Empty, match="not saved a conversation"):
         expunge.identify("10", CODEX_SCREEN)
+    s_index = expunge._index(10, harness)  # agent-history's entry outlives the transcript
+    s_index.mkdir(parents=True)
+    (s_index / f"{A}.md").touch()
+    assert expunge.identify("10", CODEX_SCREEN).session_id == A
 
 
 def test_a_fresh_codex_without_session_id_configured_is_empty(monkeypatch, tmp_path):
@@ -220,11 +224,21 @@ def test_a_fresh_codex_without_session_id_configured_is_empty(monkeypatch, tmp_p
     with pytest.raises(Empty, match="not saved a conversation"):
         expunge.identify("10", CODEX_SCREEN)
     read = tmux.proc_read  # a resume names a conversation it has not written to yet
-    monkeypatch.setattr(tmux, "proc_read", lambda pid, name: "codex\0resume"
+    monkeypatch.setattr(tmux, "proc_read", lambda pid, name: "codex\0--yolo\0resume"
                         if name == "cmdline" else read(pid, name))
     with pytest.raises(Refused, match="session-id") as e:
         expunge.identify("10", CODEX_SCREEN)
     assert not isinstance(e.value, Empty)
+
+
+def test_a_fresh_codex_beside_a_saved_session_is_more_than_one(monkeypatch, tmp_path):
+    fake_procs(monkeypatch, tmp_path, {10: ("bash", [11, 12], None), 11: ("codex", [], None),
+                                       12: ("claude", [], A)})
+    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model"]\n')
+    for p in tmp_path.glob("sessions/*/*/*/*.jsonl"):
+        os.utime(p, (0, 0))
+    with pytest.raises(Refused, match="more than one"):
+        expunge.identify("10", "")
 
 
 def test_codex_sign_in_is_no_session(monkeypatch, tmp_path):

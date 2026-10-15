@@ -938,6 +938,15 @@ def proc_stat(pid: int | str) -> list[str]:
     return proc_read(pid, "stat").rpartition(")")[2].split()
 
 
+INTERPRETERS = ("bun", "node")  # an agent installed through npm or bun runs as one
+
+
+def program(pid: int | str) -> str:
+    """The program a process runs: its argv[0], or the script bun/node runs."""
+    argv = [os.path.basename(a) for a in proc_read(pid, "cmdline").split("\0")[:2]]
+    return argv[-1] if argv[0] in INTERPRETERS else argv[0]
+
+
 def ancestors(pid: int):
     """pid, its parent, and so on up, read from /proc; stops at init or a gone process."""
     while pid > 1:

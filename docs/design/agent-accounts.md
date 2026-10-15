@@ -76,15 +76,14 @@ alike; see [sidebar.md](sidebar.md).
   dir its tmux environment sets), and nothing when it sets none or sets what the global
   environment already does: a session that starts new windows on an account other
   sessions do not is worth seeing at a glance; a default every session shares is not.
-- **Usage strip:** with several accounts the meters become one row that swipes sideways
-  and snaps per meter, most urgent first (full soonest, then the highest pace at the
-  reset). Two meters fit on a phone with a third of the next peeking in under a fade, so
-  the row reads as one that scrolls; a two-meter split looked complete and hid the swipe.
-  Seven meters in a two-column grid would push the list off a phone's screen, and what
-  needs attention must never sit behind a swipe. Each meter names its account with the
-  same chip as the rows, in its bottom corner across from the reset, and its title keeps
-  just the window: a name in the title was truncated first, read as part of the window
-  ("7d QSI"), and left a one-account provider's meter looking unnamed beside it.
+- **Usage strip:** one card per window (plan-usage.md) in one row that swipes, most urgent
+  first (full soonest, then the highest pace at the reset). Each card names its account by
+  the rows' chip, then the window ("● Work · 7d") on its own short line, rather than a chip in
+  a meter's corner. On a real
+  phone, a chip under every bar gauge read as noise, and a heading per account over a grid
+  made the strip two thirds of the screen. A name in the window's title was tried first: it
+  was truncated first and read as part of the window ("7d QSI"). The card's line has room for
+  both, and it never truncates.
 - **Dashboard Plan usage:** wide, every meter on one line, grouped per account with one thin
   divider between groups. Each group is headed by its chip, flush left over its first meter,
   with the details (who, plan, dir, panes) in its tooltip, and Codex gets a chip like the
@@ -99,12 +98,11 @@ alike; see [sidebar.md](sidebar.md).
   on wide, an "Account" group (All accounts, then each account, several at once) under
   "State" in the filter button's menu beside the search box, combining with it (Working +
   Work is Work's working panes), the button counting what is on. A phone has the same
-  button beside its search, opening the menu as a bottom sheet without State (its tab bar
-  is the state filter). While on, the account's chip shows under search, labelled "Account"
+  button beside its search, opening the menu as a bottom sheet. While on, the account's chip shows under search, labelled "Account"
   beside the "State" and "Search" chips (`State ● Working ✕  Account ● Work ✕  Search "api" ✕`,
-  the search in the URL as `q=api`), so one line says everything narrowing the list; on a
-  phone's dashboard (no search there) the chips sit under the header, and a phone leaves the
-  state and the search out of them, since its tab bar and its search box already show them. It applies to the list, the strip and the dashboard, Open loops included:
+  the search in the URL as `q=api`), so one line says everything narrowing the list; a phone's
+  list shows no chips (the button's count and the list's foot say it), and on its dashboard
+  (no search there) the account's chip sits under the header. It applies to the list, the strip and the dashboard, Open loops included:
   a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
   which no account owns, is hidden while filtered.
   It lives in the URL beside the state filter as comma lists

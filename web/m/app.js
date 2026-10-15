@@ -5,13 +5,13 @@ import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
-import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
+import { paneLinks, askLink } from "/pr-links.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
-import { renderUsage, shownUsage } from "/m/usage.js";
+import { renderUsage, renderStrip, byUrgency, shownUsage, moreUsage, staleUsage } from "/m/usage.js";
 import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
@@ -141,6 +141,10 @@ let sort = "updated";
 try { if (localStorage.getItem("tmuxrc-sort") === "session") sort = "session"; } catch {}
 // Whether panes that need you show outside the filters (renderList): per browser, on by default.
 let pinNeeds = true, outside = new Set();
+// The agent filter (the URL's agent=) and the dashboard's tmux session: one scope that the
+// list, its filter menu and the dashboard's chips and charts (atlas.js) all read and set.
+const scope = $("session-atlas")._scope = { tools: [], session: "", pick: (tools) => { scope.tools = tools; stayPut(); }, pickSession: (session) => { scope.session = session; stayPut(); } };
+const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "other");
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
@@ -244,11 +248,12 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   navigate: (acct) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", { acct }),
   sessions: () => [...new Set(panes.map((p) => p.session).filter(Boolean))],
   paneAlive: (id) => panes.some((p) => p.pane_id === id), openPane: (id) => { $("settings").close(); openLaunched(id); }, // a phone's Settings sheet would cover the pane
-  // A phone's list shows its search box, and its tab bar the state: those chips are wide only.
+  // A phone's list says its search and states on the filter button and at the list's foot: those chips are wide only.
   query: () => WIDE.matches ? $("search").value.trim() : "", clearQuery: () => $("clear-search").click(),
-  // The wide list's state filters, each a chip that clears it (focus to the filter button).
-  chips: () => !WIDE.matches ? [] : filter.map((f) => [f, SHOW[f]]),
-  clearChip: (k) => { filter = filter.filter((f) => f !== k); stayPut(); renderSidebar.picker.firstChild.focus(); }, clearAll: clearFilters });
+  // The wide list's state filters and, in both layouts, the agents, each a chip that clears it
+  // (focus to the filter button), as [kind, key, label].
+  chips: () => [...WIDE.matches ? filter.map((f) => ["State", f, SHOW[f]]) : [], ...scope.tools.map((t) => ["Agent", `agent:${t}`, t])],
+  clearChip: (k) => { filter = filter.filter((f) => f !== k); scope.tools = scope.tools.filter((t) => `agent:${t}` !== k); stayPut(); renderSidebar.picker.firstChild.focus(); }, clearAll: clearFilters });
 
 const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
 // Every user-driven move goes through here: the URL is written first, then the view is
@@ -256,7 +261,7 @@ const writeHash = (next, how = "replace", state = history.state) => history[`${h
 // by hand reach route() through hashchange instead. Never call this from a poll.
 function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
   const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, q: $("search").value });
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value });
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
@@ -273,13 +278,13 @@ function navigate(id = null, nextView = "summary", { mode, acct = accounts.key()
 // Back/Forward; its Back then steps back rather than stacking a second dashboard entry.
 const openPage = (name) => { navigate(null, name); history.replaceState({ fromCard: true }, ""); };
 const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
-const stayPut = (opts) => navigate(active, active ? view : dashboard && WIDE.matches ? page || "dashboard" : "summary", opts);
+const stayPut = (opts) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", opts);
 // Clear all: every filter (the states, the accounts and the search), not the grouping or the
 // sort, which are not filters; focus goes to the search box, else (a phone's dashboard or
 // pane, where it is hidden) the tab bar's pressed tab or Back; in the rail, to the filter
 // button, since focusing search would expand it.
 function clearFilters() {
-  filter = []; $("search").value = ""; renderSidebar.picker.open = false; stayPut({ acct: [] });
+  filter = []; scope.tools = []; scope.session = ""; $("search").value = ""; renderSidebar.picker.open = false; stayPut({ acct: [] });
   ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")])
     .find((el) => el?.getClientRects().length)?.focus();
 }
@@ -303,9 +308,7 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, page } = state);
-  // A phone's tabs are one-of, and Idle has none: a link keeps the first state it has a tab
-  // for (Needs you first), so a pressed tab always says what the list shows.
-  if (!WIDE.matches && filter.length !== (filter = filter.filter((f) => $(`${f}-tab`)).slice(0, 1)).length) writeHash(formatHash({ ...state, filter })); // the URL says so too
+  scope.tools = state.agent;
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
@@ -361,17 +364,19 @@ function updateRow(button, pane) {
   const badge = button.querySelector(".badge");
   badge.className = `badge ${badgeOf(pane).cls}`;
   text(badge, badgeOf(pane).label);
-  text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
+  markLine(button.querySelector(".row-status"), paneActivity(pane), pane);
   const sessionChip = button.querySelector(".session-chip");
-  sessionChip.hidden = sort !== "updated" || !pane.session; // a session label already says it
-  text(sessionChip, pane.session || "");
-  sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
+  const session = sessionOf(pane);
+  sessionChip.hidden = sort !== "updated" || !session; // a session label already says it
+  text(sessionChip, session);
+  sessionChip.title = session ? `Session: ${session}` : "";
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose,
-  setFilter: (value) => { filter = value; stayPut(); }, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
+  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText,
+  setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
+  setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
@@ -384,37 +389,43 @@ function renderList() {
   show("clear-search", !!$("search").value);
   accounts.paintFilter(); // the pill names the search
   const query = $("search").value.trim().toLowerCase();
-  const mine = panes.filter(accounts.matches); // the account filter (accounts.js), else every pane
+  const mine = panes.filter((p) => accounts.matches(p) && ofAgent(p)); // the account and agent filters, else every pane
   // Panes that need you show whatever the account or search filter says (marked as outside
   // it), unless the state filter leaves Needs you out or the setting is off.
   const pin = pinNeeds && (!filter.length || filter.includes("attention"));
-  outside = new Set(pin ? panes.filter((p) => needsYou(p) && !(accounts.matches(p) && matchesSearch(p, query))).map((p) => p.pane_id) : []);
-  const subset = panes.filter((p) => outside.has(p.pane_id) || accounts.matches(p) && matchesFilter(p, filter) && matchesSearch(p, query));
+  outside = new Set(pin ? panes.filter((p) => needsYou(p) && !(accounts.matches(p) && ofAgent(p) && matchesSearch(p, query))).map((p) => p.pane_id) : []);
+  const subset = panes.filter((p) => outside.has(p.pane_id) || accounts.matches(p) && ofAgent(p) && matchesFilter(p, filter) && matchesSearch(p, query));
+  // The menu's Agent and Session groups: the kinds of pane and the tmux sessions there are.
+  const counts = {}; // not Object.groupBy: iOS 16.4–17.3 lack it
+  for (const p of panes.filter(accounts.matches)) counts[p.tool || "other"] = (counts[p.tool || "other"] || 0) + 1;
+  const tools = [...new Set([...Object.keys(counts), ...scope.tools])].map((t) => [t, counts[t] || 0]); // one picked stays, to be unpicked
+  // Sessions as the dashboard offers them (its history's too, and the one picked: atlas.js), else the live ones.
+  const more = { agents: tools, agent: scope.tools, sessions: scope.sessions || [...new Set(panes.map((p) => p.session).filter(Boolean))].sort(), session: scope.session };
   // One composer per pane, in either layout: an open pane takes over its sidebar Reply draft.
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
   renderSidebar.answers.prune(subset);
-  if (WIDE.matches) { renderSidebar(subset, query, filter); placeRail(); } else { $("app").classList.remove("rail"); placePill(); renderSidebar.marks(filter); renderPhoneList(subset); } // a folded sidebar's class would hide the chips
+  if (WIDE.matches) { renderSidebar(subset, query, filter, more); placeRail(); } else { $("app").classList.remove("rail"); placePill(); renderSidebar.marks(filter, more); renderPhoneList(subset); } // a folded sidebar's class would hide the chips
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
   // Empty, while panes the filter hides need you: say so, a click from them.
   const needing = subset.length ? [] : panes.filter(needsYou), hidden = needing.length, accts = accounts.on();
-  // A phone's list narrowed to some accounts says so at its foot too, a tap from all of them.
-  const scopedOn = !hidden && !WIDE.matches && accts.length > 0, scoped = subset.filter((p) => !outside.has(p.pane_id)).length; // not the pinned
+  // A phone's list narrowed by the filter menu says so at its foot too, a tap from all of them.
+  const scopedOn = !hidden && !WIDE.matches && accts.length + filter.length + scope.tools.length > 0, scoped = subset.filter((p) => !outside.has(p.pane_id)).length; // not the pinned
   show("empty-needs", hidden > 0 || scopedOn);
-  $("empty-needs").dataset.all = scopedOn ? "accounts" : "needs";
+  $("empty-needs").dataset.all = scopedOn ? "filters" : "needs";
   // "On other accounts" only when that is what hides every one of them.
-  text($("empty-needs"), scopedOn ? `${scoped} ${accts.join(" or ")} pane${scoped === 1 ? "" : "s"} · Show all accounts`
+  text($("empty-needs"), scopedOn ? `${scoped} ${[...scope.tools, ...accts].map((a) => `${a} `).join("or ")}pane${scoped === 1 ? "" : "s"} of ${panes.length} · Show all`
     : `${hidden} pane${hidden === 1 ? "" : "s"} ${needing.some(accounts.matches) || !accts.length ? "outside the filter" : "on other accounts"} need${hidden === 1 ? "s" : ""} you · Show`);
-  text($("all-count"), mine.length);
-  text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length);
-  for (const f of ["working", "finished"]) text($(`${f}-count`), mine.filter((p) => matchesFilter(p, [f])).length);
-  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && (filter.length ? String(filter) : "all") === button.dataset.filter));
+  text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length || "");
+  // Sessions is the list under whatever the filter menu says; Needs you, the list of just those.
+  const tab = String(filter) === "attention" ? "attention" : "all";
+  $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
   // The filter button counts each filter on, and its tooltip names them.
-  const on = [filter.map((f) => SHOW[f]).join(", "), accounts.on().join(", "), $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
-  const n = filter.length + accounts.on().length + !!query;
+  const on = [filter.map((f) => SHOW[f]).join(", "), scope.tools.join(", "), accounts.on().join(", "), scope.session, $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
+  const n = filter.length + scope.tools.length + accounts.on().length + !!scope.session + !!query;
   // Named for screen readers too: in the rail the chips that say it are hidden.
   Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters", ariaLabel: on.length ? `Filter panes: ${on.join(" · ")}` : "Filter panes" }).dataset.n = n || "";
   renderSidebar.clearAll.disabled = !n;
@@ -431,12 +442,14 @@ function renderList() {
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
 function renderPhoneList(subset) {
-  const rows = sort === "updated" ? subset.sort(newestFirst)
+  const rows = sort === "updated" ? subset.sort(newestFirst) : oneSession() ? subset
     // Sessions as the watcher lists them: tmux's own order.
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
-  reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
+  // A card for answers to tap: a question's, or a finished turn's offers.
+  const carded = (p) => needsYou(p) || offersOf(p).length > 0;
+  reconcile($("pane-list"), rows, (p) => p.heading ? p.key : carded(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
     if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
-    if (!needsYou(p)) return makeRow(p);
+    if (!carded(p)) return makeRow(p);
     const card = document.createElement("div");
     card.className = "pane-card";
     card.append(makeRow(p));
@@ -679,19 +692,31 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
 let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
+// A strip's last card: the quiet meters' "+N" and, when a reading was kept through failed
+// reads, how old, once rather than on every card. Redrawn only when changed or wiped.
+function usageEnd(el, list, more = "") {
+  const html = el.hidden ? "" : more + staleUsage(list), was = el.querySelector(":scope > .usage-end");
+  if (was?._html === html && el.lastElementChild === was) return;
+  was?.remove();
+  if (html) el.insertAdjacentHTML("beforeend", `<div class="usage-end">${html}</div>`), el.lastElementChild._html = html;
+}
 const paintUsage = steady(() => {
-  // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
-  const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
-  renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)), { wide: WIDE.matches });
-  accounts.strip($("usage"), several);
+  // Every meter, most urgent first; Auto folds the quiet ones into a "+N", the
+  // strip's last card (usage.js).
+  const all = accounts.usage(usage), several = accounts.any();
+  const focused = document.activeElement?.id === "usage-more"; // a redrawn strip takes it along
+  const { shown, quiet } = shownUsage(byUrgency(all), WIDE.matches && usageMode !== "off" ? "on" : usageMode);
+  renderStrip($("usage"), shown);
+  usageEnd($("usage"), shown, moreUsage(quiet)); // a tap on "+N" opens Plan usage, as the strip's does
+  if (focused) $("usage-more")?.focus({ preventScroll: true });
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
   // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
-  const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
+  const tools = scope.tools, board = tools.length ? all.filter((a) => tools.includes(a.provider)) : all;
   show("usage-panel", board.length > 0);
-  const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board";
+  const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board", order = (list) => several ? byUrgency(list) : list;
   if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
   if (grouped) accounts.groups(el, board, (cells, one) => renderUsage(cells, one, { wide: true }));
   else renderUsage(el, order(board), { wide: true });
@@ -701,7 +726,7 @@ const paintUsage = steady(() => {
   // Every account's meters, whatever the list's account filter: the view picks its own
   // (usage-view.js). Named and chipped as the list names them; a tool filter with no meters
   // (reached by Forward, say) shows them all rather than a blank view.
-  const scoped = usage.filter((a) => a.provider === tool), list = (scoped.length ? scoped : usage).map((a) => {
+  const scoped = usage.filter((a) => tools.includes(a.provider)), list = (scoped.length ? scoped : usage).map((a) => {
     const p = (a.dirs || []).map(accounts.profile).find((p) => p?.signed_in);
     return { ...a, acct: p, chip: p ? accounts.chip(p) : "" };
   }).filter((a) => a.acct || !accounts.list().length); // a removed account drops out, as in accounts.usage()
@@ -756,6 +781,10 @@ function render() {
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
+  // A phone's Chat and mic ride its tab bar; a pane hides the bar, so its header takes them.
+  // Moved only when they are elsewhere: a move on every repaint would drop their focus.
+  const callTo = inPane ? $("settings-open") : $("attention-tab");
+  if (!wide && $("chat").nextElementSibling !== callTo) callTo.before($("live-mode"), $("chat"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
   show("brand", wide || (!inPane && dashboard)); show("list-title", list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
@@ -792,7 +821,7 @@ function render() {
   for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
   show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
   markEnding($("detail"), pane);
-  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
+  text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   // Which account it runs on, when that needs saying: first on a phone, which ellipsizes the end.
   const account = pane && accounts.badge(pane.pane_id);
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
@@ -819,8 +848,9 @@ function render() {
   text($("activity"), pane ? badgeOf(pane).label : settled ? "Unavailable" : "Loading");
   $("activity").className = `badge ${pane ? badgeOf(pane).cls : "unknown"}`;
   text($("tool"), pane?.tool || "");
-  const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
+  const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : panePending(pane) ? "Summarizing…" : "Waiting for activity...";
   const headline = paneHeadline(pane) || missing;
+  $("status-line").classList.toggle("pending", !paneHeadline(pane) && panePending(pane));
   html($("status-line"), linkifyText(headline));
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
   html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
@@ -833,8 +863,10 @@ function render() {
     ({ plan: "Plan mode", "accept-edits": "Accept edits", bypass: "Bypass permissions" })[pane?.mode],
     pane?.agents ? `${pane.agents} agents` : ""].filter(Boolean);
   reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
-  show("question", !!pane?.question && needsYou(pane));
-  const question = pane?.question;
+  // The card holds a question's answers and a finished turn's offers alike.
+  const asking = !!pane?.question && needsYou(pane), offers = offersOf(pane);
+  show("question", asking || offers.length > 0);
+  const question = asking ? pane.question : null;
   text($("prompt"), question?.ask || question?.prompt || "");
   text($("question-items"), questionItems(question));
   // The widget's own rows, once and folded away: the restatement above is what to read.
@@ -855,6 +887,21 @@ function render() {
     button._option = option; text(button, option.option); button.disabled = sending || !!answered;
     button.classList.toggle("picked", picked(pane, option));
   });
+  // An offer: its exact text once, folded to a row (a tap unfolds it), then Send it and Copy.
+  reconcile($("offers"), offers, (o) => `${active}:${o}`, () => {
+    const node = document.createElement("div"); node.className = "offer";
+    node.innerHTML = `<button type="button" class="offer-text" aria-expanded="false"><code></code>${licon("chevronDown", 16)}</button>
+      <div class="offer-choices"><button type="button">${licon("up", 18)}Send it</button><button type="button">${licon("clipboard", 18)}Copy</button></div>`;
+    const [fold, send, copy] = node.querySelectorAll("button");
+    fold.onclick = () => fold.setAttribute("aria-expanded", fold.getAttribute("aria-expanded") === "false");
+    send.onclick = () => answer(active, node._offer, -1, true);
+    copy.onclick = () => copyText(node._offer);
+    return node;
+  }, (node, value) => {
+    node._offer = value; text(node.querySelector("code"), value);
+    const send = node.querySelector(".offer-choices button"); send.disabled = sending || !!answered; send.classList.toggle("picked", picked(pane, { option: value, index: -1 }));
+  });
+  for (const fold of $("offers").querySelectorAll('[aria-expanded="false"]')) fold.classList.toggle("fits", fold.firstChild.scrollWidth <= fold.firstChild.clientWidth);
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
@@ -865,10 +912,9 @@ function render() {
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
-function renderRichContent(pane) {
-  const links = paneLinks(pane);
-  show("link-section", !!links.length);
-  reconcile($("links"), links, (link) => link.href, () => {
+// One tappable link row: the Links list's, and the one leading a question's card.
+function renderLinks(el, links) {
+  reconcile(el, links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
@@ -879,6 +925,15 @@ function renderRichContent(pane) {
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
     text(anchor.querySelector("small"), link.detail || host);
   });
+}
+
+function renderRichContent(pane) {
+  // The link the question asks you to open leads its card instead of waiting in Links.
+  const ask = pane?.question && needsYou(pane) ? askLink(pane) : null;
+  const links = paneLinks(pane).filter((link) => link.href !== ask?.href);
+  renderLinks($("ask-link"), ask ? [ask] : []);
+  show("link-section", !!links.length);
+  renderLinks($("links"), links);
   const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter((table) => table && Array.isArray(table.rows));
   show("table-section", !!tables.length);
   // Reconcile inside stable scroll containers so a poll never resets a table's position.
@@ -901,19 +956,21 @@ function renderRichContent(pane) {
 }
 
 function renderTasks(pane) {
-  const tasks = records(pane?.tasks), agents = records(pane?.subagents), copyables = records(pane?.copyables);
+  // A copyable of an offer's text would repeat the question card's.
+  const tasks = records(pane?.tasks), agents = records(pane?.subagents), copyables = records(pane?.copyables).filter((c) => !offersOf(pane).includes(String(c.text).trim()));
   show("task-section", !!tasks.length); show("agent-section", !!agents.length); show("copy-section", !!copyables.length);
   text($("task-count"), `${tasks.filter((t) => t.done).length}/${tasks.length}`);
   renderItems($("tasks"), tasks); renderItems($("agents"), agents, true);
   reconcile($("copyables"), copyables, (value, i) => `${i}:${value.label}`, () => {
     const node = document.createElement("div"); node.className = "copyable";
     node.innerHTML = '<div class="copy-heading"><strong></strong><button class="icon-button" aria-label="Copy text" title="Copy text">' + licon("clipboard") + '</button></div><pre></pre>';
-    node.querySelector("button").onclick = async () => {
-      try { await navigator.clipboard.writeText(node._value); notice("Copied to clipboard."); }
-      catch { notice("Could not copy. Select the text to copy it."); }
-    };
+    node.querySelector("button").onclick = () => copyText(node._value);
     return node;
   }, (node, value) => { node._value = value.text; text(node.querySelector("strong"), value.label); text(node.querySelector("pre"), value.text); });
+}
+async function copyText(value) {
+  try { await navigator.clipboard.writeText(value); notice("Copied to clipboard."); }
+  catch { notice("Could not copy. Select the text to copy it."); }
 }
 
 // One line per task or sub-agent: the pane overview's lists, and the sidebar's agent rows.
@@ -935,7 +992,7 @@ function renderItems(el, values, agents = false) {
 }
 
 async function loadEvents(pane) {
-  const key = `${pane.pane_id}:${pane.events_seq ?? pane.updated_at}`;
+  const key = `${pane.pane_id}:${pane.events_seq ?? pane.updated_at}:${panePending(pane)}`;
   // Same hidden-tab rule as restartDetail, which used to be the only path that ran first.
   if (eventsKey === key || document.hidden || !detailController || detailController.signal.aborted) return;
   eventsKey = key;
@@ -949,11 +1006,11 @@ async function loadEvents(pane) {
       text(node.firstChild, event.ts ? new Date(event.ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Recent");
       html(node.lastChild, linkifyText(event.text || ""));
     });
-    show("events-empty", !events.length); text($("events-empty"), "No recent activity.");
+    show("events-empty", !events.length); markLine($("events-empty"), "", pane, "No recent activity.");
   } catch {
     if (signal.aborted) return;
     eventsKey = null;
-    show("events-empty", true); text($("events-empty"), "Activity unavailable. Reconnecting...");
+    show("events-empty", true); markLine($("events-empty"), "Activity unavailable. Reconnecting...", pane);
   }
 }
 
@@ -1074,6 +1131,7 @@ function showPanes() {
   // the poll mid-request): only endPane decides it is gone, so the page leaves it cleanly.
   const listed = new Set(statePanes.map((p) => p.pane_id));
   for (const [id, e] of ending) if (!e.done && !listed.has(id)) panes.push({ ...e.pane, ending: e.label });
+  noteSessions(panes);
 }
 const leavePane = (id) => { if (stillOnPane(location.hash, id)) navigate(null, "summary", { mode: "replace" }); };
 // Kill or expunge a pane's window. The window as last seen is greyed while the request runs;
@@ -1208,10 +1266,11 @@ function answerOptions(question) {
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
 const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.subject, q?.answer_style === "cursor" ? null : q?.options]);
 // The tapped answer while its question is still the one on the card, else null. Once the
-// pane shows another question, or none, the answer has landed and is forgotten.
+// pane shows another question, or none, the answer has landed and is forgotten; a sent
+// offer, once the pane's state has moved on (a question-less turn keeps the same key).
 function isAnswered(pane) {
   const pending = pendingAnswers.get(pane.pane_id);
-  if (pending && pending.key !== questionKey(pane.question)) pendingAnswers.delete(pane.pane_id);
+  if (pending && (pending.key !== questionKey(pane.question) || "since" in pending && pending.since !== pane.state_since)) pendingAnswers.delete(pane.pane_id);
   return pendingAnswers.get(pane.pane_id) || null;
 }
 // Whether a pane reads as Needs you: not while a tapped answer holds it. Its card keeps its
@@ -1229,16 +1288,17 @@ function badgeOf(pane) {
   return pending ? { label: pending.sent ? "Sent" : "Sending", cls: "running" } : { label: activityLabel(pane), cls: activityClass(pane) };
 }
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
-// stops reading as Needs you, through the send and on until the pane's next state.
-async function answer(id, option, index) {
+// stops reading as Needs you, through the send and on until the pane's next state. An
+// offer (index -1) is sent as typed text plus Enter, as a text answer is.
+async function answer(id, option, index, offer = false) {
   const current = panes.find((p) => p.pane_id === id);
-  if (!current?.question || !needsYou(current) || isAnswered(current) || sending) return;
-  const pending = { key: questionKey(current.question), option, index, note: "Sending…" };
+  if (!(offer ? offersOf(current).includes(option) : current?.question && needsYou(current)) || isAnswered(current) || sending) return;
+  const pending = { key: questionKey(current.question), option, index, note: "Sending…", ...offer && { since: current.state_since } };
   pendingAnswers.set(id, pending); render();
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
-  const cursor = current.question.answer_style === "cursor", body = !cursor && answerBody(current.question, option, index);
+  const q = offer ? {} : current.question, cursor = q.answer_style === "cursor", body = !cursor && answerBody(q, option, index);
   // Open the pane first, as the cursor walk does, so the keyboard reaches the right one.
   if ((cursor || !body) && active !== id) navigate(id);
   // Delivered: a walk says so as its select lands, before it waits on the picker to close.
@@ -1253,6 +1313,10 @@ async function answer(id, option, index) {
   // Not sent: the notice says why, and the options are live again.
   else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
 }
+
+// What a finished turn hands over to type back (classify.py's _offers), whatever the pane's
+// state: choices on the pane's question card and its list card, sent with one tap.
+function offersOf(pane) { return (Array.isArray(pane?.offers) ? pane.offers : []).filter((o) => typeof o === "string"); }
 
 // This surface's half of the shared cursor walk. The tap's pending answer greys the
 // options for the walk's length, but what keeps a second walk from starting is the
@@ -1336,8 +1400,10 @@ enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
-for (const [id, label, glyph] of [["all", "All", "layers"], ["working", "Working", "terminal"], ["finished", "Just finished", "clock"], ["attention", "Needs you", "alert"]]) {
-  html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
+// The phone's tab bar (Chat and the mic between them are live.js's). The gauge is Dashboard's
+// everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
+for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
+  html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}${id === "attention" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
 }
 // The keys worth a thumb on a phone.
 //
@@ -1386,9 +1452,8 @@ function fadeKeys() {
 $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
-html($("dashboard-tab"), `<span class="nav-icon">${licon("gauge")}</span><span>Dashboard</span>`); // the gauge is Dashboard's everywhere; the 2×2 grid is the layout picker's
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-$("empty-needs").onclick = () => { if ($("empty-needs").dataset.all === "needs") { filter = ["attention"]; $("search").value = ""; } stayPut({ acct: [] }); };
+$("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
@@ -1400,13 +1465,13 @@ function setUsageMode(mode) {
   try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
   paintUsage(); paintSettings();
 }
-// Wide, the strip's top edge is a seam like the fleet chart's: drag it taller for taller
-// trends and, a row per USAGE_ROW, more rows of meters; a double-click restores its own
+// Wide, the strip's top edge is a seam like the fleet chart's: drag it taller to show more
+// meters without scrolling them; a double-click restores its own
 // height. Dragged under one row it closes, which turns the setting Off rather than keeping
 // a zero height, so the menu says why it is gone and the notice's Undo brings it back. The
 // height is per screen, like the sidebar's width; unset (the default) is the natural height,
 // and CSS caps it so the pane list keeps most of the column.
-const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72, USAGE_ROW = 100;
+const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72;
 let usageHeight = 0, usageDrag = 0;
 try { usageHeight = Number(localStorage.getItem(USAGE_KEY)) || 0; } catch {}
 function sizeUsage(px = usageHeight, persist = false) {
@@ -1420,12 +1485,11 @@ function sizeUsage(px = usageHeight, persist = false) {
     try { if (usageHeight) localStorage.setItem(USAGE_KEY, String(usageHeight)); else localStorage.removeItem(USAGE_KEY); } catch {}
   }
 }
-// The rows, and the separator's value and range (a focusable one owes them), from the height
+// The separator's value and range (a focusable one owes them), from the height
 // CSS let the strip be: capped at 60% of the sidebar, natural, or 0 while hidden. Observed, so
 // they follow a paint showing or hiding it and a window resize moving the cap alike.
 const fitUsage = new ResizeObserver(() => {
   const shown = $("usage").offsetHeight;
-  $("usage").style.setProperty("--rows", Math.max(1, Math.round(shown / USAGE_ROW)));
   for (const [key, value] of Object.entries({ min: USAGE_MIN, max: Math.round($("sessions").clientHeight * 0.6), now: shown })) $("usage-handle").setAttribute(`aria-value${key}`, value);
 });
 for (const el of ["usage", "sessions"]) fitUsage.observe($(el));
@@ -1447,15 +1511,15 @@ $("usage-handle").onkeydown = (e) => {
 };
 // The strip is a glance; tapping it opens the usage view, where the trend and times read,
 // by way of the dashboard, so its Back lands on the Plan usage card.
-// A tool filter with no plan meters (it hides the card) is dropped, so the view has some.
+// An agent filter with no plan meters (it hides the card) is dropped, so the view has some.
 const openUsage = () => {
-  const scope = $("session-atlas")._scope;
-  if (scope && !usage.some((a) => a.provider === scope.tool)) scope.tool = "";
+  if (!usage.some((a) => scope.tools.includes(a.provider))) scope.tools = [];
   openDashboard(); openPage("usage");
 };
 $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
-$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter === "all" ? [] : [button.dataset.filter]; stayPut(); }; });
+// Needs you is a one-of filter; Sessions leaves it for the list, keeping any the menu set.
+$("list-nav").querySelectorAll("[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter === "attention" ? ["attention"] : String(filter) === "attention" ? [] : filter; navigate(); }; }); // a tab is a request for the list
 // System follows the device, as index.html's boot script does with nothing stored.
 function setTheme(theme) {
   try { if (theme === "system") localStorage.removeItem("tmuxrc-theme"); else localStorage.setItem("tmuxrc-theme", theme); } catch {}
@@ -1827,11 +1891,15 @@ function placeChrome() {
   renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views);
   placePill();
 }
-// The active filters' chips: under search, but on a phone's dashboard (no search there) under
-// its header, so a filter is never on without saying so.
+// The active filters' chips: under search (a phone's list hides them there: its filter button
+// and the list's foot say it), and on a phone's dashboard (no search there) under its header,
+// so a filter is never on without saying so. There the filter button moves into the header
+// too, beside the gear: the dashboard's filter row folds behind it (style.css).
 function placePill() {
-  const at = !WIDE.matches && dashboard ? document.querySelector(".app-header") : $("find");
+  const dash = !WIDE.matches && dashboard, at = dash ? document.querySelector(".app-header") : $("find"), picker = renderSidebar.picker;
   if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
+  if (dash && picker.nextElementSibling !== $("settings-open")) $("settings-open").before(picker);
+  else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
 }
 // Folded to the rail, the controls move in the DOM to the order they show in (expand, +,
 // search, filter, Dashboard, Chat, Voice, the panes, Settings), so Tab walks them top down.

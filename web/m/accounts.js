@@ -2,7 +2,7 @@
 // for a provider with two or more signed-in accounts; with one each, everything here is a
 // no-op and the app looks as it always did. The one exception is Settings' Accounts,
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+import { esc } from "./pane-model.js"; // relative, so node's tests can load this module
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
@@ -89,7 +89,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     const kind = (label, chips) => chips.length ? `<span class="pill-lead"><span class="pill-kind">${label}</span>${chips[0]}</span>${chips.slice(1).join("")}` : "";
     const n = on.length + !!q + more.length;
     pill.hidden = !n;
-    draw(pill, pill.hidden ? "" : kind("State", more.map(([k, label]) => chip(`data-chip="${k}" data-s="${k}"`, label, label, '<i class="acct-dot"></i>')))
+    const of = (name, dot) => more.filter(([k]) => k === name).map(([, k, label]) => chip(`data-chip="${esc(k)}"${dot ? ` data-s="${esc(k)}"` : ""}`, label, label, dot));
+    draw(pill, pill.hidden ? "" : kind("State", of("State", '<i class="acct-dot"></i>')) + kind("Agent", of("Agent", ""))
       + kind("Account", on.map((p) => badge(p, clear(`${p.name} filter`, `data-acct="${esc(key(p))}"`))))
       + kind("Search", q ? [chip("data-q", `"${q}"`, "search")] : [])
       + (n > 1 ? '<button type="button" class="pill-clear" data-all>Clear all</button>' : ""));
@@ -97,7 +98,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
   pill.onclick = (e) => { const b = e.target.closest("button"); if (b) "all" in b.dataset ? clearAll() : b.closest("[data-q]") ? clearQuery() : b.closest("[data-chip]") ? clearChip(b.closest("[data-chip]").dataset.chip) : setFilter(b.dataset.acct); };
 
-  // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
+  // ---- usage: named by profile, filtered, and with several, one strip (usage.js byUrgency) ----
   // A meter's account is the profile of its first listed dir; one no longer listed (removed)
   // drops out. Before the first answer the meters stand as they come.
   function usage(list) {
@@ -108,10 +109,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       .filter((a) => a.acct && (!on.length || on.includes(a.acct)))
       .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null });
   }
-  // Already full first, then full soonest, then the highest pace at the reset; unreadable last.
-  const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
-  const byUrgency = (list) => list.flatMap((a) => a.windows?.length ? a.windows.map((w) => ({ ...a, windows: [w] })) : [a])
-    .sort((a, b) => urgency(b.windows?.[0]) - urgency(a.windows?.[0]));
   // One swipeable row: the edge fades only while there is more that way, rechecked on a
   // resize too (a wider strip fits more meters: style.css).
   function strip(el, on) {
@@ -313,9 +310,10 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   });
   $("accounts-open").onclick = () => open("list");
 
-  function matches(pane) { const on = active(); return !on.length || on.includes(profiles.find((p) => p.panes.includes(pane.pane_id))); }
+  // An omp pane can be on several (plan_usage.py): it matches any of them.
+  function matches(pane) { const on = active(); return !on.length || on.some((p) => p.panes.includes(pane.pane_id)); }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
+    refresh, usage, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
     // Settings' list: each account, who it is and where, its sheet a click away.
     rows: () => profiles.map((p) => `<div class="set-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></div>`).join(""),
     // The URL's accounts in, and out for the next URL; follow says whether they changed.

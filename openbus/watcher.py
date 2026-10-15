@@ -17,10 +17,18 @@ import sqlite3
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 
 from . import tmux, transcript
-from .classify import _OMP_CTX_RE, _OPENCODE_RUNNING_RE, bootstrap, classify, question_rows
+from .classify import (
+    _OMP_CTX_RE,
+    _OPENCODE_RUNNING_RE,
+    bootstrap,
+    classify,
+    question_rows,
+    screen_offers,
+)
 from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
@@ -55,7 +63,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 15
+CARD_VERSION = 20
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -82,6 +90,10 @@ CARD_VERSION = 15
 # card keeps its last good contents either way, so the cost of giving up is staleness,
 # not a wrong badge.
 PARSE_RETRIES = 3
+# Panes are read in parallel, a few at a time. Read one after another, a restart that
+# has to re-read every card (a CARD_VERSION bump, a changed screen) queued ~30 model calls
+# behind each other, and one slow call held up every card behind it.
+TICK_WORKERS = 4
 BOOTSTRAP_LINES = 800
 BOOTSTRAP_ATTEMPTS = 3
 BOOTSTRAP_RETRY_SECONDS = 60
@@ -349,6 +361,7 @@ class Watcher:
         # Restart checkpoints: the preload (uid -> row, None until read), the tmux server
         # they are keyed under, and pane_id -> what was last written (skip if unchanged).
         self._checkpoints: dict[str, dict] | None = None
+        self._pool = ThreadPoolExecutor(max_workers=TICK_WORKERS, thread_name_prefix="tick")
         self._server: str | None = None
         self._checkpointed: dict[str, tuple] = {}
         self._boot: dict[
@@ -428,10 +441,14 @@ class Watcher:
 
     def start(self) -> None:
         self._evloop = asyncio.get_running_loop()  # for thread-safe _wake from handlers
+        # The stale clock starts now, not at the first tick's end: a boot tick that hangs
+        # is the stall the phone most needs to see, and it used to read as healthy.
+        self._last_tick = time.time()
         self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
         self._pr_titles.close()
+        self._pool.shutdown(wait=False)  # queued panes drain: the tick waits on each
         if self._task:
             self._task.cancel()
 
@@ -700,7 +717,10 @@ class Watcher:
         # card wait for capture + classification is what made the dock's "+" feel like it
         # had done nothing for a second or more. Panes already classified keep their last
         # state in this pre-publish, so an existing card never flickers back to "unknown".
-        prepublish = not self._booted or bool(fresh)
+        # A card still pending (no parsed_at: its first read failed) is the same case: its
+        # summary shows the moment it lands, not after the slowest other pane.
+        pending = any(not s.get("parsed_at") for s in self.states)
+        prepublish = not self._booted or bool(fresh) or pending
         states = []
         if prepublish:
             # Never seed the parse cache with these placeholders.
@@ -737,9 +757,13 @@ class Watcher:
         # whole watcher "Stalled" lit the global status on every odd parse.
         history_complete = collected = True
         unread = set()
-        for index, p in enumerate(panes):
+        if not prepublish:
+            states = [None] * len(panes)
+        ticks = {self._pool.submit(self._tick_pane, p): (i, p) for i, p in enumerate(panes)}
+        for future in as_completed(ticks):
+            index, p = ticks[future]
             try:
-                s = self._tick_pane(p)
+                s = future.result()
             except subprocess.CalledProcessError as e:
                 # rc=124 is tmux.py's timeout marker: a wedged/slow tmux SERVER, not a
                 # closed pane — labeling it "vanished" would misdirect exactly the
@@ -772,13 +796,11 @@ class Watcher:
                 _stamp_identity(s, p)  # no tmux_label yet ⇒ stamps label too
             if not self._parse_valid.get(p.id, True):
                 unread.add(p.id)
+            states[index] = s
             if prepublish:
                 s["tmux_active"] = p.id == focused
                 s["events_seq"] = self._events_seq.get(p.id, 0)
-                states[index] = s
                 self._publish_states(states, record_history=False)
-            else:
-                states.append(s)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
         focused = tmux.active_pane_id()
@@ -882,6 +904,7 @@ class Watcher:
         and items are in `asked`, so a new ask under the same prompt is untouched."""
         if state and Watcher._pending_key(state)[1:] in asked:
             state.update(question=None, activity="running", waiting_on=None)
+            state.pop("offers", None)  # the user is acting on that screen already
             return True
         return False
 
@@ -908,6 +931,7 @@ class Watcher:
                 s.get("session_summary"),
                 Watcher._question_prompt(s), s.get("parsed_at"),
                 s.get("last_activity_at"),
+                tuple(s.get("offers") or ()),  # re-read on an unreparsed screen (_tick_pane)
             ))
             for s in states
         ]
@@ -1382,6 +1406,11 @@ class Watcher:
             cached["updated_at"] = now
             cached["last_activity_at"] = last_activity
             cached["snapshot_id"] = self.snapshots[pane.id][-1]["id"]  # a restore's is stale
+            # Offers send what they say: read off this very screen, which the fingerprint
+            # may call unchanged while a command's "10s" became "20s".
+            cached.pop("offers", None)
+            if offers := screen_offers(text, cached.get("tool"), reply):
+                cached["offers"] = offers
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
@@ -1523,6 +1552,7 @@ class Watcher:
         # the screen next changed. A finished agent's screen does not change again, so
         # the freeze was permanent. Leaving the mark unset on failure costs one re-read
         # of the same text on the next tick, which is exactly the retry this needs.
+        retired = False  # this screen given up on: no read is coming, so the card is not pending
         if state.get("parse_ok", True):
             self._prev_fp[pane.id] = fp
             self._parse_fails.pop(pane.id, None)
@@ -1544,6 +1574,7 @@ class Watcher:
             # next real content change clears the counter and tries again.
             self._parse_fails[pane.id] = 0
             self._prev_fp[pane.id] = fp
+            retired = True
             logger.warning("%s: parse failed %dx, leaving the screen unread",
                            pane.id, PARSE_RETRIES)
         else:
@@ -1567,7 +1598,10 @@ class Watcher:
             # Identity, timers and the snapshot id are re-stamped below from live tmux.
             # Links are the exception: a parse fails when its question or rewind is
             # rejected, yet the URLs it read off the screen still stand, and a login
-            # link printed in that turn would otherwise never reach the card.
+            # link printed in that turn would otherwise never reach the card. Offers are the
+            # other: buttons that send, read off this screen alone (classify's _offers),
+            # never the last card's, which the user may have answered since.
+            offers = state.get("offers")
             replacement_tool = state.get("identity_tool")
             previous_tool = previous.get("identity_tool", previous.get("tool"))
             known_replacement = (
@@ -1575,6 +1609,9 @@ class Watcher:
                 and replacement_tool != previous_tool
             )
             state = {**previous, "links": state.get("links") or previous.get("links")}
+            state.pop("offers", None)
+            if offers:
+                state["offers"] = offers
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)
@@ -1615,7 +1652,12 @@ class Watcher:
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
-        state["parsed_at"] = now
+        # A pane never read successfully keeps no parsed_at: the phone shows it as pending.
+        # This attempt's own outcome (_parse_valid): a failure's fallback copies `previous`.
+        # A first read retired unread stamps it too: nothing more is scheduled, so a spinner
+        # would promise a summary that never comes.
+        if self._parse_valid[pane.id] or retired or "parsed_at" in state:
+            state["parsed_at"] = now
         # The input generation and frame this question was read from, on the state itself
         # so they publish with it: input since (a menu answer above all) or a screen that
         # has moved on leaves the question unanswerable from the app (server.send).
