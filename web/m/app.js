@@ -950,7 +950,8 @@ function renderRichContent(pane) {
 }
 
 function renderTasks(pane) {
-  const tasks = records(pane?.tasks), agents = records(pane?.subagents), copyables = records(pane?.copyables);
+  // A copyable of an offer's text would repeat the question card's.
+  const tasks = records(pane?.tasks), agents = records(pane?.subagents), copyables = records(pane?.copyables).filter((c) => !offersOf(pane).includes(String(c.text).trim()));
   show("task-section", !!tasks.length); show("agent-section", !!agents.length); show("copy-section", !!copyables.length);
   text($("task-count"), `${tasks.filter((t) => t.done).length}/${tasks.length}`);
   renderItems($("tasks"), tasks); renderItems($("agents"), agents, true);
@@ -1259,10 +1260,11 @@ function answerOptions(question) {
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
 const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.subject, q?.answer_style === "cursor" ? null : q?.options]);
 // The tapped answer while its question is still the one on the card, else null. Once the
-// pane shows another question, or none, the answer has landed and is forgotten.
+// pane shows another question, or none, the answer has landed and is forgotten; a sent
+// offer, once the pane's state has moved on (a question-less turn keeps the same key).
 function isAnswered(pane) {
   const pending = pendingAnswers.get(pane.pane_id);
-  if (pending && pending.key !== questionKey(pane.question)) pendingAnswers.delete(pane.pane_id);
+  if (pending && (pending.key !== questionKey(pane.question) || "since" in pending && pending.since !== pane.state_since)) pendingAnswers.delete(pane.pane_id);
   return pendingAnswers.get(pane.pane_id) || null;
 }
 // Whether a pane reads as Needs you: not while a tapped answer holds it. Its card keeps its
@@ -1285,7 +1287,7 @@ function badgeOf(pane) {
 async function answer(id, option, index, offer = false) {
   const current = panes.find((p) => p.pane_id === id);
   if (!(offer ? offersOf(current).includes(option) : current?.question && needsYou(current)) || isAnswered(current) || sending) return;
-  const pending = { key: questionKey(current.question), option, index, note: "Sending…" };
+  const pending = { key: questionKey(current.question), option, index, note: "Sending…", ...offer && { since: current.state_since } };
   pendingAnswers.set(id, pending); render();
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk
