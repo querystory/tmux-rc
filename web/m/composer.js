@@ -1,4 +1,5 @@
 // Ordered text/image model: what is sent is the draft in the order it was typed.
+const ZW = "\u200B"; // holds the caret after a chip; never sent
 export class Composer {
   // The Live chat (/live-chat.js) reuses this editor under its own id and label.
   constructor(changed, error, { id = "reply", label = "Message this pane", max = Infinity } = {}) {
@@ -32,7 +33,7 @@ export class Composer {
         chip.parentNode.append(document.createElement("br"));
       }
     }
-    if (!this.editor.textContent && !this.files.size) this.editor.replaceChildren();
+    if (!this.editor.textContent.replaceAll(ZW, "") && !this.files.size) this.editor.replaceChildren();
     this.changed();
   }
   saveCaret() {
@@ -50,9 +51,14 @@ export class Composer {
     if (!range) { range = document.createRange(); range.selectNodeContents(this.editor); range.collapse(false); }
     this.caret = null;
     range.deleteContents(); range.insertNode(node);
+    // iOS moves a caret at the boundary after a non-editable chip to before it, so the caret
+    // goes inside a zero-width text node that follows the chip.
+    const holder = this.files.has(node) ? document.createTextNode(ZW) : null;
+    holder && node.after(holder);
     this.edited(); // before the caret is placed, so a chip's filler <br> is already there
     if (!node.isConnected) return; // an empty paste into an empty box, which edited() cleared
-    range.setStartAfter(node); range.collapse(true);
+    if (holder) range.setStart(holder, 1); else range.setStartAfter(node);
+    range.collapse(true);
     selection?.removeAllRanges(); selection?.addRange(range);
   }
   // A multi-select or multi-paste: attach in order what fits under `max`, and say so
@@ -107,7 +113,8 @@ export class Composer {
     const content = () => { text += "\n".repeat(pending); pending = 0; started = true; };
     const walk = (node) => {
       [...node.childNodes].forEach((child, index, children) => {
-        if (child.nodeType === Node.TEXT_NODE && child.nodeValue) { content(); text += child.nodeValue; }
+        const value = child.nodeType === Node.TEXT_NODE && child.nodeValue.replaceAll(ZW, "");
+        if (value) { content(); text += value; }
         else if (this.files.has(child)) { content(); flush(); segments.push({ file: this.files.get(child), chip: child }); }
         else if (child.nodeName === "BR") {
           const filler = this.block(node) && index === children.length - 1;
