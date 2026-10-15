@@ -1467,6 +1467,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen('Do not say "merge all"; it skips.'),
          'Do **not** say "merge all"; it skips.'),  # negation behind Markdown
         (_auto_screen('Don’t say "merge all"; it skips review.'), None),  # a typographic n’t
+        (_auto_screen('Do not ever say "merge all"; it skips.'),
+         'Do not ever say "merge all"; it skips.'),  # a word between
         (_auto_screen("Do not run these:\n\n  ! make reset\n\n  ! make deploy"),
          "Do not run these:\n\n```bash\n! make reset\n! make deploy\n```"),  # a whole fence
         (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),

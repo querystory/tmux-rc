@@ -1042,7 +1042,8 @@ _CODE_RE = re.compile(
 # text ("do **not**\n  run"): which command or phrase a warning covers (the next one, a whole
 # fence, a list) is not worth guessing when a wrong guess prefills the forbidden thing.
 _FORBIDS_RE = re.compile(
-    r"(?:\bnot|\bnever|n['’]t)\s+(?:run|type|use|execute|enter|paste|send|say)\b", re.IGNORECASE)
+    r"(?:\bnot|\bnever|n['’]t)(?:\s+\w+){0,2}?\s+(?:run|type|use|execute|enter|paste|send|say)\b",
+    re.IGNORECASE)  # with a word or two between: "do not ever say", "don't you run"
 
 
 def _plain(text: str) -> str:
