@@ -7,6 +7,7 @@ import { since } from "/m/pane-model.js";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const home = d => d.replace(/^\/home\/[^/]+/, "~");
 const key = (wid, p) => `${wid}:${p.index}`;
+const WORKING = new Set(["running", "compacting"]); // mid-task when tmux died: an idle time would read 0s
 
 export function setupRestore({ mount, request, slow, logos, licon, notice, running, open, opened, closed }) {
   let offer = null, picked = new Map();
@@ -22,7 +23,7 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
     <input type="checkbox" data-key="${esc(key(w, p))}"${picked.get(key(w, p)) && !p.blocked ? " checked" : ""}${p.blocked ? " disabled" : ""}>
     <img src="${esc(logos[p.tool] || logos.shell)}" alt="" width="16" height="16">
     <span><b>${esc(p.title || p.command || p.tool || "shell")}</b>
-    <small>${esc(home(p.cwd))}${p.last_activity ? ` · idle ${esc(since({ state_since: p.last_activity }, offer.died_at * 1000))} at shutdown` : ""}
+    <small>${esc(home(p.cwd))}${WORKING.has(p.activity) ? " · working at shutdown" : p.last_activity ? ` · idle ${esc(since({ state_since: p.last_activity }, offer.died_at * 1000))} at shutdown` : ""}
     ${p.cost ? ` · ${esc(p.cost)}` : ""}${p.blocked || p.note ? `<br>${esc(p.blocked || p.note)}` : ""}</small></span></label>`;
 
   function render() {
