@@ -1044,14 +1044,19 @@ function termCols() {
   probe.remove();
   return char ? Math.max(0, Math.floor(($("terminal-scroll").clientWidth - pad) / char)) : 0;
 }
+// One at a time, in the order asked: a tick and untick must reach the daemon in that order.
+let fitLine = Promise.resolve();
 function fitTo(id, cols) {
-  if (!cols) return; // a hidden view measures nothing
+  if (!id || !cols) return; // a hidden view measures nothing
   fitCols = cols;
   const body = { cols, force: $("fit-toggle").checked };
-  if (id) post(paneUrl(id, "fit"), body).then((r) => show("fit-pane", r.attached), () => {});
+  fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body))
+    .then((r) => { if (id === active) show("fit-pane", r.attached); }, () => {});
 }
 const refit = () => { const cols = termCols(); if (active && terminalVisible() && cols !== fitCols) fitTo(active, cols); };
 try { $("fit-toggle").checked = localStorage.getItem("tmuxrc-fit") === "1"; } catch {}
+// A terminal may have attached since: the menu asks again, so the toggle is there to tick.
+$("pane-menu").addEventListener("toggle", () => { if ($("pane-menu").open && terminalVisible()) fitTo(active, termCols()); });
 $("fit-toggle").onchange = () => {
   try { localStorage.setItem("tmuxrc-fit", $("fit-toggle").checked ? "1" : "0"); } catch {}
   if (active && fitCols) fitTo(active, fitCols);
@@ -1099,7 +1104,7 @@ function paintCapture() {
 }
 async function streamTerminal(id, signal) {
   let frame = "";
-  fitTo(id, termCols());
+  requestAnimationFrame(() => signal.aborted || fitTo(id, termCols())); // measured once rendered
   text($("terminal-status"), "Connecting");
   while (!signal.aborted) {
     try {

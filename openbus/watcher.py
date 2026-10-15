@@ -680,6 +680,7 @@ class Watcher:
                     self.target,
                 )
             panes = [p] if p else []
+            fit.release_attached(panes)  # the attached member, if any: find_pane prefers it
         else:
             rows = tmux.list_panes()
             fit.release_attached(rows)  # every session's rows: any attached one counts
@@ -1356,11 +1357,14 @@ class Watcher:
         # a snapshot every tick and pin idle_seconds at 0, so the pane never aged out of
         # "Recent" for as long as the outage lasted.
         moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
-        if moved and fit.just_resized(pane.id) and \
-                self._prev_fp.get(pane.id) == self._seen_fp.get(pane.id):
+        parsed = self._prev_fp.get(pane.id)
+        if moved and parsed is not None and parsed == self._seen_fp.get(pane.id) \
+                and not (self._state.get(pane.id) or {}).get("question") \
+                and fit.just_resized(pane.id):
             # Our own resize (openbus/fit.py) made the app redraw at the new width: the same
-            # screen, reflowed. Not activity, and not worth a parse; a screen still unread
-            # (_prev_fp behind) is parsed as usual.
+            # screen, reflowed. Not activity, and not worth a parse. Read as usual: a screen
+            # never parsed or still unread, and a question, whose answer is checked against
+            # the rows on screen.
             self._prev_fp[pane.id] = fp
             moved = False
         self._seen_fp[pane.id] = fp

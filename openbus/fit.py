@@ -35,8 +35,9 @@ def _run(args: list[str]) -> str:
 
 def just_resized(pane_id: str) -> bool:
     """Did we resize this pane's window a moment ago? Its app redraws for the new width,
-    and the watcher must not read that redraw as the app doing something."""
-    return time.monotonic() - _resized.get(pane_id, float("-inf")) < SETTLE_SECONDS
+    and the watcher must not read that redraw as the app doing something. One answer per
+    resize: the change after the redraw is the app's own."""
+    return time.monotonic() - _resized.pop(pane_id, float("-inf")) < SETTLE_SECONDS
 
 
 def view(pane_id: str, cols: int, force: bool = False) -> bool:
@@ -60,7 +61,9 @@ def view(pane_id: str, cols: int, force: bool = False) -> bool:
                 and (want, want + "!" * force) != (width, mark):
             _resize(members, ["resize-window", "-x", want, "-t", pane_id, ";",
                               "set-option", "-w", "-t", pane_id, MARK, want + "!" * force])
-        elif mark and attached and not force:  # -A leaves window-size manual: unset it too
+        # The watcher (cols 0) gives back only an unforced fit, read under the lock.
+        elif mark and attached and not force and (cols or not mark.endswith("!")):
+            # -A leaves window-size at manual: unset it too
             _resize(members, ["resize-window", "-A", "-t", pane_id, ";", "set-option", "-wu",
                               "-t", pane_id, "window-size", ";", "set-option", "-wu", "-t",
                               pane_id, MARK])

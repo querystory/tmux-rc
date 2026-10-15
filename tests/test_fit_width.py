@@ -95,6 +95,7 @@ def test_attached_terminal_needs_the_toggle(pane, session):
         fit.view(pane, 60, force=True)
         assert size(pane) == "60x50 60!"
         fit.release_attached(T.list_panes())  # forced: the watcher leaves it
+        fit.view(pane, 0)  # nor does a give-back racing a fresh force, read under the lock
         assert size(pane) == "60x50 60!"
         fit.view(pane, 60)  # unticked: given back
         assert restored(pane)
@@ -139,7 +140,7 @@ def test_our_resize_is_not_activity(pane, monkeypatch, tmp_path):
     app = tmp_path / "app.sh"
     app.write_text("draw() { clear; printf 'x%.0s' $(seq $(tput cols)); echo; }\n"
                    "trap draw WINCH; draw; while :; do sleep 1 & wait $!; done\n")
-    tui = T._run(["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "s",
+    tui = T._run(["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "s:",
                   f"bash {app}"]).strip()
     T._run(["kill-pane", "-t", pane])  # the app's window alone
     parses = []
@@ -165,9 +166,22 @@ def test_our_resize_is_not_activity(pane, monkeypatch, tmp_path):
     assert len(parses) == 1
     assert len(w.snapshots[tui]) == 1
     assert state["last_activity_at"] == before  # not "now": the list doesn't reorder
-    monkeypatch.setattr(fit, "_resized", {})  # long after our resize, the same change is real
-    T._run(["resize-window", "-x", "60", "-t", tui])
+    T._run(["resize-window", "-x", "60", "-t", tui])  # the next change is real, even this soon
     while len(screen()) != 60:
         pass
     tick()
     assert len(parses) == 2
+
+
+def test_a_fit_before_the_first_look_is_read_as_usual(pane, monkeypatch):
+    fit.view(pane, 50)
+    w = watcher.Watcher(target=None, use_llm=False, history=None)
+    w._tick()  # no card yet: the screen is parsed and snapshotted like any other
+    assert len(w.snapshots[pane]) == 1
+
+
+def test_target_mode_gives_a_window_back_too(pane):
+    fit.view(pane, 60)
+    with attached("s"):
+        watcher.Watcher(target=pane, use_llm=False, history=None)._tick()
+        assert restored(pane)
