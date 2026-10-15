@@ -46,8 +46,10 @@ _OUTPUT_LABELS = frozenset({
     "status", "title", "warn", "warning",
 })
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-# A PR named with its repository on screen: owner/name#N or a GitHub pull/issue URL.
-_QUALIFIED_PR_RE = re.compile(r"([\w.-]+/[\w.-]+)(?:#|/(?:pull|issues)/)(\d{1,16})")
+# A PR named with its repository on screen: a GitHub pull/issue URL, or a standalone
+# "owner/name#N" that is not the tail of a path or of another host's URL.
+_QUALIFIED_PR_RE = re.compile(r"(?<![\w.-])github\.com/([\w.-]+/[\w.-]+)/(?:pull|issues)/(\d{1,16})"
+                              r"|(?<![\w./:-])([\w.-]+/[\w.-]+)#(\d{1,16})")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
     # ~[ ] todo~ is deliberately unmatched, since it is neither open nor finished work.
@@ -1137,7 +1139,7 @@ def _working_prs(value, repository: str | None, text: str) -> list[dict]:
         return []
     out = []
     seen = set()
-    cited = {(r.lower(), int(n)) for r, n in _QUALIFIED_PR_RE.findall(text)}
+    cited = {((a or c).lower(), int(b or d)) for a, b, c, d in _QUALIFIED_PR_RE.findall(text)}
     own = (repository or "").lower()
     for item in value:
         if not isinstance(item, dict) or not isinstance(item.get("repo"), str):
