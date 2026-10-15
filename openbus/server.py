@@ -75,7 +75,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import accounts, agent_history, expunge, telemetry, tmux  # noqa: E402
+from . import accounts, agent_history, expunge, fit, telemetry, tmux  # noqa: E402
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
@@ -503,7 +503,8 @@ async def lifespan(app: FastAPI):
     app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered)
     app.state.loops = OpenLoops()
     tasks = [asyncio.create_task(app.state.usage.run(app.state.watcher)),
-             asyncio.create_task(app.state.loops.run(app.state.watcher))]
+             asyncio.create_task(app.state.loops.run(app.state.watcher)),
+             asyncio.create_task(fit.run())]  # its first sweep restores what a crash left narrow
     try:
         yield
     finally:
@@ -838,6 +839,8 @@ async def live_frame(
     request: Request = None,
     frame: str = "",
     session: str = "",
+    cols: int = 0,
+    force: bool = False,
 ):
     """One long-poll round: the client sends the hash of the frame it's showing and
     we answer with a newer colored frame, or {frame: same} after ~25s of no change
@@ -852,8 +855,16 @@ async def live_frame(
 
     `session` is the client's per-page-load UUID: the summable spine for live-time /
     usage telemetry (see docs/design/live-telemetry.md). We stamp presence once per
-    round after the first successful capture and emit ONE telemetry record per round."""
+    round after the first successful capture and emit ONE telemetry record per round.
+
+    `cols` is how many columns the client shows; each round is its heartbeat to fit the
+    window's width (openbus/fit.py), `force` its "Fit to my screen" toggle. `attached`
+    in the answer says a terminal is attached, the one case the toggle matters."""
     started = time.monotonic()
+    fitted = {}
+    if cols:
+        with suppress(subprocess.CalledProcessError):  # a gone pane 404s at the capture
+            fitted["attached"] = await asyncio.to_thread(fit.view, pane_id, session, cols, force)
     deadline = started + LIVE_HOLD_SECONDS
     stamped = False
     while True:
@@ -883,7 +894,7 @@ async def live_frame(
                 len(data) if changed else None,
             )
             # changed ⇒ send the new colored frame; else unchanged, client re-holds.
-            return {"frame": h, "text": text} if changed else {"frame": h}
+            return {"frame": h, **fitted, **({"text": text} if changed else {})}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
 
 
@@ -1081,6 +1092,22 @@ def click(pane_id: str, body: ClickBody, request: Request):
                               expected_frame=body.frame)
     return {"sent": _mouse("click", pane_id, f"from_bottom={body.from_bottom} col={body.col}",
                            request, deliver)}
+
+
+class FitBody(BaseModel):
+    session: str = ""
+    cols: int = Field(ge=0)  # 0: this viewer left the pane
+    force: bool = False
+
+
+@app.post("/api/panes/{pane_id}/fit")
+def fit_width(pane_id: str, body: FitBody):
+    """Fit (or, with cols 0, stop fitting) the pane's window to this viewer now, rather
+    than at its next live round: on leaving, zooming or flipping the toggle."""
+    try:
+        return {"attached": fit.view(pane_id, body.session, body.cols, body.force)}
+    except subprocess.CalledProcessError as e:
+        raise _pane_err(e) from None
 
 
 @app.post("/api/panes/{pane_id}/wheel")
