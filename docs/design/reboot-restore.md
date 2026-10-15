@@ -1,9 +1,10 @@
 # Restoring the workspace after a reboot
 
-Status: **draft / design**, no code yet. Step zero, starting a tmux session from the
-phone when none exists (the "Start a tmux session" empty state), is being built
-separately. This note designs what comes next: bringing back the workspace that was
-running before the tmux server went away.
+Status: **design, P1 in review.** The recorder (#439) and the executor with its view
+(#440) implement P1, simplified in places their PRs list; this note stays the target.
+Step zero, starting a tmux session from the phone when none exists (the "Start a tmux
+session" empty state), was built separately. This note designs what comes next: bringing
+back the workspace that was running before the tmux server went away.
 
 ## Problem
 
@@ -59,6 +60,21 @@ requirement below.
 
 What went smoothly validates the mechanics: a server started in its own systemd scope,
 as step zero does, and each resume typed into a shell, which survives the agent exiting.
+
+### A third, restored through the card
+
+On 2026-10-14 another reboot was the first field test of the executor and its card. Two
+findings changed the design.
+
+- **The index was days stale.** agent-history's index is refreshed by Claude Code's hook
+  and by a reconciliation every few hours; on that machine the hook was not installed,
+  so sessions from that morning read as days idle, or were missing. Building the offer
+  therefore reconciles the index first (about a second cold), so every pane is judged on
+  its transcript's latest state rather than whenever the index last caught up.
+- **The card contradicted its own ticks.** It showed each pane's idle time from the
+  screen clock while the default read the transcript, so a pane could read as idle
+  a few minutes and still come up unticked as stale. The idle time shown is the transcript's, the same one the
+  default reads: what the card says is the reason for what it ticks.
 
 ## Goals and non-goals
 
@@ -230,16 +246,15 @@ present:
 
 Both loss cases get the same offer, worded differently. The offer does **not** require
 tmux to be absent: many setups start a session at login, so after a reboot there is often
-a fresh server with one shell, and an offer tied to the empty state would never show. The
-empty state is where the card is most prominent; with a server present it appears as one
-attention item at the top of the list.
+a fresh server with one shell, and an offer tied to the empty state would never show.
+Where the offer appears is the next section's.
 
 ```mermaid
 flowchart TD
   W[watcher tick] -->|layout + binding, at most once a minute| S[(layout snapshot<br>per tmux server)]
   B[daemon start or tmux server change] --> C{unconsumed snapshot<br>of a dead server?}
   C -- no --> N[nothing to offer]
-  C -- yes --> R[Restore card:<br>empty state or attention item]
+  C -- yes --> R[Restore view:<br>opens itself if tmux is down,<br>else a row under Sessions]
   R -- Restore selected --> D2[record the run,<br>consume the candidates] --> X[restore executor]
   R -- Start fresh / dismiss --> D[mark consumed]
   X --> T[tmux: sessions, windows, splits, layout]
@@ -247,6 +262,17 @@ flowchart TD
 ```
 
 ### The Restore card
+
+**The card is a view of its own** (`#view=restore`, beside the dashboard's other views),
+not something pushed into an existing screen. It opens itself when the bare app (no pane
+or view chosen) loads with an offer and no tmux running. A row under Sessions, naming the
+count, reopens it until the offer is restored or dismissed, and closes it once it is.
+Back or Dashboard shows the dashboard untouched. The user wants to see the unadulterated
+dashboard before deciding, and both earlier placements shoehorned the offer into a screen
+that belongs to something else. As a card at the top of the list, on every width, it sat
+under a search box and filters that meant nothing to it. As the dashboard's empty state
+on the wide layout, the empty dashboard around it read as broken. A view of its own
+leaves both screens as they are, and the row keeps the offer one tap away.
 
 The card groups the snapshot as tmux did: sessions, windows, panes. Each pane shows its
 tool icon, title, directory and how long it had been idle when the server died, with a
@@ -271,7 +297,9 @@ look freshly active. The existing
 `last_active` is not it and stays as it is: it moves with every transcript record, tool
 output and bookkeeping included, the same false recency again. Nor is it the checkpoint's activity clock: the clock moves with
 anything on screen, and in the field it showed four-day-idle agents as active yesterday.
-The clock remains the measure for shells and for agents with no binding.
+The clock remains the measure for shells and for agents with no binding. Whichever time a
+pane's default reads is also the idle time the card shows beside it, so the card never
+argues with its own ticks (the 2026-10-14 finding above).
 
 Panes that cannot be restored are shown disabled, with the reason: the directory is gone;
 the transcript is gone (checked on disk by `get` and the listing, at card and again at
@@ -291,8 +319,8 @@ binding pointed at the wrong conversation, worth a warning on the pane.
 **Restore selected** states the count ("Restore 11 agents in 4 sessions"). **Start
 fresh** consumes the listed candidates and, when no tmux server is running, hands off to the
 empty state's "Start a tmux session". When a replacement server is already up, the fresh
-workspace already exists, so the same action reads **Keep current** and only consumes them. Starting yet another session there would be no equivalent. The card reuses the existing list and checkbox chrome; phones collapse to
-session level by default, the wide layout shows panes expanded.
+workspace already exists, so the same action reads **Keep current** and only consumes them. Starting yet another session there would be no equivalent. Sessions are collapsible groups, open by
+default: the view has the screen to itself, and the panes are what the user is deciding on.
 
 ## Restore mechanics
 
@@ -499,9 +527,8 @@ three's manifest autostart.
 survives logouts and daemon restarts. Worth having, but kernel updates, power loss and
 the `kill-server` that started this still happen. Fewer losses still need recovery.
 
-**Hosted boxes with suspend.** Suspend keeps RAM, so tmux survives, and the hosted plan
-([querystory/planning#488](https://github.com/querystory/planning/pull/488)) makes it the
-default for idle boxes. But suspension has a time cap, some machine shapes lack it, and a
+**Hosted boxes with suspend.** Suspend keeps RAM, so tmux survives, and the hosted-box plan
+makes it the default for idle boxes. But suspension has a time cap, some machine shapes lack it, and a
 workstation has none. A box past the cap reboots and needs exactly this. Suspend makes
 restore rarer; it doesn't replace it.
 
@@ -512,7 +539,7 @@ unnecessary when the harness already wrote the conversation to disk.
 
 ## How this meshes with openbus
 
-The hosted-box plan (#488) lists this as workstream D and asks three contracts of it.
+The hosted-box plan asks three contracts of it.
 
 - **Event envelope.** Identity is the agent session, the pane its current location. The
   snapshot's durable key for an agent pane is likewise the harness session id, and each
@@ -530,11 +557,11 @@ new agent in a recycled pane id does not inherit them.
 
 ## Phased plan
 
-- **P0 (in progress, separate PR):** start a tmux session from the phone when none exists.
-  It brings the empty state and session creation, and must meet the server-ownership and
-  PATH constraints above.
-- **P1:** snapshot and binding, detection, the Restore card with defaults, the paced
-  executor.
+- **P0 (shipped):** start a tmux session from the phone when none exists. It brought the
+  empty state and session creation, and meets the server-ownership and PATH constraints
+  above.
+- **P1 (in review, #439 and #440):** snapshot and binding, detection, the Restore view
+  with defaults, the paced executor.
 - **P2: smarter defaults.** A pane whose PR merged is finished
   ([pr-association-lifecycle.md](pr-association-lifecycle.md)); a pane the user was
   viewing is active. OpenCode
