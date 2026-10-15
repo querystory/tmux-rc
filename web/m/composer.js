@@ -26,9 +26,11 @@ export class Composer {
   edited() {
     for (const [chip] of this.files) {
       if (!this.editor.contains(chip)) { URL.revokeObjectURL(chip.src); this.files.delete(chip); }
-      // WebKit has no caret position after a non-editable chip that ends its line (iOS drew
+      // WebKit has no caret position after a non-editable chip that ends its block (iOS drew
       // the caret outside the box), so give it a filler <br> to sit before.
-      else if (!chip.nextElementSibling && !chip.nextSibling?.nodeValue) chip.parentNode.append(document.createElement("br"));
+      else if (this.block(chip.parentNode) && !chip.nextElementSibling && !chip.nextSibling?.nodeValue) {
+        chip.parentNode.append(document.createElement("br"));
+      }
     }
     if (!this.editor.textContent && !this.files.size) this.editor.replaceChildren();
     this.changed();
@@ -96,18 +98,19 @@ export class Composer {
   // Segments taken from elsewhere (another draft, or this one's own unsent ones after it
   // was cleared) with fresh chips of this composer's own, ready for replace().
   adopt(segments) { return segments.map((s) => s.file ? { chip: this.chip(s.file) } : s); }
+  // The containers whose last <br> is filler: it draws no line.
+  block(node) { return node === this.editor || node.nodeName === "DIV"; }
   segments() {
     const segments = [];
     let text = "", started = false, pending = 0;
     const flush = () => { if (text) { segments.push({ text }); text = ""; } };
     const content = () => { text += "\n".repeat(pending); pending = 0; started = true; };
-    // A block's trailing BR is filler (it draws no line), unlike an explicit newline.
     const walk = (node) => {
       [...node.childNodes].forEach((child, index, children) => {
         if (child.nodeType === Node.TEXT_NODE && child.nodeValue) { content(); text += child.nodeValue; }
         else if (this.files.has(child)) { content(); flush(); segments.push({ file: this.files.get(child), chip: child }); }
         else if (child.nodeName === "BR") {
-          const filler = (node === this.editor || node.nodeName === "DIV") && index === children.length - 1;
+          const filler = this.block(node) && index === children.length - 1;
           if (started && !filler) pending++;
         } else { if (child.nodeName === "DIV" && started) pending++; walk(child); }
       });
