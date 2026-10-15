@@ -15,7 +15,6 @@ minimal dict (idle vs running) so the pipe never breaks.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import subprocess
 import textwrap
@@ -24,14 +23,15 @@ from itertools import islice
 from pathlib import Path
 
 from .tmux import (
+    INTERPRETERS,
     OMP_TITLE_RE,
     PLACEHOLDER_CLOSE,
     PLACEHOLDER_OPEN,
     PROMPT_GLYPHS,
     VISIBLE_SCREEN,
     Pane,
-    proc_read,
     processes,
+    program,
     strip_dim,
 )
 
@@ -251,16 +251,9 @@ _PROCESS_TOOLS = {
 # trusted there because it outlives omp, but the title plus a live omp process under the
 # pane can. Other agents get no such shell walk: without a title to corroborate it, a
 # suspended or backgrounded agent under an idle shell would claim the pane.
-_INTERPRETERS = ("bun", "node")
-
-
 def _programs(pid: str) -> set[str]:
-    """Programs among `pid` and its descendants: argv[0], or the script bun/node runs."""
-    names = set()
-    for p in processes(pid):
-        argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
-        names.add(argv[-1] if argv[0] in _INTERPRETERS else argv[0])
-    return names
+    """Programs among `pid` and its descendants."""
+    return {program(p) for p in processes(pid)}
 
 
 def _host_tool(pane: Pane) -> str | None:
@@ -268,7 +261,7 @@ def _host_tool(pane: Pane) -> str | None:
     if tool := _PROCESS_TOOLS.get(pane.current_command):
         return tool
     omp_title = OMP_TITLE_RE.match(pane.title)
-    hosted = pane.current_command in _INTERPRETERS
+    hosted = pane.current_command in INTERPRETERS
     if hosted and omp_title:
         return "omp"
     if not pane.pid or not (hosted or omp_title):

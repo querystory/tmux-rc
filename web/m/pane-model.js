@@ -2,6 +2,8 @@ import { parseHash } from "./url-state.js";
 // Pure pane predicates for the mobile UI: no DOM, no clock of their own (time is injected),
 // so tests/test_mobile_pane_model.py can run them under node against fixture panes.
 
+// Markup-escaped text, for every module that builds HTML from strings.
+export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 // An idle pane older than this is parked, so it drops out of "Recent".
 export const PARKED_IDLE_SECS = 600;
 const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
@@ -53,10 +55,10 @@ export const since = (p, nowMs = Date.now()) => {
   return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 };
 export const age = (p, nowMs) => isRunning(p) ? "now" : since(p, nowMs);
-export function isRecent(pane, nowMs = Date.now()) {
+export function isRecent(pane, nowMs = Date.now(), within = PARKED_IDLE_SECS) {
   const since = pane.state_since == null ? NaN : Number(pane.state_since);
   const idle = Number.isFinite(since) ? Math.max(0, nowMs / 1000 - since) : pane.idle_seconds || 0;
-  return pane.activity !== "idle" || idle < PARKED_IDLE_SECS;
+  return pane.activity !== "idle" || idle < within;
 }
 // The list's sections, each its own pane set, so a filter shows exactly one section's panes:
 // Needs you, then Working, Just finished and Idle among the rest, each the first that fits.

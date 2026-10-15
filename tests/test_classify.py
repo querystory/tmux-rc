@@ -190,8 +190,7 @@ def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
 def test_host_tool_from_the_process_tree(monkeypatch, command, title, child, tool):
     proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
             ("11", "cmdline"): child}
-    for module in (classify_mod, tmux):  # the process walk lives in tmux
-        monkeypatch.setattr(module, "proc_read", lambda pid, name: proc.get((pid, name), ""))
+    monkeypatch.setattr(tmux, "proc_read", lambda pid, name: proc.get((pid, name), ""))
     pane = Pane("work", "0", "bash", "0", "%0", command, title, "/x", pid="10")
     r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
     assert r["tool"] == tool

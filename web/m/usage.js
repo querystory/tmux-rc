@@ -3,7 +3,7 @@
 // window's trend, dashed on to the reset at the fitted pace. See docs/design/plan-usage.md.
 const NAMES = { claude: 'Claude', codex: 'Codex' };
 const LOGOS = { claude: '/claude.png', codex: '/openai.svg' };
-const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+import { isRecent, esc } from './pane-model.js';
 
 export function countdown(ms) {
   const m = Math.max(0, Math.round(ms / 60000)), d = Math.floor(m / 1440), h = Math.floor(m / 60) % 24;
@@ -70,3 +70,17 @@ export function renderUsage(el, accounts, options = {}) {
 export const HIGH_PCT = 70;
 export const shownUsage = (accounts, mode) => mode === 'on' ? accounts : mode === 'off' ? []
   : accounts.map(a => ({ ...a, windows: (a.windows || []).filter(w => w.limit_at || w.pct >= HIGH_PCT) })).filter(a => !a.error && a.windows.length);
+
+// Several accounts' strip names only those in use: any of their panes busy or active in the
+// last hour, the most busy panes first (ties keep the meters' order). The rest are `idle`,
+// for the "+N" by the strip; with none in use, every account shows rather than none.
+// `panesOf(meter)` is the panes on a meter's login, across every config dir it covers.
+export const IN_USE_SECS = 3600;
+export function inUse(meters, panesOf, now = Date.now()) {
+  const of = new Map();
+  for (const m of meters) if (!of.has(m.acct)) of.set(m.acct, panesOf(m));
+  const accts = [...of.keys()], busy = a => of.get(a).filter(p => p.activity !== 'idle').length;
+  const used = accts.filter(a => of.get(a).some(p => isRecent(p, now, IN_USE_SECS))).sort((x, y) => busy(y) - busy(x));
+  if (!used.length) return { shown: meters, idle: [] };
+  return { shown: used.flatMap(a => meters.filter(m => m.acct === a)), idle: accts.filter(a => !used.includes(a)) };
+}

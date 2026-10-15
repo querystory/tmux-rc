@@ -11,7 +11,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -106,23 +106,36 @@ export function setupSidebar(ctx) {
   menu.className = "header-picker-menu"; picker.append(menu);
   dismissable(picker);
   // A group of the menu: options are buttons whose aria-pressed draws the check (and, for the
-  // states, a dot in the state's colour, as their chips have).
+  // states, a dot in the state's colour, as their chips have). Options that come and go (the
+  // agents and sessions present) are redrawn only when they change, so a focused one keeps focus.
   const group = (label, opts, pick, rule = "<hr>", dot = "") => {
     const el = document.createElement("div");
     el.setAttribute("role", "group"); el.ariaLabel = label;
-    el.innerHTML = `${rule}<div class="menu-sec">${label}</div>${Object.entries(opts).map(([v, l]) => `<button type="button" class="acct-opt" data-v="${v}"${dot && ` data-s="${v}"`}>${dot && `<i class="acct-dot${v === "all" ? " none" : ""}"></i>`}<span>${l}</span></button>`).join("")}`;
+    el.options = (o) => {
+      const html = `${rule}<div class="menu-sec">${label}</div>${Object.entries(o).map(([v, l]) => `<button type="button" class="acct-opt" data-v="${esc(v)}"${dot && ` data-s="${esc(v)}"`}>${dot && `<i class="acct-dot${v ? "" : " none"}"></i>`}<span>${l}</span></button>`).join("")}`;
+      if (el._html !== html) el.innerHTML = el._html = html;
+    };
+    el.options(opts);
     el.onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) pick(b.dataset.v); };
     el.mark = (on) => el.querySelectorAll("[data-v]").forEach((b) => b.setAttribute("aria-pressed", String(on(b.dataset.v))));
     return el;
   };
-  let filters = [];
-  const show = group("State", { all: "All", ...SHOW }, (v) => ctx.setFilter(v === "all" ? [] : filters.includes(v) ? filters.filter((f) => f !== v) : [...filters, v]), "", "dot"); // each state's dot in its colour
+  // A pick in a union of several (the empty value, All, clears it): the states', the agents'.
+  // Empty, not "all", since a tmux session may well be called "all".
+  const toggle = (list, v) => !v ? [] : list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+  let filters = [], picked = {};
+  const show = group("State", { "": "All", ...SHOW }, (v) => ctx.setFilter(toggle(filters, v)), "", "dot"); // each state's dot in its colour
+  // Agent: the kinds of pane present, each with its logo and count; the dashboard's chips set the
+  // same filter (app.js). Session: a phone's dashboard picks one tmux session, as the wide
+  // dashboard's own select does (style.css shows it there only).
+  const agents = group("Agent", {}, (v) => ctx.setAgents(toggle(picked.agent, v)));
+  const sessions = group("Session", {}, ctx.setSession);
   const by = group("Group by", { state: "State", session: "Session" }, (v) => { prefs.by = v; rerender(); });
   const sortBy = group("Sort by", SORTS, ctx.setSort);
   // Clear all, at the foot: what the chips' Clear all does (app.js disables it with nothing on).
   const clearAll = Object.assign(document.createElement("button"), { type: "button", className: "acct-opt menu-clear", textContent: "Clear all" });
   clearAll.onclick = ctx.clearAll;
-  menu.append(show);
+  menu.append(show, agents, sessions);
   document.getElementById("find").append(picker);
   // The menu opens beside the list it filters, never over it: past the sidebar's edge, level
   // with the trigger, so the list narrows in view. With no room there it drops under the
@@ -338,11 +351,11 @@ export function setupSidebar(ctx) {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") unhover(); });
   addEventListener("resize", unhover); // a breakpoint crossing hides the sidebar but not this
 
-  function render(subset, query, filter) {
+  function render(subset, query, filter, more) {
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
     search.title = prefs.rail ? "Search" : "";
-    marks(filter);
+    marks(filter, more);
     if (prefs.rail) rail(subset); else list(subset, query);
     // Reconciling may have replaced the hovered row (a card that became a row, say).
     if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
@@ -360,10 +373,15 @@ export function setupSidebar(ctx) {
     text(count, subset.length);
     ctx.html(subs, `${n} sub-agent${n === 1 ? "" : "s"} ${licon(prefs.subagents ? "eye" : "eyeOff", 13)}`);
   }
-  // The menu's checks, for either layout (a phone draws no sidebar, but has the menu).
-  function marks(filter) {
-    filters = filter;
-    show.mark((v) => v === "all" ? !filter.length : filter.includes(v));
+  // The menu's checks, for either layout (a phone draws no sidebar, but has the menu). `more`
+  // is the agents present ([tool, count]), the agent filter, the sessions and the session picked.
+  function marks(filter, more = picked) {
+    filters = filter; picked = more;
+    show.mark((v) => !v ? !filter.length : filter.includes(v));
+    agents.options({ "": "All agents", ...Object.fromEntries((more.agents || []).map(([t, n]) => [t, `<img src="${esc(ctx.logos[t] || "/tmux-logomark.svg")}" alt="" width="16" height="16">${esc(t)} <small>${n}</small>`])) });
+    agents.mark((v) => !v ? !more.agent?.length : more.agent.includes(v));
+    sessions.options({ "": "All tmux sessions", ...Object.fromEntries((more.sessions || []).map((s) => [s, esc(s)])) });
+    sessions.mark((v) => v === (more.session || ""));
     by.mark((v) => v === prefs.by); by.hidden = oneSession();
     sortBy.mark((v) => v === ctx.sort());
   }
