@@ -1421,6 +1421,9 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen("Run ! cat 'a b.txt' now."), "Run `! cat 'a  b.txt'` now."),  # spacing
         (_auto_screen("Run ! rm /tmp/cache.old now."), "`! rm /tmp/cache`"),  # a fragment
         (_auto_screen("""Run ! printf 'say "merge all"' now."""), None),  # a command's quotes
+        (_auto_screen("""Use printf 'say "merge all"' as the fixture."""),
+         """Use `printf 'say "merge all"'` as the fixture."""),  # quotes inside inline code
+        (_auto_screen("Run:\n\n  ! printf '%s' '`! gh pr merge 415`' &&\n  echo done"), None),
         (_auto_screen("""Run:\n\n  ! printf 'x' &&\n  printf 'say "merge all"'"""), "other"),
         (_auto_screen('Do not say "merge all"; it skips.'), 'say "merge all"; it skips.'),
         (('\x1e[visible screen]\x1f\n● Bash(cat notes.txt)\n  ⎿  Say "merge all" and I\'ll do it.\n'

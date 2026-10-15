@@ -1020,6 +1020,14 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
 
+# Command text and code an offer must not be read out of: an inline code span, a fence, a
+# `! ` row with its wrapped continuation, an unmarked `! ` to its row's end (the screen draws
+# inline code without backticks). A quote inside any of them is the code's own; a command
+# inside one is too, unless it is that very span or row. A fence holds a command to run.
+_CODE_RE = re.compile(r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)|(?P<fence>^[ \t]*```[\s\S]*?^[ \t]*```)"
+                      r"|^[ \t]*! \S.*(?:\n[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
+
+
 # What forbids the offer after it, read on _plain text: "do **not**\n  run `! make deploy`",
 # or "Do not run this:" over a fenced block.
 _NEGATED_RE = re.compile(r"(?:\bnot|n't|\bnever)(?: (?:run|type|use|execute|enter|paste|send|say))?"
@@ -1042,17 +1050,25 @@ def _offers(message: str, reply: str | None) -> list[str]:
     handing anything over."""
     if _USER_ROW_RE.search(message) or re.search(r"(?m)^[ \t]*⎿", message):
         return []
-    # One source, never both, and a quote after a `! ` in its paragraph is no reply: it may
-    # be the command's own argument, which the screen does not mark.
+    # One source, never both: a command's own quotes, unmarked on screen, are no reply.
     t = reply if reply and _plain(reply) == _plain(message) else message
+    code = [(c.start(), c.end(), bool(c["fence"])) for c in _CODE_RE.finditer(t)]
     found = (m[m.lastindex]  # the payload: each alternative's last group (a quote's: 4, 5)
              for m in _OFFER_RE.finditer(t)
-             if not _NEGATED_RE.search(_plain(t[:m.start()])) and not (
-                 m.lastindex > 3
-                 and re.search(r"(?:^|\s)! \S", re.split(r"\n[ \t]*\n", t[:m.start()])[-1])))
+             if not _NEGATED_RE.search(_plain(t[:m.start()])) and not any(
+                 a <= m.start() < b and (m.lastindex > 3 or (a != m.start() and not fence))
+                 for a, b, fence in code))
     return list(dict.fromkeys(o for o in found if re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
         + r"(?![^\s\"”`.,;:?!)])", message)))[:3]
+
+
+def screen_offers(text: str, tool: str | None, reply: str | None) -> list[str]:
+    """A finished turn's offers (_offers), read off `text`: classify's, and the watcher's
+    on a screen it does not reparse (its fingerprint ignores a duration a command holds).
+    Claude Code's only: Codex's messages and tool output have no boundary read here yet."""
+    final = tool == "claude" and _final_message(_visible(text), tool)
+    return _offers(final, reply) if final else []
 
 
 def _final_ask(visible: str, tool: str, message: str) -> dict | None:
@@ -1417,8 +1433,7 @@ def classify(
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
     result.pop("offers", None)  # buttons that send: the screen's alone, never the model's
-    # Claude's only: Codex's messages and tool output have no boundary read here yet.
-    if final and tool == "claude" and (offers := _offers(final, reply)):
+    if offers := screen_offers(text, tool, reply):
         result["offers"] = offers
     if final and (ask := _final_ask(visible, tool, final)):
         if ask.get("options") == ["try again"]:

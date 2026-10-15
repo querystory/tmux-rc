@@ -21,7 +21,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 
 from . import tmux, transcript
-from .classify import _OMP_CTX_RE, _OPENCODE_RUNNING_RE, bootstrap, classify, question_rows
+from .classify import (
+    _OMP_CTX_RE,
+    _OPENCODE_RUNNING_RE,
+    bootstrap,
+    classify,
+    question_rows,
+    screen_offers,
+)
 from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
@@ -1392,6 +1399,11 @@ class Watcher:
             cached["updated_at"] = now
             cached["last_activity_at"] = last_activity
             cached["snapshot_id"] = self.snapshots[pane.id][-1]["id"]  # a restore's is stale
+            # Offers send what they say: read off this very screen, which the fingerprint
+            # may call unchanged while a command's "10s" became "20s".
+            cached.pop("offers", None)
+            if offers := screen_offers(text, cached.get("tool"), reply):
+                cached["offers"] = offers
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
