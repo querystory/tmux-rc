@@ -49,6 +49,7 @@ export class Composer {
     this.caret = null;
     range.deleteContents(); range.insertNode(node);
     this.edited(); // before the caret is placed, so a chip's filler <br> is already there
+    if (!node.isConnected) return; // an empty paste into an empty box, which edited() cleared
     range.setStartAfter(node); range.collapse(true);
     selection?.removeAllRanges(); selection?.addRange(range);
   }
