@@ -297,13 +297,15 @@ def classify_text(
     back). `image_png` is wired for the future image-input mode; text-only by default.
     `changed` (a real content-change parse vs a heartbeat re-parse) and the pane's stable
     `pane_uid`/`pane_label` are passed straight through to the benchmark telemetry."""
-    wait = _backoff_remaining()
+    # Admitted and stamped under the arming lock: a brake armed in between would otherwise
+    # look older than this call, and this call's success would lift it.
+    with _backoff_lock:
+        wait, t0 = _backoff_remaining(), time.time()
     if wait > 0:
         # Rate-limited: skip the call entirely (no tokens burned, no telemetry — nothing
         # happened). The UI still shows why cards are degrading via last_error.
         last_error["msg"] = f"rate limited (429) — retrying in {wait:.0f}s"
         return None
-    t0 = time.time()
     try:
         types = genai_types()
 
@@ -332,7 +334,7 @@ def classify_text(
         # this call did: with panes read in parallel, a call already in flight must not
         # lift that brake, nor hide why it is on.
         with _backoff_lock:
-            if _backoff.get("armed", 0.0) <= t0:
+            if _backoff.get("armed", 0.0) < t0:
                 _backoff.update(delay=0.0, until=0.0)
                 last_error["msg"] = None
         return result

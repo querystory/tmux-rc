@@ -125,6 +125,33 @@ def test_a_call_in_flight_does_not_lift_a_brake_armed_after_it_started(monkeypat
         L.last_error["msg"] = None
 
 
+
+def test_a_brake_armed_while_a_call_is_admitted_stays_on(monkeypatch):
+    """Copilot: another pane arming between this call's admission check and its start
+    stamp made the brake look older than the call, so the call's success lifted it."""
+    _clear()
+    check, armer = L._backoff_remaining, []
+
+    def remaining():  # another pane fails just after this one passed the check
+        wait = check()
+        armer.append(threading.Thread(target=L._handle_llm_error,
+                                      args=(Exception("429 RESOURCE_EXHAUSTED"),)))
+        armer[0].start()
+        armer[0].join(0.3)
+        return wait
+
+    monkeypatch.setattr(L, "_backoff_remaining", remaining)
+    monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(models=types.SimpleNamespace(
+        generate_content=lambda **_k: types.SimpleNamespace(text="{}", usage_metadata=None))))
+    monkeypatch.setattr(L, "_record", lambda resp: None)
+    monkeypatch.setattr(L, "_emit", lambda *a, **k: None)
+    try:
+        L.classify_text("s", "t")
+        armer[0].join(5)
+        assert check() > 0, "the call's success lifted a brake armed after it was admitted"
+    finally:
+        _clear()
+
 def test_hung_calls_are_capped_not_accumulated(monkeypatch):
     """Each timed-out call leaves its thread running until the hang ends; past the cap a
     call fails fast as a timeout instead of starting yet another thread."""
