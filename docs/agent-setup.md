@@ -26,7 +26,7 @@ would. Two consequences follow, and every recommendation below is one of them:
 You do not have to name anything — *provided the agent says who it is on screen*. The
 classifier reads the agent's own session title out of the captured text (that is what the
 `session` field in the parser prompt is for) and it becomes the pane's **label**, so the
-pane reads as *Review 4745* or *csv-import-retries* rather than as its command.
+pane reads as *Review 4745* or *csv-export-retry* rather than as its command.
 
 That is the one setting worth changing for Codex: **include `"thread-title"` in
 `status_line`.** The parser will also take the title from a `Thread renamed to <name>`

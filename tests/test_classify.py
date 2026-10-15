@@ -13,7 +13,7 @@ def test_opaque_session_identifiers_are_not_titles():
     for name in ("00000000-0000-7000-8000-000000000001", " ABCDEF0123456789 "):
         result = classify(_pane(), "text", _llm({"session": name, "activity": "idle"}))
         assert "session" not in result
-    for name in ("gpt-5 migration", "csv-import-retries", "Review 4955", "deadbeef"):
+    for name in ("gpt-5 migration", "csv-export-retry", "Review 4955", "deadbeef"):
         capture = f"› input\n{name} · gpt-6-sol · ~/src/app"
         result = classify(_pane("node"), capture, _llm({
             "tool": "codex", "session": name, "activity": "idle",
@@ -923,10 +923,10 @@ def test_session_grounding_rejects_paths_and_quoted_output():
         capture = "{'session': 'other-pane'}\n\noutput\n\n› input\n\n~/src/app · gpt-6-sol"
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": name}))
         assert "session" not in result
-    capture = ("› input\n\ncsv-import-retries · gpt-5.6-sol medium · "
-               "docs/import-retry-design · ~/src/app · Ready")
+    capture = ("› input\n\ncsv-export-retry · gpt-5.6-sol medium · "
+               "docs/order-sync-design · ~/src/app · Ready")
     result = classify(_pane("node"), capture, _llm({
-        "tool": "codex", "session": "docs/import-retry-design",
+        "tool": "codex", "session": "docs/order-sync-design",
     }))
     assert "session" not in result
 

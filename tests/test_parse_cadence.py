@@ -68,13 +68,13 @@ def test_refined_label_survives_idle_ticks(monkeypatch):
 
 
 def test_explicit_title_wins_over_inferred_name_on_parse_cache_and_rename(monkeypatch):
-    w, _ = _harness(monkeypatch, ["Garden Planner Sync · GPT-6-Astra medium"])
+    w, _ = _harness(monkeypatch, ["Webhook Retry Queue · GPT-6-Astra medium"])
     monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
         "activity": "idle", "events": [], "tool": "codex",
-        "session": "Garden Planner Sync",
-        "label": "Garden Planner Sync", "tmux_label": pane.label})
-    pane = _Pane(label="shop-api-0:17")
-    pane.display_title = "Working | shop-api | docs/import-retry-design"
+        "session": "Webhook Retry Queue",
+        "label": "Webhook Retry Queue", "tmux_label": pane.label})
+    pane = _Pane(label="qs-app-0:17")
+    pane.display_title = "Working | qs-app | docs/order-sync"
     for _ in range(2):
         w._forced_this_tick = set()
         state = w._tick_pane(pane)
