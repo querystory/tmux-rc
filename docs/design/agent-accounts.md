@@ -76,15 +76,17 @@ alike; see [sidebar.md](sidebar.md).
   dir its tmux environment sets), and nothing when it sets none or sets what the global
   environment already does: a session that starts new windows on an account other
   sessions do not is worth seeing at a glance; a default every session shares is not.
-- **Usage strip:** with several accounts the meters become one row that swipes sideways
-  and snaps per meter, most urgent first (full soonest, then the highest pace at the
-  reset). Two meters fit on a phone with a third of the next peeking in under a fade, so
-  the row reads as one that scrolls; a two-meter split looked complete and hid the swipe.
-  Seven meters in a two-column grid would push the list off a phone's screen, and what
-  needs attention must never sit behind a swipe. Each meter names its account with the
-  same chip as the rows, in its bottom corner across from the reset, and its title keeps
-  just the window: a name in the title was truncated first, read as part of the window
-  ("7d QSI"), and left a one-account provider's meter looking unnamed beside it.
+- **Usage strip:** with more than one account among its meters, each account's gauges sit
+  under its chip, two to a row, the account with the most urgent meter first and its meters
+  most urgent first (full soonest, then the highest pace at the reset). It used to be one
+  row that swiped sideways, each meter carrying the chip in its corner: on a real phone the
+  third gauge sat cut off at the edge, which is exactly where a full window hides, and the
+  same chip repeated at a different spot under every gauge read as noise. A heading names the
+  account once; a meter's title keeps just the window (a name there was truncated first and
+  read as part of it, "7d QSI"). With one account shown, nothing names it: a casual user
+  with one plan never sees account chrome. The strip scrolls away with a phone's list, so a
+  taller grid costs nothing once you are past it, and the sidebar's strip and a phone's
+  dashboard card use the same groups.
 - **Dashboard Plan usage:** wide, every meter on one line, grouped per account with one thin
   divider between groups. Each group is headed by its chip, flush left over its first meter,
   with the details (who, plan, dir, panes) in its tooltip, and Codex gets a chip like the

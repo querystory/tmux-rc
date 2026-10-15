@@ -46,9 +46,8 @@ search row (search and the filter button) stays pinned. The meters are a glance 
 and once the list is scrolled two rows of them only cost room; search is what you reach for
 mid-list.
 
-The strip's top edge is a seam, as the fleet chart's is: dragged taller, several accounts'
-strip stacks more rows of meters (a row per hundred pixels) while still swiping sideways, so a
-tall strip shows more meters rather than just bigger ones. The height is per browser, like the sidebar's width, and a double-click
+The strip's top edge is a seam, as the fleet chart's is: dragged taller, it shows more of
+its meters without scrolling them, rather than bigger ones. The height is per browser, like the sidebar's width, and a double-click
 restores the natural one. Dragged under one row it closes, which sets the switch Off with
 an Undo in the notice, rather than snapping back with a hint. Snapping back fights a
 gesture that plainly meant "away", and a zero height would hide the strip somewhere
@@ -186,8 +185,8 @@ request:
 
 Each row reports the config dirs it was read from, and the UI names it after the account
 those dirs belong to. A meter shows just its provider's icon while there is one account
-per provider; with several, each meter carries the account's chip in its corner, and the
-strip becomes one swipeable row ordered by urgency (see [agent accounts](agent-accounts.md)).
+per provider; with several, each account's meters sit under its chip, ordered by urgency
+(see [agent accounts](agent-accounts.md)).
 
 ## Sources, and why each
 

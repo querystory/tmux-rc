@@ -112,8 +112,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
   const byUrgency = (list) => list.flatMap((a) => a.windows?.length ? a.windows.map((w) => ({ ...a, windows: [w] })) : [a])
     .sort((a, b) => urgency(b.windows?.[0]) - urgency(a.windows?.[0]));
-  // One swipeable row: the edge fades only while there is more that way, rechecked on a
-  // resize too (a wider strip fits more meters: style.css).
+  // One swipeable row (the wide dashboard's groups): the edge fades only while there is more
+  // that way, rechecked on a resize too.
   function strip(el, on) {
     el.classList.toggle("acct-strip", on);
     el.onscroll ||= () => { // reads the class: the board's groups() may since have dropped it
@@ -124,16 +124,23 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     el.onscroll();
     (el._resize ||= new ResizeObserver(() => el.onscroll())).observe(el);
   }
-  // The wide dashboard: each account's meters as a group under its chip,
-  // details in its tooltip. The chip names the account once over its meters, so they drop it.
+  // Meters, in the list's order: with more than one account among them, each account's under
+  // its chip (in the order the account first comes), details in its tooltip. The chip names
+  // the account once, so its meters drop it; with one account shown, nothing names it.
   function groups(el, list, render) {
-    el.className = "usage-groups"; el.hidden = !list.length; // a board drawn before the accounts came may have hidden it
-    const markup = list.map((a, i) => {
-      const p = a.acct, tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
-      return `<div class="ug" data-i="${i}" style="--n:${a.windows?.length || 1}"><div class="ug-label" title="${esc(tip)}">${badge(p)}</div><div class="ug-cells"></div></div>`;
+    const by = new Map();
+    for (const a of list) by.set(a.acct, [...by.get(a.acct) || [], { ...a, label: null, chip: null }]);
+    const several = by.size > 1;
+    el.classList.toggle("usage-groups", several);
+    if (!several) { el._groups = null; return render(el, list.map((a) => ({ ...a, chip: null }))); }
+    el.hidden = false; el._html = null; // renderUsage's own cache, for when it draws here again
+    const markup = [...by].map(([p, metered], i) => {
+      const tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+      return `<div class="ug" data-i="${i}" style="--n:${metered.reduce((n, a) => n + (a.windows?.length || 1), 0)}"><div class="ug-label" title="${esc(tip)}">${badge(p)}</div><div class="ug-cells"></div></div>`;
     }).join("");
     if (el._groups !== markup) { el.innerHTML = markup; el._groups = markup; }
-    el.querySelectorAll(".ug").forEach((g) => render(g.lastChild, [{ ...list[g.dataset.i], label: null, chip: null }]));
+    const metered = [...by.values()];
+    el.querySelectorAll(".ug").forEach((g) => render(g.lastChild, metered[g.dataset.i]));
   }
 
   // ---- New window: an account per provider with several, preset to the session's default ----

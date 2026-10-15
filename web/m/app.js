@@ -678,22 +678,18 @@ const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
 let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = steady(() => {
-  // Several accounts: one swipeable strip, the most urgent meter first (accounts.js).
-  const all = accounts.usage(usage), several = accounts.any(), order = (list) => several ? accounts.byUrgency(list) : list;
-  renderUsage($("usage"), order(shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode)));
-  accounts.strip($("usage"), several);
+  // Several accounts: the most urgent meter first, under a heading per account (accounts.js).
+  const all = accounts.usage(usage), several = accounts.any();
+  const draw = (el, list) => accounts.groups(el, several ? accounts.byUrgency(list) : list, renderUsage);
+  draw($("usage"), shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode));
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter whatever the mode; its view (#view=usage)
   // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
-  // tool with no plan meters hides the card. Several accounts: a labelled group each when
-  // wide, the strip on a phone.
+  // tool with no plan meters hides the card.
   const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
   show("usage-panel", board.length > 0);
-  const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board";
-  if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
-  if (grouped) accounts.groups(el, board, renderUsage);
-  else renderUsage(el, order(board));
-  accounts.strip(el, several); // grouped too: a line too narrow for its meters scrolls rather than wraps
+  draw($("usage-board"), board);
+  accounts.strip($("usage-board"), WIDE.matches && $("usage-board").classList.contains("usage-groups")); // a row of groups too narrow scrolls rather than wraps
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
   // Every account's meters, whatever the list's account filter: the view picks its own
@@ -1404,13 +1400,13 @@ function setUsageMode(mode) {
   try { localStorage.setItem("tmuxrc-usage", usageMode); } catch {}
   paintUsage(); paintSettings();
 }
-// Wide, the strip's top edge is a seam like the fleet chart's: drag it taller for more rows
-// of meters, a row per USAGE_ROW (room for a gauge's two notes); a double-click restores its own
+// Wide, the strip's top edge is a seam like the fleet chart's: drag it taller to show more
+// meters without scrolling them; a double-click restores its own
 // height. Dragged under one row it closes, which turns the setting Off rather than keeping
 // a zero height, so the menu says why it is gone and the notice's Undo brings it back. The
 // height is per screen, like the sidebar's width; unset (the default) is the natural height,
 // and CSS caps it so the pane list keeps most of the column.
-const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72, USAGE_ROW = 100;
+const USAGE_KEY = "tmuxrc-usage-height", USAGE_MIN = 72;
 let usageHeight = 0, usageDrag = 0;
 try { usageHeight = Number(localStorage.getItem(USAGE_KEY)) || 0; } catch {}
 function sizeUsage(px = usageHeight, persist = false) {
@@ -1424,12 +1420,11 @@ function sizeUsage(px = usageHeight, persist = false) {
     try { if (usageHeight) localStorage.setItem(USAGE_KEY, String(usageHeight)); else localStorage.removeItem(USAGE_KEY); } catch {}
   }
 }
-// The rows, and the separator's value and range (a focusable one owes them), from the height
+// The separator's value and range (a focusable one owes them), from the height
 // CSS let the strip be: capped at 60% of the sidebar, natural, or 0 while hidden. Observed, so
 // they follow a paint showing or hiding it and a window resize moving the cap alike.
 const fitUsage = new ResizeObserver(() => {
   const shown = $("usage").offsetHeight;
-  $("usage").style.setProperty("--rows", Math.max(1, Math.round(shown / USAGE_ROW)));
   for (const [key, value] of Object.entries({ min: USAGE_MIN, max: Math.round($("sessions").clientHeight * 0.6), now: shown })) $("usage-handle").setAttribute(`aria-value${key}`, value);
 });
 for (const el of ["usage", "sessions"]) fitUsage.observe($(el));

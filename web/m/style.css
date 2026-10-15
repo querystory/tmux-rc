@@ -924,14 +924,11 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 .usage-bar > .pace { width: 2px; inset: -2px auto -2px auto; margin-left: -1px; border-radius: 1px; background: var(--fg); opacity: .55; }
 @media (max-width: 1099px) { #usage { order: -1; border-bottom: 1px solid var(--line); } }
 @media (min-width: 1100px) {
-  #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); scroll-padding-inline: 14px; }
+  #usage { gap: 4px 14px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
   /* Its seam (app.js sizeUsage), over the border it moves. Dragged, the strip takes the chosen
-     height, scrolling what it cannot show; several accounts' strip stacks --rows of meters,
-     still swiped sideways. Under one row the strip dims: let go to close it. */
+     height, scrolling what it cannot show. Under one row the strip dims: let go to close it. */
   #usage-handle { flex: none; position: relative; z-index: 5; height: 9px; margin-bottom: -5px; cursor: row-resize; touch-action: none; }
   #usage.sized { row-gap: 10px; height: var(--usage-h); max-height: 60%; overflow-y: auto; }
-  #usage.sized.acct-strip:not([hidden]) { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows), minmax(min-content, 1fr)); grid-auto-columns: max-content; overflow-y: hidden; }
-  #usage.sized.acct-strip > .usage-cell { width: calc((100cqw - var(--n) * 16px) / (var(--n) + .3)); }
   #usage.closing { opacity: .4; }
 }
 
@@ -1131,30 +1128,29 @@ button.picked:disabled { opacity: 1; }
   #side-filter-picker .acct-opt { min-height: 44px; font-size: 15px; }
 }
 #app.rail .acct-pill { display: none; }
-/* The strip: one row, swiped sideways, snapping per meter. --n whole meters fit and a third
-   of the next peeks in under the fade, so the row reads as one that scrolls: two on a phone,
-   one in a narrow sidebar, three where there is room. */
-:is(#usage, #usage-board).acct-strip:not([hidden]) { display: flex; }
-.acct-strip { container: strip / inline-size; gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; }
-#usage-board.acct-strip { scroll-padding-inline: 0; }
+/* The wide dashboard's row of account groups, when too narrow for them: swiped sideways,
+   snapping per group, the edge fading while there is more that way. */
+.acct-strip { overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .acct-strip::-webkit-scrollbar { display: none; }
-.acct-strip > .usage-cell { --n: 1; flex: 0 0 calc((100% - var(--n) * 16px) / (var(--n) + .3)); scroll-snap-align: start; }
-@container strip (min-width: 320px) { .acct-strip > .usage-cell { --n: 2; } }
-@container strip (min-width: 480px) { .acct-strip > .usage-cell { --n: 3; } }
 .acct-strip.more-r { mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
 .acct-strip.more-l { mask-image: linear-gradient(90deg, transparent, #000 36px); }
 .acct-strip.more-l.more-r { mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
-/* The wide dashboard: every account's meters on one line, never wrapped. Each group is
-   headed by its account's chip, in flow and flush left over its first chart, with one thin
-   divider between groups. A group grows by its meter count, so the charts share the line
-   evenly down to 130px each; past that the line scrolls, as the phone's strip does. */
-.usage-groups { display: flex; gap: 0 33px; align-items: flex-start; font-size: 13px; line-height: 18px; }
-.ug { position: relative; flex: var(--n) 1 0; display: flex; flex-direction: column; gap: 8px; scroll-snap-align: start; }
-.ug + .ug::before { content: ""; position: absolute; inset: 0 auto 0 -17px; border-left: 1px solid var(--line); }
+/* Several accounts' meters: each account's chip once, over its gauges two to a row (the
+   strip, the sidebar's foot, a phone's card). The wide dashboard lays the groups on one
+   line, never wrapped, one thin divider between them; a group grows by its meter count, so
+   the gauges share the line evenly down to 130px each, past which the line scrolls. */
+.ug { grid-column: 1 / -1; position: relative; display: flex; flex-direction: column; gap: 4px; }
+.ug + .ug { margin-top: 4px; }
 .ug-label { display: flex; font-size: 12px; color: var(--muted); cursor: default; }
 .ug-label .acct-badge { pointer-events: none; } /* hover reads the label's fuller tooltip, not the chip's */
-.ug-cells { display: flex; gap: 12px; }
-.ug-cells .usage-cell { flex: 1 1 0; min-width: 130px; }
+.ug-cells { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+@media (min-width: 1100px) {
+  #usage-board.usage-groups:not([hidden]) { display: flex; gap: 0 33px; align-items: flex-start; }
+  #usage-board .ug { flex: var(--n) 1 0; gap: 8px; margin: 0; scroll-snap-align: start; }
+  #usage-board .ug + .ug::before { content: ""; position: absolute; inset: 0 auto 0 -17px; border-left: 1px solid var(--line); }
+  #usage-board .ug-cells { display: flex; gap: 12px; }
+  #usage-board .ug-cells .usage-cell { flex: 1 1 0; min-width: 130px; }
+}
 /* The usage view (usage-view.js): a chart per window type filling the page, the range
    control at its top right; a phone shows one chart at a time, its tabs under the range. */
 #dash-page:has(> .usage-view) { container: dash-page / inline-size; display: flex; flex-direction: column; height: 100%; }
