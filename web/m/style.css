@@ -1252,17 +1252,13 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .acct-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); }
 @media (prefers-reduced-motion: no-preference) { .acct-spin { animation: acct-spin 1s linear infinite; } }
 @keyframes acct-spin { to { transform: rotate(360deg); } }
-/* The Restore card (restore.js): one attention item at the top of the list. */
-#restore { margin: 8px 12px 12px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 10px; background: var(--bg); }
+/* Restore (restore.js): a row heading the list while there is an offer, and its own view. */
+#restore { display: flex; align-items: center; gap: 8px; width: calc(100% - 24px); margin: 8px 12px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 10px; background: var(--bg); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 #restore[hidden] { display: none; }
-#landing-main > #restore { max-width: 760px; margin: 0 0 28px; padding: 20px 24px; }
-#landing-main > #restore h3 { margin: 0 0 4px; font-size: 22px; text-transform: none; letter-spacing: normal; color: inherit; }
-#landing-main > #restore > p { font-size: 15px; }
-#landing-main:has(> #restore:not([hidden])) > :is(#landing-title, #landing-sub, #landing-start) { display: none; }
-/* Heading an empty list, the offer is the whole screen: nothing to search, and Start fresh says start. */
-#sessions:has(#restore:not([hidden]) + #pane-list:empty) :is(#find, #usage, #usage-handle, #empty, #list-start) { display: none; }
-#restore h3 { margin: 0 0 4px; font-size: 15px; }
-#restore > p { margin: 0 0 10px; font-size: 13px; }
+#restore > span { flex: 1; }
+#restore small { display: block; color: var(--muted); font-size: 12px; }
+.restore-card { max-width: 760px; }
+.restore-card > p { margin: 0 0 10px; }
 .restore-session summary { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; }
 .restore-session summary .muted { margin-left: auto; font-size: 12px; }
 .restore-session summary::after { content: ""; width: 6px; height: 6px; margin: 0 4px 3px 0; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }

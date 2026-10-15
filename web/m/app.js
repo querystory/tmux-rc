@@ -234,7 +234,12 @@ function pause(ms, signal) {
 // A notice stays until replaced or cleared; with `ms` it also clears itself, for a short
 // result. `action`, a [label, fn] pair, adds one button (an Undo) that clears it and runs fn.
 let noticeTimer;
-const restore = setupRestore({ mount: $("restore"), request, logos: LOGOS, notice: (...a) => notice(...a), running: () => tmuxRunning });
+// Restore is a view of its own, so the dashboard behind it stays whole. An offer that turns up
+// on the bare app (no pane, no view chosen) opens it; a spent one leaves it.
+const restore = setupRestore({ mount: $("restore"), request, logos: LOGOS, licon, notice: (...a) => notice(...a), running: () => tmuxRunning,
+  open: () => openPage("restore"),
+  opened: () => { if (!active && !page) navigate(null, "restore", { mode: "replace" }); },
+  closed: () => { if (page === "restore") closePage(); } });
 function notice(message = "", ms = 0, action = null) {
   clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
   if (action) $("notice").append(" ", Object.assign(document.createElement("button"), { type: "button", textContent: action[0], onclick: () => { notice(); action[1](); } }));
@@ -326,7 +331,7 @@ function route() {
   restartDetail();
   render();
   // Focus follows: into the view's Back, then back to the card's Details.
-  if (wasPage && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
+  if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
   if (page && !wasPage) { $("landing").scrollTop = 0; $("dash-page").querySelector("button")?.focus({ preventScroll: true }); }
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
@@ -429,10 +434,6 @@ function renderList() {
   $("new-window").setAttribute("aria-label", launchLabel); $("new-window").title = launchLabel;
   show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
   show("landing-start", startable);
-  // After a reboot the Restore offer is the page's subject: wide, it takes the dashboard's
-  // empty state (style.css hides that state's heading and button under it); else it heads the list.
-  const [anchor, side] = WIDE.matches && startable ? [$("landing-start"), "after"] : [$("pane-list"), "before"];
-  if ($("restore").parentNode !== anchor.parentNode) anchor[side]($("restore"));
 }
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
@@ -466,6 +467,7 @@ const steady = (paint) => (...args) => {
   try { return paint(...args); } finally { if (landing.scrollTop !== top) landing.scrollTop = top; }
 };
 const renderLanding = steady(() => {
+  if (page === "restore") return cardView("Restore your workspace", restore.card);
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
   if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
