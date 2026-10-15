@@ -48,6 +48,10 @@ _OUTPUT_LABELS = frozenset({
     "status", "title", "warn", "warning",
 })
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# A PR named with its repository on screen: a GitHub pull/issue URL, or a standalone
+# "owner/name#N" that is not the tail of a path or of another host's URL.
+_QUALIFIED_PR_RE = re.compile(r"(?<![\w./:-])((?i:(?:https?://)?(?:www\.)?github\.com/))?"
+                              r"([\w.-]+/[\w.-]+)(?(1)/(?:pull|issues)/|#)(\d{1,16})")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
     # ~[ ] todo~ is deliberately unmatched, since it is neither open nor finished work.
@@ -1256,12 +1260,18 @@ def _parser_context(pane: Pane, repository: str | None, host_tool: str | None) -
     return context + "]"
 
 
-def _working_prs(value) -> list[dict]:
-    """Validate the model's semantic PR associations before they become sticky state."""
+def _working_prs(value, repository: str | None, text: str) -> list[dict]:
+    """Validate the model's semantic PR associations before they become sticky state.
+
+    A PR's repository must be grounded: the pane's own origin, or that exact repo and
+    number written together on screen. Left to itself the model names a repo after the
+    cwd folder ("qs") or pairs a bare #N with every repo the screen mentions."""
     if not isinstance(value, list):
         return []
     out = []
     seen = set()
+    cited = {(m[2].lower(), int(m[3])) for m in _QUALIFIED_PR_RE.finditer(strip_dim(text))}
+    own = (repository or "").lower()
     for item in value:
         if not isinstance(item, dict) or not isinstance(item.get("repo"), str):
             continue
@@ -1281,7 +1291,7 @@ def _working_prs(value) -> list[dict]:
         ):
             continue
         key = (repo.lower(), number)
-        if key in seen:
+        if key in seen or (key[0] != own and key not in cited):
             continue
         seen.add(key)
         out.append({"repo": repo, "number": number})
@@ -1312,7 +1322,7 @@ def bootstrap(
         "summary": result["summary"].strip(),
         "name": name,
         "events": events,
-        "working_prs": _working_prs(result.get("working_prs")),
+        "working_prs": _working_prs(result.get("working_prs"), repository, text),
     }
 
 
@@ -1712,7 +1722,8 @@ def classify(
             e in (result.get("model"), result.get("cost")) or (
                 result.get("context_pct") is not None and isinstance(e, str)
                 and _CONTEXT_ENTRY_RE.fullmatch(e.strip())))]
-    working_prs = _working_prs(result.get("working_prs"))
+    working_prs = _working_prs(
+        result.get("working_prs"), repository, "\n".join([*(prior or []), text]))
     if working_prs:
         result["working_prs"] = working_prs
     else:
