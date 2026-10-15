@@ -1362,9 +1362,9 @@ def test_claude_interrupt_is_the_user_at_an_idle_prompt():
         (stamped.replace("❯\n", " Run it?\n ❯ 1. Yes\n   2. No\n"), {"question": menu},
          "waiting"),
         # A scheduled task starts a turn with no typed row; its closing question stands.
-        (stamped.replace("❯\n", "✻ Running scheduled task (Oct 14 1:45am)\n\n"
-                         "● The doc changed. Should I re-run the check?\n\n"
-                         "✻ Cooked for 5s · done 1:46 AM\n\n❯\n"), {"activity": "idle"},
+        (stamped.replace("❯\n", "✻ Running scheduled task (Mar 3 9:10am)\n\n"
+                         "● The build turned red. Should I re-run it?\n\n"
+                         "✻ Cooked for 5s · done 9:10 AM\n\n❯\n"), {"activity": "idle"},
          "waiting"),
     ]:
         assert classify(_pane("claude"), later, _llm(model))["activity"] == activity
