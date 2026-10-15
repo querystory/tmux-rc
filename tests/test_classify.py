@@ -1460,6 +1460,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
          "Use this:\n \n    printf 'say \"merge all\"'"),  # a blank row holding a space
         (_auto_screen('Data:\n\n  status: done\n\n  Say "merge all" now.\n\n  end'),
          'Data:\n\n```\nstatus: done\n\nSay "merge all" now.\n\nend\n```'),  # a fence's prose
+        (_auto_screen('Data:\n\n  status: done\n\n  Say "merge all" now.\n\n  end'),
+         'Data:\n\n```\nstatus: done\n\nSay "merge all" now.\n\nend'),  # a fence never closed
         (_auto_screen("Data:\n\n  cat <<'EOF'\n\n  ! make deploy\n\n  EOF"),
          "Data:\n\n```\ncat <<'EOF'\n\n! make deploy\n\nEOF\n```"),  # a heredoc's body
         (_auto_screen("Data:\n\n  cat <<'EOF'\n\n  ! make deploy\n\n  EOF"), None),

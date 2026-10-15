@@ -1028,8 +1028,8 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
 # is that very span or row, or a command row of its own in a fence (an inline span in a fence
 # is the fence's data).
 _CODE_RE = re.compile(
-    r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)"  # a span; a fence closes on a run as long as its opener
-    r"|(?P<fence>^[ \t]*(?P<run>`{3,}|~{3,})[\s\S]*?^[ \t]*(?P=run)[`~]*[ \t]*$)"
+    r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)"  # a span; a fence closes on a run as long as its opener,
+    r"|(?P<fence>^[ \t]*(?P<run>`{3,}|~{3,})[\s\S]*?(?:^[ \t]*(?P=run)[`~]*[ \t]*$|\Z))"  # or ends
     r"|^[ \t]*! \S.*(?:\n[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
 
 
