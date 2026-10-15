@@ -28,11 +28,12 @@ async function boot(probes, { last = null, failed = new Script(), appBoots = fal
     navigator: { onLine: true },
     location: { reload: () => reloads++ },
     addEventListener: (type, fn) => { listeners[type] = fn; },
-    setTimeout: (fn, ms) => timers.push({ fn, ms }),
-    AbortSignal: { timeout: () => { const c = new AbortController(); deadlines.push(() => c.abort()); return c.signal; } },
+    // A 5s timer is a probe's deadline; it passes after the probe's answer (or lack of one).
+    setTimeout: (fn, ms) => (ms === 5000 ? deadlines : timers).push(ms === 5000 ? fn : { fn, ms }),
+    AbortController,
     fetch: async (url, { signal }) => {
       const up = probes.shift();
-      if (up === "stall") await new Promise((_, reject) => signal?.addEventListener("abort", reject));
+      if (up === "stall") await new Promise((_, reject) => signal.addEventListener("abort", reject));
       if (!up) throw new TypeError("Load failed");
       return { ok: true };
     },

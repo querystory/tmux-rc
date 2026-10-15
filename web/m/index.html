@@ -37,9 +37,13 @@
       const send = (message) => navigator.sendBeacon?.("/api/client-error", JSON.stringify({ kind: "boot", message }));
       let reason, last;
       // Each probe gets a deadline: a request stalled in the tunnel would hold up the next.
-      const heal = (n, down) => setTimeout(() => fetch("/api/version", { cache: "no-store", signal: AbortSignal.timeout?.(5000) })
-        .then((r) => { if (!r.ok) throw r.status; if (!booted() && (down || !last)) location.reload(); })
-        .catch(() => n < 3 && heal(n + 1, true)), 2000 << n);
+      const heal = (n, down) => setTimeout(() => {
+        const deadline = new AbortController();
+        setTimeout(() => deadline.abort(), 5000);
+        fetch("/api/version", { cache: "no-store", signal: deadline.signal })
+          .then((r) => { if (!r.ok) throw r.status; if (!booted() && (down || !last)) location.reload(); })
+          .catch(() => n < 3 && heal(n + 1, true));
+      }, 2000 << n);
       const fail = (why) => {
         if (booted() || reason) return;
         reason = why;
