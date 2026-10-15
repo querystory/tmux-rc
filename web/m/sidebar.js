@@ -112,7 +112,7 @@ export function setupSidebar(ctx) {
     const el = document.createElement("div");
     el.setAttribute("role", "group"); el.ariaLabel = label;
     el.options = (o) => {
-      const html = `${rule}<div class="menu-sec">${label}</div>${Object.entries(o).map(([v, l]) => `<button type="button" class="acct-opt" data-v="${esc(v)}"${dot && ` data-s="${esc(v)}"`}>${dot && `<i class="acct-dot${v === "all" ? " none" : ""}"></i>`}<span>${l}</span></button>`).join("")}`;
+      const html = `${rule}<div class="menu-sec">${label}</div>${Object.entries(o).map(([v, l]) => `<button type="button" class="acct-opt" data-v="${esc(v)}"${dot && ` data-s="${esc(v)}"`}>${dot && `<i class="acct-dot${v ? "" : " none"}"></i>`}<span>${l}</span></button>`).join("")}`;
       if (el._html !== html) el.innerHTML = el._html = html;
     };
     el.options(opts);
@@ -120,15 +120,16 @@ export function setupSidebar(ctx) {
     el.mark = (on) => el.querySelectorAll("[data-v]").forEach((b) => b.setAttribute("aria-pressed", String(on(b.dataset.v))));
     return el;
   };
-  // A pick in a union of several ("all" clears it): the states', the agents'.
-  const toggle = (list, v) => v === "all" ? [] : list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+  // A pick in a union of several (the empty value, All, clears it): the states', the agents'.
+  // Empty, not "all", since a tmux session may well be called "all".
+  const toggle = (list, v) => !v ? [] : list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
   let filters = [], picked = {};
-  const show = group("State", { all: "All", ...SHOW }, (v) => ctx.setFilter(toggle(filters, v)), "", "dot"); // each state's dot in its colour
+  const show = group("State", { "": "All", ...SHOW }, (v) => ctx.setFilter(toggle(filters, v)), "", "dot"); // each state's dot in its colour
   // Agent: the kinds of pane present, each with its logo and count; the dashboard's chips set the
   // same filter (app.js). Session: a phone's dashboard picks one tmux session, as the wide
   // dashboard's own select does (style.css shows it there only).
   const agents = group("Agent", {}, (v) => ctx.setAgents(toggle(picked.agent, v)));
-  const sessions = group("Session", {}, (v) => ctx.setSession(v === "all" ? "" : v));
+  const sessions = group("Session", {}, ctx.setSession);
   const by = group("Group by", { state: "State", session: "Session" }, (v) => { prefs.by = v; rerender(); });
   const sortBy = group("Sort by", SORTS, ctx.setSort);
   // Clear all, at the foot: what the chips' Clear all does (app.js disables it with nothing on).
@@ -373,11 +374,11 @@ export function setupSidebar(ctx) {
   // is the agents present ([tool, count]), the agent filter, the sessions and the session picked.
   function marks(filter, more = picked) {
     filters = filter; picked = more;
-    show.mark((v) => v === "all" ? !filter.length : filter.includes(v));
-    agents.options({ all: "All agents", ...Object.fromEntries((more.agents || []).map(([t, n]) => [t, `<img src="${esc(ctx.logos[t] || "/tmux-logomark.svg")}" alt="" width="16" height="16">${esc(t)} <small>${n}</small>`])) });
-    agents.mark((v) => v === "all" ? !more.agent?.length : more.agent.includes(v));
-    sessions.options({ all: "All tmux sessions", ...Object.fromEntries((more.sessions || []).map((s) => [s, esc(s)])) });
-    sessions.mark((v) => v === "all" ? !more.session : v === more.session);
+    show.mark((v) => !v ? !filter.length : filter.includes(v));
+    agents.options({ "": "All agents", ...Object.fromEntries((more.agents || []).map(([t, n]) => [t, `<img src="${esc(ctx.logos[t] || "/tmux-logomark.svg")}" alt="" width="16" height="16">${esc(t)} <small>${n}</small>`])) });
+    agents.mark((v) => !v ? !more.agent?.length : more.agent.includes(v));
+    sessions.options({ "": "All tmux sessions", ...Object.fromEntries((more.sessions || []).map((s) => [s, esc(s)])) });
+    sessions.mark((v) => v === (more.session || ""));
     by.mark((v) => v === prefs.by); by.hidden = oneSession();
     sortBy.mark((v) => v === ctx.sort());
   }

@@ -143,7 +143,7 @@ try { if (localStorage.getItem("tmuxrc-sort") === "session") sort = "session"; }
 let pinNeeds = true, outside = new Set();
 // The agent filter (the URL's agent=) and the dashboard's tmux session: one scope that the
 // list, its filter menu and the dashboard's chips and charts (atlas.js) all read and set.
-const scope = $("session-atlas")._scope = { tools: [], session: "", pick: (tools) => { scope.tools = tools; stayPut(); } };
+const scope = $("session-atlas")._scope = { tools: [], session: "", pick: (tools) => { scope.tools = tools; stayPut(); }, pickSession: (session) => { scope.session = session; stayPut(); } };
 const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "other");
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
@@ -379,7 +379,7 @@ function updateRow(button, pane) {
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
-  setSession: (session) => { scope.session = session; stayPut(); }, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
+  setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
@@ -399,8 +399,11 @@ function renderList() {
   outside = new Set(pin ? panes.filter((p) => needsYou(p) && !(accounts.matches(p) && ofAgent(p) && matchesSearch(p, query))).map((p) => p.pane_id) : []);
   const subset = panes.filter((p) => outside.has(p.pane_id) || accounts.matches(p) && ofAgent(p) && matchesFilter(p, filter) && matchesSearch(p, query));
   // The menu's Agent and Session groups: the kinds of pane and the tmux sessions there are.
-  const counts = Object.groupBy(panes.filter(accounts.matches), (p) => p.tool || "other"), tools = [...new Set([...Object.keys(counts), ...scope.tools])].map((t) => [t, counts[t]?.length || 0]); // one picked stays, to be unpicked
-  const more = { agents: tools, agent: scope.tools, sessions: [...new Set(panes.map((p) => p.session).filter(Boolean))].sort(), session: scope.session };
+  const counts = {}; // not Object.groupBy: iOS 16.4–17.3 lack it
+  for (const p of panes.filter(accounts.matches)) counts[p.tool || "other"] = (counts[p.tool || "other"] || 0) + 1;
+  const tools = [...new Set([...Object.keys(counts), ...scope.tools])].map((t) => [t, counts[t] || 0]); // one picked stays, to be unpicked
+  // Sessions as the dashboard offers them (its history's too, and the one picked: atlas.js), else the live ones.
+  const more = { agents: tools, agent: scope.tools, sessions: scope.sessions || [...new Set(panes.map((p) => p.session).filter(Boolean))].sort(), session: scope.session };
   // One composer per pane, in either layout: an open pane takes over its sidebar Reply draft.
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }

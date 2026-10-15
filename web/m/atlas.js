@@ -566,16 +566,9 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const controls = el('div', 'atlas-controls');
   controls.append(el('span', 'atlas-controls-label muted', 'Sessions'));
   const redraw = () => setFleet({}); // through app.js, which repaints what follows the filters (Plan usage)
-  // A select per filter, styled alike; `field` names what it sets in the scope.
-  const picker = (field, label, options) => {
-    const select = el('select', `atlas-picker atlas-${field}-picker`);
-    select.dataset.key = `${field}-filter`;
-    select.setAttribute('aria-label', label);
-    options.forEach(([value, text]) => select.append(new Option(text, value)));
-    select.value = scope[field];
-    select.onchange = () => { scope[field] = select.value; redraw(); };
-    return select;
-  };
+  // The tmux sessions to pick from: the history's too, and the one picked. The app's filter
+  // menu offers the same list (scope.sessions), and both pick through the app (app.js).
+  scope.sessions = [...new Set([...sessions, ...(scope.session ? [scope.session] : [])])];
   const choices = ['', ...tools, ...scope.tools.filter(t => !tools.includes(t))].map(tool =>
     [tool, allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length]);
   choices.forEach(([tool, count]) => {
@@ -598,8 +591,15 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     button.onclick = () => scope.pick(!tool ? [] : scope.tools.includes(tool) ? scope.tools.filter(t => t !== tool) : [...scope.tools, tool]);
     controls.append(button);
   });
-  if (sessions.length > 1 || scope.session) // one session has nothing to pick
-    controls.append(picker('session', 'Filter atlas by tmux session', [['', 'All tmux sessions'], ...[...new Set([...sessions, ...(scope.session ? [scope.session] : [])])].map(s => [s, s])]));
+  if (sessions.length > 1 || scope.session) { // one session has nothing to pick
+    const select = el('select', 'atlas-picker atlas-session-picker');
+    select.dataset.key = 'session-filter';
+    select.setAttribute('aria-label', 'Filter atlas by tmux session');
+    [['', 'All tmux sessions'], ...scope.sessions.map(s => [s, s])].forEach(([value, text]) => select.append(new Option(text, value)));
+    select.value = scope.session;
+    select.onchange = () => scope.pickSession(select.value);
+    controls.append(select);
+  }
   nodes.push(controls);
 
   // The big chart: the fleet over time, against the goal.
