@@ -179,8 +179,9 @@ profile (`--profile`, else `OMP_PROFILE`) keeps its own logins, and may rotate b
 several. So rather than read omp's credential store, the daemon asks omp, at most once a
 minute per profile its panes run: `omp usage --json --provider anthropic` names each login
 by an account id that equals Claude's `accountUuid`. It runs omp the way that pane does
-(its executable, and the script bun or a wrapper runs), since the daemon's PATH need not
-hold a bun install. An omp pane then counts as a pane of
+(its executable, and the script bun or a wrapper runs, from the pane's cwd) and with its
+`HOME`, since the daemon's PATH need not hold a bun install and a profile's logins live
+under that HOME. An omp pane then counts as a pane of
 every listed Claude account its profile holds, for the chip and for "in use". Every one,
 not a guess at one: which login a rotating profile is on at a given moment is not exposed.
 The pane still wears one chip, the first such account's: several chips would claim more

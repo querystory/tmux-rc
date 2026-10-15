@@ -83,31 +83,34 @@ def pane_env(pid: str, tool: str) -> dict:
     return _environ(_agent(pid, tool), ("HOME", ENV[tool]))
 
 
-def omp_launch(pid: str) -> tuple[list[str], str]:
-    """How the pane's omp runs, to run it the same way (its executable, then up to the omp
-    script a wrapper or bun runs; [] if none is found), and the profile it signs in with:
-    --profile, else OMP_PROFILE, else "" (its default). The daemon's PATH need not hold
-    omp (bun installs it in ~/.bun/bin), and omp keeps each profile's logins in its own
-    store, not in a Claude dir."""
+def omp_launch(pid: str) -> tuple[list[str], tuple]:
+    """How the pane's omp runs, to run it the same way: its executable, then up to the omp
+    script a wrapper or bun runs, from the pane's cwd ([] if none is found); and whose
+    logins it holds, as (variable, value) pairs: its HOME, and its profile (--profile,
+    else OMP_PROFILE, else omp's default). The daemon's PATH need not hold omp (bun
+    installs it in ~/.bun/bin), and omp keeps each profile's logins in its own store
+    under HOME, not in a Claude dir."""
     agent = _agent(pid, "omp")
     argv = tmux.proc_read(agent, "cmdline").split("\0")
     at = next((i for i, a in enumerate(argv) if os.path.basename(a) == "omp"), None)
-    try:
-        launch = [os.readlink(f"/proc/{agent}/exe"), *argv[1:at + 1]] if at is not None else []
+    try:  # at 0 omp is the executable itself; else the script, which may be relative
+        launch = [os.readlink(f"/proc/{agent}/exe"), *argv[1:at], os.path.join(
+            os.readlink(f"/proc/{agent}/cwd"), argv[at])][:at + 1] if at is not None else []
     except OSError:  # gone, or not ours
         launch = []
-    flag = re.search(r"\0--profile[=\0]([^\0]*)", "\0" + "\0".join(argv))
-    return launch, flag[1] if flag else _environ(agent, ("OMP_PROFILE",)).get("OMP_PROFILE", "")
+    env = _environ(agent, ("HOME", "OMP_PROFILE"))
+    if flag := re.search(r"\0--profile[=\0]([^\0]*)", "\0" + "\0".join(argv)):
+        env["OMP_PROFILE"] = flag[1]
+    return launch, tuple(sorted(env.items()))
 
 
-def read_omp(launch: list[str], profile: str) -> set[str] | None:
-    """The Anthropic account ids this omp profile holds, from omp's own usage report (omp
-    reads its credentials; tmux-rc never does). None when the read fails."""
+def read_omp(launch: list[str], who: tuple) -> set[str] | None:
+    """The Anthropic account ids these logins hold, from omp's own usage report (omp reads
+    its credentials; tmux-rc never does). None when the read fails."""
     env = {k: v for k, v in os.environ.items() if k != "OMP_PROFILE"}
     try:
         out = subprocess.run([*launch, *OMP], capture_output=True, text=True, timeout=20,
-                             env={**env, **({"OMP_PROFILE": profile} if profile else {})},
-                             check=True).stdout
+                             env={**env, **dict(who)}, check=True).stdout
         return {r["metadata"]["accountId"] for r in json.loads(out)["reports"]
                 if r.get("provider") == "anthropic" and (r.get("metadata") or {}).get("accountId")}
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as e:
@@ -115,18 +118,18 @@ def read_omp(launch: list[str], profile: str) -> set[str] | None:
         return None
 
 
-_omp: dict[str, tuple[float, set[str]]] = {}  # omp profile -> (read at, its account ids)
+_omp: dict[tuple, tuple[float, set[str]]] = {}  # omp_launch's who -> (read at, account ids)
 
 
-def omp_accounts(launch: list[str], profile: str, fresh: bool = False) -> set[str]:
-    """The profile's Anthropic accounts as last read; `fresh` rereads them once a POLL is
+def omp_accounts(launch: list[str], who: tuple, fresh: bool = False) -> set[str]:
+    """These logins' Anthropic accounts as last read; `fresh` rereads them once a POLL is
     past (PlanUsage's thread only: a request must not wait on omp). A failed read keeps
     the last answer."""
-    read_at, ids = _omp.get(profile, (0.0, set()))
+    read_at, ids = _omp.get(who, (0.0, set()))
     if fresh and launch and time.time() - read_at >= POLL:
-        _omp[profile] = (time.time(), ids)  # a slow or failing omp is asked once a POLL
-        if (got := read_omp(launch, profile)) is not None:
-            _omp[profile] = (time.time(), ids := got)
+        _omp[who] = (time.time(), ids)  # a slow or failing omp is asked once a POLL
+        if (got := read_omp(launch, who)) is not None:
+            _omp[who] = (time.time(), ids := got)
     return ids
 
 
