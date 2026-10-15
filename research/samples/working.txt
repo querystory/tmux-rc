@@ -33,7 +33,7 @@
   ⎿  $ cd ~/src/recipe-box
      .venv/bin/python -m pytest tests/test_importer.py -q 2>&1 | tail -20
 
-✢ Simmering… (2m 19s · ↓ 5.9k tokens)
+✢ Simmering… (3m 47s · ↓ 8.2k tokens)
   ⎿  Tip: Use /rewind to go back to an earlier point in the conversation.
 
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── recipe-box ──
