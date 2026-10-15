@@ -429,6 +429,10 @@ function renderList() {
   $("new-window").setAttribute("aria-label", launchLabel); $("new-window").title = launchLabel;
   show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
   show("landing-start", startable);
+  // After a reboot the Restore offer is the page's subject: wide, it takes the dashboard's
+  // empty state (style.css hides that state's heading and button under it); else it heads the list.
+  const [anchor, side] = WIDE.matches && startable ? [$("landing-start"), "after"] : [$("pane-list"), "before"];
+  if ($("restore").parentNode !== anchor.parentNode) anchor[side]($("restore"));
 }
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
