@@ -16,7 +16,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import subprocess
 import time
 import urllib.error
@@ -37,7 +36,7 @@ STALE_OK = 3 * CLAUDE_TTL
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CLAUDE_WINDOWS = {"five_hour": ("5h", 5 * 3600), "seven_day": ("7d", 7 * 86400)}
 ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
-OMP = ["omp", "usage", "--json", "--provider", "anthropic"]  # ~1s; every provider takes ~15s
+OMP = ["usage", "--json", "--provider", "anthropic"]  # ~1s; every provider takes ~15s
 TAIL = 1 << 20  # Codex session logs reach hundreds of MB; the newest limits sit at the end
 CODEX_FILES = 20  # bounds the scan when recent logs hold no limits event at all
 SPARK_POINTS = 120  # samples sent per window: a sidebar sparkline's width, not a week of polls
@@ -84,23 +83,31 @@ def pane_env(pid: str, tool: str) -> dict:
     return _environ(_agent(pid, tool), ("HOME", ENV[tool]))
 
 
-def omp_profile(pid: str) -> str:
-    """The omp profile a pane signs in with: --profile, else OMP_PROFILE, else "" (its
-    default). omp keeps each profile's logins in its own store, not in a Claude dir."""
+def omp_launch(pid: str) -> tuple[list[str], str]:
+    """How the pane's omp runs, to run it the same way (its executable, then up to the omp
+    script a wrapper or bun runs; [] if none is found), and the profile it signs in with:
+    --profile, else OMP_PROFILE, else "" (its default). The daemon's PATH need not hold
+    omp (bun installs it in ~/.bun/bin), and omp keeps each profile's logins in its own
+    store, not in a Claude dir."""
     agent = _agent(pid, "omp")
-    flag = re.search(r"\0--profile[=\0]([^\0]*)", "\0" + tmux.proc_read(agent, "cmdline"))
-    return flag[1] if flag else _environ(agent, ("OMP_PROFILE",)).get("OMP_PROFILE", "")
+    argv = tmux.proc_read(agent, "cmdline").split("\0")
+    at = next((i for i, a in enumerate(argv) if os.path.basename(a) == "omp"), None)
+    try:
+        launch = [os.readlink(f"/proc/{agent}/exe"), *argv[1:at + 1]] if at is not None else []
+    except OSError:  # gone, or not ours
+        launch = []
+    flag = re.search(r"\0--profile[=\0]([^\0]*)", "\0" + "\0".join(argv))
+    return launch, flag[1] if flag else _environ(agent, ("OMP_PROFILE",)).get("OMP_PROFILE", "")
 
 
-def read_omp(profile: str) -> set[str] | None:
+def read_omp(launch: list[str], profile: str) -> set[str] | None:
     """The Anthropic account ids this omp profile holds, from omp's own usage report (omp
-    reads its credentials; tmux-rc never does). None when omp is absent or the read fails."""
-    if not shutil.which("omp"):
-        return None
+    reads its credentials; tmux-rc never does). None when the read fails."""
     env = {k: v for k, v in os.environ.items() if k != "OMP_PROFILE"}
     try:
-        out = subprocess.run(OMP, env={**env, **({"OMP_PROFILE": profile} if profile else {})},
-                             capture_output=True, text=True, timeout=20, check=True).stdout
+        out = subprocess.run([*launch, *OMP], capture_output=True, text=True, timeout=20,
+                             env={**env, **({"OMP_PROFILE": profile} if profile else {})},
+                             check=True).stdout
         return {r["metadata"]["accountId"] for r in json.loads(out)["reports"]
                 if r.get("provider") == "anthropic" and (r.get("metadata") or {}).get("accountId")}
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as e:
@@ -111,14 +118,14 @@ def read_omp(profile: str) -> set[str] | None:
 _omp: dict[str, tuple[float, set[str]]] = {}  # omp profile -> (read at, its account ids)
 
 
-def omp_accounts(profile: str, fresh: bool = False) -> set[str]:
+def omp_accounts(launch: list[str], profile: str, fresh: bool = False) -> set[str]:
     """The profile's Anthropic accounts as last read; `fresh` rereads them once a POLL is
     past (PlanUsage's thread only: a request must not wait on omp). A failed read keeps
     the last answer."""
     read_at, ids = _omp.get(profile, (0.0, set()))
-    if fresh and time.time() - read_at >= POLL:
+    if fresh and launch and time.time() - read_at >= POLL:
         _omp[profile] = (time.time(), ids)  # a slow or failing omp is asked once a POLL
-        if (got := read_omp(profile)) is not None:
+        if (got := read_omp(launch, profile)) is not None:
             _omp[profile] = (time.time(), ids := got)
     return ids
 
@@ -133,7 +140,7 @@ def pane_envs(panes: list[dict], birth, claude_dirs=(), fresh=False) -> list[tup
         if tool in ENV and (pid := birth(pane_id)):
             out.append((tool, pane_env(pid, tool), pane_id))
         elif tool == "omp" and claude_dirs and (pid := birth(pane_id)):
-            ids = omp_accounts(omp_profile(pid), fresh)
+            ids = omp_accounts(*omp_launch(pid), fresh)
             out += [("claude", env_for("claude", d), pane_id) for d in claude_dirs
                     if oauth_account(d, env_for("claude", d)).get("accountUuid") in ids]
     return out
@@ -331,7 +338,7 @@ class PlanUsage:
                 account = found.setdefault((tool, ident["key"]), {**ident, "homes": [],
                                                                   "panes": []})
                 account["homes"] += [config] if config not in account["homes"] else []
-                account["panes"] += [pane_id] if pane_id else []
+                account["panes"] += [pane_id] if pane_id not in (None, *account["panes"]) else []
         return found
 
     def _fetch_any(self, homes: list[Path], now: float) -> list[dict]:

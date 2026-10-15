@@ -217,7 +217,7 @@ def test_report_maps_panes_and_asks_session_defaults_only_with_several(home, mon
 
 
 def test_an_omp_pane_wears_the_chip_of_the_claude_account_it_signs_in_to(home, monkeypatch):
-    monkeypatch.setattr(plan_usage, "omp_profile", lambda pid: "")
+    monkeypatch.setattr(plan_usage, "omp_launch", lambda pid: (["/bin/omp"], ""))
     monkeypatch.setattr(plan_usage, "_omp", {"": (0.0, {"u-me"})})  # as PlanUsage last read
     monkeypatch.setattr(plan_usage, "read_omp", pytest.fail)  # a request never waits on omp
     report = accounts.report([{"pane_id": "%1", "tool": "omp"}], lambda pane_id: pane_id[1:])

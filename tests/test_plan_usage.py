@@ -342,66 +342,73 @@ OMP_USAGE = {"generatedAt": 1, "reports": [
     "accountsWithoutUsage": []}
 
 
+BUN = ["/usr/bin/bun", "/home/x/.bun/bin/omp"]  # how a bun-installed omp runs
+
+
 def _omp(monkeypatch, answer):
-    """omp installed, answering `answer` (or failing); returns the profiles it was run on."""
+    """omp answering `answer` (or failing); returns the (argv, profile) of each run."""
     runs = []
 
     def run(argv, env, **_):
-        runs.append(env.get("OMP_PROFILE", ""))
+        runs.append((argv, env.get("OMP_PROFILE", "")))
         if isinstance(answer, Exception):
             raise answer
         return type("Done", (), {"stdout": json.dumps(answer)})
 
-    monkeypatch.setattr(plan_usage.shutil, "which", lambda name: f"/bin/{name}")
     monkeypatch.setattr(plan_usage.subprocess, "run", run)
     monkeypatch.setattr(plan_usage, "_omp", {})
     return runs
 
 
-def test_omp_names_its_anthropic_accounts_and_nothing_when_absent(monkeypatch):
+def test_omp_names_its_anthropic_accounts_run_as_the_pane_runs_it(monkeypatch):
     runs = _omp(monkeypatch, OMP_USAGE)
-    assert plan_usage.read_omp("work") == {"u-omp"} and runs == ["work"]
+    assert plan_usage.read_omp(BUN, "work") == {"u-omp"}
+    assert runs == [([*BUN, *plan_usage.OMP], "work")]
     _omp(monkeypatch, plan_usage.subprocess.TimeoutExpired("omp", 20))
-    assert plan_usage.read_omp("") is None
-    monkeypatch.setattr(plan_usage.shutil, "which", lambda name: None)
-    assert plan_usage.read_omp("") is None
+    assert plan_usage.read_omp(BUN, "") is None
 
 
 def test_an_omp_profile_is_read_at_most_once_a_poll_and_a_failure_keeps_the_last(monkeypatch):
     runs = _omp(monkeypatch, OMP_USAGE)
-    assert plan_usage.omp_accounts("", fresh=True) == {"u-omp"}
-    assert plan_usage.omp_accounts("", fresh=True) == {"u-omp"} and runs == [""]
-    assert plan_usage.omp_accounts("") == {"u-omp"}  # a request reads the cache only
+    assert plan_usage.omp_accounts(BUN, "", fresh=True) == {"u-omp"}
+    assert plan_usage.omp_accounts(BUN, "", fresh=True) == {"u-omp"} and len(runs) == 1
+    assert plan_usage.omp_accounts([], "") == {"u-omp"}  # a request reads the cache only
     runs = _omp(monkeypatch, OSError())
     plan_usage._omp[""] = (0.0, {"u-omp"})  # a poll later, omp fails
-    assert plan_usage.omp_accounts("", fresh=True) == {"u-omp"} and runs == [""]
+    assert plan_usage.omp_accounts(BUN, "", fresh=True) == {"u-omp"} and len(runs) == 1
 
 
-def test_the_omp_profile_comes_from_its_flag_else_its_environment(monkeypatch):
+def test_an_omp_pane_says_how_its_omp_runs_and_on_which_profile(monkeypatch):
     procs = {"1": ("bash", "bash\0", "OMP_PROFILE=shell\0"),
              "2": ("omp", "/bin/bash\0/usr/local/bin/omp\0", "OMP_PROFILE=inline\0HOME=/h\0")}
+    exe = {"1": "/usr/bin/bash", "2": "/usr/bin/bash"}
     monkeypatch.setattr(plan_usage.tmux, "processes", lambda pid: list(procs))
     monkeypatch.setattr(plan_usage.tmux, "proc_read", lambda pid, name: procs[pid][
         ("comm", "cmdline", "environ").index(name)])
-    assert plan_usage.omp_profile("1") == "inline"
+    monkeypatch.setattr(plan_usage.os, "readlink", lambda path: exe[path.split("/")[2]])
+    assert plan_usage.omp_launch("1") == (["/usr/bin/bash", "/usr/local/bin/omp"], "inline")
     for argv in ("--profile\0work\0", "--profile=work\0"):
         procs["2"] = ("omp", f"/bin/bash\0/usr/local/bin/omp\0{argv}", "OMP_PROFILE=inline\0")
-        assert plan_usage.omp_profile("1") == "work"
-    procs["2"] = ("bun", "bun\0/home/x/.bun/bin/omp\0--profile\0bun\0", "")  # bun-hosted
-    assert plan_usage.omp_profile("1") == "bun"
+        assert plan_usage.omp_launch("1")[1] == "work"
+    procs["2"], exe["2"] = ("bun", "bun\0/home/x/.bun/bin/omp\0--profile\0b\0", ""), BUN[0]
+    assert plan_usage.omp_launch("1") == (BUN, "b")  # bun-hosted, off the daemon's PATH
+    del procs["2"]
+    assert plan_usage.omp_launch("1") == ([], "shell")  # no omp process: nothing to run
 
 
 def test_an_omp_pane_is_a_pane_of_each_claude_account_its_profile_holds(tmp_path, monkeypatch):
     home = tmp_path / "home"
     monkeypatch.setattr(plan_usage.os, "environ", {"HOME": str(home)})
     work = _claude_home(tmp_path / "claude-work", "u-omp", "dev@example.com")
+    again = _claude_home(tmp_path / "claude-again", "u-omp", "dev@example.com")  # same login
     _claude_home(home / ".claude", "u-home", "me@example.com")
     (home / ".claude.json").write_text((home / ".claude/.claude.json").read_text())
     runs = _omp(monkeypatch, OMP_USAGE)
-    monkeypatch.setattr(plan_usage, "omp_profile", lambda pid: {"1": "", "2": "spare"}[pid])
-    usage = PlanUsage(None, fetch=lambda config, now: [],
-                      profiles=lambda: [("claude", home / ".claude"), ("claude", work)])
+    monkeypatch.setattr(plan_usage, "omp_launch", lambda pid: (BUN, {"1": "", "2": "spare"}[pid]))
+    usage = PlanUsage(None, fetch=lambda config, now: [], profiles=lambda: [
+        ("claude", home / ".claude"), ("claude", work), ("claude", again)])
     found = usage.discover([{"pane_id": "%1", "tool": "omp"}, {"pane_id": "%2", "tool": "omp"}],
                            lambda pane_id: pane_id[1:])
     assert {k: a["panes"] for (_, k), a in found.items()} == {"u-home": [], "u-omp": ["%1", "%2"]}
-    assert sorted(runs) == ["", "spare"]
+    assert found[("claude", "u-omp")]["homes"] == [work, again]
+    assert sorted(p for _, p in runs) == ["", "spare"]
