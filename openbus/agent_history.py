@@ -64,6 +64,23 @@ def get(session_id: str) -> dict | None:
     return _run("get", session_id)
 
 
+def get_many(session_ids: list[str]) -> dict[str, dict] | None:
+    """get for several sessions, sharing one liveness scan: {session_id: entry}, an
+    unknown id left out; None if agent-history is unavailable."""
+    exe = binary()
+    if not exe:
+        return None
+    if not session_ids:
+        return {}
+    try:  # exit 1 only means some id was unknown; the rest are still printed
+        out = subprocess.run([exe, "get", *session_ids], capture_output=True, text=True,
+                             timeout=_TIMEOUT, check=False)
+        found = [json.loads(line) for line in out.stdout.splitlines() if line]
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return None
+    return {e["session_id"]: e for e in found if isinstance(e, dict) and "session_id" in e}
+
+
 def reconcile() -> None:
     """Bring the index up to date with every transcript: about a second cold, a fraction
     warm. Without Claude Code's hook installed, nothing else refreshes it for hours, and a
