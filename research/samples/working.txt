@@ -39,6 +39,6 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── tmux-rc-dev ──
 ❯                                                                                                                                                                                                          
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ~/src/example-app on docs/query-result-metadata-design | Opus 4.8 (1M context)   |  telemetry: •stats •prompts •tools
+  ~/src/example-app on docs/order-sync-design | Opus 4.8 (1M context)   |  telemetry: •stats •prompts •tools
   session: +571/-423 lines · 47% ctx · 22m · $17.70   |  history: 542 prompts · 449 tools · 12.6MB · 22 imgs                                                                                                
   -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents                                                                                                                               
