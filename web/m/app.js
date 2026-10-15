@@ -687,9 +687,14 @@ const paintUsage = steady(() => {
   const panesOf = (m) => panes.filter((x) => m.dirs?.some((d) => accounts.profile(d)?.panes.includes(x.pane_id)));
   const { shown, idle } = several ? inUse(accounts.byUrgency(all), panesOf) : { shown: all, idle: [] };
   renderUsage($("usage"), shownUsage(shown, WIDE.matches && usageMode !== "off" ? "on" : usageMode), { wide: WIDE.matches });
-  $("usage-more")?.remove(); // outside the swipeable strip, so it shows without a swipe
-  $("usage").insertAdjacentHTML(WIDE.matches ? "beforebegin" : "afterend", accounts.more($("usage").hidden ? [] : idle)); // on its top seam wide, its bottom on a phone
-  if ($("usage-more")) $("usage-more").onclick = openUsage;
+  // Outside the swipeable strip, so it shows without a swipe: on its top seam wide, its bottom
+  // on a phone. Redrawn only when changed, so a repaint keeps a focused button's focus.
+  const more = accounts.more($("usage").hidden ? [] : idle), was = $("usage-more");
+  if (was?._html !== more || was[WIDE.matches ? "nextElementSibling" : "previousElementSibling"] !== $("usage")) {
+    was?.remove();
+    $("usage").insertAdjacentHTML(WIDE.matches ? "beforebegin" : "afterend", more);
+    if ($("usage-more")) Object.assign($("usage-more"), { _html: more, onclick: openUsage });
+  }
   accounts.strip($("usage"), several);
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
