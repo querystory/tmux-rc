@@ -1014,7 +1014,9 @@ def _final_message(visible: str, tool: str) -> str | None:
 # 415"', or a quote that does the work ('"merge all" queues 18 PRs'), not any quote. A row
 # that wraps onto the next is no offer: a guessed join could run the wrong command. A space
 # after the ! keeps out code such as `!=` and `!important`, and "do not say" is no offer.
-_QUOTE = r"(?:\"([^\"\n]{1,60})\"|“([^”\n]{1,60})”)"  # straight or curly, each closing its own
+# Straight or curly, each closing its own; a straight one with a backslash in it may be
+# escaping a quote, so none is read there.
+_QUOTE = r"(?:(?<!\\)\"([^\"\\\n]{1,60})\"(?!\")|“([^”\n]{1,60})”)"
 _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
     rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
     rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!(?:`{{3,}}|~{{3,}})[ \t]*$)\S)"

@@ -1395,6 +1395,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
     fixture = "Fixture:\n\n```bash\nprintf 'say \"merge all\"'\n```\n\nSay \"ship it\" to go on."
     shown = _auto_screen("Fixture:\n\n  printf 'say \"merge all\"'\n\n  Say \"ship it\" to go on.")
     assert classify(_pane("claude"), shown, model, reply=fixture)["offers"] == ["ship it"]
+    escaped = 'Say "commit \\"fix: cache\\"" and I will commit it.'  # escaped quotes: none
+    assert "offers" not in classify(_pane("claude"), _auto_screen(escaped), model, reply=escaped)
     nested = 'Say “commit "fix: cache"” and I\'ll commit it.'  # curly around straight quotes
     assert classify(_pane("claude"), _auto_screen(nested), model, reply=nested)["offers"] == [
         'commit "fix: cache"']
