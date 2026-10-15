@@ -1074,12 +1074,12 @@ def _offers(message: str, reply: str | None) -> list[str]:
                     + re.split(r"\n[ \t]*\n", t[m.start():])[0])
             return marked and not any(a <= m.start() < b for a, b, _ in code) and not (
                 re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
-        # A command: never where a heredoc may hold it as data, nor as an inline span but from
-        # the transcript (backticks on screen are text) and outside an indented block, nor
-        # inside code other than as itself.
-        row = t[t.rfind("\n", 0, m.start()) + 1:m.start()]
-        span = m.lastindex == 2 and (not marked or re.match(r" {4}|\t", row))
-        return "<<" not in t and not span and not any(
+        # A command: never where a heredoc may hold it as data, nor in an indented block (a
+        # Markdown script, any row of which may be the whole), nor as an inline span but from
+        # the transcript (backticks on screen are text), nor inside code other than as itself.
+        row = t[t.rfind("\n", 0, m.start()) + 1:m.start(m.lastindex)]
+        return "<<" not in t and not re.match(r" {4}|\t", row) and (
+            m.lastindex == 3 or marked) and not any(
             a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
             for a, b, rows in code)
 

@@ -1470,6 +1470,8 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen('Run:\n\n  ! printf \'%s\' "first \\"\n\n  second"'), None),  # escaped
         (_auto_screen("Run:\n\n  ! for pr in 412 415\n\n  do gh pr merge $pr; done"), None),
         (_auto_screen("Run:\n\n  ! if gh pr checks 415\n\n  then echo ok; fi"), None),
+        (_auto_screen("Fixture:\n\n  ! make test\n\n  make deploy"),
+         "Fixture:\n\n    ! make test\n\n    make deploy"),  # an indented script
         (_auto_screen("Run:\n\n  ! make test &&\n\n  make deploy"),
          "Run:\n\n```\n! make test &&\n\nmake deploy\n```"),  # an operator going on
         (_auto_screen('Use this:\n\n  message = "! make deploy"'),
