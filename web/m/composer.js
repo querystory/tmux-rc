@@ -1,4 +1,8 @@
 // Ordered text/image model: what is sent is the draft in the order it was typed.
+// U+200B holds the caret after an image (see insert()). Every one is dropped from what is
+// sent: it is invisible, so a draft that kept the user's own could not show it, and the
+// spacer survives typing, copy and paste in places no marker could follow.
+const ZW = /\u200B/g;
 export class Composer {
   // The Live chat (/live-chat.js) reuses this editor under its own id and label.
   constructor(changed, error, { id = "reply", label = "Message this pane", max = Infinity } = {}) {
@@ -6,7 +10,6 @@ export class Composer {
     this.error = error;
     this.max = max; // images one draft may hold (the chat turn limit); the pane composer has none
     this.files = new Map();
-    this.spacers = new WeakSet(); // text nodes whose leading U+200B holds the caret after a chip
     this.editor = document.createElement("div");
     this.editor.id = id;
     this.editor.contentEditable = "true";
@@ -50,14 +53,11 @@ export class Composer {
     }
     if (!range) { range = document.createRange(); range.selectNodeContents(this.editor); range.collapse(false); }
     this.caret = null;
-    // Never in front of a spacer's U+200B: splitting there would move it to an untracked node.
-    const start = range.startContainer;
-    if (this.spacers.has(start) && !range.startOffset && start.nodeValue.startsWith("\u200B")) range.setStart(start, 1);
     range.deleteContents(); range.insertNode(node);
     // iOS moves a caret at the boundary after a non-editable chip to before it, so the caret
     // goes inside a zero-width text node that follows the chip.
     const holder = this.files.has(node) ? document.createTextNode("\u200B") : null;
-    if (holder) { this.spacers.add(holder); node.after(holder); }
+    holder && node.after(holder);
     this.edited(); // before the caret is placed, so a chip's filler <br> is already there
     if (!node.isConnected) return; // an empty paste into an empty box, which edited() cleared
     if (holder) range.setStart(holder, 1); else range.setStartAfter(node);
@@ -116,7 +116,7 @@ export class Composer {
     const content = () => { text += "\n".repeat(pending); pending = 0; started = true; };
     const walk = (node) => {
       [...node.childNodes].forEach((child, index, children) => {
-        const value = child.nodeType === Node.TEXT_NODE && (this.spacers.has(child) ? child.nodeValue.replace(/^\u200B/, "") : child.nodeValue);
+        const value = child.nodeType === Node.TEXT_NODE && child.nodeValue.replace(ZW, "");
         if (value) { content(); text += value; }
         else if (this.files.has(child)) { content(); flush(); segments.push({ file: this.files.get(child), chip: child }); }
         else if (child.nodeName === "BR") {
