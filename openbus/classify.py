@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+import subprocess
 import textwrap
+from functools import lru_cache
 from itertools import islice
 from pathlib import Path
 
@@ -990,10 +992,9 @@ def _restates(table: object, rows: dict[str, str]) -> bool:
     return 2 * sum(copied) > len(copied)
 
 
-def _final_ask(visible: str, tool: str) -> dict | None:
-    """What a finished turn leaves blocked on the user: a provider error to retry, or in
-    auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run. Anything typed after it means the user already acted."""
+def _final_message(visible: str, tool: str) -> str | None:
+    """A finished turn's final assistant message, up to its stamp or through the provider
+    error that stopped it, or None while it runs. Anything typed after: the user acted."""
     error_re = _TURN_ERROR_RE[tool]
     turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
     stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
@@ -1002,11 +1003,133 @@ def _final_ask(visible: str, tool: str) -> dict | None:
     end = stop.end() if stop.re is error_re else stop.start()
     # The turn's final assistant message, without the bars framing its rows: a bar left on
     # a blank row joins paragraphs, and one after a "?" hides that the row asks.
-    message = _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
+    return _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
+
+
+# What a finished turn hands the user to type back, verbatim: a `! command` (Claude Code's
+# shell prefix) as inline code or on a row of its own, or a phrase it asks for: 'Say "merge
+# 415"', or a quote that does the work ('"merge all" queues 18 PRs'), not any quote. A row
+# that wraps onto the next is no offer: a guessed join could run the wrong command. A space
+# after the ! keeps out code such as `!=` and `!important`, and "do not say" is no offer.
+# Straight or curly, each closing its own; a straight one with a backslash in it may be
+# escaping a quote, so none is read there.
+_QUOTE = r"(?:(?<!\\)\"([^\"\\\n]{1,60})\"(?!\")|“([^”\n]{1,60})”)"
+_OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
+    rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
+    rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!(?:`{{3,}}|~{{3,}})[ \t]*$)\S)"
+    rf"|\bsay[ \t]+{_QUOTE}"
+    rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
+
+
+# Command text and code a command offer must not be read out of: an inline code span, a
+# fence, a `! ` row with its wrapped continuation, an unmarked `! ` to its row's end (the
+# screen draws inline code without backticks). A command inside one is the code's, unless it
+# is that very span or row, or a command row of its own in a fence (an inline span in a fence
+# is the fence's data).
+_CODE_RE = re.compile(
+    # A fence (indented 3 at most) closes on a run of its own kind as long as its opener, or
+    # ends; a span closes on its own run, within its paragraph.
+    r"(?P<fence>^ {0,3}(?P<run>`{3,}|~{3,})[\s\S]*?"
+    r"(?:(?P<close>^ {0,3}(?P=run)(?:(?<=`)`*|(?<=~)~*)[ \t]*$)|\Z))"
+    r"|(?<!`)(?P<tick>`+)(?!`)(?:[^\n]|\n(?![ \t]*\n))+?(?<!`)(?P=tick)(?!`)"
+    r"|^[ \t]*! \S.*(?:\n(?! {0,3}(?:```|~~~))[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
+
+
+# A message that forbids running or saying something offers nothing at all, read on _plain
+# text ("do **not**\n  run"): which command or phrase a warning covers (the next one, a whole
+# fence, a list) is not worth guessing when a wrong guess prefills the forbidden thing.
+_FORBIDS_RE = re.compile(
+    r"(?:\b(?:not|never)|n['’]t)\b[^.?!;]{0,60}?\b(?:run|type|use|execute|enter|paste|send|say)\b",
+    re.IGNORECASE)  # anywhere in its clause: "do not ever say", "do not, in any case, run"
+
+
+def _plain(text: str) -> str:
+    """Text as the screen draws it, near enough to compare: no fence rows (with their language
+    tag), backticks or emphasis marks, one space. A `*` standing alone is a glob, and kept."""
+    return " ".join(re.sub(r"(?m)^[ \t]*(?:```|~~~).*$|`|\*\*|(?<![\w*])\*(?=[^\s*])"
+                           r"|(?<=[^\s*])\*(?![\w*])|^\s*●\s", "", text).split())
+
+
+def _offers(message: str, reply: str | None) -> list[str]:
+    """The replies the final message offers, as tap-to-send buttons, read off the transcript's
+    copy of it (code is marked there, and long rows are not wrapped), and only when that is the
+    whole message on screen, word for word, so its context (a "do not" before a say) is the
+    screen's too. The screen alone offers nothing: it draws code as plain text, so a quote may
+    be any program's argument and a command row the first of a script. Each offer must show on
+    screen whole and bounded (a `merge 41` is not the `merge 415` on screen), each space a space
+    or the screen's wrap, so `a b` is not `a  b`. A message with the user's own row in it (a new
+    turn that failed before any reply) or a tool's result (⎿: its output, or the error that
+    ended it) is not the agent handing anything over."""
+    if _USER_ROW_RE.search(message) or re.search(r"(?m)^[ \t]*⎿", message):
+        return []
+    if not reply or _plain(reply) != _plain(message) or _FORBIDS_RE.search(_plain(reply)):
+        return []
+    t = reply
+    # Each code range, with a fence's count of rows: a command row is a fence's to offer only
+    # when it is all the fence holds (any more may be a script it belongs to, or data).
+    code = [(c.start(), c.end(),  # its rows: all non-blank ones but its own two fences
+             c["fence"] and len(re.findall(r"(?m)^[ \t]*\S", c["fence"])) - 1 - bool(c["close"]))
+            for c in _CODE_RE.finditer(t)]
+
+    def offered(m: re.Match) -> bool:
+        if m.lastindex > 3:  # a quote: only in a transcript paragraph with no code at all,
+            para = (re.split(r"\n[ \t]*\n", t[:m.start()])[-1]  # nor inside a fence's
+                    + re.split(r"\n[ \t]*\n", t[m.start():])[0])
+            return not any(a <= m.start() < b for a, b, _ in code) and not (
+                re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
+        # A command: only as an inline span or as the one row of a fence (a bare row may be
+        # the first of a script, and nothing after it says otherwise); never where a heredoc
+        # may hold it as data, nor in an indented block, nor inside other code.
+        row = t[t.rfind("\n", 0, m.start()) + 1:m.start(m.lastindex)]
+        lone = any(a < m.start() < b and rows == 1 for a, b, rows in code)
+        return "<<" not in t and not re.match(r" {4}|\t", row) and (
+            m.lastindex == 2 or lone) and not any(
+            a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
+            for a, b, rows in code)
+
+    found = (m[m.lastindex] for m in _OFFER_RE.finditer(t) if offered(m))  # each one's payload
+
+    def cut(o: str) -> bool:  # a command a blank row in its script may have cut short
+        return o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:]))
+
+    def shown(o: str) -> bool:  # a run of spaces must show as is: a wrap there hides its width
+        gap = " " if "  " in o else r"(?: |[ \t]*\n[ \t]*)"
+        return bool(re.search(
+            r"(?<![^\s\"“`])" + gap.join(map(re.escape, o.split(" ")))
+            + r"(?![^\s\"”`.,;:?!)])", message))
+
+    # Three at most, counted before bash checks them: a fourth never reaches bash, cut or not.
+    return [o for o in islice((o for o in dict.fromkeys(found) if shown(o)), 3) if not cut(o)]
+
+
+@lru_cache(maxsize=256)
+def _parses(command: str) -> bool:
+    """Whether bash reads `command` whole (`bash -n` runs nothing): the first part of a script
+    split by a blank row ("for ... in", "&&", an open quote, "f()") does not parse. Quoting
+    checks alone pass grammar the shell rejects, so the shell is asked."""
+    try:
+        return subprocess.run(["bash", "-n"], input=command, capture_output=True, text=True,
+                              timeout=2, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def screen_offers(text: str, tool: str | None, reply: str | None) -> list[str]:
+    """A finished turn's offers (_offers), read off `text`: classify's, and the watcher's
+    on a screen it does not reparse (its fingerprint ignores a duration a command holds).
+    Claude Code's only: Codex's messages and tool output have no boundary read here yet."""
+    final = tool == "claude" and _final_message(_visible(text), tool)
+    return _offers(final, reply) if final else []
+
+
+def _final_ask(visible: str, tool: str, message: str) -> dict | None:
+    """What a finished turn leaves blocked on the user: a provider error to retry, or in
+    auto mode (where the agent stops only when it needs the user) a closing question or a
+    `! command` handed over to run."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
-    if error := error_re.match(lines[-1]):
+    if error := _TURN_ERROR_RE[tool].match(lines[-1]):
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
         return None
@@ -1364,9 +1487,12 @@ def classify(
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
-    if result.get("tool") in _TURN_ERROR_RE and (
-        ask := _final_ask(visible, result["tool"])
-    ):
+    tool = result.get("tool")
+    final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
+    result.pop("offers", None)  # buttons that send: the screen's alone, never the model's
+    if offers := screen_offers(text, tool, reply):
+        result["offers"] = offers
+    if final and (ask := _final_ask(visible, tool, final)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         if "options" not in ask and (

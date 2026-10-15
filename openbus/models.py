@@ -150,6 +150,7 @@ class PaneState(BaseModel):
     subagents: list[SubAgent] = []
     agents: int = 0  # count of RUNNING subagents (derived from subagents[])
     copyables: list[Copyable] = []  # paste-me-elsewhere text, one-tap copy in the card
+    offers: list[str] = []  # replies a finished turn hands over to type: tap to send
 
     snapshot_id: str | None = None  # latest snapshot for the timeline
     updated_at: float = 0.0

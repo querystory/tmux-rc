@@ -206,6 +206,13 @@ CAPTURES = {
         "", RULE, "❯ ", RULE,
         f"{cyn('~/src/shop-api')} on {mag('feat/money-type')} | {blu('Sonnet 5')}",
     ]),
+    "preview deploy": "\n".join([
+        f"{b('●')} Deployed the preview. The merge needs your login, so run it yourself:",
+        "", f"  {blu('! gh pr merge 412 --squash --auto')}", "",
+        '  Or say "ship it" and I\'ll queue it behind CI.', "",
+        f"{dim('✻ Worked for 41s · done 2:14 PM')}", "", RULE, "❯ ", RULE,
+        f"{cyn('~/src/shop-api')} on {mag('feat/preview')} | {blu('Opus 5')}",
+    ]),
     "backup verify": "\n".join([
         f"{grn('dev@ops')}$ sudo ./verify-snapshots.sh", "[sudo] password for dev: "]),
 }
@@ -244,6 +251,9 @@ DETAIL = {
                         "endpoints. Both break existing clients, so versioning needs a call.",
         "prs": [{"repo": "example-org/shop-api", "number": 409,
               "title": "Structured money type for order totals"}]},
+    # A finished turn that hands the user replies to type: classify()'s offers.
+    "preview deploy": {"offers": ["! gh pr merge 412 --squash --auto", "ship it"],
+                       "headline": "Preview deployed; the merge is yours to run."},
     "cost report": {"activity": "compacting", "headline": "Compacting the conversation",
                         "status_line": "Compacting the conversation", "context_pct": 94},
     "terraform plan review": {

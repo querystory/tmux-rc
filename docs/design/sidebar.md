@@ -97,13 +97,14 @@ choice, so nothing is forced in then. Settings › Appearance can turn it off. A
 says what was filtered ("No Personal panes need you") and, if panes it hides need you, offers
 them ("5 panes on other accounts need you · Show").
 
-The phone keeps its tab bar for the state, one at a time (tabs are one-of by nature), and has
-the same filter button beside its search, opening the menu as a bottom sheet with Account,
-Sort by and Clear all. It used to have a sideways-scrolling row of every account under search,
-which hid the one that was on: a list of one account's panes showed no sign of being
-filtered. Now the active filters' labelled chips sit under search as on the wide list (under
-the header on the dashboard), and a narrowed list ends with "8 Codex panes · Show all
-accounts".
+The phone has the same filter button beside its search, opening the menu as a bottom sheet
+with State, Account, Sort by and Clear all. It used to have a sideways-scrolling row of every
+account under search, which hid the one that was on: a list of one account's panes showed no
+sign of being filtered. Then the active filters' chips sat under search, but with the tab bar
+and the plan meters that was a third band of chrome over the list. Now nothing sits under
+search: the button's count and tint say a filter is on, and a narrowed list ends with
+"8 Codex panes of 47 · Show all", which clears the state and account filters. The phone's
+dashboard, which has no search row, still names the account filter under its header.
 
 ## Panels dock beside the sidebar
 
@@ -143,7 +144,14 @@ The idle-count button ("+12") is gone: the rail lists every pane, as the list do
 
 ## The phone
 
-The phone's places were already on screen (Dashboard in the tab bar, Chat and the mic in the
-header), so its ☰ became a gear that opens the same Settings. Its tab bar is still the state
-filter, so the chips under its search leave the state out, and its filter button opens the
-rest of the menu (above).
+The phone's tab bar is a floating glass pill of Dashboard, Sessions, a raised mic, Chat and
+Needs you (variant D of the tab bar mock, with its count only on Needs you). It used to carry
+the state filter as five flat tabs (All, Working, Just finished, Needs you, plus Dashboard),
+which cost "Just finished", the widest word, a tab for the least-used view, and left Chat and
+the mic up in the header, out of thumb's reach. Now the states are in the filter menu like the
+wide list's, Needs you keeps its own tab because it is the one view you go to on purpose, and
+Sessions leaves Needs you for the list without clearing a filter the menu set. The header is
+the title, a quiet + (New window, which used to float over the list's foot and the rows'
+right edge) and the gear for Settings. The pill floats over the page's foot, so the list and
+the dashboard leave it room at their ends. Rows keep their density: the mock's calmer,
+roomier rows cost too many panes per screen.
