@@ -39,14 +39,16 @@ The dashboard's card draws a meter per window. Its first version showed a bare "
 Even as one row, the strip sits above the list, and most of the time nothing in it
 asks for anything. So Settings has a Plan usage choice of Auto, On and Off,
 remembered per browser like the theme. On is the full strip and Off hides it. Auto, the
-default, shows only the meters that call for a decision and hides the strip when none do.
-A meter qualifies when the projection has it full before the reset (the same `limit_at`
-that draws "full in", so phone and server cannot disagree), or when it is at 70% used or
-more. The threshold is needed because the fit lags a sudden burst (see Projection): a
-sweep started late in a window can burn the last 30% before the line catches up, and 70%
-is where that remainder gets small enough to matter. Lower and a steady week's ordinary
-pace would keep the strip up most of the time, which is what Auto exists to avoid. An
-account that can't be read drops out under Auto too, because there is nothing to act on.
+default, shows the meters worth a glance and folds the rest into a "+N", the strip's last
+card, which opens Plan usage. A meter qualifies when the projection has it full before the
+reset (the same `limit_at` that draws "full in", so phone and server cannot disagree), or
+when it is at 50% used or more. The threshold is needed because the fit lags a sudden burst
+(see Projection): a sweep started late in a window can burn what is left before the line
+catches up, and past half used that remainder is worth watching. Auto once hid every meter
+under 70% and the strip with them; a steady week's pace then kept nothing in view, and the
+strip came and went with no say in why. Folding instead keeps the count of what is quiet in
+sight, and when nothing qualifies the single most urgent meter still shows, so the strip
+never stands empty. An unreadable account folds too, named in the "+N"'s tooltip.
 The desktop sidebar has room to spare, so it keeps every meter, and the same setting is
 one choice in Settings, "Plan usage", that is On (Auto and On, since every meter shows) or
 Off. It is the one setting rather than a second, desktop-only one, so a browser that crosses
@@ -205,7 +207,7 @@ by an account id that equals Claude's `accountUuid`. It runs omp the way that pa
 (its executable, and the script bun or a wrapper runs, from the pane's cwd) and with its
 `HOME`, since the daemon's PATH need not hold a bun install and a profile's logins live
 under that HOME. An omp pane then counts as a pane of
-every listed Claude account its profile holds, for the chip and for "in use". Every one,
+every listed Claude account its profile holds, for the chip and the account filter. Every one,
 not a guess at one: which login a rotating profile is on at a given moment is not exposed.
 The pane still wears one chip, the first such account's: several chips would claim more
 than is known, and the account filter matches the pane on any of them.
@@ -219,13 +221,16 @@ those dirs belong to. A meter shows just its provider's icon while there is one 
 per provider; with several, each card names its account too, ordered by urgency (see
 [agent accounts](agent-accounts.md)).
 
-The strip once led with whichever meter ran out soonest, and at the sidebar's default height
-only about one meter shows, so the one meter anyone read could belong to an account nobody
-was using. So the strip now names only the accounts in use: any of their panes busy, or
-active within the hour. The accounts with the most busy panes come first, and urgency still
-orders the meters within each account. The idle ones fold into a "+N", the strip's last cell, so
-it sits with the meters it stands for rather than over the search row's seam. It opens Plan usage, and the dashboard's card still shows every
-account. When no account is in use, the strip shows them all rather than nothing. Ordering
+The strip orders every card by urgency alone: already full, then full soonest, then the
+highest projected fill at the reset, whatever the account. It once named only the accounts
+in use (any pane busy, or active within the hour), most busy panes first, with urgency only
+within an account and the idle accounts folded into the "+N". That answered a question
+nobody asked: the order looked arbitrary, and the card that most needed a glance could sit
+behind a busier account's quiet ones. A limit binds whether or not a pane is on it right
+now, so one global order reads at a glance and Auto's fold keeps the row short. The cost is
+the sidebar at its default height, where about one card shows: it is now the most urgent
+meter, which may be an account no pane is using; dragging the strip taller shows more.
+The dashboard's card is unchanged, and still shows every account. Ordering
 the strip by the open pane's account was mocked and rejected. It answers "how is the account
 I'm on?" in the sidebar, away from the pane, and it reshuffles the strip on every switch.
 Putting the open pane's 5h and 7d on its account chip in the header was tried and removed:

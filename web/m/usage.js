@@ -5,7 +5,7 @@
 // See docs/design/plan-usage.md.
 const NAMES = { claude: 'Claude', codex: 'Codex' };
 const LOGOS = { claude: '/claude.png', codex: '/openai.svg' };
-import { isRecent, esc } from './pane-model.js';
+import { esc } from './pane-model.js';
 
 export function countdown(ms) {
   const m = Math.max(0, Math.round(ms / 60000)), d = Math.floor(m / 1440), h = Math.floor(m / 60) % 24;
@@ -96,23 +96,24 @@ export const staleUsage = (accounts, now = Date.now()) => {
   return oldest < Infinity ? `<small class="usage-stale">as of ${countdown(now - oldest)} ago</small>` : '';
 };
 
-// The phone's Usage setting: "on" is every meter, "off" none, and "auto" only the meters
-// that call for a decision, those the server's projection has filling before the reset
-// (limit_at) or already past HIGH_PCT; an account with none left, or unreadable, drops out.
-export const HIGH_PCT = 70;
-export const shownUsage = (accounts, mode) => mode === 'on' ? accounts : mode === 'off' ? []
-  : accounts.map(a => ({ ...a, windows: (a.windows || []).filter(w => w.limit_at || w.pct >= HIGH_PCT) })).filter(a => !a.error && a.windows.length);
-
-// Several accounts' strip names only those in use: any of their panes busy or active in the
-// last hour, the most busy panes first (ties keep the meters' order). The rest are `idle`,
-// for the "+N" by the strip; with none in use, every account shows rather than none.
-// `panesOf(meter)` is the panes on a meter's login, across every config dir it covers.
-export const IN_USE_SECS = 3600;
-export function inUse(meters, panesOf, now = Date.now()) {
-  const of = new Map();
-  for (const m of meters) if (!of.has(m.acct)) of.set(m.acct, panesOf(m));
-  const accts = [...of.keys()], busy = a => of.get(a).filter(p => p.activity !== 'idle').length;
-  const used = accts.filter(a => of.get(a).some(p => isRecent(p, now, IN_USE_SECS))).sort((x, y) => busy(y) - busy(x));
-  if (!used.length) return { shown: meters, idle: [] };
-  return { shown: used.flatMap(a => meters.filter(m => m.acct === a)), idle: accts.filter(a => !used.includes(a)) };
+// One entry per meter: already full first, then full soonest, then the highest pace at the
+// reset; unreadable last.
+const urgency = w => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
+export const byUrgency = list => list.flatMap(a => a.windows?.length ? a.windows.map(w => ({ ...a, windows: [w] })) : [a])
+  .sort((a, b) => urgency(b.windows?.[0]) - urgency(a.windows?.[0]));
+// The phone's Usage setting: "on" is every meter, "off" none, and "auto" the meters worth a
+// glance, those the server's projection has filling before the reset (limit_at) or already
+// past HIGH_PCT, with the rest folded into the strip's "+N" (moreUsage); with none, the most
+// urgent one still shows, so the strip never stands empty. `list` is one meter per entry,
+// most urgent first (byUrgency).
+export const HIGH_PCT = 50;
+export function shownUsage(list, mode) {
+  if (mode !== 'auto') return { shown: mode === 'on' ? list : [], quiet: [] };
+  const hot = list.filter(a => a.windows?.some(w => w.limit_at || w.pct >= HIGH_PCT)), shown = hot.length ? hot : list.slice(0, 1);
+  return { shown, quiet: list.filter(a => !shown.includes(a)) };
+}
+// The strip's last card: the quiet meters as "+N", named in its tooltip; a tap opens Plan usage.
+export function moreUsage(quiet) {
+  const names = quiet.flatMap(a => a.error ? [who(a)] : a.windows.map(w => `${who(a)} ${w.window} ${Math.round(w.pct)}%`));
+  return names.length ? `<button type="button" id="usage-more" title="${esc(`Quiet: ${names.join(', ')}`)}">+${names.length}</button>` : '';
 }

@@ -11,7 +11,7 @@ import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
-import { renderUsage, renderStrip, shownUsage, inUse, staleUsage } from "/m/usage.js";
+import { renderUsage, renderStrip, byUrgency, shownUsage, moreUsage, staleUsage } from "/m/usage.js";
 import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
@@ -690,7 +690,7 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
 let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
-// A strip's last card: the idle accounts' "+N" and, when a reading was kept through failed
+// A strip's last card: the quiet meters' "+N" and, when a reading was kept through failed
 // reads, how old, once rather than on every card. Redrawn only when changed or wiped.
 function usageEnd(el, list, more = "") {
   const html = el.hidden ? "" : more + staleUsage(list), was = el.querySelector(":scope > .usage-end");
@@ -699,16 +699,13 @@ function usageEnd(el, list, more = "") {
   if (html) el.insertAdjacentHTML("beforeend", `<div class="usage-end">${html}</div>`), el.lastElementChild._html = html;
 }
 const paintUsage = steady(() => {
-  // Several accounts: most urgent first (accounts.js); the strip names only those in use,
-  // judged before Auto drops quiet meters, and folds the idle ones into a "+N", its last card
-  // (usage.js). A login's panes are those of every dir it covers.
+  // Every meter, most urgent first; Auto folds the quiet ones into a "+N", the
+  // strip's last card (usage.js).
   const all = accounts.usage(usage), several = accounts.any();
-  const panesOf = (m) => panes.filter((x) => m.dirs?.some((d) => accounts.profile(d)?.panes.includes(x.pane_id)));
-  const { shown, idle } = several ? inUse(accounts.byUrgency(all), panesOf) : { shown: all, idle: [] };
   const focused = document.activeElement?.id === "usage-more"; // a redrawn strip takes it along
-  const strip = shownUsage(shown, WIDE.matches && usageMode !== "off" ? "on" : usageMode);
-  renderStrip($("usage"), strip);
-  usageEnd($("usage"), strip, accounts.more($("usage").hidden ? [] : idle)); // a tap on "+N" opens Plan usage, as the strip's does
+  const { shown, quiet } = shownUsage(byUrgency(all), WIDE.matches && usageMode !== "off" ? "on" : usageMode);
+  renderStrip($("usage"), shown);
+  usageEnd($("usage"), shown, moreUsage(quiet)); // a tap on "+N" opens Plan usage, as the strip's does
   if (focused) $("usage-more")?.focus({ preventScroll: true });
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
@@ -717,7 +714,7 @@ const paintUsage = steady(() => {
   // wide, the strip on a phone.
   const tools = scope.tools, board = tools.length ? all.filter((a) => tools.includes(a.provider)) : all;
   show("usage-panel", board.length > 0);
-  const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board", order = (list) => several ? accounts.byUrgency(list) : list;
+  const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board", order = (list) => several ? byUrgency(list) : list;
   if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
   if (grouped) accounts.groups(el, board, (cells, one) => renderUsage(cells, one, { wide: true }));
   else renderUsage(el, order(board), { wide: true });

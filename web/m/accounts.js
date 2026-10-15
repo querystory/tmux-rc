@@ -98,7 +98,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
   pill.onclick = (e) => { const b = e.target.closest("button"); if (b) "all" in b.dataset ? clearAll() : b.closest("[data-q]") ? clearQuery() : b.closest("[data-chip]") ? clearChip(b.closest("[data-chip]").dataset.chip) : setFilter(b.dataset.acct); };
 
-  // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
+  // ---- usage: named by profile, filtered, and with several, one strip (usage.js byUrgency) ----
   // A meter's account is the profile of its first listed dir; one no longer listed (removed)
   // drops out. Before the first answer the meters stand as they come.
   function usage(list) {
@@ -109,10 +109,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       .filter((a) => a.acct && (!on.length || on.includes(a.acct)))
       .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null });
   }
-  // Already full first, then full soonest, then the highest pace at the reset; unreadable last.
-  const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
-  const byUrgency = (list) => list.flatMap((a) => a.windows?.length ? a.windows.map((w) => ({ ...a, windows: [w] })) : [a])
-    .sort((a, b) => urgency(b.windows?.[0]) - urgency(a.windows?.[0]));
   // One swipeable row: the edge fades only while there is more that way, rechecked on a
   // resize too (a wider strip fits more meters: style.css).
   function strip(el, on) {
@@ -317,7 +313,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   // An omp pane can be on several (plan_usage.py): it matches any of them.
   function matches(pane) { const on = active(); return !on.length || on.some((p) => p.panes.includes(pane.pane_id)); }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
+    refresh, usage, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
     // Settings' list: each account, who it is and where, its sheet a click away.
     rows: () => profiles.map((p) => `<div class="set-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></div>`).join(""),
     // The URL's accounts in, and out for the next URL; follow says whether they changed.
@@ -328,8 +324,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     loops: (report) => !active().length || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
       [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
-    // On the strip's foot: the accounts it leaves out as not in use (usage.js inUse), a tap from Plan usage.
-    more: (idle) => idle.length ? `<button type="button" id="usage-more" title="${esc(`Not in use: ${idle.map((p) => p.name).join(", ")}`)}">${idle.map(dot).join("")}+${idle.length}</button>` : "",
     // A session's own default, per provider with several: where its dir differs from the
     // global environment's (under "", which the server folds into every session).
     sessionBadge: (session) => Object.keys(ENV).filter((pr) => several(pr) && set(session, pr) && defaults[session][pr] !== defaults[""]?.[pr]).map((pr) => defaultOf(session, pr)).filter(Boolean).map((p) => badge(p)).join(""),
