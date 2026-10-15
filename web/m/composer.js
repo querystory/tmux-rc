@@ -50,6 +50,8 @@ export class Composer {
     }
     if (!range) { range = document.createRange(); range.selectNodeContents(this.editor); range.collapse(false); }
     this.caret = null;
+    // Never in front of a spacer's U+200B: splitting there would move it to an untracked node.
+    if (this.spacers.has(range.startContainer) && !range.startOffset) range.setStart(range.startContainer, 1);
     range.deleteContents(); range.insertNode(node);
     // iOS moves a caret at the boundary after a non-editable chip to before it, so the caret
     // goes inside a zero-width text node that follows the chip.
