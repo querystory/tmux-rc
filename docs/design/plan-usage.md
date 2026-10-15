@@ -188,6 +188,19 @@ those dirs belong to. A meter shows just its provider's icon while there is one 
 per provider; with several, each account's meters sit under its chip, ordered by urgency
 (see [agent accounts](agent-accounts.md)).
 
+The strip once led with whichever meter ran out soonest, and at the sidebar's default height
+only about one meter shows, so the one meter anyone read could belong to an account nobody
+was using. So the strip now names only the accounts in use: any of their panes busy, or
+active within the hour. The accounts with the most busy panes come first, and urgency still
+orders the meters within each account. The idle ones fold into a "+N", the strip's last cell, so
+it sits with the meters it stands for rather than over the search row's seam. It opens Plan usage, and the dashboard's card still shows every
+account. When no account is in use, the strip shows them all rather than nothing. Ordering
+the strip by the open pane's account was mocked and rejected. It answers "how is the account
+I'm on?" in the sidebar, away from the pane, and it reshuffles the strip on every switch.
+The open pane's chip in the header carries that answer instead: its account's 5h and 7d,
+coloured by the same verdict as the meters. A phone gives the chip its own line, because
+the path needs that header row.
+
 ## Sources, and why each
 
 **Codex: its own session logs.** Every `token_count` event in

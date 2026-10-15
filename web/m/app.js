@@ -6,12 +6,12 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
-import { renderUsage, shownUsage } from "/m/usage.js";
+import { renderUsage, shownUsage, inUse, inlineUsage } from "/m/usage.js";
 import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
@@ -358,7 +358,7 @@ function updateRow(button, pane) {
   const badge = button.querySelector(".badge");
   badge.className = `badge ${badgeOf(pane).cls}`;
   text(badge, badgeOf(pane).label);
-  text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
+  markLine(button.querySelector(".row-status"), paneActivity(pane), pane);
   const sessionChip = button.querySelector(".session-chip");
   const session = sessionOf(pane);
   sessionChip.hidden = sort !== "updated" || !session; // a session label already says it
@@ -678,17 +678,28 @@ const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
 let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 const paintUsage = steady(() => {
-  // Several accounts: the most urgent meter first, under a heading per account (accounts.js).
+  // Several accounts: under a heading each (accounts.js), most urgent first; the strip names only
+  // those in use, judged before Auto drops quiet meters, and folds the idle ones into a "+N",
+  // its last cell (usage.js). A login's panes are those of every dir it covers.
   const all = accounts.usage(usage), several = accounts.any();
-  const draw = (el, list) => accounts.groups(el, several ? accounts.byUrgency(list) : list, renderUsage);
-  draw($("usage"), shownUsage(all, WIDE.matches && usageMode !== "off" ? "on" : usageMode));
+  const draw = (el, list) => accounts.groups(el, list, renderUsage);
+  const panesOf = (m) => panes.filter((x) => m.dirs?.some((d) => accounts.profile(d)?.panes.includes(x.pane_id)));
+  const { shown, idle } = several ? inUse(accounts.byUrgency(all), panesOf) : { shown: all, idle: [] };
+  draw($("usage"), shownUsage(shown, WIDE.matches && usageMode !== "off" ? "on" : usageMode));
+  // Redrawn only when changed, so a repaint keeps a focused button's focus.
+  const more = accounts.more($("usage").hidden ? [] : idle), was = $("usage-more");
+  if (was?._html !== more || $("usage").lastElementChild !== was) {
+    was?.remove();
+    $("usage").insertAdjacentHTML("beforeend", more);
+    if ($("usage-more")) $("usage-more")._html = more; // a tap opens Plan usage, as the strip's does
+  }
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter whatever the mode; its view (#view=usage)
   // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
   // tool with no plan meters hides the card.
   const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
   show("usage-panel", board.length > 0);
-  draw($("usage-board"), board);
+  draw($("usage-board"), several ? accounts.byUrgency(board) : board);
   accounts.strip($("usage-board"), WIDE.matches && $("usage-board").classList.contains("usage-groups")); // a row of groups too narrow scrolls rather than wraps
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
@@ -792,7 +803,7 @@ function render() {
   markEnding($("detail"), pane);
   text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   // Which account it runs on, when that needs saying: first on a phone, which ellipsizes the end.
-  const account = pane && accounts.badge(pane.pane_id);
+  const account = pane && accounts.badge(pane.pane_id, (p) => inlineUsage(usage.find((a) => a.dirs?.includes(p.dir))));
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
@@ -817,8 +828,9 @@ function render() {
   text($("activity"), pane ? badgeOf(pane).label : settled ? "Unavailable" : "Loading");
   $("activity").className = `badge ${pane ? badgeOf(pane).cls : "unknown"}`;
   text($("tool"), pane?.tool || "");
-  const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
+  const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : panePending(pane) ? "Summarizing…" : "Waiting for activity...";
   const headline = paneHeadline(pane) || missing;
+  $("status-line").classList.toggle("pending", !paneHeadline(pane) && panePending(pane));
   html($("status-line"), linkifyText(headline));
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
   html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
@@ -933,7 +945,7 @@ function renderItems(el, values, agents = false) {
 }
 
 async function loadEvents(pane) {
-  const key = `${pane.pane_id}:${pane.events_seq ?? pane.updated_at}`;
+  const key = `${pane.pane_id}:${pane.events_seq ?? pane.updated_at}:${panePending(pane)}`;
   // Same hidden-tab rule as restartDetail, which used to be the only path that ran first.
   if (eventsKey === key || document.hidden || !detailController || detailController.signal.aborted) return;
   eventsKey = key;
@@ -947,11 +959,11 @@ async function loadEvents(pane) {
       text(node.firstChild, event.ts ? new Date(event.ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Recent");
       html(node.lastChild, linkifyText(event.text || ""));
     });
-    show("events-empty", !events.length); text($("events-empty"), "No recent activity.");
+    show("events-empty", !events.length); markLine($("events-empty"), "", pane, "No recent activity.");
   } catch {
     if (signal.aborted) return;
     eventsKey = null;
-    show("events-empty", true); text($("events-empty"), "Activity unavailable. Reconnecting...");
+    show("events-empty", true); markLine($("events-empty"), "Activity unavailable. Reconnecting...", pane);
   }
 }
 

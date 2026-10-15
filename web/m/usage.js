@@ -4,6 +4,7 @@
 // (usage-view.js). See docs/design/plan-usage.md.
 const NAMES = { claude: 'Claude', codex: 'Codex' };
 const LOGOS = { claude: '/claude.png', codex: '/openai.svg' };
+import { isRecent } from './pane-model.js';
 const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 
 export function countdown(ms) {
@@ -16,7 +17,7 @@ export function countdown(ms) {
 // gone), so a fill past the tick is ahead of it. Coloured by the projection's verdict.
 function cell(w, a, now) {
   const projected = Math.min(100, w.projected ?? w.pct), used = Math.min(100, w.pct);
-  const level = w.limit_at || w.pct >= 100 ? 'full' : projected >= 90 ? 'warn' : '';
+  const level = levelOf(w);
   const live = w.resets_at > now; // a minute-old reading can hold a window that has since reset
   const when = live ? countdown(w.resets_at - now) : '';
   const full = live && w.limit_at > now ? `full in ${countdown(w.limit_at - now)}` : '';
@@ -54,3 +55,25 @@ export function renderUsage(el, accounts, { now = Date.now() } = {}) {
 export const HIGH_PCT = 70;
 export const shownUsage = (accounts, mode) => mode === 'on' ? accounts : mode === 'off' ? []
   : accounts.map(a => ({ ...a, windows: (a.windows || []).filter(w => w.limit_at || w.pct >= HIGH_PCT) })).filter(a => !a.error && a.windows.length);
+
+// Amber where the fitted pace fills the window by its reset, red once it is full or will be
+// before: the strip's meters and the pane header's chip both colour by this.
+export const levelOf = w => w.limit_at || w.pct >= 100 ? 'full' : Math.min(100, w.projected ?? w.pct) >= 90 ? 'warn' : '';
+
+// The pane header's chip: its account's 5h and 7d, as the strip colours them.
+export const inlineUsage = a => (a?.windows || []).filter(w => ['5h', '7d'].includes(w.window))
+  .map(w => ` · ${w.window} <b class="${levelOf(w)}">${Math.round(w.pct)}%</b>`).join('');
+
+// Several accounts' strip names only those in use: any of their panes busy or active in the
+// last hour, the most busy panes first (ties keep the meters' order). The rest are `idle`,
+// for the "+N" by the strip; with none in use, every account shows rather than none.
+// `panesOf(meter)` is the panes on a meter's login, across every config dir it covers.
+export const IN_USE_SECS = 3600;
+export function inUse(meters, panesOf, now = Date.now()) {
+  const of = new Map();
+  for (const m of meters) if (!of.has(m.acct)) of.set(m.acct, panesOf(m));
+  const accts = [...of.keys()], busy = a => of.get(a).filter(p => p.activity !== 'idle').length;
+  const used = accts.filter(a => of.get(a).some(p => isRecent(p, now, IN_USE_SECS))).sort((x, y) => busy(y) - busy(x));
+  if (!used.length) return { shown: meters, idle: [] };
+  return { shown: used.flatMap(a => meters.filter(m => m.acct === a)), idle: accts.filter(a => !used.includes(a)) };
+}

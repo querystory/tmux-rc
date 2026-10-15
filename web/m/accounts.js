@@ -332,7 +332,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // with no pane belongs to no account, so it is hidden with the rest).
     loops: (report) => !active().length || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
       [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
-    badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
+    badge: (paneId, after = () => "") => { const p = ofPane(paneId); return p ? badge(p, after(p)) : ""; },
+    // On the strip's foot: the accounts it leaves out as not in use (usage.js inUse), a tap from Plan usage.
+    more: (idle) => idle.length ? `<button type="button" id="usage-more" title="${esc(`Not in use: ${idle.map((p) => p.name).join(", ")}`)}">${idle.map(dot).join("")}+${idle.length}</button>` : "",
     // A session's own default, per provider with several: where its dir differs from the
     // global environment's (under "", which the server folds into every session).
     sessionBadge: (session) => Object.keys(ENV).filter((pr) => several(pr) && set(session, pr) && defaults[session][pr] !== defaults[""]?.[pr]).map((pr) => defaultOf(session, pr)).filter(Boolean).map((p) => badge(p)).join(""),

@@ -53,10 +53,10 @@ export const since = (p, nowMs = Date.now()) => {
   return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 };
 export const age = (p, nowMs) => isRunning(p) ? "now" : since(p, nowMs);
-export function isRecent(pane, nowMs = Date.now()) {
+export function isRecent(pane, nowMs = Date.now(), within = PARKED_IDLE_SECS) {
   const since = pane.state_since == null ? NaN : Number(pane.state_since);
   const idle = Number.isFinite(since) ? Math.max(0, nowMs / 1000 - since) : pane.idle_seconds || 0;
-  return pane.activity !== "idle" || idle < PARKED_IDLE_SECS;
+  return pane.activity !== "idle" || idle < within;
 }
 // The list's sections, each its own pane set, so a filter shows exactly one section's panes:
 // Needs you, then Working, Just finished and Idle among the rest, each the first that fits.
@@ -152,6 +152,14 @@ export const paneActivity = (pane) => pane.question?.ask || pane.question?.promp
 // The pane overview's headline and its stats line (model / context / cost / elapsed); the
 // sidebar's hover card shows the same two, so they are defined once.
 export const paneHeadline = (pane) => pane?.headline || pane?.status_line || pane?.session_summary || "";
+// A card the daemon has not read since it started is a placeholder (no parsed_at): its
+// silence means "not yet", not "nothing", so a blank line spins "Summarizing…" instead.
+export const panePending = (pane) => !!pane && !pane.parsed_at;
+export const markLine = (node, line, pane, empty = "No recent activity") => {
+  const pending = !line && panePending(pane), value = line || (pending ? "Summarizing…" : empty);
+  node.classList.toggle("pending", pending);
+  if (node.textContent !== value) node.textContent = value;
+};
 // A list field (tasks, subagents) as its object entries: what the model emits can be junk.
 export const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
 export const itemDone = (item) => !!item.done || item.state === "done";
