@@ -1485,6 +1485,10 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen("Run:\n\n  ! if gh pr checks 415\n\n  then echo ok; fi"), None),
         (_auto_screen("Run:\n\n  ! make test\n\n  make deploy"),
          "Run:\n\n~~~bash\n! make test\n\nmake deploy\n~~~"),  # a tilde fence's script
+        (_auto_screen("Use: printf '%s'\n  '! make deploy'"),
+         "Use: ``printf '%s'\n'`! make deploy`'``"),  # a span over two rows holding one
+        (_auto_screen('Use:\n\n  x\n\n  Say "merge all" now.'),
+         'Use:\n\n```\nx\n```~~~\n\nSay "merge all" now.\n```'),  # not its own closer
         (_auto_screen("Use:\n\n  ! make deploy"),
          "Use:\n\n````\n```bash\n! make deploy\n```\n````"),  # a fence inside a fence
         (_auto_screen('Use:\n\n  x\n\n  Say "merge all" now.'),
