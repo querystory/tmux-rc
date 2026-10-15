@@ -72,7 +72,8 @@ strictness is correct:
   given fields of some parsed row (e.g. a workflow row's `label` and `progress`).
 - `working_prs` — opt-in exact comparison of semantic `owner/name#number` associations.
   An explicit empty list pins the important negative case: PRs may be visible without
-  this session actually working on any of them.
+  this session actually working on any of them. An entry marked `"optional": true` may
+  be reported or left out, for a PR whose association the model can fairly miss.
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
@@ -178,6 +179,7 @@ actually hit:
 | `25_working_pr_review` | active review work associates the pane with that PR |
 | `26_pr_list_is_not_work` | a visible `gh pr list` does not create associations |
 | `101_bare_pr_numbers_outside_a_checkout` | synthetic: a pane outside any checkout → only the PR written with its repo; bare `#N`s get no repo guessed from the folder or another mention |
+| `104_bare_pr_numbers_beside_another_repos_link` | synthetic: outside a checkout, bare `#N`s beside a status-line link to another repo → only the PR whose github.com URL is on screen |
 | `28_opencode_claude_model` | OpenCode using Claude/Bedrock → tool=opencode, not claude |
 | `29_opencode_interrupt_spinner` | OpenCode `esc interrupt` spinner → running, not idle |
 | `54_claude_user_turn_is_not_question` | the user's own ❯ turn above a live spinner → running, no question |
