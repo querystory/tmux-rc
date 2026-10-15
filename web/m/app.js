@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -360,9 +360,10 @@ function updateRow(button, pane) {
   text(badge, badgeOf(pane).label);
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
-  sessionChip.hidden = sort !== "updated" || !pane.session; // a session label already says it
-  text(sessionChip, pane.session || "");
-  sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
+  const session = sessionOf(pane);
+  sessionChip.hidden = sort !== "updated" || !session; // a session label already says it
+  text(sessionChip, session);
+  sessionChip.title = session ? `Session: ${session}` : "";
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
@@ -428,7 +429,7 @@ function renderList() {
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
 function renderPhoneList(subset) {
-  const rows = sort === "updated" ? subset.sort(newestFirst)
+  const rows = sort === "updated" ? subset.sort(newestFirst) : oneSession() ? subset
     // Sessions as the watcher lists them: tmux's own order.
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
@@ -793,7 +794,7 @@ function render() {
   for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
   show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
   markEnding($("detail"), pane);
-  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
+  text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   // Which account it runs on, when that needs saying: first on a phone, which ellipsizes the end.
   const account = pane && accounts.badge(pane.pane_id);
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
@@ -1075,6 +1076,7 @@ function showPanes() {
   // the poll mid-request): only endPane decides it is gone, so the page leaves it cleanly.
   const listed = new Set(statePanes.map((p) => p.pane_id));
   for (const [id, e] of ending) if (!e.done && !listed.has(id)) panes.push({ ...e.pane, ending: e.label });
+  noteSessions(panes);
 }
 const leavePane = (id) => { if (stillOnPane(location.hash, id)) navigate(null, "summary", { mode: "replace" }); };
 // Kill or expunge a pane's window. The window as last seen is greyed while the request runs;

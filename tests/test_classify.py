@@ -1273,6 +1273,38 @@ def test_finished_turn_blocked_on_the_user_is_a_text_wait():
     assert result["question"]["options"] == ["try again"]
 
 
+def test_handoff_in_a_barred_transcript_is_the_agents_words_with_no_buttons():
+    # Claude Code's right-hand bar must not join paragraphs or hide a closing "?", and a
+    # `! command` handed over is not a question: typed-back "Yes, proceed" runs nothing.
+    screen = _sample("100_claude_handoff_beside_suggested_command")
+    replies = lambda _s, _q: {"options": ["Yes, proceed", "No, cancel"]}  # noqa: E731
+    model = {"tool": "claude", "question": {"prompt": "! gh pr merge 812", "options": ["Yes"]}}
+    bare = screen.replace("✻ Worked for 29s · done 1:58 PM ", "✻ Baked for 16s" + " " * 16)
+    for shown in (screen, bare):  # the stamp's "· done …" is optional
+        q = classify(_pane("claude"), shown, _llm(model), replies_fn=replies)["question"]
+        assert q == {"answer_style": "text", "options": [], "prompt": (
+            "The quickest way is to run it yourself with the ! prefix, so it runs here in this "
+            "session: ! gh pr update-branch 812 && gh pr merge 812 --squash --auto")}
+    asking = screen.replace("#815 is still waiting on its Copilot review.", "Shall I watch CI?")
+    q = classify(_pane("claude"), asking, _llm({}), replies_fn=replies)["question"]
+    assert q["prompt"].endswith("Shall I watch CI?")
+    assert q["options"] == ["Yes, proceed", "No, cancel"]
+    rows = ("  1. Watch CI", "  2. Merge #815", "", "  Want me to do 1 and 2 now?")
+    listed = screen.replace("#815 is still waiting on its Copilot review.", "").replace(
+        "\n✻ Worked", "".join(f"\n{r:<122}│" for r in rows) + "\n✻ Worked")
+    q = classify(_pane("claude"), listed, _llm({}))["question"]
+    assert q["items"] == ["1. Watch CI", "2. Merge #815"]  # read past the bar
+
+
+def test_status_entries_drop_what_has_its_own_chip():
+    parsed = {"model": "Opus 5.5", "context_pct": 16, "cost": "$4.96",
+              "status_entries": ["16% ctx", "4h49m", "$4.96", "Opus 5.5", "2%/61% 5h/7d"]}
+    result = classify(_pane("claude"), "❯", _llm(parsed))
+    assert result["status_entries"] == ["4h49m", "2%/61% 5h/7d"]
+    kept = classify(_pane("claude"), "❯", _llm({"status_entries": ["16% ctx", "$4.96"]}))
+    assert kept["status_entries"] == ["16% ctx", "$4.96"]  # no field holds them
+
+
 def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
     decision = _sample("56_claude_turn_ends_with_decision")
     error = _sample("57_codex_turn_aborted_by_provider_error")

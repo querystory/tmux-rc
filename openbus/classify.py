@@ -62,9 +62,10 @@ _OPENCODE_RUNNING_RE = re.compile(
 _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
     # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
-    # A stamp's trailing shell/monitor count is background work, not the agent's turn.
+    # A stamp's trailing shell/monitor count is background work, not the agent's turn, and
+    # a bar after it is the frame Claude Code draws down the right of its transcript.
     r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
-    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:·|$))",
+    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
 # Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
@@ -796,7 +797,10 @@ def _restate(question: dict, replies_fn) -> str | None:
     return _asks.get(key)
 
 
+_CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
 _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
+# A box's side bars, and the bar Claude Code draws down the right of its transcript.
+_FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$")
 
 
 def _final_paragraph(message: str) -> str:
@@ -911,6 +915,7 @@ def _referenced_rows(prompt: str, visible: str) -> tuple[dict[str, str], str]:
     the screen: the parser, told to carry them, did not reliably. The nearest row wins a
     label, so an older list above loses to the one the question closes; numbers with no
     row (a count, a time) name nothing here."""
+    visible = _FRAME_BARS_RE.sub("", visible)  # as _final_ask read the prompt
     found = _last_occurrence(prompt, visible)
     rows: dict[str, list[str]] = {}
     leads: dict[str, str] = {}
@@ -998,7 +1003,9 @@ def _final_ask(visible: str, tool: str) -> dict | None:
     if stop is None or stop.groupdict().get("live") or _USER_ROW_RE.search(visible, stop.end()):
         return None
     end = stop.end() if stop.re is error_re else stop.start()
-    message = visible[:end].rsplit("\n● ", 1)[-1]  # the turn's final assistant message
+    # The turn's final assistant message, without the bars framing its rows: a bar left on
+    # a blank row joins paragraphs, and one after a "?" hides that the row asks.
+    message = _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
@@ -1012,7 +1019,9 @@ def _final_ask(visible: str, tool: str) -> dict | None:
         return {"prompt": paragraph, "answer_style": "text"}
     if handoff is None:
         return None
-    return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
+    # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
+    return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text",
+            "options": []}
 
 
 def _row_number(option: object) -> str | None:
@@ -1357,7 +1366,7 @@ def classify(
     ):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
-        if not ask.get("options") and (
+        if "options" not in ask and (
             options := _model_options(result.get("question"), ask)
             or _reply_options(ask["prompt"], replies_fn)
         ):
@@ -1517,8 +1526,7 @@ def classify(
                 ).split()))
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
-    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", visible)
-    copy_source = copy_source.replace("\\\n", "")
+    copy_source = _FRAME_BARS_RE.sub("", visible).replace("\\\n", "")
 
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
@@ -1569,6 +1577,14 @@ def classify(
         result["copyables"] = good
     else:
         result.pop("copyables", None)
+    # The status line's model, context and cost have chips of their own; the parser copies
+    # them into status_entries too ("16% ctx" beside 16% context, "$4.96" twice).
+    entries = result.get("status_entries")
+    if isinstance(entries, list):
+        result["status_entries"] = [e for e in entries if not (
+            e in (result.get("model"), result.get("cost")) or (
+                result.get("context_pct") is not None and isinstance(e, str)
+                and _CONTEXT_ENTRY_RE.fullmatch(e.strip())))]
     working_prs = _working_prs(result.get("working_prs"))
     if working_prs:
         result["working_prs"] = working_prs

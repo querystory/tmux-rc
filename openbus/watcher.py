@@ -54,7 +54,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 15
+CARD_VERSION = 16
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -233,6 +233,7 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     s["session"] = p.session
     s["cwd"] = getattr(p, "cwd", "")
     s["window_index"] = p.window_index
+    s["pane_index"] = getattr(p, "pane_index", "")
     s["window_name"] = p.window_name
     s["session_active"] = p.session_active
     s["secret"] = getattr(p, "secret", False)  # at a password prompt: see Pane.secret
@@ -451,7 +452,9 @@ class Watcher:
                     "label": s.get("label"),
                     "title": s.get("title"),  # self-published title, or bootstrap name
                     "cwd": s.get("cwd"),
+                    "session": s.get("session"),  # the list row's session chip
                     "window_index": s.get("window_index"),
+                    "pane_index": s.get("pane_index"),  # with the two above: the audit's address
                     "tool": s.get("tool"),
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
                     "activity": s.get("activity"),

@@ -11,7 +11,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -24,13 +24,14 @@ export const SHOW = { attention: "Needs you", working: "Working", finished: "Jus
 const STATES = [["run", "working"], ["done", "finished"], ["idle", "idle"]].map(([id, f]) => [id, SHOW[f], (p) => FILTERS[f](p)]); // the filters' own sets (no index as nowMs)
 export const SORTS = { updated: "Last activity", session: "Session order" }; // app.js keeps the choice
 const HOVER_MS = 350;
+const bySession = () => prefs.by === "session" && !oneSession(); // one session is one group: by state instead
 
 // Needs you first, then the groups; a group with nothing in it is not drawn.
 function groups(subset, query, sort) {
   // Session order is the order the watcher publishes, tmux's own: a stable sort that ties keeps it.
   const order = sort === "session" ? () => 0 : (a, b) => rank(a) - rank(b) || newestFirst(a, b);
   const rest = subset.filter((p) => !needsYou(p)).sort(order); // in session order, the sessions are too
-  const list = prefs.by === "session"
+  const list = bySession()
     ? [...new Set(rest.map((p) => p.session))].map((s) => {
       const panes = rest.filter((p) => p.session === s);
       return { id: `session:${s}`, label: s || "Session", panes };
@@ -201,7 +202,7 @@ export function setupSidebar(ctx) {
     markWorking(img, p, ctx.logos);
     // By state the session is context; by session it is the group heading already.
     text(node.querySelector("b"), paneName(p));
-    text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
+    text(node.querySelector(".s"), (!bySession() || g.id === "need") && sessionOf(p) ? ` · ${sessionOf(p)}` : "");
     ctx.html(node.querySelector(".sb-acct"), ctx.badge(p.pane_id));
     text(node.querySelector(".a"), p.ending || age(p));
     // Needs you is about the question and its answers, so its cards only count sub-agents.
@@ -263,7 +264,7 @@ export function setupSidebar(ctx) {
       b._p = p;
       markEnding(b, p);
       const agents = subagentCount(p);
-      b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}${ctx.outside(p) ? ", outside filter" : ""}`;
+      b.ariaLabel = `${[sessionOf(p), paneName(p)].filter(Boolean).join(" / ")}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}${ctx.outside(p) ? ", outside filter" : ""}`;
       b.classList.toggle("need", ctx.asks(p));
       b.dataset.state = ctx.asks(p) ? "need" : isRunning(p) ? "run" : "";
       b.classList.toggle("outside", ctx.outside(p));
@@ -287,7 +288,7 @@ export function setupSidebar(ctx) {
     markWorking($c("img"), p, ctx.logos);
     text($c("b"), paneName(p));
     text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
-    text($c(".w"), [p.session, p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
+    text($c(".w"), [sessionOf(p), p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
     ctx.html($c(".sb-acct"), ctx.badge(p.pane_id));
     $c(".badge").className = `badge ${ctx.badgeOf(p).cls}`;
     text($c(".badge"), [ctx.badgeOf(p).label, since(p)].filter(Boolean).join(" · "));
@@ -360,7 +361,7 @@ export function setupSidebar(ctx) {
   function marks(filter) {
     filters = filter;
     show.mark((v) => v === "all" ? !filter.length : filter.includes(v));
-    by.mark((v) => v === prefs.by);
+    by.mark((v) => v === prefs.by); by.hidden = oneSession();
     sortBy.mark((v) => v === ctx.sort());
   }
   render.marks = marks;

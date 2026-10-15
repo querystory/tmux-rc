@@ -66,6 +66,8 @@ strictness is correct:
   An omitted `parse_ok` means success, matching the watcher.
 - `agents` and `subagent_states` — opt-in worker checks. When supplied, compare the busy
   background count and the sorted multiset of worker states (including duplicates).
+- `status_entries_exclude` — opt-in list of status readouts that must not come back as
+  chips, because a field of their own already shows them (context, cost).
 - `subagents_include` — opt-in list of partial worker rows; each must exactly match the
   given fields of some parsed row (e.g. a workflow row's `label` and `progress`).
 - `working_prs` — opt-in exact comparison of semantic `owner/name#number` associations.
@@ -89,7 +91,8 @@ strictness is correct:
   command text. Pinned `null`, it asserts the menu is not restated at all (a numbered
   choice that is not an approval keeps its own question).
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
-  ("Yes…") then a decline ("No…"); their wording is not pinned.
+  ("Yes…") then a decline ("No…"); their wording is not pinned. Pinned `false`, there
+  must be none (a handed-over `! command` is not a question to reply to).
 - `links` — opt-in list of URLs, each of which must be offered whole among the candidate's
   link hrefs (extra links are fine): a URL the terminal wrapped must not arrive as a fragment.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.
@@ -193,6 +196,7 @@ actually hit:
 | `90_claude_question_names_list_items` | a closing "do 1 now and prepare the list for 2?" under a numbered list → those two rows in `question.items`, not the unnamed third |
 | `92_claude_question_names_lettered_options` | a bare "Go with A or B?" under lettered options → the A and B rows in `question.items`, and the line leading into them in `question.subject` |
 | `93_claude_decision_heading_above_options` | a heading over bulleted "Option A:" / "Option B —" rows, asked "option A or B?" → the heading as `question.subject`, both rows in `question.items` |
+| `100_claude_handoff_beside_suggested_command` | a `! command` handoff in Claude's right-barred transcript, its greyed suggestion in the box → text user-wait quoting the agent, no reply buttons |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

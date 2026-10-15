@@ -690,13 +690,14 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .loop-orphan { font-size: 12px; color: var(--amber); }
 .loop-notes { margin-top: 16px; }
 /* The Open loops card: a tile per lane (each opens the page at its lane), then the top rows. */
-.loop-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
-.loop-count { display: flex; flex-direction: column; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--c); }
-.loop-count b { font-size: 24px; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.loop-count span { font-size: 12px; color: var(--muted); }
-.loop-count.waiting { --c: var(--amber); background: var(--amber-bg); border-color: transparent; }
-.loop-count.moving { --c: var(--accent); }
-.loop-count.dropped { --c: var(--red); }
+/* The dashboard's KPI tiles: a big coloured number over its label (Open loops, Running by hour). */
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
+.kpi { display: flex; flex-direction: column; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--c); }
+.kpi b { font-size: 24px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 12px; color: var(--muted); }
+.kpi.waiting { --c: var(--amber); background: var(--amber-bg); border-color: transparent; }
+.kpi.moving { --c: var(--accent); }
+.kpi.dropped { --c: var(--red); }
 #loops-card h4 { margin: 8px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 #loops-card .loop-row:first-of-type { border-top: 0; }
 #loops-card .loop-row a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1029,6 +1030,14 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 .heat-total { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 8px; padding-left: 8px; --u: var(--chart-s1); }
 .heat-total .usage-bar { margin: 0; grid-column: auto; }
 .heat-total b { min-width: 4ch; text-align: right; font-weight: normal; } /* regular: bold glyphs in this grid rasterised differently run to run */
+/* The card's grid takes the height its row leaves (contain: size, so it never sets the row),
+   its rows sharing it, over the figures: 2×2, or one row once the card is wide. */
+.atlas-heat-card { display: flex; flex-direction: column; container-type: inline-size; }
+.atlas-heat-card > .heat-grid { flex: 1 1 auto; contain: size; min-height: calc(14px + 7 * (var(--rh) + 2px)); grid-template-rows: 14px; grid-auto-rows: minmax(0, 1fr); }
+.atlas-heat-card .heat-cell { height: auto; align-self: stretch; }
+.heat-kpis { --c: var(--accent); grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 12px 0 0; }
+.heat-kpis .kpi span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (min-width: 600px) { .heat-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .atlas-detail-card { cursor: pointer; }
 .atlas-detail-card:hover { border-color: var(--muted); }
 .heat-foot { margin: 12px 0 0; font-size: 12px; text-align: center; }
