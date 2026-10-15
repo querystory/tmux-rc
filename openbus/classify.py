@@ -1046,9 +1046,10 @@ _FORBIDS_RE = re.compile(
 
 
 def _plain(text: str) -> str:
-    """Text as the screen draws it, near enough to compare: no Markdown marks or fence rows
-    (with their language tag), one space."""
-    return " ".join(re.sub(r"(?m)^[ \t]*(?:```|~~~).*$|[`*]|^\s*●\s", "", text).split())
+    """Text as the screen draws it, near enough to compare: no fence rows (with their language
+    tag), backticks or emphasis marks, one space. A `*` standing alone is a glob, and kept."""
+    return " ".join(re.sub(r"(?m)^[ \t]*(?:```|~~~).*$|`|\*\*|(?<![\w*])\*(?=[^\s*])"
+                           r"|(?<=[^\s*])\*(?![\w*])|^\s*●\s", "", text).split())
 
 
 def _offers(message: str, reply: str | None) -> list[str]:
@@ -1093,9 +1094,13 @@ def _offers(message: str, reply: str | None) -> list[str]:
     def cut(o: str) -> bool:  # a command a blank row in its script may have cut short
         return o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:]))
 
-    return list(dict.fromkeys(o for o in found if not cut(o) and re.search(
-        r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
-        + r"(?![^\s\"”`.,;:?!)])", message)))[:3]
+    def shown(o: str) -> bool:
+        return bool(re.search(
+            r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
+            + r"(?![^\s\"”`.,;:?!)])", message))
+
+    # Three at most, checked one at a time: a command past the third never reaches bash.
+    return list(islice((o for o in dict.fromkeys(found) if shown(o) and not cut(o)), 3))
 
 
 @lru_cache(maxsize=256)

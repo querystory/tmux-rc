@@ -1383,6 +1383,15 @@ def test_codex_offers_nothing_yet():
     assert "offers" not in result and result["question"]["options"] == ["try again"]
 
 
+def test_offers_stop_at_three_before_asking_bash(monkeypatch):
+    import openbus.classify as C
+    asked = []
+    monkeypatch.setattr(C, "_parses", lambda command: asked.append(command) or True)
+    reply = " ".join(f"`! make t{i}`" for i in range(8))
+    result = classify(_pane("claude"), _auto_screen(reply.replace("`", "")), _llm({}), reply=reply)
+    assert result["offers"] == ["! make t0", "! make t1", "! make t2"] and len(asked) == 3
+
+
 def test_finished_turn_offers_the_replies_it_hands_over():
     command = "! gh pr update-branch 5269 && gh pr merge 5269 --squash --auto"
     message = (f"Run it yourself with the ! prefix:\n\n  {command}\n\n  That updates the branch."
@@ -1440,6 +1449,7 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen("Run ! gh pr merge 415 now."), "Run `! gh pr merge 41` now."),  # shorter
         (_auto_screen("Run ! cat 'a b.txt' now."), "Run `! cat 'a  b.txt'` now."),  # spacing
         (_auto_screen("Run ! rm /tmp/cache.old now."), "`! rm /tmp/cache`"),  # a fragment
+        (_auto_screen("Run ! rm /tmp/cache * now."), "Run `! rm /tmp/cache` now."),  # a glob
         (_auto_screen("""Run ! printf 'say "merge all"' now."""), None),  # a command's quotes
         (_auto_screen("""Use printf 'say "merge all"' as the fixture."""),
          """Use `printf 'say "merge all"'` as the fixture."""),  # quotes inside inline code
