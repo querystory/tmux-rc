@@ -36,7 +36,8 @@
       const root = document.documentElement, KEY = "tmuxrc-boot-failure", booted = () => root.matches(".booted:not(.unstyled)");
       const send = (message) => navigator.sendBeacon?.("/api/client-error", JSON.stringify({ kind: "boot", message }));
       let reason, last;
-      const heal = (n, down) => setTimeout(() => fetch("/api/version", { cache: "no-store" })
+      // Each probe gets a deadline: a request stalled in the tunnel would hold up the next.
+      const heal = (n, down) => setTimeout(() => fetch("/api/version", { cache: "no-store", signal: AbortSignal.timeout?.(5000) })
         .then((r) => { if (!r.ok) throw r.status; if (!booted() && (down || !last)) location.reload(); })
         .catch(() => n < 3 && heal(n + 1, true)), 2000 << n);
       const fail = (why) => {
