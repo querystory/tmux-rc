@@ -168,6 +168,7 @@ def offer(history) -> dict | None:
     found = candidate(history)
     if found is None:
         return None
+    agent_history.reconcile()  # every pane is judged by its transcript's latest state
     died = found["died_at"]
     for window in found["windows"].values():
         for pane in window["panes"]:

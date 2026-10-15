@@ -64,6 +64,15 @@ def get(session_id: str) -> dict | None:
     return _run("get", session_id)
 
 
+def reconcile() -> None:
+    """Bring the index up to date with every transcript: about a second cold, a fraction
+    warm. Without Claude Code's hook installed, nothing else refreshes it for hours, and a
+    restore judged on it saw sessions from that morning as days idle, or not at all."""
+    exe = binary()
+    if exe:
+        subprocess.run([exe, "reconcile"], capture_output=True, timeout=60, check=False)
+
+
 def live() -> dict | None:
     """{"sessions": {id: {pid, harness, ...}}, "unknown": [harness]}: every live session,
     and the harnesses that couldn't tell. None if agent-history is unavailable."""

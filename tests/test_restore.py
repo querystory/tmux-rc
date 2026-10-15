@@ -25,6 +25,7 @@ def server(monkeypatch, tmp_path):
     made = []
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.setattr(R.agent_history, "live", lambda: {"sessions": {}, "unknown": []})
+    monkeypatch.setattr(R.agent_history, "reconcile", lambda: None)
 
     def start():
         name = f"restore-test-{uuid.uuid4().hex[:8]}"
