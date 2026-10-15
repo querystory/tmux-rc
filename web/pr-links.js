@@ -34,5 +34,5 @@ export function paneLinks(pane) {
 export function askLink(pane) {
   const q = pane?.question;
   return q && /\b(link|url|browser)\b|https?:\/\//i.test(`${q.ask || ""}\n${q.prompt || ""}`)
-    ? paneLinks({ links: pane.links })[0] || null : null;
+    ? paneLinks(pane).slice(paneLinks({ prs: pane.prs }).length)[0] || null : null; // past the PRs, deduped
 }

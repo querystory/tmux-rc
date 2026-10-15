@@ -109,4 +109,6 @@ test("a question that points at a link leads with the first screen link, never a
   assert.equal(askLink(ask("Merge it now?")), null);
   assert.equal(askLink({ ...pane, question: { ask: "Open the link" } }), null);
   assert.equal(askLink({ ...pane, links: [login] }), null);
+  const pr = "https://github.com/querystory/qs-app/pull/4955";
+  for (const href of [pr, pr + "/"]) assert.deepEqual(askLink({ ...ask("Open this link"), links: [{ href, text: "PR" }, login] }), login);
 });
