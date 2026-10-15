@@ -575,6 +575,23 @@ def test_failed_parse_never_restores_the_last_cards_offers(monkeypatch):
         assert needs_you(state) == bool(offers), "the offer's wait leaves with it"
 
 
+def test_a_failed_read_does_not_inherit_an_offers_wait(monkeypatch):
+    """A new turn typed in tmux after an offer: a failed read holds the activity from before
+    the offer made it a wait, so Claude's live spinner can still read as running."""
+    frame = ["Done"]
+    w, _calls = _harness(monkeypatch, frame)
+    seen = []
+    monkeypatch.setattr(W, "classify", lambda *_a, **kw: seen.append(kw["prev_activity"]) or {
+        "activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
+        "offers": ["merge 415"]})
+    pane = _Pane(current_command="node")
+    for text in ("Done", "Done\n> merge 415"):
+        frame[0] = text
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert seen == [None, "idle"]
+
+
 def test_an_unreparsed_screen_still_reads_its_own_offers(monkeypatch):
     """The fingerprint ignores durations, so "10s" -> "20s" reuses the card, but its offer
     must still be what the screen shows: the 10s transcript no longer is."""

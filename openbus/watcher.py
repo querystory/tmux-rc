@@ -1448,6 +1448,8 @@ class Watcher:
             else None
         )
         self._parsed_reply[pane.id] = reply
+        held = dict(previous or {})  # what we last knew, so a failed parse holds that,
+        put_offers(held, None)  # but not a wait its offers made: this screen reads its own
         state = classify(
             pane,
             text,
@@ -1456,8 +1458,7 @@ class Watcher:
             reply=reply,
             prior=prior,
             recent_events=recent_texts,
-            # What we last knew, so a failed parse holds that instead of guessing.
-            prev_activity=(previous or {}).get("activity"),
+            prev_activity=held.get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
         # Preserve the parsed conversation name before session is stamped with the
