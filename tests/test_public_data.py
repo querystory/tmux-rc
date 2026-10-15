@@ -14,8 +14,8 @@ ROOT = Path(__file__).parents[1]
 SAMPLES = sorted((ROOT / "research/eval/samples").glob("*.json"))
 
 # A login, an address outside the example domains, or a credential shape.
-IDENTITY = (r"shapor|/Users/|[\w.+-]+@(?!(?:[\w-]+\.)*example(?:-org)?\.(?:com|net|org)\b)"
-            r"[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
+IDENTITY = (r"shapor|/Users/"
+            r"|[\w.+-]+@(?!(?:[\w-]+\.)*example(?:-org)?\.(?:com|net|org)(?![\w-]|\.\w))[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
             r"|AKIA[0-9A-Z]{8}|AIza[0-9A-Za-z_-]{10}|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY")
 PRIVATE = re.compile(IDENTITY, re.IGNORECASE)
 # How a sample says it was copied off a real screen.
@@ -28,6 +28,14 @@ OVERSIZED = {"19_codex_orchestrating_claude", "64_omp_wrapped_by_bash",
 
 FIXTURES = [*SAMPLES, *(ROOT / "research/eval/closing_questions").glob("*.json"),
             *(ROOT / "research/samples").glob("*.txt")]
+
+
+@pytest.mark.parametrize(("text", "private"), [
+    ("user@example.com.", False), ("dev@ci.example-org.com", False), ("x@4.149.0", False),
+    ("x@example.com.other.invalid", True), ("x@example.com-mail.invalid", True),
+    ("x@examplebusiness.invalid", True), ("x@1mail.invalid", True)])
+def test_only_example_addresses_pass(text, private):
+    assert bool(PRIVATE.search(text)) is private
 
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.name)
