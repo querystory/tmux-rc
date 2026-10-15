@@ -168,13 +168,22 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
 /* The phone's tab bar: Dashboard, Sessions, the mic, Chat and Needs you on a glass pill that
    floats over the page's foot (which leaves it --bar-room), so the list shows through it.
-   Chat and the mic are toggles in the thumb's reach; only Needs you carries a count. */
+   Chat and the mic are toggles in the thumb's reach; only Needs you carries a count.
+   The glass reads as a lens (iOS 26's, as GitHub's app has it): a thin fill, so what is under
+   it shows; a light blur with strong saturation, so it is vivid rather than milky; a bright
+   top edge and a sheen fading down it; a soft shadow. Each theme tunes its own, and labels
+   take a halo of the glass's tint so they stay legible over busy rows. Refraction would need
+   an SVG backdrop filter, which only Chromium draws, so there is none. */
 #app { --bar-room: calc(84px + max(8px, env(safe-area-inset-bottom))); }
 #list-nav { position: absolute; z-index: 3; left: 14px; right: 14px; bottom: max(8px, env(safe-area-inset-bottom)); max-width: 480px; margin: 0 auto; display: flex; height: 64px; padding: 4px; border-radius: 32px;
-  background: color-mix(in srgb, var(--surface) 55%, transparent); -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%);
-  border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); box-shadow: 0 12px 32px rgb(0 0 0 / .16), 0 2px 6px rgb(0 0 0 / .08); }
-#list-nav button { flex: 1 1 0; min-width: 0; width: auto; height: auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 2px; border-radius: 28px; font-size: 10.5px; font-weight: 600; white-space: nowrap; color: var(--muted); box-shadow: none; }
-#list-nav svg { width: 22px; height: 22px; }
+  --fill: rgb(28 34 31 / .18); --sheen: rgb(255 255 255 / .12); --edge: rgb(255 255 255 / .14); --spec: rgb(255 255 255 / .3); --ink: #e3eae6; --halo: rgb(0 0 0 / .55);
+  --lens: blur(8px) saturate(200%) brightness(.8); --drop: 0 12px 30px rgb(0 0 0 / .55), 0 2px 6px rgb(0 0 0 / .35);
+  background: linear-gradient(180deg, var(--sheen), transparent 55%), var(--fill); -webkit-backdrop-filter: var(--lens); backdrop-filter: var(--lens);
+  border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--spec), inset 0 -1px 1px rgb(0 0 0 / .06), var(--drop); }
+:root.light #list-nav { --fill: rgb(255 255 255 / .08); --sheen: rgb(255 255 255 / .38); --edge: rgb(255 255 255 / .65); --spec: #fff; --ink: #1f2e27; --halo: rgb(255 255 255 / .7);
+  --lens: blur(8px) saturate(220%) brightness(1.03); --drop: 0 10px 28px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .12); }
+#list-nav button { flex: 1 1 0; min-width: 0; width: auto; height: auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 2px; border-radius: 28px; font-size: 10.5px; font-weight: 600; white-space: nowrap; color: var(--ink); text-shadow: 0 0 4px var(--halo); box-shadow: none; }
+#list-nav svg { width: 22px; height: 22px; filter: drop-shadow(0 0 3px var(--halo)); }
 #list-nav :is([aria-pressed="true"], #chat.active) { background: var(--accent-bg); color: var(--accent); }
 #list-nav #attention-tab[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
 #list-nav #chat::after { content: attr(aria-label); }
@@ -249,11 +258,13 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #capture a { color: #8ecbff; }
 #capture.clicks { cursor: default; user-select: none; -webkit-user-select: none; }
 #session-summary { margin-top: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
-#links a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
+#links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
 #links a:last-child { border-bottom: 0; }
-#links a span, #links a small { overflow-wrap: anywhere; }
-#links a small { color: var(--muted); font-size: 12px; grid-column: 1; }
-#links a svg { grid-column: 2; grid-row: 1 / 3; }
+#links a span, #links a small, #ask-link a span, #ask-link a small { overflow-wrap: anywhere; }
+#links a small, #ask-link a small { color: var(--muted); font-size: 12px; grid-column: 1; }
+#links a svg, #ask-link a svg { grid-column: 2; grid-row: 1 / 3; }
+/* The link a question asks you to open leads its card, framed like its answers. */
+#ask-link a { margin-top: 14px; padding: 8px 14px; border: 1px solid var(--amber); border-radius: 6px; }
 .pane-table + .pane-table { margin-top: 20px; }
 .pane-table h2 { margin-bottom: 8px; }
 .table-scroll { overflow: auto; max-width: 100%; max-height: 60dvh; overscroll-behavior: contain; }
