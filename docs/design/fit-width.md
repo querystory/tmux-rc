@@ -5,10 +5,13 @@ pane's ⋯ menu).
 
 ## Why
 
-The phone's terminal view is not a tmux client. It renders `capture-pane` output, so every
-line arrives already wrapped at the window's width. A window last sized by a 200-column
-desktop terminal reaches a 45-column phone as lines four screens wide: you either pan
-sideways on every line or shrink the font until it is unreadable.
+The phone's terminal view is not a tmux client. It renders `capture-pane` output, and the
+programs it shows, agent TUIs above all, lay themselves out at their window's width: they
+break lines, draw boxes and place status rows for the terminal they think they are in. A
+window last sized by a 200-column desktop terminal reaches a 45-column phone as rows four
+screens wide: you either pan sideways on every line or shrink the font until it is
+unreadable. (Plain text that tmux itself wrapped is no help either: the capture joins it
+back into one long line.)
 
 The fix is to make tmux wrap where the phone does. While a viewer looks at a pane it
 reports how many columns it can show at its current font, and the daemon resizes the
