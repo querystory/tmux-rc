@@ -36,8 +36,10 @@ def _run(args: list[str]) -> str:
 def just_resized(pane_id: str) -> bool:
     """Did we resize this pane's window a moment ago? Its app redraws for the new width,
     and the watcher must not read that redraw as the app doing something. One answer per
-    resize: the change after the redraw is the app's own."""
-    return time.monotonic() - _resized.pop(pane_id, float("-inf")) < SETTLE_SECONDS
+    resize: the change after the redraw is the app's own. Under the lock, so a look taken
+    while a resize is landing waits for its token."""
+    with _lock:
+        return time.monotonic() - _resized.pop(pane_id, float("-inf")) < SETTLE_SECONDS
 
 
 def view(pane_id: str, cols: int, force: bool = False) -> bool:

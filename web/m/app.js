@@ -1050,13 +1050,14 @@ function termCols() {
 let fitLine = Promise.resolve(), fitBusy = 0; // fitBusy: reports queued or in flight
 function fitTo(id, cols) {
   if (!id || !cols) return; // a hidden view measures nothing
-  const body = { cols, force: $("fit-toggle").checked };
+  const body = { cols, force: $("fit-toggle").checked }, signal = detailController?.signal;
+  const current = () => !signal?.aborted && id === active; // a reply to a stream since replaced is stale
   fitBusy++;
   fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body)).finally(() => fitBusy--).then((r) => {
-    if (id !== active || !terminalVisible()) return;
+    if (!current() || !terminalVisible()) return;
     fitCols = cols; show("fit-pane", r.attached);
     refit(); // resized while this was in flight: the last size wins
-  }, () => { if (id === active) fitCols = 0; });
+  }, () => { if (current()) fitCols = 0; });
 }
 const refit = () => { const cols = terminalVisible() && termCols(); if (cols && cols !== fitCols) fitTo(active, cols); };
 try { $("fit-toggle").checked = localStorage.getItem("tmuxrc-fit") === "1"; } catch {}
