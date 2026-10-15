@@ -181,6 +181,8 @@ minute per profile its panes run: `omp usage --json --provider anthropic` names 
 by an account id that equals Claude's `accountUuid`. An omp pane then counts as a pane of
 every listed Claude account its profile holds, for the chip and for "in use". Every one,
 not a guess at one: which login a rotating profile is on at a given moment is not exposed.
+The pane still wears one chip, the first such account's: several chips would claim more
+than is known, and the account filter matches the pane on any of them.
 Only `--provider anthropic`, since asking every provider takes about 15 seconds against
 about one. A request never waits on omp; it reads the last answer, which a failed read
 keeps. omp's numbers are not new meters (yet): the account's own Claude meters already
