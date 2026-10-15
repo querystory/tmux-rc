@@ -97,7 +97,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
   pill.onclick = (e) => { const b = e.target.closest("button"); if (b) "all" in b.dataset ? clearAll() : b.closest("[data-q]") ? clearQuery() : b.closest("[data-chip]") ? clearChip(b.closest("[data-chip]").dataset.chip) : setFilter(b.dataset.acct); };
 
-  // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
+  // ---- usage: named by profile, filtered, and with several, ordered by urgency ----
   // A meter's account is the profile of its first listed dir; one no longer listed (removed)
   // drops out. Before the first answer the meters stand as they come.
   function usage(list) {
@@ -112,36 +112,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
   const byUrgency = (list) => list.flatMap((a) => a.windows?.length ? a.windows.map((w) => ({ ...a, windows: [w] })) : [a])
     .sort((a, b) => urgency(b.windows?.[0]) - urgency(a.windows?.[0]));
-  // One swipeable row (the wide dashboard's groups): the edge fades only while there is more
-  // that way, rechecked on a resize too.
-  function strip(el, on) {
-    el.classList.toggle("acct-strip", on);
-    el.onscroll ||= () => { // reads the class: the board's groups() may since have dropped it
-      const on = el.classList.contains("acct-strip");
-      el.classList.toggle("more-r", on && el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
-      el.classList.toggle("more-l", on && el.scrollLeft > 2);
-    };
-    el.onscroll();
-    (el._resize ||= new ResizeObserver(() => el.onscroll())).observe(el);
-  }
-  // Meters, in the list's order: with more than one account among them, each account's under
-  // its chip (in the order the account first comes), details in its tooltip. The chip names
-  // the account once, so its meters' tooltips drop it; with one account shown, nothing names it.
-  function groups(el, list, render) {
-    const by = new Map();
-    for (const a of list) by.set(a.acct, [...by.get(a.acct) || [], { ...a, label: null }]);
-    const several = by.size > 1;
-    el.classList.toggle("usage-groups", several);
-    if (!several) { el._groups = null; return render(el, list); }
-    el.hidden = false; el._html = null; // renderUsage's own cache, for when it draws here again
-    const markup = [...by].map(([p, metered], i) => {
-      const tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
-      return `<div class="ug" data-i="${i}" style="--n:${metered.reduce((n, a) => n + (a.windows?.length || 1), 0)}"><div class="ug-label" title="${esc(tip)}">${badge(p)}</div><div class="ug-cells"></div></div>`;
-    }).join("");
-    if (el._groups !== markup) { el.innerHTML = markup; el._groups = markup; }
-    const metered = [...by.values()];
-    el.querySelectorAll(".ug").forEach((g) => render(g.lastChild, metered[g.dataset.i]));
-  }
 
   // ---- New window: an account per provider with several, preset to the session's default ----
   const set = (session, provider) => !!defaults[session]?.[provider]; // its tmux env names a dir
@@ -322,7 +292,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
 
   function matches(pane) { const on = active(); return !on.length || on.includes(profiles.find((p) => p.panes.includes(pane.pane_id))); }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
+    refresh, usage, byUrgency, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
     // Settings' list: each account, who it is and where, its sheet a click away.
     rows: () => profiles.map((p) => `<div class="set-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></div>`).join(""),
     // The URL's accounts in, and out for the next URL; follow says whether they changed.

@@ -895,37 +895,37 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 }
 
 
-/* Plan limits (usage.js): one flat grid of gauges, two to a row. A phone's list opens on it
-   (it scrolls away under the pinned search); wide, it sits on the sidebar's foot. */
-#usage { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; align-items: start; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
+/* Plan limits (usage.js): one row of small ring cards (the tab bar mock's modern pass),
+   swiped sideways and snapping per card; the next peeks in at the edge to say there is
+   more. A phone's list opens on it (it scrolls away under the pinned search); wide, it sits
+   on the sidebar's foot; the dashboard's card wraps them instead. */
+:is(#usage, .usage-board):not([hidden]) { display: flex; gap: 8px; }
+#usage { padding: 8px 16px 10px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; flex: none; cursor: pointer; }
+#usage::-webkit-scrollbar { display: none; }
 #usage[hidden], #app.rail :is(#usage, #usage-handle) { display: none; }
-#usage { cursor: pointer; }
-/* The dashboard's card: the same cells, as many to a row as fit. */
-.usage-board { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 24px; font-size: 13px; line-height: 18px; }
-.usage-cell { --u: var(--accent); min-width: 0; }
+.usage-board:not([hidden]) { flex-wrap: wrap; }
+.usage-cell { --u: var(--accent); flex: 0 0 auto; scroll-snap-align: start; display: grid; grid-template-columns: 30px auto; gap: 1px 10px; align-items: center; padding: 8px 14px 8px 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
-/* Its first line: the window shrinks (an ellipsis) before the % or the reset do. */
-.usage-line { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
-.usage-cell span, .usage-cell small, .usage-cell.none, .usage-stale { color: var(--muted); white-space: nowrap; }
-.usage-cell span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.usage-cell img { vertical-align: -2px; margin-right: 5px; border-radius: 3px; }
-.usage-cell b { flex: none; font-variant-numeric: tabular-nums; margin-left: 2px; }
-.usage-cell small { flex: none; margin-left: auto; padding-left: 4px; font-size: 11px; }
-.usage-cell:is(.warn, .full) b, .usage-cell .out { color: var(--u); } /* a run-out forecast takes the reset's place */
-.usage-bar { display: block; position: relative; height: 5px; margin: 3px 0 1px; border-radius: 3px; background: var(--raised); }
+.usage-ring { grid-row: 1 / 3; width: 30px; height: 30px; border-radius: 50%; background: conic-gradient(var(--u) calc(var(--p) * 1%), var(--raised) 0); display: grid; place-items: center; }
+.usage-ring::after { content: ""; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); }
+.usage-cell b { font-size: 14px; line-height: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.usage-cell b small { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.usage-cell b small.out { color: var(--red); }
+.usage-cell span, .usage-stale { display: flex; align-items: center; gap: 5px; font-size: 11.5px; line-height: 15px; color: var(--muted); white-space: nowrap; }
+.usage-cell img { width: 12px; height: 12px; border-radius: 3px; }
+.usage-cell.none { grid-template-columns: auto; }
+/* The heatmap's row totals borrow the bar. */
+.usage-bar { display: block; position: relative; height: 5px; border-radius: 3px; background: var(--raised); }
 .usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
-.usage-bar > .ahead { opacity: .3; }
-.usage-bar > .pace { width: 2px; inset: -2px auto -2px auto; margin-left: -1px; border-radius: 1px; background: var(--fg); opacity: .55; }
 @media (max-width: 1099px) { #usage { order: -1; border-bottom: 1px solid var(--line); } }
 @media (min-width: 1100px) {
-  /* One gauge to a row, so the reset fits beside the window; many accounts scroll, the list keeps the rest. */
-  #usage { grid-template-columns: 1fr; gap: 4px; max-height: 35%; overflow-y: auto; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
-  #usage .ug-cells { grid-template-columns: 1fr; gap: 4px; }
-  /* Its seam (app.js sizeUsage), over the border it moves. Dragged, the strip takes the chosen
-     height, scrolling what it cannot show. Under one row the strip dims: let go to close it. */
+  #usage { padding: 8px 14px 10px; scroll-padding-inline: 14px; border-top: 1px solid var(--line); }
+  /* Its seam (app.js sizeUsage), over the border it moves. Dragged taller, the cards wrap into
+     rows rather than swipe, scrolling what the height cannot show. Under one row the strip
+     dims: let go to close it. */
   #usage-handle { flex: none; position: relative; z-index: 5; height: 9px; margin-bottom: -5px; cursor: row-resize; touch-action: none; }
-  #usage.sized { height: var(--usage-h); max-height: 60%; }
+  #usage.sized { flex-wrap: wrap; align-content: flex-start; height: var(--usage-h); max-height: 60%; overflow-y: auto; }
   #usage.closing { opacity: .4; }
 }
 
@@ -1086,10 +1086,9 @@ button.picked:disabled { opacity: 1; }
 #pane-location .acct-badge b { font-variant-numeric: tabular-nums; } /* its account's 5h and 7d (usage.js inlineUsage), coloured as the strip's meters */
 @media (max-width: 1099px) { #pane-location .acct-badge { display: flex; width: fit-content; margin-bottom: 2px; } } /* a phone's chip, meter and all, gets its own line: the path keeps the next */
 .acct-badge .warn { color: var(--amber); } .acct-badge .full { color: var(--red); }
-/* The strip's last row (app.js usageEnd): the accounts not in use, folded into a "+N"
+/* The strip's last card (app.js usageEnd): the accounts not in use, folded into a "+N"
    (usage.js inUse), and how old a kept reading is. */
-.usage-end { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 11px; }
-#usage-panel > .usage-end { margin-top: 8px; }
+.usage-end { flex: none; scroll-snap-align: start; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 4px; padding: 0 4px; }
 #usage-more { display: inline-flex; align-items: center; gap: 3px; min-height: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; cursor: pointer; }
 #usage-more:hover { color: var(--fg); border-color: var(--muted); }
 #app.rail #usage-more { display: none; }
@@ -1142,29 +1141,6 @@ button.picked:disabled { opacity: 1; }
   #side-filter-picker .acct-opt { min-height: 44px; font-size: 15px; }
 }
 #app.rail .acct-pill { display: none; }
-/* The wide dashboard's row of account groups, when too narrow for them: swiped sideways,
-   snapping per group, the edge fading while there is more that way. */
-.acct-strip { overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; }
-.acct-strip::-webkit-scrollbar { display: none; }
-.acct-strip.more-r { mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
-.acct-strip.more-l { mask-image: linear-gradient(90deg, transparent, #000 36px); }
-.acct-strip.more-l.more-r { mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
-/* Several accounts' meters: each account's chip once, over its gauges two to a row (the
-   strip, the sidebar's foot, a phone's card). The wide dashboard lays the groups on one
-   line, never wrapped, one thin divider between them; a group grows by its meter count, so
-   the gauges share the line evenly down to 165px each (a gauge's first line), past which the line scrolls. */
-.ug { grid-column: 1 / -1; position: relative; display: flex; flex-direction: column; gap: 2px; }
-.ug + .ug { margin-top: 4px; }
-.ug-label { display: flex; font-size: 12px; color: var(--muted); cursor: default; }
-.ug-label .acct-badge { pointer-events: none; font-size: 10px; line-height: 13px; } /* small; and hover reads the label's fuller tooltip, not the chip's */
-.ug-cells { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
-@media (min-width: 1100px) {
-  #usage-board.usage-groups:not([hidden]) { display: flex; gap: 0 33px; align-items: flex-start; }
-  #usage-board .ug { flex: var(--n) 1 0; gap: 8px; margin: 0; scroll-snap-align: start; }
-  #usage-board .ug + .ug::before { content: ""; position: absolute; inset: 0 auto 0 -17px; border-left: 1px solid var(--line); }
-  #usage-board .ug-cells { display: flex; gap: 12px; }
-  #usage-board .ug-cells .usage-cell { flex: 1 1 0; min-width: 165px; } /* the window, %, and reset on one line */
-}
 /* The usage view (usage-view.js): a chart per window type filling the page, the range
    control at its top right; a phone shows one chart at a time, its tabs under the range. */
 #dash-page:has(> .usage-view) { container: dash-page / inline-size; display: flex; flex-direction: column; height: 100%; }

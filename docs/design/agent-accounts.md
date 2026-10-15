@@ -76,28 +76,15 @@ alike; see [sidebar.md](sidebar.md).
   dir its tmux environment sets), and nothing when it sets none or sets what the global
   environment already does: a session that starts new windows on an account other
   sessions do not is worth seeing at a glance; a default every session shares is not.
-- **Usage strip:** with more than one account among its meters, each account's gauges sit
-  under its chip, two to a row, the account with the most urgent meter first and its meters
-  most urgent first (full soonest, then the highest pace at the reset). It used to be one
-  row that swiped sideways, each meter carrying the chip in its corner: on a real phone the
-  third gauge sat cut off at the edge, which is exactly where a full window hides, and the
-  same chip repeated at a different spot under every gauge read as noise. A heading names the
-  account once; a meter's title keeps just the window (a name there was truncated first and
-  read as part of it, "7d QSI"). With one account shown, nothing names it: a casual user
-  with one plan never sees account chrome. The strip scrolls away with a phone's list, so a
-  taller grid costs nothing once you are past it, and the sidebar's strip and a phone's
-  dashboard card use the same groups.
-- **Dashboard Plan usage:** wide, every meter on one line, grouped per account with one thin
-  divider between groups. Each group is headed by its chip, flush left over its first meter,
-  with the details (who, plan, dir, panes) in its tooltip, and Codex gets a chip like the
-  rest. The meters share the line evenly, down to 165px each (room for a gauge's one-line
-  window, percentage and reset), which fits eight on a 1500px card; below that the line
-  scrolls with edge fades rather than wrapping. A
-  wrapped second row looked broken: its chips floated in the gap, and its groups did not
-  line up with the first row's. Chips centred over their groups, on the heading line to
-  save a row, read as loose labels rather than headings, so they now take a row. The chip
-  names the account once over its meters, so the meters carry none. A phone's dashboard
-  uses the strip, a chip on each meter.
+- **Usage strip:** one card per window (plan-usage.md) in one row that swipes, most urgent
+  first (full soonest, then the highest pace at the reset). Each card names its account and
+  window on its own short line, "Claude Work · 7d", rather than a chip in a corner. On a real
+  phone, a chip under every bar gauge read as noise, and a heading per account over a grid
+  made the strip two thirds of the screen. A name in the window's title was tried first: it
+  was truncated first and read as part of the window ("7d QSI"). The card's line has room for
+  both, and it never truncates.
+- **Dashboard Plan usage:** the same cards, wrapping since the card has room, most urgent
+  first, so nothing hides behind a swipe there.
 - **Filter** is a list filter, so it sits with the list's other one rather than in Settings:
   on wide, an "Account" group (All accounts, then each account, several at once) under
   "State" in the filter button's menu beside the search box, combining with it (Working +

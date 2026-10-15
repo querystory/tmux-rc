@@ -677,8 +677,8 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
 let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
-// A strip's last row: the idle accounts' "+N" and, when a reading was kept through failed
-// reads, how old, once rather than under every meter. Redrawn only when changed or wiped.
+// A strip's last card: the idle accounts' "+N" and, when a reading was kept through failed
+// reads, how old, once rather than on every card. Redrawn only when changed or wiped.
 function usageEnd(el, list, more = "") {
   const html = el.hidden ? "" : more + staleUsage(list), was = el.querySelector(":scope > .usage-end");
   if (was?._html === html && el.lastElementChild === was) return;
@@ -686,18 +686,16 @@ function usageEnd(el, list, more = "") {
   if (html) el.insertAdjacentHTML("beforeend", `<div class="usage-end">${html}</div>`), el.lastElementChild._html = html;
 }
 const paintUsage = steady(() => {
-  // Several accounts: under a heading each (accounts.js), most urgent first; the strip names only
-  // those in use, judged before Auto drops quiet meters, and folds the idle ones into a "+N",
-  // its last cell (usage.js). A login's panes are those of every dir it covers.
+  // Several accounts: most urgent first (accounts.js); the strip names only those in use,
+  // judged before Auto drops quiet meters, and folds the idle ones into a "+N", its last card
+  // (usage.js). A login's panes are those of every dir it covers.
   const all = accounts.usage(usage), several = accounts.any();
-  const draw = (el, list) => accounts.groups(el, list, renderUsage);
   const panesOf = (m) => panes.filter((x) => m.dirs?.some((d) => accounts.profile(d)?.panes.includes(x.pane_id)));
   const { shown, idle } = several ? inUse(accounts.byUrgency(all), panesOf) : { shown: all, idle: [] };
   const focused = document.activeElement?.id === "usage-more"; // a redrawn strip takes it along
   const strip = shownUsage(shown, WIDE.matches && usageMode !== "off" ? "on" : usageMode);
-  draw($("usage"), strip);
+  renderUsage($("usage"), strip);
   usageEnd($("usage"), strip, accounts.more($("usage").hidden ? [] : idle)); // a tap on "+N" opens Plan usage, as the strip's does
-  if (focused) $("usage-more")?.focus({ preventScroll: true });
   if (focused) $("usage-more")?.focus({ preventScroll: true });
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter whatever the mode; its view (#view=usage)
@@ -705,9 +703,8 @@ const paintUsage = steady(() => {
   // tool with no plan meters hides the card.
   const tool = $("session-atlas")._scope?.tool, board = tool ? all.filter((a) => a.provider === tool) : all;
   show("usage-panel", board.length > 0);
-  draw($("usage-board"), several ? accounts.byUrgency(board) : board);
-  usageEnd($("usage-panel"), board); // under the board, which may scroll sideways
-  accounts.strip($("usage-board"), WIDE.matches && $("usage-board").classList.contains("usage-groups")); // a row of groups too narrow scrolls rather than wraps
+  renderUsage($("usage-board"), several ? accounts.byUrgency(board) : board);
+  usageEnd($("usage-board"), board);
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
   // Every account's meters, whatever the list's account filter: the view picks its own

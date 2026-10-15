@@ -23,13 +23,12 @@ test("auto with nothing worth showing hides the strip", () => {
   assert.deepEqual(shownUsage([{ provider: "codex", windows: [w("7d", HIGH_PCT - 1)] }], "auto"), []);
 });
 
-test("countdowns and the even-pace mark run from the real clock unless told otherwise", () => {
+test("countdowns run from the real clock unless told otherwise; the ring fills with what is used", () => {
   const now = Date.now(), H = 3600e3, el = {};
   const win = { window: "5h", pct: 40, projected: 80, start: now - 2 * H, resets_at: now + 3 * H, samples: [[now - H, 20]] };
   renderUsage(el, [{ provider: "claude", windows: [win] }]);
   assert.match(el.innerHTML, /resets 3h0m</);
-  // Two hours of five gone: the mark sits 40% of the way along, not back at the start.
-  assert.match(el.innerHTML, /class="pace" style="left:40\.0%"/);
+  assert.match(el.innerHTML, /style="--p:40"><i class="usage-ring">/);
 });
 
 test("a reading kept through a failed read says how old it is, once, by the oldest", () => {
@@ -48,11 +47,11 @@ test("a reading from before its window reset counts nothing down to zero", () =>
   assert.doesNotMatch(el.innerHTML, /resets|full in/);
 });
 
-test("a window not yet opened (no reset) draws a bar with no pace or reset", () => {
+test("a window not yet opened (no reset) draws an empty ring with no reset", () => {
   const el = {};
   renderUsage(el, [{ provider: "claude", windows: [{ window: "7d Fable", pct: 0, resets_at: null, samples: [] }] }]);
-  assert.match(el.innerHTML, /usage-bar/);
-  assert.doesNotMatch(el.innerHTML, /pace|NaN|Invalid|resets/);
+  assert.match(el.innerHTML, /--p:0"><i class="usage-ring">/);
+  assert.doesNotMatch(el.innerHTML, /NaN|Invalid|resets/);
 });
 
 test("each meter is named by its account and window", () => {

@@ -9,22 +9,31 @@ moment that matters is not "you are at 100%", it is "at this pace you hit 100% a
 before the window resets": that is when you pause a sweep, move work to another account,
 or let a pane idle. So the UI shows each window's percentage all the time (atop the phone's
 list, the sidebar foot on desktop; the collapsed rail leaves it out, as it leaves out every
-card's text), as one gauge per window (colours below), and the usage view draws the trends.
+card's text), as one small card per window (colours below), and the usage view draws the trends.
 
 Every small surface (the phone's strip, the sidebar's foot, the dashboard's card) draws the
-same gauge. The sidebar and the card used to draw a 24px sparkline with a dashed projection
-instead, but at that size the line said less than the gauge does: its slope is hard to read,
-it has no "full in" or reset times without the text beside it, and the even-pace tick the
-gauge carries answers "ahead or behind" at a glance. Once the usage view existed to show the
-history properly, the thumbnails were a second, weaker chart to maintain, so they went. One
-component everywhere also means a browser crossing the breakpoint never changes what a
-meter means.
+same card, the tab bar mock's "modern pass", which the user picked over everything else in
+it: a 30px ring that fills with what is used, "89% · resets 7h30m", and a short line naming
+the account and window. The cards sit in one row that swipes sideways and snaps per card,
+and the next card peeks in at the edge so the row reads as one that scrolls. The dashboard's
+card has room, so there they wrap. Nothing in a card truncates.
 
-The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset.
+This replaced three earlier designs, and each one taught something.
+- **Sparklines** (24px, in the sidebar and on the card) said less than a number does at
+  that size. Once the usage view showed the history properly, they were a second, weaker
+  chart to maintain.
+- **Bar gauges in a grid**, two to a row under a heading per account, kept everything
+  visible but made the strip about 550px tall on a phone with three accounts, two thirds of
+  the screen above the list. Compacted to two lines, they still read as "all these charts".
+- **One swiped row of bar gauges**, each with its account chip in a corner, cut the third
+  gauge off at the edge and repeated the chip at a different spot under every gauge.
 
-Each gauge is two lines: the window and its percentage, with the reset across from them, then the bar. When the window will run out first, "full in 2d12h" in red takes the reset's place. Earlier versions added "full in" as a line above the reset, said "used" after the percentage, and put an "as of 6m ago" under every meter. On a real phone with three accounts, that made the strip about 550px tall, two thirds of the screen above the list, and on desktop it took half the sidebar. The reset is still in the tooltip and the usage view. The bar shows what the percentage counts, so "used" went. A reading kept through failed reads is now noted once, by the oldest, in the strip's last row. Seven gauges for three accounts now take about 250px on a phone, and about a third of a desktop sidebar, which caps the strip at 35% and scrolls the rest.
+The ring card is a single fixed-size object, so a row of them is one line high however many
+accounts there are. The peek, unlike a hard cut, says there is more.
 
-Meters share one grid instead of a block per account with fixed 5h and 7d columns, because the windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, "7d Fable"; a weekly-only Codex plan has one), and fixed columns left holes. Each label carries its provider's icon, and the order (provider, then 5h, 7d, per-model) keeps an account's meters together. A phone has two to a row. The sidebar has one, so the reset fits beside the window.
+The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So the time says "resets". Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. In that case "full in 2d12h" in red takes the reset's place. The reset and the projected end stay in the tooltip and the usage view. A reading kept through failed reads is noted once, by the oldest, in the row's last card beside the "+N", rather than on every card.
+
+Cards come in one row rather than a block per account with fixed 5h and 7d columns, because the windows differ by plan (Claude has 5h, 7d and a per-model weekly limit, "7d Fable"; a weekly-only Codex plan has one), and fixed columns left holes. Each card names its provider by icon and, with several accounts, its account.
 
 ### When the phone shows it
 
@@ -50,8 +59,8 @@ search row (search and the filter button) stays pinned. The meters are a glance 
 and once the list is scrolled two rows of them only cost room; search is what you reach for
 mid-list.
 
-The strip's top edge is a seam, as the fleet chart's is: dragged taller, it shows more of
-its meters without scrolling them, rather than bigger ones. The height is per browser, like the sidebar's width, and a double-click
+The strip's top edge is a seam, as the fleet chart's is: dragged taller, its cards wrap into
+rows rather than swipe, so a tall strip shows more cards rather than bigger ones. The height is per browser, like the sidebar's width, and a double-click
 restores the natural one. Dragged under one row it closes, which sets the switch Off with
 an Undo in the notice, rather than snapping back with a hint. Snapping back fights a
 gesture that plainly meant "away", and a zero height would hide the strip somewhere
@@ -63,7 +72,7 @@ reaching up the sidebar, then collapsed into their row.
 
 ### The dashboard panel
 
-The gauges say where a window stands but not how it got there. So the dashboard has a Plan
+The cards say where a window stands but not how it got there. So the dashboard has a Plan
 usage panel, right under the activity chart: every meter, whatever the Usage setting, its
 Details opening the usage view where the history reads. It sits under the
 chart, not above it, because the activity chart is what the dashboard is for; above it, the
@@ -189,8 +198,8 @@ request:
 
 Each row reports the config dirs it was read from, and the UI names it after the account
 those dirs belong to. A meter shows just its provider's icon while there is one account
-per provider; with several, each account's meters sit under its chip, ordered by urgency
-(see [agent accounts](agent-accounts.md)).
+per provider; with several, each card names its account too, ordered by urgency (see
+[agent accounts](agent-accounts.md)).
 
 The strip once led with whichever meter ran out soonest, and at the sidebar's default height
 only about one meter shows, so the one meter anyone read could belong to an account nobody
@@ -280,4 +289,4 @@ burst, which we accept: it is meant to answer "at this rate", not to forecast. T
 computes it, so it is tested in Python and phone and desktop agree. Only ~120 thinned
 samples per window are sent; the fit uses all of them.
 
-Only the usage view, which is about the charts, loads ECharts; the gauges are plain markup.
+Only the usage view, which is about the charts, loads ECharts; the cards are plain markup.
