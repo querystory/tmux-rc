@@ -1394,6 +1394,10 @@ class Watcher:
         # today's screen would vouch for a question parsed from an older one.
         if cached is not None and not changed and not forced and "frame" in cached:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
+            # Offers send what they say: read off this very screen, which the fingerprint
+            # may call unchanged while a command's "10s" became "20s". First: they move the
+            # activity the clock below is keyed on.
+            put_offers(cached, screen_offers(text, cached.get("tool"), reply))
             cached.setdefault("input_generation", generation)  # a restored card has none
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
@@ -1402,9 +1406,6 @@ class Watcher:
             cached["updated_at"] = now
             cached["last_activity_at"] = last_activity
             cached["snapshot_id"] = self.snapshots[pane.id][-1]["id"]  # a restore's is stale
-            # Offers send what they say: read off this very screen, which the fingerprint
-            # may call unchanged while a command's "10s" became "20s".
-            put_offers(cached, screen_offers(text, cached.get("tool"), reply))
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.

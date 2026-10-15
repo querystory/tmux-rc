@@ -1414,7 +1414,7 @@ def test_a_turn_handing_over_offers_needs_you():
 
 def test_put_offers_takes_only_their_own_wait_with_them():
     from openbus.classify import put_offers
-    card = {"activity": "idle"}
+    card = {"activity": "idle", "parse_ok": False}  # the screen's own wait, read or not
     put_offers(card, ["merge 415"])
     assert card == {"activity": "waiting", "waiting_on": "user", "offers": ["merge 415"]}
     put_offers(card, None)
