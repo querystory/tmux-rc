@@ -1,11 +1,11 @@
 {
-  "description": "Codex idle with a THREAD TITLE leading its status bar ('airbyte-value-population · gpt-5.6-sol medium · …'). That first segment is the only per-window identity Codex exposes — without it every Codex pane in one repo renders under the same session name, which is what the phone's list showed. Asserts session picks up the title and NOT the model/mode/cwd/context segments beside it. Also guards Codex footer guidance when the unchanged prompt is composed from per-tool files.",
+  "description": "Codex idle with a THREAD TITLE leading its status bar ('metric-unit-toggle · gpt-5.6-sol medium · …'). That first segment is the only per-window identity Codex exposes — without it every Codex pane in one repo renders under the same session name, which is what the phone's list showed. Asserts session picks up the title and NOT the model/mode/cwd/context segments beside it. Also guards Codex footer guidance when the unchanged prompt is composed from per-tool files.",
   "current_command": "node",
-  "capture": "• Fixed and deployed.\n\n  Test here: Chrome autofill regression Storybook (https://4342-autofill.preview.example.dev/storybook/)\n\n  Validated:\n  - Storybook built successfully in Cloud Build.\n  - Preview deployment passed and Cloud Run is ready.\n  - Storybook path survives the login redirect.\n  - Frontend, Go, security, and most Python CI checks passed; one Python shard is still running.\n\n  PRs:\n  - Autofill fix: #4768 (https://github.com/example-org/example-app/pull/4768)\n  - Permanent preview Storybook support: #4353 (https://github.com/example-org/example-app/pull/4353)\n\n─ Worked for 17m 01s ──────────────────────────────────────────\n\n› Ask Codex to do anything\n\n  airbyte-value-population · gpt-5.6-sol medium · Context 71% left · 415K used · Context 29% used · docs/query-result-metadata-design · ~/src/example-app · weekly 52% left · Ready",
+  "capture": "• Added the metric/imperial toggle.\n\n  Validated:\n  - Recipe cards convert cups, ounces and °F on the fly.\n  - The choice survives a reload.\n  - Unit tests pass.\n\n  PR: #212 (https://github.com/example-org/recipe-box/pull/212)\n\n─ Worked for 6m 40s ──────────────────────────────────────────\n\n› Ask Codex to do anything\n\n  metric-unit-toggle · gpt-5.6-sol medium · Context 82% left · 96K used · Context 18% used · feat/unit-toggle · ~/src/recipe-box · weekly 70% left · Ready",
   "expected": {
     "tool": "codex",
     "activity": "idle",
-    "session": "airbyte-value-population",
-    "headline": "Deployed the Chrome autofill fix and opened PRs #4768 and #4353"
+    "session": "metric-unit-toggle",
+    "headline": "Added the metric/imperial unit toggle and opened PR #212"
   }
 }
