@@ -639,6 +639,8 @@ def _history() -> History:
 def get_restore():
     """The workspace of the newest tmux server that died, with each pane's default and
     what keeps a pane from coming back, or null (docs/design/reboot-restore.md)."""
+    if os.environ.get("TMUXRC_TARGET"):  # single-pane mode couldn't show what comes back
+        return {"candidate": None}
     return {"candidate": restore.offer(_history())}
 
 
@@ -657,6 +659,8 @@ async def post_restore(body: RestoreBody, request: Request):
     """Restore the chosen panes of the dead server's workspace: the layout at once, then
     each agent resumed, paced, in the background. The snapshot is marked restored before
     anything is built, so a second tap or device is told it's taken."""
+    if os.environ.get("TMUXRC_TARGET"):
+        raise HTTPException(409, "single-pane mode (TMUXRC_TARGET) cannot show a restore")
     history = _history()
     found = await asyncio.to_thread(restore.offer, history)
     if found is None or found["server"] != body.server:

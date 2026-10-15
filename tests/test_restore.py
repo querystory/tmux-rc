@@ -304,6 +304,10 @@ def _post(monkeypatch, tmp_path, build):
 
 def test_restore_offers_again_only_when_tmux_built_nothing(server, tmp_path, monkeypatch):
     server()
+    monkeypatch.setenv("TMUXRC_TARGET", "%1")  # single-pane mode would show none of it
+    reply, spent = _post(monkeypatch, tmp_path, None)
+    assert (reply.status_code, spent) == (409, [])
+    monkeypatch.delenv("TMUXRC_TARGET")
 
     def refuse(_found, chosen):
         assert chosen == {("@1", 0)}  # a pane the offer doesn't hold is never built
