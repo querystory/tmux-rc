@@ -1139,11 +1139,7 @@ def _working_prs(value, repository: str | None, text: str) -> list[dict]:
         return []
     out = []
     seen = set()
-    # tmux captures history and viewport separately, so a reference wrapped across that
-    # boundary arrives split; also read it rejoined.
-    cited = {(m[2].lower(), int(m[3]))
-             for t in (text, text.replace(f"\n{VISIBLE_SCREEN}\n", ""))
-             for m in _QUALIFIED_PR_RE.finditer(strip_dim(t))}
+    cited = {(m[2].lower(), int(m[3])) for m in _QUALIFIED_PR_RE.finditer(strip_dim(text))}
     own = (repository or "").lower()
     for item in value:
         if not isinstance(item, dict) or not isinstance(item.get("repo"), str):
