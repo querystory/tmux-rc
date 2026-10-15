@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName } from "../web/m/pane-model.js";
-import { paneLinks } from "../web/pr-links.js";
+import { paneLinks, askLink } from "../web/pr-links.js";
 
 test("PR titles are primary, with the repository and number beneath", () => {
   const [link] = paneLinks({ prs: [{ repo: "querystory/tmux-rc", number: 245,
@@ -100,4 +100,15 @@ test("one tmux session drops its name; two keep it", () => {
   assert.equal(sessionOf(shell), "misc-0");
   assert.equal(paneName(shell), "misc-0:4");
   noteSessions([]);
+});
+
+test("a question that points at a link leads with the first screen link, never a PR", () => {
+  const login = { href: "https://accounts.example/device", text: "Sign-in approval" };
+  const ask = (words) => ({ ...pane, question: { ask: words }, links: [login] });
+  assert.deepEqual(askLink(ask("1. Open this link, ideally on your phone. 2. Paste the code here.")), login);
+  assert.equal(askLink(ask("Merge it now?")), null);
+  assert.equal(askLink({ ...pane, question: { ask: "Open the link" } }), null);
+  assert.equal(askLink({ ...pane, links: [login] }), null);
+  const pr = "https://github.com/querystory/qs-app/pull/4955";
+  for (const href of [pr, pr + "/"]) assert.deepEqual(askLink({ ...ask("Open this link"), links: [{ href, text: "PR" }, login] }), login);
 });
