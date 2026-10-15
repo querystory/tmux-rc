@@ -1054,11 +1054,14 @@ function fitTo(id, cols) {
   const current = () => !signal?.aborted && id === active; // a reply to a stream since replaced is stale
   fitBusy++;
   fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body)).finally(() => fitBusy--).then((r) => {
-    if (!current() || !terminalVisible()) return;
+    if (!current() || !terminalVisible()) return fitDue();
     fitCols = cols; show("fit-pane", r.attached);
     refit(); // resized while this was in flight: the last size wins
-  }, () => { if (current()) fitCols = 0; });
+  }, () => { if (current()) fitCols = 0; else fitDue(); }); // our own failure: the stream's next frame retries
 }
+// The view on screen has no accepted report and none is queued: send one (the stream's first
+// once rendered, a retry, or the one a stale reply held up).
+const fitDue = () => { if (!fitCols && !fitBusy && terminalVisible()) fitTo(active, termCols()); };
 const refit = () => { const cols = terminalVisible() && termCols(); if (cols && cols !== fitCols) fitTo(active, cols); };
 try { $("fit-toggle").checked = localStorage.getItem("tmuxrc-fit") === "1"; } catch {}
 // A terminal may have attached since: the menu asks again, so the toggle is there to tick.
@@ -1119,7 +1122,7 @@ async function streamTerminal(id, signal) {
       if (signal.aborted) return;
       frame = data.frame || "";
       if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
-      if (!fitCols && !fitBusy) fitTo(id, termCols()); // first report once rendered, or a retry
+      fitDue();
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {

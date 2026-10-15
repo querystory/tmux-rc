@@ -17,29 +17,37 @@ from . import tmux
 MIN_COLS = 40  # narrower and most TUIs stop laying out sensibly
 MARK = "@tmuxrc-fit"
 SETTLE_SECONDS = 3.0  # a redraw this soon after our own resize is the resize, not the app
+REDRAW_SECONDS = 1.0  # by then an app has redrawn: a look still unchanged spends the token
+_SIZE = "#{window_width}x#{window_height}"
 # The pane's window: does the pane fill it, its sessions and every attached session (a
-# window can be in several, and a terminal on any of them sees it shrink), its width, our
-# mark, and its panes (all of them redraw when it is resized).
+# window can be in several, and a terminal on any of them sees it shrink), its width and
+# size, our mark, and its panes (all of them redraw when it is resized).
 _FMT = "\t".join(["#{window_panes}", "#{window_zoomed_flag}", "#{pane_active}",
                   "#{window_linked_sessions_list}",
-                  "#{S:#{?session_attached,#{session_name}#,,}}", "#{window_width}",
+                  "#{S:#{?session_attached,#{session_name}#,,}}", "#{window_width}", _SIZE,
                   f"#{{{MARK}}}", "#{P:#{pane_id} }"])
 
 _lock = threading.Lock()  # one read-decide-resize at a time
-_resized: dict[str, float] = {}  # pane -> when we last resized its window
+_resized: dict[str, float] = {}  # pane -> when we began the last resize of its window
 
 
 def _run(args: list[str]) -> str:
     return tmux._run(args)  # noqa: SLF001 - via the module, so a swapped-out tmux (demo, tests) holds
 
 
-def just_resized(pane_id: str) -> bool:
-    """Did we resize this pane's window a moment ago? Its app redraws for the new width,
-    and the watcher must not read that redraw as the app doing something. One answer per
-    resize: the change after the redraw is the app's own. Under the lock, so a look taken
-    while a resize is landing waits for its token."""
+def just_resized(pane_id: str, captured: float, moved: bool) -> bool:
+    """Is this look's change (`moved`, in a capture begun at `captured`) the app redrawing
+    for our resize, rather than the app doing something? One resize excuses one change: a
+    look that moved spends it, and so does one still unchanged once the app has had time
+    to redraw. A capture begun before the resize leaves it for the look that sees the
+    redraw. Under the lock, so a look taken while a resize lands waits for its token."""
     with _lock:
-        return time.monotonic() - _resized.pop(pane_id, float("-inf")) < SETTLE_SECONDS
+        at = _resized.get(pane_id)
+        if at is None or captured < at:
+            return False
+        if moved or captured - at >= REDRAW_SECONDS:
+            del _resized[pane_id]
+        return moved and captured - at < SETTLE_SECONDS
 
 
 def view(pane_id: str, cols: int, force: bool = False) -> bool:
@@ -51,7 +59,7 @@ def view(pane_id: str, cols: int, force: bool = False) -> bool:
     with _lock:
         out = _run(["display-message", "-p", "-t", pane_id, _FMT, ";",
                     "show-options", "-wqv", "-t", pane_id, "window-size"]).split("\n")
-        panes, zoomed, active, linked, watched, width, mark, members = out[0].split("\t")
+        panes, zoomed, active, linked, watched, width, size, mark, members = out[0].split("\t")
         if not panes:  # tmux 3.7 prints blanks, exit 0, for a pane that is gone
             raise subprocess.CalledProcessError(1, "display-message")
         attached = bool(set(linked.split(",")) & set(watched.split(",")) - {""})
@@ -63,21 +71,25 @@ def view(pane_id: str, cols: int, force: bool = False) -> bool:
             _run(["set-option", "-wu", "-t", pane_id, MARK])
         elif cols and fills and (force or not attached) and (mark or not out[1].strip()) \
                 and (want, want + "!" * force) != (width, mark):
-            # Only a new width makes the app redraw: a mark alone must not arm the watcher.
-            _resize(members * (want != width), ["resize-window", "-x", want, "-t", pane_id, ";",
-                              "set-option", "-w", "-t", pane_id, MARK, want + "!" * force])
+            _resize(pane_id, members, size, ["resize-window", "-x", want, "-t", pane_id, ";",
+                                             "set-option", "-w", "-t", pane_id, MARK,
+                                             want + "!" * force])
         # The watcher (cols 0) gives back only an unforced fit, read under the lock.
         elif mark and attached and not force and (cols or not mark.endswith("!")):
             # -A leaves window-size at manual: unset it too
-            _resize(members, ["resize-window", "-A", "-t", pane_id, ";", "set-option", "-wu",
-                              "-t", pane_id, "window-size", ";", "set-option", "-wu", "-t",
-                              pane_id, MARK])
+            _resize(pane_id, members, size, ["resize-window", "-A", "-t", pane_id, ";",
+                                             "set-option", "-wu", "-t", pane_id, "window-size",
+                                             ";", "set-option", "-wu", "-t", pane_id, MARK])
         return attached
 
 
-def _resize(members: str, args: list[str]) -> None:
-    _run(args)
-    _resized.update(dict.fromkeys(members.split(), time.monotonic()))
+def _resize(pane_id: str, members: str, size: str, args: list[str]) -> None:
+    """Run `args`; if the window's size changed (only then do its apps redraw), hand its
+    panes a token for the watcher, stamped with when the resize began."""
+    began = time.monotonic()
+    out = _run([*args, ";", "display-message", "-p", "-t", pane_id, _SIZE])
+    if out.strip().rsplit("\n", 1)[-1] != size:
+        _resized.update(dict.fromkeys(members.split(), began))
 
 
 def release_attached(panes: list[tmux.Pane]) -> None:

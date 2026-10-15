@@ -1358,9 +1358,9 @@ class Watcher:
         # a snapshot every tick and pin idle_seconds at 0, so the pane never aged out of
         # "Recent" for as long as the outage lasted.
         moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
-        resized = fit.just_resized(pane.id)  # spent on this look, moved or not
         parsed = self._prev_fp.get(pane.id)
-        if moved and resized and parsed is not None and parsed == self._seen_fp.get(pane.id) \
+        if fit.just_resized(pane.id, captured, moved) and parsed is not None \
+                and parsed == self._seen_fp.get(pane.id) \
                 and not (self._state.get(pane.id) or {}).get("question"):
             # Our own resize (openbus/fit.py) made the app redraw at the new width: the same
             # screen, reflowed. Not activity, and not worth a parse. Read as usual: a screen

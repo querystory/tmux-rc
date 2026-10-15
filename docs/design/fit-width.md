@@ -66,9 +66,12 @@ window whose `window-size` the user set before we ever touched it is never fitte
 itself out at the terminal's width: each resize made an idle pane look busy. The app
 redraws, so the capture changes, which reset the pane's idle clock, stamped it as just
 active (moving it to the top of the list), took a snapshot and spent a parse, an LLM call
-in production. So the watcher treats a screen change within a few seconds of our own
-resize, on a pane whose previous screen it had already read, as the same screen reflowed:
-no activity, no parse. A real change after that window is counted as usual.
+in production. So a resize that really changed the window's size leaves each of its panes
+one excuse, and the watcher spends it on the first change it sees after the resize began
+(or, if the screen stays put, once the app has had a second to redraw): that change is the
+same screen reflowed, so no activity and no parse. Everything else is read as usual: the
+next change, a screen not yet parsed, and a pending question, whose answer is checked
+against the rows on screen.
 
 **Reports are POSTs, never part of the live GET.** Folding the report into the live long
 poll would have been free, but a GET that resizes a real terminal breaks the rule the

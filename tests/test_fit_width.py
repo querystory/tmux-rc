@@ -7,6 +7,7 @@ Cleanup kills that socket's panes and nothing else."""
 import os
 import shutil
 import subprocess
+import time
 import uuid
 from contextlib import contextmanager
 
@@ -200,14 +201,28 @@ def test_target_mode_gives_a_window_back_too(pane, via):
         assert restored(pane)
 
 
-def test_only_a_new_width_arms_the_redraw_hook(pane):
+def test_only_a_size_change_arms_the_redraw_hook(pane):
     fit.view(pane, 200)  # already that wide: marked, nothing redraws
     assert size(pane) == "200x50 200"
-    assert not fit.just_resized(pane)
+    assert pane not in fit._resized
+    with attached("s"):  # given back to the size it already has: nothing redraws either
+        fit.release_attached(T.list_panes())
+        assert restored(pane) and size(pane).startswith("200x50")
+        assert pane not in fit._resized
 
 
-def test_the_hook_is_spent_on_the_next_look_even_if_nothing_moved(pane):
-    fit.view(pane, 60)  # `sleep` draws nothing, so the look after it sees no change
-    w = watcher.Watcher(target=None, use_llm=False, history=None)
-    w._tick()
-    assert not fit.just_resized(pane)  # a later change is the app's own
+def test_a_look_begun_before_the_resize_leaves_the_token(pane):
+    before = time.monotonic()
+    fit.view(pane, 60)
+    assert not fit.just_resized(pane, before, moved=False)  # the old screen: kept
+    assert fit.just_resized(pane, time.monotonic(), moved=True)  # the redraw: excused, spent
+    assert not fit.just_resized(pane, time.monotonic(), moved=True)  # the next is real
+
+
+def test_an_unchanged_look_spends_the_token_once_the_app_had_time(pane, monkeypatch):
+    fit.view(pane, 60)  # `sleep` draws nothing, so later looks see no change
+    assert not fit.just_resized(pane, time.monotonic(), moved=False)
+    assert pane in fit._resized  # too soon: the redraw may still be coming
+    monkeypatch.setattr(fit, "REDRAW_SECONDS", 0)
+    watcher.Watcher(target=None, use_llm=False, history=None)._tick()
+    assert pane not in fit._resized  # a later change is the app's own
