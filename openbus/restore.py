@@ -72,10 +72,10 @@ class Recorder:
             if identity() != server:  # a replacement's workspace, not the dead one's
                 return
             with self.history.connect() as db:
-                if self._last == (server, payload):
-                    db.execute("UPDATE layout_snapshots SET last_seen=? WHERE server=?",
-                               (now, server))
-                else:
+                # The stamp alone, unless the layout changed or the row is gone.
+                if self._last != (server, payload) or db.execute(
+                        "UPDATE layout_snapshots SET last_seen=? WHERE server=?",
+                        (now, server)).rowcount == 0:
                     db.execute("INSERT INTO layout_snapshots VALUES (?, ?, ?, NULL) ON CONFLICT"
                                "(server) DO UPDATE SET last_seen=excluded.last_seen, "
                                "payload=excluded.payload", (server, now, payload))
