@@ -180,8 +180,24 @@ def test_a_fit_before_the_first_look_is_read_as_usual(pane, monkeypatch):
     assert len(w.snapshots[pane]) == 1
 
 
-def test_target_mode_gives_a_window_back_too(pane):
+@pytest.mark.parametrize("via", ["s", "grouped"])  # or only a group sibling is attached
+def test_target_mode_gives_a_window_back_too(pane, via):
+    if via != "s":
+        T._run(["new-session", "-d", "-t", "s", "-s", via])
     fit.view(pane, 60)
-    with attached("s"):
-        watcher.Watcher(target=pane, use_llm=False, history=None)._tick()
+    with attached(via):
+        watcher.Watcher(target="s:0", use_llm=False, history=None)._tick()
         assert restored(pane)
+
+
+def test_only_a_new_width_arms_the_redraw_hook(pane):
+    fit.view(pane, 200)  # already that wide: marked, nothing redraws
+    assert size(pane) == "200x50 200"
+    assert not fit.just_resized(pane)
+
+
+def test_the_hook_is_spent_on_the_next_look_even_if_nothing_moved(pane):
+    fit.view(pane, 60)  # `sleep` draws nothing, so the look after it sees no change
+    w = watcher.Watcher(target=None, use_llm=False, history=None)
+    w._tick()
+    assert not fit.just_resized(pane)  # a later change is the app's own

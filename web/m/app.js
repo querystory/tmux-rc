@@ -148,7 +148,7 @@ const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "ot
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
-let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
+let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0; // fitCols: see fitTo
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
 // Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
@@ -1023,6 +1023,7 @@ function restartDetail() {
   // watcher never keeps parsing old history nobody is looking at.
   if (detailId !== active || !terminalVisible() || document.hidden) wheelHome(detailId);
   if (detailId !== active) {
+    fitCols = 0; show("fit-pane", false); // the next pane reports for itself
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
     latestCapture = ""; clearCapture(); detailId = active;
   }
@@ -1036,7 +1037,6 @@ function restartDetail() {
 // daemon sizes a lone pane's window to so its app lays out at the screen's edge: reported
 // as the terminal opens, and again on zoom, resize or the toggle. The window keeps the
 // width after the view leaves (see the design note for why there is no restore).
-let fitCols = 0;
 function termCols() {
   const probe = $("capture").appendChild(document.createElement("span"));
   probe.textContent = "0".repeat(100);
@@ -1045,21 +1045,22 @@ function termCols() {
   return char ? Math.max(0, Math.floor(($("terminal-scroll").clientWidth - pad) / char)) : 0;
 }
 // One at a time, in the order asked: a tick and untick must reach the daemon in that order.
+// fitCols is what the daemon last took; a failed report leaves it 0 for the stream to retry.
 let fitLine = Promise.resolve();
 function fitTo(id, cols) {
   if (!id || !cols) return; // a hidden view measures nothing
-  fitCols = cols;
   const body = { cols, force: $("fit-toggle").checked };
-  fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body))
-    .then((r) => { if (id === active) show("fit-pane", r.attached); }, () => {});
+  fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body)).then((r) => {
+    if (id === active) { fitCols = cols; show("fit-pane", r.attached); }
+  }, () => { if (id === active) fitCols = 0; });
 }
-const refit = () => { const cols = termCols(); if (active && terminalVisible() && cols !== fitCols) fitTo(active, cols); };
+const refit = () => { const cols = terminalVisible() && termCols(); if (cols && cols !== fitCols) fitTo(active, cols); };
 try { $("fit-toggle").checked = localStorage.getItem("tmuxrc-fit") === "1"; } catch {}
 // A terminal may have attached since: the menu asks again, so the toggle is there to tick.
 $("pane-menu").addEventListener("toggle", () => { if ($("pane-menu").open && terminalVisible()) fitTo(active, termCols()); });
 $("fit-toggle").onchange = () => {
   try { localStorage.setItem("tmuxrc-fit", $("fit-toggle").checked ? "1" : "0"); } catch {}
-  if (active && fitCols) fitTo(active, fitCols);
+  if (terminalVisible()) fitTo(active, termCols()); // this terminal, measured now
 };
 
 function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; }
@@ -1104,7 +1105,6 @@ function paintCapture() {
 }
 async function streamTerminal(id, signal) {
   let frame = "";
-  requestAnimationFrame(() => signal.aborted || fitTo(id, termCols())); // measured once rendered
   text($("terminal-status"), "Connecting");
   while (!signal.aborted) {
     try {
@@ -1114,6 +1114,7 @@ async function streamTerminal(id, signal) {
       if (signal.aborted) return;
       frame = data.frame || "";
       if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
+      if (!fitCols) fitTo(id, termCols()); // first report once the terminal is rendered, or a retry
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {

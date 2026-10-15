@@ -59,7 +59,8 @@ def view(pane_id: str, cols: int, force: bool = False) -> bool:
             _run(["set-option", "-wu", "-t", pane_id, MARK])
         elif cols and fills and (force or not attached) and (mark or not out[1].strip()) \
                 and (want, want + "!" * force) != (width, mark):
-            _resize(members, ["resize-window", "-x", want, "-t", pane_id, ";",
+            # Only a new width makes the app redraw: a mark alone must not arm the watcher.
+            _resize(members * (want != width), ["resize-window", "-x", want, "-t", pane_id, ";",
                               "set-option", "-w", "-t", pane_id, MARK, want + "!" * force])
         # The watcher (cols 0) gives back only an unforced fit, read under the lock.
         elif mark and attached and not force and (cols or not mark.endswith("!")):
