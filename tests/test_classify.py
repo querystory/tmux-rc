@@ -1447,6 +1447,12 @@ def test_finished_turn_offers_the_replies_it_hands_over():
          "Do not run these:\n\n```bash\n! make reset\n! make deploy\n```"),  # a whole fence
         (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
          "Use this:\n\n```bash\nprintf 'say \"merge all\"'\n```"),  # a tagged fence's data
+        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
+         "Use this:\n\n````\n```\nprintf 'say \"merge all\"'\n```\n````"),  # a nested fence
+        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
+         "Use this:\n\n    printf 'say \"merge all\"'"),  # an indented code block
+        (_auto_screen("Run:\n\n  ! python -c 'print(1)\n\n  print(2)'"),
+         "Run:\n\n```\n! python -c 'print(1)\n\nprint(2)'\n```"),  # a script with a blank row
         (_auto_screen('Use this:\n\n  message = "! make deploy"'),
          'Use this:\n\n```\nmessage = "`! make deploy`"\n```'),  # a fixture in a fence
         (_auto_screen("Do not run this:\n\n  ! make deploy"),

@@ -1025,8 +1025,11 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
 # inline code without backticks). A quote inside any of them is the code's own; a command
 # inside one is too, unless it is that very span or row, or a command row of its own in a
 # fence (an inline span in a fence is the fence's data).
-_CODE_RE = re.compile(r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)|(?P<fence>^[ \t]*```[\s\S]*?^[ \t]*```)"
-                      r"|^[ \t]*! \S.*(?:\n[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
+_CODE_RE = re.compile(
+    r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)"  # a span; a fence closes on a run as long as its opener
+    r"|(?P<fence>^[ \t]*(?P<run>`{3,})[\s\S]*?^[ \t]*(?P=run)`*[ \t]*$)"
+    r"|(?<=\n\n)(?:(?: {4}|\t).*(?:\n|$))+"  # an indented block (Markdown's, after a blank row)
+    r"|^[ \t]*! \S.*(?:\n[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
 
 
 # A message that forbids running or saying something offers nothing at all, read on _plain
@@ -1067,7 +1070,9 @@ def _offers(message: str, reply: str | None) -> list[str]:
                  a <= m.start() < b and not (  # inside code, and not as itself
                      m.lastindex <= 3 and (a == m.start() or (fence and m.lastindex == 3)))
                  for a, b, fence in code))
-    return list(dict.fromkeys(o for o in found if re.search(
+    # A command whose quotes do not pair is cut short (a script with a blank row in it).
+    return list(dict.fromkeys(o for o in found if not (
+        o.startswith("! ") and (o.count("'") % 2 or o.count('"') % 2)) and re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
         + r"(?![^\s\"”`.,;:?!)])", message)))[:3]
 
