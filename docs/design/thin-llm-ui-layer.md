@@ -159,8 +159,10 @@ from review, both trading recall for never prefilling the wrong thing: nothing i
 of code (a quote in a command's arguments, a command quoted in a fixture), a quoted phrase
 is offered only from the transcript, where code is marked (the screen draws it plain, so a
 quote there may be any program's argument), and only from a paragraph with no code in it at
-all; a command that may be cut short (unpaired quotes, a heredoc, a trailing backslash) is
-not offered; and a message
+all; a command that may be cut short is not offered: the shell itself judges that (`bash -n`,
+which runs nothing), since every hand-written check of quotes and keywords passed some
+grammar bash rejects, and a message with a heredoc anywhere offers no command, its body
+being possibly data; a fenced command counts only when it is the fence's one row; and a message
 that says "do not run" or "don't say" anywhere offers nothing at all, since which command a
 warning covers is not worth guessing. It is Claude Code's
 alone for now, too: Codex's screen has no message boundary this reads yet, so its tool

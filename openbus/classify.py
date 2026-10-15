@@ -17,8 +17,9 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import shlex
+import subprocess
 import textwrap
+from functools import lru_cache
 from itertools import islice
 from pathlib import Path
 
@@ -1028,7 +1029,7 @@ _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Mar
 # is the fence's data).
 _CODE_RE = re.compile(
     r"(?<!`)(`+)[^\n]+?(?<!`)\1(?!`)"  # a span; a fence closes on a run as long as its opener
-    r"|(?P<fence>^[ \t]*(?P<run>`{3,})[\s\S]*?^[ \t]*(?P=run)`*[ \t]*$)"
+    r"|(?P<fence>^[ \t]*(?P<run>`{3,}|~{3,})[\s\S]*?^[ \t]*(?P=run)[`~]*[ \t]*$)"
     r"|^[ \t]*! \S.*(?:\n[ \t]*\S.*)*|(?<!\S)! \S.*", re.MULTILINE)
 
 
@@ -1042,7 +1043,7 @@ _FORBIDS_RE = re.compile(
 def _plain(text: str) -> str:
     """Text as the screen draws it, near enough to compare: no Markdown marks or fence rows
     (with their language tag), one space."""
-    return " ".join(re.sub(r"(?m)^[ \t]*```.*$|[`*]|^\s*●\s", "", text).split())
+    return " ".join(re.sub(r"(?m)^[ \t]*(?:```|~~~).*$|[`*]|^\s*●\s", "", text).split())
 
 
 def _offers(message: str, reply: str | None) -> list[str]:
@@ -1085,22 +1086,24 @@ def _offers(message: str, reply: str | None) -> list[str]:
 
     found = (m[m.lastindex] for m in _OFFER_RE.finditer(t) if offered(m))  # each one's payload
 
-    def cut(o: str) -> bool:  # a command that may be cut short by a blank row in its script:
-        if not o.startswith("! "):  # quotes the shell would not close, backticks or brackets
-            return False  # that do not pair, an end that goes on ("&&", "; do", "{"), or a
-        try:  # compound command ("for", "if") without its closing word
-            shlex.split(o[2:])
-        except ValueError:
-            return True
-        return bool(o.count("`") % 2 or o.count("(") != o.count(")")
-                    or o.count("{") != o.count("}")
-                    or re.search(r"(?:[&|;({]|\b(?:do|then|else|in))$", o)
-                    or (re.match(r"! (?:for|if|while|until|case|select)\b", o)
-                        and not re.search(r"\b(?:done|fi|esac)$", o)))
+    def cut(o: str) -> bool:  # a command a blank row in its script may have cut short
+        return o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:]))
 
     return list(dict.fromkeys(o for o in found if not cut(o) and re.search(
         r"(?<![^\s\"“`])" + r"(?: |[ \t]*\n[ \t]*)".join(map(re.escape, o.split(" ")))
         + r"(?![^\s\"”`.,;:?!)])", message)))[:3]
+
+
+@lru_cache(maxsize=256)
+def _parses(command: str) -> bool:
+    """Whether bash reads `command` whole (`bash -n` runs nothing): the first part of a script
+    split by a blank row ("for ... in", "&&", an open quote, "f()") does not parse. Quoting
+    checks alone pass grammar the shell rejects, so the shell is asked."""
+    try:
+        return subprocess.run(["bash", "-n"], input=command, capture_output=True, text=True,
+                              timeout=2, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def screen_offers(text: str, tool: str | None, reply: str | None) -> list[str]:
