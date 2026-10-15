@@ -42,7 +42,10 @@ def test_only_example_addresses_pass(text, private):
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.name)
 def test_fixture_names_no_one(path):
-    assert not PRIVATE.findall(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".json":  # decoded, so an escape (\/, \u0040) hides nothing
+        text = json.dumps(json.loads(text), ensure_ascii=False)
+    assert not PRIVATE.findall(text)
 
 
 @pytest.mark.parametrize("path", SAMPLES, ids=lambda p: p.stem)
