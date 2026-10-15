@@ -1141,7 +1141,7 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
     else:  # the whole last paragraph: a wrapped "* glob" row would read as a list item
         paragraph = " ".join(re.split(r"\n\s*\n", message.strip())[-1].split())
-        if not any(o.startswith("! ") and paragraph.endswith(o) for o in offers):
+        if not any(o.startswith("! ") and paragraph.endswith(" ".join(o.split())) for o in offers):
             return None
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}

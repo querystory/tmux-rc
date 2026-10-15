@@ -1569,6 +1569,9 @@ def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
     result = classify(_pane("claude"), _auto_screen(glob.replace(" * ", "\n  * ")), _llm({}),
                       reply=glob)
     assert result["offers"] == ["! cp * /tmp/backup"] and result["question"]["prompt"] == glob
+    spaced = "Run this yourself: ! printf '%s' 'a  b'"  # its own spacing, as the screen shows
+    result = classify(_pane("claude"), _auto_screen(spaced), _llm({}), reply=spaced)
+    assert result["offers"] == ["! printf '%s' 'a  b'"] and result["question"]["options"] == []
     for message in (
         "Run:\n! make clean\nmake deploy",  # a bare row followed by another row
         "Run this yourself: ! make clean\nmake deploy",  # an inline command going on
