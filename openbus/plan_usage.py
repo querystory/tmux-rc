@@ -4,6 +4,8 @@ One account per config dir: a pane's agent reads CLAUDE_CONFIG_DIR or CODEX_HOME
 HOME) from its environment, so two panes may draw on two plans. Codex writes its limits
 into its own session logs, so reading them needs no credential. Claude publishes them
 only through an undocumented OAuth endpoint, polled at most every CLAUDE_TTL per account.
+An omp pane counts toward the Claude accounts its omp profile is signed in to, as omp's own
+usage report names them.
 See docs/design/plan-usage.md.
 """
 from __future__ import annotations
@@ -13,6 +15,9 @@ import heapq
 import json
 import logging
 import os
+import re
+import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -32,6 +37,7 @@ STALE_OK = 3 * CLAUDE_TTL
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CLAUDE_WINDOWS = {"five_hour": ("5h", 5 * 3600), "seven_day": ("7d", 7 * 86400)}
 ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
+OMP = ["omp", "usage", "--json", "--provider", "anthropic"]  # ~1s; every provider takes ~15s
 TAIL = 1 << 20  # Codex session logs reach hundreds of MB; the newest limits sit at the end
 CODEX_FILES = 20  # bounds the scan when recent logs hold no limits event at all
 SPARK_POINTS = 120  # samples sent per window: a sidebar sparkline's width, not a week of polls
@@ -60,20 +66,77 @@ def home(provider: str, env: dict) -> Path:
     return Path(canonical(env.get(ENV[provider]) or str(default)))
 
 
+def _agent(pid: str, tool: str) -> str:
+    """The tool's own process under the pane, else the pane's (an inline `VAR=… tool` sets
+    VAR only in the tool's process)."""
+    return next((p for p in tmux.processes(pid) if tmux.proc_read(p, "comm").strip() == tool),
+                pid)
+
+
+def _environ(pid: str, keys: tuple[str, ...]) -> dict:
+    """Just these variables of the process; every other one is dropped unread."""
+    pairs = (v.partition("=") for v in tmux.proc_read(pid, "environ").split("\0"))
+    return {k: v for k, _, v in pairs if k in keys}
+
+
 def pane_env(pid: str, tool: str) -> dict:
-    """HOME and the tool's config override, from the agent process under the pane (an
-    inline `CLAUDE_CONFIG_DIR=… claude` sets it there, not in the shell). Every other
-    variable is dropped unread."""
-    agent = next((p for p in tmux.processes(pid) if tmux.proc_read(p, "comm").strip() == tool),
-                 pid)
-    pairs = (v.partition("=") for v in tmux.proc_read(agent, "environ").split("\0"))
-    return {k: v for k, _, v in pairs if k in ("HOME", ENV[tool])}
+    """HOME and the tool's config override, from the agent process under the pane."""
+    return _environ(_agent(pid, tool), ("HOME", ENV[tool]))
 
 
-def pane_envs(panes: list[dict], birth) -> list[tuple[str, dict, str]]:
-    """(tool, pane_env, pane id) for each live Claude or Codex pane."""
-    return [(p["tool"], pane_env(pid, p["tool"]), p["pane_id"]) for p in panes
-            if p.get("tool") in ENV and (pid := birth(p["pane_id"]))]
+def omp_profile(pid: str) -> str:
+    """The omp profile a pane signs in with: --profile, else OMP_PROFILE, else "" (its
+    default). omp keeps each profile's logins in its own store, not in a Claude dir."""
+    agent = _agent(pid, "omp")
+    flag = re.search(r"\0--profile[=\0]([^\0]*)", "\0" + tmux.proc_read(agent, "cmdline"))
+    return flag[1] if flag else _environ(agent, ("OMP_PROFILE",)).get("OMP_PROFILE", "")
+
+
+def read_omp(profile: str) -> set[str] | None:
+    """The Anthropic account ids this omp profile holds, from omp's own usage report (omp
+    reads its credentials; tmux-rc never does). None when omp is absent or the read fails."""
+    if not shutil.which("omp"):
+        return None
+    env = {k: v for k, v in os.environ.items() if k != "OMP_PROFILE"}
+    try:
+        out = subprocess.run(OMP, env={**env, **({"OMP_PROFILE": profile} if profile else {})},
+                             capture_output=True, text=True, timeout=20, check=True).stdout
+        return {r["metadata"]["accountId"] for r in json.loads(out)["reports"]
+                if r.get("provider") == "anthropic" and (r.get("metadata") or {}).get("accountId")}
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as e:
+        logger.info("omp usage unreadable: %s", type(e).__name__)
+        return None
+
+
+_omp: dict[str, tuple[float, set[str]]] = {}  # omp profile -> (read at, its account ids)
+
+
+def omp_accounts(profile: str, fresh: bool = False) -> set[str]:
+    """The profile's Anthropic accounts as last read; `fresh` rereads them once a POLL is
+    past (PlanUsage's thread only: a request must not wait on omp). A failed read keeps
+    the last answer."""
+    read_at, ids = _omp.get(profile, (0.0, set()))
+    if fresh and time.time() - read_at >= POLL:
+        _omp[profile] = (time.time(), ids)  # a slow or failing omp is asked once a POLL
+        if (got := read_omp(profile)) is not None:
+            _omp[profile] = (time.time(), ids := got)
+    return ids
+
+
+def pane_envs(panes: list[dict], birth, claude_dirs=(), fresh=False) -> list[tuple[str, dict, str]]:
+    """(tool, pane_env, pane id) for each live Claude or Codex pane. An omp pane counts as
+    a Claude pane on each of `claude_dirs` signed in to an account its profile holds: omp
+    may rotate between them, and which one a pane is on now is not exposed."""
+    out = []
+    for p in panes:
+        tool, pane_id = p.get("tool"), p["pane_id"]
+        if tool in ENV and (pid := birth(pane_id)):
+            out.append((tool, pane_env(pid, tool), pane_id))
+        elif tool == "omp" and claude_dirs and (pid := birth(pane_id)):
+            ids = omp_accounts(omp_profile(pid), fresh)
+            out += [("claude", env_for("claude", d), pane_id) for d in claude_dirs
+                    if oauth_account(d, env_for("claude", d)).get("accountUuid") in ids]
+    return out
 
 
 def codex_samples(event: dict) -> list[dict]:
@@ -254,7 +317,9 @@ class PlanUsage:
     def discover(self, panes: list[dict], birth) -> dict[tuple[str, str], dict]:
         """Every account a live agent pane uses, plus the known profiles' (accounts.py)."""
         found: dict[tuple[str, str], dict] = {}
-        sources = [(t, env_for(t, d), None) for t, d in self.profiles()] + pane_envs(panes, birth)
+        listed = self.profiles()
+        sources = [(t, env_for(t, d), None) for t, d in listed] + pane_envs(
+            panes, birth, [d for t, d in listed if t == "claude"], fresh=True)
         for tool, env, pane_id in sources:
             config = home(tool, env)
             if tool == "codex":  # a home that has logged nothing yet reads "no data yet"
