@@ -1089,7 +1089,7 @@ button.picked:disabled { opacity: 1; }
 /* The accounts not in use, folded into a "+N" (usage.js inUse): on the strip's seam (app.js), right, taking no height. */
 #usage-more { flex: none; align-self: flex-end; position: relative; z-index: 5; display: inline-flex; align-items: center; gap: 3px; min-height: 0; margin: -10px 12px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; cursor: pointer; }
 #usage-more:hover { color: var(--fg); border-color: var(--muted); }
-@media (max-width: 1099px) { #usage-more { order: -1; } } /* follows the strip to the list's top (#usage) */
+@media (max-width: 1099px) { #usage-more { order: -1; position: sticky; top: calc(var(--usage-shown, 0px) - 10px); } } /* follows the sticky strip at the list's top (#usage) */
 #app.rail #usage-more { display: none; }
 .acct-on { display: block; font-size: 12px; color: var(--muted); }
 /* The active filters: each chip is the rows' account chip (.acct-badge) as is, with a small ×. */

@@ -1438,6 +1438,7 @@ function sizeUsage(px = usageHeight, persist = false) {
 const fitUsage = new ResizeObserver(() => {
   const shown = $("usage").offsetHeight;
   $("usage").style.setProperty("--rows", Math.max(1, Math.round(shown / USAGE_ROW)));
+  $("sessions").style.setProperty("--usage-shown", `${shown}px`); // a phone's "+N" sticks to the sticky strip's seam
   for (const [key, value] of Object.entries({ min: USAGE_MIN, max: Math.round($("sessions").clientHeight * 0.6), now: shown })) $("usage-handle").setAttribute(`aria-value${key}`, value);
 });
 for (const el of ["usage", "sessions"]) fitUsage.observe($(el));
