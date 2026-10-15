@@ -1,0 +1,18 @@
+{
+  "description": "Finished auto-mode turn ending in a long bare `! command` after prose and a colon (no backticks), which the screen wraps over several rows; the transcript copy has it on one unwrapped row ending the message. Live, the parser offered it only as a 'Command to run' copyable, with no tap-to-send button. The transcript row ends the paragraph and bash parses it whole, so it is offered.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ make the thumbnail job skip photos it already resized\n\n  Ran 3 shell commands\n\n● The thumbnail job now resizes only photos added after its last pass, but the gallery folder belongs to the gallery\n  user and my permission check blocks me from writing there.\n\n  Please run this one command yourself. It only touches photos added since the last pass: ! export GALLERY=/srv/gallery\n  SIZE=320; find \"$GALLERY/originals\" -name '*.jpg' -newer \"$GALLERY/.last-run\" -print0 | xargs -0 -n 8 -P 4 mogrify\n  -path \"$GALLERY/thumbs\" -thumbnail \"${SIZE}x${SIZE}\" -quality 82 && touch \"$GALLERY/.last-run\" && sudo systemctl\n  reload gallery-web\n\n✻ Worked for 1m 12s · done 3:41 PM\n──────────────────────────────────────────────────────────────────────────────── thumbnails ─\n❯\n────────────────────────────────────────────────────────────────────────────────\n  ~/src/gallery on feat/skip-unchanged | Opus 5.5 | user@example.com\n  session: +42/-0 lines · 31% ctx · 2h10m · $3.18\n  ⏵⏵ auto mode on · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "User must run the command that regenerates the gallery thumbnails",
+    "offers": [
+      "! export GALLERY=/srv/gallery SIZE=320; find \"$GALLERY/originals\" -name '*.jpg' -newer \"$GALLERY/.last-run\" -print0 | xargs -0 -n 8 -P 4 mogrify -path \"$GALLERY/thumbs\" -thumbnail \"${SIZE}x${SIZE}\" -quality 82 && touch \"$GALLERY/.last-run\" && sudo systemctl reload gallery-web"
+    ]
+  },
+  "reply": "The thumbnail job now resizes only photos added after its last pass, but the gallery folder belongs to the gallery user and my permission check blocks me from writing there.\n\nPlease run this one command yourself. It only touches photos added since the last pass: ! export GALLERY=/srv/gallery SIZE=320; find \"$GALLERY/originals\" -name '*.jpg' -newer \"$GALLERY/.last-run\" -print0 | xargs -0 -n 8 -P 4 mogrify -path \"$GALLERY/thumbs\" -thumbnail \"${SIZE}x${SIZE}\" -quality 82 && touch \"$GALLERY/.last-run\" && sudo systemctl reload gallery-web"
+}

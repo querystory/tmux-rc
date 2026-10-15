@@ -11,6 +11,7 @@ from openbus.watcher import Watcher
 class _Pane:
     def __init__(self, pid="%1", label="work"):
         self.id = pid
+        self.pid = None  # no process: no agent transcript to read
         self.label = label
         self.display_title = label
         self.session = "work"
@@ -26,11 +27,7 @@ def _harness(monkeypatch, frame_holder, state_holder, clock):
     monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "srv:1:%1")
     monkeypatch.setattr(W.time, "time", lambda: clock[0])
 
-    def fake_classify(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def fake_classify(pane, text, **_kw):
         s = dict(state_holder[0])  # fresh dict per parse (as the real classify returns)
         s["label"] = pane.label
         return s
@@ -106,6 +103,27 @@ def test_state_since_resets_on_new_question_but_persists_on_same(monkeypatch):
     w._forced_this_tick = set()
     assert w._tick_pane(pane)["state_since"] == 1100.0, "a new question restarts the clock"
 
+    # The same prompt over a different command (widget context) is a new ask too.
+    clock[0] = 1150.0
+    frame[0] = "Overwrite file? > (b)"
+    state[0] = {**state[0], "question": {"prompt": "Overwrite file?", "context": "b.txt"}}
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["state_since"] == 1150.0, "a new context restarts the clock"
+
+    # As is the same "Do 1 now?" over a different row 1.
+    clock[0] = 1200.0
+    frame[0] = "Overwrite file? > (c)"
+    state[0] = {**state[0], "question": {**state[0]["question"], "items": ["1. c.txt"]}}
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["state_since"] == 1200.0, "new rows restart the clock"
+
+    # And the same rows under a different decision.
+    clock[0] = 1250.0
+    frame[0] = "Overwrite file? > (d)"
+    state[0] = {**state[0], "question": {**state[0]["question"], "subject": "Backups:"}}
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["state_since"] == 1250.0, "a new subject restarts the clock"
+
 
 def test_restart_seeds_idle_clock_from_tmux_activity(monkeypatch):
     """A fresh daemon seeing an already-idle pane must seed state_since from tmux's
@@ -139,7 +157,7 @@ def test_list_panes_populates_window_activity(monkeypatch):
     (and an 11-field line would be dropped by the length guard entirely)."""
     tmux = W.tmux
     fields = ["work", "0", "work", "0", "%1", "bash", "title", "/home/u", "42",
-              "1", "1", "4000", "1"]
+              "1", "1", "4000", "1", ""]
     monkeypatch.setattr(tmux, "_run", lambda args: "\t".join(fields) + "\n")
     (pane,) = tmux.list_panes()
     assert pane.window_activity == "4000"
@@ -165,3 +183,91 @@ def test_last_activity_survives_refresh_and_restart(monkeypatch):
     assert changed["last_activity_at"] == 12_000.0
     assert changed["state_since"] == first["state_since"]
     assert Watcher._deck_fp([first]) != Watcher._deck_fp([{**first, "last_activity_at": 12_000.0}])
+
+
+def test_a_parse_read_before_an_answer_cannot_put_its_question_back(monkeypatch):
+    # /send drops an erased picker's question at once (drop_question); a tick that captured
+    # the dialog before that, finishing after it, must not republish the answered ask.
+    frame = ["trust dialog"]
+    asking = {"activity": "waiting", "waiting_on": "user", "events": [], "tool": "claude",
+              "question": {"prompt": "Trust this folder?"}}
+    state, clock = [asking], [1000.0]
+    w = _harness(monkeypatch, frame, state, clock)
+    pane = _Pane()
+    w._forced_this_tick = set()
+    w._tick_pane(pane)
+    w.drop_question(pane.id, "Another prompt?")  # not this card's ask: untouched
+    assert w._state[pane.id]["question"]
+    clock[0] = 1001.0
+    w.drop_question(pane.id, "Trust this folder?")
+    assert w._state[pane.id]["question"] is None
+    assert w._state[pane.id]["activity"] == "running"
+    assert w._state[pane.id]["state_since"] == 1001.0  # running since the answer
+    w.drop_question(pane.id, "Trust this folder?")  # reported twice: the guard stands
+    clock[0] = 1000.5  # this parse's capture predates the answer
+    w._forced_this_tick = {pane.id}
+    stale = w._tick_pane(pane)
+    assert stale["question"] is None and stale["state_since"] == 1001.0
+    # The same prompt over another command is a new ask, even off an early capture.
+    state[0] = {**asking, "question": {"prompt": "Trust this folder?", "context": "rm -rf x"}}
+    frame[0] = "another dialog"
+    w._forced_this_tick = {pane.id}
+    assert w._tick_pane(pane)["question"]["context"] == "rm -rf x"
+    state[0] = asking
+    clock[0], frame[0] = 1002.0, "a new ask"  # read after it: the parse stands
+    w._forced_this_tick = {pane.id}
+    assert w._tick_pane(pane)["question"] == {"prompt": "Trust this folder?"}
+
+
+def test_input_generations_never_repeat_across_runs():
+    """A menu answer token names its input generation; a restart must not reissue one an
+    earlier run handed out, or a token held across it could approve an identical ask."""
+    first = Watcher(target=None, use_llm=False)
+    first.invalidate_input_actions("%1")
+    second = Watcher(target=None, use_llm=False)
+    assert second.pane_input_generation("%1") not in {
+        first.pane_input_generation("%1") - 1, first.pane_input_generation("%1")}
+
+
+def test_a_reparse_before_the_answer_is_drawn_reissues_no_token(monkeypatch):
+    """send-keys only queues the digit: the forced reparse right after an answer can read
+    the old menu, and must keep its consumed generation, or a second tap's digit queues
+    behind the first and lands on the next prompt. Output streaming above the menu keeps
+    it consumed too; the menu going away ends it."""
+    menu = f"{'▔' * 40}\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n"  # a widget edge
+    frame, clock = [f"● Bash(mkdir s1)\n{menu}"], [1000.0]
+    question = {"prompt": "Do you want to proceed?", "answer_style": "menu",
+                "options": ["Yes", "No"]}
+    state = [{"activity": "waiting", "events": [], "tool": "claude", "question": question}]
+    w = _harness(monkeypatch, frame, state, clock)
+    pane = _Pane()
+    w._forced_this_tick = set()
+    held = w._tick_pane(pane)
+    issued = held["input_generation"]
+    w.consume_answer("%1", w.frame_fp(frame[0]), held["frame"])  # claim_question's call
+    for screen in (frame[0], f"● Bash(mkdir s1)\n⎿ streamed\n{menu}"):
+        frame[0] = screen
+        w._forced_this_tick = {"%1"}
+        assert w._tick_pane(pane)["input_generation"] == issued  # the consumed one
+    frame[0], state[0] = "● Done.\n> ", {"activity": "idle", "events": [], "tool": "claude"}
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["input_generation"] == w.pane_input_generation("%1")
+    assert w._answered == {}
+
+
+def test_a_claim_during_a_parse_outlives_that_parse(monkeypatch):
+    """A tick that captured before a claim must not clear the claim's marker: its screen
+    can't show the answer yet, and the next parse would reissue the token."""
+    frame, clock = ["$ idle"], [1000.0]
+    w = _harness(monkeypatch, frame, [{"activity": "idle", "events": [], "tool": "shell"}],
+                 clock)
+    parse = W.classify
+
+    def claimed_mid_parse(*a, **kw):
+        w.consume_answer("%1", "the claimed screen", "its frame")  # a /send thread
+        return parse(*a, **kw)
+
+    monkeypatch.setattr(W, "classify", claimed_mid_parse)
+    w._forced_this_tick = set()
+    w._tick_pane(_Pane())
+    assert w._answered["%1"][1:] == ("the claimed screen", "its frame")

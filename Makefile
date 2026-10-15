@@ -1,4 +1,4 @@
-.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units demo screenshots screenshots-diff
+.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units demo screenshots screenshots-diff mock mock-check mock-live
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -50,8 +50,11 @@ fmt:
 # the daemon mounts them at (see TMUXRC_DOCS_DIR in .env.example). Dedicated output dir
 # so `docs-dev`'s Hugo server — which owns public/ and rewrites it on every edit — can
 # never clobber the build the daemon is serving.
+DOCS_BASE_URL ?= /docs/
+DOCS_DESTINATION ?= serve
+
 docs:
-	cd docs-site && hugo --gc --minify --baseURL /docs/ --destination serve
+	cd docs-site && hugo --gc --minify --baseURL "$(DOCS_BASE_URL)" --destination "$(DOCS_DESTINATION)"
 
 # Docs authoring server with hot reload on http://localhost:18034. Ports here spell R,C
 # (1803X) — "rc" being the half of the name that survives if the project is ever renamed
@@ -63,7 +66,7 @@ docs-dev:
 
 # Build, then fail on broken internal links or blank pages.
 docs-check: docs
-	uv run python docs-site/check-links.py
+	uv run python docs-site/check-links.py "docs-site/$(DOCS_DESTINATION)"
 
 docs-clean:
 	rm -rf docs-site/public docs-site/serve docs-site/resources docs-site/.hugo_build.lock
@@ -71,12 +74,12 @@ docs-clean:
 # Screenshots of /m against the fictional fleet in scripts/demo_fleet.py — never real
 # panes or history. `demo` serves it to browse by hand on http://127.0.0.1:18039/m.
 # `screenshots` shoots the full set into .screenshots/ and refreshes the few the README
-# shows (README_SHOTS) in docs/img/; `screenshots-diff` shoots BASE and this tree and
+# and the design notes show (README_SHOTS) in docs/img/; `screenshots-diff` shoots BASE and this tree and
 # writes per-shot diff images plus a summary table (see AGENTS.md, "UI screenshots").
 # Playwright lives in a cache dir rather than package.json: only these targets need a
 # browser, and the pinned version is what keeps renders comparable between machines.
 PLAYWRIGHT_DIR ?= $(HOME)/.cache/tmux-rc/playwright
-README_SHOTS = hero mobile-list mobile-pane mobile-terminal
+README_SHOTS = hero mobile-list mobile-pane mobile-terminal accounts-add-1-new-window accounts-add-6-done
 BASE ?= origin/main
 export PLAYWRIGHT_DIR
 
@@ -96,6 +99,26 @@ demo:
 screenshots: $(PLAYWRIGHT)
 	node scripts/screenshots.mjs .screenshots
 	cp $(README_SHOTS:%=.screenshots/%.png) docs/img/
+	cp .screenshots/website-*.png docs/img/
 
 screenshots-diff: $(PLAYWRIGHT)
 	uv run python -m scripts.screenshots_diff $(BASE) .screenshots/diff
+
+# Mocks: variants of /m over the demo fleet, in one harness (docs/deploy/previews.md,
+# "Mocks"). A mock's source (variants.json and its scripts) lives outside every checkout in
+# MOCKS_DIR/NAME; only the harness and the decision it leads to are committed. `mock`
+# snapshots it into scratch, `mock-check` shoots that at desktop and phone size, and
+# `mock-live` runs it over the live demo app on http://127.0.0.1:18039/mock/live/.
+MOCKS_DIR ?= $(HOME)/.local/share/tmux-rc/mocks
+MOCK_OUT ?= $(or $(TMUXRC_SCRATCH_DIR),.screenshots/mock)/$(NAME)
+mock mock-check mock-live: NAME ?= $(error NAME=<mock> is required)
+
+mock: $(PLAYWRIGHT)
+	node scripts/mock.mjs build $(MOCKS_DIR)/$(NAME) $(MOCK_OUT)
+
+mock-check: $(PLAYWRIGHT)
+	node scripts/mock.mjs check $(MOCK_OUT)
+
+mock-live: $(PLAYWRIGHT) # mock.mjs loads the shared browser module even here
+	node scripts/mock.mjs live $(MOCKS_DIR)/$(NAME) $(MOCK_OUT)
+	TMUXRC_MOCK_DIR=$(MOCKS_DIR)/$(NAME) uv run python -m scripts.demo_server 18039

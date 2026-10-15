@@ -49,7 +49,9 @@ not raw model JSON.
 
 A synthetic `Pane` carries each sample's `current_command` so the `[tmux: foreground
 process is …]` prefix and tool-anchoring behave as in production (this is how the
-"a server logging `gemini-…` lines is NOT the Gemini CLI" trap is exercised).
+"a server logging `gemini-…` lines is NOT the Gemini CLI" trap is exercised). A sample's
+`processes` replays the pane's process tree, so an agent installed through npm, whose
+foreground is only `node`, is pinned by the script node runs exactly as the daemon does.
 
 ## The scoring model
 
@@ -64,14 +66,36 @@ strictness is correct:
   An omitted `parse_ok` means success, matching the watcher.
 - `agents` and `subagent_states` — opt-in worker checks. When supplied, compare the busy
   background count and the sorted multiset of worker states (including duplicates).
+- `status_entries_exclude` — opt-in list of status readouts that must not come back as
+  chips, because a field of their own already shows them (context, cost).
+- `subagents_include` — opt-in list of partial worker rows; each must exactly match the
+  given fields of some parsed row (e.g. a workflow row's `label` and `progress`).
 - `working_prs` — opt-in exact comparison of semantic `owner/name#number` associations.
   An explicit empty list pins the important negative case: PRs may be visible without
-  this session actually working on any of them.
+  this session actually working on any of them. An entry marked `"optional": true` may
+  be reported or left out, for a PR whose association the model can fairly miss.
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
+- `question.items` — opt-in exact list: the numbered or lettered rows above a typed
+  question that its prompt names ("do 1 now?", "A or B?"), which classify() reads off the
+  screen.
+- `question.subject` — opt-in exact string: the paragraph or heading that leads into
+  those rows, which says what the question decides.
+- `question.context` — opt-in exact string: the widget rows classify() reads around a
+  menu's prompt (deterministic, so pinned exactly).
+- `copyable_texts` — opt-in exact list of copyable texts, for payloads lifted from the
+  agent's transcript (`reply`), which are deterministic.
+- `question.ask` — opt-in, judged: the plain "The agent wants to … Continue?" restatement
+  of an approval prompt must carry the same most consequential effect as the expected
+  one, name its destructive steps (and a description/command mismatch), and quote no
+  command text. Pinned `null`, it asserts the menu is not restated at all (a numbered
+  choice that is not an approval keeps its own question).
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
-  ("Yes…") then a decline ("No…"); their wording is not pinned.
+  ("Yes…") then a decline ("No…"); their wording is not pinned. Pinned `false`, there
+  must be none (a handed-over `! command` is not a question to reply to).
+- `links` — opt-in list of URLs, each of which must be offered whole among the candidate's
+  link hrefs (extra links are fine): a URL the terminal wrapped must not arrive as a fragment.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.
 - `tables` — presence too, but **opt-in**: scored only on a sample whose `expected`
   names it. Most screens have no table and take no position, so scoring it everywhere
@@ -83,9 +107,7 @@ strictness is correct:
 All supplied tables must have string-valued cells in array rows and array headers
 (or omitted/null headers);
 one valid table cannot hide malformed siblings or rows that break the desktop renderer.
-A boolean `tables` expectation checks presence only. An expected table list also
-sends the expected and candidate tables to the prose judge, which must confirm every
-referenced edit is represented. Sample 16 uses this to reject unrelated tables.
+A `tables` expectation checks presence only.
 
 A single structured mismatch fails the sample.
 
@@ -119,6 +141,8 @@ loosen the score.
   "repository": "owner/name",         // optional local GitHub repository context
   "capture": "…the pane text…",       // what the model sees
   "prior": ["…an earlier frame…"],    // optional: earlier captures, sent as production does
+  "reply": "…agent message…",         // optional: the agent's last message, from its transcript
+  "processes": ["node …/bin/codex"],  // optional: argv under the pane, for node/bun-hosted agents
   "expected": { "tool": "claude", "activity": "idle", "headline": "…" }
 }
 ```
@@ -143,7 +167,7 @@ actually hit:
 | `13_gemini_idle` | Gemini CLI's own chrome → tool=gemini |
 | `14_copyable_commit_and_command` | drafted commit text and a command to run elsewhere → copyables |
 | `15_codex_thread_title` | Codex status-bar thread title → session name, not model/mode/cwd |
-| `16_question_refers_to_list` | question naming "edits 1-4" → the list travels with it (`tables`) |
+| `16_question_refers_to_list` | question naming "edits 1-4" → the four rows travel with it (`question.items`), no table |
 | `17_claude_resume_cursor_picker` | `/resume` cursor picker → user-wait with selected row and keymap |
 | `18_claude_done_marker_with_draft` | completed turn plus unsent draft → idle, not running |
 | `19_codex_orchestrating_claude` | Claude chrome inside Codex capture output → tool=codex |
@@ -154,6 +178,8 @@ actually hit:
 | `24_agents_and_background_terminal` | real agents plus shell terminal → count only coding workers |
 | `25_working_pr_review` | active review work associates the pane with that PR |
 | `26_pr_list_is_not_work` | a visible `gh pr list` does not create associations |
+| `101_bare_pr_numbers_outside_a_checkout` | synthetic: a pane outside any checkout → only the PR written with its repo; bare `#N`s get no repo guessed from the folder or another mention |
+| `104_bare_pr_numbers_beside_another_repos_link` | synthetic: outside a checkout, bare `#N`s beside a status-line link to another repo → only the PR whose github.com URL is on screen |
 | `28_opencode_claude_model` | OpenCode using Claude/Bedrock → tool=opencode, not claude |
 | `29_opencode_interrupt_spinner` | OpenCode `esc interrupt` spinner → running, not idle |
 | `54_claude_user_turn_is_not_question` | the user's own ❯ turn above a live spinner → running, no question |
@@ -165,36 +191,41 @@ actually hit:
 | `62_omp_ask_picker` | omp `ask` cursor picker → user-wait with the selected option |
 | `63_omp_folder_segment_running` | synthetic: omp outside a repo (`📁 <path>` segment) with a `↻` activity line → running, title not a question |
 | `64_omp_wrapped_by_bash` | omp behind a bash wrapper (`current_command=bash`) → tool=omp from its chrome, running with two workers |
-| `65_omp_gutter_code_is_not_question` | real omp capture + one earlier frame: a question string inside a line-numbered Edit diff (`+246│`) is code, not a prompt → running, no question |
+| `65_omp_gutter_code_is_not_question` | omp screen + one earlier frame: a question string inside a line-numbered Edit diff (`+246│`) is code, not a prompt → running, no question |
 | `66_omp_queued_user_question` | omp's outgoing numbered Steering message → running, no question, even without dim styling |
 | `67_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
 | `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
+| `88_claude_wrapped_login_link_beside_options` | a wrapped OSC 8 login URL beside a prose option list → the whole URL in `links`, even though grounding rejects the misread question |
+| `90_claude_question_names_list_items` | a closing "do 1 now and prepare the list for 2?" under a numbered list → those two rows in `question.items`, not the unnamed third |
+| `92_claude_question_names_lettered_options` | a bare "Go with A or B?" under lettered options → the A and B rows in `question.items`, and the line leading into them in `question.subject` |
+| `93_claude_decision_heading_above_options` | a heading over bulleted "Option A:" / "Option B —" rows, asked "option A or B?" → the heading as `question.subject`, both rows in `question.items` |
+| `100_claude_handoff_beside_suggested_command` | a `! command` handoff in Claude's right-barred transcript, its greyed suggestion in the box → text user-wait quoting the agent, no reply buttons |
+| `101_claude_bare_command_after_colon_one_line` | a one-line message handing over a bare `! command` after a colon, no backticks → text user-wait offering that command |
+| `102_claude_bare_command_after_colon_wrapped` | a long bare `! command` after a colon, wrapped over screen rows but one row ending the transcript → offered whole, not just a copyable |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
-The parser now carries the four referenced numbered edits as rows, while excluding
-skipped recommendations and outgoing user queues. The content judge checks that all
-four edits retain their meaning.
+Rewording that helped for a while, but the parser kept dropping the list (sample 90 is
+a live case where it returned no table at all), so classify() now reads the rows off the
+screen into `question.items`, and drops the parser's own copy of them (a table keyed by
+their numbers, or the rows offered as answer buttons): which rows a prompt names is a
+fact about the screen, not a judgement. Deleting the prompt's table instruction was
+tried and rejected: the parser then filed the list as `tasks`, and the reworded prompt
+flipped the unrelated sample 47.
 
 ### Committed vs local — what's repo-safe
 
-The corpus is **committed** and runnable by anyone/CI. tmux-rc dogfooding content is
-fine verbatim: cwd like `~/src/qs/termiphone`, tmux-rc code/output, PR numbers — the repo
-watches itself. The `samples/.gitignore` guards against dropping **raw scratch captures**
-(`.txt`, `.png` from `probe.py --save`) into the corpus dir. When you turn a real capture
-into a `.json` sample, only scrub content from **another codebase** (proprietary source
-that happened to be on screen) or an **actual secret/token/credential**.
-
-Samples here are a mix of **real tmux-rc captures** (the working/running case) and
-**faithful synthetic reproductions** (the permission boxes, rewind picker, external-wait,
-the log-trap) — synthesized where the only real example would drag in another codebase's
-content, or where hand-authoring reproduces the pattern more cleanly than hunting a live
-occurrence.
+The corpus is **committed** and public, so every sample is invented (AGENTS.md: "This
+repository is public"). A real capture, even renamed or redacted, still describes the work it
+came from: use it only to learn the shape that triggers the bug, then rebuild that shape from
+scratch around an unrelated topic, as short as it can be. The `samples/.gitignore` guards
+against dropping **raw scratch captures** (`.txt`, `.png` from `probe.py --save`) into the
+corpus dir, and `tests/test_public_data.py` rejects the usual tells.
 
 ## Adding a sample
 
-1. Capture or author the pane text. If real, scrub only other-codebase content / secrets
-   (see above).
+1. Author the pane text from scratch (see above): a local capture may show you the shape
+   that triggers the bug, but none of its text goes in the sample.
 2. Decide the blessed `expected` — the structured fields the UI must get right, plus a
    headline that captures the situation.
 3. Write `samples/NN_short_name.json` in the shape above.

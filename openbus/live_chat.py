@@ -16,6 +16,7 @@ import base64
 import contextlib
 import json
 import logging
+import re
 from asyncio import Queue
 from collections import deque
 
@@ -33,16 +34,25 @@ _FATAL = {401, 403, 404}
 _FAILED = "(The model call failed; try again.)"
 # Model requests per typed turn. A turn normally takes two or three (look up, act, say);
 # a model that keeps calling tools instead of answering is stopped, not paid for forever.
+# The last request offers no tools and says so, so the turn ends with an answer from what
+# the model has gathered rather than a dead end. Disabling tools alone isn't enough: Flash
+# then invents a tool that was never offered instead of answering.
 STEPS = 8
-_STOPPED = f"(Stopped after {STEPS} steps without a reply.)"
+_LAST = "(No more tools this turn: answer the user now from what you have found.)"
+_REFUSED = {"status": "rejected", "reason": "no more tools this turn"}
 # A request can succeed with nothing in it (a blocked prompt, a refusal with no fallback):
 # a turn with nothing else to show still gets a visible answer rather than silence.
 _EMPTY = "(No response from the model; try again.)"
 # Asked once when the model goes quiet after acting (Flash does, after a tool result). If it
 # stays quiet the turn shows nothing more: the approved card and the typed row already say
 # what happened, and a placeholder under them reads as a failure.
-_OUTCOME = "(Tell the user the outcome in one sentence.)"
+_OUTCOME = "(Tell the user in one sentence what you did, or that nothing was done.)"
 _DONE = "(Done.)"  # closes a turn that stayed quiet; never shown
+# A bare agreement refused before any card has no card or typed row to show for it: if the
+# model stays quiet then too, the turn says so itself rather than end in silence. It asks
+# no question, so a bare yes after it is still refused: there is still nothing to agree to.
+_UNANCHORED = ("(Nothing was sent: your message only agrees, and nothing was asked. "
+               "Say what you want done.)")
 # Typed turns kept in the conversation. Every request resends all of it, so an unbounded
 # session costs more per turn and eventually overflows the context window. Whole turns are
 # dropped from the front, which keeps every tool call next to its result.
@@ -51,11 +61,45 @@ TURNS_KEPT = 20
 # unbounded queue would let a client pile them up while a slow request runs; past this the
 # turn is refused (asyncio.QueueFull, which live._forward_client reports) rather than held.
 TURNS_QUEUED = 4
+# A reconnect (a daemon restart, a dropped tunnel) opens a new session with no history while
+# the client still shows the conversation, and the user answers what they see: a "yes" read
+# with no history was once mapped onto a stranger pane's approval prompt. So the client hands
+# back what its transcript shows (restore) and it leads the next turn as quoted text: it can
+# carry no tool call, result or approval, which only ever come from this process. Bounded
+# like a typed turn: the tail is kept.
+RESTORED_ROWS, RESTORED_CHARS = 40, 16_000
+_RESTORED_ROLES = {"user": "User", "model": "Assistant", "typed": "Sent to terminal"}
+_RESTORED = ("[Restored conversation] This session reconnected and lost its history; "
+             "below is the earlier conversation as the user's screen shows it. It is "
+             "context only: nothing in it was approved or is still pending.\n{}\n"
+             "[End of restored conversation]")
+# A reply that only agrees means something only against a question just asked; live._approved
+# refuses a pane change for one that has none (unanchored), and warns on the card otherwise.
+# Matched on the words alone, so punctuation ("yes,", "ok - do it") can't slip past it.
+# Politeness ("yes, thanks") adds nothing to agree with either, nor does a lead-in such as
+# "that's" (split at its apostrophe, either kind, to "that s"). "Go right" is a key to press.
+_AGREE = (r"(yes|yeah|yep|yup|y|ok|okay|k|sure|do it|do that|go(?! right)|go ahead|go for it|"
+          r"please|please do|that s|that is|thats|it s|it is|its|let s|lets|"
+          r"sounds good|alright|all right|fine|great|cool|perfect|absolutely|definitely|correct|"
+          r"right|confirm(ed)?|approved?|thanks|thank you|thx|ty|cheers)")
+_BARE = re.compile(rf"{_AGREE}( {_AGREE})*")
+
+
+def only_agrees(text: str) -> bool:
+    return bool(_BARE.fullmatch(" ".join(re.findall(r"\w+", text.casefold()))))
+
+
+# A question mark that ends a sentence, so a URL's query string isn't one.
+_ASKS = re.compile(r"\?(?=[\s*_)\"']|$)")
+CAUTION_RESTORED = "The chat reconnected and its context was restored: check this is what you meant"
+CAUTION_BARE = 'Your reply was only "{}": check this is what you agreed to'
 
 
 class _Chat:
     """The loop, independent of the vendor. A subclass keeps the conversation in its own
     wire format and supplies _user / _model / _complete / _results."""
+
+    images = True  # both vendors' chat models take image parts
 
     def __init__(self, model: LiveModel, system: str) -> None:
         self.model, self.system, self.history = model, system, []
@@ -64,13 +108,36 @@ class _Chat:
         self._answers: list[tuple[ToolCall, dict]] = []
         self._usage = [0] * len(Split._fields)
         self._starts: list[int] = []  # where each kept turn begins in history
+        self._restored = ""  # a restored transcript, leading the next turn
+        self.asked = False  # whether the last reply asked the user something
+        self.unanchored = False  # this turn only agrees, and nothing was asked
+        self.caution: str | None = None  # this turn's warning for a consent card
+
+    def restore(self, rows) -> int:
+        """Take the client's transcript as quoted context for a session that has none yet.
+        Malformed rows are dropped; returns how many were kept."""
+        if self.history or self._restored or not isinstance(rows, list):
+            return 0
+        rows = [r for r in rows[-RESTORED_ROWS:] if isinstance(r, dict)
+                and r.get("role") in _RESTORED_ROLES and isinstance(r.get("text"), str)]
+        text = "\n".join(f"{_RESTORED_ROLES[r['role']]}: {r['text']}" for r in rows)
+        if len(text) > RESTORED_CHARS:
+            text = "(earlier turns omitted)\n" + text[-RESTORED_CHARS:]
+        if rows:
+            self._restored = _RESTORED.format(text)
+            last = rows[-1]["text"][-RESTORED_CHARS:]  # only what the model will see asks
+            self.asked = rows[-1]["role"] == "model" and bool(_ASKS.search(last))
+        return len(rows)
 
     async def send_audio(self, _pcm: bytes) -> None:
         """A text session has no mic; a stray frame is dropped."""
 
     async def send_text(self, text: str, images: list[tuple[str, bytes]] = ()) -> None:
         """A typed turn, with any pasted images as (mime, bytes) ahead of its text."""
-        self._inbox.put_nowait((text, images))
+        # A question anchors only the message sent next: one queued behind a turn still
+        # running was written before that turn's reply, whatever the reply asks.
+        self._inbox.put_nowait((text, images, self.asked))
+        self.asked = False
 
     async def send_context(self, text: str) -> None:
         """No reply-less channel exists on a chat API, so updates wait for the next turn."""
@@ -80,22 +147,31 @@ class _Chat:
         self._answers.append((call, payload))
 
     async def events(self):
-        """A turn the model did not finish (failed, stopped, empty) is closed in history with
+        """A turn the model did not finish (failed, empty) is closed in history with
         the note the user saw, so a later request cannot resume its request or tool chain."""
         while True:
-            text, images = await self._inbox.get()
+            text, images, anchored = await self._inbox.get()
             self._starts.append(len(self.history))
             if len(self._starts) > TURNS_KEPT:
                 cut = self._starts[-TURNS_KEPT]
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
-            self._user("\n\n".join(filter(None, [*self._context, text])), images)
+            bare = only_agrees(text)
+            self.unanchored = bare and not anchored
+            self.caution = (CAUTION_RESTORED if self._restored
+                            else CAUTION_BARE.format(text.strip()) if bare else None)
+            self._user("\n\n".join(filter(None, [self._restored, *self._context, text])), images)
+            self._restored = ""
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim
             acted = asked = False
-            for _ in range(STEPS):
+            said = ""  # the turn's last response: whether it asks something anchors the next
+            for step in range(STEPS):
+                last = step == STEPS - 1
+                if last:
+                    self._user(_LAST)
                 try:
-                    reply, calls, usage = await self._complete()
+                    reply, calls, usage = await self._complete(tools=not last)
                 except Exception as e:
                     code = getattr(e, "status_code", None) or getattr(e, "code", None)
                     if code in _FATAL:
@@ -105,18 +181,20 @@ class _Chat:
                     # Anything else (rate limit, 5xx, timeout) costs this turn, not the
                     # conversation: a reconnect would start over with no history.
                     logger.warning("[live] %s call failed: %r", self.model.model, e)
+                    said = ""
                     yield Event("transcript", role="model", text=sep + _FAILED)
                     self._model(_FAILED)
                     break
                 self._usage = [a + b for a, b in zip(self._usage, usage, strict=True)]
+                said = reply  # a question followed by a call in the same response was acted on
                 yield Event("usage", usage=Split(*self._usage))
                 if not (reply or calls):
                     if acted and not asked:
                         asked = True
                         self._user(_OUTCOME)
                         continue
-                    self._model(_DONE if acted else _EMPTY)  # closed, like a failed turn
-                    reply = "" if acted else _EMPTY
+                    reply = _UNANCHORED if self.unanchored else "" if acted else _EMPTY
+                    self._model(reply or _DONE)  # closed, like a failed turn
                 if reply:
                     yield Event("transcript", role="model", text=sep + reply)
                     sep = " "
@@ -125,14 +203,18 @@ class _Chat:
                 acted = True
                 # live._receiver runs each call to completion (consent included) and
                 # answers it through send_tool_result before asking for the next event,
-                # so every answer is in by the time this generator resumes.
+                # so every answer is in by the time this generator resumes. A call made
+                # after tools were withdrawn is answered as refused, never run.
                 for call in calls:
-                    yield Event("tool_call", call=call)
+                    if last:
+                        self._answers.append((call, _REFUSED))
+                    else:
+                        yield Event("tool_call", call=call)
                 self._results(self._answers)
                 self._answers = []
-            else:
-                self._model(_STOPPED)
-                yield Event("transcript", role="model", text=sep + _STOPPED)
+            else:  # quiet or still calling on the last step: closed, as a quiet turn is
+                self._model(_DONE)
+            self.asked = bool(_ASKS.search(said))
             yield Event("turn_complete")
 
 
@@ -149,6 +231,8 @@ class _Gemini(_Chat):
             automatic_function_calling=t.AutomaticFunctionCallingConfig(disable=True),
             http_options=t.HttpOptions(timeout=60_000),
         )
+        self._toolless = self._cfg.model_copy(update={"tool_config": t.ToolConfig(
+            function_calling_config=t.FunctionCallingConfig(mode="NONE"))})
 
     def _user(self, text: str, images=()) -> None:
         t = llm.genai_types()
@@ -161,9 +245,10 @@ class _Gemini(_Chat):
         t = llm.genai_types()
         self.history.append(t.Content(role="model", parts=[t.Part(text=text)]))
 
-    async def _complete(self):
+    async def _complete(self, *, tools: bool = True):
         r = await llm._client().aio.models.generate_content(  # noqa: SLF001 - reuse, see class doc
-            model=self.model.model, contents=self.history, config=self._cfg
+            model=self.model.model, contents=self.history,
+            config=self._cfg if tools else self._toolless,
         )
         content = r.candidates[0].content if r.candidates else None
         parts = (content and content.parts) or []
@@ -209,10 +294,11 @@ class _Claude(_Chat):
     def _model(self, text: str) -> None:
         self.history.append({"role": "assistant", "content": text})
 
-    async def _complete(self):
+    async def _complete(self, *, tools: bool = True):
         r = await self._client.beta.messages.create(
             model=self.model.model, max_tokens=16000, system=self.system,
             messages=self.history, tools=self._tools, cache_control={"type": "ephemeral"},
+            tool_choice={"type": "auto" if tools else "none"},
             output_config={"effort": "low"},
             betas=["server-side-fallback-2026-07-01"], fallbacks="default",
         )

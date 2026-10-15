@@ -10,7 +10,7 @@ function loadScript(src) {
 }
 // One cached load per library, so the split never waits on the word cloud's script.
 const loads = {};
-const load = (name, src) => loads[name] ||= (window[name] ? Promise.resolve() : loadScript(src))
+export const load = (name, src) => loads[name] ||= (window[name] ? Promise.resolve() : loadScript(src))
   .then(() => window[name], error => { delete loads[name]; throw error; });
 // The latest average on record. Indexed, not at()/findLast(): older iOS Safari has neither.
 export const latestAverage = rows => { for (let i = rows.length - 1; i >= 0; i--) if (rows[i].ma != null) return rows[i].ma; };
@@ -75,11 +75,12 @@ const ORDER = [1, 4, 0, 5, 2, 3]; // Running at the bottom, idle at the top.
 
 // THE fleet chart: every surface (the split's strip and body, the dashboard, its small
 // multiples) is one of these. Stacked state bars, the trailing average of Running as a
-// purple line, the goal as a dashed one. `axis` adds axes, tooltip labels and zoom; without
+// purple line, the goal as a dashed one. `withAxis` adds axes, tooltip labels and zoom; without
 // it the chart is a sparkline. `update` takes rows of {t, n, source, ma}.
-export function fleetChart(axis) {
+// `compact` (set on the api) draws an axis chart as a bare strip, for the dashboard's pinned Activity.
+export function fleetChart(withAxis) {
   const el = document.createElement('div');
-  el.className = axis ? 'fleet-chart fleet-chart-axis' : 'fleet-chart';
+  el.className = withAxis ? 'fleet-chart fleet-chart-axis' : 'fleet-chart';
   el.setAttribute('role', 'img');
   let chart, latest, zoomKey, zoom = { start: 0, end: 100 };
   const setZoom = (start, span) => {
@@ -103,7 +104,7 @@ export function fleetChart(axis) {
         api.onZoom?.();
       });
     }
-    const { rows, states, step, unit = 'Panes', goal, max, average } = latest;
+    const { rows, states, step, unit = 'Panes', goal, max, average } = latest, axis = withAxis && !api.compact;
     // Live polls and theme changes preserve the view; a new range/filter starts fresh.
     if (zoomKey !== latest.zoomKey) { zoomKey = latest.zoomKey; zoom = { start: 0, end: 100 }; api.onZoom?.(); }
     const css = getComputedStyle(document.documentElement);
@@ -174,7 +175,7 @@ export function fleetChart(axis) {
   const resize = new ResizeObserver(paint), theme = new MutationObserver(paint);
   resize.observe(el);
   theme.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  if (axis) {
+  if (withAxis) {
     el.tabIndex = 0;
     el.dataset.key = 'chart'; // one axis chart per surface; rebuild() refocuses it by this
     el.title = 'Drag the range handles to zoom. Keyboard: + or − to zoom, left or right arrows to pan.';

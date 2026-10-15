@@ -25,6 +25,7 @@ STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
 AGENT_TOOLS = {"claude", "codex", "gemini", "opencode", "omp"}
 MAX_SPAN = 90 * 86400  # bounds a request; the database itself is never pruned
 GOAL_KEY = "running_goal"
+USAGE_KEEP = 8 * 86400  # plan_usage keeps raw samples this long, then one an hour: see record_usage
 LEAD_BUCKETS = 2880  # 24h of 5-minute buckets plus a 7d lead fits; a 90d lead at 1h does not
 
 
@@ -181,8 +182,32 @@ def _add_checkpoints(db) -> None:
                "last_activity_at REAL NOT NULL, idle_since REAL, card TEXT)")
 
 
+def _add_plan_usage(db) -> None:
+    # Plan-limit samples per account and window; see docs/design/plan-usage.md.
+    db.execute("CREATE TABLE plan_usage (provider TEXT NOT NULL, account TEXT NOT NULL, "
+               "window TEXT NOT NULL, seconds INTEGER NOT NULL, t REAL NOT NULL, "
+               "pct REAL NOT NULL, resets_at REAL, PRIMARY KEY(provider, account, window, t))")
+
+
+def _index_plan_usage(db) -> None:
+    # The latest observation is looked up by time across windows; the key leads with window.
+    db.execute("CREATE INDEX plan_usage_by_time ON plan_usage(provider, account, t)")
+
+
+def _index_plan_usage_resets(db) -> None:
+    # Once used to step a meter back through its past windows; dropped below since the
+    # usage view reads a time range instead.
+    db.execute("CREATE INDEX plan_usage_by_reset ON plan_usage(provider, account, window, "
+               "CAST(resets_at / 3600 AS INT))")
+
+
+def _drop_plan_usage_resets(db) -> None:
+    db.execute("DROP INDEX plan_usage_by_reset")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
-              _add_checkpoints)
+              _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets,
+              _drop_plan_usage_resets)
 
 
 class History:
@@ -224,6 +249,7 @@ class History:
         self._last = None
         self._written = 0.0
         self._failed = 0.0
+        self._thinned = 0  # the hour plan_usage was last thinned through: see record_usage
 
     @contextmanager
     def connect(self):
@@ -303,6 +329,43 @@ class History:
         with self.connect() as db:
             db.executemany("DELETE FROM pane_checkpoints WHERE uid=?", [(u,) for u in uids])
 
+    def record_usage(self, rows: list[tuple]) -> None:
+        """(provider, account, window, seconds, t, pct, resets_at) rows. A Codex sample is
+        stamped with its log event's time, so re-reading the same event is a no-op."""
+        with self.connect() as db:
+            db.executemany("INSERT OR IGNORE INTO plan_usage VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+            # Raw samples for the current windows (the longest, 7d, plus a day); past that, the
+            # last sample of each hour, per window it belongs to, so a window's final reading
+            # survives the hour it reset in, and the first at the limit, so does when it hit
+            # it. A window not yet opened (no reset) has nothing to keep. Once an hour: the
+            # scan grows with the history.
+            cutoff = max(r[4] for r in rows) - USAGE_KEEP
+            if cutoff // 3600 != self._thinned:
+                db.execute("DELETE FROM plan_usage WHERE t < ?1 AND rowid NOT IN (SELECT rowid "
+                           "FROM (SELECT rowid, max(CASE WHEN pct >= 100 THEN -t ELSE t END) "
+                           "FROM plan_usage WHERE t < ?1 AND resets_at IS NOT NULL "
+                           "GROUP BY provider, account, window, "
+                           "CAST(t / 3600 AS INT), CAST(resets_at / 3600 AS INT), pct >= 100))",
+                           (cutoff,))
+                self._thinned = cutoff // 3600
+
+    def latest_usage(self, provider: str, account: str) -> list[tuple]:
+        """(window, seconds, t, pct, resets_at) of the latest observation. One read stamps
+        all its windows alike, so a window a plan change dropped is left behind with it."""
+        with self.connect() as db:
+            return db.execute("SELECT window, seconds, t, pct, resets_at FROM plan_usage "
+                              "WHERE provider=?1 AND account=?2 AND t=(SELECT max(t) FROM "
+                              "plan_usage WHERE provider=?1 AND account=?2) ORDER BY window",
+                              (provider, account)).fetchall()
+
+    def usage_between(self, provider: str, account: str, window: str,
+                      since: float, until: float) -> list[tuple]:
+        """(t, pct, resets_at), oldest first."""
+        with self.connect() as db:
+            return db.execute("SELECT t, pct, resets_at FROM plan_usage WHERE provider=? "
+                              "AND account=? AND window=? AND t BETWEEN ? AND ? ORDER BY t",
+                              (provider, account, window, since, until)).fetchall()
+
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""
         with self.connect() as db:
@@ -377,7 +440,7 @@ class History:
                                 "groups": groups, "source": source,
                                 **{key: sum_counts(groups, key) if panes or versioned else None
                                    for key in ("foreground", "background")}})
-        return {"samples": samples, "step": step * 1000, "first": first * 1000,
+        return {"samples": samples, "step": step * 1000, "first": first * 1000, "now": now * 1000,
                 "goal": int(goal[0]) if goal else None,
                 "states": STATES, "backfill_ttl": BACKFILL_TTL,
                 "backfill_note": ("Log reconstruction (lighter bars) is partial; "

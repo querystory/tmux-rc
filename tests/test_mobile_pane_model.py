@@ -127,50 +127,80 @@ CASES = [
     (
         "matchesFilter: attention keeps panes waiting on the user",
         "matchesFilter",
-        [{"activity": "waiting"}, "attention", NOW_MS],
+        [{"activity": "waiting"}, ["attention"], NOW_MS],
         True,
     ),
     (
         "matchesFilter: attention drops panes waiting on external",
         "matchesFilter",
-        [{"activity": "waiting", "waiting_on": "external"}, "attention", NOW_MS],
+        [{"activity": "waiting", "waiting_on": "external"}, ["attention"], NOW_MS],
         False,
     ),
     (
-        "matchesFilter: running keeps compacting panes",
+        "matchesFilter: working keeps compacting panes",
         "matchesFilter",
-        [{"activity": "compacting"}, "running", NOW_MS],
+        [{"activity": "compacting"}, ["working"], NOW_MS],
         True,
     ),
     (
-        "matchesFilter: running drops idle panes",
+        "matchesFilter: working drops idle panes",
         "matchesFilter",
-        [{"activity": "idle"}, "running", NOW_MS],
+        [{"activity": "idle"}, ["working"], NOW_MS],
         False,
     ),
     (
-        "matchesFilter: recent keeps a pane idle for five minutes",
+        "matchesFilter: just finished keeps a pane idle for five minutes",
         "matchesFilter",
-        [IDLE_5_MIN_AGO, "recent", NOW_MS],
+        [IDLE_5_MIN_AGO, ["finished"], NOW_MS],
         True,
     ),
     (
-        "matchesFilter: recent drops a pane idle for eleven minutes",
+        "matchesFilter: just finished drops a pane idle for eleven minutes",
         "matchesFilter",
-        [IDLE_11_MIN_AGO, "recent", NOW_MS],
+        [IDLE_11_MIN_AGO, ["finished"], NOW_MS],
         False,
     ),
     (
-        "matchesFilter: all keeps a parked pane",
+        "matchesFilter: none (all) keeps a parked pane",
         "matchesFilter",
-        [IDLE_11_MIN_AGO, "all", NOW_MS],
+        [IDLE_11_MIN_AGO, [], NOW_MS],
         True,
     ),
     (
         "matchesFilter: an unknown filter behaves like all",
         "matchesFilter",
-        [IDLE_11_MIN_AGO, "bogus", NOW_MS],
+        [IDLE_11_MIN_AGO, ["bogus"], NOW_MS],
         True,
+    ),
+    (
+        "matchesFilter: idle is what no other section holds",
+        "matchesFilter",
+        [IDLE_11_MIN_AGO, ["idle"], NOW_MS],
+        True,
+    ),
+    (
+        "matchesFilter: a running pane is not just finished (each filter is one section)",
+        "matchesFilter",
+        [{"activity": "running"}, ["finished"], NOW_MS],
+        False,
+    ),
+    (
+        "matchesFilter: a pane that needs you is not working",
+        "matchesFilter",
+        [{"activity": "waiting"}, ["working"], NOW_MS],
+        False,
+    ),
+    (
+        "matchesFilter: several states are a union",
+        "matchesFilter",
+        [IDLE_5_MIN_AGO, ["working", "finished"], NOW_MS],
+        True,
+    ),
+    (
+        "matchesFilter: a pane matching none of several states drops",
+        "matchesFilter",
+        [IDLE_11_MIN_AGO, ["working", "finished"], NOW_MS],
+        False,
     ),
     # lastActivity
     (
@@ -245,6 +275,55 @@ CASES = [
         ],
         0,
     ),
+    # shownAt: what the age label counts from, so lists sort by it too.
+    (
+        "shownAt: state_since wins over a later last_activity_at, matching the age shown",
+        "shownAt",
+        [{"activity": "idle", "state_since": 100, "last_activity_at": 900}],
+        100,
+    ),
+    (
+        "shownAt: falls back to lastActivity without state_since",
+        "shownAt",
+        [{"activity": "idle", "last_activity_at": 900}],
+        900,
+    ),
+    (
+        "newestFirst: a working row (age 'now') sorts above a younger idle one",
+        "newestFirst",
+        [{"activity": "running", "state_since": 100}, {"activity": "idle", "state_since": 900}],
+        -1,
+    ),
+    (
+        "newestFirst: otherwise the youngest age shown comes first",
+        "newestFirst",
+        [
+            {"activity": "idle", "state_since": 900, "last_activity_at": 100},
+            {"activity": "idle", "state_since": 100, "last_activity_at": 900},
+        ],
+        -800,
+    ),
+    # Sub-agents: only the backend's busy states count, and its `agents` count wins when larger.
+    (
+        "liveSubagents: keeps running and compacting, drops done, waiting and junk",
+        "liveSubagents",
+        [{"subagents": [{"label": "a", "state": "running"}, {"label": "b", "state": "done"},
+                        {"label": "c", "state": "waiting"}, {"label": "d", "state": "compacting"},
+                        "junk", None]}],
+        [{"label": "a", "state": "running"}, {"label": "d", "state": "compacting"}],
+    ),
+    (
+        "subagentCount: the canonical agents count when the roster lists fewer",
+        "subagentCount",
+        [{"agents": 3, "subagents": [{"state": "running"}]}],
+        3,
+    ),
+    (
+        "subagentCount: the busy roster when agents is missing",
+        "subagentCount",
+        [{"subagents": [{"state": "running"}, {"state": "done"}]}],
+        1,
+    ),
 ]
 
 # since/age: the one age format both lists show. Units floor, each boundary rolls over.
@@ -259,9 +338,17 @@ CASES += [(f"since: {secs}s ago reads {label}", "since", [idle_since(secs), NOW_
 CASES += [
     ("since: without state_since, falls back to lastActivity", "since",
      [{"activity": "idle", "updated_at": NOW_S, "idle_seconds": 120}, NOW_MS], "2m"),
+    # A startup placeholder has no clock yet: no age, never "20735d" since the epoch.
+    ("since: with no timestamp at all, reads no age", "since",
+     [{"activity": "unknown"}, NOW_MS], ""),
     ("age: a running pane reads now", "age",
      [{"activity": "running", "state_since": NOW_S - 600}, NOW_MS], "now"),
     ("age: an idle pane reads its since", "age", [idle_since(600), NOW_MS], "10m"),
+    # A startup placeholder is not yet read: "Summarizing…", not "No recent activity".
+    ("panePending: a placeholder card is pending", "panePending",
+     [{"activity": "unknown"}], True),
+    ("panePending: a parsed card with nothing to say is not", "panePending",
+     [{"activity": "idle", "parsed_at": NOW_S}], False),
 ]
 
 # stillOnPane guards every involuntary exit from a pane. `active` lags a tap by one task, so
@@ -340,14 +427,14 @@ for tool, model, expected in [
         "modelProvider", [{"tool": tool, "model": model}], expected,
     ))
 
-FILTER_NAMES = ["all", "running", "recent", "attention"]
+FILTER_NAMES = ["attention", "working", "finished", "idle"]
 INVALID_FILTERS = (
     "__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None,
 )
 for invalid_filter in INVALID_FILTERS:
     CASES.append((
         f"matchesFilter: unknown filter {invalid_filter!r} behaves like all",
-        "matchesFilter", [IDLE_11_MIN_AGO, invalid_filter, NOW_MS], True,
+        "matchesFilter", [IDLE_11_MIN_AGO, [invalid_filter], NOW_MS], True,
     ))
 
 for invalid in (None, "", "idle extra-class", "__proto__", "constructor", 42, {}):

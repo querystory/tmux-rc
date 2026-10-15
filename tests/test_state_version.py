@@ -47,6 +47,15 @@ def test_session_focus_flip_bumps_version():
     assert w.state_version() == v + 1
 
 
+def test_offer_only_change_bumps_version():
+    # The watcher re-reads offers on a screen it does not reparse ("10s" -> "20s").
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states({**A, "offers": ["! timeout 10s make deploy"]}))
+    v = w.state_version()
+    w._bump_state_if_changed(_states({**A, "offers": ["! timeout 20s make deploy"]}))
+    assert w.state_version() == v + 1
+
+
 def test_window_renumber_bumps_version():
     # Moving/closing windows renumbers the survivors while their content sits still;
     # the phone renders those numbers (and session headers), so the version must bump.
@@ -54,6 +63,16 @@ def test_window_renumber_bumps_version():
     w._bump_state_if_changed(_states({**A, "session": "gtm", "window_index": "3"}))
     v = w.state_version()
     w._bump_state_if_changed(_states({**A, "session": "gtm", "window_index": "2"}))
+    assert w.state_version() == v + 1
+
+
+def test_recycled_pane_id_bumps_version():
+    # tmux reuses %N: a new pane that matches the old one field for field is still a new
+    # incarnation, and the phone keeps a killed pane hidden until it sees the new birth.
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states({**A, "birth": "100"}))
+    v = w.state_version()
+    w._bump_state_if_changed(_states({**A, "birth": "200"}))
     assert w.state_version() == v + 1
 
 

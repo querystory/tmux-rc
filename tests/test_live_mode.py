@@ -5,7 +5,10 @@ must be pinned in tests is everything that decides WHAT the model sees and WHETH
 tool call may touch a real terminal — the context builder and the reject paths."""
 
 import asyncio
+import dataclasses
 import logging
+import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,8 +30,8 @@ class _Watcher:
 
     def digest(self):
         return [
-            {"pane_id": "%1", "label": "work", "window_index": "3", "tool": "claude",
-             "activity": "waiting", "tmux_active": True,
+            {"pane_id": "%1", "label": "work", "session": "dev", "window_index": "3",
+             "pane_index": "0", "tool": "claude", "activity": "waiting", "tmux_active": True,
              "headline": "asking about tests", "summary": "ran the suite",
              "prs": [{"repo": "querystory/qs-app", "number": 4955}],
              "cwd": "/repo/worktree",
@@ -98,9 +101,9 @@ def test_receiver_preserves_transcripts_and_debug_logging(monkeypatch, caplog, d
 def test_pane_context_carries_state_and_screens():
     w = _Watcher()
     ctx = L._pane_context(w, screens="all")
-    # User-facing identity (window number + name) leads; the %id is the tool-call handle.
-    # Name falls back to label here (stub has no self-published title).
-    assert 'window 3 "work" (id=%1) — claude — waiting' in ctx
+    # User-facing identity (name · tool, as the list row shows it) leads; the %id is the
+    # tool-call handle. Name falls back to label here (stub has no self-published title).
+    assert '"work · claude in dev" (id=%1) — waiting' in ctx
     assert "ACTIVE" in ctx  # the focused pane is flagged for "here"/"this" resolution
     assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
     assert "PRs this pane has worked on: querystory/qs-app#4955" in ctx
@@ -116,17 +119,27 @@ def test_pane_context_carries_state_and_screens():
 
 
 def test_pane_block_names_window_prefers_title_hides_id_role():
-    # Heading leads with window number + best-first name (title over label), and the %id
-    # is present only as the tool-call handle — never as the spoken identity.
+    # Heading leads with the best-first name (title over label), tool and session, never
+    # the window number the phone doesn't show, and the %id only as the tool-call handle.
     titled = L._pane_block(
-        {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78",
+        {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78", "session": "qs",
          "label": "work", "tool": "claude", "activity": "idle"}, None)
-    assert 'window 9 "Resolve PR 78" (id=%16)' in titled
+    assert '## "Resolve PR 78 · claude in qs" (id=%16)' in titled
     # No self-published title ⇒ fall back to the window label.
     untitled = L._pane_block(
         {"pane_id": "%2", "window_index": "2", "title": None, "label": "shell",
          "tool": "shell", "activity": "running"}, None)
-    assert 'window 2 "shell" (id=%2)' in untitled
+    assert '## "shell · shell" (id=%2)' in untitled
+
+
+def test_pane_name_adds_the_window_only_to_tell_twins_apart():
+    twins = [{"pane_id": f"%{i}", "title": "tests", "tool": "claude", "session": "qs",
+              "window_index": str(i)} for i in (3, 4)]
+    other = {"pane_id": "%5", "title": "docs", "tool": "claude", "session": "qs",
+             "window_index": "5"}
+    digest = [*twins, other]
+    assert L._pane_name(twins[0], digest) == "tests · claude in qs · window 3"
+    assert L._pane_name(other, digest) == "docs · claude in qs"
 
 
 def test_pane_block_idle_age_suffix():
@@ -150,19 +163,19 @@ def test_pane_block_idle_age_suffix():
     assert L._fmt_age(3 * 3600 + 5) == "3h" and L._fmt_age(86400 * 2 + 30) == "2d"
 
 
-def test_pane_block_sanitizes_name_quotes_and_newlines():
-    # A title with quotes/newlines must not unbalance the heading's quoting or split it.
+def test_pane_block_quotes_the_name_and_collapses_newlines():
+    # A terminal-set title must not split the heading or close its quotes to forge an id.
     b = L._pane_block(
         {"pane_id": "%1", "window_index": "0", "title": 'fix "the" bug\nnow',
          "tool": "claude", "activity": "idle"}, None)
     head = b.splitlines()[0]
-    assert head == '## window 0 "fix the bug now" (id=%1) — claude — idle'
+    assert head == '## "fix \\"the\\" bug now · claude" (id=%1) — idle'
 
 
 def test_system_prompt_has_rules_and_panes():
     p = L._system_prompt(_Watcher())
     assert "type_in_pane" in p  # the tool contract is in the instructions
-    assert "# Panes (live state)" in p and 'window 3 "work" (id=%1)' in p
+    assert "# Panes (live state)" in p and '"work · claude in dev" (id=%1)' in p
 
 
 def test_cwd_cannot_introduce_fake_pane_prompt_lines():
@@ -182,13 +195,14 @@ def test_explicit_pr_target_precedes_conversational_continuity():
     assert "If no association matches, inspect current pane context or ask which window" in prompt
 
 
-def _dispatch(fc, monkeypatch, watcher=None):
+def _dispatch(fc, monkeypatch, watcher=None, meter=_METER, panes=()):
     w = watcher or _Watcher()
     ws, session = _WS(), _Session()
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "list_panes", lambda: list(panes))  # never the real tmux
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
-    _run(L._handle_tool_call(ws, session, fc, w, _METER))
+    _run(L._handle_tool_call(ws, session, fc, w, meter))
     return w, ws, session, typed
 
 
@@ -197,12 +211,106 @@ def test_typing_dispatches_and_logs(monkeypatch):
     w, ws, session, typed = _dispatch(fc, monkeypatch)
     assert typed == [("%1", "1", True, True)]  # literal send_keys, with Enter
     assert w.reparsed == ["%1"]  # the keystrokes trigger a fresh parse
-    assert any(m["type"] == "typed" and m["label"] == "work" for m in ws.sent)
+    assert any(m["type"] == "typed" and m["label"] == "work" and m["payload"] == "1"
+               for m in ws.sent)
     call, payload = session.responses[0]
     assert call.id == "call-1"  # the call (with its id) rides back to the provider
-    assert payload == {"status": "done", "pane": "work"}
+    assert payload == L._sent("work")
     # the tool result never carries screen content (echo-loop guard)
     assert "screen" not in str(payload)
+
+
+@pytest.mark.parametrize("text", [False, True])
+def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text):
+    """open_pane only changes the view: no consent card even in a text session, nothing
+    typed, and the client is told which pane, named the way the model names it."""
+    w, ws, session, typed = _dispatch(
+        _FC(name="open_pane", args={"pane_id": "%1"}), monkeypatch,
+        meter=L._Meter("s1", "tester", P._DEFAULT[0], text=text))
+    assert ws.sent == [
+        {"type": "open_pane", "pane_id": "%1", "label": "work · claude in dev", "auto": False}]
+    assert session.responses[0][1] == {  # "done" read as "opened" to the model
+        "status": "button_shown", "pane": "work · claude in dev",
+        "reason": "the user taps it to open; nothing is open yet"}
+    assert typed == [] and w.reparsed == []
+
+
+def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
+    """resume_session returns a pane id the digest may not hold yet; tmux vouches for it,
+    and it is named as the watcher would: the agent's own title over tmux's "claude", and
+    the attached member of a session group rather than whichever copy tmux lists first."""
+    fresh = L.tmux.Pane("work", "7", "claude", "0", "%40", "claude", "auth fix")
+    twin = dataclasses.replace(fresh, session="work-2")  # grouped, unattached
+    _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
+                            panes=[twin, dataclasses.replace(fresh, session_attached="1")])
+    assert ws.sent == [
+        {"type": "open_pane", "pane_id": "%40", "label": "auth fix · claude in work",
+         "auto": False}]
+
+
+@pytest.mark.parametrize(
+    "args", [{"pane_id": "%9"}, {"pane_id": ["%1"]}, {"pane_id": "%1", "x": 1}, "oops",
+             {"name": "work", "pane_id": "%1"}, {"name": 3}])
+def test_open_pane_refuses_an_unknown_pane_or_malformed_call(monkeypatch, args):
+    _, ws, session, _ = _dispatch(_FC(name="open_pane", args=args), monkeypatch)
+    assert ws.sent == [] and session.responses[0][1]["status"] == "rejected"
+
+
+class _Fleet(_Watcher):
+    """The two field misses, fictionalised: an exact title the model passed over for a
+    pane that merely shared a word, and a run-together title lost to the tool column."""
+
+    def digest(self):
+        def pane(pid, win, label, title, tool):
+            return {"pane_id": pid, "window_index": win, "label": label, "title": title,
+                    "tool": tool, "activity": "idle"}
+        return [
+            pane("%11", "9", "app-0:9", "billing write back | billing-capture-inbox", "node"),
+            pane("%12", "3", "❋ acmelinux codex", "acmelinux codex installation", "codex"),
+            pane("%13", "10", "misc:10", "release notifications", "omp"),
+            pane("%14", "13", "omp-history", "Follow review instructions", "omp"),
+            pane("%10", "25", "❋ slack inbox", "✳ slack inbox", "claude"),
+            pane("%15", "6", "misc:6", "Café 認証 修正", "claude"),
+            pane("%16", "25", "other:25", "auth fix", "codex"),  # same number
+            pane("%17", "4", "misc:4", "release 25 notes", "claude"),  # number in title
+            *({**pane(p, w, "x", t, "codex"), "cwd": "~/src/sales-kit/"} for p, w, t in (
+                ("%19", "19", "pipeline fix"), ("%20", "20", "event | sales-kit"),
+                ("%28", "28", "copy tweaks"))),  # one repo: the title alone must not win
+            *({**pane(p, "2", "x", "tests", "claude"), "session": sess}  # twins but for session
+              for p, sess in (("%30", "storefront"), ("%31", "ledger"))),
+        ]
+
+
+@pytest.mark.parametrize(("name", "pane_id"), [
+    ("slack inbox merge", "%10"),      # a stray word: "inbox" alone must not win
+    ("acme linux OMP session", "%12"),  # "acme linux" is "acmelinux"; one tool word loses
+    ("window 25 slack", "%10"),        # the number filters, the words choose
+    ("window 25 auth", "%16"),
+    ("café 認証", "%15"),             # names are not only ASCII
+    ("cafe\u0301 認証", "%15"),       # nor in one Unicode form
+    ("tests in ledger", "%31"),        # the session chip tells same-titled panes apart
+])
+def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, name, pane_id):
+    _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
+                                  watcher=_Fleet())
+    assert [m["pane_id"] for m in ws.sent] == [pane_id]
+    assert session.responses[0][1]["status"] == "button_shown"
+
+
+@pytest.mark.parametrize(("name", "status", "candidates"), [
+    ("the omp pane", "ambiguous", ["%13", "%14"]),
+    ("window 25", "ambiguous", ["%10", "%16"]),  # never %17, whose title says 25
+    ("deploy dashboard", "no_match", []),
+    ("sales kit open session", "ambiguous", ["%19", "%20", "%28"]),
+])
+def test_open_pane_by_name_offers_candidates_rather_than_guess(
+        monkeypatch, name, status, candidates):
+    _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
+                                  watcher=_Fleet())
+    result = session.responses[0][1]
+    assert result["status"] == status  # and a button for each candidate
+    assert [c["pane_id"] for c in result.get("candidates", [])] == candidates
+    assert [m["pane_id"] for m in ws.sent] == candidates
 
 
 @pytest.mark.parametrize("ok", [True, False])
@@ -228,17 +336,384 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
 
     assert ws.sent[0]["type"] == "propose"
-    assert ws.sent[0]["text"] == "Send to work: rebase onto main"
+    # Named as the list names it, with the id the card's Open button navigates to.
+    assert ws.sent[0]["text"] == "Send to work · claude in dev: rebase onto main"
+    assert ws.sent[0]["pane_id"] == "%1"
+    assert (ws.sent[0]["payload"], ws.sent[0]["enter"]) == ("rebase onto main", True)  # drawn
+    assert ws.sent[0]["label"] == "work"  # its name until the page's pane list has it
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
     assert session.responses[0][1] == (
-        {"status": "done", "pane": "work"} if ok
+        L._sent("work") if ok
         else {"status": "declined", "reason": "the user declined"})
     assert audits[-1]["consent"] == ("approved" if ok else "declined")
     assert audits[-1]["pane"] == "%1"  # recorded even when declined
     # Bound to the pane incarnation the card showed, so a recycled %1 is refused.
     assert bound == ([{"expected_pid": "4242"}] if ok else [])
     assert meter.approvals == {}
+
+
+@pytest.mark.parametrize(("name", "args", "drawn"), [
+    ("press_key", {"key": "Escape"}, {"key": "Escape"}),
+    ("press_key", {"key": "C-x"}, {}),  # not a key _dispatch presses
+    ("type_in_pane", {"text": "ls", "press_enter": False}, {"payload": "ls", "enter": False}),
+    ("type_in_pane", {"text": "ls", "press_enter": "no"}, {}),  # _dispatch refuses it
+    ("type_in_pane", {"text": "  "}, {}),
+])
+def test_a_card_draws_only_a_call_that_would_run(monkeypatch, name, args, drawn):
+    """A card draws an action's parts (keycap, quoted text) only for a call _dispatch would
+    run; one it refuses keeps the sentence, so it never looks like a real keystroke."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Tap(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                client = _ScriptedWS([{"action": "approve", "id": obj["id"], "ok": False},
+                                      {"action": "stop"}])
+                await L._forward_client(client, None, meter)
+
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    ws, session = Tap(), _Session()
+    session.request = "press escape"  # asked, where unasked keys are refused before a card
+    fc = _FC(name=name, args={"pane_id": "%1", **args})
+
+    class Twins(_Watcher):  # a same-named pane elsewhere: the drawn card says which window
+        def digest(self):
+            d = super().digest()
+            return [*d, {**d[0], "pane_id": "%9", "window_index": "7"}]
+
+    _run(L._handle_tool_call(ws, session, fc, Twins(), meter))
+    for card in [m for m in ws.sent if m["type"] == "propose"] or [{}]:  # or refused first
+        assert {k: card[k] for k in ("key", "payload", "enter") if k in card} == drawn
+        assert not card or card["window"] == " · window 3"
+
+
+@pytest.mark.parametrize("viewing", [True, False])
+def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
+    """A card the user isn't looking at (sheet minimized, page hidden) pushes "Chat needs
+    you" once it has waited a moment; one in view stays quiet. Either way the push stops
+    with the answer, so a card notifies at most once, retrying one the push queue was too
+    full to take."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+    meter.unseen_since = None if viewing else time.monotonic()
+    pushed = []
+
+    class Push:
+        def chat(self, card, text):
+            assert card in meter.approvals  # the push names the card, so its own tab answers
+            pushed.append(text)
+            return len(pushed) > 1  # the first finds the queue full
+
+    meter.push = Push()
+
+    class Answer(_WS):  # taps Cancel well after a push would have gone out
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                asyncio.get_running_loop().call_later(
+                    0.2, meter.approvals[obj["id"]].set_result, False)  # noqa: FBT003 - a Future result
+
+    monkeypatch.setattr(L, "_NUDGE_TICK", 0.01)
+    monkeypatch.setattr(L.push, "SETTLE_SECONDS", 0.03)
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    _run(L._handle_tool_call(Answer(), _Session(), _FC(args={"pane_id": "%1", "text": "ls"}),
+                             _Watcher(), meter))
+    assert pushed == ([] if viewing else ["Send to work · claude in dev: ls"] * 2)
+
+
+def test_client_reports_whether_the_chat_is_in_view():
+    """Unseen time runs from the moment the chat left view, not from a poll tick, and a
+    repeated "out of view" keeps that moment; coming back into view clears it."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+    off, stop = {"action": "viewing", "on": False}, {"action": "stop"}
+    _run(L._forward_client(_ScriptedWS([off, stop]), None, meter))
+    since = meter.unseen_since
+    assert since is not None
+    _run(L._forward_client(_ScriptedWS([off, stop]), None, meter))
+    assert meter.unseen_since == since
+    _run(L._forward_client(_ScriptedWS([{"action": "viewing", "on": True}, stop]), None, meter))
+    assert meter.unseen_since is None
+
+
+def _chat(session="chat"):
+    return L._Meter(session, "tester", P._DEFAULT[0], text=True)
+
+
+_UNANSWERED = object()
+
+
+async def _drop_while_proposed(monkeypatch, session="chat", *, answer=_UNANSWERED,
+                               how="cancel"):
+    """Propose a type_in_pane, then drop the connection before anything ran: before any
+    answer, or with `answer` in hand, `how`: the call cancelled with its "decided" in flight,
+    that send raising, or ("race") cancelled before the answer it was just given wakes it.
+    Returns the card's id."""
+    shown, meter = asyncio.Event(), _chat(session)
+
+    class Shown(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose" and answer is not _UNANSWERED and how != "race":
+                meter.approvals[obj["id"]].set_result(answer)
+                return
+            shown.set()
+            if obj["type"] == "decided":
+                if how == "raise":
+                    raise ConnectionError
+                await asyncio.Event().wait()  # the socket died under it
+
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    ws = Shown()
+    call = asyncio.create_task(L._handle_tool_call(
+        ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), meter))
+    await shown.wait()
+    if how == "race":
+        meter.approvals[ws.sent[0]["id"]].set_result(answer)
+    call.cancel()
+    await asyncio.gather(call, return_exceptions=True)
+    return ws.sent[0]["id"]
+
+
+@pytest.mark.parametrize("drop", [None, "cancel", "raise"])
+@pytest.mark.parametrize("ok", [True, False])
+def test_a_card_survives_its_connection_dropping(monkeypatch, ok, drop):
+    """A phone drops the socket on every lock: the card stays up, so the same chat
+    reconnecting can still Send it, bound to the pane process it showed, or Cancel it,
+    even when a tap or its answer was lost in a drop, and over a second drop. It runs
+    once: a resent tap is told the answer again."""
+    L._parked.clear()
+    typed, audits, refreshes = [], [], []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append((a, k)))
+    monkeypatch.setattr(L, "_background", lambda task: (refreshes.append(task), task.cancel()))
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
+
+    async def go():
+        proposal = await _drop_while_proposed(
+            monkeypatch, **({"answer": True, "how": drop} if drop else {}))
+        assert audits[-1]["consent"] == "parked"
+
+        class Drops(_ScriptedWS):
+            async def send_json(self, obj):
+                raise ConnectionError  # this socket died too
+
+        with pytest.raises(ConnectionError):
+            await L._forward_client(Drops([{"action": "approve", "id": proposal, "ok": ok}]),
+                                    _Session(), _chat())
+        assert [k[2] for k in L._parked] == [proposal]
+        tap = {"action": "approve", "id": proposal, "ok": ok}
+        ws = _ScriptedWS([tap, tap, {"action": "stop"}])  # the second: its "decided" was lost
+        await L._forward_client(ws, _Session(), _chat())
+        return proposal, ws
+
+    proposal, ws = _run(go())
+    assert ws.sent[0] == ws.sent[-1] == {"type": "decided", "id": proposal, "ok": ok}
+    assert typed == ([(("%1", "rebase", True, True), {"expected_pid": "4242"})] if ok else [])
+    assert audits[-1]["consent"] == ("approved" if ok else "declined")
+    assert L._parked == {}  # answered once
+    assert refreshes == []  # no update tells the new model of an action it never took
+
+
+@pytest.mark.parametrize("how", ["cancel", "race"])
+def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch, how):
+    """A new message answered the card, and its "decided" died with the socket: a later
+    Send is told so, and never runs what the user moved on from."""
+    L._parked.clear()
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    async def go():
+        proposal = await _drop_while_proposed(monkeypatch, answer=None, how=how)
+        ws = _ScriptedWS([{"action": "approve", "id": proposal, "ok": True}, {"action": "stop"}])
+        await L._forward_client(ws, _Session(), _chat())
+        return proposal, ws
+
+    proposal, ws = _run(go())
+    assert ws.sent == [{"type": "decided", "id": proposal, "ok": None}]
+    assert typed == [] and L._parked == {}
+
+
+@pytest.mark.parametrize(
+    "back", [None, "shown", "hidden", "shown, dropped", "expired", "tapped", "undelivered",
+             "taken over", "shown, taken over", "tapped, parked"])
+def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
+    """Locking the phone drops the socket, the moment a push matters most: the parked card
+    counts as out of view and still pushes once, on the wait it began with, even over a
+    reconnect that stays hidden, or one that takes over a half-open socket still holding
+    the card. A reconnect that shows it again, or expiry, stops it, and after one that
+    showed it drops in turn, or is taken over hidden, the wait starts over. A card the
+    user tapped, parked only because its "decided" died with the socket (on its own
+    connection or a reconnect), is answered: no push. Nor does one the phone never received."""
+    L._parked.clear()
+    pushed = []
+    monkeypatch.setattr(L, "_chats", {})
+    monkeypatch.setattr(L, "_NUDGE_TICK", 0.01)
+    monkeypatch.setattr(L.push, "SETTLE_SECONDS", 0.2)
+    monkeypatch.setattr(L, "PARKED_SECONDS", 0.02 if back == "expired" else 60)
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    meter = _chat()
+    meter.push = SimpleNamespace(chat=lambda card, text: pushed.append(text) or True)  # queued
+
+    async def go():
+        await L._connect(meter, viewing=True)  # in view when proposed
+        shown = asyncio.Event()
+
+        class Shown(_WS):
+            async def send_json(self, obj):
+                await super().send_json(obj)
+                shown.set()
+                if obj["type"] == "decided" or back == "undelivered":
+                    raise ConnectionError  # the socket died under this frame
+
+        ws = Shown()
+        call = asyncio.create_task(L._handle_tool_call(
+            ws, _Session(), _FC(args={"pane_id": "%1", "text": "ls"}), _Watcher(), meter))
+        await shown.wait()
+        if back == "tapped":  # Send, then the socket died before its "decided"
+            meter.approvals[ws.sent[0]["id"]].set_result(True)
+        elif back == "taken over":  # back, hidden, before the daemon saw the old socket go
+            await L._connect(_chat(), viewing=False)
+        else:
+            call.cancel()  # the socket dropped: the card is parked
+        await asyncio.gather(call, return_exceptions=True)
+        L._disconnect(meter)
+        if back == "tapped, parked":  # Send on a reconnect whose socket died before "decided"
+            tap = {"action": "approve", "id": ws.sent[0]["id"], "ok": True}
+
+            class Dead(_ScriptedWS):
+                async def send_json(self, obj):
+                    raise ConnectionError  # this socket died too
+
+            with pytest.raises(ConnectionError):
+                await L._forward_client(Dead([tap]), _Session(), _chat())
+        await asyncio.sleep(0.15)
+        if back in {"shown", "hidden", "shown, dropped", "shown, taken over"}:
+            again = _chat()  # the same chat reconnects, its view in the handshake
+            await L._connect(again, viewing=back != "hidden")
+            if back == "shown, dropped":
+                L._disconnect(again)
+            if back == "shown, taken over":  # hidden, while the shown one is half-open
+                await L._connect(_chat(), viewing=False)
+        await asyncio.sleep(0.12)  # past the first wait, short of a restarted one
+
+    _run(go())
+    quiet = back in {"shown", "shown, dropped", "expired", "tapped", "undelivered",
+                     "shown, taken over", "tapped, parked"}
+    assert pushed == ([] if quiet else ["Send to work · claude in dev: ls"])
+    assert L._parked == {} if back == "expired" else len(L._parked) == 1
+    L._parked.clear()
+
+
+def test_a_reconnected_phone_learns_what_became_of_its_untapped_cards(monkeypatch):
+    """Sync settles the cards answered meanwhile (one a new message superseded, its
+    "decided" lost in a drop) and the ones the daemon no longer has, and leaves the ones
+    still waiting, parked or live, open. Each parked card a new message claims is recorded
+    before any is sent, so a socket dying mid-way loses none."""
+    L._parked.clear()
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    class Drops(_ScriptedWS):
+        async def send_json(self, obj):
+            if obj["type"] == "decided":
+                raise ConnectionError  # this socket died on the first answer
+
+    async def go():
+        first, second, waiting = [await _drop_while_proposed(monkeypatch) for _ in range(3)]
+        with pytest.raises(ConnectionError):
+            await L._forward_client(Drops([{"action": "text", "text": "never mind"}]),
+                                    _TypedSession(), _chat())
+        await _drop_while_proposed(monkeypatch)  # parked after the new message
+        meter = _chat()
+        meter.approvals["live"] = asyncio.get_running_loop().create_future()
+        later = next(k[2] for k in L._parked)
+        ws = _ScriptedWS([{"action": "sync", "ids": [first, second, waiting, later, "live",
+                                                     "restarted"]}, {"action": "stop"}])
+        await L._forward_client(ws, _TypedSession(), meter)
+        return ws, first, second, waiting
+
+    ws, first, second, waiting = _run(go())
+    superseded = [{"type": "decided", "id": p, "ok": None} for p in (first, second, waiting)]
+    assert ws.sent == [*superseded, {"type": "expired", "id": "restarted"}]
+    L._parked.clear()
+
+
+def test_a_parked_card_expires_for_real(monkeypatch):
+    """Another chat's card, one parked past PARKED_SECONDS, or one lost to a restart is
+    answered "expired"; a new message supersedes the chat's parked cards."""
+    L._parked.clear()
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    async def go():
+        other, stale, current = [await _drop_while_proposed(monkeypatch, s)
+                                 for s in ("other", "chat", "chat")]
+        key = next(k for k in L._parked if k[2] == stale)
+        L._parked[key] = (L._parked[key][0] - L.PARKED_SECONDS - 1, *L._parked[key][1:])
+        L._park(stale, L._parked.pop(key))  # parking sweeps: a card past its time is not kept
+        assert stale not in {k[2] for k in L._parked}
+        ws = _ScriptedWS([*({"action": "approve", "id": p, "ok": True}
+                            for p in (other, stale, "restarted")),
+                          {"action": "text", "text": "never mind"}, {"action": "stop"}])
+        await L._forward_client(ws, _TypedSession(), _chat())
+        return ws, other, stale, current
+
+    ws, other, stale, current = _run(go())
+    assert ws.sent[:4] == [*({"type": "expired", "id": p} for p in (other, stale, "restarted")),
+                           {"type": "decided", "id": current, "ok": None}]
+    assert [k[1] for k in L._parked] == ["other"]
+    L._parked.clear()
+
+
+@pytest.mark.parametrize("fresh", [False, True])
+def test_a_reconnect_takes_the_cards_of_the_connection_it_replaces(monkeypatch, fresh):
+    """The phone saw its socket die and reconnected, but the daemon still holds the old,
+    half-open one until its ping timeout: the new connection takes the old one's cards,
+    parked by the time it can read a frame, so its sync leaves them open and a Send runs
+    them, rather than "expired" while the old one parks them for nobody. A new chat (an
+    earlier one ended offline) expires them instead, even the ones still parking."""
+    L._parked.clear()
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    shown = asyncio.Event()
+
+    class Shown(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            shown.set()
+
+    async def go():
+        old, ws = _chat(), Shown()
+        await L._connect(old, viewing=True)
+        call = asyncio.create_task(L._handle_tool_call(
+            ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), old))
+        await shown.wait()
+        new = _chat()
+        await L._connect(new, viewing=True, fresh=fresh)
+        proposal = ws.sent[0]["id"]
+        sync = _ScriptedWS([{"action": "sync", "ids": [proposal]},
+                            {"action": "approve", "id": proposal, "ok": True},
+                            {"action": "stop"}])
+        await L._forward_client(sync, _Session(), new)
+        L._disconnect(old)  # the old one's end, at its ping timeout, leaves the new one
+        assert L._chats == {(new.actor, new.session): new}
+        L._disconnect(new)
+        return proposal, sync, await asyncio.gather(call, return_exceptions=True)
+
+    proposal, ws, (ended,) = _run(go())
+    assert isinstance(ended, L.WebSocketDisconnect)  # the old one ends as a dropped socket
+    if fresh:
+        assert ws.sent == [{"type": "expired", "id": proposal}] * 2
+        assert typed == []
+    else:
+        assert ws.sent[0] == {"type": "decided", "id": proposal, "ok": True}  # no "expired"
+        assert typed == [("%1", "rebase", True, True)]
+    assert L._parked == {} and L._chats == {}
 
 
 def test_approval_is_refused_when_the_pane_had_no_process_to_bind(monkeypatch):
@@ -270,12 +745,18 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
             if obj["type"] == "propose":
                 meter.approvals[obj["id"]].set_result(False)
 
-    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    audits = []
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    class Titled(_Watcher):  # an unnamed window, whose list label is a bare tmux address
+        def digest(self):
+            return [{**super().digest()[0], "title": "Prevent leaks", "label": "misc-1:3"}]
+
     ws = Cancel()
     fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
-    _run(L._handle_tool_call(ws, _Session(), fc, _Watcher(), meter))
-    assert ws.sent[0]["text"] == "Type (no Enter) into work: draft"
+    _run(L._handle_tool_call(ws, _Session(), fc, Titled(), meter))
+    assert ws.sent[0]["text"] == "Type (no Enter) into Prevent leaks · claude in dev: draft"
+    assert audits[-1]["target"] == "dev:3.0"  # the tmux address: the audit's alone
 
 
 def test_text_session_prompt_labels_relays_as_typed():
@@ -291,8 +772,9 @@ def test_press_key_dispatches_named_key(monkeypatch):
     w, ws, session, typed = _dispatch(fc, monkeypatch)
     assert typed == [("%1", "Escape", False, False)]  # not literal, no trailing Enter
     assert w.reparsed == ["%1"]
-    assert any(m["type"] == "typed" and m["text"] == "[Escape]" for m in ws.sent)
-    assert session.responses[0][1] == {"status": "done", "pane": "work"}
+    assert any(m["type"] == "typed" and m["text"] == "[Escape]" and m["key"] == "Escape"
+               for m in ws.sent)
+    assert session.responses[0][1] == L._sent("work")
     # The model sees readable names; tmux gets its canonical ones.
     fc = _FC(name="press_key", args={"pane_id": "%1", "key": "PageUp"})
     assert _dispatch(fc, monkeypatch)[3] == [("%1", "PPage", False, False)]
@@ -510,7 +992,7 @@ def test_run_session_reconnects_once_after_a_drop(monkeypatch):
     monkeypatch.setattr(L, "_receiver", _park)
     monkeypatch.setattr(L, "_context_updater", _park)
     hold = L._hold
-    monkeypatch.setattr(L, "_hold", lambda ws, seconds: hold(ws, 0.01))  # collapse the backoff
+    monkeypatch.setattr(L, "_hold", lambda ws, _, m: hold(ws, 0.01, m))  # collapse the backoff
     client = _FakeClient([
         _Connect(_Session(), boom=RuntimeError("gemini drop")),
         _Connect(_Session()),
@@ -541,7 +1023,7 @@ def test_run_session_reconnects_when_the_provider_stream_ends(monkeypatch):
     monkeypatch.setattr(L, "_receiver", receiver)
     monkeypatch.setattr(L, "_context_updater", _park)
     hold = L._hold
-    monkeypatch.setattr(L, "_hold", lambda ws, seconds: hold(ws, 0.01))  # collapse the backoff
+    monkeypatch.setattr(L, "_hold", lambda ws, _, m: hold(ws, 0.01, m))  # collapse the backoff
     client = _FakeClient([_Connect(_Session()), _Connect(_Session())])
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
@@ -557,15 +1039,19 @@ def test_run_session_reconnects_when_the_provider_stream_ends(monkeypatch):
     assert _statuses(ws).count("reconnecting") == 1
 
 
-def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
+@pytest.mark.parametrize(("code", "level"), [(1005, logging.INFO), (1012, logging.INFO),
+                                             (1006, logging.WARNING)])
+def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch, caplog, code, level):
     # A gone client (WebSocketDisconnect from receive_json) propagates out — there is
-    # nothing to reconnect to, so no second connect attempt is made.
+    # nothing to reconnect to, so no second connect attempt is made. A tab closing or
+    # sleeping (1005) or a restart (1012) is logged at INFO; an abnormal close still warns.
+    caplog.set_level(logging.INFO, logger=L.logger.name)
     monkeypatch.setattr(L, "_receiver", _park)
     monkeypatch.setattr(L, "_context_updater", _park)
     client = _FakeClient([_Connect(_Session())])
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
-    ws = _ScriptedWS([L.WebSocketDisconnect(code=1006)])
+    ws = _ScriptedWS([L.WebSocketDisconnect(code=code)])
     try:
         _run(L._run_session(ws, _Watcher(), L._Meter("s", "a", P._DEFAULT[0])))
         raised = False
@@ -574,6 +1060,7 @@ def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
 
     assert raised  # the disconnect surfaces, not swallowed as a reconnectable drop
     assert client.attempts == 1
+    assert [r.levelno for r in caplog.records if "ended in error" in r.message] == [level]
 
 
 class _Detail:
@@ -690,9 +1177,9 @@ def test_connect_snapshot_screen_budget():
     assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400 + MARKER_SLACK
     # Priority: the ACTIVE pane always keeps its screen, however it sorts in digest
     # order; the longest-idle pane is the first to lose its own.
-    active_block = ctx.split("## window 29")[1]
+    active_block = ctx.split('## "p29 ')[1]
     assert "screen:" in active_block.split("##")[0]
-    idlest_block = ctx.split("## window 28")[1]  # idle_seconds=2800, the stalest
+    idlest_block = ctx.split('## "p28 ')[1]  # idle_seconds=2800, the stalest
     assert "screen:" not in idlest_block.split("##")[0]
 
 
@@ -714,8 +1201,8 @@ def test_audit_line_cannot_be_forged(caplog):
 class _TypedSession:
     """Records what reaches a session's typed-turn verb."""
 
-    def __init__(self):
-        self.turns = []
+    def __init__(self, images=True):
+        self.turns, self.images = [], images
 
     async def send_text(self, text, images=()):
         self.turns.append((text, list(images)))
@@ -736,23 +1223,32 @@ def test_a_pasted_image_reaches_the_session_with_its_turn():
     assert [(f["text"], f["images"]) for f in ws.sent] == [("look", 1), ("", 1), ("plain", 0)]
 
 
-@pytest.mark.parametrize(("image", "text"), [
-    ({"mime": "image/svg+xml", "data": "UE5H"}, True),  # not a pane-paste type
-    ({"mime": "image/png", "data": "not base64!"}, True),
-    ({"mime": "image/png", "data": ""}, True),
-    ({"mime": ["image/png"], "data": "UE5H"}, True),  # not even a string
-    ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True),  # too many
-    ({}, True),  # not a list at all
-    ([{"mime": "image/png", "data": "A" * (L.CHAT_IMAGE_BYTES // 3 * 4 + 4)}], True),  # too big
-    ({"mime": "image/png", "data": "UE5H"}, False),  # a voice model cannot see it
+_UNREADABLE = "Could not read that image; not sent"
+_TYPE = "Images go as PNG, JPEG, WebP or GIF; not sent"
+
+
+@pytest.mark.parametrize(("image", "accepts", "reason"), [
+    ({"mime": "image/svg+xml", "data": "UE5H"}, True, _TYPE),  # not a pane-paste type
+    ({"mime": "image/png", "data": "not base64!"}, True, _UNREADABLE),
+    ({"mime": "image/png", "data": ""}, True, _TYPE),
+    ({"mime": ["image/png"], "data": "UE5H"}, True, _TYPE),  # not even a string
+    ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True,
+     f"At most {L.CHAT_IMAGES} images a turn; not sent"),
+    ({}, True, _UNREADABLE),  # not a list at all
+    ([{"mime": "image/png", "data": "A" * (L.CHAT_IMAGE_BYTES // 3 * 4 + 4)}], True,
+     "Images are over 8 MB together; not sent"),
+    # The cause users actually hit: a small screenshot pasted to a voice model that can't
+    # see it must say so, not read as a size or type limit.
+    ({"mime": "image/png", "data": "UE5H"}, False,
+     "This voice model can't take images; switch to Chat to send them"),
 ])
-def test_an_image_the_pane_paste_would_refuse_refuses_the_turn(image, text):
-    session = _TypedSession()
+def test_an_image_the_turn_cannot_carry_refuses_it_and_says_why(image, accepts, reason):
+    session = _TypedSession(images=accepts)
     images = image if isinstance(image, list) or image == {} else [image]
     ws = _ScriptedWS([{"action": "text", "text": "look", "images": images}, {"action": "stop"}])
-    _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0], text=text)))
+    _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0])))
     assert session.turns == []
-    assert ws.sent == [{"type": "error", "message": L._IMAGE_REFUSED, "refused": True}]
+    assert ws.sent == [{"type": "error", "message": reason, "refused": True}]
 
 
 def _forwarding(monkeypatch, *, ok, text=True, images=((("image/png", b"PNG")),)):
@@ -790,10 +1286,9 @@ def _forward(meter, ws, **args):
 
 def test_forwarding_an_image_waits_for_send_and_binds_to_the_pane(monkeypatch):
     meter, ws, events, audits = _forwarding(monkeypatch, ok=True)
-    assert _forward(meter, ws, image_number=1, caption="what is this?") == {
-        "status": "done", "pane": "work"}
+    assert _forward(meter, ws, image_number=1, caption="what is this?") == L._sent("work")
     card = ws.sent[0]
-    assert card["text"] == "Send image 1 to work: what is this?"
+    assert card["text"] == "Send image 1 to work · claude in dev: what is this?"
     assert card["image"] == "data:image/png;base64,UE5H"  # the thumbnail the user approves
     assert events == [  # delivered once, bound to the pid the card showed, caption in the draft
         ("attach", "%1", "4242", b"PNG", "image/png", "what is this?")]
@@ -821,10 +1316,12 @@ def test_forwarding_refuses_when_no_image_was_attached(monkeypatch):
     assert events == []
 
 
-def test_forwarding_is_refused_in_a_voice_session(monkeypatch):
+def test_forwarding_works_from_a_voice_session_too(monkeypatch):
+    """A voice model that takes images can hand one on, without a card like its other
+    actions, and audited like them."""
     meter, ws, events, audits = _forwarding(monkeypatch, ok=True, text=False)
-    assert _forward(meter, ws)["status"] == "rejected"
-    assert events == [] and ws.sent == [] and len(audits) == 1
+    assert _forward(meter, ws)["status"] == "sent"
+    assert len(events) == 1 and len(audits) == 1 and "consent" not in audits[0]
 
 
 def test_images_stay_numbered_until_no_request_can_show_their_turn():
@@ -853,3 +1350,22 @@ def test_an_omitted_image_number_is_pinned_to_the_image_on_the_card(monkeypatch)
     ws.send_json = paste_meanwhile
     _forward(meter, ws)
     assert events[0][3:5] == (b"PNG", "image/png")
+
+
+def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
+    """send_keys refuses model text at a password prompt; the model is told why, so it can
+    send the user to the app's password field rather than retry. The refused text is
+    probably the password, so its audit record never carries it, even under QSDEBUG."""
+    def refuse(*a, **k):
+        raise L.tmux.PasswordPromptError(L.tmux.AT_PASSWORD)
+
+    audits = []
+    monkeypatch.setattr(L.tmux, "send_keys", refuse)
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    monkeypatch.setattr(L.telemetry, "QSDEBUG", True)
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append((a, k)))
+    fc = _FC(args={"pane_id": "%2", "text": "hunter2"})
+    session = _Session()
+    _run(L._handle_tool_call(_WS(), session, fc, _Watcher(), _METER))
+    assert "password field" in str(session.responses)
+    assert audits and "hunter2" not in str(audits)

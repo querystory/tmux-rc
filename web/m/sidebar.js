@@ -2,28 +2,36 @@
 // I5's inbox). Needs you is pinned as cards you can answer without opening the pane;
 // everything else is grouped by state or by tmux session. Each group folds and switches
 // between one-line rows and activity cards, and those choices are a per-screen preference,
-// so they live in localStorage, not the URL. Folded, the sidebar is a rail of live agents.
-// Phones never call this: their list is renderList's rows in app.js.
-import { headerPicker } from "/m/header-picker.js";
+// so they live in localStorage, not the URL. So does the one Sub-agents switch, which lists
+// every pane's running sub-agents under its row in either density (Needs you cards only
+// count them): seeing them is its own question, apart from how much of each pane's
+// activity to show. Folded, the sidebar is a rail: its actions and every listed pane as icons
+// (docs/design/sidebar.md).
+// Phones never draw this list (theirs is renderPhoneList in app.js), but their Needs-you rows
+// borrow its answers and inline Reply: render.answers, so there is one of each.
+import { dismissable } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age } from "/m/pane-model.js";
-import { paneLinks } from "/pr-links.js";
+import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
+import { paneLinks, askLink } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
-const prefs = { by: "state", rail: false, fold: {}, cards: {}, all: null }; // all: the last expand/compact-all, under per-group choices
+const prefs = { by: "state", rail: false, fold: {}, cards: {}, subagents: true };
 try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.fold && saved.cards) Object.assign(prefs, saved); } catch {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {} };
 
-const alive = (p) => p.activity !== "idle";
 const rank = (p) => needsYou(p) ? 0 : isRunning(p) ? 1 : isRecent(p) ? 2 : 3;
-const STATES = [["run", "Working", isRunning], ["done", "Just finished", (p) => isRecent(p)], ["idle", "Idle", () => true]];
-const FILTERS = [["all", "All"], ["running", "Running"], ["recent", "Recent"], ["attention", "Needs you"]];
+export const SHOW = { attention: "Needs you", working: "Working", finished: "Just finished", idle: "Idle" }; // the sections, by filter name
+const STATES = [["run", "working"], ["done", "finished"], ["idle", "idle"]].map(([id, f]) => [id, SHOW[f], (p) => FILTERS[f](p)]); // the filters' own sets (no index as nowMs)
+export const SORTS = { updated: "Last activity", session: "Session order" }; // app.js keeps the choice
 const HOVER_MS = 350;
+const bySession = () => prefs.by === "session" && !oneSession(); // one session is one group: by state instead
 
 // Needs you first, then the groups; a group with nothing in it is not drawn.
-function groups(subset, query) {
-  const rest = subset.filter((p) => !needsYou(p));
-  const list = prefs.by === "session"
+function groups(subset, query, sort) {
+  // Session order is the order the watcher publishes, tmux's own: a stable sort that ties keeps it.
+  const order = sort === "session" ? () => 0 : (a, b) => rank(a) - rank(b) || newestFirst(a, b);
+  const rest = subset.filter((p) => !needsYou(p)).sort(order); // in session order, the sessions are too
+  const list = bySession()
     ? [...new Set(rest.map((p) => p.session))].map((s) => {
       const panes = rest.filter((p) => p.session === s);
       return { id: `session:${s}`, label: s || "Session", panes };
@@ -35,39 +43,115 @@ function groups(subset, query) {
     });
   list.unshift({ id: "need", label: "Needs you", panes: subset.filter(needsYou), alert: true });
   for (const g of list) {
-    g.panes.sort((a, b) => rank(a) - rank(b) || lastActivity(b) - lastActivity(a));
-    g.cards = prefs.cards[g.id] ?? prefs.all ?? g.id === "need";
+    g.panes.sort(order);
+    g.cards = prefs.cards[g.id] ?? g.id === "need";
     g.open = !!query || !prefs.fold[g.id]; // open unless the user folded it (only explicit folds are stored)
   }
   return list.filter((g) => g.panes.length);
 }
 
 export function setupSidebar(ctx) {
-  const { licon, reconcile, text } = ctx;
+  const { licon, reconcile, text, renderItems } = ctx;
   const root = document.getElementById("side-list");
-  let shown = [], replyTo = null, last = null;
+  let shown = [], replyTo = null;
   // Inline drafts, per pane like the footer's: kept until sent or cancelled.
   const drafts = new Map(), draft = () => drafts.get(replyTo);
-  const repaint = () => { if (last) render(...last); }, rerender = () => { save(); repaint(); };
+  const repaint = ctx.repaint;
+  // A control never moves under the pointer: whatever it folds, unfolds or reorders moves
+  // around it, so a second click undoes the first. Every control re-renders through here,
+  // which holds the last-clicked button's screen position (and its focus, which reconcile
+  // drops when it moves the node). Folding near the end leaves too little list below to
+  // scroll back by, so the shortfall is padded until the next control changes it.
+  // Expanded, the whole sidebar above the usage strip scrolls (#sb-scroll); the rail, its list.
+  let anchor = null;
+  const wrap = document.getElementById("sb-scroll"), scroller = () => prefs.rail ? root : wrap;
+  root.addEventListener("click", (e) => { anchor = e.target.closest("button"); }, true);
+  const rerender = () => {
+    save();
+    const el = anchor?.isConnected ? anchor : null, y = el?.getBoundingClientRect().top, focused = el === document.activeElement;
+    root.style.paddingBottom = "";
+    repaint();
+    if (!el?.isConnected) return;
+    const sc = scroller(), want = sc.scrollTop + el.getBoundingClientRect().top - y;
+    sc.scrollTop = want;
+    if (sc.scrollTop < want - 1) { // pad a screen, scroll, then trim the padding to fit
+      root.style.paddingBottom = `${sc.clientHeight}px`;
+      sc.scrollTop = want;
+      root.style.paddingBottom = `${parseFloat(root.style.paddingBottom) + sc.clientHeight + want - sc.scrollHeight}px`;
+    }
+    if (focused) el.focus({ preventScroll: true });
+  };
   const app = document.getElementById("app");
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
+  // The rail's search is the box's own icon: focusing the box (a click, or Tab) expands the sidebar.
+  const search = document.querySelector("#sessions .search"), input = search.querySelector("input");
+  search.addEventListener("click", () => input.focus());
+  input.addEventListener("focus", () => { if (prefs.rail) { prefs.rail = false; rerender(); } });
 
-  // Group by, the URL's filter (wide has no tab bar to carry it), and expand/compact all.
-  const bar = document.createElement("div");
-  bar.className = "sb-bar";
-  bar.innerHTML = `<span>Group by</span><span class="seg"><button data-by="state">State</button><button data-by="session">Session</button></span>`;
-  bar.querySelectorAll("[data-by]").forEach((b) => { b.onclick = () => { prefs.by = b.dataset.by; rerender(); }; });
-  const pick = Object.assign(document.createElement("select"), { id: "side-filter" });
-  pick.setAttribute("aria-label", "Filter panes");
-  pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
-  pick.onchange = () => ctx.setFilter(pick.value);
-  const all = document.createElement("button");
-  all.className = "sb-icon";
-  // Every group, including those a filter or search hides right now.
-  all.onclick = () => { prefs.all = all._expand; prefs.cards = {}; rerender(); };
-  bar.append(pick, all);
-  const refreshPick = headerPicker(pick);
+  // The Sessions title's counts: the panes listed, plain text beside it, and at the right their
+  // running sub-agents, a button with an eye (open while they are listed under their panes'
+  // rows, slashed while not).
+  const count = Object.assign(document.createElement("span"), { className: "sb-count" });
+  const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
+  subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
+  document.querySelector("#sb-sess b").after(count, subs);
+  // The URL's filters are a button beside the search box, in both layouts,
+  // since both narrow the list. Its menu: State (a union; none is All), Account (the
+  // accounts, app.js adds them), then Group by and Sort by, how you like to read the list:
+  // per-browser preferences the button does not count. It stays open as you pick.
+  const picker = document.createElement("details"), menu = document.createElement("div");
+  picker.id = "side-filter-picker"; picker.className = "header-picker"; // a phone has it too, beside its search
+  picker.innerHTML = `<summary title="Filter" aria-label="Filter panes" data-n="">${licon("filter", 16)}</summary>`;
+  menu.className = "header-picker-menu"; picker.append(menu);
+  dismissable(picker);
+  // A group of the menu: options are buttons whose aria-pressed draws the check (and, for the
+  // states, a dot in the state's colour, as their chips have). Options that come and go (the
+  // agents and sessions present) are redrawn only when they change, so a focused one keeps focus.
+  const group = (label, opts, pick, rule = "<hr>", dot = "") => {
+    const el = document.createElement("div");
+    el.setAttribute("role", "group"); el.ariaLabel = label;
+    el.options = (o) => {
+      const html = `${rule}<div class="menu-sec">${label}</div>${Object.entries(o).map(([v, l]) => `<button type="button" class="acct-opt" data-v="${esc(v)}"${dot && ` data-s="${esc(v)}"`}>${dot && `<i class="acct-dot${v ? "" : " none"}"></i>`}<span>${l}</span></button>`).join("")}`;
+      if (el._html !== html) el.innerHTML = el._html = html;
+    };
+    el.options(opts);
+    el.onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) pick(b.dataset.v); };
+    el.mark = (on) => el.querySelectorAll("[data-v]").forEach((b) => b.setAttribute("aria-pressed", String(on(b.dataset.v))));
+    return el;
+  };
+  // A pick in a union of several (the empty value, All, clears it): the states', the agents'.
+  // Empty, not "all", since a tmux session may well be called "all".
+  const toggle = (list, v) => !v ? [] : list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+  let filters = [], picked = {};
+  const show = group("State", { "": "All", ...SHOW }, (v) => ctx.setFilter(toggle(filters, v)), "", "dot"); // each state's dot in its colour
+  // Agent: the kinds of pane present, each with its logo and count; the dashboard's chips set the
+  // same filter (app.js). Session: a phone's dashboard picks one tmux session, as the wide
+  // dashboard's own select does (style.css shows it there only).
+  const agents = group("Agent", {}, (v) => ctx.setAgents(toggle(picked.agent, v)));
+  const sessions = group("Session", {}, ctx.setSession);
+  const by = group("Group by", { state: "State", session: "Session" }, (v) => { prefs.by = v; rerender(); });
+  const sortBy = group("Sort by", SORTS, ctx.setSort);
+  // Clear all, at the foot: what the chips' Clear all does (app.js disables it with nothing on).
+  const clearAll = Object.assign(document.createElement("button"), { type: "button", className: "acct-opt menu-clear", textContent: "Clear all" });
+  clearAll.onclick = ctx.clearAll;
+  menu.append(show, agents, sessions);
+  document.getElementById("find").append(picker);
+  // The menu opens beside the list it filters, never over it: past the sidebar's edge, level
+  // with the trigger, so the list narrows in view. With no room there it drops under the
+  // trigger, nudged in where a narrow sidebar would clip its left edge.
+  picker.addEventListener("toggle", () => {
+    Object.assign(menu.style, { position: "", left: "", top: "", right: "", maxHeight: "" });
+    if (!picker.open || !root.getClientRects().length) return; // a phone's is a bottom sheet (style.css)
+    const side = root.getBoundingClientRect(), top = picker.getBoundingClientRect().top;
+    if (innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
+      left: `${side.right + 8}px`, top: `${Math.max(8, Math.min(top, innerHeight - menu.offsetHeight - 8))}px` });
+    else {
+      const over = side.left + 8 - menu.getBoundingClientRect().left;
+      if (over > 0) menu.style.right = `${-over}px`;
+    }
+    menu.style.maxHeight = `${innerHeight - menu.getBoundingClientRect().top - 8}px`; // many accounts: it scrolls
+  });
 
   function head(g) {
     const node = document.createElement("div");
@@ -81,7 +165,8 @@ export function setupSidebar(ctx) {
     node._g = g;
     const fold = node.firstChild, density = node.lastChild, running = g.panes.filter(isRunning).length;
     fold.setAttribute("aria-expanded", String(g.open));
-    ctx.html(fold, `${licon(g.open ? "chevronDown" : "chevron", 14)}${g.alert ? licon("alert", 13) : ""}<span class="l"></span><span class="c">${running && g.id !== "run" ? `<i></i>${running} · ` : ""}${g.panes.length}</span>`);
+    ctx.html(fold, `${licon(g.open ? "chevronDown" : "chevron", 14)}${g.alert ? licon("alert", 13) : ""}<span class="l"></span><span class="c acct-badge">${running && g.id !== "run" ? `<i></i>${running} · ` : ""}${g.panes.length}</span>`);
+    fold.lastChild.dataset.s = g.id; // its state's colour; set as data, since a session's id holds its name
     text(fold.querySelector(".l"), g.label);
     density.setAttribute("aria-pressed", String(g.cards));
     density.title = density.ariaLabel = `${g.cards ? "Compact rows" : "Show the latest activity"} for ${g.label}`;
@@ -89,34 +174,40 @@ export function setupSidebar(ctx) {
   }
 
   // A row is one line; a card adds the latest activity and, for Needs you, the answers.
+  // Either way the pane's button is .sb-open, and its running sub-agents are listed under it
+  // while the switch is on; off, a count beside the age says they are there.
   function row(card) {
-    const node = document.createElement(card ? "div" : "button");
-    const open = card ? document.createElement("button") : node;
+    const node = document.createElement("div"), open = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span>' + (card ? "<p></p>" : "");
-    if (card) {
-      open.className = "sb-open";
-      node.innerHTML = `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`;
-      node.prepend(open);
-      const form = node.querySelector("form");
-      // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
-      const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
-      form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
-      enterSubmits(form, (target) => !!draft()?.editor.contains(target));
-      form.onsubmit = async (event) => {
-        event.preventDefault();
-        const id = node._p.pane_id, value = drafts.get(id);
-        if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
-      };
-    }
+    open.className = "sb-open";
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span><span class="sb-acct"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><p class="sb-items"></p>' : "");
+    node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
+    if (card) addAnswers(node);
     open.onclick = () => ctx.navigate(node._p.pane_id);
     return node;
   }
+  // A Needs-you card's answer buttons and its Reply composer, for the pane in `node._p`.
+  function addAnswers(node) {
+    node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
+    const form = node.querySelector("form");
+    // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
+    const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
+    form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
+    enterSubmits(form, (target) => !!draft()?.editor.contains(target));
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const id = node._p.pane_id, value = drafts.get(id);
+      // Sent: close the Reply, unless more was typed while it went (compose clears as it sends).
+      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value) && !value.segments().length) done(id);
+    };
+  }
   function updateRow(node, { p, g, card }) {
     node._p = p;
-    node.classList.toggle("need", needsYou(p));
+    markEnding(node, p);
+    node.classList.toggle("need", ctx.asks(p));
+    node.classList.toggle("outside", ctx.outside(p)); // needs you, shown though the filter leaves it out
     // On the card for its styling and on its button, which is what assistive tech lands on.
-    for (const el of new Set([node, node.querySelector(".sb-open") || node])) {
+    for (const el of [node, node.firstChild]) {
       if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
     }
     const img = node.querySelector("img");
@@ -124,55 +215,80 @@ export function setupSidebar(ctx) {
     markWorking(img, p, ctx.logos);
     // By state the session is context; by session it is the group heading already.
     text(node.querySelector("b"), paneName(p));
-    text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
-    text(node.querySelector(".a"), age(p));
+    text(node.querySelector(".s"), (!bySession() || g.id === "need") && sessionOf(p) ? ` · ${sessionOf(p)}` : "");
+    ctx.html(node.querySelector(".sb-acct"), ctx.badge(p.pane_id));
+    text(node.querySelector(".a"), p.ending || age(p));
+    // Needs you is about the question and its answers, so its cards only count sub-agents.
+    const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents"), lines = prefs.subagents && g.id !== "need";
+    badge.hidden = !agents.length || lines; list.hidden = !agents.length || !lines;
+    badge.title = badge.ariaLabel = `${agents.length} sub-agent${agents.length === 1 ? "" : "s"} working`;
+    ctx.html(badge, `${licon("bot", 12)}${agents.length}`);
+    renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
-      text(node.querySelector("p"), paneActivity(p) || "No recent activity");
+      markLine(node.querySelector("p"), paneActivity(p), p);
+      text(node.querySelector(".sb-items"), needsYou(p) ? questionItems(p.question) : "");
       replies(node, p);
     }
   }
 
-  // The same answers, the same send and the same "Answer sent" hold as the pane's own
-  // question card; Reply opens a composer that posts to the pane's /compose like its footer.
+  // The same answers, the same send and the same pending hold as the pane's own question
+  // card, its note standing in for Reply; Reply opens a composer that posts to the pane's
+  // /compose like its footer. A question about a link leads with Open link.
   function replies(node, p) {
-    const options = needsYou(p) ? ctx.answers(p.question) : [], busy = ctx.sending() || ctx.answered(p);
-    const items = [...options, ...(needsYou(p) ? [{ reply: true }] : [])];
-    reconcile(node.querySelector(".sb-replies"), items, (o) => o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
+    const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
+    const options = needsYou(p) ? ctx.answers(p.question) : [], link = needsYou(p) && askLink(p);
+    // A finished turn's first offer rides every card, Needs you or not (app.js render shows all).
+    const offers = ctx.offers(p).slice(0, 1).flatMap((offer) => ["text", "send", "copy"].map((part) => ({ offer, part, option: offer, index: -1 })));
+    const items = [...(link ? [{ link }] : []), ...options, ...offers, ...(answered ? [{ note: answered.note }] : needsYou(p) ? [{ reply: true }] : [])];
+    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.link ? `link:${o.link.href}` : o.part ? `${o.part}:${o.offer}` : `${o.index}:${o.option}`, (o) => {
+      if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
+      if (o.part === "text") return Object.assign(document.createElement("code"), { className: "sb-offer" });
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.reply ? openReply(node._p.pane_id) : ctx.answer(node._p.pane_id, o.option, o.index);
+      button.onclick = () => o.link ? window.open(o.link.href, "_blank", "noopener,noreferrer") : o.reply ? openReply(node._p.pane_id, node._p.secret) : o.part === "copy" ? ctx.copy(o.offer) : ctx.answer(node._p.pane_id, o.option, o.index, !!o.part);
       return button;
-    }, (button, o) => { text(button, o.reply ? "Reply" : o.option); button.title = o.reply ? "" : o.option; button.disabled = busy; });
-    const form = node.querySelector(".sb-compose");
-    form.hidden = replyTo !== p.pane_id;
+    }, (el, o) => {
+      if (o.note != null) return text(el, o.note);
+      if (o.part === "text") return text(el, o.offer);
+      const label = o.link ? "Open link" : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
+      text(el, label); el.title = o.link ? o.link.text : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
+      el.classList.toggle("picked", !o.reply && !o.link && o.part !== "copy" && ctx.picked(p, o));
+    });
+    const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
+    form.hidden = replyTo !== p.pane_id || !!p.secret;
     if (form.hidden) return form.querySelector("#side-reply")?.remove();
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
     form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
   }
-  function openReply(id) {
-    if (id === ctx.active()) { document.getElementById("reply").focus(); return; } // its own composer is on screen
+  // At a password prompt Reply opens the pane, whose own composer is the password field.
+  function openReply(id, secret) {
+    if (secret && id !== ctx.active()) ctx.navigate(id);
+    if (id === ctx.active()) { document.getElementById(secret ? "secret" : "reply").focus(); return; } // its own composer is on screen
     replyTo = id;
     if (!drafts.has(id)) drafts.set(id, new Composer(repaint, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
     repaint();
     draft().editor.focus();
   }
-  // Folded to the rail: what is alive, Needs you first; idle panes are one count.
+  // Folded to the rail: every pane the list shows, in its order, each with its state's dot
+  // (and, with several accounts, its account's); hovering one shows its card.
   function rail(subset) {
-    const live = subset.filter(alive).sort((a, b) => rank(a) - rank(b));
-    const idle = subset.length - live.length;
-    reconcile(root, [...live, ...(idle ? [{ more: idle }] : [])], (p) => p.more ? "more" : `rail:${p.pane_id}`, (p) => {
+    reconcile(root, groups(subset, "", ctx.sort()).flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
       const b = document.createElement("button");
-      b.className = p.more ? "sb-more" : "sb-rail";
-      b.innerHTML = p.more ? "" : '<span class="sb-logo"><img alt=""></span>';
-      b.onclick = () => p.more ? collapse.click() : ctx.navigate(b._p.pane_id);
+      b.className = "sb-rail";
+      b.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="sb-acct"></span>';
+      b.onclick = () => ctx.navigate(b._p.pane_id);
       return b;
     }, (b, p) => {
-      if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
-      b.ariaLabel = `${p.session} / ${paneName(p)}`;
-      b.classList.toggle("need", needsYou(p));
+      markEnding(b, p);
+      const agents = subagentCount(p);
+      b.ariaLabel = `${[sessionOf(p), paneName(p)].filter(Boolean).join(" / ")}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}${ctx.outside(p) ? ", outside filter" : ""}`;
+      b.classList.toggle("need", ctx.asks(p));
+      b.dataset.state = ctx.asks(p) ? "need" : isRunning(p) ? "run" : "";
+      b.classList.toggle("outside", ctx.outside(p));
       if (p.pane_id === ctx.active()) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       markWorking(b.querySelector("img"), p, ctx.logos);
+      ctx.html(b.lastChild, ctx.badge(p.pane_id));
     });
   }
 
@@ -181,21 +297,25 @@ export function setupSidebar(ctx) {
   // Mouse only: a tap is a navigation, and phones never render this list anyway.
   const card = Object.assign(document.createElement("div"), { id: "side-hover", hidden: true });
   card.setAttribute("role", "tooltip");
-  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><small class="m"></small><small class="k"></small><div class="l"></div>';
+  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="sb-acct"></span><span class="badge"></span><p class="x"></p><p class="q"></p><p class="q-cmd"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
   document.body.append(card);
   let hoverOn = null, pending = null, hoverTimer = 0;
-  const paneOf = (el) => (el.closest(".sb-card") || el)._p;
+  const paneOf = (el) => (el.closest(".sb-row, .sb-card") || el)._p;
   function fill(el) {
-    const p = paneOf(el), $c = (sel) => card.querySelector(sel), tasks = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => t && typeof t === "object");
+    const p = paneOf(el), $c = (sel) => card.querySelector(sel), tasks = records(p.tasks);
     markWorking($c("img"), p, ctx.logos);
     text($c("b"), paneName(p));
     text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
-    text($c(".w"), [p.session, p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
-    $c(".badge").className = `badge ${activityClass(p)}`;
-    text($c(".badge"), `${activityLabel(p)} · ${since(p)}`);
-    text($c(".x"), paneHeadline(p) || "No recent activity");
-    text($c(".q"), needsYou(p) && p.question?.prompt !== paneHeadline(p) ? p.question?.prompt || "" : "");
+    text($c(".w"), [sessionOf(p), p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
+    ctx.html($c(".sb-acct"), ctx.badge(p.pane_id));
+    $c(".badge").className = `badge ${ctx.badgeOf(p).cls}`;
+    text($c(".badge"), [ctx.badgeOf(p).label, since(p)].filter(Boolean).join(" · "));
+    markLine($c(".x"), paneHeadline(p), p);
+    const asked = needsYou(p) && (p.question?.ask || p.question?.prompt);
+    text($c(".q"), asked && asked !== paneHeadline(p) ? asked : "");
+    text($c(".q-cmd"), (needsYou(p) && p.question?.context) || "");
     text($c(".m"), paneMeta(p));
+    renderItems($c(".sb-agents"), records(p.subagents), true);
     text($c(".k"), tasks.length ? `Tasks ${tasks.filter((t) => t.done).length}/${tasks.length}` : "");
     reconcile($c(".l"), paneLinks(p).slice(0, 2), (l) => l.href, () => document.createElement("small"), (n, l) => text(n, l.detail ? `${l.text} (${l.detail})` : l.text));
   }
@@ -224,37 +344,58 @@ export function setupSidebar(ctx) {
   const target = (e, sel = ".sb-row, .sb-rail, .sb-card") => e.target.closest?.(sel);
   root.addEventListener("pointerover", (e) => { if (e.pointerType === "mouse" && target(e)) hover(target(e)); });
   root.addEventListener("pointerout", (e) => { const el = target(e); if (el && !el.contains(e.relatedTarget)) unhover(); });
-  root.addEventListener("focusin", (e) => { const el = target(e, ".sb-row, .sb-rail, .sb-open"); if (el?.matches(":focus-visible")) hover(el); });
+  root.addEventListener("focusin", (e) => { const el = target(e, ".sb-rail, .sb-open"); if (el?.matches(":focus-visible")) hover(el); });
   root.addEventListener("focusout", unhover);
-  root.addEventListener("scroll", unhover, { passive: true });
+  for (const el of [root, wrap]) el.addEventListener("scroll", unhover, { passive: true });
+  // The Sessions block sticks at the top of the scroll; a hairline shows once it has.
+  const sticky = document.getElementById("sb-sticky");
+  wrap.addEventListener("scroll", () => sticky.classList.toggle("stuck", wrap.scrollTop > sticky.offsetTop - wrap.offsetTop - 1 && wrap.scrollTop > 0), { passive: true });
   root.addEventListener("click", unhover);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") unhover(); });
   addEventListener("resize", unhover); // a breakpoint crossing hides the sidebar but not this
 
-  function render(subset, query, filter) {
-    last = [subset, query, filter];
+  function render(subset, query, filter, more) {
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
-    if (prefs.rail) rail(subset); else list(subset, query, filter);
+    search.title = prefs.rail ? "Search" : "";
+    marks(filter, more);
+    if (prefs.rail) rail(subset); else list(subset, query);
     // Reconciling may have replaced the hovered row (a card that became a row, say).
     if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
   }
-  function list(subset, query, filter) {
-    shown = groups(subset, query);
-    if (replyTo && (!drafts.has(replyTo) || !subset.some((p) => p.pane_id === replyTo && needsYou(p)))) replyTo = null;
-    // A folded group still shows the open pane, so the selection never disappears.
-    const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards }))];
-    const need = shown[0]?.id === "need" ? 1 : 0;
-    const items = [...shown.slice(0, need).flatMap(of), { bar: true }, ...shown.slice(need).flatMap(of)];
-    reconcile(root, items, (i) => i.bar ? "bar" : i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
-      (i) => i.bar ? bar : i.p ? row(i.card) : head(i.g),
-      (node, i) => i.bar ? null : i.p ? updateRow(node, i) : updateHead(node, i.g));
-    bar.querySelectorAll("[data-by]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.by === prefs.by)));
-    if (pick.value !== filter) { pick.value = filter; refreshPick(); }
-    all._expand = shown.some((g) => !g.cards);
-    all.title = all.ariaLabel = all._expand ? "Show the latest activity in every group" : "Compact every group";
-    ctx.html(all, licon(all._expand ? "unfold" : "fold", 15));
+  function list(subset, query) {
+    shown = groups(subset, query, ctx.sort());
+    // A folded group still shows the open pane, so the selection never disappears. A pane
+    // with offers to tap is a card in any group, as Needs you is.
+    const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards || ctx.offers(p).length > 0 }))];
+    reconcile(root, shown.flatMap(of), (i) => i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
+      (i) => i.p ? row(i.card) : head(i.g), (node, i) => i.p ? updateRow(node, i) : updateHead(node, i.g));
+    const n = subset.reduce((n, p) => n + liveSubagents(p).length, 0);
+    subs.setAttribute("aria-pressed", String(prefs.subagents));
+    subs.ariaLabel = `${n} sub-agents: ${prefs.subagents ? "hide" : "list"} them under their panes`;
+    text(count, subset.length);
+    ctx.html(subs, `${n} sub-agent${n === 1 ? "" : "s"} ${licon(prefs.subagents ? "eye" : "eyeOff", 13)}`);
   }
+  // The menu's checks, for either layout (a phone draws no sidebar, but has the menu). `more`
+  // is the agents present ([tool, count]), the agent filter, the sessions and the session picked.
+  function marks(filter, more = picked) {
+    filters = filter; picked = more;
+    show.mark((v) => !v ? !filter.length : filter.includes(v));
+    agents.options({ "": "All agents", ...Object.fromEntries((more.agents || []).map(([t, n]) => [t, `<img src="${esc(ctx.logos[t] || "/tmux-logomark.svg")}" alt="" width="16" height="16">${esc(t)} <small>${n}</small>`])) });
+    agents.mark((v) => !v ? !more.agent?.length : more.agent.includes(v));
+    sessions.options({ "": "All tmux sessions", ...Object.fromEntries((more.sessions || []).map((s) => [s, esc(s)])) });
+    sessions.mark((v) => v === (more.session || ""));
+    by.mark((v) => v === prefs.by); by.hidden = oneSession();
+    sortBy.mark((v) => v === ctx.sort());
+  }
+  render.marks = marks;
+  render.picker = picker; // the filter menu: app.js adds the account filter, then these
+  render.views = [by, sortBy, document.createElement("hr"), clearAll];
+  render.clearAll = clearAll;
   render.drafts = drafts; // for the app's unsent-draft guard on reload
+  // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
+  render.answers = { add: addAnswers, update: replies, prune: (subset) => {
+    if (replyTo && (!drafts.has(replyTo) || !subset.some((p) => p.pane_id === replyTo && needsYou(p)))) replyTo = null;
+  } };
   return render;
 }

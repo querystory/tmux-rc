@@ -69,10 +69,76 @@ ROWS = """\
 7|shell|idle|zsh ~/src|41m||Idle at the prompt.
 7|claude|idle|rss digest|5h||Summarised 12 new posts.
 7|opencode|idle|invoice parser|2d||Parsed 31 invoices, 2 flagged.
-7|shell|idle|dotfiles sync|3d||Synced with origin."""
+7|shell|idle|dotfiles sync|3d||Synced with origin.
+7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1
+7|claude|need|webhook timeouts|4m|Go with A or B?|Go with A,Go with B"""
 
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
+
+
+# Plan limits, one Claude and one weekly-only Codex account, as a typical day reads: a
+# light 5h window behind its even pace, a 7d window on pace to end in the 90s (amber), a
+# per-model weekly limit, and Codex on pace to run out before its reset (red), with no 5h
+# window at all. provider | config dir | the sessions whose panes draw on it | per window:
+# name, seconds, share of it gone at NOW, % used at NOW.
+PLANS = [
+    ("claude", "~/.claude", SESSIONS, [("5h", 5 * 3600, 1 - 160 / 300, 16),
+                                       ("7d", 7 * 86400, 1 - 7.5 / 168, 89),
+                                       ("7d Fable", 7 * 86400, 1 - 7.5 / 168, 52)]),
+    ("codex", "~/.codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 40)]),
+]
+# The two-account state (TMUXRC_DEMO_ACCOUNTS=2): a personal Claude plan beside the work
+# one, its default in two sessions. Named by label, as accounts.profiles() names them.
+PERSONAL = ("claude", "~/.claude-personal", ["research", "docs"],
+            [("5h", 5 * 3600, 1 - 185 / 300, 34), ("7d", 7 * 86400, 1 - 74 / 168, 22),
+             ("7d Fable", 7 * 86400, 1 - 74 / 168, 9)])
+# Where past windows ended, cycled per meter; past 100 is a window that hit its limit before
+# the reset (the curve stops at 100%). USAGE_DAYS of them, so the usage view's 30d range is
+# full: weekly windows back to back, 5h ones through the working day (a 5h window opens at
+# the first prompt after a reset), one a weekend day, and lighter.
+PAST_PEAKS = (74, 118, 61, 92, 38, 104, 55, 83, 27, 66, 47)
+USAGE_DAYS = 45
+FIVE_HOUR_STARTS = (7.5, 13, 18.5)  # o'clock, UTC
+PROFILES = {"~/.claude": ("Work", "Example Org", "Team", 0),
+            "~/.claude-personal": ("Personal", "Sam Rivera", "Max", 1),
+            "~/.codex": ("Codex", "", "", 2)}
+
+
+# The add-account flow's new account (its sign-in window is sign_in_pane()).
+SIGNED_IN_AFTER = 6  # seconds from opening the sign-in window to the stub "signing in"
+DEMO_ACCOUNT = {"dir": "~/.claude-demo", "tilde": "~/.claude-demo", "provider": "claude",
+                "name": "Demo", "label": "Demo", "who": "Demo Studio", "plan": "Pro", "color": 3,
+                "default": False, "panes": ["%90"]}
+
+
+def plans(two: bool = False) -> list[tuple]:
+    if not two:
+        return PLANS
+    work = [s for s in SESSIONS if s not in PERSONAL[2]]
+    return [PERSONAL, (*PLANS[0][:2], work, PLANS[0][3]), PLANS[1]]
+
+
+def accounts(two: bool = False, signing_in: float | None = None) -> dict:
+    """GET /api/accounts as accounts.report() answers it for this fleet; with
+    `signing_in` (seconds since the add flow opened its sign-in window), Demo too, signed in
+    after SIGNED_IN_AFTER."""
+    panes = fleet()
+    profiles = [{"dir": d, "tilde": d, "provider": tool, "name": PROFILES[d][0],
+                 "label": PROFILES[d][0] if two else None, "who": PROFILES[d][1],
+                 "plan": PROFILES[d][2], "color": PROFILES[d][3], "signed_in": True,
+                 "default": "-" not in d,
+                 "panes": [p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in ss]}
+                for tool, d, ss, _ in plans(two)]
+    # Personal's sessions set it in their tmux environment; the rest set nothing.
+    sessions = {s: {"claude": PERSONAL[1] if s in PERSONAL[2] else None, "codex": None}
+                for s in SESSIONS} if two else {}
+    if signing_in is not None:
+        profiles.append({**DEMO_ACCOUNT, "signed_in": signing_in >= SIGNED_IN_AFTER})
+    return {"profiles": profiles, "sessions": sessions}
+
+
+STALE = {"claude": 360}  # a failed last read: the meter shows the reading from 6m before
 
 
 # SGR helpers for the captures: the live view renders these as colored spans.
@@ -94,6 +160,14 @@ RULE = dim("─" * 78)
 
 # Hand-made terminal screens for the panes the screenshots open; the rest get a plain one.
 CAPTURES = {
+    # The add-account shots' sign-in window: a stub of the provider's own sign-in, never a
+    # real login screen (scripts/screenshots.mjs, demo_server's sign-in state).
+    "sign in: Demo": "\n".join([
+        dim("$ CLAUDE_CONFIG_DIR=~/.claude-demo claude"), "",
+        f"{mag('*')} {b('Welcome to Claude Code')} {dim('(demo stub)')}", "",
+        "Not signed in on ~/.claude-demo.", "", "> /login", "  Select login method:",
+        grn("  > 1. Claude account with subscription"), "    2. Anthropic Console account", "",
+        dim("  Opening the browser to sign in...")]),
     "e2e triage": "\n".join([
         f"{b('●')} The checkout flake reproduces only when the payment iframe loads after the",
         "  coupon request, so I added tracing and am re-running the spec 20 times.",
@@ -132,10 +206,22 @@ CAPTURES = {
         "", RULE, "❯ ", RULE,
         f"{cyn('~/src/shop-api')} on {mag('feat/money-type')} | {blu('Sonnet 5')}",
     ]),
+    "preview deploy": "\n".join([
+        f"{b('●')} Deployed the preview. The merge needs your login, so run it yourself:",
+        "", f"  {blu('! gh pr merge 412 --squash --auto')}", "",
+        '  Or say "ship it" and I\'ll queue it behind CI.', "",
+        f"{dim('✻ Worked for 41s · done 2:14 PM')}", "", RULE, "❯ ", RULE,
+        f"{cyn('~/src/shop-api')} on {mag('feat/preview')} | {blu('Opus 5')}",
+    ]),
+    "backup verify": "\n".join([
+        f"{grn('dev@ops')}$ sudo ./verify-snapshots.sh", "[sudo] password for dev: "]),
 }
 
 # Extra card fields for the panes the screenshots open, so every section has something.
 DETAIL = {
+    # A sudo prompt: its tty stopped echoing, so the composer is a password field.
+    "backup verify": {"secret": True, "headline": "sudo is asking for a password.",
+                      "status_line": "sudo is asking for a password."},
     "e2e triage": {
         "model": "Opus 5", "context_pct": 41, "cost": "$3.12", "mode": "accept-edits",
         "session_summary": "The checkout flake reproduces only when the payment iframe loads "
@@ -156,24 +242,48 @@ DETAIL = {
               "title": "Stabilize checkout.spec under slow iframes"}],
         "links": [{"href": f"https://{ORG}/shop-web/actions/runs/1029384756", "text": "CI run"}]},
     "api contract diff": {
-        "model": "Sonnet 5", "context_pct": 39, "cost": "$0.84",
+        "model": "Sonnet 5", "context_pct": 39, "cost": "$0.84", "agents": 2,
+        "subagents": [{"label": "List clients of the two changed endpoints", "state": "running",
+                    "elapsed": "1m", "tokens": "7.4k"},
+                   {"label": "Draft the v3 migration note", "state": "running", "elapsed": "40s",
+                    "tokens": "3.1k"}],
         "session_summary": "Moving money fields to a structured type changed two public "
                         "endpoints. Both break existing clients, so versioning needs a call.",
         "prs": [{"repo": "example-org/shop-api", "number": 409,
               "title": "Structured money type for order totals"}]},
+    # A finished turn that hands the user replies to type: classify()'s offers.
+    "preview deploy": {"offers": ["! gh pr merge 412 --squash --auto", "ship it"],
+                       "headline": "Preview deployed; the merge is yours to run."},
     "cost report": {"activity": "compacting", "headline": "Compacting the conversation",
                         "status_line": "Compacting the conversation", "context_pct": 94},
     "terraform plan review": {
         "activity": "waiting", "waiting_on": "external", "model": "Opus 5", "context_pct": 58,
         "cost": "$2.05",
-        "mode": "plan", "agents": 2,
+        "mode": "plan", "agents": 3,
         "subagents": [{"label": "Check replacements for data loss", "state": "running",
-                    "elapsed": "3m"},
-                   {"label": "Cross-check IAM changes", "state": "running", "elapsed": "2m"}],
+                    "elapsed": "3m", "tokens": "21.7k"},
+                   {"label": "Cross-check IAM changes", "state": "running", "elapsed": "2m",
+                    "tokens": "12.3k"},
+                   {"label": "Summarize the 33 in-place changes", "state": "running",
+                    "elapsed": "48s", "tokens": "6.2k"}],
         "tables": [{"title": "Plan summary", "headers": ["Action", "Count"],
                  "rows": [["add", "6"], ["change", "33"], ["replace", "2"], ["destroy", "0"]]}]},
 }
-MENU = {"dependency audit"}  # questions answered with one keystroke rather than typed text
+# Questions answered with one keystroke rather than typed text, with the widget fields
+# classify() adds to one: its raw rows and their plain restatement.
+MENU = {"dependency audit": {
+    "context": "Bash command\nUpgrade three packages with breaking changes\n\n"
+               "npm install react@20 vite@8 eslint@10",
+    "ask": "The agent wants to upgrade React, Vite and ESLint to new major versions. "
+           "Continue?",
+}}
+# A typed question that names list rows by number or letter: the rows classify() reads off
+# the screen, and the line leading into them, which says what is being decided.
+ITEMS = {"disk cleanup": {"items": ["1. Prune container images older than 14 days.",
+                                    "2. Archive the nightly log bundles."]},
+         "webhook timeouts": {"subject": "Two ways to fix the webhook timeouts:",
+                              "items": ["A. Answer first, then reserve stock in a background job.",
+                                        "B. Cache stock levels and reserve against the cache."]}}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).
 EVENTS = {
@@ -216,7 +326,8 @@ def _pane(i: int, line: str, window: int) -> dict:
         pane |= {"headline": extra, "status_line": extra, "session_summary": "",
                  "waiting_on": "user",
                  "question": {"prompt": extra, "options": text.split(","),
-                              "answer_style": "menu" if title in MENU else "text"}}
+                              "answer_style": "menu" if title in MENU else "text",
+                              **MENU.get(title, {}), **ITEMS.get(title, {})}}
     return pane | DETAIL.get(title, {})
 
 
@@ -228,6 +339,11 @@ def fleet() -> list[dict]:
         windows[s] = windows.get(s, -1) + 1
         panes.append(_pane(i, line, windows[s]))
     return panes
+
+
+def sign_in_pane() -> dict:
+    """The add flow's sign-in window, in the first session, as tmux-rc opens it."""
+    return _pane(90, "0|claude|idle|sign in: Demo|2m||Waiting for /login in the browser.", 9)
 
 
 def events_log() -> dict[str, list[dict]]:
@@ -285,3 +401,98 @@ def seed_history(history: History) -> History:
     with history.connect() as db:  # the shared goal line; inert on builds without one
         db.execute("INSERT OR REPLACE INTO metadata VALUES ('running_goal', ?)", (str(GOAL),))
     return history
+
+
+def past_windows(seconds: int, start: float) -> list[tuple[float, float, float]]:
+    """(start, end, peak scale) of the windows ended before one that opened at `start`."""
+    if seconds > 86400:
+        return [(start - k * seconds, start - (k - 1) * seconds, 1)
+                for k in range(1, USAGE_DAYS * 86400 // seconds + 2)]
+    out, today = [], start - start % 86400
+    for day in range(int(today), int(today) - USAGE_DAYS * 86400, -86400):
+        weekend = datetime.fromtimestamp(day, UTC).weekday() >= 5
+        out += [(day + h * 3600, day + h * 3600 + seconds, 0.4 if weekend else 1)
+                for h in (FIVE_HOUR_STARTS[1:2] if weekend else FIVE_HOUR_STARTS)]
+    return [w for w in out if w[1] <= start]
+
+
+def seed_usage(usage, two: bool = False):
+    """Samples of each PLANS window, ending at its share at NOW, after USAGE_DAYS of ended
+    windows (past_windows): five-minute ones for the last eight days, hourly before, as
+    plan_usage keeps them. A weekly window climbs a step a day, and one of Work's quotas
+    resets early, falling to zero before its scheduled reset. And the accounts the panes
+    draw on, as discovery would find them. Claude's last read failed, so its samples stop
+    STALE seconds short of NOW."""
+    rows, panes = [], fleet()
+    for i, (tool, name, sessions, windows) in enumerate(plans(two)):
+        last = NOW - STALE.get(tool, 0)
+        for j, (window, seconds, share, pct) in enumerate(windows):
+            start = NOW - share * seconds
+            rows += [(tool, name, window, seconds, t,
+                      min(100, round(pct * ((t - start) / (NOW - start)) ** 1.2)), start + seconds)
+                     for t in range(int(last), int(start), -300)]
+            days = seconds / 86400
+            for k, (s, e, scale) in enumerate(past_windows(seconds, start)):
+                peak = PAST_PEAKS[(k + 2 * j + 5 * i) % len(PAST_PEAKS)] * scale
+                t = e - 1
+                while t > s:
+                    x = (t - s) / seconds
+                    x -= math.sin(2 * math.pi * days * x) / (2 * math.pi * days) if days > 1 else 0
+                    if (i, j, k) == (len(plans(two)) - 2, 1, 1) and x > 0.6:  # Work: early reset
+                        x = (x - 0.6) / 2
+                    rows.append((tool, name, window, seconds, t,
+                                 min(100, round(peak * x ** 1.2)), e))
+                    t -= 300 if t > NOW - 8 * 86400 else 3600
+        # "short": what a base tree from before accounts.py labels a meter by.
+        usage.accounts[(tool, name)] = {"homes": [name], "short": PROFILES[name][0], "panes": [
+            p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions],
+            "error": "unavailable" if tool in STALE else None}
+    usage.history.record_usage(rows)
+    return usage
+
+
+# Open loops: example-org's pull requests and stray worktrees, as the GitHub query and the
+# worktree scan would leave them. repo#number | title | hours since the last update |
+# overrides of the defaults below (an open PR of yours, reviewer asked, green, to main).
+LOOPS = """\
+shop-web#412|Stabilize checkout.spec under slow iframes|1|
+shop-api#409|Structured money type for order totals|2|decision=APPROVED
+shop-api#410|Migrate API clients to the money v3 type|1|base=feat/409 stacked=1
+shop-api#401|Order totals carry their currency|5|state=MERGED merged=5
+shop-api#407|Idempotency keys for refunds|3|review=rin:CHANGES_REQUESTED:3
+infra#77|Move the build cache to the new bucket|20|author=rin asked=1 label=build-cache
+ops#33|Cache warmer reads the bucket from config|120|mergeable=CONFLICTING label=build-cache
+docs#58|Release notes for 0.15|30|reviewers=0
+shop-web#405|Coupon field keeps focus on error|26|checks=FAILURE draft=1
+shop-web#398|Coupon API client|40|base=feat/coupon-api stacked=1 base_merged=1"""
+LOOP_TREES = [("/work/research/.worktrees/tokenizer-v2", "research", "tokenizer-v2", 0, 3),
+              ("/work/ci/.worktrees/flaky-quarantine", "ci", "fix/flaky-quarantine", 4, 0)]
+
+
+def seed_loops(loops):
+    """The cache an OpenLoops refresh would fill, so the dashboard has lanes to draw."""
+    prs = []
+    for line in LOOPS.splitlines():
+        ref, title, hours, extra = line.split("|")
+        repo, number = ref.split("#")
+        o = dict(kv.split("=") for kv in extra.split())
+        at, merged = NOW - int(hours) * 3600, o.get("merged")
+        who, verdict, ago = (o.get("review") or "::").split(":")
+        prs.append({
+            "repo": f"example-org/{repo}", "number": int(number), "title": title,
+            "url": f"https://{ORG}/{repo}/pull/{number}", "state": o.get("state", "OPEN"),
+            "author": o.get("author", "dev"), "draft": "draft" in o, "updated_at": at,
+            "merged_at": merged and NOW - int(merged) * 3600, "base": o.get("base", "main"),
+            "head": f"feat/{number}", "fork": False, "stacked": "stacked" in o,
+            "base_merged": "base_merged" in o,
+            "mergeable": o.get("mergeable", "MERGEABLE"),
+            "decision": o.get("decision", "REVIEW_REQUIRED"), "checks": o.get("checks", "SUCCESS"),
+            "committed_at": at, "reviewers": int(o.get("reviewers", 1)), "asked": "asked" in o,
+            "reviews": [{"by": who, "state": verdict, "at": NOW - int(ago) * 3600}] if who else [],
+            "labels": [o["label"]] if "label" in o else []})
+    loops.github, loops.fetched_at = {"viewer": "dev", "older": 6, "prs": prs}, NOW - 7 * 60
+    loops.worktrees, loops.scanned_at = [
+        {"path": path, "repo": f"example-org/{repo}", "branch": branch, "dirty": dirty,
+         "unpushed": unpushed, "active_at": NOW - 2 * 86400}
+        for path, repo, branch, dirty, unpushed in LOOP_TREES], NOW - 7 * 60
+    return loops

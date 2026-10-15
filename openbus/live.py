@@ -17,15 +17,20 @@ import contextlib
 import json
 import logging
 import os
+import re
+import subprocess
 import time
+import unicodedata
 import uuid
 from collections import deque
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import agent_history, live_providers, llm, telemetry, tmux
-from .classify import _codex_model_segments, _load_prompt, _session_chrome
+from . import accounts, agent_history, live_providers, llm, push, telemetry, tmux
+from .classify import _host_tool, _load_prompt
+from .expunge import codex_status_segments
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
 
@@ -120,6 +125,10 @@ class _Meter:
         self.model = model
         self.text = text  # typed turns, written replies: no mic, no playback
         self.approvals: dict[str, asyncio.Future] = {}  # proposal id -> the user's answer
+        self.superseded = False  # the user typed past a card: the rest of its turn is declined
+        self.push = None  # the daemon's PushManager: a card left waiting unseen notifies (_nudge)
+        # When the chat last went out of view (sheet closed or page hidden), None while in view
+        self.unseen_since: float | None = None
         # Pasted images by conversation-wide number, kept for every turn the chat model's next
         # request can still show: the kept history, plus the queued turns and the one being
         # answered, which are numbered here before they enter that history.
@@ -219,22 +228,78 @@ def _fmt_age(sec: float) -> str:
     return f"{sec // 86400}d"
 
 
-def _pane_block(d: dict, screen: str | None) -> str:
+def _labels(watcher) -> dict[str, str]:
+    """Each watched pane's window label by pane id: what the feed and the audit call it."""
+    return {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+
+
+def _pane_name(d: dict, digest: list[dict] = ()) -> str:
+    """A pane's user-facing identity as the phone's list row shows it: its name (paneName's
+    rungs: the agent's own title, else the window label), its tool and its session chip,
+    `qs-app · codex in qs-app`. The prompt lists it and the model names it so, and the card
+    and Open button read the same as the reply above them. The window number (the row's
+    small print, "Window 7") is added only when another pane in `digest` reads the same, so
+    two "tests" panes stay tellable apart. Splits of one window share even that, as their
+    rows do; the card's Open button shows which, and the audit has the pane address. Newlines
+    collapse so a stray title can't split the heading."""
+    def base(p: dict) -> str:
+        name = " ".join(str(p.get("title") or p.get("label") or p.get("pane_id") or "").split())
+        return name + "".join(f"{sep}{p[k]}" for sep, k in ((" · ", "tool"), (" in ", "session"))
+                              if p.get(k))
+    name, win = base(d), d.get("window_index")
+    twin = any(p["pane_id"] != d.get("pane_id") and base(p) == name for p in digest)
+    return f"{name} · window {win}" if twin and win not in (None, "") else name
+
+
+# Words that name the kind of thing, not which one: "the auth fix window".
+_FILLER = frozenset({"the", "a", "my", "window", "pane", "session", "tab"})
+
+
+def _words(text: str) -> list[str]:
+    # Any script's letters and digits. NFKC first: \w skips combining marks, so a decomposed
+    # "Cafe\u0301" would otherwise split from the "Café" it displays as.
+    return re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", text).casefold())
+
+
+def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
+    """The live panes a spoken window name may mean, best first, and whether the first
+    clearly wins. A pane scores the query words that its title, window label, tool, session
+    or cwd's basename (its repo, usually) holds as whole words; two adjacent words also match run
+    together, so "qs linux" finds "qslinux". A "window N" in the name keeps only panes with
+    that number and counts as a word they all hold. It wins alone on top with most of the
+    words: a stray extra word ("slack inbox merge") still finds "slack inbox", one shared
+    word decides nothing."""
+    number = re.search(r"\bwindow\s+(\d+)", name, re.IGNORECASE)
+    if number:
+        digest = [d for d in digest if str(d.get("window_index")) == number[1]]
+        name = name[:number.start()] + name[number.end():]
+    query = [w for w in _words(name) if w not in _FILLER]
+
+    def score(d: dict) -> int:
+        fields = [str(d.get(k) or "") for k in ("title", "label", "tool", "session")]
+        fields.append(os.path.basename(str(d.get("cwd") or "").rstrip("/")))
+        have = set(_words(" ".join(fields)))
+        hit = set()
+        for i, w in enumerate(query):
+            if w in have:
+                hit.add(i)
+            if i and query[i - 1] + w in have:
+                hit |= {i - 1, i}
+        return len(hit) + bool(number)
+
+    ranked = [t for t in sorted(((score(d), d) for d in digest), key=lambda t: -t[0]) if t[0]]
+    clear = bool(ranked) and 2 * ranked[0][0] > len(query) + bool(number) and (
+        len(ranked) == 1 or ranked[1][0] < ranked[0][0])
+    return [d for _, d in ranked[:5]], clear
+
+
+def _pane_block(d: dict, screen: str | None, digest: list[dict] = ()) -> str:
     """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
-    leads with the user-facing identity (window number + title) and gives the internal
-    pane id only as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
-    win = d.get("window_index")
-    head = f"window {win}" if win not in (None, "") else "window"
-    # Best-first name, matching the phone card: the agent's self-published title, else
-    # the window label (which itself falls back to session / session:index). Collapse any
-    # newlines and drop embedded quotes so a stray title can't unbalance the quoting or
-    # split the heading — the model must be able to parse one clean identity per pane.
-    name = d.get("title") or d.get("label")
-    if name:
-        name = " ".join(str(name).split()).replace('"', "")
-        head += f' "{name}"'
-    head += f" (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
-    head += f" — {d.get('activity') or 'unknown'}"
+    leads with the user-facing identity (_pane_name) and gives the internal pane id only
+    as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
+    # Quoted and escaped: the name is terminal-set text, and must not forge an id or a flag.
+    name = json.dumps(_pane_name(d, digest), ensure_ascii=False)
+    head = f"{name} (id={d['pane_id']}) — {d.get('activity') or 'unknown'}"
     # Idle AGE, not just the state: "idle for 2d" and "idle for 40s" are different routing
     # candidates — the prompt tells the model a long-idle pane is rarely where a new
     # instruction is destined (see live_prompt's targeting ladder).
@@ -296,7 +361,7 @@ def _pane_context(watcher, screens: str) -> str:
             if t:
                 tails[d["pane_id"]] = t
                 budget -= len(t)
-    blocks = [_pane_block(d, tails.get(d["pane_id"])) for d in digest]
+    blocks = [_pane_block(d, tails.get(d["pane_id"]), digest) for d in digest]
     return "\n\n".join(blocks) if blocks else "(no panes)"
 
 
@@ -307,9 +372,11 @@ _TEXT_NOTE = (
     'Keep them short and plain. Label relayed messages "(via text)". Actions that change '
     "a pane (type_in_pane, press_key, resume_session, send_image_to_pane) are shown to the "
     "user to approve first; a declined one did not happen, so don't retry it unless the user "
-    "asks. Act first, then report the outcome briefly; don't narrate what you're about to "
-    "do before calling a tool. Pasted images are numbered in the turn text; to give one to "
-    'an agent ("send this to window 3") use send_image_to_pane.'
+    "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
+    "about to do before calling a tool, and never say what a pane did unless an update "
+    'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
+    "with none, ask what they mean instead of acting. Pasted images are numbered in the "
+    'turn text; to give one to an agent ("send this to the auth fix") use send_image_to_pane.'
 )
 
 
@@ -355,20 +422,29 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         "status": "rejected", "reason": "unknown tool"}
     try:
         if known:
-            ok, pid = (await _approved(websocket, call, watcher, meter, rec)
+            ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
-            result = (await _dispatch(websocket, session, call, watcher, rec, expected_pid=pid,
-                                      meter=meter)
-                      if ok else {"status": "declined", "reason": "the user declined"})
+            result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
-        status, reason = result["status"], result.get("reason")
-        _audit(
-            meter, f"live_{fc.name if known else 'unknown_tool'}",
-            outcome="ok" if status in {"done", "ok", "opened"}
-            else f"{status}: {reason}" if reason else status,
-            latency_ms=round((time.monotonic() - started) * 1000), **rec,
-        )
+        _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
     await session.send_tool_result(fc, result)
+
+
+async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, pid) -> dict:
+    """Run an answered call, or say why not: the answer the model gets."""
+    return (await _dispatch(websocket, session, call, watcher, rec, expected_pid=pid,
+                            meter=meter)
+            if ok else {"status": "declined", "reason": _DECLINED[rec["consent"]]})
+
+
+def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dict) -> None:
+    status, reason = result["status"], result.get("reason")
+    _audit(
+        meter, f"live_{name}",
+        outcome="ok" if status in {"sent", "ok", "opened", "button_shown"}
+        else f"{status}: {reason}" if reason else status,
+        latency_ms=round((time.monotonic() - started) * 1000), **rec,
+    )
 
 
 # The tools that change a pane. In a text session each waits for the user to tap Send on
@@ -376,85 +452,259 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
 # so it runs at once. Voice keeps acting directly — a tap would end hands-free use.
 _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
+# Typing a new message while a card waits answers it: the user moved on, so the model is
+# told not to retry and to take the new turn (queued behind this one) instead.
+_DECLINED = {"declined": "the user declined",
+             "unanchored": "the user's message only agrees, and you asked them nothing: "
+                           "nothing was sent; ask what they want",
+             "superseded": "the user sent a new message instead of answering; do not retry "
+                           "this, answer their new message (it follows)"}
+# A card whose connection dropped before the user answered (iOS drops the socket on every
+# lock, the tunnel relay every hour) stays up on the phone, so the daemon keeps what Send
+# needs, for the same chat reconnecting: (actor, session, proposal) -> (parked at, call,
+# pid, rec, meter, watcher). Bounded in time, and in memory only: a restart expires them.
+# `_answered` keeps each card's answer as long, (decided at, ok), so a tap resent because
+# its "decided" died with a socket is told the answer again rather than "expired".
+PARKED_SECONDS = 30 * 60
+_parked: dict[tuple, tuple] = {}
+_answered: dict[tuple, tuple] = {}
+# Each chat's live connection, (actor, session) -> its meter: a reconnect takes over the one
+# it replaces (_connect), and whether a parked card is in view again is the reconnected
+# chat's word, not the dropped connection's (_nudge).
+_chats: dict[tuple, _Meter] = {}
+
+
+async def _connect(meter: _Meter, *, viewing: bool, fresh: bool = False) -> None:
+    """Make `meter` its chat's live connection, in view or not as its handshake says. A
+    hidden reconnect carries on its cards' unseen wait rather than restarting it.
+
+    One still registered is a socket the phone already left: it saw the drop and
+    reconnected, but the daemon hears of a half-open one only at its ping timeout. Its
+    cards go to the new one now, ending its waits as a drop would, so they are parked by
+    the time this returns (the old call wakes on the loop's next pass), before the new
+    connection can read a sync or a Send for them, rather than being answered "expired"
+    while still held by the dead one. A `fresh` one is a new chat: an earlier one ended
+    offline, so its cards go, once parked."""
+    chat = meter.actor, meter.session
+    old = _chats.get(chat)
+    meter.unseen_since = None if viewing else (  # the live connection's word, else parked
+        old.unseen_since if old else next(
+            (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat), None)
+    ) or time.monotonic()
+    if old:
+        for answer in old.approvals.values():
+            if not answer.done():
+                answer.set_exception(WebSocketDisconnect(1001))
+    _chats[chat] = meter
+    await asyncio.sleep(0)  # the replaced connection's cards park on this pass
+    if fresh:
+        _unpark(meter)
+
+
+def _disconnect(meter: _Meter) -> None:
+    """A connection ended. A dead socket shows nothing, so its chat's parked cards are
+    out of view from now (or from whenever it already was) until the chat reconnects."""
+    chat = meter.actor, meter.session
+    if _chats.get(chat) is not meter:  # a reconnect's newer one took over
+        return
+    del _chats[chat]
+    since = meter.unseen_since or time.monotonic()
+    for key, parked in _parked.items():
+        if key[:2] == chat:
+            parked[4].unseen_since = since
+
+
+def _tapped(answer: asyncio.Future) -> bool:
+    """Whether the user answered a card (a tap, or a new message superseding it), rather
+    than its connection ending under it."""
+    return answer.done() and not answer.cancelled() and answer.exception() is None
+
+
+def _sweep() -> None:
+    stale = time.monotonic() - PARKED_SECONDS
+    for table in (_parked, _answered):
+        for key in [k for k, v in table.items() if v[0] < stale]:
+            del table[key]
+
+
+def _key(meter: _Meter, proposal: str) -> tuple:
+    return meter.actor, meter.session, proposal
+
+
+def _park(proposal: str, entry: tuple) -> None:
+    """Park a card, unanswered: an answer whose "decided" died with it never ran."""
+    key = _key(entry[4], proposal)
+    _answered.pop(key, None)
+    _parked[key] = entry
+    _sweep()  # after, so a card re-parked past its time goes, and abandoned chats can't pile up
+
+
+def _unpark(meter: _Meter, proposal: str | None = None) -> list[tuple[str, tuple]]:
+    """Take this chat's parked cards (just `proposal`'s, if named), dropping stale ones."""
+    _sweep()
+    return [(k[2], _parked.pop(k)) for k in list(_parked)
+            if k[:2] == (meter.actor, meter.session) and proposal in {None, k[2]}]
+
+
+def _answer(meter: _Meter, proposal: str, ok: bool | None, rec: dict) -> None:
+    rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
+    _sweep()  # here too: a steady connection answers cards without parking or claiming any
+    _answered[_key(meter, proposal)] = (time.monotonic(), ok)
+
+
+async def _tell(websocket: WebSocket, meter: _Meter, proposal: str) -> None:
+    """Tell the phone what became of a card nobody is waiting on: its answer, else expired
+    (parked too long, or from before a restart). The client shows an answer as final only
+    on this, so a reconnect can't leave a card claiming an action nobody will take."""
+    done = _answered.get(_key(meter, proposal))
+    await websocket.send_json({"type": "decided", "id": proposal, "ok": done[1]} if done
+                              else {"type": "expired", "id": proposal})
+
+
+async def _decide(
+    websocket: WebSocket, meter: _Meter, proposal: str, ok: bool | None, rec: dict
+) -> None:
+    _answer(meter, proposal, ok, rec)
+    await _tell(websocket, meter, proposal)
+
+
+async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool) -> None:
+    """The user's answer to a parked card, run on the connection it came in on. The model
+    that asked went with the old one, so the outcome reaches only the phone and the audit:
+    no session, so no post-type update tells the new model of an action it never took."""
+    _, call, pid, rec, meter, watcher = parked
+    started, result = time.monotonic(), {"status": "error", "reason": "aborted"}
+    try:
+        try:
+            await _decide(websocket, meter, proposal, ok, rec)
+        except BaseException:  # this socket dropped too, before anything ran: keep the card
+            _park(proposal, parked)
+            raise
+        result = await _act(websocket, None, call, watcher, meter, rec, ok, pid)
+    finally:
+        _audit_call(meter, call.name, result, started, rec)
 
 
 async def _approved(
-    websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict
+    websocket: WebSocket, session, fc, watcher, meter: _Meter, rec: dict
 ) -> tuple[bool, str | None]:
     """Show the user what the call would do, as the model asked it, and wait for Send or
-    Cancel. Returns the answer and the pane's pid when it was proposed: the card named
-    THAT process, and tmux recycles %N, so an approval must not type into whatever holds
-    the id by the time the user taps. A malformed call can be approved and is still
-    refused by _dispatch: this gate only ever removes actions."""
+    Cancel, or a new typed turn, which supersedes the card. Returns the answer and the
+    pane's pid when it was proposed: the card named THAT process, and tmux recycles %N, so
+    an approval must not type into whatever holds the id by the time the user taps. A
+    malformed call can be approved and is still refused by _dispatch: this gate only ever
+    removes actions. A turn that only agrees ("yes") with nothing asked is refused before any
+    card (live_chat.only_agrees); the session's caution, if any, rides on the card."""
+    if getattr(session, "unanchored", False):
+        rec["consent"] = "unanchored"
+        return False, None
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
-    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
-    known = isinstance(pane_id, str) and pane_id in labels
-    pane = labels[pane_id] if known else pane_id
+    digest = watcher.digest()
+    d = next((d for d in digest if d["pane_id"] == pane_id), None)
+    known, pane = d is not None, pane_id
+    if known:  # named as the prompt names it, so the card matches the reply above it; the
+        # tmux address it means goes to the audit alone
+        pane, rec["target"] = _pane_name(d, digest), (
+            f"{d.get('session')}:{d.get('window_index')}.{d.get('pane_index')}")
     # "" when the lookup finds no process: it matches no pane, so the send is refused
     # rather than going out unguarded (None would mean "don't check").
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
+    card = {"type": "propose", "pane_id": pane_id if known else None,  # Open
+            "warn": getattr(session, "caution", None)}
+    well_formed = _keystrokes(fc, pane_id)[0] is not None
+    if known:  # what the card calls the pane until the page's own list has it, and the
+        # " · window N" that tells it from a same-named pane, which the page's tag lacks
+        card["label"] = d.get("title") or d.get("label") or pane_id
+        card["window"] = pane.removeprefix(_pane_name(d))
     if fc.name == "resume_session":
-        entry = agent_history.offered() and isinstance(args.get("session_id"), str) and (
-            await asyncio.to_thread(agent_history.get, args["session_id"]))
-        summary = f"Resume {(entry or {}).get('title') or args.get('session_id')}"
+        entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
+            await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}
+        summary = f"Resume {entry.get('title') or args.get('session_id')}"
+        if entry:  # titles repeat: the card also says which tool, where, when, and which id
+            card["session"] = {
+                "tool": entry.get("harness"), "cwd": _home_relative(entry.get("cwd") or ""),
+                "last_active": entry.get("last_active"), "id": entry["session_id"][:8]}
     elif fc.name == "press_key":
         summary = f"Press {args.get('key')} in {pane}"
+        if well_formed:  # drawn as a keycap; a call _dispatch refuses keeps the sentence
+            card["key"] = args["key"]
     elif fc.name == "send_image_to_pane":
         image = meter.image(args.get("image_number"))
         caption = args.get("caption")
         summary = f"Send image {image[0] if image else args.get('image_number')} to {pane}" + (
             f": {caption}" if caption else "")
+        if image:  # the card shows what would be sent; no image: refused below, as approved
+            card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
+        if well_formed:  # drawn: the text quoted, and whether Enter follows
+            card.update(payload=args["text"], enter=args.get("press_enter", True))
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
-    card = {"type": "propose", "text": summary}
-    if fc.name == "send_image_to_pane":
-        image = meter.image(args.get("image_number"))
-        if image:  # the card shows what would be sent; no image: refused below, as approved
-            card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
+    card["text"] = summary
     proposal = uuid.uuid4().hex
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
+    if meter.superseded:  # a later call in a turn the user already moved on from
+        answer.set_result(None)
     try:
         await websocket.send_json({**card, "id": proposal})
-        ok = await answer
-        rec["consent"] = "approved" if ok else "declined"
-        # The client shows the answer as final only on this, so a reconnect can't leave a
-        # card claiming an action that no longer has anyone waiting on it.
-        await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
+        # Started on the send, deliberately not on a client ack: the push exists for a phone
+        # that got the card while locked or backgrounded, whose page is suspended and could
+        # not ack, so an ack-gated nudge would stay silent exactly when it is needed. A send
+        # that raises parks the card unpushed; a frame lost after it returns gets one push
+        # to a page with no card, the same as a killed tab, and its card expires parked.
+        if meter.push:  # outlives this call, so a parked card notifies
+            _background(asyncio.create_task(_nudge(meter, proposal, answer, summary)))
+        ok = await answer  # True / False on a tap, None when a new message superseded it
+        await _decide(websocket, meter, proposal, ok, rec)
+    except BaseException:  # the connection failed under it (a cancel or a send): nothing ran
+        if _tapped(answer) and answer.result() is None:
+            _answer(meter, proposal, None, rec)  # superseded: replayed, and never undone by a Send
+        else:
+            rec["consent"] = "parked"
+            _park(proposal, (time.monotonic(), fc, pid, rec, meter, watcher))
+        raise
     finally:
         meter.approvals.pop(proposal, None)
     return rec["consent"] == "approved", pid
 
 
-async def _dispatch(
-    websocket: WebSocket, session, fc, watcher, rec: dict, *,
-    expected_pid: str | None = None, meter: _Meter | None = None,
-) -> dict:
-    """Route a tool call (type_in_pane / press_key, or a history tool) and return its
-    answer. The result NEVER rides back through the tool response (echo loops — see
-    design doc); the model sees the outcome via the post-action ambient refresh instead."""
+_NUDGE_TICK = 1.0
+
+
+async def _nudge(meter: _Meter, proposal: str, answer: asyncio.Future, text: str) -> None:
+    """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
+    at the chat (sheet minimized, page hidden, phone locked: a dropped socket) the whole
+    time. It lasts as long as the card does, live or parked, so it ends with the answer, a
+    supersede or expiry, and it pushes at most once."""
+    shown = time.monotonic()
+    while True:
+        _sweep()  # a parked card expires on time even if nothing else sweeps meanwhile
+        # Answered (a tap whose "decided" was lost is parked, but the user did answer), or
+        # gone: cancelled by a drop and no longer parked, or tapped since it was parked (a
+        # resent tap's "decided" died too: _resume re-parks it with the answer in its rec).
+        held = _parked.get(_key(meter, proposal))
+        if _tapped(answer) or (proposal not in meter.approvals
+                               and (held is None or held[3]["consent"] != "parked")):
+            return
+        since = _chats.get((meter.actor, meter.session), meter).unseen_since
+        if (since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS
+                # On the loop, not a thread: nothing (a tap, coming into view) can land
+                # between the check above and the queueing. It reads a small JSON file.
+                and meter.push.chat(proposal, text)):
+            return  # queued; a full queue falls through and tries again next tick
+        await asyncio.sleep(_NUDGE_TICK)
+
+
+def _keystrokes(fc, pane_id: str) -> tuple[tuple | None, str | None, bool]:
+    """A type_in_pane / press_key call parsed into (send_args for tmux.send_keys, a human
+    "what" for the audit/feed, whether it counts as submitted); send_args None when it is
+    malformed, which _dispatch rejects and a consent card does not draw as an action."""
     args = fc.args if isinstance(fc.args, dict) else {}
-    if fc.name in _HISTORY_TOOLS:
-        if not agent_history.offered():
-            return {"status": "rejected", "reason": "session history not available"}
-        return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
-    if fc.name == "send_image_to_pane":
-        return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
-
-    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
-    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
-    # rather than silently accept its repr. A model parroting our own tool response back
-    # as a new call is exactly how a dict arrives here.
     raw_pane_id = args.get("pane_id")
-    pane_id = str(raw_pane_id or "").strip()
-    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
-
-    # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
-    # whether it counts as submitted). malformed stays None ⇒ reject below.
     send_args = what = None
     submitted = False
     if (
@@ -482,6 +732,35 @@ async def _dispatch(
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
+    return send_args, what, submitted
+
+
+async def _dispatch(
+    websocket: WebSocket, session, fc, watcher, rec: dict, *,
+    expected_pid: str | None = None, meter: _Meter | None = None,
+) -> dict:
+    """Route a tool call (type_in_pane / press_key, or a history tool) and return its
+    answer. The result NEVER rides back through the tool response (echo loops — see
+    design doc); the model sees the outcome via the post-action ambient refresh instead."""
+    args = fc.args if isinstance(fc.args, dict) else {}
+    if fc.name in _HISTORY_TOOLS:
+        if not agent_history.offered():
+            return {"status": "rejected", "reason": "session history not available"}
+        return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
+    if fc.name == "send_image_to_pane":
+        return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
+    if fc.name == "open_pane":
+        return await _open_pane(websocket, args, watcher, rec)
+
+    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
+    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
+    # rather than silently accept its repr. A model parroting our own tool response back
+    # as a new call is exactly how a dict arrives here.
+    raw_pane_id = args.get("pane_id")
+    pane_id = str(raw_pane_id or "").strip()
+    labels = _labels(watcher)
+
+    send_args, what, submitted = _keystrokes(fc, pane_id)
 
     # The payload may hold secrets: it is speech, so it reaches the journal only under
     # QSDEBUG. The pane id is recorded only once it names a real pane.
@@ -492,26 +771,27 @@ async def _dispatch(
     if send_args is None:
         return {"status": "rejected", "reason": "malformed call"}
 
+    from .server import _input_attempt  # noqa: PLC0415 - server imports this module
+
     label = labels[pane_id]
-    invalidate = getattr(watcher, "invalidate_input_actions", None)
     try:
-        if invalidate is not None:
-            await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
-        await asyncio.to_thread(tmux.send_keys, *send_args, expected_pid=expected_pid)
+        await asyncio.to_thread(
+            _input_attempt, pane_id, lambda: tmux.send_keys(*send_args, expected_pid=expected_pid),
+            watcher=watcher)
     except Exception as e:  # report, don't kill the session
         # The error's text can quote the typed text (send-keys argv): speech, so only
         # the class leaves here unless QSDEBUG.
         rec["detail"] = type(e).__name__
         logger.warning("[live] %s failed for %s: %s", fc.name, pane_id, rec["detail"],
                        exc_info=telemetry.QSDEBUG)
-        return {"status": "error", "reason": "pane did not accept input"}
+        return _send_failed(e, rec, "pane did not accept input")
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
-    watcher.request_reparse(pane_id)
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,
-         "text": what, "submitted": submitted}
+         "text": what, "submitted": submitted,
+         **({"key": args["key"]} if fc.name == "press_key" else {"payload": what})}
     )
 
     # Let the pane react, then show the model what its keystrokes did — as ambient
@@ -524,8 +804,26 @@ async def _dispatch(
                 session, f"[tmux update] {label} ({pane_id}) after your input:\n{tail}"
             )
 
-    _background(asyncio.create_task(refresh()))
-    return {"status": "done", "pane": label}
+    if session is not None:  # none for a resumed card (_resume)
+        _background(asyncio.create_task(refresh()))
+    return _sent(label)
+
+
+def _sent(label: str) -> dict:
+    """A delivered send. Not "done": the model read that as the work being done, and told the
+    user what the pane was "now" doing before it had seen the pane react at all."""
+    return {"status": "sent", "pane": label,
+            "note": "delivered; you haven't seen the pane react, so say only what you sent"}
+
+
+def _send_failed(e: Exception, rec: dict, reason: str) -> dict:
+    """The answer to a send that raised. A password prompt refuses model text
+    (tmux.send_keys): say so, so the model can tell the user to type it in the app. That
+    text is probably the password, so it is never recorded, even under QSDEBUG."""
+    if isinstance(e, tmux.PasswordPromptError):
+        rec["keys"] = None
+        return {"status": "error", "reason": str(e)}
+    return {"status": "error", "reason": reason}
 
 
 async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, meter) -> dict:
@@ -535,9 +833,7 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
     from .server import attach_image  # noqa: PLC0415 - server imports this module
 
     pane_id, caption = args.get("pane_id"), args.get("caption", "")
-    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
-    if not meter.text:
-        return {"status": "rejected", "reason": "images are only available in a text chat"}
+    labels = _labels(watcher)
     if (set(args) - {"pane_id", "image_number", "caption"} or not isinstance(caption, str)
             or not isinstance(pane_id, str) or pane_id not in labels):
         return {"status": "rejected", "reason": "malformed call or unknown pane"}
@@ -554,18 +850,64 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
         rec["detail"] += f" ({type(e).__name__})"
         logger.warning("[live] send_image_to_pane failed for %s: %s", pane_id, type(e).__name__,
                        exc_info=telemetry.QSDEBUG)
-        return {"status": "error", "reason": "pane did not accept the image"}
-    rec["detail"] += f" via {mode}"
-    watcher.request_reparse(pane_id)
+        return _send_failed(e, rec, "pane did not accept the image")
+    rec["detail"] += f" via {mode}"  # attach_image has already requested the reparse
     await websocket.send_json({"type": "typed", "pane_id": pane_id, "label": labels[pane_id],
                                "text": f"[image] {caption}".strip(), "submitted": True})
-    return {"status": "done", "pane": labels[pane_id]}
+    return _sent(labels[pane_id])
+
+
+async def _offer(websocket, pane_id: str, pane: dict, digest: list[dict], *,
+                 auto: bool = False) -> None:
+    await websocket.send_json({"type": "open_pane", "pane_id": pane_id,
+                               "label": _pane_name(pane, digest), "auto": auto})
+
+
+async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = False) -> dict:
+    """Put an Open button for a pane in the chat. It changes only what the phone shows,
+    never the pane, so no consent card guards it, and a button rather than a jump: the user
+    may be mid-sentence in the composer when the reply lands. `auto` jumps as well, for a
+    resume the user just tapped Send on. A `name` in the user's words is matched against
+    the live panes here, deterministically, rather than left to the model's reading."""
+    digest = watcher.digest()
+    if isinstance(name := args.get("name"), str) and set(args) == {"name"}:
+        rec["keys"] = name  # the user's words: speech, like a transcript
+        found, clear = _match_panes(digest, name)
+        if not found:
+            return {"status": "no_match",
+                    "reason": "no open window has that name; for past work use find_sessions"}
+        if not clear:  # a button for each: a window named in the reply is one tap away
+            for d in found:
+                await _offer(websocket, d["pane_id"], d, digest)
+            return {"status": "ambiguous",
+                    "reason": "a button for each is shown, nothing is open; say how they differ",
+                    "candidates": [{"pane_id": d["pane_id"], "window": _pane_name(d, digest)}
+                                   for d in found]}
+        args = {"pane_id": found[0]["pane_id"]}
+    pane_id = args.get("pane_id")
+    pane = next((d for d in digest if d["pane_id"] == pane_id), None)
+    # Not published yet: a window resume_session just opened, before the watcher's next tick.
+    if pane is None and isinstance(pane_id, str):
+        with contextlib.suppress(subprocess.CalledProcessError, OSError):  # tmux unreachable
+            pane = next(({"label": p.label, "title": p.display_title, "tool": _host_tool(p),
+                          "session": p.session, "window_index": p.window_index}
+                         # display side, so a grouped session's pane is named as the list names it
+                         for p in tmux.dedupe_grouped(await asyncio.to_thread(tmux.list_panes))
+                         if p.id == pane_id), None)
+    if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:
+        return {"status": "rejected", "reason": "malformed call or unknown pane"}
+    rec["pane_id"] = pane_id
+    await _offer(websocket, pane_id, pane, digest, auto=auto)
+    # Not "done": the model read that as "opened" and told the user so before any tap.
+    return {"status": "button_shown", "pane": _pane_name(pane, digest),
+            "reason": "the user taps it to open; nothing is open yet"}
 
 
 async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     """Past sessions for a topic, trimmed to what choosing needs. No message text: the
     model routes on titles, recency and liveness, and nothing from an old session is
-    handed to it as if it were current."""
+    handed to it as if it were current. The query terms each one matched are passed on,
+    since a title often never names the topic and the model otherwise dismisses a hit."""
     query = args.get("query")
     rec["keys"] = str(query)  # the user's words: speech, like a transcript
     if set(args) - {"query"} or not isinstance(query, str) or not query.strip():
@@ -573,7 +915,7 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     projects = await asyncio.to_thread(agent_history.resolve, query.strip())
     if projects is None:
         return {"status": "error", "reason": "session history unavailable"}
-    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    labels = _labels(watcher)
     results = []
     for p in projects:
         sessions = []
@@ -586,6 +928,7 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
                 "tool": s.get("harness"),  # which agent CLI it resumes in
                 "title": s.get("title") or "(untitled)",
                 "last_active": (s.get("last_active") or "")[:10],
+                "matched": s.get("matched") or [],
                 # Named the way windows are everywhere else, once the watcher has it.
                 **({"running_in": labels.get(pane, pane), "pane_id": pane} if pane else {}),
                 **({"running_elsewhere": True} if s.get("running") and not pane else {}),
@@ -607,23 +950,13 @@ _resume_lock = asyncio.Lock()
 _resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, audit rec)
 
 
-def _ancestors(pid: int):
-    """pid, its parent, and so on up, read from /proc; stops at init or a gone process."""
-    while pid > 1:
-        yield pid
-        try:
-            pid = int(tmux.proc_read(pid, "stat").rsplit(")", 1)[1].split()[1])
-        except (ValueError, IndexError):
-            return
-
-
 def _pane_of(running: dict) -> str | None:
     """A running session's pane in THIS tmux server, or None. Its %N comes from whatever
     server the agent ran under, so it counts only if that pane's process here is an
     ancestor of the agent's pid."""
     pane, pid = running.get("tmux_pane"), running.get("pid")
     root = pane and isinstance(pid, int) and tmux.pane_pid(pane)
-    return pane if root and int(root) in _ancestors(pid) else None
+    return pane if root and int(root) in tmux.ancestors(pid) else None
 
 
 async def _running_pane(entry: dict, watcher) -> str | None:
@@ -645,9 +978,8 @@ def _codex_pane(watcher, thread_id: str) -> str | None:
     codex = {d["pane_id"] for d in watcher.digest() if d.get("tool") == "codex"}
     # A copy: the watcher thread adds and drops panes while this runs.
     panes = {pane_id for pane_id, hist in list(watcher.snapshots.items())
-             if hist and pane_id in codex for line in _session_chrome(hist[-1]["text"] or "")
-             if _codex_model_segments(line)
-             and thread_id in (s.strip() for s in line.split("·"))}
+             if hist and pane_id in codex
+             and thread_id in codex_status_segments(hist[-1]["text"] or "")}
     return panes.pop() if len(panes) == 1 else None
 
 
@@ -664,7 +996,13 @@ async def _resume_session(websocket, args: dict, watcher, rec: dict) -> dict:
     if set(args) - {"session_id"} or not isinstance(sid, str) or not sid.strip():
         return {"status": "rejected", "reason": "malformed call"}
     async with _resume_lock:
-        return await _resume_locked(websocket, sid.strip(), watcher, rec)
+        result = await _resume_locked(websocket, sid.strip(), watcher, rec)
+    # Tapping Send on the card asked to go there, so take them; voice has no card, and a
+    # model's own open_pane only offers a button.
+    if rec.get("consent") == "approved" and result.get("pane_id"):
+        shown = await _open_pane(websocket, {"pane_id": result["pane_id"]}, watcher, rec, auto=True)
+        result["shown"] = shown["status"] == "button_shown"  # so the model offers no second button
+    return result
 
 
 async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
@@ -692,7 +1030,7 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
         if not pane:
             return {"status": "rejected", "reason": "already running outside this tmux"}
         rec["pane_id"] = pane
-        labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+        labels = _labels(watcher)
         if pane not in labels:
             watcher.request_reparse(pane)  # publish it before the model types there
         return {"status": "already_running", "pane_id": pane, "pane": labels.get(pane, pane)}
@@ -702,6 +1040,10 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     if not os.path.isdir(cwd):
         return {"status": "rejected", "reason": "session directory is gone"}
 
+    source = Path(entry.get("source") or "/")
+    if argv[0] == "claude" and source.parent.parent.name == "projects":
+        # Its transcript is under one account's dir, and resumes only there.
+        argv = accounts.command("claude", str(source.parents[2]), argv)
     title = entry.get("title") or entry["session_id"][:8]
     name = title[:24]
     try:  # tmux can fail here too; report, don't kill the session
@@ -753,7 +1095,7 @@ def _session_for(panes, cwd: str) -> str | None:
 
 
 _HISTORY_TOOLS = {"find_sessions": _find_sessions, "resume_session": _resume_session}
-_TOOLS = {"type_in_pane", "press_key", "send_image_to_pane", *_HISTORY_TOOLS}
+_TOOLS = {"type_in_pane", "press_key", "send_image_to_pane", "open_pane", *_HISTORY_TOOLS}
 
 
 # Keep strong refs to fire-and-forget tasks so they aren't GC'd mid-flight.
@@ -817,29 +1159,34 @@ TYPED_TURN_CHARS = 4000
 # JPEG no longer than 1568 px (a few hundred KB), so a current client never nears the bytes.
 CHAT_IMAGES = 4
 CHAT_IMAGE_BYTES = 8 * 2**20
-_IMAGE_REFUSED = (f"Images go to a text chat, at most {CHAT_IMAGES} a turn and 8 MB together, as "
-                  "PNG, JPEG, WebP or GIF; not sent")
 
 
-def _images(raw, text_session: bool) -> list[tuple[str, bytes]] | None:
-    """A typed turn's pasted images as (mime, bytes); None refuses the whole turn. The types
-    are the pane paste's (server.send_image), and only a chat model sees images."""
+def _images(raw, session) -> list[tuple[str, bytes]] | str:
+    """A typed turn's pasted images as (mime, bytes), or why the whole turn is refused —
+    named per cause, so a voice model that can't see images never reads as a size limit.
+    The types are the pane paste's (server.send_image); `session.images` says whether the
+    model can take them at all."""
     if raw is None or raw == []:
         return []
     from .server import _EXT  # noqa: PLC0415 - server imports this module
 
-    if not text_session or not isinstance(raw, list) or len(raw) > CHAT_IMAGES:
-        return None
+    if not session.images:
+        return "This voice model can't take images; switch to Chat to send them"
+    if not isinstance(raw, list):
+        return "Could not read that image; not sent"
+    if len(raw) > CHAT_IMAGES:
+        return f"At most {CHAT_IMAGES} images a turn; not sent"
     out = []
     for image in raw:
         try:
             mime, data = image["mime"], base64.b64decode(image["data"], validate=True)
         except Exception:  # noqa: BLE001 - any malformed entry refuses the turn
-            return None
+            return "Could not read that image; not sent"
         if not isinstance(mime, str) or mime not in _EXT or not data:
-            return None
+            return "Images go as PNG, JPEG, WebP or GIF; not sent"
         out.append((mime, data))
-    return out if sum(len(data) for _, data in out) <= CHAT_IMAGE_BYTES else None
+    return out if sum(len(data) for _, data in out) <= CHAT_IMAGE_BYTES else (
+        "Images are over 8 MB together; not sent")
 
 
 async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str, **extra) -> None:
@@ -868,11 +1215,11 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
         elif action == "text":
             text = data.get("text")
             text = text.strip() if isinstance(text, str) else ""
-            images = _images(data.get("images"), meter.text)
+            images = _images(data.get("images"), session)
             # Each typed turn gets exactly one answer, the echo (with its image count) or a
             # refusal, which is how the client pairs its thumbnails with the right turn.
             refusal = ("Too long; not sent" if len(text) > TYPED_TURN_CHARS
-                       else _IMAGE_REFUSED if images is None else None)
+                       else images if isinstance(images, str) else None)
             if refusal:
                 await websocket.send_json({"type": "error", "message": refusal, "refused": True})
             elif text or images:
@@ -888,12 +1235,41 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     await websocket.send_json({"type": "error", "refused": True, "message": busy})
                     continue
                 meter.keep_images(images)
+                # An unanswered card (not one tapped and still unwinding): this supersedes
+                # it, and the rest of its turn.
+                for answer in [a for a in meter.approvals.values() if not a.done()]:
+                    meter.superseded = True
+                    answer.set_result(None)
+                # Parked ones too (their model is gone: nothing to tell it), all recorded
+                # before any is sent, so a socket dying mid-way loses none.
+                claimed = _unpark(meter)
+                for proposal, parked in claimed:
+                    _answer(meter, proposal, None, parked[3])
+                for proposal, _ in claimed:
+                    await _tell(websocket, meter, proposal)
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
+        elif action == "resume" and hasattr(session, "restore"):  # a chat's reconnect
+            logger.info("[live] chat context restored: %d rows",
+                        session.restore(data.get("transcript")))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
-            answer = meter.approvals.get(str(data.get("id")))
-            if answer and not answer.done():
-                answer.set_result(data.get("ok") is True)
+            proposal, ok = str(data.get("id")), data.get("ok") is True
+            answer = meter.approvals.get(proposal)
+            if answer:
+                if not answer.done():
+                    answer.set_result(ok)
+            elif parked := _unpark(meter, proposal):
+                await _resume(websocket, proposal, parked[0][1], ok)
+            else:
+                await _tell(websocket, meter, proposal)
+        elif action == "sync":  # a reconnected phone's untapped cards: settled meanwhile?
+            ids = data.get("ids")
+            _sweep()
+            for proposal in map(str, ids if isinstance(ids, list) else []):
+                if proposal not in meter.approvals and _key(meter, proposal) not in _parked:
+                    await _tell(websocket, meter, proposal)
+        elif action == "viewing":
+            _view(meter, data)
         elif action == "stop":
             return
         else:
@@ -904,6 +1280,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
     """Model → client: voice audio, both transcripts, tool calls, barge-in. Also meters
     the session — takes each usage event into `meter` and emits a per-turn OTel record
     at every turn boundary."""
+    meter.superseded = False  # a reconnect drops the turn it belonged to
     async for ev in session.events():
         if ev.kind == "usage":
             meter.usage.set(ev.usage)
@@ -915,24 +1292,40 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         elif ev.kind == "transcript":
             await _transcript(websocket, meter, ev.role, ev.text)
         elif ev.kind == "turn_complete":
+            meter.superseded = False
             meter.end_turn()
             await websocket.send_json({"type": "turn_complete"})
         elif ev.kind == "interrupted":
             await websocket.send_json({"type": "interrupted"})
 
 
-async def _hold(websocket: WebSocket, seconds: float) -> bool:
+def _view(meter: _Meter, data: dict) -> None:
+    """Whether a card waiting now would be seen (_nudge): unseen time runs from the moment
+    the chat left view, and a repeated "out of view" keeps that moment."""
+    meter.unseen_since = (None if data.get("on") is not False
+                          else meter.unseen_since or time.monotonic())
+
+
+async def _hold(websocket: WebSocket, seconds: float, meter: _Meter) -> bool:
     """Wait out a reconnect backoff while still reading the browser socket. Without this
     the loop reconnected to Vertex for a phone that was already gone — the tunnel drops
     both legs at once, and the browser's disconnect is only observed by a receive. A
-    WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True."""
+    WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True.
+    The view is still heard, so a card parked by the provider drop can push meanwhile."""
     try:
         async with asyncio.timeout(seconds):
-            while (await websocket.receive_json()).get("action") != "stop":
-                pass  # a stray frame (audio already in flight) is no reason to reconnect early
+            while (data := await websocket.receive_json()).get("action") != "stop":
+                if data.get("action") == "viewing":
+                    _view(meter, data)
+                # any other stray frame (audio already in flight) is no reason to reconnect early
     except TimeoutError:
         return True
     return False
+
+
+# Close codes a client sends when it simply goes away: normal, going away, no status
+# (a tab closed or a phone asleep), and service restart.
+_NORMAL_CLOSES = frozenset({1000, 1001, 1005, 1012})
 
 
 async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
@@ -1001,9 +1394,13 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
                         )
                     for t in done:
                         if not t.cancelled() and (exc := t.exception()) is not None:
-                            logger.warning(
-                                "[live] side task %s ended in error: %r", t.get_name(), exc
-                            )
+                            # A phone tab closing or sleeping (1005), or a restart (1012),
+                            # is the client's normal lifecycle, not an error worth a warning.
+                            normal = (isinstance(exc, WebSocketDisconnect)
+                                      and exc.code in _NORMAL_CLOSES)
+                            logger.log(logging.INFO if normal else logging.WARNING,
+                                       "[live] side task %s ended in error: %r",
+                                       t.get_name(), exc)
         except (WebSocketDisconnect, live_providers.Unreachable):
             raise  # client gone, or a misconfiguration no retry can fix
         except Exception:
@@ -1012,7 +1409,7 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
             backoff = min(2**attempt, 15)
             logger.warning("[live] session dropped; reconnecting in %ds", backoff, exc_info=True)
             await websocket.send_json({"type": "status", "status": "reconnecting"})
-            if not await _hold(websocket, backoff):
+            if not await _hold(websocket, backoff, meter):
                 return  # client sent stop during the backoff
 
 
@@ -1089,9 +1486,12 @@ async def live_mode(websocket: WebSocket) -> None:
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
+    meter.push = getattr(websocket.app.state, "push", None)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     outcome, reason = "ok", "stop"
     try:
+        await _connect(meter, viewing=websocket.query_params.get("viewing") != "0",  # finally
+                       fresh=bool(websocket.query_params.get("fresh")))
         if use_gpt:
             await gpt_live.run_session(websocket, watcher, meter)
         else:
@@ -1116,6 +1516,9 @@ async def live_mode(websocket: WebSocket) -> None:
                 {"type": "error", "message": str(e) if fatal else "live session failed"}
             )
     finally:
+        if reason == "stop":  # the user ended the chat, and its cards with it
+            _unpark(meter)
+        _disconnect(meter)
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         _audit(
             meter, "live_session", detail=f"end: {reason}", outcome=outcome, turns=meter.turns,

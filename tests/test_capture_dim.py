@@ -120,6 +120,15 @@ def test_placeholder_after_prompt_glyph_marked_distinctly():
     assert _capture(codex) == "› ⟪placeholder⟫Write tests for @filename⟪/placeholder⟫"
 
 
+def test_placeholder_inside_dim_box_border_marked():
+    # Live Claude Code: the gray box border above and below the input row merges with the
+    # faint suggestion into one dim run, closing AT the ❯ and reopening right after it.
+    border = "\x1b[38;5;244m────\x1b[39m\n"
+    raw = f"{border}\x1b[39m❯\xa0\x1b[2mset up the timer  \x1b[0m\n{border}  status"
+    assert _capture(raw) == ("⟪dim⟫────\n⟪/dim⟫❯\xa0⟪placeholder⟫set up the timer"
+                             "⟪/placeholder⟫⟪dim⟫  \n────⟪/dim⟫\n  status")
+
+
 def test_real_typed_draft_after_prompt_is_not_placeholder():
     # Text the user actually typed renders near-white (231), not faint — it is NOT a
     # placeholder and stays unmarked, so the model can see the real pending draft.

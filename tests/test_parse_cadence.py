@@ -12,6 +12,7 @@ from openbus.watcher import Watcher
 class _Pane:
     def __init__(self, pid="%1", label="work", current_command="bash"):
         self.id = pid
+        self.pid = None  # no process: no agent transcript to read
         self.current_command = current_command  # real classify() anchors tool on this
         self.label = label
         self.title = self.display_title = label
@@ -27,11 +28,7 @@ def _harness(monkeypatch, frame_holder):
     monkeypatch.setattr(W.tmux, "capture_pane", lambda pid, mark_dim=False: frame_holder[0])
     monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "srv:1:%1")
 
-    def fake_classify(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def fake_classify(pane, text, **_kw):
         calls["n"] += 1  # one call == one LLM parse
         return {"activity": "idle", "events": [], "label": pane.label, "tool": "shell"}
 
@@ -277,6 +274,26 @@ def test_unchanged_screen_parses_once(monkeypatch):
     assert calls["n"] == 1, "an unchanged screen must never re-parse (no heartbeat)"
 
 
+def test_reply_landing_after_the_screen_settled_reparses_once(monkeypatch):
+    w, calls = _harness(monkeypatch, ["• Run this:\n  make check"])
+    reply = [None]  # the transcript write trails the frame the first parse read
+    monkeypatch.setattr(W.transcript, "last_reply", lambda pane, text: reply[0])
+    pane = _Pane()
+    for i in range(6):
+        reply[0] = "Run this:\n```\nmake check\n```" if i >= 2 else None
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 2
+    # A restored card (no parse yet this run) takes the first reply it sees as the one
+    # it was parsed with, so a later one still re-parses.
+    w._parsed_reply.clear()
+    for r in ("first", "first", "second"):
+        reply[0] = r
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 3
+
+
 def test_content_change_reparses(monkeypatch):
     frame = ["$ idle prompt"]
     w, calls = _harness(monkeypatch, frame)
@@ -319,6 +336,33 @@ def test_forced_reparse_ignores_unchanged(monkeypatch):
     assert calls["n"] == 2
 
 
+def test_a_pane_never_read_stays_pending(monkeypatch):
+    """parsed_at is the phone's "Summarizing…" switch: a first read that failed must not
+    set it, or a still-unread card claims "No recent activity"."""
+    frame = ["agent finished · done 10:28 PM"]
+    w, _ = _harness(monkeypatch, frame)
+    oks = [False, False, True, False]  # two failures: the second falls back on the first
+    monkeypatch.setattr(W, "classify", lambda pane, text, **_kw: {
+        "activity": "idle", "tool": "claude", "events": [], "parse_ok": oks.pop(0)})
+    stamps = []
+    for _ in range(4):
+        w._forced_this_tick = {"%1"}
+        stamps.append(w._tick_pane(_Pane()).get("parsed_at"))
+    assert stamps[:2] == [None, None], "failed first reads leave the card pending"
+    assert stamps[2] and stamps[3], "once read, a later failure keeps it read"
+
+
+
+def test_a_first_read_given_up_on_stops_pending(monkeypatch):
+    """Copilot: a screen that exhausts its retries is retired unread and never re-parsed
+    while it stays the same, so leaving parsed_at unset would spin "Summarizing…" forever."""
+    w, _ = _harness(monkeypatch, ["agent finished · done 10:28 PM"])
+    monkeypatch.setattr(W, "classify", lambda pane, text, **_kw: {
+        "activity": "idle", "tool": "claude", "events": [], "parse_ok": False})
+    stamps = [w._tick_pane(_Pane()).get("parsed_at") for _ in range(W.PARSE_RETRIES + 1)]
+    assert stamps[:W.PARSE_RETRIES - 1] == [None] * (W.PARSE_RETRIES - 1), "still retrying: pending"
+    assert stamps[-2] and stamps[-1], "retired: the card stops spinning and stays so"
+
 def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch):
     """The permanent-"Running"-badge bug. A parse failure (a 429 returning None) used to
     advance the pane's fingerprint anyway, which marks the screen read — and since an
@@ -329,11 +373,7 @@ def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch
     w, calls = _harness(monkeypatch, frame)
     outcomes = [None, None, {"activity": "idle", "events": [], "tool": "claude"}]
 
-    def flaky(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def flaky(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         got = outcomes.pop(0) if outcomes else {"activity": "idle", "events": [], "tool": "claude"}
         if got is None:  # what classify() returns when the model call failed
@@ -365,11 +405,7 @@ def test_repeated_failures_dont_restart_the_pane_clocks(monkeypatch):
     frame = ["agent finished · done 10:28 PM"]  # an agent TUI: no bare shell prompt
     w, calls = _harness(monkeypatch, frame)
 
-    def always_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def always_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         return {"activity": prev_activity or "unknown", "tool": "unknown",
                 "events": [], "parse_ok": False}
@@ -396,11 +432,7 @@ def test_service_backoff_does_not_spend_the_pane_budget(monkeypatch):
     braked = {"on": True}
     monkeypatch.setattr(W, "backing_off", lambda: braked["on"])
 
-    def refused(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def refused(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         if braked["on"]:
             return {"activity": prev_activity or "unknown", "tool": "unknown",
@@ -428,11 +460,7 @@ def test_a_new_screen_clears_the_failure_budget(monkeypatch):
     frame = ["screen one"]
     w, calls = _harness(monkeypatch, frame)
 
-    def always_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def always_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         return {"activity": prev_activity or "unknown", "tool": "unknown",
                 "events": [], "parse_ok": False}
@@ -481,11 +509,7 @@ def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
             "question": {"answer_style": "menu", "prompt": "Proceed?", "options": ["Yes", "No"]}}
     seq = [good]
 
-    def then_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def then_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         if seq:
             return dict(seq.pop(0))
@@ -509,6 +533,62 @@ def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
     assert "parse_ok" not in state
 
 
+def test_failed_parse_still_publishes_the_links_it_read(monkeypatch):
+    """A parse fails when its question is rejected, but the URLs it read are not part of
+    that misread: a login link printed in the failing turn must reach the kept card."""
+    frame = ["Working"]
+    w, _calls = _harness(monkeypatch, frame)
+    link = {"href": "https://auth.example.com/login?state=abc", "text": "Sign in"}
+    seq = [{"activity": "running", "tool": "claude", "events": [], "headline": "Working"},
+           {"activity": "unknown", "tool": "claude", "events": [], "links": [link],
+            "parse_ok": False},
+           {"activity": "unknown", "tool": "claude", "events": [], "parse_ok": False}]
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0)))
+    pane = _Pane(current_command="node")
+    for text in ("Working", "Open this link to sign in", "Open this link to sign in now"):
+        frame[0] = text
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+        assert state["headline"] == "Working", "the rest of the card is kept whole"
+        assert state.get("links") == (None if text == "Working" else [link])
+
+
+def test_failed_parse_never_restores_the_last_cards_offers(monkeypatch):
+    """Offers are buttons that send: a failed parse keeps the card, but not offers this
+    screen no longer shows (the user may have typed since)."""
+    frame = ["Done"]
+    w, _calls = _harness(monkeypatch, frame)
+    seq = [{"activity": "idle", "tool": "claude", "events": [], "headline": "Done",
+            "offers": ["merge 415"]},
+           {"activity": "unknown", "tool": "claude", "events": [], "parse_ok": False}]
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0)))
+    pane = _Pane(current_command="node")
+    for text, offers in (("Done", ["merge 415"]), ("Done\n> merge 415", None)):
+        frame[0] = text
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+        assert state["headline"] == "Done" and state.get("offers") == offers
+
+
+def test_an_unreparsed_screen_still_reads_its_own_offers(monkeypatch):
+    """The fingerprint ignores durations, so "10s" -> "20s" reuses the card, but its offer
+    must still be what the screen shows: the 10s transcript no longer is."""
+    screen = "● Run:\n\n  ! timeout {} make deploy\n\n✻ Worked for 3s\n\n❯\n"
+    frame = [screen.format("10s")]
+    w, calls = _harness(monkeypatch, frame)
+    monkeypatch.setattr(W.transcript, "last_reply",
+                        lambda *_a: "Run:\n\n```\n! timeout 10s make deploy\n```")
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: calls.__setitem__("n", calls["n"] + 1)
+                        or {"activity": "idle", "tool": "claude", "events": [],
+                            "offers": ["! timeout 10s make deploy"]})
+    pane = _Pane(current_command="node")
+    for duration, offers in (("10s", ["! timeout 10s make deploy"]), ("20s", None)):
+        frame[0] = screen.format(duration)
+        w._forced_this_tick = set()
+        assert w._tick_pane(pane).get("offers") == offers
+    assert calls["n"] == 1, "the second screen was not reparsed"
+
+
 def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
     """The phone stops spinning an answered control when `parsed_at` advances. A forced
     reparse that FAILS still has to move it, or the control spins forever."""
@@ -517,11 +597,7 @@ def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
     seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
             "question": {"prompt": "Proceed?"}}]
 
-    def then_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def then_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         if seq:
             return dict(seq.pop(0))
@@ -549,11 +625,7 @@ def test_failed_forced_reparse_still_retries(monkeypatch):
     seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
             "question": {"prompt": "Proceed?"}}]
 
-    def then_fails(
-        pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
-        repository=None,
-        replies_fn=None,
-    ):
+    def then_fails(pane, text, prev_activity=None, **_kw):
         calls["n"] += 1
         if seq:
             return dict(seq.pop(0))

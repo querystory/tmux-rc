@@ -1,5 +1,7 @@
 # tmux-rc
 
+[Website & documentation](https://querystory.github.io/tmux-rc/)
+
 Watch and control whatever runs in a tmux pane — AI coding agents like Codex, Claude
 Code, Gemini CLI, OpenCode and omp, or any other program that prints text — from your
 phone. A small local service reads a `tmux` pane, figures out what's happening, and
@@ -111,8 +113,8 @@ Use **Safari or Chrome → Share → Add to Home Screen**, then launch the insta
 a browser tab—for this workflow. Push continues independently of Live Mode; uninterrupted
 background voice is not guaranteed by iOS.
 
-Open `/m` in Safari or Chrome, use **Add to Home Screen**, launch that installed app, then tap
-the bell in its header. iOS only permits Web Push permission from an installed web app
+Open `/m` in Safari or Chrome, use **Add to Home Screen**, launch that installed app, then turn on
+Push notifications in its Settings (the gear in the header). iOS only permits Web Push permission from an installed web app
 and a user gesture. A notification tap opens the exact pane that needs attention, where
 you can use its answer buttons or composer. iOS Web Push does not expose inline text
 replies or notification action buttons; platforms that do support action buttons can
@@ -120,7 +122,7 @@ send the first two structured options directly from the notification.
 
 Subscriptions and the VAPID key are stored owner-only at
 `~/.local/state/tmux-rc/push.json`, outside the checkout. Removing a device is available
-from the same bell; `POST /api/push/revoke-all` revokes every saved device.
+from the same Push notifications switch; `POST /api/push/revoke-all` revokes every saved device.
 Delivery is deliberately best-effort: relay failures are logged and dropped instead of
 replaying a stale question after an outage.
 The push sender contact defaults to `mailto:tmux-rc@openbus.io`; operators can override
@@ -131,6 +133,19 @@ upgrading is `git pull` + `restart`. For iterating on the daemon itself, stop th
 and run `make dev` in a pane as usual; the two modes share the same command and config.
 See [docs/design/deployment.md](docs/design/deployment.md) for why user units + linger
 (and not containers, system units, or a supervising parent).
+
+### Previews at `/scratch/`
+
+Set `TMUXRC_SCRATCH_DIR` in `.env` and restart, and the daemon serves that directory
+read-only at `<your tmux-rc URL>/scratch/<folder>/`, behind whatever already guards the
+app (Tailscale, a tunnel, a proxy, or localhost). Drop in anything static (a mock an agent wrote, another project's built site, a
+report, images, PDFs) and open it on the phone, with no second server or tunnel. Unset
+means nothing is served. Everything there is visible to everyone who can reach tmux-rc, and
+pages are sandboxed so their scripts cannot make requests (no `fetch`, XHR or WebSocket)
+or post forms: self-contained bundles work, anything that calls a backend does not. It
+serves files and is not a proxy. Mocks worth keeping go in `docs-site/static/mocks/`
+instead. Set `TMUXRC_SCRATCH_ADVERTISE=1` to let agents in new panes find it. Setup per
+access method, security and troubleshooting: [Previewing work](docs/deploy/previews.md).
 
 ### Run without cloning
 
@@ -185,10 +200,14 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
 | `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane. Always reliable: a pane id (`%3`) or a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name). Also accepted: the pane's derived label (`name` / `name.N`). That is a window name that doesn't look like a tmux default, used *verbatim*; failing that, `<base>:<window_index>` where base is the session name, or the cwd basename when the session name looks like a default too. Only the fallback carries the index, so a bare session or cwd name matches nothing unless a window is actually named that. A card's title in the UI is not reliably a target — it may be the agent's own pane title or an LLM-refined name rather than the label — so use a pane id when in doubt |
+| `TMUXRC_TMUX_SOCKET` | unset (default server) | a `tmux -L` socket name; every tmux call the daemon makes goes to that server instead. For a dev daemon or test that creates sessions without touching your real tmux |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
-| `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/omp/Gemini/Shell | "New window" dialog entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/omp/shell) or an image URL |
+| `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/omp/Gemini/Shell | "New window" dialog entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/omp/shell) or an image URL; `provider` (`claude` or `codex`) says whose [accounts](docs/design/agent-accounts.md) it can launch on, read from `icon` when that is claude or codex, so it is needed only with another icon |
+| `TMUXRC_SCRATCH_DIR` | unset (not served) | directory served read-only at `/scratch/` for throwaway previews — see [Previewing work](docs/deploy/previews.md) |
+| `TMUXRC_SCRATCH_ADVERTISE` | unset (off) | `1` exports `TMUXRC_SCRATCH_DIR` and `TMUXRC_SCRATCH_LOCAL_URL` (when scratch is served) and `TMUXRC_SCRATCH_URL` (when also set) to tmux's global environment at startup, removing any that is no longer configured, so agents in new panes can find scratch and check their pages locally |
+| `TMUXRC_SCRATCH_URL` | unset | the base URL you open tmux-rc at, plus `/scratch` (e.g. `https://<machine>.<tailnet>.ts.net/scratch`), advertised with the dir |
 | `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | optional operator `mailto:` contact override for VAPID; unrelated to the tunnel URL |
 | `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft push relays | comma-separated exact hosts or dot-prefixed domain suffixes accepted as subscription endpoints; extend only for a trusted browser push service |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |

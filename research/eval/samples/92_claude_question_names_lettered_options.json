@@ -1,0 +1,19 @@
+{
+  "description": "Claude's finished auto-mode turn closes on a bare 'Go with A or B?' under two lettered options. The phone card showed only that line, with nothing about what A and B are or what is being decided. classify() reads the lettered rows the prompt names into question.items, and the paragraph leading into them into question.subject, so the card stands alone. Fictional.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ the order webhooks keep getting retried by the payment provider, why\n\n  Read 4 files, ran 2 shell commands\n\n● The provider gives up after 10 seconds, and our handler waits on the inventory\n  service before it answers, which takes 12-15 seconds at peak. So every slow\n  order is delivered three times.\n\n  Two ways to fix the webhook timeouts:\n\n  A. Answer first, then reserve stock in a background job. The handler returns in\n     under a second, but a failed reservation has to be reported some other way.\n  B. Cache stock levels and reserve against the cache. Keeps the handler synchronous,\n     but the cache can oversell when two orders race.\n\n  Go with A or B?\n\n✻ Cogitated for 41s · done 3:12 PM\n\n────────────────────────────────────────────────────────────────────────────────────────\n❯\n────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/example-org/shop-api on main | Opus 5.5 | 14% ctx\n  ⏵⏵ auto mode on (shift+tab to cycle)\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text",
+      "subject": "Two ways to fix the webhook timeouts:",
+      "items": [
+        "A. Answer first, then reserve stock in a background job.",
+        "B. Cache stock levels and reserve against the cache."
+      ]
+    },
+    "headline": "Asking whether to fix webhook timeouts with a background job (A) or a stock cache (B)"
+  }
+}

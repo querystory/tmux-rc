@@ -22,7 +22,8 @@ JSON. It then scores the candidate against the sample's blessed `expected`:
   FREE-TEXT fields (LLM-as-judge) — `headline` is prose; exact-match would be noise.
   A second Vertex call (temperature 0) rules PASS/FAIL on whether the candidate
   headline captures the SAME situation as the expected one, given the screen.
-  Concrete expected tables also require every referenced edit to survive in the output.
+  An expected `question.ask` (the plain restatement of an approval prompt) is judged the
+  same way: same most consequential effect, destructive steps named, no command text.
 
   A sample PASSES only if structured fields match AND the judge agrees. Both signals
   are surfaced so a failure tells you which half broke.
@@ -39,7 +40,10 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
+from openbus import classify as classify_mod
+from openbus import tmux
 from openbus.classify import classify
 from openbus.tmux import Pane
 
@@ -53,7 +57,7 @@ _STRUCT_SCALAR = ("tool", "activity", "waiting_on")
 # match — but it is read off agent chrome that most screens don't show, so it is scored
 # only when a sample states an expectation (including an explicit null for "must omit").
 # Silently ignoring it would let a naming regression pass with the expectation in place.
-_STRUCT_OPTIONAL = ("session", "agents", "model", "cost")
+_STRUCT_OPTIONAL = ("session", "agents", "model", "cost", "offers")
 
 
 @dataclass
@@ -66,6 +70,8 @@ class Sample:
     repository: str | None = None
     title: str | None = None  # tmux pane title, for agents identified by it (omp)
     prior: tuple[str, ...] = ()  # earlier frames, sent with the capture as in production
+    reply: str | None = None  # the agent's last transcript message, as the watcher reads it
+    processes: tuple[str, ...] = ()  # the process tree under the pane, argv space-joined
 
     @classmethod
     def load(cls, path: Path) -> Sample:
@@ -77,6 +83,8 @@ class Sample:
             repository=d.get("repository"),
             title=d.get("title"),
             prior=tuple(d.get("prior", ())),
+            reply=d.get("reply"),
+            processes=tuple(d.get("processes", ())),
             capture=d["capture"],
             expected=d["expected"],
         )
@@ -97,7 +105,9 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
     """Run ONE sample through the production classify() path. `llm_fn(system, text)`
     is the model call (the harness injects a real-Vertex one; tests can inject a stub).
     A synthetic Pane carries the sample's foreground process so the `[tmux: …]` prefix
-    and tool-anchoring behave exactly as in production."""
+    and tool-anchoring behave exactly as in production; `processes` stands in for the /proc
+    walk under the pane that names an agent hosted by node or bun."""
+    procs = {str(i): argv.replace(" ", "\0") for i, argv in enumerate(sample.processes)}
     pane = Pane(
         session="eval",
         window_index="0",
@@ -106,11 +116,14 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         id="%0",
         current_command=sample.current_command,
         title=sample.title or sample.name,
+        pid="0" if procs else "",
     )
-    return classify(
-        pane, sample.capture, llm_fn=llm_fn, prior=list(sample.prior),
-        repository=sample.repository, replies_fn=llm_fn,
-    )
+    with patch.object(classify_mod, "processes", lambda _pid: list(procs)), \
+         patch.object(tmux, "proc_read", lambda p, _name: procs[p]):  # program() reads it
+        return classify(
+            pane, sample.capture, llm_fn=llm_fn, prior=list(sample.prior),
+            repository=sample.repository, replies_fn=llm_fn, reply=sample.reply,
+        )
 
 
 # ── scoring ────────────────────────────────────────────────────────────────────────
@@ -149,7 +162,10 @@ def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     the walk that drives it is steered by the anchor and the advertised bindings, and a
     model that says "cursor" with a wrong anchor selects the WRONG SESSION — silently,
     and with an eval that was still green. Scored only where a sample asks for it, since
-    most screens have nothing to say about either."""
+    most screens have nothing to say about either. `context` (the widget rows classify()
+    reads around a menu's prompt), `items` (the list rows a typed question names) and
+    `subject` (the paragraph leading into them) are pinned the same way, exactly; an `ask`
+    pinned null asserts a menu is NOT restated (a present one is left to the judge)."""
     if field is None:
         return None
     if isinstance(field, dict):
@@ -187,25 +203,37 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
 
         candidate_prs = sorted(map(pr_key, candidate.get("working_prs") or []))
         expected_prs = sorted(map(pr_key, expected.get("working_prs") or []))
-        if candidate_prs != expected_prs:
+        required = {pr_key(pr) for pr in expected["working_prs"] or [] if not pr.get("optional")}
+        if not required <= set(candidate_prs) <= set(expected_prs):
             diffs.append(f"working_prs: got {candidate_prs!r} want {expected_prs!r}")
+    subs = candidate.get("subagents")
+    subs = [a for a in subs if isinstance(a, dict)] if isinstance(subs, list) else []
     if "subagent_states" in expected:
-        subs = candidate.get("subagents")
-        states = (sorted(str(a.get("state")) for a in subs if isinstance(a, dict))
-                  if isinstance(subs, list) else [])
+        states = sorted(str(a.get("state")) for a in subs)
         if states != sorted(expected["subagent_states"]):
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
-    # question — presence + answer_style, plus whichever cursor fields the sample pins
+    entries = candidate.get("status_entries")
+    diffs.extend(f"status_entries: {e!r} repeats a field with its own chip"
+                 for e in expected.get("status_entries_exclude", [])
+                 if isinstance(entries, list) and e in entries)
+    diffs.extend(f"subagents: no row matches {want!r}"  # each must match some row exactly
+                 for want in expected.get("subagents_include", [])
+                 if not any(all(a.get(k) == v for k, v in want.items()) for a in subs))
+    # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
-    extra = tuple(k for k in ("selected", "keymap") if isinstance(want_q, dict) and k in want_q)
+    extra = tuple(k for k in ("selected", "keymap", "context", "items",
+                              "subject", "ask")  # ask: only its absence
+                  if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")
     # Model-written reply buttons vary in wording: a sample opts in to "accept first, decline
-    # second" with `reply_buttons`, instead of pinning text.
+    # second" with `reply_buttons`, instead of pinning text; false pins that there are none.
+    got_q = candidate.get("question")
+    opts = got_q.get("options") if isinstance(got_q, dict) else None
+    if isinstance(want_q, dict) and want_q.get("reply_buttons") is False and opts:
+        diffs.append(f"question.options: want none, got {opts!r}")
     if isinstance(want_q, dict) and want_q.get("reply_buttons"):
-        got_q = candidate.get("question")
-        opts = got_q.get("options") if isinstance(got_q, dict) else None
         first = [str(o).lower() for o in opts[:2]] if isinstance(opts, list) else []
         if len(first) < 2 or not re.match(r"yes\b", first[0]) or not re.match(r"no\b", first[1]):
             diffs.append(f"question.options: want accept then decline, got {opts!r}")
@@ -216,13 +244,11 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     presence = {k: candidate.get(k) for k in ("rewind", "tasks", "copyables")}
     # `tables` is presence too, but OPT-IN — scored only on a sample that names it. Most
     # screens have no table and take no position, so scoring it everywhere would newly fail
-    # existing samples on a field they were never blessed against. Naming it is the claim,
-    # and the claim is "the question refers to a list, so the list has to travel with it or
-    # the phone asks about items it never showed". So score what the PHONE would RENDER,
-    # not bare truthiness: app.js draws a table only where `rows` is an ARRAY (and an empty
-    # one carries no list), and nothing validates this field — the model answers under a
-    # mime type, not a schema — so a string, a {} or `rows: "1. do the thing"` would
-    # otherwise score as a list that travelled when the phone would show none.
+    # existing samples on a field they were never blessed against. Score what the PHONE
+    # would RENDER, not bare truthiness: app.js draws a table only where `rows` is an
+    # ARRAY (and an empty one carries no rows), and nothing validates this field — the
+    # model answers under a mime type, not a schema — so a string, a {} or `rows: "x"` would
+    # otherwise score as a table the phone would never show.
     if "tables" in expected:
         tables = candidate.get("tables")
         valid = tables is None or (isinstance(tables, list) and all(
@@ -241,6 +267,22 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         presence["tables"] = valid and any(
             row for table in (tables or []) for row in table["rows"]
         )
+    # Opt-in and exact, for copyables lifted from a transcript rather than re-typed by the
+    # model: that payload is deterministic, so the bytes the phone would copy are pinned.
+    if "copyable_texts" in expected:
+        texts = [c.get("text") for c in candidate.get("copyables") or [] if isinstance(c, dict)]
+        if texts != expected["copyable_texts"]:
+            diffs.append(f"copyable_texts: got {texts!r}")
+    # Opt-in: each expected URL must be offered whole, however the screen wrapped it.
+    if "links" in expected:
+        links = candidate.get("links")  # untrusted model JSON: only http(s) string hrefs count
+        # The phone offers the first three unique ones (web/pr-links.js), so look no further.
+        hrefs = list(dict.fromkeys(
+            link["href"].rstrip("/") for link in links if isinstance(link, dict)
+            and isinstance(link.get("href"), str) and re.match(r"https?://", link["href"])
+        ))[:3] if isinstance(links, list) else []
+        if missing := [href for href in expected["links"] if href.rstrip("/") not in hrefs]:
+            diffs.append(f"links: missing {missing!r}")
     for k, got in presence.items():
         c, e = bool(got), bool(expected.get(k))
         if c != e:
@@ -258,11 +300,16 @@ _JUDGE_SYSTEM = (
     "the expected one? Be lenient on wording, phrasing, and length — different words "
     "for the same situation PASS. Fail only if the candidate headline is about a "
     "materially DIFFERENT situation, is misleading, or contradicts the screen. If "
-    "neither side has a headline, that check passes. When expected_tables is provided, "
-    "ALSO check that candidate_tables contains every expected edit with its meaning "
-    "intact. Ignore wording and table layout, but FAIL for missing edits or unrelated "
-    "rows substituted for the referenced edits. Both headline and table content must "
-    "pass. Reply with compact JSON only: "
+    "neither side has a headline, that check passes. When expected_ask is provided, "
+    "ALSO judge candidate_ask, the card's plain "
+    "restatement of an approval prompt: it must be one short plain-English sentence "
+    "(about 120 characters at most) ending in a question such as 'Continue?', say what "
+    "approving actually does with the SAME most consequential effect as expected_ask, "
+    "name every destructive step and any description/command mismatch that expected_ask "
+    "names, claim no effect the command does not have (a 'Latest blocked action' note "
+    "is about an earlier action, not this one), and contain no command text, flags or "
+    "tool name. Missing or empty fails. "
+    "Reply with compact JSON only: "
     '{"verdict":"PASS"|"FAIL","reason":"<one short line>"}.'
 )
 
@@ -276,10 +323,11 @@ def judge_freetext(sample: Sample, candidate: dict, llm_fn) -> tuple[bool, str]:
         "expected_headline": sample.expected.get("headline"),
         "candidate_headline": candidate.get("headline"),
     }
-    # A boolean asserts presence only; concrete expected tables also assert meaning.
-    if isinstance(sample.expected.get("tables"), list):
-        fields["expected_tables"] = sample.expected["tables"]
-        fields["candidate_tables"] = candidate.get("tables")
+    want_q = sample.expected.get("question")
+    if isinstance(want_q, dict) and want_q.get("ask"):
+        got_q = candidate.get("question")
+        fields["expected_ask"] = want_q["ask"]
+        fields["candidate_ask"] = got_q.get("ask") if isinstance(got_q, dict) else None
     payload = json.dumps(fields, ensure_ascii=False)
     reply = llm_fn(_JUDGE_SYSTEM, payload)
     if not isinstance(reply, dict) or reply.get("verdict") not in ("PASS", "FAIL"):

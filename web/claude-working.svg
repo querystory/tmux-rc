@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 332 332">
+  <!-- Claude's spark (claude.png, traced in its pixels) wriggling like claude.ai's spinner: it
+       steps between a few spark shapes rather than moving smoothly. Every ray runs the same
+       stepped keyframes, each at its own phase, so each step is a different spark. -->
+  <style>
+    line { animation: w .72s step-end infinite; }
+    line:nth-child(3n+2) { animation-delay: -.18s; }
+    line:nth-child(3n) { animation-delay: -.36s; }
+    line:nth-child(4n) { animation-delay: -.54s; }
+    @keyframes w { 25% { transform: rotate(9deg) scale(.72); } 50% { transform: rotate(-7deg) scale(1.08); } 75% { transform: rotate(4deg) scale(.86); } }
+    #still:target line { animation: none; }
+    @media (prefers-reduced-motion: reduce) { line { animation: none; } }
+  </style>
+  <rect width="332" height="332" fill="#f3e9d7" />
+  <g id="still" transform="translate(170 160)" stroke="#d97757" stroke-width="19" stroke-linecap="round">
+    <line x2="95" y2="24" /><line x2="75" y2="68" /><line x2="49" y2="85" /><line x2="-7" y2="103" />
+    <line x2="-55" y2="88" /><line x2="-81" y2="55" /><line x2="-103" y2="4" /><line x2="-87" y2="-54" />
+    <line x2="-52" y2="-94" /><line x2="15" y2="-92" /><line x2="65" y2="-70" /><line x2="94" y2="-13" />
+  </g>
+</svg>

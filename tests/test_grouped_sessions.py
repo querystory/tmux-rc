@@ -9,12 +9,12 @@ the copies collide rather than merely repeat (issue: a phone deck of identical c
 from openbus import tmux
 from openbus.tmux import Pane, dedupe_grouped, find_pane, list_panes
 
-FIELDS = 13  # _PANE_FMT width; Pane(*parts) is positional
+FIELDS = 14  # _PANE_FMT width; Pane(*parts) is positional
 
 
 def _row(session, pane_id, attached="0", window_index="0"):
     return (f"{session}\t{window_index}\tclaude\t0\t{pane_id}\tnode\tt\t"
-            f"/home/x/proj\t111\t1\t1\t\t{attached}")
+            f"/home/x/proj\t111\t1\t1\t\t{attached}\t")
 
 
 def _tmux(monkeypatch, rows):
@@ -136,7 +136,7 @@ def test_a_label_target_also_follows_the_deck(monkeypatch):
     """A window LABEL names a window, not a session, and a group shares windows — so a
     label must resolve to the attached member exactly as a pane id does. Only a
     session-qualified address spells out which session it means."""
-    rows = [f"{s}\t0\tResolve PR 38\t0\t%0\tnode\tt\t/x\t1\t1\t1\t\t{a}"
+    rows = [f"{s}\t0\tResolve PR 38\t0\t%0\tnode\tt\t/x\t1\t1\t1\t\t{a}\t"
             for s, a in (("gtm-1", "0"), ("gtm-0", "1"))]
     _tmux(monkeypatch, rows)
     assert find_pane("Resolve PR 38").session == "gtm-0"

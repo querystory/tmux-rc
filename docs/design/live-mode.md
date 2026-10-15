@@ -445,6 +445,106 @@ control plane's risk-tier idea (agentic-control-plane.md) applied at the smalles
 Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
 X into Y" announcement is voice's confirmation.
 
+**A card outlives its connection.** Cards used to expire the moment the socket dropped,
+because the daemon's half of a proposal lived in the coroutine waiting on the tap. On a
+phone that is every lock, every app switch iOS suspends, and the tunnel relay's hourly cap,
+so a card read, considered and then tapped a few minutes later said "Expired" with nothing
+about it having aged. Now a card whose connection drops is parked, keyed by the user and the
+page's chat session id, with what Send needs: the call, the pane process the card named,
+and the session's images. The phone keeps the card open, a tap reconnects at once, and the
+answer runs on the new connection. The model that asked went with the old connection (a
+reconnect starts a fresh one), so the outcome is shown and audited but not told to it, and
+a new message supersedes parked cards as it does live ones. A tap is resent on each new
+connection until answered, since a socket can die with it or its answer in flight, so the
+daemon also remembers each answer for as long and repeats it rather than running the card
+twice or calling it expired. The untapped cards are asked after on each new connection too,
+since a new message may have superseded one with the answer lost the same way. Expiry is real now: thirty minutes parked, a daemon restart, or
+ending the chat (ended while offline, the next chat's first connection clears them). Keeping the whole session (model,
+queue, tool calls) alive across a reconnect would also save the model's history, but it
+would turn a per-socket task tree into a detachable one, far more than the card needs.
+
+Two things have to hold for that to survive a real outage rather than a lock. The phone
+must not give up first: its usual five reconnect tries are over in about thirty seconds,
+and the tunnel takes a minute to come back from its hourly drop, so while a card waits the
+chat keeps trying at a capped backoff, and tries at once when the phone comes back online
+or into view. And a reconnect must find the card parked: a phone that saw its socket die
+can be back before the daemon notices the old, half-open one at its ping timeout, with the
+card still held there. So a new connection for a chat takes over the one it replaces,
+ending that one's waits exactly as a drop would, and the cards park before the new socket
+can deliver its first frame.
+
+**Taking the user to a window.** Asked to "go back to window 20", the assistant could only
+say the window was ready and ask what to do there: it could talk about panes but not show
+one. `open_pane` closes that gap by putting an Open button in the log, which goes where
+tapping the pane's row goes (on a phone it also minimizes the sheet). It changes only the
+view, so it skips the consent card, and it is a button rather than an automatic jump
+because the reply can land while the user is typing their next message, and a view that
+changes under them would lose their place. Voice gets the same tool and button. The one jump is a resume the user just tapped
+Send on: that tap asked to go there, so the daemon sends the same message marked `auto`
+and the client clicks the button it adds, which stays for getting back. The result tells
+the model the user is already there, so it offers no second button.
+
+The model names the window and the daemon finds it. Left to pick a pane id itself, the
+model twice opened the wrong window: "take me to the slack inbox merge" (a voice slip for
+"pane") went to past-session search, whose top hits matched all three words, and opened
+the pane running one of them rather than the window titled "slack inbox"; "the QS linux
+OMP session" read the tool column and chose an idle omp pane. So `open_pane` takes the
+user's words and scores each live pane by the words its title, label, tool and working
+directory's name hold whole (two adjacent words may also match run together, for "qslinux");
+the directory counts because a repo name is how people say "the sales kit session", and
+only one of three windows in that repo happened to carry it in its title; a "window N" first
+narrows to panes with that number, so a 25 in some other title never competes. A pane opens only
+when it alone tops the scores with most of the words; otherwise the closest few each get a
+button and the model is told to say how they differ (left to offer them itself, it named
+two windows in its reply and buttoned neither), or it gets "no match" and a pointer to
+find_sessions. Buttons go inside the reply's bubble, under its text: a separate card read
+as a second message about the same thing. A
+deterministic matcher is testable and cannot be talked out of an exact title; prompt rules
+for the same ranking would be relitigated on every model change. Typing still takes a pane
+id: a wrong Open costs a tap back, a wrong prompt costs work, and the id is checked on a
+card or announced aloud.
+
+A consent card that targets a pane carries the same button, because the card is where a
+wrong target gets caught: asked for "the QS linux OMP session", the model picked an omp
+pane idle for two days over the window titled "qslinux codex installation", and the card
+named it only by its tmux address, so nothing on it said which window that was. The card
+now names the pane as the list row does (title, tool and session chip, "qs-app · codex in
+qs-app"), and Open lets the user look before answering. It used to lead with the window
+number and append the tmux address, but the phone shows the number only in a row's small
+print and the address nowhere, so leading with them read as jargon on the one surface
+where the user must recognise the target; the address now goes only to the audit record. The window number comes back only to tell two otherwise
+identical panes apart, since nothing else on their rows differs. Opening does not answer
+the card: it stays pending on the chat bubble until Send or Cancel, since looking is the
+point and a card that resolved on navigation would force a choice before the look.
+
+**A reconnect hands the conversation back.** The conversation lives in the daemon, so a
+restart (a deploy) dropped it while the client still showed every turn. The user had been
+asked "want me to reopen it?" and answered "yes" across the restart; the new session, with no
+history, matched that "yes" to a different window waiting on a yes/no prompt, the user
+approved a card they read as the reopen, and the model then described work the pane was
+"now" doing that it had never seen. Four fixes, one per failure:
+
+- The client resends what its log shows on every connect that has one, and the daemon puts
+  it in front of the next turn as quoted text, framed as restored and unverified. The
+  alternative, persisting each session's history server-side keyed by actor and session,
+  would write conversation text (which the daemon treats as speech, journaled only under
+  QSDEBUG) to disk and add storage, expiry and cleanup, all to rebuild what the client
+  already holds. The client's copy is also exactly what the user is answering. It cannot
+  skip consent: it is text in a user turn, never a tool call, result or approval (those
+  exist only as futures in the live process), and anything in it the user could just as
+  well have typed. It is bounded like a turn, keeping the tail. The log row saying it was
+  handed back is the visible marker.
+- A turn that only agrees ("yes", "ok", "do it") is refused any pane change when the
+  assistant's last reply asked nothing, before a card is shown, and the model is told to
+  ask. This is a check in code rather than only a prompt rule because the prompt is exactly
+  what was missing when it went wrong. "Asked" is a question mark in the last reply: crude,
+  but it errs towards refusing, and refusing costs one more line of chat.
+- A delivered send answers `sent` with a note that the pane's reaction is unseen, instead
+  of `done`, which the model took as the work being done; the nudge after a quiet tool
+  turn asks what it did, not the "outcome".
+- A card carries a warning line when its turn followed a restore or was a bare agreement,
+  the two cases where the user's intent and the model's reading most easily part.
+
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
 starts. Switching mid-conversation, as the history doc asks, now means moving a
@@ -480,6 +580,36 @@ sees holds the model's turn open indefinitely. Restoring keeps the draft and the
 transcript's scroll position. Ending the conversation stays an explicit button, so a
 stray tap on the backdrop never throws one away.
 
+**A waiting card notifies.** The bubble only helps someone looking at the page. A card left
+waiting while the sheet is minimized, the app is in the background or the phone is locked
+sends a "Chat needs you" push through the same subscriptions as a pane that needs you. The
+client tells the daemon over the chat socket whenever the sheet goes in or out of view, so
+a card the user is reading stays quiet. A card must wait unseen for the same settle time
+as a pane's push, so minimizing for a moment does not buzz, and it pushes at most once.
+A dropped socket counts as out of view, and the wait belongs to the card rather than to
+the connection that showed it: locking a phone drops the socket and parks the card, and
+that is the moment a push matters most. Whether a parked card is in view again is the
+reconnected chat's word, including a card it took over from a half-open socket: the
+takeover ends the old connection's wait as a drop does, not as an answer, so the push still
+comes.
+The notification has no answer buttons: approving a pane action should happen where the
+card shows exactly what will be typed, not from a lock-screen line. Tapping it brings the
+chat back in the open page instead of navigating there, since a navigation would reload
+the page and end the conversation that holds the card. A minimized chat comes back too,
+scrolled to the card. The app window is focused before it is asked, not after its answer:
+iOS may refuse a focus that is no longer tied to the tap, and a suspended page cannot
+answer until it is woken. Only with several app windows open does the worker ask first,
+so that only the one holding the card is brought forward.
+The message alone proved not enough on an iPhone: a tap opened the app with the chat still
+minimized, most likely because iOS loses a message posted to a page it is still waking. So
+the worker also records the tap, before focusing, in Cache Storage, which both sides can
+read, and the page pulls it whenever it comes back (visible, shown, focused, booted) and
+again a moment later, since iOS may show the page before the worker has run. A record older
+than a minute or naming another tab's card is ignored, and one acted on is deleted, so a
+later return never reopens a chat minimized since. Bringing a chat back twice is harmless,
+which is what lets both paths stay. A page iOS killed meanwhile has no chat to bring back,
+since the conversation lived in it, so its boot does nothing with the record.
+
 **Docked on a wide screen.** At the wide layout's breakpoint (1100px) the same panel opens
 non-modally as a column right of the work area, so nothing is dimmed and the pane stays
 usable while you talk about it. It is the same element and session, not a second chat:
@@ -498,8 +628,15 @@ and accept the same types and size (PNG, JPEG, WebP or GIF under 20 MB). The dae
 checks the types against the pane paste's table, but its size limit is Chat's own: at most
 four images a turn and 8 MB together. Unlike a pane paste, a chat image is resent with
 every later request while its turn is kept, so the per-turn budget is what bounds a
-session's history. The daemon also refuses images in a
-voice session, whose models cannot see them through this seam. The client re-encodes
+session's history. A voice session takes them too, where its model can see them: each
+session says so (`images`), and the daemon refuses a turn it cannot carry with the actual
+cause — a voice model without images, too many, too large, wrong type — because a single
+"limits" message sent a user hunting for a size problem on a small screenshot. Realtime
+takes `input_image` in the user item. GPT-Live's voice frontend takes no images, but its
+Responses backend does, and typed turns already go there. Gemini Live on Vertex takes them
+as reply-less client content ahead of the realtime text; as realtime video frames they race
+the text, which 2.5 answered before seeing the frame. 3.x Live on AI Studio accepts client
+content only as initial history, so it stays off there. The client re-encodes
 each image as a JPEG no longer than 1568 px on its long edge before sending. A phone
 photo sent whole is several megabytes of base64 per turn, it exceeds Claude's per-image
 cap, and it is resent with every later request until the turn ages out of the kept
@@ -511,7 +648,7 @@ turn gets exactly one answer, its echo or a refusal flagged as such, so a refuse
 cannot shift the next turn's thumbnails onto the wrong echo.
 
 **Forwarding images to agents.** `send_image_to_pane` is how a pasted image reaches a pane
-("send this to window 3"). The daemon numbers each pasted image across the conversation and
+("send this to the auth fix"). The daemon numbers each pasted image across the conversation and
 tells the model the number in the turn text, since the model cannot otherwise name an image
 from an earlier turn. The numbered copies are kept only for as many turns as the chat model
 keeps, so the memory the numbering holds is the history's own bound. The tool goes through
@@ -521,8 +658,8 @@ Delivery is not a second implementation: the tool calls the same function as the
 composer's image endpoint (`server.attach_image`), so the agent gets the image in the form a
 manual paste produces (inline via the clipboard, or the staged path when the session is
 locked), followed by the caption and Enter. Rejected alternative: a loopback HTTP call to the
-endpoint, which would add an auth hop and lose the pane-identity binding. Voice sessions
-refuse the tool, because voice has no images. The audit record carries the image type, size
+endpoint, which would add an auth hop and lose the pane-identity binding. In a voice
+session the tool acts without a card, like that session's other actions. The audit record carries the image type, size
 and target, never the bytes.
 
 ## v0.2 candidates (explicitly out of scope now)

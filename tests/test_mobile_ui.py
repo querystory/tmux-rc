@@ -11,7 +11,7 @@ from openbus import server
 app = server.app
 
 
-@pytest.mark.parametrize("path", ["/m", "/m/"])
+@pytest.mark.parametrize("path", ["/m", "/m/", "/m/index.html"])
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
 def test_mobile_entrypoint(path, method):
     client = TestClient(app)
@@ -20,7 +20,10 @@ def test_mobile_entrypoint(path, method):
     assert response.headers["content-type"].startswith("text/html")
     assert "attachment" not in response.headers.get("content-disposition", "")
     if method == "GET":
-        assert 'src="/m/app.js"' in response.text
+        version = client.get("/api/version").json()["version"]
+        assert f'src="/v/{version}/m/app.js"' in response.text
+        assert "/v/0/" not in response.text
+        assert client.get(f"/v/{version}/m/sidebar.js").text == client.get("/m/sidebar.js").text
         assert 'href="/m/style.css"' in response.text
     assert "no-store" in response.headers["cache-control"]
 
@@ -181,7 +184,7 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
 
     The main column must never be blank: with no pane picked it answers what the sidebar
     cannot, which is what the whole fleet is doing. Its counts come from the same helpers
-    the filter tabs use, because a second count that disagreed with the tabs would be
+    the tab bar uses, because a second count that disagreed with the tabs would be
     worse than showing none. The sidebar width is a clamped CSS variable, so a value
     stored from a wider window can still never squeeze out the list or the terminal. And
     the pane's identity lives over the pane: the header spans both columns here, so a
@@ -195,8 +198,8 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
     assert 'show("landing", dashboardVisible())' in app
     assert "!active && (WIDE.matches || dashboard)" in app
     assert "renderLanding()" in app
-    # The same helpers the tabs count with — not a parallel definition that can drift.
-    assert "panes.filter(needsYou)" in app and "panes.filter(isRunning)" in app
+    # Needs you counts with the list's own predicate, not a parallel definition that can drift.
+    assert ".filter(asks).length" in app
 
     # The drag handle writes a variable the grid clamps; the clamp is the real guard.
     assert "--sidebar" in css and "clamp(260px" in css
@@ -205,6 +208,35 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
 
     # The heading moved out of the app-wide header and into the panel it names.
     assert html.index('id="detail"') < html.index('id="heading"'), "the title belongs over the pane"
+
+
+def test_wide_usage_strip_resizes_hides_and_draws_once():
+    """The sidebar's plan usage: its seam persists a height per screen, dragged under one row
+    it turns the one usage setting Off (which the wide menu toggles too, so a phone and a
+    desktop never disagree about what Off means) with an Undo, and the meters wait for the
+    accounts: drawn before them, several accounts' meters flashed as a tall grid on load."""
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "web/m/app.js").read_text()
+    assert 'seam($("usage-handle")' in app and '"tmuxrc-usage-height"' in app
+    assert 'setUsageMode("off")' in app and '["Undo", () => setUsageMode(was)]' in app
+    assert 'WIDE.matches && usageMode !== "off" ? "on" : usageMode' in app
+    assert 'request("/api/open-loops"), accounts.refresh()])' in app
+
+
+def test_settings_holds_what_the_old_menus_did():
+    """The ☰ dropdown and the sidebar's icon row are gone (docs/design/sidebar.md): every
+    control they held lives in the one Settings, on desktop and phone alike, and Settings
+    and New window dock beside the sidebar through one helper."""
+    root = Path(__file__).resolve().parents[1] / "web/m"
+    html = (root / "index.html").read_text()
+    start = html.index('<dialog id="settings"')
+    settings = html[start:html.index("</dialog>", start)]
+    for control in ("accounts-open", "push", "theme", "usage-mode", "sort", "docs"):
+        assert f'id="{control}"' in settings, control
+    for gone in ("more-menu", "sb-foot"):
+        assert f'id="{gone}"' not in html
+    app = (root / "app.js").read_text()
+    assert 'openBeside($("settings")' in app and 'openBeside($("launch-dialog")' in app
 
 
 def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
@@ -250,16 +282,24 @@ def test_atlas_offers_no_chip_for_unknown_or_toolless_panes():
 def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     """The sidebar's Needs you cards answer without opening the pane, which is only safe if
     they are the pane view's buttons and composer in another place: one option filter, one
-    /send (with its "Answer sent" hold), one /compose. A second copy would drift. And the
+    /send (with its pending-answer hold), one /compose. A second copy would drift. And the
     phone keeps its tab bar and header: the sidebar is wide-only, and the header's controls
     are moved there and back (one element each), not duplicated."""
     root = Path(__file__).resolve().parents[1] / "web/m"
     app, side = (root / "app.js").read_text(), (root / "sidebar.js").read_text()
-    assert "answers: answerOptions, answered: isAnswered, answer, compose" in app
+    assert ("answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, "
+            "compose") in app
     assert 'reconcile($("options"), answerOptions(question)' in app
-    assert "compose(active, draft())" in app and "await ctx.compose(id, value)" in side
-    assert "ctx.answer(node._p.pane_id, o.option, o.index)" in side
+    assert 'compose(active, $("secret").hidden ? draft() : $("secret"))' in app
+    assert "await ctx.compose(id, value)" in side
+    assert "ctx.answer(node._p.pane_id, o.option, o.index, !!o.part)" in side
+    # An offer is sent by the same path, from the card and the list, never via the composer.
+    assert "send.onclick = () => answer(active, node._offer, -1, true);" in app
+    assert "takeOffer" not in app + side
     assert 'show("list-nav", !inPane && !wide)' in app
+    # The tab bar hides in a pane, so Chat and the mic move to the header rather than vanish.
+    assert 'const callTo = inPane ? $("settings-open") : $("attention-tab");' in app
+    assert 'callTo.before($("live-mode"), $("chat"))' in app
     assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app
     assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
     # Every group starts open (Idle too, by the user's call); only a fold the user made persists.
@@ -271,3 +311,14 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     for needle in ('e.pointerType === "mouse"', ":focus-visible", "aria-describedby"):
         assert needle in side
     assert "node.title" not in side
+
+
+def test_agent_title_is_not_squeezed_by_its_meta():
+    """The meta ("idle · 3h 48m 17s · 318.3k tokens") never shrinks, so in a narrow column
+    it squeezed the title beside it to a word a line. The row wraps instead: the title
+    keeps the line by its icon and the meta drops under it. The sidebar's compact lines
+    stay one line, ellipsized."""
+    css = (Path(__file__).resolve().parents[1] / "web/m/style.css").read_text()
+    assert ".task, .agent { display: flex; flex-wrap: wrap;" in css
+    assert ".agent > span:nth-child(2) { max-width: calc(100% - 26px); }" in css
+    assert ".sb-agents .agent { min-width: 0; flex-wrap: nowrap;" in css

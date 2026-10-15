@@ -72,15 +72,19 @@ func IndexTranscript(path string, force bool) error {
 // claudeSessions lists every transcript, subagents included, so a subagent whose
 // parent transcript is gone is still indexed.
 func claudeSessions() ([][]string, error) {
-	projects := filepath.Join(claudeDir(), "projects")
-	paths, err := find(projects, ".jsonl", 2, 4)
 	var out [][]string
-	for _, p := range paths {
-		if filepath.Dir(filepath.Dir(p)) == projects || filepath.Base(filepath.Dir(p)) == "subagents" {
-			out = append(out, []string{p})
+	var errs []error
+	for _, dir := range claudeDirs() {
+		projects := filepath.Join(dir, "projects")
+		paths, err := find(projects, ".jsonl", 2, 4)
+		for _, p := range paths {
+			if filepath.Dir(filepath.Dir(p)) == projects || filepath.Base(filepath.Dir(p)) == "subagents" {
+				out = append(out, []string{p})
+			}
 		}
+		errs = append(errs, err)
 	}
-	return out, err
+	return out, errors.Join(errs...)
 }
 
 func indexFile(h harness, files []string, force bool) error {

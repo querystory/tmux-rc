@@ -5,7 +5,9 @@ Live Mode can find past work across projects and resume it. It is independent of
 tmux-rc daemon: it indexes sessions that never ran in a pane (subagents, IDE sessions,
 headless runs), and runs whether or not the daemon is up.
 
-Status: Claude Code, Codex and omp. An OpenCode reader and summaries follow.
+Status: Claude Code, Codex and omp. An OpenCode reader and summaries follow. Claude
+sessions are read from every account in HOME (`~/.claude` and each `~/.claude-<name>`),
+or from `CLAUDE_CONFIG_DIR` alone when it is set; Codex reads `CODEX_HOME` only.
 
 ## Why an index and not a copy
 
@@ -88,6 +90,10 @@ inactivity. A repo ranks by its best three sessions, not its volume, and git wor
 fold into their main repo. Headless runs and subagents are left out unless `-all`.
 Paraphrase ("the voice thing" for Live Mode) is out of reach by design until real misses
 justify aliases or embeddings.
+
+Each session lists the query terms that hit it (`matched`). A title is the agent's one-line
+summary and often never names a topic the session spent an hour on; without the terms, a
+caller (Live's chat model, in practice) reads a correct hit as a miss and keeps searching.
 
 Each session also says whether it is `running` now, and in which tmux pane, so a caller
 can send to the live agent instead of resuming a second copy onto the same transcript.
