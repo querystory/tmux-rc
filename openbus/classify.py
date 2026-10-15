@@ -1122,10 +1122,10 @@ def screen_offers(text: str, tool: str | None, reply: str | None) -> list[str]:
     return _offers(final, reply) if final else []
 
 
-def _final_ask(visible: str, tool: str, message: str) -> dict | None:
+def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run."""
+    `! command` handed over to run: on a row of its own, or an offer ending the message."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
@@ -1137,11 +1137,12 @@ def _final_ask(visible: str, tool: str, message: str) -> dict | None:
     handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
     if paragraph.rstrip("*_\"'`)").endswith("?"):
         return {"prompt": paragraph, "answer_style": "text"}
-    if handoff is None:
+    if handoff is not None:
+        paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
+    elif not any(o.startswith("! ") and paragraph.endswith(o) for o in offers):
         return None
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
-    return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text",
-            "options": []}
+    return {"prompt": paragraph, "answer_style": "text", "options": []}
 
 
 def _row_number(option: object) -> str | None:
@@ -1486,7 +1487,7 @@ def classify(
     result.pop("offers", None)  # buttons that send: the screen's alone, never the model's
     if offers := screen_offers(text, tool, reply):
         result["offers"] = offers
-    if final and (ask := _final_ask(visible, tool, final)):
+    if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         if "options" not in ask and (

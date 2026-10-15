@@ -1551,8 +1551,9 @@ def test_finished_turn_offers_the_replies_it_hands_over():
 
 def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
     one = 'Run this yourself: ! echo "send-it test $(date +%T)"'
-    assert classify(_pane("claude"), _auto_screen(one), _llm({}), reply=one)["offers"] == [
-        '! echo "send-it test $(date +%T)"']
+    result = classify(_pane("claude"), _auto_screen(one), _llm({}), reply=one)
+    assert result["offers"] == ['! echo "send-it test $(date +%T)"']
+    assert result["question"] == {"prompt": one, "answer_style": "text", "options": []}
     command = ("! export PYTHONPATH=/tmp/demo/lib P=demo-app; source ~/.config/demo/api.env && "
                'printf %s "$DEMO_API_KEY" | gcloud secrets create demo-key --project "$P" '
                '--data-file=- && gcloud run deploy demo-app --project "$P" --region us-east1')
@@ -1561,8 +1562,9 @@ def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
     while words:
         rows.append(" ".join(words[:9]))
         words = words[9:]
-    screen = _auto_screen("\n  ".join(rows))
-    assert classify(_pane("claude"), screen, _llm({}), reply=reply)["offers"] == [command]
+    result = classify(_pane("claude"), _auto_screen("\n  ".join(rows)), _llm({}), reply=reply)
+    assert result["offers"] == [command] and result["question"]["options"] == []
+    assert result["question"]["prompt"] == reply.split("\n\n")[1]  # a user-wait, not a question
     for message in (
         "Run:\n! make clean\nmake deploy",  # a bare row followed by another row
         "Run this yourself: ! make clean\nmake deploy",  # an inline command going on
