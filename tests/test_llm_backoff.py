@@ -105,11 +105,11 @@ def test_a_hung_call_fails_at_the_overall_deadline(monkeypatch):
 
 def test_a_call_in_flight_does_not_lift_a_brake_armed_after_it_started(monkeypatch):
     """Panes are read in parallel: a success that began before another pane's 429 must
-    not clear that pane's brake."""
+    not clear that pane's brake, nor the reason the UI shows for it."""
     _clear()
 
-    def generate(**_kwargs):
-        L._handle_llm_error(Exception("429 RESOURCE_EXHAUSTED"))  # another pane, meanwhile
+    def generate(**_kwargs):  # another pane fails meanwhile, as classify_text records it
+        L.last_error["msg"] = L._handle_llm_error(Exception("429 RESOURCE_EXHAUSTED"))
         return types.SimpleNamespace(text="{}", usage_metadata=None)
 
     monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(
@@ -119,8 +119,10 @@ def test_a_call_in_flight_does_not_lift_a_brake_armed_after_it_started(monkeypat
     try:
         assert L.classify_text("system", "text") == {}
         assert L.backing_off()
+        assert L.last_error["msg"]
     finally:
         _clear()
+        L.last_error["msg"] = None
 
 
 def test_hung_calls_are_capped_not_accumulated(monkeypatch):

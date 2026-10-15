@@ -328,12 +328,13 @@ def classify_text(
             text, result, time.time() - t0, resp, changed, pane_uid, pane_label, None,
             kind,
         )  # OTLP benchmark record
-        last_error["msg"] = None  # success clears any prior error
-        # Healthy again; forget the failure streak. Unless it began after this call did:
-        # with panes read in parallel, a call already in flight must not lift that brake.
+        # Healthy again; forget the failure streak and its reason. Unless it began after
+        # this call did: with panes read in parallel, a call already in flight must not
+        # lift that brake, nor hide why it is on.
         with _backoff_lock:
             if _backoff.get("armed", 0.0) <= t0:
                 _backoff.update(delay=0.0, until=0.0)
+                last_error["msg"] = None
         return result
     except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
         _trace.info("ERROR on IN: %r", text[-500:])
