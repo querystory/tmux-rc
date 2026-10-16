@@ -1384,30 +1384,35 @@ class Watcher:
         moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
         # Our own resize (openbus/fit.py) makes the app redraw at the new width: the same
         # screen, reflowed, is not activity and not worth a parse. While the redraw may be
-        # half done every change is excused; the look after that checks the settled screen
-        # against the one last read, and anything new (a question that arrived meanwhile) is
-        # the app's own. Read as usual: a screen never parsed or still unread, and a pending
-        # question, whose answer is checked against the rows on screen.
+        # half done the pane holds its last reading (nothing moved, nothing to parse or
+        # checkpoint); the look after that checks the settled screen against it, and
+        # anything new (a question that arrived meanwhile) is the app's own. Read as usual:
+        # a screen never parsed or still unread, and a pending question, whose answer is
+        # checked against the rows on screen.
         phase = fit.just_resized(pane.id, looked)
         parsed = self._prev_fp.get(pane.id)
+        hold = False
         if phase and parsed is not None and parsed == self._seen_fp.get(pane.id) \
                 and not (self._state.get(pane.id) or {}).get("question"):
             last = (self.snapshots.get(pane.id) or [{"text": ""}])[-1]["text"]
-            if phase == "redraw" or _reflowed(text, last):
+            if phase == "redraw":
+                hold, moved = True, False
+            elif _reflowed(text, last):
                 self._prev_fp[pane.id] = fp
                 moved = False
             else:
                 self._prev_fp.pop(pane.id)  # changed under the redraw: read it
                 moved = True
-        self._seen_fp[pane.id] = fp
+        if not hold:
+            self._seen_fp[pane.id] = fp
         if moved:
             self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN
         # The agent's transcript can land after its screen settles; a reply the last
         # parse didn't have re-reads the card even though the screen is unchanged.
         reply = transcript.last_reply(pane, text)
-        changed = (fp != self._prev_fp.get(pane.id)  # differs from what we last parsed
-                   # A restored card has no parsed reply: the first one seen stands in.
-                   or reply != self._parsed_reply.setdefault(pane.id, reply))
+        changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
+                                # A restored card has no parsed reply: the first seen stands in.
+                                or reply != self._parsed_reply.setdefault(pane.id, reply))
         previous = self._state.get(pane.id)
         # Seed from tmux on restart; only observed content changes advance this clock.
         last_activity = (previous or {}).get("last_activity_at")

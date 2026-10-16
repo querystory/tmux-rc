@@ -190,8 +190,12 @@ def resize_and_wait(app, cols):
 def test_our_resize_is_not_activity(app):
     """No new parse, and the idle clock runs on (the list doesn't reorder it to "now")."""
     before = app.tick()["last_activity_at"]
+    held = (app.w._seen_fp[app.id], app.w._prev_fp[app.id])
     resize_and_wait(app, 50)
     assert app.tick()["last_activity_at"] == before  # mid-redraw: excused
+    # ...by holding the last reading, so no checkpoint can file the old card under the new
+    # screen (a restart mid-redraw parses what it finds).
+    assert (app.w._seen_fp[app.id], app.w._prev_fp[app.id]) == held
     time.sleep(fit.REDRAW_SECONDS)
     state = app.tick()  # settled: the same content, reflowed
     assert (len(app.parses), len(app.w.snapshots[app.id])) == (1, 1)
