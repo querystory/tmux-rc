@@ -1165,7 +1165,9 @@ def click(pane_id: str, body: ClickBody, request: Request):
 
 class FitBody(BaseModel):
     cols: int = Field(ge=1)
-    force: bool = False  # "Fit to my screen": fit even with a terminal attached
+    force: bool = False  # a choice made for this pane: fit even with a terminal attached
+    mode: Literal["width", "tall", "auto", "off"] = "width"
+    rows: int = Field(default=0, ge=0, le=2000)  # the tall height
 
 
 @app.post("/api/panes/{pane_id}/fit")
@@ -1174,9 +1176,9 @@ def fit_width(pane_id: str, body: FitBody, request: Request):
     opens, on zoom or resize, and on the toggle. A POST, never part of the live GET: it
     resizes a real terminal, and the preview sandbox relies on GETs changing nothing.
     `attached` says a terminal is attached, the one case the toggle matters."""
-    detail = f"cols={body.cols} force={body.force}"
+    detail = f"cols={body.cols} force={body.force} mode={body.mode} rows={body.rows}"
     try:
-        attached = fit.view(pane_id, body.cols, body.force)
+        attached = fit.view(pane_id, body.cols, body.force, body.mode, body.rows)
     except subprocess.CalledProcessError as e:
         _audit(request, "fit", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
         raise _pane_err(e) from None

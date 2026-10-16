@@ -343,6 +343,9 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .seg { display: inline-flex; flex: none; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
 .seg button { min-height: 28px; padding: 0 10px; border-radius: 6px; font-size: 13px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; }
+#fit-row { display: grid; gap: 6px; padding: 6px 10px; font-size: 14px; }
+#fit-row .seg button { min-height: 32px; display: inline; }
+#tall-rows { width: 6em; }
 #push { position: relative; width: 38px; height: 22px; min-height: 22px; padding: 0; flex: none; border-radius: 11px; background: var(--line); }
 #push svg { display: none; }
 #push::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: left 120ms; }
