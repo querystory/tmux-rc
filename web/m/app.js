@@ -1214,9 +1214,11 @@ async function loadEarlier() {
       // to scroll (a few long wrapped lines), one chunk per gesture. Older rows also need you
       // within a screen of the top.
       // Gaps go first, but under steady output there is always one, so after each gap
-      // request an older one gets its turn when you are near the top.
+      // request an older one gets its turn when you are near the top, except while gap rows
+      // wait to land (at most 5s): a prepend could replace the piece they are to replace,
+      // or a frame painted meanwhile could strand them.
       const up = h.asked || !following(), want = latestGeometry[0];
-      older = (!older || heldEnd >= want) && h.top > 0 && box.scrollTop < box.clientHeight && up;
+      older = (!older || heldEnd >= want) && !held.length && h.top > 0 && box.scrollTop < box.clientHeight && up;
       const gap = heldEnd < want && up && !older;
       if (!gap && !older) return;
       const unseen = heldEnd < shownTop; // 1000: the daemon's cap
