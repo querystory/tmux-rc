@@ -20,7 +20,9 @@ import subprocess
 import termios
 import threading
 import time
+import unicodedata
 import weakref
+from collections import Counter
 from collections.abc import Callable
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -688,6 +690,7 @@ def _mark_placeholder(text: str) -> str:
 
 def strip_dim(text: str) -> str:
     """Collapse a marked capture back to the plain text the phone renders."""
+    text = _SIDE_PANEL_BLOCK.sub("", text)
     for a, b in ((DIM_OPEN, DIM_CLOSE), (PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE)):
         text = text.replace(a, "").replace(b, "")
     return text.replace(VISIBLE_SCREEN + "\n", "").replace(VISIBLE_SCREEN, "")
@@ -696,6 +699,58 @@ def strip_dim(text: str) -> str:
 _OPENS = (DIM_OPEN, PLACEHOLDER_OPEN)
 _CLOSES = (DIM_CLOSE, PLACEHOLDER_CLOSE)
 _MARKERS = _OPENS + _CLOSES
+_MARKER_RE = re.compile("|".join(map(re.escape, _MARKERS)))
+# A panel an agent TUI draws beside its conversation (Claude Code's file/changes list) is
+# appended to every row by the capture, so the agent's message, its offers and questions
+# read the panel too. split_side_panel moves it into its own block above the viewport,
+# which strip_dim drops: the phone shows the conversation column only.
+SIDE_PANEL = "\x1e[side panel]\x1f"
+_SIDE_PANEL_BLOCK = re.compile(
+    re.escape(SIDE_PANEL) + ".*?(?=" + re.escape(VISIBLE_SCREEN) + r"|\Z)", re.DOTALL)
+_VERTICALS = "│┃║"
+# A row's trailing padding, wherever its markers sit, and the empty runs the split leaves.
+_TRAILING_BLANK = re.compile(r"[ \t]+(?=(?:" + _MARKER_RE.pattern + r"|[ \t])*$)|"
+                             + "|".join(map(re.escape, map(str.__add__, _OPENS, _CLOSES))))
+
+
+def _cell_width(ch: str) -> int:
+    if unicodedata.combining(ch) or ch in "\u200d\ufe0f":
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+
+
+def _bars(row: str) -> dict[int, int]:
+    """Screen column -> string index of each vertical bar in a marked row."""
+    bars, col = {}, 0
+    for m in re.finditer(_MARKER_RE.pattern + "|.", row):
+        if m[0] in _VERTICALS:
+            bars[col] = m.start()
+        col += 0 if len(m[0]) > 1 else _cell_width(m[0])
+    return bars
+
+
+def split_side_panel(text: str) -> str:
+    """Move a side panel out of the viewport rows into a SIDE_PANEL block above it. A
+    panel is one column holding a vertical bar on most inked rows, with text on both sides,
+    and no bar closing the right side (that is a box or a table, which stays whole)."""
+    head, mark, screen = text.rpartition(VISIBLE_SCREEN)
+    rows = screen.split("\n")
+    bars = [_bars(row) for row in rows]
+    counts = Counter(col for row in bars for col in row)
+    if not mark or not counts:
+        return text
+    col, n = counts.most_common(1)[0]
+    if n * 2 <= sum(bool(strip_dim(row).strip()) for row in rows):
+        return text
+    halves = {i: (row[: bars[i][col]], row[bars[i][col] + 1 :])
+              for i, row in enumerate(rows) if col in bars[i]}
+    lefts, rights = ([strip_dim(h[k]).rstrip() for h in halves.values()] for k in (0, 1))
+    if not (any(lefts) and any(rights)) or any(r.endswith(tuple(_VERTICALS)) for r in rights):
+        return text
+    for i, (left, right) in halves.items():  # the panel's markers stay, so runs stay paired
+        rows[i] = _TRAILING_BLANK.sub("", left + "".join(_MARKER_RE.findall(right)))
+    panel = "\n".join(rights).strip("\n")
+    return f"{head}{SIDE_PANEL}\n{panel}\n{mark}" + "\n".join(rows)
 
 
 def _first_marker(s: str) -> tuple[int, str] | None:
@@ -824,7 +879,8 @@ def capture_pane(
         out, cursor = out.rstrip("\n").rsplit("\n", 1)  # cursor: its row minus the height
         tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
         out = _mark_placeholder(_mark_dim(out))
-    return _ANSI.sub("", out).rstrip("\n") + tail
+    out = _ANSI.sub("", out).rstrip("\n")
+    return (split_side_panel(out) if mark_dim else out) + tail
 
 
 # tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a

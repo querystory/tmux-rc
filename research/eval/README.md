@@ -94,6 +94,8 @@ strictness is correct:
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
   ("Yes…") then a decline ("No…"); their wording is not pinned. Pinned `false`, there
   must be none (a handed-over `! command` is not a question to reply to).
+- `question.prompt_excludes` — opt-in list of strings the question's prompt must not
+  contain (text drawn beside the message, such as a side panel's rows).
 - `links` — opt-in list of URLs, each of which must be offered whole among the candidate's
   link hrefs (extra links are fine): a URL the terminal wrapped must not arrive as a fragment.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.
@@ -203,6 +205,7 @@ actually hit:
 | `101_claude_bare_command_after_colon_one_line` | a one-line message handing over a bare `! command` after a colon, no backticks → text user-wait offering that command |
 | `102_claude_bare_command_after_colon_wrapped` | a long bare `! command` after a colon, wrapped over screen rows but one row ending the transcript → offered whole, not just a copyable |
 | `103_claude_offer_outside_auto_needs_you` | synthetic: a finished turn outside auto mode handing over a `! command` (offers) with no question → user-wait (Needs you), not idle |
+| `105_claude_side_panel_beside_offer` | a `! command` handoff after a colon with Claude's changes panel split into its `[side panel]` block → the command offered, a question prompt quoting none of the panel |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
