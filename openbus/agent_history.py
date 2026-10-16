@@ -7,6 +7,7 @@ an agent. It is optional: without the binary, the Live tools that need it are no
 offered at all. The scratch gallery reads the same index to say which session made a
 folder (openbus/scratch.py)."""
 
+import glob
 import json
 import os
 import shutil
@@ -140,6 +141,16 @@ def recent_dirs(limit: int = 30) -> list[str]:
     return [d for d in dirs if os.path.isdir(d)][:limit]
 
 
+def _transcripts(e: dict) -> list[str]:
+    """Every file of an entry's conversation. A resumed Codex thread continues in a new
+    rollout under the same ID, sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl, and its
+    entry's source is only the latest one (agent-history/codex.go)."""
+    source, sid = Path(e["source"]), glob.escape(str(e.get("session_id")))
+    if e.get("harness") != "codex" or len(source.parents) < 4:
+        return [e["source"]]
+    return sorted({e["source"], *map(str, source.parents[3].glob(f"*/*/*/*-{sid}.jsonl"))})
+
+
 def writers(pattern: str, due: dict[str, float], slack: float = 600) -> dict:
     """{name: the top-level session that wrote it} for each name in `due` (name -> when it
     appeared): the earliest-started session active around that time whose transcript has
@@ -150,9 +161,10 @@ def writers(pattern: str, due: dict[str, float], slack: float = 600) -> dict:
     wanted = {}
     for e in entries:
         start, end = _when(e.get("started")) - slack, _when(e.get("last_active")) + slack
-        if isinstance(e.get("source"), str) and e["source"] not in wanted and (
+        if isinstance(e.get("source"), str) and (
                 names := {n for n, t in due.items() if start <= t <= end}):
-            wanted[e["source"]] = (e, names)
+            for source in _transcripts(e):
+                wanted.setdefault(source, (e, names))
     if not wanted:
         return {}
     try:  # -Z: a NUL after the file name, which may itself hold a colon

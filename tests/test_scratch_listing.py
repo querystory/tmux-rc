@@ -40,11 +40,14 @@ def test_newest_first_and_titles_fall_back(tmp_path, monkeypatch):
     _folder(tmp_path, "old", 1000, {"title": "Named", "description": "Said so"})
     _folder(tmp_path, "new", 3000, "{not json")  # malformed: as if absent
     _folder(tmp_path, "mid", 2000, ["a", "list"], page="no title here")
+    _folder(tmp_path, "amp", 500, None, page="<title>Build &amp; review</title>")
     _folder(tmp_path, "typed", 1500, {"title": 7, "pane": ["%1"]})  # wrong types: ignored
     (tmp_path / "loose.html").write_text("a file, not a folder")
     items, order = _resolved(tmp_path)
-    assert order == ["new", "mid", "typed", "old"]
-    assert [items[n]["title"] for n in order] == ["Its own title", "mid", "Its own title", "Named"]
+    assert order == ["new", "mid", "typed", "old", "amp"]
+    assert items["amp"]["title"] == "Build & review"
+    assert [items[n]["title"] for n in order[:4]] == ["Its own title", "mid", "Its own title",
+                                                      "Named"]
     assert items["old"]["description"] == "Said so"
     assert items["new"]["who"] == "unknown" and items["typed"]["pane"] is None
 
@@ -130,10 +133,17 @@ def test_writers_finds_the_session_that_named_the_folder(tmp_path, monkeypatch):
            "2026-01-01T10:40:00Z", parent="a")
     _entry(index, "claude", "late", tmp_path / "late.jsonl", "2026-01-02T10:00:00Z",
            "2026-01-02T11:00:00Z")
+    day = tmp_path / "sessions" / "2026" / "01" / "01"  # a resumed Codex thread: two rollouts
+    day.mkdir(parents=True)
+    (day / "rollout-2026-01-01T09-00-00-t1.jsonl").write_text("/scratch/resumed/")
+    (day / "rollout-2026-01-01T09-30-00-t1.jsonl").write_text("later turns")
+    _entry(index, "codex", "t1", day / "rollout-2026-01-01T09-30-00-t1.jsonl",
+           "2026-01-01T09:00:00Z", "2026-01-01T12:00:00Z")
     at = 1767262200  # 2026-01-01T10:10:00Z
     found = agent_history.writers(scratch._MENTION, {"mock": at, "report": at + 1500,
-                                                     "mockup": at, "missing": at})
+                                                     "mockup": at, "missing": at,
+                                                     "resumed": at})
     # "mock" is not "mockup"; a subagent's work is its parent's; the later session that
     # only mentions it is not its writer
     assert {n: e["session_id"] for n, e in found.items()} == {"mock": "a", "mockup": "b",
-                                                              "report": "a"}
+                                                              "report": "a", "resumed": "t1"}

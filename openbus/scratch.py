@@ -11,7 +11,7 @@ import json
 import re
 import time
 from datetime import datetime
-from html import escape
+from html import escape, unescape
 from pathlib import Path
 from urllib.parse import quote
 
@@ -70,7 +70,7 @@ def items(root: Path) -> list[dict]:
         if not title and page.suffix == ".html":
             with page.open(errors="replace") as f:
                 m = _TITLE.search(f.read(65536))
-            title = m and m.group(1).strip()
+            title = m and unescape(m.group(1)).strip()
         out.append({"name": folder.name, "title": title or folder.name,
                     "description": meta.get("description", ""), "pane": meta.get("pane"),
                     "href": quote(page.relative_to(root).as_posix() if page != index
