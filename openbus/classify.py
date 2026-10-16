@@ -1398,6 +1398,11 @@ def classify(
     prompt = ""
     if llm_fn:
         prompt = parser_prompt()
+        # Keep other agents' prompts stable: adding a new tool must not change their reads.
+        if _host_tool(pane) == "antigravity":
+            prompt += ("\nThis pane runs Antigravity CLI (agy). Include antigravity among the "
+                       "allowed tool values and report tool=antigravity. The selected model "
+                       "(Gemini, Argon, Claude, etc.) is its backend, not the host agent.\n")
         if re.search(
             r"(?im)^\s*(?:Background terminals\s*:|\d+ background terminals? running\b)", text,
         ):
