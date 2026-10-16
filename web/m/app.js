@@ -1086,15 +1086,18 @@ function paintLines(lines) {
 const frameLines = () => lineMarkup(renderCaptureLines(latestCapture, { color: true }));
 const selectionHolds = (lines) => { const s = getSelection(); return !!s && !s.isCollapsed && selectionDirty(s, lines); };
 function paintCapture(force = false) {
+  // A reflow (new width) renumbers every row, and trimmed or cleared history moves the
+  // frame's first row back: either way the rows held here no longer line up, so drop them
+  // (and, by replacing `earlier`, any chunk still on its way), even if a selection holds
+  // this frame back. While one does, nothing loads (loadEarlier), so no rows are placed
+  // against a frame that is not the one on screen.
+  const [top, width] = latestGeometry;
+  if (width !== earlier.width || top < earlier.seen) resetEarlier(top, width);
+  earlier.seen = top;
   const lines = frameLines();
   if (selectionHolds(lines)) { captureDirty = true; return; }
   captureDirty = false;
-  const scroll = $("terminal-scroll"), follow = following(), [top, width] = latestGeometry;
-  // A reflow (new width) renumbers every row, and trimmed or cleared history moves the
-  // frame's first row back: either way the rows held here no longer line up, so drop them
-  // (and, by replacing `earlier`, any chunk still on its way).
-  if (width !== earlier.width || top < earlier.seen) resetEarlier(top, width);
-  earlier.seen = top;
+  const scroll = $("terminal-scroll"), follow = following();
   // Empty, the held range follows the frame while you follow the tail and no request is
   // using it as its edge. Reading further up, it stays, so the rows output scrolls out from
   // under you come back as a gap, and this frame waits for them: loadEarlier lands them
@@ -1149,7 +1152,7 @@ const selected = (node) => { const s = getSelection(); return !!s?.rangeCount &&
 // A held piece inside a selection is left alone rather than replaced under it.
 async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll"), pre = $("earlier");
-  if (h.busy || !id || performance.now() - (h.failed ?? -Infinity) < 3000) return;
+  if (h.busy || !id || captureDirty || performance.now() - (h.failed ?? -Infinity) < 3000) return;
   h.busy = true;
   let held = [], gone = null, heldEnd = h.end;
   const land = () => {
@@ -1161,10 +1164,12 @@ async function loadEarlier() {
   };
   try {
     for (;;) {
-      const want = latestGeometry[0], gap = heldEnd < want && !following() && !captureDirty;
-      // Older rows only on the way up: near the top and off the tail, or a gesture up at the
-      // top of a frame too short to scroll (a few long wrapped lines), one chunk per gesture.
-      if (!gap && !(h.top > 0 && box.scrollTop < box.clientHeight && (h.asked || !following()))) return;
+      if (captureDirty) return;
+      // Only on the way up: off the tail, or by a gesture up at the top of a frame too short
+      // to scroll (a few long wrapped lines), one chunk per gesture. Older rows also need you
+      // within a screen of the top.
+      const up = h.asked || !following(), want = latestGeometry[0], gap = heldEnd < want && up;
+      if (!gap && !(h.top > 0 && box.scrollTop < box.clientHeight && up)) return;
       const unseen = heldEnd < shownTop; // 1000: the daemon's cap
       const before = gap ? Math.min(want, heldEnd + 1000, unseen ? shownTop : Infinity) : h.top;
       if (!gap) holdView(() => { h.loading = true; paintEarlierCue(); });
@@ -1193,7 +1198,7 @@ async function loadEarlier() {
     }
   } catch { h.failed = performance.now(); setTimeout(loadEarlier, 3000); }
   finally {
-    h.busy = h.loading = false;
+    h.busy = h.loading = h.asked = false;
     if (h === earlier) holdView(paintEarlierCue);
     // A frame still waiting (its gap failed, or you went back to the tail) paints as is; the
     // rows it skips are above it then, so a later fetch holds them.
@@ -1765,7 +1770,7 @@ function wheelHome(id) {
 }
 function overscrollPane(dy) {
   const box = $("terminal-scroll"), pane = panes.find((p) => p.pane_id === active);
-  if (dy < 0 && box.scrollTop === 0 && earlier.top > 0) { earlier.asked = true; loadEarlier(); }
+  if (dy < 0 && box.scrollTop === 0 && (earlier.top > 0 || earlier.end < latestGeometry[0])) { earlier.asked = true; loadEarlier(); }
   if (wheel.off || !dy || !WHEEL_TOOLS.has(pane?.tool) || (dy < 0 && earlier.top > 0)) return; // tmux history first
   if (dy < 0 ? box.scrollTop > 0 : box.scrollTop + box.clientHeight < box.scrollHeight - 1) return;
   wheelQueued += overscroll(wheel, dy, performance.now());

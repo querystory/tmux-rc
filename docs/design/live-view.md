@@ -160,7 +160,9 @@ tmux keeps far more (50,000 rows here). Scrolling up used to stop at the frame's
 the view fetches older rows in chunks of 500 as you come within a screen of the top and
 puts them above the frame, until it reaches tmux's oldest row and says "Start of history".
 It loads only on the way up: off the tail, or, when the frame is too short to scroll (a
-few long wrapped lines), one chunk per upward gesture at the top. A short frame would
+few long wrapped lines), one request per upward gesture at the top. Nothing loads while a
+text selection holds the frame back, because rows would be placed against a frame that
+isn't the one on screen. A short frame would
 otherwise sit "near the top" forever and pull in all of history by itself.
 
 **Rows are addressed by absolute index from the oldest row tmux keeps.** tmux's own row
@@ -205,7 +207,10 @@ moved rather than predicting it.
 wrapped rows only within one capture. Each chunk says whether its last row wraps on (a
 two-row `-J` probe at the edge, in the same tmux queue), and the client renders the two
 pieces again as one line, so a long URL stays one link. A held piece inside a text
-selection is left split rather than replaced under the selection. Snapping chunk edges to whole lines
+selection is left split rather than replaced under the selection. One cost is accepted:
+when such a line straddles the frame's first row, rejoining it can move the frame's rows
+by one line as its gap lands. Avoiding that would mean mapping joined lines back to
+physical rows, which the client cannot do without tmux's wrap flags. Snapping chunk edges to whole lines
 instead would need per-row wrap flags that tmux does not expose. The frame's own first row
 can still start mid-line, as it always could.
 
