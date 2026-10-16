@@ -842,7 +842,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
   #detail[data-layout="side"] .pane-summary .section-heading { margin-right: 28px; } /* clear of the button */
   #detail[data-layout="side"][data-folded] { grid-template-columns: minmax(0, 1fr) 40px; }
   #detail[data-layout="side"][data-folded] > :is(#overview, #review-divider) { display: none; }
-  #detail[data-layout="side"][data-folded] > #overview-toggle { grid-row: 3 / 5; align-self: stretch; align-items: start; width: auto; height: auto; margin: 0; padding-top: 7px; border-left: 1px solid var(--line); border-radius: 0; background: var(--surface); }
+  #detail[data-layout="side"][data-folded] > #overview-toggle { grid-row: 3 / 5; justify-self: stretch; align-self: stretch; align-items: start; width: auto; height: auto; margin: 0; padding-top: 7px; border-left: 1px solid var(--line); border-radius: 0; background: var(--surface); }
   #overview-toggle:hover { color: var(--fg); }
 }
 
