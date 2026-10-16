@@ -50,6 +50,8 @@ export class Composer {
       if ((back ? node.nodeValue.slice(0, offset) : node.nodeValue.slice(offset)).replace(ZW, "")) return null;
       near = back ? node.previousSibling : node.nextSibling;
     }
+    const blank = (n) => n?.nodeType === Node.TEXT_NODE && !n.nodeValue.replace(ZW, "");
+    while (blank(near)) near = back ? near.previousSibling : near.nextSibling;
     return this.files.has(near) ? near : null;
   }
   // Remove an image and the spacer after it.
