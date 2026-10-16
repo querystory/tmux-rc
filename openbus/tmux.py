@@ -699,19 +699,18 @@ def strip_dim(text: str) -> str:
 _OPENS = (DIM_OPEN, PLACEHOLDER_OPEN)
 _CLOSES = (DIM_CLOSE, PLACEHOLDER_CLOSE)
 _MARKERS = _OPENS + _CLOSES
-_MARKER_RE = re.compile("|".join(map(re.escape, _MARKERS)))
 # A panel an agent TUI draws beside its conversation (Claude Code's file/changes list) is
 # appended to every row by the capture, so the agent's message, its offers and questions
 # read the panel too. split_side_panel moves it into its own block above the viewport,
-# which strip_dim drops: the phone shows the conversation column only.
+# which strip_dim drops: the phone shows the conversation column only. It reads the raw
+# capture, where escapes (OSC 8 links included) fill no cells, so columns are the screen's.
 SIDE_PANEL = "\x1e[side panel]\x1f"
 _SIDE_PANEL_BLOCK = re.compile(
     re.escape(SIDE_PANEL) + ".*?(?=" + re.escape(VISIBLE_SCREEN) + r"|\Z)", re.DOTALL)
 _VERTICALS = "│┃║"
 _PANEL_MIN_ROWS = 3  # a bar on one or two rows of a sparse screen is output, not a panel
-# A row's trailing padding, wherever its markers sit, and the empty runs the split leaves.
-_TRAILING_BLANK = re.compile(r"[ \t]+(?=(?:" + _MARKER_RE.pattern + r"|[ \t])*$)|"
-                             + "|".join(map(re.escape, map(str.__add__, _OPENS, _CLOSES))))
+_CELL_RE = re.compile(_ANSI.pattern + "|.")
+_TRAILING_BLANK = re.compile(r"[ \t]+(?=(?:" + _SGR.pattern + r"|[ \t])*$)")
 
 
 def _cell_width(ch: str) -> int:
@@ -720,23 +719,18 @@ def _cell_width(ch: str) -> int:
     return 2 if unicodedata.east_asian_width(ch) in "WF" else 1
 
 
-# What fills screen cells: a marker fills none, a materialized link only its label.
-# A label may hold brackets: its link is the first "](scheme:…)" after the "[".
-_CELL_RE = re.compile(_MARKER_RE.pattern + r"|\[([^\n]*?)\]\([a-z][\w+.-]*:[^\s)]*\)|.")
-
-
 def _bars(row: str) -> tuple[dict[int, int], int]:
-    """Screen column -> string index of each vertical bar in a marked row, and its width."""
+    """Screen column -> string index of each vertical bar in a raw row, and its width."""
     bars, col = {}, 0
     for m in _CELL_RE.finditer(row):
         if m[0] in _VERTICALS:
             bars[col] = m.start()
-        col += sum(map(_cell_width, m[0] if len(m[0]) == 1 else _MARKER_RE.sub("", m[1] or "")))
+        col += _cell_width(m[0]) if len(m[0]) == 1 else 0
     return bars, col
 
 
 def split_side_panel(text: str) -> str:
-    """Move a side panel out of the viewport rows into a SIDE_PANEL block above it. A
+    """Move a side panel out of the raw viewport rows into a SIDE_PANEL block above it. A
     panel is one column holding a vertical bar on most inked rows (three at least), right
     of the screen's middle (a line-number gutter is left of it), with text on both sides,
     and no bar closing the right side (that is a box or a table, which stays whole)."""
@@ -747,18 +741,18 @@ def split_side_panel(text: str) -> str:
     if not mark or not counts:
         return text
     col, n = counts.most_common(1)[0]
-    inked = sum(bool(strip_dim(row).strip()) for row in rows)
+    inked = sum(bool(_ANSI.sub("", row).strip()) for row in rows)
     # The bar rows' median width is the pane's: -J joins a wrapped row into a longer one.
     width = sorted(w for b, w in zip(bars, widths, strict=True) if col in b)[n // 2]
     if n < _PANEL_MIN_ROWS or n * 2 <= inked or col * 2 < width:
         return text
     halves = {i: (row[: bars[i][col]], row[bars[i][col] + 1 :])
               for i, row in enumerate(rows) if col in bars[i]}
-    lefts, rights = ([strip_dim(h[k]).rstrip() for h in halves.values()] for k in (0, 1))
+    lefts, rights = ([_ANSI.sub("", h[k]).rstrip() for h in halves.values()] for k in (0, 1))
     if not (any(lefts) and any(rights)) or any(r.endswith(tuple(_VERTICALS)) for r in rights):
         return text
-    for i, (left, right) in halves.items():  # the panel's markers stay, so runs stay paired
-        rows[i] = _TRAILING_BLANK.sub("", left + "".join(_MARKER_RE.findall(right)))
+    for i, (left, right) in halves.items():  # the panel's styles stay, so later rows keep theirs
+        rows[i] = _TRAILING_BLANK.sub("", left + "".join(m[0] for m in _SGR.finditer(right)))
     panel = "\n".join(rights).strip("\n")
     return f"{head}{SIDE_PANEL}\n{panel}\n{mark}" + "\n".join(rows)
 
@@ -879,18 +873,19 @@ def capture_pane(
                 ";", "display-message", "-p", nonce,
                 ";", *capture, "-S", "0",
                 ";", "display-message", "-p", "-t", pane_id, "#{e|-|:#{cursor_y},#{pane_height}}"]
-    out = _materialize_links(_run(args)).replace(nonce, VISIBLE_SCREEN, 1)
+    out = _run(args).replace(nonce, VISIBLE_SCREEN, 1)
     if keep_colors:
-        return out.rstrip("\n")  # live view: raw SGR, client colorizes
+        return _materialize_links(out).rstrip("\n")  # live view: raw SGR, client colorizes
     tail = ""
     if mark_dim:
         # The cursor on a blank row below all output ends the text in one empty row, so
         # the classifier can tell a prompt still awaiting input from one answered above.
         out, cursor = out.rstrip("\n").rsplit("\n", 1)  # cursor: its row minus the height
         tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
-        out = _mark_placeholder(_mark_dim(out))
-    out = _ANSI.sub("", out).rstrip("\n")
-    return (split_side_panel(out) if mark_dim else out) + tail
+        out = _mark_placeholder(_mark_dim(_materialize_links(split_side_panel(out))))
+    else:
+        out = _materialize_links(out)
+    return _ANSI.sub("", out).rstrip("\n") + tail
 
 
 # tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a
