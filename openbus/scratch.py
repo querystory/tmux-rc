@@ -127,7 +127,7 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict]) -> Non
     for i in listed:
         s = i.pop("session", None) or {}
         live = (running.get(s.get("session_id")) or {}).get("running") or {}
-        i["pane"] = live.get("tmux_pane") or i["pane"]  # its writer, still open in a pane
+        i["pane"] = (live and tmux.running_pane(live)) or i["pane"]  # its writer, still open
         if (pane := panes.get(i["pane"])) is not None:
             i["who"] = _who(pane.get("tool"), account.get(i["pane"]))
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"

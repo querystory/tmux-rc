@@ -947,6 +947,15 @@ def proc_stat(pid: int | str) -> list[str]:
     return proc_read(pid, "stat").rpartition(")")[2].split()
 
 
+def running_pane(running: dict) -> str | None:
+    """A running agent session's pane in THIS tmux server, or None. Its %N (agent-history's
+    `running`) comes from whatever server the agent ran under, so it counts only if that
+    pane's process here is an ancestor of the agent's pid."""
+    pane, pid = running.get("tmux_pane"), running.get("pid")
+    root = pane and isinstance(pid, int) and pane_pid(pane)
+    return pane if root and int(root) in ancestors(pid) else None
+
+
 def started_at(ticks: str) -> float:
     """The wall-clock time of a /proc start time (proc_stat's [19], ticks after boot)."""
     with open("/proc/stat") as f:

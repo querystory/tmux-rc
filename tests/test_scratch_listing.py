@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from openbus import agent_history, scratch
+from openbus import agent_history, scratch, tmux
 from openbus.server import WEB_DIR
 
 STYLE = WEB_DIR / "m" / "style.css"
@@ -73,8 +73,10 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
                          "source": "/c/projects/x/s1.jsonl"}}
 
     monkeypatch.setattr(agent_history, "writers", writers)
-    running = {"s1": {"running": {"tmux_pane": "%9"}}}
+    running = {"s1": {"running": {"tmux_pane": "%9", "pid": 5}}}
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
+    monkeypatch.setattr(tmux, "pane_pid", lambda _pane: "5")  # %9 here is the writer's
+    monkeypatch.setattr(tmux, "ancestors", lambda pid: [pid])
     _folder(tmp_path, "gone", 1000, {"pane": "%3"})
     _folder(tmp_path, "nobody", 2000)
     items, _ = _resolved(tmp_path, [], [{"name": "Lab", "dir": "/c"}])
@@ -138,8 +140,10 @@ def test_writers_finds_the_session_that_named_the_folder(tmp_path, monkeypatch):
            "2026-01-01T11:00:00Z")
     _entry(index, "codex", "b", tmp_path / "b.jsonl", "2026-01-01T09:00:00Z",
            "2026-01-01T12:00:00Z")
+    _entry(index, "claude", "mid", tmp_path / "none.jsonl", "2026-01-01T10:20:00Z",
+           "2026-01-01T10:50:00Z", parent="a")
     _entry(index, "claude", "sub", tmp_path / "sub.jsonl", "2026-01-01T10:30:00Z",
-           "2026-01-01T10:40:00Z", parent="a")
+           "2026-01-01T10:40:00Z", parent="mid")
     _entry(index, "claude", "late", tmp_path / "late.jsonl", "2026-01-02T10:00:00Z",
            "2026-01-02T11:00:00Z")
     day = tmp_path / "sessions" / "2026" / "01" / "01"  # a resumed, segmented Codex thread
@@ -152,7 +156,7 @@ def test_writers_finds_the_session_that_named_the_folder(tmp_path, monkeypatch):
     found = agent_history.writers(scratch._MENTION, {"mock": at, "report": at + 1500,
                                                      "mockup": at, "missing": at,
                                                      "resumed": at})
-    # "mock" is not "mockup"; a subagent's work is its parent's; the later session that
+    # "mock" is not "mockup"; a subagent's work, nested or not, is its root's; the later one that
     # only mentions it is not its writer
     assert {n: e["session_id"] for n, e in found.items()} == {"mock": "a", "mockup": "b",
                                                               "report": "a", "resumed": "t1"}

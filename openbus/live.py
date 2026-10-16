@@ -949,19 +949,10 @@ _resume_lock = asyncio.Lock()
 _resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, audit rec)
 
 
-def _pane_of(running: dict) -> str | None:
-    """A running session's pane in THIS tmux server, or None. Its %N comes from whatever
-    server the agent ran under, so it counts only if that pane's process here is an
-    ancestor of the agent's pid."""
-    pane, pid = running.get("tmux_pane"), running.get("pid")
-    root = pane and isinstance(pid, int) and tmux.pane_pid(pane)
-    return pane if root and int(root) in tmux.ancestors(pid) else None
-
-
 async def _running_pane(entry: dict, watcher) -> str | None:
     """The pane a running session is in, in THIS tmux server, or None."""
     running = entry.get("running")
-    pane = running and await asyncio.to_thread(_pane_of, running)
+    pane = running and await asyncio.to_thread(tmux.running_pane, running)
     if running and not pane and entry.get("harness") == "codex":
         pane = _codex_pane(watcher, entry["session_id"])
     return pane or None

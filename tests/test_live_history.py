@@ -269,9 +269,9 @@ def test_registry_pane_counts_only_if_its_process_runs_there(history, monkeypatc
     assert opened == []
     monkeypatch.setattr(tmux, "ancestors", _REAL_ANCESTORS)
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: str(os.getppid()))
-    assert L._pane_of({"pid": os.getpid(), "tmux_pane": "%1"}) == "%1"  # real /proc walk
+    assert tmux.running_pane({"pid": os.getpid(), "tmux_pane": "%1"}) == "%1"  # real /proc walk
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "999999999")
-    assert L._pane_of({"pid": os.getpid(), "tmux_pane": "%1"}) is None
+    assert tmux.running_pane({"pid": os.getpid(), "tmux_pane": "%1"}) is None
 
 
 @pytest.mark.parametrize(("entry", "args"), [

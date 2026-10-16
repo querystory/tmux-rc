@@ -151,13 +151,22 @@ def _transcripts(e: dict) -> list[str]:
     return sorted({e["source"], *map(str, source.parents[3].glob(f"*/*/*/*-{sid}*.jsonl"))})
 
 
+def _root(e: dict, by_id: dict) -> dict:
+    """The top-level session a (sub)agent's entry belongs to, as far as the index knows."""
+    seen = set()
+    while (parent := by_id.get(e.get("parent_session"))) and id(parent) not in seen:
+        seen.add(id(parent))
+        e = parent
+    return e
+
+
 def writers(pattern: str, due: dict[str, float], slack: float = 600) -> dict:
     """{name: the top-level session that wrote it} for each name in `due` (name -> when it
     appeared): the earliest-started session active around that time whose transcript has
     a match of `pattern` (an ERE) ending in "/<name>". One grep reads every transcript
     active at some name's time, and no other: Python's re took seconds per gigabyte."""
     entries = sorted(_entries(), key=lambda e: _when(e.get("started")))
-    parents = {e.get("session_id"): e for e in entries if not e.get("parent_session")}
+    by_id = {e.get("session_id"): e for e in entries}
     wanted = {}
     for e in entries:
         start, end = _when(e.get("started")) - slack, _when(e.get("last_active")) + slack
@@ -180,5 +189,5 @@ def writers(pattern: str, due: dict[str, float], slack: float = 600) -> dict:
     for source, (e, names) in wanted.items():  # in start order: the earliest wins
         for name in names - found.keys():
             if (source, name) in hits:
-                found[name] = parents.get(e.get("parent_session"), e)
+                found[name] = _root(e, by_id)
     return found
