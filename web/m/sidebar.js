@@ -265,11 +265,12 @@ export function setupSidebar(ctx) {
   function openReply(id, secret) {
     if ((secret || !ctx.wide()) && id !== ctx.active()) ctx.navigate(id);
     if (id === ctx.active()) { // its own composer is on screen
-      document.getElementById(secret ? "secret" : "reply").focus({ preventScroll: true });
+      const box = document.getElementById(secret ? "secret" : "reply");
+      box.focus({ preventScroll: true });
       // Until the keyboard shrinks the pane there may be too little below the question to
-      // lift it to the top, so land again once it is up.
+      // lift it to the top, so land again once it is up (if still replying to this pane).
       const land = (behavior) => document.getElementById("question").scrollIntoView({ block: "start", behavior });
-      window.visualViewport?.addEventListener("resize", () => land("smooth"), { once: true });
+      window.visualViewport?.addEventListener("resize", () => id === ctx.active() && document.activeElement === box && land("smooth"), { once: true });
       return land("instant");
     }
     replyTo = id;
