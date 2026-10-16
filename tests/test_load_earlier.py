@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 import time
+from itertools import pairwise
 from pathlib import Path
 from urllib.parse import quote
 
@@ -21,7 +22,7 @@ TERMINAL_JS = (Path(__file__).resolve().parent.parent / "web" / "terminal.js").a
 # enough to wrap at 80 columns: chunk boundaries land inside colored runs and wrapped links.
 PRINT = ("awk 'BEGIN{{for(i={0};i<{0}+{1};i++){{if(i%7==0)printf \"\\033[31m\";"
          'if(i%7==3)printf "\\033[0m";'
-         'printf "L%05d%s\\n",i,(i%3?"":" https://example.com/" i "/' + "a" * 120 + "\")}}}}'")
+         'printf "L%05d%s\\n",i,(i%3?"":" https://example.com/" i "/' + "a" * 120 + " end\")}}}}'")
 
 
 @pytest.fixture
@@ -115,6 +116,43 @@ def test_chunks_render_like_one_capture(pane):
         input=json.dumps({"whole": whole, "groups": groups}), text=True))
     assert out["split"] == out["one"]
     assert "color:" in "".join(out["one"]) and "<a href" in "".join(out["one"])
+
+
+def test_rejoined_edges_render_like_one_capture(pane):
+    """The client's own rejoin at one edge (app.js loadEarlier): a gap's first piece after
+    the held last line, or a prepended chunk's last piece before the held first line. Each
+    must keep the colors the line had, which the held piece alone does not carry."""
+    if not shutil.which("node"):
+        pytest.skip("node is not installed")
+    pane, emit, run = pane
+    emit(1, 600)
+    _, top, _ = tmux.capture_live(pane)
+    chunks, before = [], top
+    while before:
+        text, start, wraps = tmux.capture_history(pane, before, 40)
+        chunks.insert(0, (text, start, before, wraps))
+        before = start
+    size = int(run(["display-message", "-p", "-t", pane, "#{history_size}"]))
+    pairs = [{"a": a[0], "b": b[0], "whole": tmux._materialize_links(run(
+        ["capture-pane", "-p", "-J", "-e", "-t", pane, "-S", str(a[1] - size),
+         "-E", str(b[2] - 1 - size)])).removesuffix("\n")}
+        for a, b in pairwise(chunks) if a[3]]
+    assert any("\x1b[31m" in p["a"].rsplit("\n", 1)[0] for p in pairs)  # a colored head
+    names = "renderCaptureLines as render, lastLine, joinWrapped"
+    script = (f"import {{ {names} }} from {json.dumps(TERMINAL_JS)};"
+              "import { readFileSync } from 'node:fs';"
+              "const c = { color: true }, bad = [];"
+              "const r = (t) => render(t, c).map((l) => l.replace(/<span[^>]*><\\/span>/g, ''));"
+              "for (const { a, b, whole } of JSON.parse(readFileSync(0, 'utf8'))) {"
+              "  const one = JSON.stringify(r(whole));"
+              "  const gap = [...r(a).slice(0, -1), ...r(joinWrapped(lastLine(a), b))];"
+              "  const up = [...r(joinWrapped(a, b.split('\\n')[0])), ...r(b).slice(1)];"
+              "  if (JSON.stringify(gap) !== one || JSON.stringify(up) !== one) bad.push(whole);"
+              "}"
+              "process.stdout.write(JSON.stringify(bad));")
+    bad = json.loads(subprocess.check_output(["node", "--input-type=module", "-e", script],
+                                             input=json.dumps(pairs), text=True))
+    assert pairs and bad == []
 
 
 def test_endpoint_bounds_and_pane_id(monkeypatch):

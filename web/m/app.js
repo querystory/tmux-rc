@@ -1,6 +1,6 @@
 import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
-import { renderCaptureLines, linkifyText } from "/terminal.js";
+import { renderCaptureLines, linkifyText, lastLine, joinWrapped } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
@@ -1131,8 +1131,8 @@ function holdView(change) {
 //
 // A line tmux wrapped across a chunk's edge arrives in two pieces (tmux.capture_history),
 // so the held piece is rendered again together with the new one and replaced: a long URL
-// stays one link. Each chunk's first and last lines keep their raw text on their nodes, and
-// the last line whether it wraps on.
+// stays one link, in its own colors. Each chunk's first and last lines keep their raw text
+// on their nodes (the last with the style it starts in), and the last whether it wraps on.
 async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll");
   if (h.busy || !id) return;
@@ -1148,12 +1148,12 @@ async function loadEarlier() {
       const { text: rows, start, wraps } = await request(`${paneUrl(id, "history")}?${query}`);
       if (h !== earlier) return;
       const pre = $("earlier"), edge = gap ? pre.lastChild : pre.firstChild, join = edge && (gap ? edge.wraps : wraps);
-      const raw = (join ? (gap ? edge.raw + rows : rows + edge.raw) : rows).split("\n");
-      const nodes = renderCaptureLines(raw.join("\n"), { color: true }).map((markup) => {
+      const raw = !join ? rows : gap ? joinWrapped(edge.raw, rows) : joinWrapped(rows, edge.raw);
+      const nodes = renderCaptureLines(raw, { color: true }).map((markup) => {
         const node = document.createElement("span"); node.innerHTML = `${markup}\n`; return node;
       });
-      nodes[0].raw = raw[0];
-      Object.assign(nodes.at(-1), { raw: raw.at(-1), wraps: gap || !join ? wraps : edge.wraps });
+      nodes[0].raw = raw.slice(0, raw.indexOf("\n") >>> 0);
+      Object.assign(nodes.at(-1), { raw: lastLine(raw), wraps: gap || !join ? wraps : edge.wraps });
       const place = () => {
         if (join) edge.remove();
         if (gap) { pre.append(...nodes); h.end = before; } else { pre.prepend(...nodes); h.top = start; h.loading = false; paintEarlierCue(); }
