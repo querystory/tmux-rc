@@ -1180,9 +1180,10 @@ async function loadEarlier() {
       const { text: rows, start, wraps, screen } = await request(`${paneUrl(id, "history")}?${query}`);
       if (h !== earlier) return;
       // Numbered differently from the rows held here (history trimmed since, say): none of
-      // them can be trusted. Drop them and load nothing until a frame says how rows are
-      // numbered now; the frame waiting, if any, paints as it is.
-      if (screen !== h.screen) { resetEarlier(latestGeometry[0]); paintCapture(true); return; }
+      // them can be trusted. Drop them and load nothing until the next live frame says how
+      // rows are numbered now (an unknown screen holds loading off, and repaints of the
+      // frame already here keep it unknown); the frame waiting, if any, paints as it is.
+      if (screen !== h.screen) { latestGeometry = [latestGeometry[0], ""]; paintCapture(true); return; }
       // A frame painted meanwhile moved the split this chunk was asked by: start the gap over.
       if (gap && shownTop !== shown) { held = []; gone = null; heldEnd = h.end; continue; }
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;

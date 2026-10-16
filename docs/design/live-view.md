@@ -179,8 +179,10 @@ for "the 500 rows before row N". That leaves two windows to get right:
 - *Some events do renumber rows*: trimming at the history limit, clear-history, a reflow
   on a width change, and switching to or from the alternate screen. Every frame and chunk
   carries a screen key: the width, whether the alternate screen is up, and a hash of the
-  oldest few rows tmux keeps. Trimming replaces those rows, and it can refill to the same
-  size between two looks, so a size alone can't show it. The client drops everything it
+  oldest 64 rows tmux keeps. Trimming replaces those rows, and it can refill to the same
+  size between two looks, so a size alone can't show it. tmux keeps no count of trims, so
+  this is the best signal available. It misses a trim only when the rows the trim exposes
+  repeat the ones it dropped, row for row, a tenth of the limit apart. The client drops everything it
   holds when the key changes or the frame's first row moves back, and throws away a chunk
   numbered under another key. The key and first row are part of the frame's identity hash,
   so a reflow that leaves the joined text unchanged still reaches the client.

@@ -824,9 +824,11 @@ def capture_pane(pane_id: str, lines: int = LIVE_ROWS, mark_dim: bool = False) -
 _PANE_ID = re.compile(r"%[0-9]+")
 
 
-# The oldest rows tmux keeps, up to 8 (all of a shorter history): their hash is part of the
+# The oldest rows tmux keeps, up to 64 (all of a shorter history): their hash is part of the
 # row numbering's identity (capture_rows), since trimming at the history limit replaces them.
-_OLDEST = "-S - -E '#{?#{e|<:#{history_size},8},-1,#{e|-|:7,#{history_size}}}'"
+# tmux keeps no trim count, so this is the best signal there is: it misses a trim only when
+# the 64 rows a trim exposes repeat the 64 it dropped, row for row (the limit's tenth apart).
+_OLDEST = "-S - -E '#{?#{e|<:#{history_size},64},-1,#{e|-|:63,#{history_size}}}'"
 
 
 def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",

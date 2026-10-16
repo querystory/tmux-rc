@@ -4,6 +4,7 @@ bounds; and chunks rendering exactly as the same rows would in one capture.
 
 The real-tmux test runs on a private server socket, never the user's."""
 
+import base64
 import hashlib
 import json
 import re
@@ -19,7 +20,10 @@ from fastapi.testclient import TestClient
 
 from openbus import server, tmux
 
-TERMINAL_JS = (Path(__file__).resolve().parent.parent / "web" / "terminal.js").as_uri()
+# A data: URL is a module on every node; a .js file URL with no package.json saying so is
+# CommonJS on nodes without module-syntax detection (see test_capture_lines.py).
+TERMINAL_JS = "data:text/javascript;base64," + base64.b64encode(
+    (Path(__file__).resolve().parent.parent / "web" / "terminal.js").read_bytes()).decode()
 # Colors left open across rows (31 at row 7k, reset at 7k+3) and a link every 3 rows, long
 # enough to wrap at 80 columns: chunk boundaries land inside colored runs and wrapped links.
 PRINT = ("awk 'BEGIN{{for(i={0};i<{0}+{1};i++){{if(i%7==0)printf \"\\033[31m\";"
