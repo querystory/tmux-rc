@@ -79,7 +79,7 @@ docs-clean:
 # Playwright lives in a cache dir rather than package.json: only these targets need a
 # browser, and the pinned version is what keeps renders comparable between machines.
 PLAYWRIGHT_DIR ?= $(HOME)/.cache/tmux-rc/playwright
-README_SHOTS = hero mobile-list mobile-pane mobile-terminal accounts-add-1-new-window accounts-add-6-done
+README_SHOTS = one-tap-list one-tap-pane mobile-offers hero mobile-list mobile-pane mobile-terminal accounts-add-1-new-window accounts-add-6-done
 BASE ?= origin/main
 export PLAYWRIGHT_DIR
 

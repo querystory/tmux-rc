@@ -75,7 +75,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import accounts, agent_history, expunge, telemetry, tmux  # noqa: E402
+from . import accounts, agent_history, expunge, restore, telemetry, tmux  # noqa: E402
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
@@ -628,6 +628,13 @@ def _history() -> History:
     if history is None:
         raise HTTPException(status_code=503, detail="Pane history is unavailable")
     return history
+
+
+@app.get("/api/restore")
+def get_restore():
+    """The workspace of the newest tmux server that died, with each pane's default and
+    what keeps a pane from coming back, or null (docs/design/reboot-restore.md)."""
+    return {"candidate": restore.offer(_history())}
 
 
 @app.get("/api/history")
