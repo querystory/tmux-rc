@@ -88,7 +88,8 @@ def items(root: Path) -> list[dict]:
     out = []
     for folder in root.iterdir():
         try:  # a folder deleted or rebuilt mid-scan is left out, not the whole gallery
-            if not folder.is_symlink() and folder.is_dir() and (item := _item(root, folder)):
+            if not (folder.name.startswith(".") or folder.is_symlink()) and folder.is_dir() and (
+                    item := _item(root, folder)):
                 out.append(item)
         except OSError:
             continue

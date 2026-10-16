@@ -38,6 +38,7 @@ def test_sidecars_neither_date_the_folder_nor_stand_in_for_its_page(tmp_path):
     (folder / "thumb.webp").unlink()
     (folder / "thumb.webp").symlink_to(tmp_path / "elsewhere.webp")
     assert S.stale(scratch.items(tmp_path)[0])  # a thumbnail out of scratch is none
+    _page(tmp_path, ".staging")  # hidden at the root too
     meta_only = tmp_path / "m"
     meta_only.mkdir()
     (meta_only / "meta.json").write_text("{}")
@@ -146,6 +147,18 @@ def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
     assert done == [("shot", "http://d/scratch/p/"), ("said", "T")]
     S.queue(tmp_path, "http://d/scratch", scratch.items(tmp_path), describe=False)
     assert S._worker is None  # nothing new to do
+
+
+def test_a_failed_shot_still_gets_a_description(tmp_path, monkeypatch):
+    said = []
+    monkeypatch.setattr(S, "_tried", set())
+    monkeypatch.setattr(S, "shoot", lambda *_: 1 / 0)
+    monkeypatch.setattr(S, "describe", lambda *a: said.append(a[2]) or "Said.")
+    _page(tmp_path)
+    S.queue(tmp_path, "http://d/scratch", scratch.items(tmp_path))
+    while (worker := S._worker) is not None:
+        worker.join()
+    assert said == ["T"]
 
 
 def test_a_description_missed_while_the_model_is_out_is_asked_again(tmp_path, monkeypatch):

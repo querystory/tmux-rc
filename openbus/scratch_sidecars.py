@@ -74,16 +74,25 @@ def _work() -> None:
                 _worker = None  # under the lock, so queue() starts a new one for what comes next
                 return
             root, url, item = _pending.pop(0)
-        folder = root / item["name"]
-        try:
-            if stale(item):
-                shoot(url, folder / "thumb.webp", root, item["updated"])
-            if item["describe"] and not item["description"] and not describe(
-                    folder / "meta.json", item["page"], item["title"], root) and llm.backing_off():
-                with _lock:  # the model is out, not the page at fault: ask again later
-                    _tried.discard((item["name"], item["updated"]))
-        except Exception:  # one bad page must not stop the rest
-            logger.warning("Scratch sidecars for %s failed", folder.name, exc_info=True)
+        for step in (_thumbnail, _description):
+            try:  # each on its own: one failing must stop neither the other nor the queue
+                step(root, url, item)
+            except Exception:
+                logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
+                               exc_info=True)
+
+
+def _thumbnail(root: Path, url: str, item: dict) -> None:
+    if stale(item):
+        shoot(url, root / item["name"] / "thumb.webp", root, item["updated"])
+
+
+def _description(root: Path, _url: str, item: dict) -> None:
+    folder = root / item["name"]
+    if item["describe"] and not item["description"] and not describe(
+            folder / "meta.json", item["page"], item["title"], root) and llm.backing_off():
+        with _lock:  # the model is out, not the page at fault: ask again later
+            _tried.discard((item["name"], item["updated"]))
 
 
 def _replace(path: Path, root: Path, write) -> None:
