@@ -35,19 +35,20 @@ def _run(args: list[str]) -> str:
     return tmux._run(args)  # noqa: SLF001 - via the module, so a swapped-out tmux (demo, tests) holds
 
 
-def just_resized(pane_id: str, captured: float, moved: bool) -> bool:
-    """Is this look's change (`moved`, in a capture begun at `captured`) the app redrawing
+def just_resized(pane_id: str, looked: float, moved: bool) -> bool:
+    """Is this look's change (`moved`, in a capture finished at `looked`) the app redrawing
     for our resize, rather than the app doing something? One resize excuses one change: a
     look that moved spends it, and so does one still unchanged once the app has had time
-    to redraw. A capture begun before the resize leaves it for the look that sees the
-    redraw. Under the lock, so a look taken while a resize lands waits for its token."""
+    to redraw. A resize begun after the capture finished cannot be in it, so its token
+    waits for the next look. Under the lock, so a look taken while a resize lands waits
+    for its token."""
     with _lock:
         at = _resized.get(pane_id)
-        if at is None or captured < at:
+        if at is None or looked < at:
             return False
-        if moved or captured - at >= REDRAW_SECONDS:
+        if moved or looked - at >= REDRAW_SECONDS:
             del _resized[pane_id]
-        return moved and captured - at < SETTLE_SECONDS
+        return moved and looked - at < SETTLE_SECONDS
 
 
 def view(pane_id: str, cols: int, force: bool = False) -> bool:

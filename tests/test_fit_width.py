@@ -211,7 +211,7 @@ def test_only_a_size_change_arms_the_redraw_hook(pane):
         assert pane not in fit._resized
 
 
-def test_a_look_begun_before_the_resize_leaves_the_token(pane):
+def test_a_look_finished_before_the_resize_leaves_the_token(pane):
     before = time.monotonic()
     fit.view(pane, 60)
     assert not fit.just_resized(pane, before, moved=False)  # the old screen: kept

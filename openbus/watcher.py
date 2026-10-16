@@ -1342,6 +1342,7 @@ class Watcher:
         now = time.time()  # before the capture: drop_question compares it with an answer's
         captured = time.monotonic()  # and what _confirmed's second capture waits out
         text = tmux.capture_pane(pane.id, mark_dim=True)
+        looked = time.monotonic()  # a resize begun before this may be in the capture
         fp = self.frame_fp(text)  # cheap to hold per pane; the checkpoint stores it too
         # First sighting since startup (or since a recycled id): resume from the
         # checkpoint when the screen is unchanged, else seed the clocks from tmux.
@@ -1359,7 +1360,7 @@ class Watcher:
         # "Recent" for as long as the outage lasted.
         moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
         parsed = self._prev_fp.get(pane.id)
-        if fit.just_resized(pane.id, captured, moved) and parsed is not None \
+        if fit.just_resized(pane.id, looked, moved) and parsed is not None \
                 and parsed == self._seen_fp.get(pane.id) \
                 and not (self._state.get(pane.id) or {}).get("question"):
             # Our own resize (openbus/fit.py) made the app redraw at the new width: the same
