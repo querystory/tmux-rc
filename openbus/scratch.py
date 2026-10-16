@@ -8,6 +8,7 @@ never changes, so it is kept for the daemon's lifetime, and a miss is retried af
 while, since agent-history indexes a session only some time after it starts."""
 
 import json
+import os
 import re
 import threading
 import time
@@ -58,12 +59,18 @@ def _when(stamp: str | None) -> float | None:
         return None
 
 
+def _files(folder: Path):
+    """Every file under `folder`, never descending into a hidden directory (.git)."""
+    for top, dirs, names in os.walk(folder):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        yield from (Path(top, n) for n in names if not n.startswith("."))
+
+
 def _item(root: Path, folder: Path) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
     hidden (a sidecar half-written, a .git) are not the page and do not date it."""
-    files = [(f.lstat().st_mtime, f) for f in folder.rglob("*") if f.is_file()
-             and f.name not in SIDECARS and inside(f, folder)
-             and not any(part.startswith(".") for part in f.relative_to(folder).parts)]
+    files = [(f.lstat().st_mtime, f) for f in _files(folder)
+             if f.name not in SIDECARS and f.is_file() and inside(f, folder)]
     if not files:
         return None
     meta, index, thumb = _meta(folder), folder / "index.html", folder / "thumb.webp"

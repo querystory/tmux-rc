@@ -581,6 +581,8 @@ async def no_cache(request, call_next):
     if path.startswith(("/scratch/", "/docs/mocks/")):
         resp.headers["Content-Security-Policy"] = (
             "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")
+    else:  # nor may such a page frame the app or the API, whose answers it would then show
+        resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
     # StaticFiles redirects a directory without its slash to an absolute URL built from
     # the request's own scheme — http:// behind the TLS-terminating tunnel, which the
     # phone can't reach (#174). Make same-host redirects path-only.
