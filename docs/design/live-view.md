@@ -176,11 +176,12 @@ for "the 500 rows before row N". That leaves two windows to get right:
   absolute to tmux rows happens inside tmux (`run-shell -C` expands the history size in the
   same command that captures, and reports the size in the same queue), so no output can
   land in between. Doing the arithmetic in Python would need a retry loop on busy panes.
-- *Some events do renumber rows*: trimming at the history limit, clear-history, and a
-  reflow on a width change. All but the reflow move the frame's first row back, and the
-  frame reports the pane width, so the client drops what it holds when either happens.
-  Width and first row are part of the frame's identity hash, so a reflow that leaves the
-  joined text unchanged still reaches the client.
+- *Some events do renumber rows*: trimming at the history limit, clear-history, a reflow
+  on a width change, and switching to or from the alternate screen. Trimming and clearing
+  move the frame's first row back. For the rest, the frame reports a screen key (the
+  width, and whether the alternate screen is up). The client drops what it holds when
+  either happens. The key and the first row are part of the frame's identity hash, so a
+  reflow that leaves the joined text unchanged still reaches the client.
 
 **The gap.** While you read above the tail, output moves the frame's first row down, past
 rows the client never fetched. The new frame waits while the client fetches that gap. Then
@@ -192,7 +193,7 @@ one, while rows above it are on screen nowhere (left while you followed the tail
 skipped by a frame painted after a failed fetch), so they land at once, held above the
 frame if you are reading it. Rows waiting for a frame that a text selection holds back are
 dropped and fetched again, rather than shown twice. A failed fetch paints the frame anyway
-and pauses loading for a few seconds before retrying. A chunk asked for by a split that a
+and pauses loading for a few seconds before retrying; frames paint normally meanwhile. A chunk asked for by a split that a
 newly painted frame has since moved is thrown away and asked for again. While you follow the tail the gap is left for later, so a streaming pane costs
 no extra requests. It is filled as soon as you scroll up. The same applies before any history has loaded: once you leave the
 tail, rows that output scrolls out of the frame come back as a gap. Only a painted frame

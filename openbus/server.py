@@ -938,7 +938,7 @@ async def live_frame(
     stamped = False
     while True:
         try:
-            text, top, width = await asyncio.to_thread(tmux.capture_live, pane_id)
+            text, top, screen = await asyncio.to_thread(tmux.capture_live, pane_id)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
         # Presence ONCE per round, on the FIRST successful capture: a viewer of a live
@@ -949,7 +949,7 @@ async def live_frame(
         if not stamped:
             _note_live_poll(pane_id)
             stamped = True
-        h = tmux.frame_id(text, top, width)  # full digest: a truncated hash could collide
+        h = tmux.frame_id(text, top, screen)  # full digest: a truncated hash could collide
         # a changed frame onto the client's hash and stall the stream
         changed = h != frame
         if changed or time.monotonic() >= deadline:
@@ -964,7 +964,7 @@ async def live_frame(
             # changed ⇒ send the new colored frame; else unchanged, client re-holds.
             if not changed:
                 return {"frame": h}
-            return {"frame": h, "text": text, "top": top, "width": width}
+            return {"frame": h, "text": text, "top": top, "screen": screen}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
 
 

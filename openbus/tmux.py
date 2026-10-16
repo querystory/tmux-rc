@@ -848,24 +848,25 @@ def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
     return text, size, width, alt
 
 
-def capture_live(pane_id: str) -> tuple[str, int, int]:
+def capture_live(pane_id: str) -> tuple[str, int, str]:
     """The live view's frame (docs/design/live-view.md): the screen plus LIVE_ROWS of
     history, raw SGR for the client to colorize, trailing blank rows dropped. Also the
     absolute row its first line is (0 = the oldest history row kept), which is where the
-    client pages back from, and the pane width, since a reflow renumbers every row.
+    client pages back from, and `screen`, which names how rows are numbered: the width,
+    since a reflow renumbers every row, and which screen is up.
 
     On the alternate screen the history above belongs to whatever ran before the app, and
     scrolling up past the top reaches the app's own history instead (the wheel), so the
     frame then reports top 0: nothing earlier to load."""
     text, size, width, alt = capture_rows(pane_id, f"-{LIVE_ROWS}")
-    return text.rstrip("\n"), 0 if alt else max(0, size - LIVE_ROWS), width
+    return text.rstrip("\n"), 0 if alt else max(0, size - LIVE_ROWS), f"{width}{'a' * alt}"
 
 
-def frame_id(text: str, top: int, width: int) -> str:
+def frame_id(text: str, top: int, screen: str) -> str:
     """The live frame's identity: what the client holds, and what a click must still match.
     The geometry is in it because a reflow can renumber history rows while the joined text
     stays the same, and the client must hear of that to drop the rows it holds."""
-    return hashlib.md5(f"{top} {width}\n{text}".encode()).hexdigest()
+    return hashlib.md5(f"{top} {screen}\n{text}".encode()).hexdigest()
 
 
 def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bool]:
@@ -1199,8 +1200,8 @@ def click(pane_id: str, from_bottom: int, col: int, *,
         ]).split()
         if sgr != "1" or col > int(width):
             return False
-        frame, top, frame_width = capture_live(pane_id)
-        if frame_id(frame, top, frame_width) != expected_frame:
+        frame, top, screen = capture_live(pane_id)
+        if frame_id(frame, top, screen) != expected_frame:
             return False
         # Validate physical geometry against the exact visible suffix of the fresh
         # joined frame. Wrapped scrollback is irrelevant; a wrapped or changed screen

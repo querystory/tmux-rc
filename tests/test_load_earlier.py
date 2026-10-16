@@ -62,8 +62,8 @@ def numbers(text):
 def test_chunks_stay_aligned_while_history_grows(pane):
     pane, emit, _ = pane
     emit(1, 3000)
-    frame, top, width = tmux.capture_live(pane)
-    assert width == 80 and top > 2500
+    frame, top, screen = tmux.capture_live(pane)
+    assert screen == "80" and top > 2500
     first = numbers(frame)[0]
     # Output arrives between the frame and every chunk; absolute rows don't move.
     chunks, before = [], top
@@ -181,8 +181,8 @@ def test_endpoint_bounds_and_pane_id(monkeypatch):
     assert calls == []
 
 
-@pytest.mark.parametrize(("alt", "top"), [("0", 300), ("1", 0)])
-def test_alternate_screen_has_nothing_earlier(monkeypatch, alt, top):
+@pytest.mark.parametrize(("alt", "top", "screen"), [("0", 300, "80"), ("1", 0, "80a")])
+def test_alternate_screen_has_nothing_earlier(monkeypatch, alt, top, screen):
     # A fullscreen app's history is its own (reached by the wheel), not tmux's rows above.
     monkeypatch.setattr(tmux, "_run", lambda args: f"500 80 {alt}\nscreen\n\n")
-    assert tmux.capture_live("%1") == ("screen", top, 80)
+    assert tmux.capture_live("%1") == ("screen", top, screen)  # a switch renumbers rows

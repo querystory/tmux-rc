@@ -165,9 +165,10 @@ let latestFrame = "", paintedFrame = "";
 // near the top and kept, since a history row never changes. Rows are counted from the
 // oldest one tmux keeps, so new output (which only adds rows below) never renumbers a row
 // already here. #earlier holds rows [top, end); while it is empty both follow the frame's
-// own first row. `latestGeometry` is the newest frame's first row and pane width.
+// own first row. `latestGeometry` is the newest frame's first row and `screen` (how its
+// rows are numbered: the width and which screen is up; a change renumbers every row).
 const EARLIER_LINES = 500;
-let earlier = { top: 0, end: 0, width: 0 }, latestGeometry = [0, 0], shownTop = 0; // shownTop: the painted frame's first row
+let earlier = { top: 0, end: 0, screen: "" }, latestGeometry = [0, ""], shownTop = 0; // shownTop: the painted frame's first row
 let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 // CSPRNG-random or omitted, never guessed. getRandomValues, unlike randomUUID, needs no
 // secure context, and a reconnecting chat finds its parked cards by this id.
@@ -1053,7 +1054,7 @@ function restartDetail() {
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
-function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; latestGeometry = [0, 0]; shownTop = 0; resetEarlier(); }
+function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; latestGeometry = [0, ""]; shownTop = 0; resetEarlier(); }
 const following = () => { const s = $("terminal-scroll"); return s.scrollTop + s.clientHeight >= s.scrollHeight - FOLLOW_SLACK_PX; };
 // One <span> per screen line, each ending in its own "\n" (except the last), so inside the
 // <pre>'s `white-space: pre` the layout and copied text are exactly what one innerHTML of
@@ -1086,13 +1087,13 @@ function paintLines(lines) {
 const frameLines = () => lineMarkup(renderCaptureLines(latestCapture, { color: true }));
 const selectionHolds = (lines) => { const s = getSelection(); return !!s && !s.isCollapsed && selectionDirty(s, lines); };
 function paintCapture(force = false) {
-  // A reflow (new width) renumbers every row, and trimmed or cleared history moves the
-  // frame's first row back: either way the rows held here no longer line up, so drop them
+  // A reflow (new width) or a switch of screen renumbers every row, and trimmed or cleared
+  // history moves the frame's first row back: the rows held here no longer line up, so drop them
   // (and, by replacing `earlier`, any chunk still on its way), even if a selection holds
   // this frame back. While one does, nothing loads (loadEarlier), so no rows are placed
   // against a frame that is not the one on screen.
-  const [top, width] = latestGeometry;
-  if (width !== earlier.width || top < earlier.seen) resetEarlier(top, width);
+  const [top, screen] = latestGeometry;
+  if (screen !== earlier.screen || top < earlier.seen) resetEarlier(top, screen);
   earlier.seen = top;
   const lines = frameLines();
   if (selectionHolds(lines)) { captureDirty = true; return; }
@@ -1103,15 +1104,15 @@ function paintCapture(force = false) {
   // under you come back as a gap, and this frame waits for them: loadEarlier lands them
   // and paints it in one step, so what you are reading never jumps in between.
   if (earlier.top === earlier.end && !earlier.busy && follow) earlier.top = earlier.end = top;
-  if (!follow && !force && earlier.end < top) { loadEarlier(); return; }
+  if (!follow && !force && earlier.end < top && !backingOff()) { loadEarlier(); return; }
   paintLines(lines);
   paintedFrame = latestFrame; shownTop = top;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
   loadEarlier();
 }
-function resetEarlier(top = 0, width = 0) {
+function resetEarlier(top = 0, screen = "") {
   $("earlier").replaceChildren();
-  earlier = { top, end: top, seen: top, width };
+  earlier = { top, end: top, seen: top, screen };
   paintEarlierCue();
 }
 function paintEarlierCue() {
@@ -1130,6 +1131,7 @@ function holdView(change, ifAbove = false) {
   if (tail) box.scrollTop = box.scrollHeight;
   else if (hold) box.scrollTop += mark.getBoundingClientRect().top - y;
 }
+const backingOff = () => performance.now() - (earlier.failed ?? -Infinity) < 3000; // after a failed request
 const selected = (node) => { const s = getSelection(); return !!s?.rangeCount && !s.isCollapsed && s.getRangeAt(0).intersectsNode(node); };
 // Fill whatever is missing, one request at a time: first a gap (output moved the frame's
 // first row past #earlier's end while you read above the tail; left for later while you
@@ -1152,11 +1154,12 @@ const selected = (node) => { const s = getSelection(); return !!s?.rangeCount &&
 // A held piece inside a selection is left alone rather than replaced under it.
 async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll"), pre = $("earlier");
-  if (h.busy || !id || captureDirty || performance.now() - (h.failed ?? -Infinity) < 3000) return;
+  if (h.busy || !id || captureDirty || backingOff()) return;
   h.busy = true;
   let held = [], gone = null, heldEnd = h.end;
   const land = () => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
+    if (gone && selected(gone)) return; // selected since: fetched again, and left split this time
     const tail = following();
     gone?.remove(); pre.append(...held); h.end = heldEnd;
     if (tail) box.scrollTop = box.scrollHeight;
@@ -1215,7 +1218,7 @@ async function streamTerminal(id, signal) {
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; latestGeometry = [data.top, data.width]; paintCapture(); }
+      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; latestGeometry = [data.top, data.screen]; paintCapture(); }
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {
