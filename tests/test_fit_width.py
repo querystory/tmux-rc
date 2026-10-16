@@ -191,8 +191,8 @@ def test_our_resize_is_not_activity(app, monkeypatch):
     """No new parse, and the idle clock runs on (the list doesn't reorder it to "now")."""
     before = app.tick()["last_activity_at"]
     offered = []  # offers read off the screen: never off one held mid-redraw
-    real = watcher.put_offers
-    monkeypatch.setattr(watcher, "put_offers", lambda *a: offered.append(1) or real(*a))
+    real = watcher.screen_offers
+    monkeypatch.setattr(watcher, "screen_offers", lambda *a: offered.append(1) or real(*a))
     held = (app.w._seen_fp[app.id], app.w._prev_fp[app.id])
     resize_and_wait(app, 50)
     assert app.tick()["last_activity_at"] == before  # mid-redraw: excused

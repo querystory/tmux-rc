@@ -146,37 +146,27 @@ something new rather than one more answer to tap; the card is where a user alrea
 for what the agent wants, so the offer belongs there, styled the same. Run was renamed Send
 it: the button sends text to the agent's prompt (a `! ` there runs it in Claude Code's
 shell), and the same word fits a quoted reply.
-They are not tied to Needs you: an agent that finishes
-with "if it looks fine, "merge all" queues 18 PRs" is idle, not asking, and the offer is
-still the fastest way on.
+An offer is the next step being the user's, so a pane showing one needs the user, as a
+question does.
 
-This one is deliberately *not* a model decision, and the reason is the test above run
-backwards. The judgment is easy to express as a rule — the agent marks the text itself,
-with the shell prefix, or quotes that follow "say" or precede what the phrase does
-("queues", "merges"), never any quote — and the output is an action with side effects, so
-a hallucinated or re-typed command is the one failure worth paying code to rule out. The
-field is never the model's: whatever it returns under that name is dropped first.
+Which text the agent hands over is the model's call. A first version decided it in code: a
+grammar of `! ` rows, inline spans, fences, quotes after "say", a "do not" anywhere vetoing
+everything, read from the transcript and only for Claude Code. It grew a rule per
+counter-example, read no other agent's phrasing ("could you run…", "paste this in your
+terminal"), and its own "offers make a wait" rule overrode the model's read of the pane.
+The judgement it encoded — is the agent asking the user to send this, or just mentioning
+it — is exactly the easy-for-a-reader, hard-for-a-rule kind this doc is about. What code
+still does is keep the model's answers consistent with each other: an offer it returns
+(and the screen shows) makes the pane wait on the user, the same rule a question follows.
 
-Detection reads the finished turn's last message, and only from the transcript. The screen
-draws Markdown as plain text, so on screen alone a quote may be any program's argument and
-a `!` row the first line of a script; the transcript still marks code with backticks and
-fences, and does not wrap long rows. The screen is the authority on *which* message is
-live: the transcript counts only when it is the message on screen word for word (so a
-stale transcript, or a "do not" the screen shows before a "say", is caught), and only once
-the turn has ended with nothing typed since.
-
-The remaining rules all came out of review, and all trade recall for never prefilling the
-wrong thing. Nothing is read out of code: a quoted phrase only from a paragraph with no
-code in it, and a command only as an inline code span or as the one row of a fence (a bare
-`!` row may be the first line of a script, and nothing after it reliably says otherwise). A command that may be cut short by a blank row in its script is not
-offered, and the shell itself judges that (`bash -n`, which runs nothing): every
-hand-written check of quotes and keywords passed some grammar bash rejects. A message with
-a heredoc anywhere offers no command; and a message that says "do
-not run" or "don't say" anywhere offers nothing at all, since which command a warning
-covers is not worth guessing. It is Claude Code's alone for now: Codex's screen has no
-message boundary this reads yet. A missed offer costs the old copy-paste; a false one
-would cost a command the user never meant, which is why the card shows the text before
-Send it and nothing is sent without that tap.
+What stays in code is the evidence, because the output is an action with side effects: an
+offer must be on the screen exactly as the model wrote it (the terminal's wraps allowed, a
+quote or frame bar ignored), and a `! ` command must be one bash reads whole (`bash -n`,
+which runs nothing), so a tap never sends text the screen does not show or a command a
+blank row cut short. The gate deliberately stops there: rules about where an offer may
+start or end are judgement again, and an edge case goes to the prompt or an eval sample.
+A missed offer costs the old copy-paste; a false one costs a tap the user reads first,
+since the card shows the text before Send it and nothing is sent without that tap.
 
 The broader bet: **any interface over content it doesn't control** has a backlog of
 affordances it never shipped because they couldn't be done generically. A thin semantic

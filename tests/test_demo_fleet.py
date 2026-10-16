@@ -30,7 +30,8 @@ def _loops() -> dict:
 
 def _everything() -> str:
     fleet = demo.fleet()
-    return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet], _loops()])
+    return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet], _loops(),
+                       demo.restore_snapshot()])
 
 
 def test_fleet_contains_nothing_private():
@@ -101,3 +102,18 @@ def test_open_loops_fill_every_lane_and_grouping_signal():
     assert {(g["workstream"] or {}).get("id") for g in lanes["waiting"]} >= {
         "example-org/shop-api#409", "workstream:build-cache"}  # a stack and a label
     assert any(i["panes"] for g in lanes["waiting"] for i in g["items"] if i["kind"] == "pr")
+
+
+def test_restore_offer_shows_every_default_and_a_refusal(tmp_path, monkeypatch):
+    """Through the real offer, as the demo server serves it: agents ticked, a long-idle one
+    and a shell not, one already running refused."""
+    from openbus import restore
+    for name, seam in demo.restore_seams().items():
+        monkeypatch.setattr(restore, name, seam)
+    offer = restore.offer(demo.seed_restore(History(tmp_path / "h.sqlite3")))
+    panes = {p["title"]: (p["default"], p["blocked"])
+             for w in offer["windows"].values() for p in w["panes"]}
+    assert panes.pop("Tokenizer v2 benchmarks") == (False, None)
+    assert panes.pop(None) == (False, None)
+    assert panes.pop("Eval harness flakes") == (False, "it's already running")
+    assert set(panes.values()) == {(True, None)}

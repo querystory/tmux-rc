@@ -15,6 +15,7 @@ import { renderUsage, renderStrip, byUrgency, shownUsage, moreUsage, staleUsage 
 import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
+import { setupRestore } from "/m/restore.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -55,6 +56,7 @@ const LUCIDE = {
   check: '<path d="m20 6-11 11-5-5"/>',
   circle: '<circle cx="12" cy="12" r="9"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
+  history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
   ellipsis: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
   menu: '<path d="M4 5h16M4 12h16M4 19h16"/>',
@@ -237,6 +239,12 @@ function pause(ms, signal) {
 // A notice stays until replaced or cleared; with `ms` it also clears itself, for a short
 // result. `action`, a [label, fn] pair, adds one button (an Undo) that clears it and runs fn.
 let noticeTimer;
+// Restore is a view of its own, so the dashboard behind it stays whole. An offer that turns up
+// on the bare app (no pane, no view chosen) opens it; a spent one leaves it.
+const restore = setupRestore({ mount: $("restore"), request, slow: NO_TIMEOUT, logos: LOGOS, licon, notice: (...a) => notice(...a), running: () => tmuxRunning,
+  open: () => { if (page !== "restore") openPage("restore"); }, // again would leave Back nowhere to go
+  opened: () => { if (!active && !page && !dashboard) navigate(null, "restore", { mode: "replace" }); },
+  closed: () => { if (page === "restore") closePage(); } });
 function notice(message = "", ms = 0, action = null) {
   clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
   if (action) $("notice").append(" ", Object.assign(document.createElement("button"), { type: "button", textContent: action[0], onclick: () => { notice(); action[1](); } }));
@@ -327,8 +335,9 @@ function route() {
   restartDetail();
   render();
   // Focus follows: into the view's Back, then back to the card's Details.
-  if (wasPage && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
-  if (page && !wasPage) { $("landing").scrollTop = 0; $("dash-page").querySelector("button")?.focus({ preventScroll: true }); }
+  if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
+  // Not into Restore: its first button is the Restore itself, which an Enter would press.
+  if (page && !wasPage) { $("landing").scrollTop = 0; if (page !== "restore") $("dash-page").querySelector("button")?.focus({ preventScroll: true }); }
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
   }
@@ -421,8 +430,10 @@ function renderList() {
   // Sessions is the list under whatever the filter menu says; Needs you, the list of just those.
   const tab = String(filter) === "attention" ? "attention" : "all";
   $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
-  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
-  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
+  // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
+  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && page !== "restore"));
+  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && page !== "restore"));
+  $("restore").setAttribute("aria-pressed", String(page === "restore"));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), scope.tools.join(", "), accounts.on().join(", "), scope.session, $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
   const n = filter.length + scope.tools.length + accounts.on().length + !!scope.session + !!query;
@@ -473,6 +484,7 @@ const steady = (paint) => (...args) => {
   try { return paint(...args); } finally { if (landing.scrollTop !== top) landing.scrollTop = top; }
 };
 const renderLanding = steady(() => {
+  if (page === "restore") { if (!$("dash-page").contains(restore.card)) $("dash-page").replaceChildren(restore.card); return restore.card; }
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
   if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
@@ -1216,7 +1228,9 @@ async function pollState(signal) {
       // every 20s as well.
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
+      const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
+      if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       refreshHistory(); refreshCached();
       pruneDrafts();
@@ -1298,10 +1312,11 @@ async function sendKeys(body, id = active) {
   return delivered;
 }
 
-// A closing question's tappable answers, for the pane's question card and the sidebar's
-// Needs you cards alike. Free-text escapes ("Type something") are left to the composer.
+// A question's tappable answers, for the pane's question card and the sidebar's Needs you
+// cards alike. The row the parser marks as the agent's own free-text field is left to the
+// composer (push.renderable_options reads the same mark).
 function answerOptions(question) {
-  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option, index }) => typeof option === "string" && option.trim() && index !== question.free_text);
 }
 // What makes a question the same ask: its prompt, context, items and subject, and its options unless
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
@@ -1355,7 +1370,7 @@ async function answer(id, option, index, offer = false) {
   else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
 }
 
-// What a finished turn hands over to type back (classify.py's _offers), whatever the pane's
+// What the agent hands the user to send back (classify.screen_offers), whatever the pane's
 // state: choices on the pane's question card and its list card, sent with one tap.
 function offersOf(pane) { return (Array.isArray(pane?.offers) ? pane.offers : []).filter((o) => typeof o === "string"); }
 
