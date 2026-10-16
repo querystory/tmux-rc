@@ -80,9 +80,10 @@ def test_offer_reads_the_conversation_column():
     [f"  {i:>3}│value = {i} + offset  # some code that runs on" for i in range(8)],  # a gutter
     [_row("  checking the build", "log")] * 2 + [f"line {i}" for i in range(6)],  # a few rows
     [_row("build completed", " 3 targets"), "", ""],  # a sparse screen
-    ["Package".ljust(W) + "│ Result", "─" * W + "┼" + "─" * 10]
-    + [f"pkg-{i}".ljust(W) + "│ " + ("FAIL" if i == 3 else "ok") for i in range(5)],  # unboxed
-], ids=["box", "table", "gutter", "few-rows", "sparse", "unboxed-table"])
+    *(["Package".ljust(W) + "│ Result", line * W + cross + line * 10]  # unboxed tables
+      + [f"pkg-{i}".ljust(W) + "│ " + ("FAIL" if i == 3 else "ok") for i in range(5)]
+      for line, cross in ("─┼", "━╇")),
+], ids=["box", "table", "gutter", "few-rows", "sparse", "unboxed-table", "heavy-rule"])
 def test_lookalikes_stay_whole(rows):
     assert _capture(rows) == _unsplit(rows)
 

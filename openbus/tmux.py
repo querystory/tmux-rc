@@ -710,7 +710,9 @@ SIDE_PANEL = "\x1e[side panel]\x1f"
 _SIDE_PANEL_BLOCK = re.compile(
     re.escape(SIDE_PANEL) + ".*?(?=" + re.escape(VISIBLE_SCREEN) + r"|\Z)", re.DOTALL)
 _VERTICALS = "│┃║"
-_JUNCTIONS = "┼┬┴╪╫╬╋"  # where a table's rule crosses its column bar
+_JUNCTIONS = "".join(  # where a table's rule meets its column bar: ┬ ┼ ╇ ╬ …
+    c for c in map(chr, range(0x2500, 0x2580)) if re.search(r"\b(?:UP|DOWN|VERTICAL)\b", n := (
+        unicodedata.name(c, ""))) and ("HORIZONTAL" in n or ("LEFT" in n and "RIGHT" in n)))
 _PANEL_MIN_ROWS = 3  # a bar on one or two rows of a sparse screen is output, not a panel
 _CELL_RE = re.compile(_ANSI.pattern + "|.")
 _TRAILING_BLANK = re.compile(r"[ \t]+(?=(?:" + _SGR.pattern + r"|[ \t])*$)")
