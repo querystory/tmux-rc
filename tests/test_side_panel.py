@@ -85,7 +85,13 @@ def test_line_number_gutter_stays_whole():
 
 def test_linked_row_counts_only_its_label():
     rows = list(SCREEN)
-    rows[1] = "[see #12](https://example.com/acme/shop/pull/12)".ljust(W + 41) + "│notes/"
+    link = "[src/[id].py](https://example.com/acme/shop/blob/main/src/%5Bid%5D.py)"
+    rows[1] = link + " " * (W - len("src/[id].py")) + "│notes/"
     text = split_side_panel(_capture(rows))
     assert "notes/" not in _visible(text)
-    assert "\n[see #12](https://example.com/acme/shop/pull/12)\n" in _visible(text)
+    assert f"\n{link}\n" in _visible(text)
+
+
+def test_bar_on_a_sparse_screen_stays_whole():
+    text = _capture(["build completed".ljust(W) + "│ 3 targets", "", ""])
+    assert split_side_panel(text) == text

@@ -708,6 +708,7 @@ SIDE_PANEL = "\x1e[side panel]\x1f"
 _SIDE_PANEL_BLOCK = re.compile(
     re.escape(SIDE_PANEL) + ".*?(?=" + re.escape(VISIBLE_SCREEN) + r"|\Z)", re.DOTALL)
 _VERTICALS = "│┃║"
+_PANEL_MIN_ROWS = 3  # a bar on one or two rows of a sparse screen is output, not a panel
 # A row's trailing padding, wherever its markers sit, and the empty runs the split leaves.
 _TRAILING_BLANK = re.compile(r"[ \t]+(?=(?:" + _MARKER_RE.pattern + r"|[ \t])*$)|"
                              + "|".join(map(re.escape, map(str.__add__, _OPENS, _CLOSES))))
@@ -720,7 +721,8 @@ def _cell_width(ch: str) -> int:
 
 
 # What fills screen cells: a marker fills none, a materialized link only its label.
-_CELL_RE = re.compile(_MARKER_RE.pattern + r"|\[([^\]\n]*)\]\([^\s)]*\)|.")
+# A label may hold brackets: its link is the first "](scheme:…)" after the "[".
+_CELL_RE = re.compile(_MARKER_RE.pattern + r"|\[([^\n]*?)\]\([a-z][\w+.-]*:[^\s)]*\)|.")
 
 
 def _bars(row: str) -> tuple[dict[int, int], int]:
@@ -735,9 +737,9 @@ def _bars(row: str) -> tuple[dict[int, int], int]:
 
 def split_side_panel(text: str) -> str:
     """Move a side panel out of the viewport rows into a SIDE_PANEL block above it. A
-    panel is one column holding a vertical bar on most inked rows, right of the screen's
-    middle (a line-number gutter is left of it), with text on both sides, and no bar closing
-    the right side (that is a box or a table, which stays whole)."""
+    panel is one column holding a vertical bar on most inked rows (three at least), right
+    of the screen's middle (a line-number gutter is left of it), with text on both sides,
+    and no bar closing the right side (that is a box or a table, which stays whole)."""
     head, mark, screen = text.rpartition(VISIBLE_SCREEN)
     rows = screen.split("\n")
     bars, widths = zip(*map(_bars, rows), strict=True)
@@ -745,7 +747,8 @@ def split_side_panel(text: str) -> str:
     if not mark or not counts:
         return text
     col, n = counts.most_common(1)[0]
-    if n * 2 <= sum(bool(strip_dim(row).strip()) for row in rows) or col * 2 < max(widths):
+    inked = sum(bool(strip_dim(row).strip()) for row in rows)
+    if n < _PANEL_MIN_ROWS or n * 2 <= inked or col * 2 < max(widths):
         return text
     halves = {i: (row[: bars[i][col]], row[bars[i][col] + 1 :])
               for i, row in enumerate(rows) if col in bars[i]}
