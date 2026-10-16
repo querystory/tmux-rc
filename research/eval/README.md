@@ -220,6 +220,7 @@ actually hit:
 | `116_claude_narrative_quoted_text_is_no_offer` | synthetic: quoted text inside a bug description → idle, no offers |
 | `117_claude_negation_elsewhere_keeps_the_ask` | synthetic: "don't run X yet … please run Y" → text user-wait offering Y |
 | `118_claude_question_mentions_link_without_asking_to_open` | synthetic: a closing question about a link, a URL on screen → user-wait with no `question.link` |
+| `119_claude_pr_link_beside_status_row_link` | synthetic: the PR a turn opened beside a status-row `[help](url)` link → the PR in `links` |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown, and

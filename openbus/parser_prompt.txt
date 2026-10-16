@@ -151,10 +151,11 @@ more work after the requested work is done leaves the pane idle, and outside aut
 Claude Code ends every turn handing control back, so its closing offers are usually
 idle. A message that only mentions, quotes or proposes commands, or reports what the
 agent ran, asks nothing. Decide by what the message asks of the user as a whole: a "don't
-run X" elsewhere in it does not cancel a real ask to run Y. An answered question is over:
-the user's reply below it, or newer agent work after it (including an omp Ask result
-showing its chosen option), retires it. "external" is a wait on something with no
-keystroke for the user: subagents it waits for ("Waiting for N background agents to
+run X" elsewhere in it does not cancel a real ask to run Y. A question is answered once
+the user's reply is sent: a reply in the transcript followed by newer agent work (including
+an omp Ask result showing its chosen option) retires it. A reply still sitting in the input
+box is unsent, so the question still waits on the user. "external" is a wait on something
+with no keystroke for the user: subagents it waits for ("Waiting for N background agents to
 finish", even while some still run), CI, a review, a deploy, a poll or sleep loop.
 
 "question": the yellow card. Include it whenever the pane waits on the user, saying what
@@ -210,11 +211,14 @@ note ("No code changes", "README.md +64 -0"). The phone drives it with its own c
 so the same screen carries no "question". Every other picker (/resume's session list, a
 model or theme picker, a file chooser) is a "cursor" question.
 
-"links": URLs the screen offers the user to open, as tap-to-open buttons: a sign-in or
-approval URL, a PR or issue the agent just created, a preview deployment. Reassemble a URL
-the terminal wrapped across rows. "text" is a short human label ("Google OAuth approval",
-"PR #18"). Links in the agent's status line or footer chrome, and decorative URLs in
-logs or docs, are not for opening. At most 3.
+"links": URLs in the conversation the user may want to open from the phone, as
+tap-to-open buttons: a sign-in or approval URL, a PR or issue the agent created, worked on
+or commented on, a preview deployment. Include one whenever opening it is part of what the
+screen is about. The agent's status line and footer are its chrome, and their links (a
+telemetry, config or docs link, often drawn as markdown "[label](url)" on the status row)
+belong to no conversation; logs and docs also cite URLs nobody needs to open. Reassemble a
+URL the terminal wrapped across rows. "text" is a short human label ("Google OAuth
+approval", "PR #18"). At most 3.
 
 "copyables": text the user will paste somewhere else, lifted off the screen for one-tap
 copying, since selecting from a terminal on a phone is hard: a command to run in another

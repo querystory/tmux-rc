@@ -1,0 +1,13 @@
+{
+  "description": "Synthetic: a finished turn links the PR it opened, mentions a spec URL in passing, and the status row carries a markdown help link. The PR the agent opened is a link to offer; the status row's link is chrome.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ open the PR for the cart fix\n\n  Ran 3 shell commands\n\n● Opened [example-org/shop#41](https://github.com/example-org/shop/pull/41) with the cart rounding fix.\n  CI is running; the old bug report is in docs/notes.md (see https://example.com/docs/rounding for the spec).\n\n✻ Worked for 31s · done 2:10 PM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/shop on fix/cart-rounding | Opus 5.5 | dev@example.com | [help](https://example.com/statusline-guide)\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "links": [
+      "https://github.com/example-org/shop/pull/41"
+    ],
+    "headline": "Opened PR #41 with the cart rounding fix; CI running"
+  }
+}
