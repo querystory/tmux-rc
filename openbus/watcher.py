@@ -1438,8 +1438,9 @@ class Watcher:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             # Offers send what they say: read off this very screen, which the fingerprint
             # may call unchanged while a command's "10s" became "20s". First: they move the
-            # activity the clock below is keyed on, and a wait they make is read.
-            if put_offers(cached, screen_offers(text, cached.get("tool"), reply)):
+            # activity the clock below is keyed on, and a wait they make is read. Not off
+            # a screen held mid-redraw (see `hold`): it may be half drawn, offers and all.
+            if not hold and put_offers(cached, screen_offers(text, cached.get("tool"), reply)):
                 self._parse_valid[pane.id] = True
             cached.setdefault("input_generation", generation)  # a restored card has none
             # Same activity/question as the last parse (nothing re-classified), so this

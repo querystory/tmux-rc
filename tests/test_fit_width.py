@@ -187,12 +187,16 @@ def resize_and_wait(app, cols):
         pass
 
 
-def test_our_resize_is_not_activity(app):
+def test_our_resize_is_not_activity(app, monkeypatch):
     """No new parse, and the idle clock runs on (the list doesn't reorder it to "now")."""
     before = app.tick()["last_activity_at"]
+    offered = []  # offers read off the screen: never off one held mid-redraw
+    real = watcher.put_offers
+    monkeypatch.setattr(watcher, "put_offers", lambda *a: offered.append(1) or real(*a))
     held = (app.w._seen_fp[app.id], app.w._prev_fp[app.id])
     resize_and_wait(app, 50)
     assert app.tick()["last_activity_at"] == before  # mid-redraw: excused
+    assert not offered
     # ...by holding the last reading, so no checkpoint can file the old card under the new
     # screen (a restart mid-redraw parses what it finds).
     assert (app.w._seen_fp[app.id], app.w._prev_fp[app.id]) == held
