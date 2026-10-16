@@ -1349,6 +1349,8 @@ def test_a_demoted_menu_gets_no_reply_buttons():
     ('! git push "--dry-run"', "! git push "),  # and the space before it
     ('! rm /tmp/cache".old"', "! rm /tmp/cache"),
     ("! python <<'PY'\n\n  print(1)\n  PY", "! python <<'PY'"),  # a heredoc cut by its blank row
+    ('`! git push --"dry-run"`', "! git push --"),  # quotes that do not pair up
+    ("! rm /tmp/cache.", "! rm /tmp/cache"), ("! rm /tmp/cache?", "! rm /tmp/cache"),
 ])
 def test_an_offer_is_never_part_of_a_command(shown, offer):
     screen = _auto_screen(f"Run this:\n\n  {shown}")

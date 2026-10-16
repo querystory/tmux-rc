@@ -673,11 +673,13 @@ def screen_offers(offers: object, text: str) -> list[str]:
     does not reparse (its fingerprint ignores a duration)."""
     screen = _FRAME_BARS_RE.sub("", _visible(text))
 
-    def shown(o: str) -> bool:  # quoted whole, or the whole rest of its paragraph
+    # Inside a matched pair of quotes, or all the rest of its paragraph to the last
+    # character (a closing "." may be the path's own).
+    def shown(o: str) -> bool:
         gap = " " if "  " in o else r"(?: |[ \t]*\n[ \t]*)"
         words = gap.join(map(re.escape, o.split(" ")))
-        return bool(re.search(rf"(?<=[\"“`]){words}(?=[\"”`])|(?<!\S){words}"
-                              r"[.,;:?!)]?[ \t]*(?:\n[ \t]*(?:\n|\Z)|\Z)", screen))
+        return bool(re.search(rf"(?<=\"){words}(?=\")|(?<=`){words}(?=`)|(?<=“){words}(?=”)"
+                              rf"|(?<!\S){words}[ \t]*(?:\n[ \t]*(?:\n|\Z)|\Z)", screen))
 
     listed = offers if isinstance(offers, list) else ()
     return [o for o in dict.fromkeys(o for o in listed if isinstance(o, str))
