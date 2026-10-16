@@ -165,7 +165,7 @@ def install() -> None:
     # A fixed model menu, so the chat button shows on every machine whatever keys it holds;
     # the socket itself is dropped (the screenshot browser stubs it), so no provider is called.
     server.DOCS_MOUNTED = True  # the Docs link shows as on a real deploy, built or not
-    if hasattr(demo, "seed_scratch"):  # a gallery of the fleet's own previews
+    if hasattr(demo, "seed_scratch") and hasattr(server, "scratch"):  # the fleet's previews
         demo.seed_scratch(Path(os.environ["TMUXRC_SCRATCH_DIR"]))
         server.scratch.agent_history = SimpleNamespace(
             writers=lambda _pattern, due: {n: demo.SCRATCH_WRITERS[n] for n in due

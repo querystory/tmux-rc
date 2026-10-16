@@ -61,10 +61,11 @@ def items(root: Path) -> list[dict]:
             continue
         files = [(f.lstat().st_mtime, f) for f in folder.rglob("*")
                  if f.is_file() and _inside(f, folder)]
-        if not files:
+        pages = [(t, f) for t, f in files if f.name != "meta.json"]
+        if not pages:
             continue
         meta, index = _meta(folder), folder / "index.html"
-        page = index if index.is_file() else max(files)[1]
+        page = index if any(f == index for _, f in pages) else max(pages)[1]
         title = meta.get("title")
         if not title and page.suffix == ".html":
             with page.open(errors="replace") as f:

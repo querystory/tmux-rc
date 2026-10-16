@@ -93,8 +93,14 @@ def test_nothing_outside_scratch_is_listed_or_read(tmp_path, monkeypatch):
     inner = _folder(root, "inner", 1000, page="<title><script>x</script></title>")
     (inner / "meta.json").symlink_to(outside / "meta.json")
     (inner / "leak.html").symlink_to(outside / "index.html")
+    linked = _folder(root, "linked", 900, {"description": "no title"}, page="local")
+    (linked / "index.html").unlink()
+    (linked / "index.html").symlink_to(outside / "index.html")
+    (linked / "report.pdf").write_text("pdf")
+    _folder(root, "meta-only", 800, {"title": "nothing to open"}).joinpath("index.html").unlink()
     items, order = _resolved(root)
-    assert order == ["inner"] and items["inner"]["title"] == "inner"  # <title> has no text
+    assert sorted(order) == ["inner", "linked"] and items["inner"]["title"] == "inner"  # no text
+    assert items["linked"]["href"] == "linked/report.pdf" and items["linked"]["title"] == "linked"
     _folder(root, "xss", 1000, {"title": "<img src=x onerror=alert(1)>"})
     page = scratch.page(root, [], [], STYLE)
     assert "secret" not in page and "<img" not in page and "&lt;img" in page
