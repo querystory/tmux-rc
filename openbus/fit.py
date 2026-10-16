@@ -54,8 +54,9 @@ def just_resized(pane_id: str, looked: float) -> str:
 
 def reflow_key(text: str) -> str:
     """A screen's content regardless of the width it was laid out at: what a reflow moves
-    around (whitespace) or redraws to a new length (box-drawing rules) is left out."""
-    return _REFLOWED.sub("", tmux.strip_dim(text))
+    around (whitespace) or redraws to a new length (box-drawing rules) is left out, and
+    nothing else (markers such as a draft's placeholder are content)."""
+    return _REFLOWED.sub("", text)
 
 
 def view(pane_id: str, cols: int, force: bool = False) -> bool:
