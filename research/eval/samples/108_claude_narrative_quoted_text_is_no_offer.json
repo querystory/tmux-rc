@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: a finished turn quotes what users typed while describing a fixed bug. Quoted narrative is no offer, and nothing is asked: idle.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ filters vanish sometimes\n\n  Read 2 files\n\n● The bug report says users typed \"delete all\" into the search box and lost their filters.\n  The shortcut parser read it as a command; I fixed that and added a test with \"delete all\" as input.\n\n✻ Worked for 14s · done 3:05 PM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/kettle on main | Opus 5.5 | 8% ctx\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "offers": null,
+    "headline": "Fixed search text being parsed as a delete-all shortcut"
+  }
+}

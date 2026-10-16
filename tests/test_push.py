@@ -228,7 +228,7 @@ def test_option_mapping_matches_card_semantics():
     assert push.option_keys(months, 8) == "9"
     with pytest.raises(ValueError, match="past 9"):
         push.option_keys(months, 9)
-    question = {"answer_style": "menu", "options": ["Alpha", "Other", "Beta"]}
+    question = {"answer_style": "menu", "options": ["Alpha", "Other", "Beta"], "free_text": 1}
     assert push.renderable_options(question) == [(0, "Alpha"), (2, "Beta")]
     assert push.option_keys(question, 2) == "3"
     question = {"answer_style": "text", "options": ["Ship it"]}

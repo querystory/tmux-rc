@@ -1271,10 +1271,11 @@ async function sendKeys(body, id = active) {
   return delivered;
 }
 
-// A closing question's tappable answers, for the pane's question card and the sidebar's
-// Needs you cards alike. Free-text escapes ("Type something") are left to the composer.
+// A question's tappable answers, for the pane's question card and the sidebar's Needs you
+// cards alike. The row the parser marks as the agent's own free-text field is left to the
+// composer (push.renderable_options reads the same mark).
 function answerOptions(question) {
-  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option, index }) => typeof option === "string" && option.trim() && index !== question.free_text);
 }
 // What makes a question the same ask: its prompt, context, items and subject, and its options unless
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
@@ -1328,7 +1329,7 @@ async function answer(id, option, index, offer = false) {
   else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
 }
 
-// What a finished turn hands over to type back (classify.py's _offers), whatever the pane's
+// What the agent hands the user to send back (classify.screen_offers), whatever the pane's
 // state: choices on the pane's question card and its list card, sent with one tap.
 function offersOf(pane) { return (Array.isArray(pane?.offers) ? pane.offers : []).filter((o) => typeof o === "string"); }
 

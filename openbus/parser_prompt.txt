@@ -134,12 +134,16 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "tables": [{"title": "optional caption", "headers": ["col", ...], "rows": [["cell", ...], ...]}],
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"|"cursor",
                "selected": <int|null>,   // cursor style: index of the ❯-highlighted option
+               "free_text": <int>,   // index of an option that only opens the agent's own free-text field
+               "items": ["..."], "subject": "...",   // the list rows a typed question names (below)
+               "link": "https://...",   // the URL in "links" this question asks the user to open, if any
                "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": true|false}},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
   "subagents": [{"label": "...", "state": "running"|"waiting"|"idle"|"compacting"|"unknown"|"done", "elapsed": "...", "tokens": "..."}],
   "working_prs": [{"repo": "owner/name", "number": <positive int>}],
   "links": [{"href": "https://...", "text": "short meaningful label"}],
+  "offers": ["..."],
   "copyables": [{"label": "one-line summary of WHAT this text is, e.g. 'Commit message' "
                  "or 'The 3 failing test names'",
                  "text": "the EXACT text to put on the clipboard, verbatim"}],
@@ -182,6 +186,10 @@ telemetry/config/docs links, often markdown [label](url)) — chrome, not conten
 user is being asked to open. Terminal wrapping splits long URLs across lines —
 REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a short
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
+
+"offers": text the agent asks the user to send back into this pane (a "! command" to run,
+a phrase it says to reply with), exactly as the screen shows it; the phone's Send button
+types it into the pane.
 
 "copyables": text the user will plausibly want to PASTE SOMEWHERE ELSE, lifted off the
 screen for one-tap copying. Selecting text out of a terminal on a phone is genuinely
@@ -250,12 +258,12 @@ have their own dedicated field (mode, model, cost, context %, tool, tasks, quest
 rewind, links) into events.
 "tables": extract visible tabular data (ASCII/box-drawn tables, aligned columns)
 as structured {headers, rows}; do NOT flatten it into prose or events. Include a
-visible caption in "title". Also carry a visible supporting list when the current
-genuine question refers to its items (e.g. "make edits 1–4?"): one row per referenced
-item, retaining its number/label and a concise faithful description. This is decision
-context, NOT the question's answer choices or queued outgoing user messages. Include
-only the referenced visible items; never invent missing items or add skipped ones.
-Omit "tables" when neither tabular data nor such supporting context is visible.
+visible caption in "title". Omit "tables" when no tabular data is visible.
+"question.items": when a typed question names rows of a list above it by number or letter
+("Want me to do 1 now and prepare 2?", "Go with A or B?"), exactly those rows, each quoted
+as shown: its label and its first sentence ("1. Prune container images older than 14
+days."); "question.subject" is the heading or lead-in line just above that list, quoted as
+shown, which says what is being decided.
 
 ANSWERED QUESTIONS can remain visible in the transcript after the agent moves on.
 A submitted answer (including an omp Ask result showing the chosen option) followed
