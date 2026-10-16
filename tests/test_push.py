@@ -275,6 +275,9 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     pane["question"]["ask"] = "The agent wants to delete build/. Continue?"
     assert push.contract(pane, "123")[0] != with_option
     with_option = push.contract(pane, "123")[0]
+    pane["question"]["approval"] = True  # an older nonce must not approve it unrestated
+    assert push.contract(pane, "123")[0] != with_option
+    with_option = push.contract(pane, "123")[0]
     pane["activity"] = "running"
     assert push.contract(pane, "123")[0] != with_option
     with_option = push.contract(pane, "123")[0]

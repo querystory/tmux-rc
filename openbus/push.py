@@ -324,6 +324,9 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         "subject": question.get("subject") if question else None,
         # The body is the restatement: one that arrives late (a retried call) re-notifies.
         "ask": question.get("ask") if question else None,
+        # An approval with no restatement offers no actions: a notification sent before the
+        # model marked it one must not answer it.
+        "approval": question.get("approval") is True if question else False,
     }
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question
