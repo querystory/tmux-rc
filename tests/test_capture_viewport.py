@@ -1,6 +1,6 @@
 import pytest
 
-from openbus import tmux
+from openbus import classify, tmux
 
 
 def test_real_tmux_history_boundary(tmp_path, monkeypatch):
@@ -111,3 +111,68 @@ def test_printed_boundary_label_is_preserved():
 def test_classifier_capture_ends_on_a_blank_cursor_row(monkeypatch, screen, cursor, want):
     monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n{screen}{cursor}\n")
     assert tmux.capture_pane("%1", mark_dim=True) == f"{tmux.VISIBLE_SCREEN}\n{want}"
+
+
+def _tall_screen() -> list[str]:
+    """A 500-row agent window: an answered question near the top, a long run of later
+    output, the current idle prompt, then blank rows to the window's bottom."""
+    old = ["Which color should the banner use?", "  1. Teal", "  2. Amber", "❯ 1",
+           "Painting the banner teal."]
+    work = [f"step {i}" for i in range(300)]
+    return ["earlier turn", *old, *work, "Done: banner is teal.", "❯ ", *[""] * 188]
+
+
+def test_tall_screen_keeps_only_its_bottom_rows_visible(monkeypatch):
+    rows = _tall_screen()
+    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n" + "\n".join(rows) + "\n-188\n")
+    history, visible = tmux.capture_pane("%1", mark_dim=True).split(tmux.VISIBLE_SCREEN)
+    assert visible.strip("\n").split("\n") == rows[-188 - tmux.VIEWPORT_ROWS:-188]
+    assert visible.endswith("\n")  # the cursor row below the prompt still counts
+    # Every row above is still sent, as history, whatever the history budget.
+    assert history.rstrip("\n").split("\n") == rows[:-188 - tmux.VIEWPORT_ROWS]
+
+
+def test_tall_screen_old_question_is_off_the_gated_screen(monkeypatch):
+    rows = _tall_screen()
+    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n" + "\n".join(rows) + "\n-188\n")
+    text = tmux.capture_pane("%1", mark_dim=True)
+    assert "Which color should the banner use?" in text  # the model still reads it, as history
+    assert "Which color should the banner use?" not in classify._visible(text)
+    assert classify.screen_offers(["Painting the banner teal."], text) == []
+    assert classify.screen_offers(["Done: banner is teal."], text) == ["Done: banner is teal."]
+
+
+def test_short_screen_is_unchanged(monkeypatch):
+    monkeypatch.setattr(tmux, "_run", lambda args: f"old\n{args[9]}\na\n\n" + "\n" * 300 + "-300\n")
+    assert tmux.capture_pane("%1", mark_dim=True) == f"old\n{tmux.VISIBLE_SCREEN}\na\n"
+
+
+def test_real_tall_pane_moves_its_top_rows_into_history(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+    import time
+
+    if not shutil.which("tmux"):
+        pytest.skip("tmux is not installed")
+    socket = str(tmp_path / "tall.sock")
+
+    def run(args):
+        return subprocess.check_output(["tmux", "-S", socket, *args], text=True)
+
+    try:
+        pane = run(["new-session", "-d", "-P", "-F", "#{pane_id}",
+                    "-x", "80", "-y", "400", "sh"]).strip()
+        monkeypatch.setattr(tmux, "_run", run)
+        run(["send-keys", "-t", pane, "seq 1 300", "Enter"])
+        for _ in range(100):
+            if "\n300\n" in tmux.capture_pane(pane, keep_colors=True):
+                break
+            time.sleep(0.02)
+        history, visible = tmux.capture_pane(pane, mark_dim=True).split(tmux.VISIBLE_SCREEN)
+        assert "\n1\n" in history and "\n1\n" not in visible
+        assert "\n300\n" in visible
+        assert len(visible.strip("\n").split("\n")) == tmux.VIEWPORT_ROWS
+        assert "\n1\n" in tmux.capture_pane(pane, keep_colors=True)  # the live view is whole
+    finally:
+        subprocess.run(["tmux", "-S", socket, "kill-server"], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
