@@ -34,7 +34,7 @@ def _inside(path: Path, root: Path) -> bool:
     """The file is really in this folder of scratch, not a symlink out of it."""
     try:
         return path.resolve().is_relative_to(root.resolve())
-    except OSError:
+    except (OSError, RuntimeError):  # 3.12 raises RuntimeError for a symlink loop
         return False
 
 
