@@ -1,0 +1,24 @@
+{
+  "description": "Finished auto-mode turn handing over a bare `! command` after a colon, in Claude Code's layout with a changes panel drawn beside the conversation (a bar at a fixed column, the panel's file list and rules to its right). The capture appended the panel to every conversation row, so the final message no longer matched its transcript copy (no tap-to-send offer) and the question prompt quoted panel rows. capture_pane now splits the panel into its own [side panel] block above the viewport; pins the offer and a question prompt free of the panel.",
+  "current_command": "claude",
+  "capture": "\u001e[side panel]\u001f\nChanges                          scope: branch ▾\n\ndb/migrations/ (untracked)\n────────────────────────────────────────────\nNew file not yet tracked.\nRun `git add db/migrations/` to see changes.\n\n────────────────────────────────────────────\napp/models/order.py\n↓ 3 more below\n\u001e[visible screen]\u001f\n❯ add a migration for the orders table\n\n● Added the migration for the orders table: a new orders table keyed by\n  customer, with a created_at index so the order history page stays\n  fast. The model and its tests are updated to match, and the suite\n  passes against a fresh database.\n\n  To apply it to your local database, run this: ! make migrate\n\n\n✻ Worked for 41s · done 3:41 PM\n───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/shop on feat/orders-table | Opus 5.5 | user@example.com\n  session: +84/-6 lines · 11% ctx · 52m · $1.37\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text",
+      "prompt_excludes": [
+        "untracked",
+        "git add",
+        "more below",
+        "─"
+      ]
+    },
+    "headline": "User should run make migrate to apply the new orders table migration",
+    "offers": [
+      "! make migrate"
+    ]
+  },
+  "reply": "Added the migration for the orders table: a new orders table keyed by customer, with a created_at index so the order history page stays fast. The model and its tests are updated to match, and the suite passes against a fresh database.\n\nTo apply it to your local database, run this: ! make migrate"
+}
