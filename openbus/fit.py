@@ -20,15 +20,19 @@ from . import tmux
 
 MIN_COLS = 40  # narrower and most TUIs stop laying out sensibly
 MARK = "@tmuxrc-fit"
+# A client counts as a terminal someone is at only if it was used this recently: tmux keeps
+# a desk terminal attached for days after its owner walked away (or reaches the machine only
+# through tmux-rc), and a forgotten one must not hold every window at its size.
+ACTIVE_CLIENT_SECONDS = 15 * 60
 REDRAW_SECONDS = 1.0  # how long an app takes to redraw: looks before then may see it half done
 _SIZE = "#{window_width}x#{window_height}"
-# The pane's window: does the pane fill it, its sessions and every attached session (a
-# window can be in several, and a terminal on any of them sees it shrink), whether the
-# pane's app is on the alternate screen, its size, our mark, and its panes (all of them
-# redraw when it is resized).
+# The pane's window: does the pane fill it, its sessions and every client's session and last
+# activity (a window can be in several sessions, and a terminal on any of them sees it
+# shrink), whether the pane's app is on the alternate screen, its size, our mark, and its
+# panes (all of them redraw when it is resized).
 _FMT = "\t".join(["#{window_panes}", "#{window_zoomed_flag}", "#{pane_active}",
                   "#{window_linked_sessions_list}",
-                  "#{S:#{?session_attached,#{session_name}#,,}}", "#{alternate_on}", _SIZE,
+                  "#{L:#{client_activity} #{client_session},}", "#{alternate_on}", _SIZE,
                   f"#{{{MARK}}}", "#{P:#{pane_id} }"])
 
 _REFLOWED = re.compile(r"[\s\u2500-\u259f]+")  # whitespace, box drawing, block elements
@@ -64,6 +68,13 @@ def reflow_key(text: str) -> str:
     return _REFLOWED.sub("", text)
 
 
+def _in_use(clients: str) -> set[str]:
+    """The sessions a recently active client is attached to, from the client loop in _FMT."""
+    since = time.time() - ACTIVE_CLIENT_SECONDS
+    return {session for activity, _, session in (c.partition(" ") for c in clients.split(","))
+            if session and activity.isdigit() and int(activity) >= since}
+
+
 def alternate(pane_id: str) -> bool | None:
     """Is the pane's app on the alternate screen (None if the pane is gone)?"""
     try:
@@ -83,10 +94,10 @@ def view(pane_id: str, cols: int, force: bool = False, mode: str = "width",
     with _lock:
         out = _run(["display-message", "-p", "-t", pane_id, _FMT, ";",
                     "show-options", "-wqv", "-t", pane_id, "window-size"]).split("\n")
-        panes, zoomed, active, linked, watched, alt, size, mark, members = out[0].split("\t")
+        panes, zoomed, active, linked, clients, alt, size, mark, members = out[0].split("\t")
         if not panes:  # tmux 3.7 prints blanks, exit 0, for a pane that is gone
             raise subprocess.CalledProcessError(1, "display-message")
-        attached = bool(set(linked.split(",")) & set(watched.split(",")) - {""})
+        attached = bool(set(linked.split(",")) & _in_use(clients))
         fills = panes == "1" or zoomed == active == "1"
         width, height = size.split("x")
         fit_w, _, fit_h = mark.rstrip("!").partition("x")  # what we gave it, if anything

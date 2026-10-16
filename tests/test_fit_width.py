@@ -104,6 +104,24 @@ def test_attached_terminal_needs_the_toggle(pane, session):
         assert restored(pane)
 
 
+def test_a_terminal_nobody_has_used_lately_does_not_count(pane, monkeypatch):
+    """A desk terminal left attached for days must not hold the window at its size."""
+    fit.view(pane, 60, mode="tall", rows=300)
+    with attached("s"):
+        monkeypatch.setattr(fit, "ACTIVE_CLIENT_SECONDS", -60)  # its last use is now "old"
+        fit.release_attached(T.list_panes())
+        assert size(pane) == "60x300 60x300"  # not given back
+        assert fit.view(pane, 70, mode="tall", rows=300) is False  # and it still fits
+        assert size(pane) == "70x300 70x300"
+
+
+def test_in_use_counts_only_recent_clients(monkeypatch):
+    monkeypatch.setattr(fit.time, "time", lambda: 10_000.0)
+    recent, stale = 10_000 - 60, 10_000 - fit.ACTIVE_CLIENT_SECONDS - 1
+    assert fit._in_use(f"{recent} desk,{stale} old desk,") == {"desk"}
+    assert fit._in_use("") == set()
+
+
 def test_a_terminal_attaching_gets_the_window_back(pane):
     fit.view(pane, 60)
     fit.release_attached(T.list_panes())  # nobody attached: kept

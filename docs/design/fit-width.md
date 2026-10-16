@@ -50,6 +50,16 @@ A tall window is also why fitting stays opt-in with a terminal attached: a deskt
 terminal attached to a forced tall window sees the top 40-odd rows of a 500-row window,
 which is the opposite of what anyone at that desk wants.
 
+**"Attached" means someone used it lately.** tmux keeps a client attached until its
+terminal closes, so a desk terminal left open counts for days after its owner walked away,
+and someone who reaches the machine only through tmux-rc can have several. Counting those
+held every window at the forgotten terminal's size: Auto gave a tall Claude Code window back
+to a 40-row desk client nobody had touched in two days. So a client counts only if its
+`client_activity` is within the last 15 minutes. That is long enough for someone reading at
+the desk without typing, and short enough that a forgotten terminal stops counting the same
+afternoon. When its owner comes back and types, the client counts again, and the watcher
+hands an unforced fit back on its next poll.
+
 **Lone panes only.** Resizing a window that is split squeezes every pane in it, including
 ones the viewer is not looking at. A single-pane window, or the zoomed pane of a window
 (which fills it), is the only case where the window width is the viewed pane's width.
