@@ -731,7 +731,7 @@ def _bars(row: str) -> tuple[dict[int, int], int]:
     for m in _CELL_RE.finditer(row):
         if m[0] in _VERTICALS:
             bars[col] = m.start()
-        col += sum(map(_cell_width, m[0] if len(m[0]) == 1 else m[1] or ""))
+        col += sum(map(_cell_width, m[0] if len(m[0]) == 1 else _MARKER_RE.sub("", m[1] or "")))
     return bars, col
 
 
@@ -748,7 +748,9 @@ def split_side_panel(text: str) -> str:
         return text
     col, n = counts.most_common(1)[0]
     inked = sum(bool(strip_dim(row).strip()) for row in rows)
-    if n < _PANEL_MIN_ROWS or n * 2 <= inked or col * 2 < max(widths):
+    # The bar rows' median width is the pane's: -J joins a wrapped row into a longer one.
+    width = sorted(w for b, w in zip(bars, widths, strict=True) if col in b)[n // 2]
+    if n < _PANEL_MIN_ROWS or n * 2 <= inked or col * 2 < width:
         return text
     halves = {i: (row[: bars[i][col]], row[bars[i][col] + 1 :])
               for i, row in enumerate(rows) if col in bars[i]}

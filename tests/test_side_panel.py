@@ -95,3 +95,12 @@ def test_linked_row_counts_only_its_label():
 def test_bar_on_a_sparse_screen_stays_whole():
     text = _capture(["build completed".ljust(W) + "│ 3 targets", "", ""])
     assert split_side_panel(text) == text
+
+
+def test_styled_link_label_and_a_joined_row():
+    rows = list(SCREEN)
+    rows[1] = f"[{DIM_OPEN}docs{DIM_CLOSE}](https://example.com/docs)" + " " * (W - 4) + "│notes/"
+    rows[4] = "x" * 100  # a wrapped row -J joined, wider than the pane
+    text = split_side_panel(_capture(rows))
+    assert "notes/" not in _visible(text)
+    assert SIDE_PANEL in text
