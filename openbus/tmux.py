@@ -835,6 +835,11 @@ _PANE_ID = re.compile(r"%[0-9]+")
 _OLDEST = "-S - -E '#{?#{e|<:#{history_size},64},-1,#{e|-|:63,#{history_size}}}'"
 
 
+def _check_pane_id(pane_id: str) -> None:
+    if not _PANE_ID.fullmatch(pane_id):
+        raise subprocess.CalledProcessError(1, ["capture-pane", "-t", pane_id])
+
+
 def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
                  ) -> tuple[str, int, bool, str]:
     """Colored rows (raw SGR, OSC 8 links materialized) from tmux row `start` to `end`
@@ -850,8 +855,7 @@ def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
     lets a client address history by absolute row (see capture_history). The pane id is
     spliced into a command string tmux parses, so anything but a pane id is refused (as a
     missing pane: the same 404 the callers already give)."""
-    if not _PANE_ID.fullmatch(pane_id):
-        raise subprocess.CalledProcessError(1, ["capture-pane", "-t", pane_id])
+    _check_pane_id(pane_id)
     meta, nonce = "'#{history_size} #{pane_width} #{alternate_on}'", os.urandom(16).hex()
     rows = f"-S {start}" + (f" -E {end}" if end else "")
     cmds = (f"display-message -p -t {pane_id} {meta} ; capture-pane -p -J -t {pane_id} {_OLDEST}"
@@ -901,6 +905,7 @@ def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bo
     start = max(0, before - lines)
     row = "#{{e|-|:{},#{{history_size}}}}".format
     if start >= before:
+        _check_pane_id(pane_id)
         return "", start, False, ""  # nothing above the oldest row: tmux isn't asked
     nonce = os.urandom(16).hex()
     edge = f"capture-pane -p -J -t {pane_id} -S {row(before - 1)} -E {row(before)}"

@@ -205,7 +205,9 @@ def test_endpoint_bounds_and_pane_id(monkeypatch):
         "text": "", "start": 0, "wraps": False, "screen": ""}
     # The id is spliced into a tmux command string: anything but %N is a missing pane.
     for bad in ("main", "%1 ; kill-server", "%1;x"):
-        assert client.get(url.format(quote(bad, safe="")), params={"before": 9}).status_code == 404
+        for before in (0, 9):
+            answer = client.get(url.format(quote(bad, safe="")), params={"before": before})
+            assert answer.status_code == 404
     assert calls == []
 
 
