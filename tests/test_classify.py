@@ -10,10 +10,10 @@ from openbus.tmux import Pane
 
 
 def test_opaque_session_identifiers_are_not_titles():
-    for name in ("01a0e9d1-093d-7c10-84f4-133c9544c971", " ABCDEF0123456789 "):
+    for name in ("00000000-0000-7000-8000-000000000001", " ABCDEF0123456789 "):
         result = classify(_pane(), "text", _llm({"session": name, "activity": "idle"}))
         assert "session" not in result
-    for name in ("gpt-5 migration", "airbyte-value-population", "Review 4955", "deadbeef"):
+    for name in ("gpt-5 migration", "csv-export-retry", "Review 4955", "deadbeef"):
         capture = f"› input\n{name} · gpt-6-sol · ~/src/app"
         result = classify(_pane("node"), capture, _llm({
             "tool": "codex", "session": name, "activity": "idle",
@@ -41,6 +41,7 @@ def test_bootstrap_shapes_result_and_flags_history():
                 "events": [{"text": "Merged PR #24"}, {"junk": 1}, "nope"],
             }
         ),
+        repository="querystory/tmux-rc",
     )
     assert r["name"] == "tmux-rc overhaul"
     assert r["summary"] == "shipping PRs #24 and #26"
@@ -56,7 +57,7 @@ def test_bootstrap_rejects_junk():
 
 def test_bootstrap_rejects_non_title_names():
     for name in ("~/src/app", "/src/app", "docs/metadata-design",
-                 "01a0e9d1-093d-7c10-84f4-133c9544c971"):
+                 "00000000-0000-7000-8000-000000000001"):
         result = bootstrap(_pane("node"), "ordinary history", _llm({
             "summary": "Working on parser behavior", "name": name,
         }))
@@ -428,13 +429,38 @@ def test_working_prs_are_validated_bounded_and_deduped():
         {"repo": "querystory/qs-app", "number": 0},
         "junk",
     ] + [{"repo": "querystory/tmux-rc", "number": n} for n in range(1, 12)]
-    r = classify(_pane(), "…", _llm({"activity": "running", "working_prs": raw}))
+    r = classify(_pane(), "shipped querystory/qs-app#4955", _llm(
+        {"activity": "running", "working_prs": raw}), repository="querystory/tmux-rc")
     assert r["working_prs"][0] == {"repo": "querystory/qs-app", "number": 4955}
     assert len(r["working_prs"]) == 8
     assert len({(p["repo"].lower(), p["number"]) for p in r["working_prs"]}) == 8
     assert "working_prs" not in classify(
         _pane(), "…", _llm({"activity": "idle", "working_prs": "all PRs"})
     )
+
+
+def test_working_pr_repo_is_the_panes_origin_or_written_with_its_number():
+    # A pane in a plain folder "demo" (no origin) whose agent opened acme/shop-app#215,
+    # with other repos named elsewhere: the model guessed acme/demo from the folder and
+    # paired the bare numbers with every repo on screen.
+    screen = ("Opened HTTPS://GitHub.com/acme/shop-app/pull/215\n"
+              "Also see acme/ops-scripts README. Fixed #212, #213.\n"
+              "Mirrors: https://codeberg.org/acme/ops-scripts/pull/212 /tmp/acme/demo#213\n"
+              "https://codeberg.org/github.com/acme/demo/pull/212\n"
+              "/tmp/github.com/acme/demo/pull/213\n"
+              "Next: acme/⟪dim⟫ops-scripts⟪/dim⟫#216")
+    guessed = [{"repo": r, "number": n} for n in (215, 212, 213)
+               for r in ("acme/shop-app", "acme/demo", "acme/ops-scripts")]
+    guessed.append({"repo": "acme/ops-scripts", "number": 216})  # cited through dim styling
+    r = classify(_pane(), screen, _llm({"activity": "idle", "working_prs": guessed}))
+    assert r["working_prs"] == [{"repo": "acme/shop-app", "number": 215},
+                                {"repo": "acme/ops-scripts", "number": 216}]
+    # In a checkout, a bare number belongs to its origin, and to no other repo.
+    r = classify(_pane(), screen, _llm({"activity": "idle", "working_prs": guessed}),
+                 repository="acme/shop-app")
+    assert r["working_prs"] == [
+        *({"repo": "acme/shop-app", "number": n} for n in (215, 212, 213)),
+        {"repo": "acme/ops-scripts", "number": 216}]
 
 
 def test_pipes_llm_json_through():
@@ -730,7 +756,7 @@ def test_background_terminal_hint_is_scoped_to_current_section():
 
 def test_codex_title_requires_current_ui_evidence():
     capture = ("› Ask Codex to do anything\n\n"
-               "01a0e9d1-093d-7c10-84f4-133c9544c971 · gpt-6-astra medium · "
+               "00000000-0000-7000-8000-000000000001 · gpt-6-astra medium · "
                "Context 52% left · ~/src/tmux-rc · Ready")
     result = classify(_pane("node"), capture, _llm({
         "tool": "codex", "session": "Track PRs per live session",
@@ -798,7 +824,7 @@ def test_failed_identity_retry_preserves_valid_current_state():
 
 
 def test_uuid_footer_does_not_freeze_completed_model_selection():
-    uuid = "01a0e9d1-093d-7c10-84f4-133c9544c971"
+    uuid = "00000000-0000-7000-8000-000000000001"
     capture = ("Select Model and Effort\n1. GPT-6-Sol\n2. GPT-6-Astra\n"
                "\x1e[visible screen]\x1f\nWorked for 8m 32s · 5:16 PM\n"
                f"› Ask Codex to do anything\n{uuid} · GPT-6.1-Sol medium · ~/src/tmux-rc")
@@ -897,10 +923,10 @@ def test_session_grounding_rejects_paths_and_quoted_output():
         capture = "{'session': 'other-pane'}\n\noutput\n\n› input\n\n~/src/app · gpt-6-sol"
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": name}))
         assert "session" not in result
-    capture = ("› input\n\nairbyte-value-population · gpt-5.6-sol medium · "
-               "docs/query-result-metadata-design · ~/src/app · Ready")
+    capture = ("› input\n\ncsv-export-retry · gpt-5.6-sol medium · "
+               "docs/order-sync-design · ~/src/app · Ready")
     result = classify(_pane("node"), capture, _llm({
-        "tool": "codex", "session": "docs/query-result-metadata-design",
+        "tool": "codex", "session": "docs/order-sync-design",
     }))
     assert "session" not in result
 
@@ -1375,6 +1401,33 @@ def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 
 
+def test_a_turn_handing_over_offers_needs_you():
+    """Its next step is the user's (run this, say that), so it waits on the user as a
+    question does, outside auto mode too; a turn that offers nothing stays idle."""
+    screen = _auto_screen('Say "merge 415" to queue it.').replace("⏵⏵ auto mode on", "")
+    idle = lambda *_: {"activity": "idle", "tool": "claude"}  # noqa: E731 (a fresh read each call)
+    result = classify(_pane("claude"), screen, idle, reply='Say "merge 415" to queue it.')
+    assert (result["activity"], result["waiting_on"], result.get("question")) == (
+        "waiting", "user", None)
+    assert classify(_pane("claude"), screen, idle)["activity"] == "idle"
+
+
+def test_put_offers_takes_only_their_own_wait_with_them():
+    from openbus.classify import put_offers
+    card = {"activity": "idle", "parse_ok": False}  # the screen's own wait, read or not
+    put_offers(card, ["merge 415"])
+    assert card == {"activity": "waiting", "waiting_on": "user", "offers": ["merge 415"]}
+    put_offers(card, None)
+    assert card == {"activity": "idle"}
+    asked = {"activity": "waiting", "waiting_on": "user", "question": {"prompt": "Ship?"},
+             "offers": ["ship it"]}
+    put_offers(asked, [])
+    assert asked["activity"] == "waiting" and "offers" not in asked
+    running = {"activity": "running"}
+    put_offers(running, ["merge 415"])
+    assert running == {"activity": "running", "offers": ["merge 415"]}
+
+
 def test_codex_offers_nothing_yet():
     screen = ('\x1e[visible screen]\x1f\n• Ran cat notes.txt\n  └ Say "merge all" now.\n'
               "■ Selected model is at capacity. Please try a different model.\n\n› ")
@@ -1546,6 +1599,43 @@ def test_finished_turn_offers_the_replies_it_hands_over():
         (_auto_screen(message).replace("Baked for 16s", "Baking… (3s · esc to interrupt)"), None),
     ):
         result = classify(_pane("claude"), screen, _llm({"offers": ["x"]}), reply=stale)
+        assert "offers" not in result
+
+
+def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
+    one = 'Run this yourself: ! echo "send-it test $(date +%T)"'
+    result = classify(_pane("claude"), _auto_screen(one), _llm({}), reply=one)
+    assert result["offers"] == ['! echo "send-it test $(date +%T)"']
+    assert result["question"] == {"prompt": one, "answer_style": "text", "options": []}
+    command = ("! export PYTHONPATH=/tmp/demo/lib P=demo-app; source ~/.config/demo/api.env && "
+               'printf %s "$DEMO_API_KEY" | gcloud secrets create demo-key --project "$P" '
+               '--data-file=- && gcloud run deploy demo-app --project "$P" --region us-east1')
+    reply = f"Done.\n\nSo please run this one command yourself. It never prints the key: {command}"
+    words, rows = reply.split(" "), []  # the screen wraps it over several rows
+    while words:
+        rows.append(" ".join(words[:9]))
+        words = words[9:]
+    result = classify(_pane("claude"), _auto_screen("\n  ".join(rows)), _llm({}), reply=reply)
+    assert result["offers"] == [command] and result["question"]["options"] == []
+    assert result["question"]["prompt"] == reply.split("\n\n")[1]  # a user-wait, not a question
+    glob = "Run this yourself: ! cp * /tmp/backup"  # a wrap before a glob is no list item
+    result = classify(_pane("claude"), _auto_screen(glob.replace(" * ", "\n  * ")), _llm({}),
+                      reply=glob)
+    assert result["offers"] == ["! cp * /tmp/backup"] and result["question"]["prompt"] == glob
+    spaced = "Run this yourself: ! printf '%s' 'a  b'"  # its own spacing, as the screen shows
+    result = classify(_pane("claude"), _auto_screen(spaced), _llm({}), reply=spaced)
+    assert result["offers"] == ["! printf '%s' 'a  b'"] and result["question"]["options"] == []
+    for reply, shown in (('Run this yourself: ! echo "Ready?"',) * 2,  # its own "?"
+                         ("Run this yourself: ! echo hello world",  # wrapped onto a "! " row
+                          "Run this yourself:\n  ! echo hello\n  world")):
+        result = classify(_pane("claude"), _auto_screen(shown), _llm({}), reply=reply)
+        assert result["question"] == {"prompt": reply, "answer_style": "text", "options": []}
+    for message in (
+        "Run:\n! make clean\nmake deploy",  # a bare row followed by another row
+        "Run this yourself: ! make clean\nmake deploy",  # an inline command going on
+        "Run it with the ! prefix", "Run it with the ! prefix.",  # no colon: prose about "!"
+    ):
+        result = classify(_pane("claude"), _auto_screen(message), _llm({}), reply=message)
         assert "offers" not in result
 
 

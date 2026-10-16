@@ -48,6 +48,10 @@ _OUTPUT_LABELS = frozenset({
     "status", "title", "warn", "warning",
 })
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# A PR named with its repository on screen: a GitHub pull/issue URL, or a standalone
+# "owner/name#N" that is not the tail of a path or of another host's URL.
+_QUALIFIED_PR_RE = re.compile(r"(?<![\w./:-])((?i:(?:https?://)?(?:www\.)?github\.com/))?"
+                              r"([\w.-]+/[\w.-]+)(?(1)/(?:pull|issues)/|#)(\d{1,16})")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
     # ~[ ] todo~ is deliberately unmatched, since it is neither open nor finished work.
@@ -1005,14 +1009,18 @@ def _final_message(visible: str, tool: str) -> str | None:
 # What a finished turn hands the user to type back, verbatim: a `! command` (Claude Code's
 # shell prefix) as inline code or on a row of its own, or a phrase it asks for: 'Say "merge
 # 415"', or a quote that does the work ('"merge all" queues 18 PRs'), not any quote. A row
-# that wraps onto the next is no offer: a guessed join could run the wrong command. A space
-# after the ! keeps out code such as `!=` and `!important`, and "do not say" is no offer.
+# that wraps onto the next is no offer: a guessed join could run the wrong command. A bare
+# command after a colon ("Run this: ! make deploy") is one when its transcript row (never
+# wrapped) ends the paragraph: no script row can follow it, and prose naming "the ! prefix"
+# has no colon before it. A space after the ! keeps out code such as `!=` and `!important`,
+# and "do not say" is no offer.
 # Straight or curly, each closing its own; a straight one with a backslash in it may be
 # escaping a quote, so none is read there.
 _QUOTE = r"(?:(?<!\\)\"([^\"\\\n]{1,60})\"(?!\")|“([^”\n]{1,60})”)"
 _OFFER_RE = re.compile(  # a span's delimiter is a whole backtick run, as in Markdown
     rf"(?<!`)(`+)(! [^\n]+?)(?<!`)\1(?!`)"
     rf"|^[ \t]*(! \S.*?)[ \t]*$(?!\n[ \t]*(?!(?:`{{3,}}|~{{3,}})[ \t]*$)\S)"
+    rf"|(?<=:[ \t])(! \S.*?)[ \t]*$(?!\n[ \t]*\S)"
     rf"|\bsay[ \t]+{_QUOTE}"
     rf"|{_QUOTE}[ \t]+(?:queues|merges|ships|starts|kicks off)\b", re.MULTILINE | re.IGNORECASE)
 
@@ -1068,18 +1076,18 @@ def _offers(message: str, reply: str | None) -> list[str]:
             for c in _CODE_RE.finditer(t)]
 
     def offered(m: re.Match) -> bool:
-        if m.lastindex > 3:  # a quote: only in a transcript paragraph with no code at all,
+        if m.lastindex > 4:  # a quote: only in a transcript paragraph with no code at all,
             para = (re.split(r"\n[ \t]*\n", t[:m.start()])[-1]  # nor inside a fence's
                     + re.split(r"\n[ \t]*\n", t[m.start():])[0])
             return not any(a <= m.start() < b for a, b, _ in code) and not (
                 re.search(r"`|(?<!\S)! \S|^(?: {4}|\t)", para, re.MULTILINE))
-        # A command: only as an inline span or as the one row of a fence (a bare row may be
-        # the first of a script, and nothing after it says otherwise); never where a heredoc
+        # A command: only as an inline span, after a colon ending its paragraph, or as the one
+        # row of a fence (a bare row may be the first of a script); never where a heredoc
         # may hold it as data, nor in an indented block, nor inside other code.
         row = t[t.rfind("\n", 0, m.start()) + 1:m.start(m.lastindex)]
         lone = any(a < m.start() < b and rows == 1 for a, b, rows in code)
         return "<<" not in t and not re.match(r" {4}|\t", row) and (
-            m.lastindex == 2 or lone) and not any(
+            m.lastindex in (2, 4) or lone) and not any(
             a <= m.start() < b and a != m.start() and not (rows == 1 and m.lastindex == 3)
             for a, b, rows in code)
 
@@ -1118,10 +1126,31 @@ def screen_offers(text: str, tool: str | None, reply: str | None) -> list[str]:
     return _offers(final, reply) if final else []
 
 
-def _final_ask(visible: str, tool: str, message: str) -> dict | None:
+def put_offers(state: dict, offers: list[str] | None) -> bool:
+    """Put a screen's offers on its card, replacing the last card's. A finished turn whose
+    next step is the user's (run this, say that) waits on the user as a question does, so
+    it is Needs you everywhere the wait is read (list, badge, push); that wait leaves with
+    its offers, which a failed parse or an unreparsed screen may drop. Like _final_ask's,
+    the wait stands on a failed model read: push and history count it as read. True when
+    the offers made the wait."""
+    if (state.pop("offers", None) and not offers and state.get("activity") == "waiting"
+            and state.get("waiting_on") == "user"
+            and not (state.get("question") or state.get("rewind"))):
+        state["activity"] = "idle"
+        state.pop("waiting_on", None)
+    if offers:
+        state["offers"] = offers
+        if state.get("activity") in ("idle", "unknown", None):
+            state.update(activity="waiting", waiting_on="user")
+            state.pop("parse_ok", None)  # grounded in the turn's own chrome, not the model
+            return True
+    return False
+
+
+def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run."""
+    `! command` handed over to run: on a row of its own, or an offer ending the message."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
@@ -1129,15 +1158,19 @@ def _final_ask(visible: str, tool: str, message: str) -> dict | None:
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
         return None
-    paragraph = _final_paragraph(message)
-    handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
-    if paragraph.rstrip("*_\"'`)").endswith("?"):
-        return {"prompt": paragraph, "answer_style": "text"}
-    if handoff is None:
-        return None
+    # An offered command ending the message hands it over, its own "?" or wrapped rows and
+    # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
+    paragraph = " ".join(re.split(r"\n\s*\n", message.strip())[-1].split())
+    if not any(o.startswith("! ") and paragraph.endswith(" ".join(o.split())) for o in offers):
+        paragraph = _final_paragraph(message)
+        if paragraph.rstrip("*_\"'`)").endswith("?"):
+            return {"prompt": paragraph, "answer_style": "text"}
+        handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
+        if handoff is None:
+            return None
+        paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
-    return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text",
-            "options": []}
+    return {"prompt": paragraph, "answer_style": "text", "options": []}
 
 
 def _row_number(option: object) -> str | None:
@@ -1248,12 +1281,18 @@ def _parser_context(pane: Pane, repository: str | None, host_tool: str | None) -
     return context + "]"
 
 
-def _working_prs(value) -> list[dict]:
-    """Validate the model's semantic PR associations before they become sticky state."""
+def _working_prs(value, repository: str | None, text: str) -> list[dict]:
+    """Validate the model's semantic PR associations before they become sticky state.
+
+    A PR's repository must be grounded: the pane's own origin, or that exact repo and
+    number written together on screen. Left to itself the model names a repo after the
+    cwd folder ("qs") or pairs a bare #N with every repo the screen mentions."""
     if not isinstance(value, list):
         return []
     out = []
     seen = set()
+    cited = {(m[2].lower(), int(m[3])) for m in _QUALIFIED_PR_RE.finditer(strip_dim(text))}
+    own = (repository or "").lower()
     for item in value:
         if not isinstance(item, dict) or not isinstance(item.get("repo"), str):
             continue
@@ -1273,7 +1312,7 @@ def _working_prs(value) -> list[dict]:
         ):
             continue
         key = (repo.lower(), number)
-        if key in seen:
+        if key in seen or (key[0] != own and key not in cited):
             continue
         seen.add(key)
         out.append({"repo": repo, "number": number})
@@ -1304,7 +1343,7 @@ def bootstrap(
         "summary": result["summary"].strip(),
         "name": name,
         "events": events,
-        "working_prs": _working_prs(result.get("working_prs")),
+        "working_prs": _working_prs(result.get("working_prs"), repository, text),
     }
 
 
@@ -1480,9 +1519,8 @@ def classify(
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
     result.pop("offers", None)  # buttons that send: the screen's alone, never the model's
-    if offers := screen_offers(text, tool, reply):
-        result["offers"] = offers
-    if final and (ask := _final_ask(visible, tool, final)):
+    put_offers(result, offers := screen_offers(text, tool, reply))
+    if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         if "options" not in ask and (
@@ -1704,7 +1742,8 @@ def classify(
             e in (result.get("model"), result.get("cost")) or (
                 result.get("context_pct") is not None and isinstance(e, str)
                 and _CONTEXT_ENTRY_RE.fullmatch(e.strip())))]
-    working_prs = _working_prs(result.get("working_prs"))
+    working_prs = _working_prs(
+        result.get("working_prs"), repository, "\n".join([*(prior or []), text]))
     if working_prs:
         result["working_prs"] = working_prs
     else:

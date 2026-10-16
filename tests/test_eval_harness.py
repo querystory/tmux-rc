@@ -29,6 +29,16 @@ def test_structured_exact_match_passes():
     assert ok and diffs == []
 
 
+def test_an_optional_working_pr_may_be_missed_but_nothing_unlisted_passes():
+    pr = {"repo": "acme/app", "number": 7}
+    expected = {"working_prs": [{**pr, "optional": True}, {"repo": "acme/app", "number": 8}]}
+    assert score_structured({"working_prs": [{"repo": "acme/app", "number": 8}]}, expected)[0]
+    assert score_structured({"working_prs": [pr, {"repo": "acme/app", "number": 8}]}, expected)[0]
+    assert not score_structured({"working_prs": [pr]}, expected)[0]
+    assert not score_structured({"working_prs": [{"repo": "acme/demo", "number": 8},
+                                                 {"repo": "acme/app", "number": 8}]}, expected)[0]
+
+
 def test_successful_parse_model_and_cost_expectations_are_opt_in():
     assert score_structured({"parse_ok": False}, {})[0]
     assert score_structured({}, {"parse_ok": True})[0]

@@ -396,6 +396,11 @@ def list_panes() -> list[Pane]:
     return panes
 
 
+def rows(command: str, fmt: str) -> list[list[str]]:
+    """`tmux <command> -a -F <fmt>` (list-windows, list-panes, ...), as tab-split rows."""
+    return [r.split("\t") for r in _run([command, "-a", "-F", fmt]).splitlines() if r]
+
+
 def dedupe_grouped(panes: list[Pane]) -> list[Pane]:
     """One entry per pane, for anything that DISPLAYS panes.
 
@@ -926,6 +931,13 @@ def proc_read(pid: int | str, name: str) -> str:
             return f.read()
     except OSError:
         return ""
+
+
+def proc_stat(pid: int | str) -> list[str]:
+    """/proc/<pid>/stat fields from the state on (field 3), so field N is [N - 3]: [2] the
+    process group, [5] the terminal's foreground group, [19] the start time. Empty if the
+    process is gone. Counted from the last ")": the command name may hold spaces."""
+    return proc_read(pid, "stat").rpartition(")")[2].split()
 
 
 INTERPRETERS = ("bun", "node")  # an agent installed through npm or bun runs as one

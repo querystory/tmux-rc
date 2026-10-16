@@ -25,7 +25,7 @@ SESSIONS = ["shop-api", "ci", "research", "docs", "ops", "infra", "marketing", "
 # session index | tool | run / need / idle | title | age | u = finished recently, or the
 # question when need | the activity line, or the reply options when need.
 ROWS = """\
-0|claude|idle|fact checker agent|2m||Waiting for the preview build after updating review docs.
+0|claude|idle|release notes agent|2m||Waiting for the preview build after updating review docs.
 0|codex|run|migration planner|now||Mapping table dependencies before proposing an order.
 0|opencode|run|schema reviewer|now||Checking the new column constraints against live data.
 0|claude|need|api contract diff|3m|Two endpoints changed. Bump the API version?|Bump to v3,Keep v2
@@ -71,7 +71,10 @@ ROWS = """\
 7|opencode|idle|invoice parser|2d||Parsed 31 invoices, 2 flagged.
 7|shell|idle|dotfiles sync|3d||Synced with origin.
 7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1
-7|claude|need|webhook timeouts|4m|Go with A or B?|Go with A,Go with B"""
+7|claude|need|webhook timeouts|4m|Go with A or B?|Go with A,Go with B
+0|claude|need|refunds|1m|PRs #413 and #414 are green and reviewed. Merge?|Merge both,Just #413,Later
+5|claude|need|prod deploy|2m|Production waits on an approval. Approve it at the link?|Done,Skip
+"""
 
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
@@ -251,6 +254,18 @@ DETAIL = {
                         "endpoints. Both break existing clients, so versioning needs a call.",
         "prs": [{"repo": "example-org/shop-api", "number": 409,
               "title": "Structured money type for order totals"}]},
+    "refunds": {
+        "headline": "Refund PRs ready to merge", "status_line": "Refund PRs ready to merge",
+        "model": "Opus 5", "context_pct": 47, "cost": "$1.96",
+        "session_summary": "Both PRs passed CI and have an approving review. #414 builds on "
+                           "#413, so merging both ships partial refunds end to end.",
+        "prs": [{"repo": "example-org/shop-api", "number": 413,
+                 "title": "Partial refunds in the payments service"},
+                {"repo": "example-org/shop-api", "number": 414,
+                 "title": "Refund button on the order page"}]},
+    # A question that sends you to a link: it leads the card as Open link.
+    "prod deploy": {"links": [{"href": f"https://{ORG}/shop-api/actions/runs/1029384799",
+                               "text": "Review the production deployment"}]},
     # A finished turn that hands the user replies to type: classify()'s offers.
     "preview deploy": {"offers": ["! gh pr merge 412 --squash --auto", "ship it"],
                        "headline": "Preview deployed; the merge is yours to run."},

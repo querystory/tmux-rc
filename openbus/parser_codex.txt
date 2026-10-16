@@ -10,16 +10,16 @@
   Its bottom line is a "·"-separated bar whose segments are SELF-DESCRIBING — read each
   for what it says, not for where it sits, because users configure these differently and
   segments come and go:
-    "airbyte-value-population · gpt-5.6-sol medium · Context 71% left · 415K used · docs/query-result-metadata-design · ~/src/example-app · weekly 52% left · Ready"
+    "csv-export-retry · gpt-5.6-sol medium · Context 71% left · 415K used · docs/order-sync-design · ~/src/example-app · weekly 52% left · Ready"
     "gpt-5.5 xhigh fast · ~/src/example-app"
   A segment naming an OpenAI model (optionally + effort, "gpt-5.6-sol medium") is the
   MODEL. One starting "~/" or "/" is the CWD. A percentage or token count ("Context 71%
   left", "415K used", "weekly 52% left") is a USAGE readout. A bare state word
   ("Ready", "Working", "fast") is a MODE. A branch-shaped path
-  ("docs/query-result-metadata-design") is a BRANCH.
+  ("docs/order-sync-design") is a BRANCH.
   "session" gets Codex's THREAD TITLE: a short task name it wrote itself, and the only
   per-window identity Codex has — without it every Codex pane in a repo looks alike. It
   is a segment that is none of the above kinds, appearing BEFORE the model
-  ("airbyte-value-population", "Review 4745"). A "Thread renamed to <name>" line names
+  ("csv-export-retry", "Review 4745"). A "Thread renamed to <name>" line names
   it too. If every segment is an identifiable kind, there is no title: OMIT "session"
   rather than promoting a mode word, cwd, branch, or usage readout.

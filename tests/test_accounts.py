@@ -445,7 +445,7 @@ def test_a_copy_running_on_the_target_is_never_replaced_or_resumed_twice(home, m
     agent = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE)
     try:
         if sign == "registration":  # Claude's own record of the session, under the agent's pid
-            start = expunge._stat(agent.pid)[19]
+            start = T.proc_stat(agent.pid)[19]
             (dst / "sessions").mkdir()
             (dst / f"sessions/{agent.pid}.json").write_text(json.dumps(
                 {"pid": agent.pid, "sessionId": SID, "procStart": start}))

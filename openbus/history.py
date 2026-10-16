@@ -205,9 +205,15 @@ def _drop_plan_usage_resets(db) -> None:
     db.execute("DROP INDEX plan_usage_by_reset")
 
 
+def _add_layout_snapshots(db) -> None:
+    # One workspace snapshot per tmux server, for reboot restore (openbus/restore.py).
+    db.execute("CREATE TABLE layout_snapshots (server TEXT PRIMARY KEY, last_seen REAL NOT NULL, "
+               "payload TEXT NOT NULL, consumed TEXT)")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
               _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets,
-              _drop_plan_usage_resets)
+              _drop_plan_usage_resets, _add_layout_snapshots)
 
 
 class History:
