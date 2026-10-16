@@ -836,6 +836,14 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
   #detail[data-layout="stack"] > #review-divider::after { inset: 5px 0; }
   #review-divider:hover::after, #review-divider:focus-visible::after, #review-divider.dragging::after { background: var(--accent); }
   #review-divider.dragging ~ #overview, #review-divider.dragging ~ #terminal { user-select: none; }
+  /* The side overview folds to a strip that is itself the button back, so the way out stays
+     where the overview was. Unfolded, the button sits in the overview's top corner. */
+  #detail[data-layout="side"] > #overview-toggle { grid-column: 2; grid-row: 3; justify-self: end; align-self: start; z-index: 6; width: 32px; height: 32px; margin: 7px 8px; color: var(--muted); }
+  #detail[data-layout="side"] .pane-summary .section-heading { margin-right: 28px; } /* clear of the button */
+  #detail[data-layout="side"][data-folded] { grid-template-columns: minmax(0, 1fr) 40px; }
+  #detail[data-layout="side"][data-folded] > :is(#overview, #review-divider) { display: none; }
+  #detail[data-layout="side"][data-folded] > #overview-toggle { grid-row: 3 / 5; align-self: stretch; align-items: start; width: auto; height: auto; margin: 0; padding-top: 7px; border-left: 1px solid var(--line); border-radius: 0; background: var(--surface); }
+  #overview-toggle:hover { color: var(--fg); }
 }
 
 .header-picker { position: relative; min-width: 0; }

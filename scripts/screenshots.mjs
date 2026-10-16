@@ -29,6 +29,8 @@ const SHOTS = [
   ["website-restore", WIDE, "light", "#view=restore", afterReboot],
   ["website-restore-phone", PHONE, "light", "#view=restore", afterReboot],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
+  ["wide-overview-folded", WIDE, "light", "#pane=%259", (page) => page.click("#overview-toggle")],
+  ["wide-overview-folded-dark", WIDE, "dark", "#pane=%259", (page) => page.click("#overview-toggle")],
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-layout-menu", WIDE, "light", "#pane=%259", (page) => page.click("#review-layout-picker summary")],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
