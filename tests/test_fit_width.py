@@ -262,6 +262,13 @@ def test_a_look_finished_before_the_resize_leaves_the_token(pane, monkeypatch):
     assert fit.just_resized(pane, time.monotonic()) == ""  # the next change is the app's
 
 
+def test_a_second_resize_cannot_hide_the_first_redraw(pane):
+    fit.view(pane, 60)
+    looked = time.monotonic()  # a look that caught the first redraw...
+    fit.view(pane, 70)  # ...before a second resize landed
+    assert fit.just_resized(pane, looked) == "redraw"
+
+
 def test_the_hook_is_spent_on_the_next_look_even_if_nothing_moved(pane, monkeypatch):
     fit.view(pane, 60)  # `sleep` draws nothing, so later looks see no change
     monkeypatch.setattr(fit, "REDRAW_SECONDS", 0)

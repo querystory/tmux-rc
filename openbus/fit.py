@@ -94,11 +94,13 @@ def view(pane_id: str, cols: int, force: bool = False) -> bool:
 
 def _resize(pane_id: str, members: str, size: str, args: list[str]) -> None:
     """Run `args`; if the window's size changed (only then do its apps redraw), hand its
-    panes a token for the watcher, stamped with when the resize began."""
+    panes a token for the watcher, stamped with when the resize began. A token not yet
+    spent keeps its earlier stamp, so a second resize can't hide the first one's redraw."""
     began = time.monotonic()
     out = _run([*args, ";", "display-message", "-p", "-t", pane_id, _SIZE])
     if out.strip().rsplit("\n", 1)[-1] != size:
-        _resized.update(dict.fromkeys(members.split(), began))
+        for pane in members.split():
+            _resized.setdefault(pane, began)
 
 
 def release_attached(panes: list[tmux.Pane]) -> None:
