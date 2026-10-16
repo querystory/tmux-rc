@@ -266,7 +266,11 @@ export function setupSidebar(ctx) {
     if ((secret || !ctx.wide()) && id !== ctx.active()) ctx.navigate(id);
     if (id === ctx.active()) { // its own composer is on screen
       document.getElementById(secret ? "secret" : "reply").focus({ preventScroll: true });
-      return document.getElementById("question").scrollIntoView({ block: "start" });
+      // Until the keyboard shrinks the pane there may be too little below the question to
+      // lift it to the top, so land again once it is up.
+      const land = (behavior) => document.getElementById("question").scrollIntoView({ block: "start", behavior });
+      window.visualViewport?.addEventListener("resize", () => land("smooth"), { once: true });
+      return land("instant");
     }
     replyTo = id;
     if (!drafts.has(id)) drafts.set(id, new Composer(repaint, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
