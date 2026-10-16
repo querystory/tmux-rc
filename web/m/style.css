@@ -46,6 +46,9 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
    case (narrow, in a pane), so it takes the slack; hidden, it contributes nothing, and
    #brand keeps the auto margin on every screen that shows the brand. */
 #back { margin-right: auto; }
+/* A touch phone goes back by swiping in from the left edge (app.js), so its Back arrows go:
+   #back only turns invisible and zero-wide, keeping the slack it takes for the header. */
+@media (max-width: 1099px) and (pointer: coarse) { #back { visibility: hidden; width: 0; } .landing-head [data-key="page-back"] { display: none; } }
 /* Now inside #detail, above the tabs. Narrow reads as the header row it replaced: the
    same type, the same 16px gutter, its own rule under it. */
 #heading { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }

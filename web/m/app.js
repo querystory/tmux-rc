@@ -1530,6 +1530,20 @@ $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
+// A phone's Back is a swipe in from the left edge: it presses the hidden Back of the pane or
+// the view. Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
+// it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
+let edge = null;
+addEventListener("touchstart", (e) => {
+  const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
+  edge = !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+}, { passive: true });
+addEventListener("touchcancel", () => { edge = null; });
+addEventListener("touchend", (e) => {
+  const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
+  if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
+  edge = null;
+});
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
 const searched = () => { writeHash(formatHash({ ...parseHash(location.hash), q: $("search").value })); renderList(); };
 $("search").oninput = searched;
