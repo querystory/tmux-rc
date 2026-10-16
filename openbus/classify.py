@@ -88,6 +88,9 @@ _TURN_ERROR_RE = {
     "codex": re.compile(r"^[ \t]*■[ \t]+(?!.*\binterrupted\b)(?P<text>.*\S)", re.MULTILINE),
     "claude": re.compile(r"^[ \t]*⎿[ \t]*(?P<text>API Error\b.*\S)", re.MULTILINE),
 }
+# Claude Code's notice under a turn the user cancelled with Esc ("⎿  Interrupted · What
+# should Claude do instead?"): the user's own interrupt, its question the input box's.
+_CLAUDE_INTERRUPTED_RE = re.compile(r"^[ \t]*⎿[ \t\xa0]*Interrupted\b", re.MULTILINE)
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
@@ -1530,6 +1533,19 @@ def classify(
             ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
+    # An interrupt followed by no new turn, typed row or assistant output (a scheduled task
+    # starts without a typed row), above an empty input box, is Claude back at its prompt:
+    # idle, however the model or the closing message read it.
+    *_, stop = [None, *_CLAUDE_INTERRUPTED_RE.finditer(visible)]
+    box = stop and _EMPTY_INPUT_RE.search(visible, stop.end())
+    if result.get("tool") == "claude" and box and not (
+        _USER_ROW_RE.search(visible, stop.end())
+        or re.compile(r"^[ \t]*●", re.MULTILINE).search(visible, stop.end())
+        or any(t["live"] for t in _CLAUDE_TURN_RE.finditer(visible, stop.end()))
+    ):
+        result["activity"] = "idle"
+        result.pop("question", None)
+        result.pop("parse_ok", None)  # Grounded in Claude's own chrome, not the model.
     if result.get("tool") == "claude" and _tabbed_panel_open(visible):
         # Authoritative over the model, a failed parse included: the screen is a settings
         # panel, so nothing is asked. Only a turn the model saw still running stays running

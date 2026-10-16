@@ -199,6 +199,7 @@ actually hit:
 | `90_claude_question_names_list_items` | a closing "do 1 now and prepare the list for 2?" under a numbered list → those two rows in `question.items`, not the unnamed third |
 | `92_claude_question_names_lettered_options` | a bare "Go with A or B?" under lettered options → the A and B rows in `question.items`, and the line leading into them in `question.subject` |
 | `93_claude_decision_heading_above_options` | a heading over bulleted "Option A:" / "Option B —" rows, asked "option A or B?" → the heading as `question.subject`, both rows in `question.items` |
+| `99_claude_interrupt_is_not_a_question` | Claude's "⎿ Interrupted · What should Claude do instead?" over an empty input box → the user's own Esc, idle, no question |
 | `100_claude_handoff_beside_suggested_command` | a `! command` handoff in Claude's right-barred transcript, its greyed suggestion in the box → text user-wait quoting the agent, no reply buttons |
 | `101_claude_bare_command_after_colon_one_line` | a one-line message handing over a bare `! command` after a colon, no backticks → text user-wait offering that command |
 | `102_claude_bare_command_after_colon_wrapped` | a long bare `! command` after a colon, wrapped over screen rows but one row ending the transcript → offered whole, not just a copyable |
