@@ -207,10 +207,13 @@ box is unsent, so the question still waits on the user. "external" is a wait on 
 with no keystroke for the user: subagents it waits for ("Waiting for N background agents to
 finish", even while some still run), CI, a review, a deploy, a poll or sleep loop.
 
-"question": the yellow card. Include it whenever the pane waits on the user, saying what
-for; its options become one-tap buttons that answer in the pane. A settings panel the user
+"question": the yellow card, for something the user answers in this pane: a dialog, a
+prompt awaiting typed input, or the agent's ask. Its options become one-tap buttons that
+type into the pane, so a wait for a step done elsewhere (finishing a sign-in in the
+browser) has no question: the headline names it and its URL goes in "links". A settings panel the user
 opened, an answered omp Ask receipt, and omp's right-aligned session title are not
-questions, though they show rows or a ❯ cursor: nothing there waits for an answer. When
+questions, though they show rows or a ❯ cursor: nothing there waits for an answer, and a
+Needs-you push would ping the user about a menu they are looking at themselves. When
 the context line gives omp's run state as "running" or "idle", omp has no question open.
 A program prompt with output printed after it was answered and is no question either; the
 pane may still wait on the user for something else (a browser sign-in), which the
@@ -314,8 +317,9 @@ each delegated job with a live meter (Claude Code: "general-purpose  <job>  Nm  
 tokens"). One entry per row: the job as "label", its own state ("running" while its
 meter ticks, "done" once finished, "waiting" on CI or a timer, "idle", "compacting",
 "unknown"), and "elapsed" and "tokens" as shown, tokens as the bare value ("18.1k"). Each
-worker's state is its own: a parent waiting on its workers leaves the ones whose meters
-tick "running", and elapsed time alone is no sign of work. The card counts the running
+worker's state is its own: a parent "Waiting for N background agents to finish" means N
+of its workers are still running, so their rows are "running"; elapsed time alone is no
+sign of work. The card counts the running
 ones.
 
 "working_prs": the PRs this pane's agent is doing work for, which the card tracks: one it

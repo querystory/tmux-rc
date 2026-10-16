@@ -804,13 +804,22 @@ def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
     context = f"[tmux: this pane's foreground process is '{pane.current_command}'"
     if repository:
         context += f"; GitHub repository is '{repository}'"
+    # Fixed chrome read as facts, each saying what it means, so the model reads them first.
     if mode := claude_mode(visible):
-        context += f"; Claude Code's status line shows its mode: '{mode}'"
-    # The title's live state must reach the model before an old Ask card can override it.
+        context += f"; Claude Code's status line shows its mode: '{mode}'" + (
+            " (it ends a turn only when it is done or needs the user)" * (mode == "auto"))
+    if host_tool == "claude" or mode:
+        *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
+        if turn:
+            context += ("; Claude Code's turn row is a live spinner: it is working" if
+                        turn["live"] else "; Claude Code's turn row is a finished stamp: its "
+                        "turn is over, and text in its input box is an unsent draft")
     if host_tool == "omp" and (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"]:
         state = omp["state"]
         state = "idle" if state == ">" else "waiting" if state == "!" else "running"
-        context += f"; omp live run state is '{state}'"
+        context += f"; omp live run state is '{state}'" + (
+            " (no Ask is open: any Ask on screen is answered history or the session title)"
+            * (state != "waiting"))
     return context + "]"
 
 
