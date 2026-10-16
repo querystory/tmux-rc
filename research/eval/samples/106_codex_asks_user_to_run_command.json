@@ -1,7 +1,7 @@
 {
-  "description": "Synthetic: Codex finishes its turn asking the user, in its own words, to run a command it cannot run from its sandbox. The next step is the user's: a text user-wait, and the command offered exactly as shown.",
+  "description": "Synthetic: Codex finishes its turn asking the user, in its own words, to run a command its sandbox cannot, here in the session with its ! shell prefix. The next step is the user's: a text user-wait, and the command offered exactly as shown.",
   "current_command": "codex",
-  "capture": "\u001e[visible screen]\u001f\n› restart the ledger service on staging\n\n• I can't reach the staging cluster from this sandbox. Could you run this and tell me\n  when the pods are back?\n\n    kubectl rollout restart deploy/ledger -n staging\n\n─ Worked for 21s ────────────────────────────────────────────────────────────\n\n› ⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫\n\n  gpt-5.6-sol medium · Context 88% left · ~/src/ledger · Ready",
+  "capture": "\u001e[visible screen]\u001f\n› restart the ledger service on staging\n\n• I can't reach the staging cluster from this sandbox. Could you run it here, outside the\n  sandbox, and tell me when the pods are back?\n\n    ! kubectl rollout restart deploy/ledger -n staging\n\n─ Worked for 21s ────────────────────────────────────────────────────────────\n\n› ⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫\n\n  gpt-5.6-sol medium · Context 88% left · ~/src/ledger · Ready",
   "expected": {
     "tool": "codex",
     "activity": "waiting",
@@ -10,7 +10,7 @@
       "answer_style": "text"
     },
     "offers": [
-      "kubectl rollout restart deploy/ledger -n staging"
+      "! kubectl rollout restart deploy/ledger -n staging"
     ],
     "headline": "Asking the user to restart the staging ledger deployment"
   }

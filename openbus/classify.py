@@ -664,16 +664,17 @@ def _parses(command: str) -> bool:
 
 def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`, as tap-to-send buttons: one-line text the
-    screen shows whole and bounded (a `merge 41` is not the `merge 415` on screen), each
-    space a space or the screen's wrap, so `a b` is not `a  b`; and a `! command` that bash
-    reads whole, so no tap sends a command the screen cut short. Classify's gate, and the
-    watcher's on a screen it does not reparse (its fingerprint ignores a duration)."""
+    screen shows whole, each space a space or the screen's wrap (so `a b` is not `a  b`),
+    and nothing of it left out: it closes a quote, or ends its paragraph, so neither `! git
+    push` out of `! git push --dry-run` nor `merge 41` out of `merge 415` passes. A `! command`
+    must also be one bash reads whole. Classify's gate, and the watcher's on a screen it
+    does not reparse (its fingerprint ignores a duration)."""
     screen = _FRAME_BARS_RE.sub("", _visible(text))
 
     def shown(o: str) -> bool:
         gap = " " if "  " in o else r"(?: |[ \t]*\n[ \t]*)"
         return bool(re.search(r"(?<![^\s\"“`])" + gap.join(map(re.escape, o.split(" ")))
-                              + r"(?![^\s\"”`.,;:?!)])", screen))
+                              + r"(?=[\"”`]|[.,;:?!)]?[ \t]*(?:\n[ \t]*(?:\n|\Z)|\Z))", screen))
 
     listed = offers if isinstance(offers, list) else ()
     return [o for o in dict.fromkeys(o for o in listed if isinstance(o, str))
@@ -1014,22 +1015,24 @@ def classify(
         # What the model quotes off the screen must be on it: the rows the question names,
         # what they decide, and the link it asks the user to open (one of the screen's).
         items, link = question.pop("items", None), question.pop("link", None)
+        unwrapped = re.sub(r"[ \t]*\n[ \t]*", "", _FRAME_BARS_RE.sub("", visible))  # a URL whole
         if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, visible)]):
             question["items"] = quoted
         if not _quoted(question.get("subject"), visible):
             question.pop("subject", None)
-        if isinstance(link, str) and link.strip() in hrefs:
+        if isinstance(link, str) and link.strip() in hrefs and link.strip() in unwrapped:
             question["link"] = link.strip()
         # A question with no style is answered as text (models.py).
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
         # A menu answer is its row's digit: with no numbered row on screen there is none to
         # press, so it is answered as text, and the user types what the screen asks for.
-        if style == "menu" and not _FIRST_OPTION_RE.search(visible):
+        demoted = style == "menu" and not _FIRST_OPTION_RE.search(visible)
+        if demoted:  # and its labels ("Yes") are no answer to a prompt that reads "y"
             style = question["answer_style"] = "text"
             question.pop("options", None)
         # A typed answer's buttons are typed into the input box: the model's, else the
         # reply call's for the question; none at all for an open question.
-        if style == "text" and asked:
+        if style == "text" and asked and not demoted:
             options = _clean_options(question.pop("options", None), asked)
             if options := options or _reply_options(asked, replies_fn):
                 question["options"] = options

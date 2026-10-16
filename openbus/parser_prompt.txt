@@ -193,15 +193,16 @@ for; its options become one-tap buttons that answer in the pane.
   only when the screen offers type-to-filter ("Type to search", a Search field).
 
 "offers": text the agent hands the user to send back into this same pane, each shown on
-the card with "Send it" and "Copy" buttons: Send it types exactly that text into the pane
-and presses Enter. Include one when the agent asks the user to run or send something, in
-whatever words: Claude Code's "run it yourself: ! gh pr merge 327", Codex's "could you
-run `make deploy`", "paste this in your terminal", a fenced command after "please run",
-or 'say "merge 415" and I'll queue it'. Copy the text exactly as the screen shows it,
-Claude Code's "! " prefix included, as one line, joining the terminal's wraps. A command
-merely mentioned, proposed as an example, quoted in narrative, or reported as already
-run is no offer; neither is a command inside an approval prompt, which the question
-answers.
+the card with "Send it" and "Copy" buttons: Send it types exactly that text into this
+pane's input and presses Enter. Include one when the agent asks the user to send it here,
+in whatever words: a command to run with the agent's own shell prefix ("run it yourself:
+! gh pr merge 327", "run this here: ! make check-secrets"), or a reply to type back ('say
+"merge 415" and I'll queue it'). Copy the text exactly as the screen shows it, its "! "
+prefix included, as one line, joining the terminal's wraps. A command the user is to run
+somewhere else (another terminal, a server) belongs in "copyables", since typing it here
+would only send it to the agent as a message. A command merely mentioned, proposed as an
+example, quoted in narrative, or reported as already run is no offer; neither is a command
+inside an approval prompt, which the question answers.
 
 "rewind": only Claude Code's Esc-Esc restore picker, under a heading about restoring or
 rewinding to a previous point, whose rows are past user messages each with a code-change

@@ -1317,3 +1317,28 @@ def test_turn_chrome_is_read_only_when_the_parse_fails():
     assert failed["activity"] == "idle" and "parse_ok" not in failed
     held = classify(_pane("claude"), done, _llm(None), prev_activity="waiting")
     assert held["parse_ok"] is False  # a waiting card is kept whole by the watcher
+
+
+def test_an_offer_must_carry_the_whole_command_the_screen_shows():
+    screen = _auto_screen("Run this:\n\n  ! git push --dry-run\n\n  and ! rm /tmp/cache.old too.")
+    for prefix in ("! git push", "! rm /tmp/cache"):
+        assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [prefix]}))
+    assert classify(_pane("claude"), screen, _llm({"offers": ["! git push --dry-run"]}))[
+        "offers"] == ["! git push --dry-run"]
+
+
+def test_a_question_link_must_be_on_the_viewport():
+    screen = _auto_screen("Sign in at https://auth.example.com/device?c=\n  42 then say done.")
+    link = "https://auth.example.com/device?c=42"  # wrapped on screen
+    for href, kept in ((link, True), ("https://auth.example.com/other", False)):
+        q = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": {
+            "prompt": "then say done.", "link": href}, "links": [{"href": href}]}))["question"]
+        assert ("link" in q) is kept
+
+
+def test_a_demoted_menu_gets_no_reply_buttons():
+    replies = lambda _s, _t: {"options": ["Yes", "No"]}  # noqa: E731
+    q = classify(_pane(), "Continue? [y/N] ", _llm({"question": {
+        "prompt": "Continue?", "answer_style": "menu", "options": ["Yes", "No"]}}),
+        replies_fn=replies)["question"]
+    assert q["answer_style"] == "text" and "options" not in q

@@ -1,7 +1,7 @@
 {
-  "description": "Synthetic: OpenCode asks the user to paste a command into their terminal because it needs a password it does not have. A text user-wait with the command offered.",
+  "description": "Synthetic: OpenCode asks the user to run a command here with its ! prefix, because it prompts for a password the agent does not have. A text user-wait with the command offered.",
   "current_command": "opencode",
-  "capture": "\u001e[visible screen]\u001f\nThe migration needs the database admin password, which I don't have. Paste this in your\nterminal and enter the password when asked, then share the output:\n\n  psql -h db.example.com -U admin -f migrations/0042_add_index.sql\n\n▣  Build · Claude Opus 5.5 · 12.1s\n\n┃  Build · Claude Opus 5.5 · Amazon Bedrock                 ~/src/atlas:main\n╹━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n ~/src/atlas                 20.1K (2%) · $0.05   ctrl+p commands   • OpenCode 1.18.32",
+  "capture": "\u001e[visible screen]\u001f\nThe migration needs the database admin password, which I don't have. Run this here and\nenter the password when asked, then share the output:\n\n  ! psql -h db.example.com -U admin -f migrations/0042_add_index.sql\n\n▣  Build · Claude Opus 5.5 · 12.1s\n\n┃  Build · Claude Opus 5.5 · Amazon Bedrock                 ~/src/atlas:main\n╹━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n ~/src/atlas                 20.1K (2%) · $0.05   ctrl+p commands   • OpenCode 1.18.32",
   "expected": {
     "tool": "opencode",
     "activity": "waiting",
@@ -10,7 +10,7 @@
       "answer_style": "text"
     },
     "offers": [
-      "psql -h db.example.com -U admin -f migrations/0042_add_index.sql"
+      "! psql -h db.example.com -U admin -f migrations/0042_add_index.sql"
     ],
     "headline": "Asking the user to run the index migration with the admin password"
   }

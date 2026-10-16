@@ -207,13 +207,13 @@ actually hit:
 | `102_claude_bare_command_after_colon_wrapped` | a long bare `! command` after a colon, wrapped over screen rows but one row ending the transcript → offered whole, not just a copyable |
 | `103_claude_asks_user_to_run_command` | synthetic: a finished turn outside auto mode asking the user to run a `! command` themselves → text user-wait offering that command |
 | `105_claude_mentions_commands_as_examples` | synthetic: `! make test` / `! git status` named only as examples in a proposal → idle, no offers |
-| `106_codex_asks_user_to_run_command` | synthetic: Codex's "could you run this" with a command it cannot run → text user-wait offering it |
+| `106_codex_asks_user_to_run_command` | synthetic: Codex asks the user to run a `! command` here that its sandbox cannot → text user-wait offering it |
 | `107_codex_mentions_commands` | synthetic: Codex mentions a command that reproduces a fixed bug → idle, no offers |
-| `108_omp_asks_user_to_run_command` | synthetic: omp asks the user to run a root-only command → text user-wait offering it |
+| `108_omp_asks_user_to_run_command` | synthetic: omp asks the user to run a root-only `! command` here → text user-wait offering it |
 | `109_omp_reports_commands_run` | synthetic: omp reports commands it already ran → idle, no offers |
-| `110_gemini_asks_user_to_run_command` | synthetic: Gemini CLI asks the user to sign in from another terminal → text user-wait offering the login command |
+| `110_gemini_asks_user_to_run_command` | synthetic: Gemini CLI asks the user to run its `! login` command here → text user-wait offering it |
 | `111_gemini_describes_a_new_command` | synthetic: Gemini CLI describes a make target and the command it wraps → idle, no offers |
-| `112_opencode_asks_user_to_run_command` | synthetic: OpenCode asks the user to paste a command that needs a password → text user-wait offering it |
+| `112_opencode_asks_user_to_run_command` | synthetic: OpenCode asks the user to run a password-prompting `! command` here → text user-wait offering it |
 | `113_opencode_proposes_commands_as_options` | synthetic: OpenCode lists commands that would also work, after finishing → idle, no offers |
 | `114_claude_auto_rhetorical_closing_question` | synthetic: an auto-mode turn closing on a rhetorical "?" → idle, no question |
 | `115_claude_auto_real_closing_question` | synthetic: an auto-mode turn closing on a decision only the user can make → text user-wait |

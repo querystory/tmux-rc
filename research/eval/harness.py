@@ -145,11 +145,15 @@ def _keymap(km: dict | None) -> tuple:
     return (km.get("next"), km.get("prev"), km.get("select"), km.get("search") is True)
 
 
+# A list row's label past its bullet and an "Option" noun: "1.", "- Option A:", "(b)".
+_LABEL_RE = re.compile(r"[\s*•●-]*(?:(?i:option|plan|approach|choice)\s+)?\(?([A-Za-z]|\d{1,2})\b")
+
+
 def _labels(items: object) -> tuple | None:
     """The label each quoted list row leads with ("1. Fix the cache." -> "1")."""
     if not isinstance(items, list):
         return None
-    return tuple(str(i).split(".", 1)[0].strip().upper() for i in items)
+    return tuple(m[1].upper() if (m := _LABEL_RE.match(str(i))) else str(i) for i in items)
 
 
 def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:

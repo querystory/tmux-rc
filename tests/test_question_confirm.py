@@ -153,3 +153,15 @@ def test_a_failed_recapture_leaves_the_screen_unread(monkeypatch):
                         lambda pane, text, **_kw: parses.append(1) or {**ASK, "pane_id": pane.id})
     assert _tick(w)["question"] == ASK["question"]  # read again, then confirmed
     assert parses == [1]
+
+
+def test_a_held_card_keeps_its_own_frame_and_regates_its_offers(monkeypatch):
+    # The deck shows ask A with an offer; a new ask B flashes and moves before it is confirmed.
+    a = {**ASK, "offers": ["! make a"]}
+    b = {**ASK, "question": {"prompt": "Another approval?"}}
+    w = _harness(monkeypatch, ["! make a", "! make a", "flash", "gone"], [a, b])
+    shown = _tick(w)
+    card = _tick(w)
+    assert card["question"] == a["question"] and card["frame"] == shown["frame"]
+    assert not card.get("offers")  # the recapture no longer shows "! make a"
+    assert not w.pane_parse_valid("%1")

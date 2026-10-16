@@ -44,7 +44,7 @@ POLL_SECONDS = 1.5
 # a ~1.5s tick plus the parse would otherwise hold that flash on the card (and push it).
 CONFIRM_SECONDS = 1.2
 # What a card says about its pane: held whole when a parse's wait is not confirmed.
-_CARD_STATE = ("waiting_on", "headline", "question", "rewind", "offers")
+_CARD_STATE = ("waiting_on", "headline", "question", "rewind", "frame")
 MAX_PRS_PER_PANE = 64  # retain recent evidence, bound state/Live payloads
 REPOSITORY_REFRESH_SECONDS = 60.0
 # Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
@@ -1696,8 +1696,13 @@ class Watcher:
             return state
         logger.info("%s: the screen moved before its wait was confirmed; holding the card",
                     pane_id)
+        # Its own frame, so its answers are held to its own screen (never the one that moved),
+        # its offers only as the recapture still shows them, and the read is not valid for a
+        # push.
         held = {**state, **{k: shown.get(k) for k in _CARD_STATE},
-                "activity": shown.get("activity", "unknown")}
+                "activity": shown.get("activity", "unknown"),
+                "offers": screen_offers(shown.get("offers"), recapture) or None}
+        self._parse_valid[pane_id] = False
         if shown.get("state_since") is not None:  # the unread wait started no clock
             self._state_key[pane_id] = self._pending_key(shown)
             self._state_since[pane_id] = shown["state_since"]
