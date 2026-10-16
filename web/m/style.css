@@ -1120,6 +1120,9 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 .ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
 :is(.ending :is(.badge, .sb-open .a, .m), button.picked, .pending)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
 @media (prefers-reduced-motion: no-preference) { :is(.ending :is(.badge, .sb-open .a, .m), button.picked, .pending)::before { animation: logo-spin .8s linear infinite; } }
+/* On iOS this spinner sat unturned, a static "C", inside the list's line-clamped boxes (display:
+   -webkit-box). "Summarizing…" is one line, so a waiting line drops the clamp. */
+:is(.row-status, .sb-open p, #side-hover .x).pending { display: block; }
 button.picked:disabled { opacity: 1; }
 
 /* Agent accounts (accounts.js): drawn only for a provider with two or more. */
