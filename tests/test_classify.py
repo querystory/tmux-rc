@@ -1330,7 +1330,8 @@ def test_an_offer_must_carry_the_whole_command_the_screen_shows():
 def test_a_question_link_must_be_on_the_viewport():
     screen = _auto_screen("Sign in at https://auth.example.com/device?c=\n  42 then say done.")
     link = "https://auth.example.com/device?c=42"  # wrapped on screen
-    for href, kept in ((link, True), ("https://auth.example.com/other", False)):
+    for href, kept in ((link, True), ("https://auth.example.com/other", False),
+                       ("https://auth.example.com/device", False)):  # its code left off
         q = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": {
             "prompt": "then say done.", "link": href}, "links": [{"href": href}]}))["question"]
         assert ("link" in q) is kept

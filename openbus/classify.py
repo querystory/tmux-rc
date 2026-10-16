@@ -1020,12 +1020,16 @@ def classify(
         # What the model quotes off the screen must be on it: the rows the question names,
         # what they decide, and the link it asks the user to open (one of the screen's).
         items, link = question.pop("items", None), question.pop("link", None)
-        unwrapped = re.sub(r"[ \t]*\n[ \t]*", "", _FRAME_BARS_RE.sub("", visible))  # a URL whole
+        # The URL whole, ending where it ends on screen, as drawn or with its rows joined.
+        bars = _FRAME_BARS_RE.sub("", visible)
+        whole = isinstance(link, str) and any(
+            re.search(re.escape(link.strip()) + r"(?![^\s)\]>\"'`])", screen)
+            for screen in (bars, re.sub(r"[ \t]*\n[ \t]*", "", bars)))
         if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, visible)]):
             question["items"] = quoted
         if not _quoted(question.get("subject"), visible):
             question.pop("subject", None)
-        if isinstance(link, str) and link.strip() in hrefs and link.strip() in unwrapped:
+        if whole and link.strip() in hrefs:
             question["link"] = link.strip()
         # A question with no style is answered as text (models.py).
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
