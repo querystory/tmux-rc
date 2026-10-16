@@ -1,0 +1,12 @@
+{
+  "description": "Synthetic: omp's finished turn reports the commands it already ran. Commands reported as run are no offer and ask nothing: idle.",
+  "current_command": "omp",
+  "title": "π > beacon",
+  "capture": "\u001e[visible screen]\u001f\n Ran npm run build and npm test; both pass. The retry backoff now caps at 30s and\n the new test covers the cap.\n\n π > ◒ GPT-5.5 > 🌳 beacon > S0.04 ▶──3%────────────────────────────────────────╎─────────┃────────200K─\n╰─",
+  "expected": {
+    "tool": "omp",
+    "activity": "idle",
+    "offers": null,
+    "headline": "Capped the retry backoff at 30s; build and tests pass"
+  }
+}

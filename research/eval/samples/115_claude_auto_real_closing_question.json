@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a finished auto-mode turn ends on a decision only the user can make. A real ask: a text user-wait.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ drop the legacy notes column\n\n  Read 2 files\n\n● The migration is ready, but notes still holds 312 rows that comments doesn't have.\n  Should I copy them into comments first, or drop them with the column?\n\n✻ Worked for 14s · done 3:05 PM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/kettle on main | Opus 5.5 | 8% ctx\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Asking whether to copy 312 legacy notes into comments before dropping the column"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "description": "Synthetic: a finished auto-mode turn ends on a rhetorical question. A question mark alone makes no wait: idle, no question.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ ship the csv export\n\n  Read 2 files\n\n● All 14 tests pass and the export is merged as #88. Not bad for a Friday, right?\n\n✻ Worked for 14s · done 3:05 PM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/kettle on main | Opus 5.5 | 8% ctx\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "headline": "CSV export merged as #88 with all tests passing"
+  }
+}

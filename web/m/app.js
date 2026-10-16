@@ -1257,10 +1257,11 @@ async function sendKeys(body, id = active) {
   return delivered;
 }
 
-// A closing question's tappable answers, for the pane's question card and the sidebar's
-// Needs you cards alike. Free-text escapes ("Type something") are left to the composer.
+// A question's tappable answers, for the pane's question card and the sidebar's Needs you
+// cards alike. The row the parser marks as the agent's own free-text field is left to the
+// composer (push.renderable_options reads the same mark).
 function answerOptions(question) {
-  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option, index }) => typeof option === "string" && option.trim() && index !== question.free_text);
 }
 // What makes a question the same ask: its prompt, context, items and subject, and its options unless
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.

@@ -356,7 +356,6 @@ def test_a_pane_never_read_stays_pending(monkeypatch):
     assert stamps[2] and stamps[3], "once read, a later failure keeps it read"
 
 
-
 def test_a_first_read_given_up_on_stops_pending(monkeypatch):
     """Copilot: a screen that exhausts its retries is retired unread and never re-parsed
     while it stays the same, so leaving parsed_at unset would spin "Summarizing…" forever."""
@@ -559,47 +558,27 @@ def test_failed_parse_still_publishes_the_links_it_read(monkeypatch):
 
 def test_failed_parse_never_restores_the_last_cards_offers(monkeypatch):
     """Offers are buttons that send: a failed parse keeps the card, but not offers this
-    screen no longer shows (the user may have typed since)."""
-    frame = ["Done"]
+    parse did not read (the user may have typed since)."""
+    frame = ["Done merge 415"]
     w, _calls = _harness(monkeypatch, frame)
-    seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
+    seq = [{"activity": "idle", "tool": "claude", "events": [],
             "headline": "Done", "offers": ["merge 415"]},
            {"activity": "unknown", "tool": "claude", "events": [], "parse_ok": False}]
     monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0)))
     pane = _Pane(current_command="node")
-    for text, offers in (("Done", ["merge 415"]), ("Done\n> merge 415", None)):
+    for text, offers in (("Done merge 415", ["merge 415"]), ("Done\n> merge 415", None)):
         frame[0] = text
         w._forced_this_tick = set()
         state = w._tick_pane(pane)
         assert state["headline"] == "Done" and state.get("offers") == offers
-        assert needs_you(state) == bool(offers), "the offer's wait leaves with it"
 
 
-def test_a_failed_read_does_not_inherit_an_offers_wait(monkeypatch):
-    """A new turn typed in tmux after an offer: a failed read holds the activity from before
-    the offer made it a wait, so Claude's live spinner can still read as running."""
-    frame = ["Done"]
-    w, _calls = _harness(monkeypatch, frame)
-    seen = []
-    monkeypatch.setattr(W, "classify", lambda *_a, **kw: seen.append(kw["prev_activity"]) or {
-        "activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
-        "offers": ["merge 415"]})
-    pane = _Pane(current_command="node")
-    for text in ("Done", "Done\n> merge 415"):
-        frame[0] = text
-        w._forced_this_tick = set()
-        w._tick_pane(pane)
-    assert seen == [None, "idle"]
-
-
-def test_an_unreparsed_screen_still_reads_its_own_offers(monkeypatch):
+def test_an_unreparsed_screen_still_holds_offers_to_itself(monkeypatch):
     """The fingerprint ignores durations, so "10s" -> "20s" reuses the card, but its offer
-    must still be what the screen shows: the 10s transcript no longer is."""
+    must still be what the screen shows: the 10s command no longer is."""
     screen = "● Run:\n\n  ! timeout {} make deploy\n\n✻ Worked for 3s\n\n❯\n"
     frame = [screen.format("10s")]
     w, calls = _harness(monkeypatch, frame)
-    monkeypatch.setattr(W.transcript, "last_reply",
-                        lambda *_a: "Run:\n\n```\n! timeout 10s make deploy\n```")
     monkeypatch.setattr(W, "classify", lambda *_a, **_kw: calls.__setitem__("n", calls["n"] + 1)
                         or {"activity": "waiting", "waiting_on": "user", "tool": "claude",
                             "events": [], "offers": ["! timeout 10s make deploy"]})
@@ -607,28 +586,8 @@ def test_an_unreparsed_screen_still_reads_its_own_offers(monkeypatch):
     for duration, offers in (("10s", ["! timeout 10s make deploy"]), ("20s", None)):
         frame[0] = screen.format(duration)
         w._forced_this_tick = set()
-        state = w._tick_pane(pane)
-        assert state.get("offers") == offers and needs_you(state) == bool(offers)
+        assert w._tick_pane(pane).get("offers") == offers
     assert calls["n"] == 1, "the second screen was not reparsed"
-
-
-def test_an_unreparsed_screen_that_offers_again_is_read(monkeypatch):
-    """A card left unread (retries spent) whose screen, unchanged to the fingerprint, now
-    matches the transcript: the offer's wait is read off the screen, so push counts it."""
-    screen = "● Run:\n\n  ! timeout {} make deploy\n\n✻ Worked for 3s\n\n❯\n"
-    frame = [screen.format("20s")]
-    w, _calls = _harness(monkeypatch, frame)
-    monkeypatch.setattr(W.transcript, "last_reply",
-                        lambda *_a: "Run:\n\n```\n! timeout 10s make deploy\n```")
-    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: {
-        "activity": "idle", "tool": "claude", "events": [], "parse_ok": False})
-    pane = _Pane(current_command="node")
-    for duration in ["20s"] * W.PARSE_RETRIES + ["10s"]:
-        frame[0] = screen.format(duration)
-        w._forced_this_tick = set()
-        state = w._tick_pane(pane)
-        assert needs_you(state) == (duration == "10s")
-    assert w.pane_parse_valid(pane.id)
 
 
 def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):

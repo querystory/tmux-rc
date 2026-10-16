@@ -77,11 +77,14 @@ strictness is correct:
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
-- `question.items` — opt-in exact list: the numbered or lettered rows above a typed
-  question that its prompt names ("do 1 now?", "A or B?"), which classify() reads off the
-  screen.
-- `question.subject` — opt-in exact string: the paragraph or heading that leads into
-  those rows, which says what the question decides.
+- `question.items` — opt-in: the numbered or lettered rows above a typed question that
+  its prompt names ("do 1 now?", "A or B?"), which the model quotes and classify() keeps
+  only where the screen shows them. Scored by the labels they lead with ("1", "B"), since
+  the quote's extent is the model's.
+- `question.subject` — opt-in presence: the paragraph or heading that leads into those
+  rows, which says what the question decides.
+- `question.link` — opt-in; pinned `null`, it asserts the question names no link to open
+  (a question merely about a link).
 - `question.context` — opt-in exact string: the widget rows classify() reads around a
   menu's prompt (deterministic, so pinned exactly).
 - `copyable_texts` — opt-in exact list of copyable texts, for payloads lifted from the
@@ -195,24 +198,37 @@ actually hit:
 | `66_omp_queued_user_question` | omp's outgoing numbered Steering message → running, no question, even without dim styling |
 | `67_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
 | `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
-| `88_claude_wrapped_login_link_beside_options` | a wrapped OSC 8 login URL beside a prose option list → the whole URL in `links`, even though grounding rejects the misread question |
+| `88_claude_wrapped_login_link_beside_options` | a wrapped OSC 8 login URL beside a prose option list, the user's reply unsent → the whole URL in `links`, and a text user-wait |
 | `90_claude_question_names_list_items` | a closing "do 1 now and prepare the list for 2?" under a numbered list → those two rows in `question.items`, not the unnamed third |
 | `92_claude_question_names_lettered_options` | a bare "Go with A or B?" under lettered options → the A and B rows in `question.items`, and the line leading into them in `question.subject` |
 | `93_claude_decision_heading_above_options` | a heading over bulleted "Option A:" / "Option B —" rows, asked "option A or B?" → the heading as `question.subject`, both rows in `question.items` |
 | `100_claude_handoff_beside_suggested_command` | a `! command` handoff in Claude's right-barred transcript, its greyed suggestion in the box → text user-wait quoting the agent, no reply buttons |
 | `101_claude_bare_command_after_colon_one_line` | a one-line message handing over a bare `! command` after a colon, no backticks → text user-wait offering that command |
 | `102_claude_bare_command_after_colon_wrapped` | a long bare `! command` after a colon, wrapped over screen rows but one row ending the transcript → offered whole, not just a copyable |
-| `103_claude_offer_outside_auto_needs_you` | synthetic: a finished turn outside auto mode handing over a `! command` (offers) with no question → user-wait (Needs you), not idle |
+| `103_claude_asks_user_to_run_command` | synthetic: a finished turn outside auto mode asking the user to run a `! command` themselves → text user-wait offering that command |
+| `105_claude_mentions_commands_as_examples` | synthetic: `! make test` / `! git status` named only as examples in a proposal → idle, no offers |
+| `106_codex_asks_user_to_run_command` | synthetic: Codex's "could you run this" with a command it cannot run → text user-wait offering it |
+| `107_codex_mentions_commands` | synthetic: Codex mentions a command that reproduces a fixed bug → idle, no offers |
+| `108_omp_asks_user_to_run_command` | synthetic: omp asks the user to run a root-only command → text user-wait offering it |
+| `109_omp_reports_commands_run` | synthetic: omp reports commands it already ran → idle, no offers |
+| `110_gemini_asks_user_to_run_command` | synthetic: Gemini CLI asks the user to sign in from another terminal → text user-wait offering the login command |
+| `111_gemini_describes_a_new_command` | synthetic: Gemini CLI describes a make target and the command it wraps → idle, no offers |
+| `112_opencode_asks_user_to_run_command` | synthetic: OpenCode asks the user to paste a command that needs a password → text user-wait offering it |
+| `113_opencode_proposes_commands_as_options` | synthetic: OpenCode lists commands that would also work, after finishing → idle, no offers |
+| `114_claude_auto_rhetorical_closing_question` | synthetic: an auto-mode turn closing on a rhetorical "?" → idle, no question |
+| `115_claude_auto_real_closing_question` | synthetic: an auto-mode turn closing on a decision only the user can make → text user-wait |
+| `116_claude_narrative_quoted_text_is_no_offer` | synthetic: quoted text inside a bug description → idle, no offers |
+| `117_claude_negation_elsewhere_keeps_the_ask` | synthetic: "don't run X yet … please run Y" → text user-wait offering Y |
+| `118_claude_question_mentions_link_without_asking_to_open` | synthetic: a closing question about a link, a URL on screen → user-wait with no `question.link` |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
-question's supporting list but also to omit tables unless an actual table was shown.
-Rewording that helped for a while, but the parser kept dropping the list (sample 90 is
-a live case where it returned no table at all), so classify() now reads the rows off the
-screen into `question.items`, and drops the parser's own copy of them (a table keyed by
-their numbers, or the rows offered as answer buttons): which rows a prompt names is a
-fact about the screen, not a judgement. Deleting the prompt's table instruction was
-tried and rejected: the parser then filed the list as `tasks`, and the reworded prompt
-flipped the unrelated sample 47.
+question's supporting list but also to omit tables unless an actual table was shown, and
+the parser kept dropping the list (sample 90 is a case where it returned no table at all).
+For a while classify() read the named rows off the screen itself with a grammar of
+references ("do 1 and 2", "A or B?"), which grew a regex per counter-example. The rows
+are now a field of their own, `question.items`, that the model fills with quotes and
+classify() holds to the screen, so the decision of which rows a question names is the
+model's and the code only checks the quotes are real.
 
 ### Committed vs local — what's repo-safe
 

@@ -1,5 +1,5 @@
 {
-  "description": "Synthetic: a finished turn outside auto mode that hands the user a `! command` to run, with no question. The phone shows Send it / Copy for it (offers), so the pane needs the user: a user-wait with no question (classify's put_offers), not idle, so it lands under Needs you, its badge and a push.",
+  "description": "Synthetic: a finished turn outside auto mode whose final message asks the user to run a `! command` themselves (\"run it yourself here:\"), with no question mark. The next step is the user's, so the model reports a text user-wait (Needs you) quoting that ask, and offers the command exactly as shown for Send it / Copy.",
   "current_command": "claude",
   "capture": "\u001e[visible screen]\u001f\n❯ is 327 ready?\n\n  Ran 2 shell commands\n\n● CI is green on #327 and Copilot left no comments. My permission rules block merges from me, so\n  run it yourself here:\n\n  ! gh pr merge 327 --squash --delete-branch\n\n  Once it lands I'll prune the worktree.\n\n✻ Worked for 22s · done 4:12 PM\n\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/lumen/orchard on fix/seed-cache | Opus 5.5 | dev@example.com\n  session: +12/-3 lines · 9% ctx · 41m · $1.18\n  ⏵⏵ accept edits on (shift+tab to cycle)",
   "reply": "CI is green on #327 and Copilot left no comments. My permission rules block merges from me, so run it yourself here:\n\n`! gh pr merge 327 --squash --delete-branch`\n\nOnce it lands I'll prune the worktree.",
@@ -8,6 +8,9 @@
     "activity": "waiting",
     "waiting_on": "user",
     "model": "Opus 5.5",
+    "question": {
+      "answer_style": "text"
+    },
     "headline": "CI green on #327; user must run the merge command",
     "offers": [
       "! gh pr merge 327 --squash --delete-branch"

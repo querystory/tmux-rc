@@ -26,7 +26,6 @@ from .classify import (
     _OPENCODE_RUNNING_RE,
     bootstrap,
     classify,
-    put_offers,
     question_rows,
     screen_offers,
 )
@@ -43,6 +42,8 @@ POLL_SECONDS = 1.5
 # the first still shows that screen: Codex flashes its own approval review for a moment, and
 # a ~1.5s tick plus the parse would otherwise hold that flash on the card (and push it).
 CONFIRM_SECONDS = 1.2
+# What a card says about its pane: held whole when a parse's wait is not confirmed.
+_CARD_STATE = ("waiting_on", "headline", "question", "rewind", "offers")
 MAX_PRS_PER_PANE = 64  # retain recent evidence, bound state/Live payloads
 REPOSITORY_REFRESH_SECONDS = 60.0
 # Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
@@ -1394,11 +1395,10 @@ class Watcher:
         # today's screen would vouch for a question parsed from an older one.
         if cached is not None and not changed and not forced and "frame" in cached:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
-            # Offers send what they say: read off this very screen, which the fingerprint
-            # may call unchanged while a command's "10s" became "20s". First: they move the
-            # activity the clock below is keyed on, and a wait they make is read.
-            if put_offers(cached, screen_offers(text, cached.get("tool"), reply)):
-                self._parse_valid[pane.id] = True
+            # Offers send what they say: held to this very screen, which the fingerprint
+            # may call unchanged while a command's "10s" became "20s".
+            if offers := screen_offers(cached.pop("offers", None), text):
+                cached["offers"] = offers
             cached.setdefault("input_generation", generation)  # a restored card has none
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
@@ -1449,8 +1449,6 @@ class Watcher:
             else None
         )
         self._parsed_reply[pane.id] = reply
-        held = dict(previous or {})  # what we last knew, so a failed parse holds that,
-        put_offers(held, None)  # but not a wait its offers made: this screen reads its own
         state = classify(
             pane,
             text,
@@ -1459,7 +1457,8 @@ class Watcher:
             reply=reply,
             prior=prior,
             recent_events=recent_texts,
-            prev_activity=held.get("activity"),
+            # What we last knew, so a failed parse holds that instead of guessing.
+            prev_activity=(previous or {}).get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
         # Preserve the parsed conversation name before session is stamped with the
@@ -1596,7 +1595,7 @@ class Watcher:
             # Links are the exception: a parse fails when its question or rewind is
             # rejected, yet the URLs it read off the screen still stand, and a login
             # link printed in that turn would otherwise never reach the card. Offers are the
-            # other: buttons that send, read off this screen alone (classify's _offers),
+            # other: buttons that send, held to this screen alone (classify.screen_offers),
             # never the last card's, which the user may have answered since.
             offers = state.get("offers")
             replacement_tool = state.get("identity_tool")
@@ -1606,28 +1605,23 @@ class Watcher:
                 and replacement_tool != previous_tool
             )
             state = {**previous, "links": state.get("links") or previous.get("links")}
-            put_offers(state, offers)
+            state.pop("offers", None)
+            if offers:
+                state["offers"] = offers
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 
-        # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
-        # unmistakable status-line/box, so if it says "shell" it IS a shell — never let
-        # a stale sticky value override that (that bug put the Claude icon on a bash
-        # pane). Only bridge "unknown"/missing (a transient we genuinely can't tell) with
-        # the last known agent, to cover the brief moment an agent shells out.
-        # Tool identity. The prompt decides claude-vs-shell from the whole picture, so we
-        # mostly trust it. Sticky bridge is TIME-BOUNDED to resolve the two failure modes
-        # that fought each other: a Claude pane shelling out was claude *just now* (bridge
-        # it), while a shell mis-tagged claude once was claude *a while ago* (let it go).
-        # So: only override a shell/unknown read with a remembered agent if we saw that
-        # agent within the last few seconds.
+        # Tool identity. The model's read stands: a "shell" it reports is a shell (a stale
+        # sticky value once put the Claude icon on a bash pane). Only an "unknown" or
+        # missing read is bridged with an agent seen in the last few seconds, which covers
+        # the moment a parse cannot tell while an agent shells out.
         tool = state.get("tool")
         if tool in AGENT_TOOLS:
             self._tool[pane.id] = (tool, now)
-        elif tool in ("shell", "unknown", None):
+        elif tool in ("unknown", None):
             prev = self._tool.get(pane.id)
             if prev and now - prev[1] < 8:
                 state["tool"] = prev[0]
@@ -1679,9 +1673,10 @@ class Watcher:
 
     def _confirmed(self, pane_id: str, state: dict, captured: float) -> dict:
         """The card for a parse: a user wait the deck does not show yet only once a second
-        capture still shows its frame, else the agent at work on the clock the deck shows.
-        Until then the screen counts as unread (a failed recapture included), and a held ask
-        is cached as held, so neither the cache nor a failed parse can publish it."""
+        capture still shows its frame, else the card the deck shows, held on its clock: the
+        screen moved before the wait was confirmed, so the next parse reads it again. Until
+        then the screen counts as unread (a failed recapture included), and a held ask is
+        cached as held, so neither the cache nor a failed parse can publish it."""
         key = self._pending_key(state)
         shown = next((s for s in self.states if s.get("pane_id") == pane_id), {})
         if (key[0] != "waiting" or state.get("waiting_on") == "external"
@@ -1694,8 +1689,10 @@ class Watcher:
             if read is not None:
                 self._prev_fp[pane_id] = read
             return state
-        held = dict(state)
-        self._drop_question(held, {key[1:]})
+        logger.info("%s: the screen moved before its wait was confirmed; holding the card",
+                    pane_id)
+        held = {**state, **{k: shown.get(k) for k in _CARD_STATE},
+                "activity": shown.get("activity", "unknown")}
         if shown.get("state_since") is not None:  # the unread wait started no clock
             self._state_key[pane_id] = self._pending_key(shown)
             self._state_since[pane_id] = shown["state_since"]

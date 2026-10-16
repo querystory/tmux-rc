@@ -145,6 +145,13 @@ def _keymap(km: dict | None) -> tuple:
     return (km.get("next"), km.get("prev"), km.get("select"), km.get("search") is True)
 
 
+def _labels(items: object) -> tuple | None:
+    """The label each quoted list row leads with ("1. Fix the cache." -> "1")."""
+    if not isinstance(items, list):
+        return None
+    return tuple(str(i).split(".", 1)[0].strip().upper() for i in items)
+
+
 def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     """The structural signature we score `question` on: present-or-absent, and if a
     question, its answer_style (menu vs text vs cursor — the phone sends a keystroke,
@@ -164,12 +171,17 @@ def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     and with an eval that was still green. Scored only where a sample asks for it, since
     most screens have nothing to say about either. `context` (the widget rows classify()
     reads around a menu's prompt), `items` (the list rows a typed question names) and
-    `subject` (the paragraph leading into them) are pinned the same way, exactly; an `ask`
-    pinned null asserts a menu is NOT restated (a present one is left to the judge)."""
+    `subject` (the paragraph leading into them) are pinned too. The model quotes items and
+    subject, so items are scored by the labels they lead with ("1", "B") and subject by its
+    presence; `context` is read by code and is exact. An `ask` pinned null asserts a menu
+    is NOT restated (a present one is left to the judge), and a `link` pinned null that
+    the question names no link to open."""
     if field is None:
         return None
     if isinstance(field, dict):
-        vals = tuple(_keymap(field.get(k)) if k == "keymap" else field.get(k) for k in extra)
+        vals = tuple(_keymap(field.get(k)) if k == "keymap" else _labels(field.get(k))
+                     if k == "items" else bool(field.get(k)) if k == "subject"
+                     else field.get(k) for k in extra)
         return ("present", field.get("answer_style"), *vals)
     return ("present", None) if field else None
 
@@ -222,7 +234,7 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
     extra = tuple(k for k in ("selected", "keymap", "context", "items",
-                              "subject", "ask")  # ask: only its absence
+                              "subject", "ask", "link")  # ask: only its absence
                   if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:

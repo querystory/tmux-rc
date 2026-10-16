@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: Gemini CLI describes a make target it added and the command it wraps. Describing commands asks nothing: idle, no offers.",
+  "current_command": "gemini",
+  "capture": "\u001e[visible screen]\u001f\n✦ I added a make clean-thumbs target. It wraps rm -rf .cache/thumbs and then rebuilds\n  the index, and the README documents it under Maintenance.\n\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ >   Type your message or @path/to/file                                       │\n╰──────────────────────────────────────────────────────────────────────────────╯\n  ~/src/thumbs (main)          gemini-2.5-pro (91% context left)",
+  "expected": {
+    "tool": "gemini",
+    "activity": "idle",
+    "offers": null,
+    "headline": "Added a make target that clears and rebuilds the thumbnail cache"
+  }
+}

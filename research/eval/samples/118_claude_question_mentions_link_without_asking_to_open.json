@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished auto-mode turn asks whether to update a link in the README, with a CI URL on screen. The question is about a link, not a request to open one, so it names no question.link.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ fix the broken footer link\n\n  Read 2 files\n\n● The footer link pointed at the old docs path; I fixed it and the link checker is green\n  (https://ci.example.com/runs/412). Should I also update the same link in the README?\n\n✻ Worked for 14s · done 3:05 PM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/kettle on main | Opus 5.5 | 8% ctx\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text",
+      "link": null
+    },
+    "headline": "Fixed the footer link; asking whether to update the README link too"
+  }
+}

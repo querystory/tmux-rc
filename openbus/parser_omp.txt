@@ -1,19 +1,10 @@
-- "omp" (oh-my-pi): runs as `omp` or `bun`. Its bottom status row is decisive. Starting
-  "π > <model> >" it means the turn is over: idle, and any "ⓘ waiting on … jobs"
-  rows above are finished history. While a turn is active a spinner and elapsed time
-  ("⠦ 14s >") replace the π: running, including while it waits on its own subagents.
-  Like OpenCode, the model it names is only the selected backend.
-  Text right-aligned just above the row is the session title, never a question.
-  The tmux-supplied omp live run state is CURRENT evidence, not a transcript label.
-  Ask result cards retain ○ unchosen / ● chosen answers after submission. With newer
-  assistant/tool work and the normal composer restored, they are historical receipts.
-  A pending Ask uses a separate bottom dialog with cursor/navigation/select controls.
-  When current state is running/idle, an old receipt or Ask-themed title is NOT a
-  question or user-wait; only a current unresolved input affordance may override it.
-  Receipt/queue options are not task checkboxes or decision-context tables. Base
-  the headline on the resumed task, using a chosen answer only as historical context.
-  "Steering" / "After yield" headings with counts, numbered messages, and an edit
-  hint identify queued OUTGOING USER input, not agent questions or answer choices,
-  even without dim markers. Those queued messages never require a user reply.
-  Exclude only that band from "question"; genuine Ask/approval prompts elsewhere
-  still require an answer.
+- "omp" (oh-my-pi): runs as `omp` or `bun`. Its bottom status row tells its state: "π >
+  <model> >" means its turn is over and the pane is idle, so "ⓘ waiting on … jobs" rows
+  above are finished history; while a turn runs a spinner and elapsed time ("⠦ 14s >")
+  replace the π, including while it waits on its own subagents. The model it names is the
+  selected backend. Text right-aligned just above that row is the session title. A pending
+  Ask is a separate bottom dialog ("╭─ Ask") with a cursor and navigation controls; once
+  answered it leaves a "? Ask" result card showing ○ unchosen and ● chosen answers, a
+  receipt of a past choice that explains the task now resumed. "Steering" and "After
+  yield" bands with counts and numbered messages are the user's own queued outgoing
+  input.

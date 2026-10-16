@@ -1,0 +1,17 @@
+{
+  "description": "Synthetic: Gemini CLI stops because it needs the user to sign in, asking them to run the login command in another terminal. A text user-wait with the command offered.",
+  "current_command": "gemini",
+  "capture": "\u001e[visible screen]\u001f\n✦ I need application credentials before I can list the buckets. Run this in another\n  terminal, then tell me to continue:\n\n    gcloud auth application-default login\n\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ >   Type your message or @path/to/file                                       │\n╰──────────────────────────────────────────────────────────────────────────────╯\n  ~/src/thumbs (main)          gemini-2.5-pro (91% context left)",
+  "expected": {
+    "tool": "gemini",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "offers": [
+      "gcloud auth application-default login"
+    ],
+    "headline": "Waiting for the user to sign in with application-default credentials"
+  }
+}

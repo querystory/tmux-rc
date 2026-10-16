@@ -228,7 +228,7 @@ def test_option_mapping_matches_card_semantics():
     assert push.option_keys(months, 8) == "9"
     with pytest.raises(ValueError, match="past 9"):
         push.option_keys(months, 9)
-    question = {"answer_style": "menu", "options": ["Alpha", "Other", "Beta"]}
+    question = {"answer_style": "menu", "options": ["Alpha", "Other", "Beta"], "free_text": 1}
     assert push.renderable_options(question) == [(0, "Alpha"), (2, "Beta")]
     assert push.option_keys(question, 2) == "3"
     question = {"answer_style": "text", "options": ["Ship it"]}
@@ -375,7 +375,7 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     assert sender.payloads[1]["actions"] == [] and sender.payloads[1]["nonce"] is None
     # Nor for an approval whose restatement failed (retried later): it would be approved
     # blind. A numbered choice that is no approval needs none and keeps its actions.
-    for question, titles in ((held(ask=None), []), (held(
+    for question, titles in ((held(ask=None, approval=True), []), (held(
             ask=None, prompt="Deploy to?", options=["Staging", "Prod"]), ["Staging", "Prod"])):
         watcher.states = []
         clock[0] += push.RATE_WINDOW_SECONDS

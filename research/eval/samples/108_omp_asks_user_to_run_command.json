@@ -1,0 +1,18 @@
+{
+  "description": "Synthetic: omp's finished turn asks the user to run a root-only command in their terminal. A text user-wait with the command offered exactly as shown.",
+  "current_command": "omp",
+  "title": "π > beacon",
+  "capture": "\u001e[visible screen]\u001f\n The token file is owned by root, so I can't rotate it myself. Please run this in your\n terminal, then tell me and I'll restart the service:\n\n    sudo install -m 600 /tmp/new.token /etc/beacon/api.token\n\n π > ◒ GPT-5.5 > 🌳 beacon > S0.04 ▶──3%────────────────────────────────────────╎─────────┃────────200K─\n╰─",
+  "expected": {
+    "tool": "omp",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "offers": [
+      "sudo install -m 600 /tmp/new.token /etc/beacon/api.token"
+    ],
+    "headline": "Asking the user to install the new API token as root"
+  }
+}

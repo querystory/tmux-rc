@@ -1,6 +1,7 @@
 """A new user wait is published only once a second capture still shows it (Watcher._confirmed):
 Codex flashes its own approval review for a moment, and that flash must never reach the card
-or a push. The parse keeps the read, so a real question shows on the next look at it."""
+or a push. Until then the card the deck shows is held, and a real question shows on the next
+look at it."""
 
 import pytest
 
@@ -45,7 +46,7 @@ def test_a_held_question_takes_its_offers_with_it(monkeypatch):
                  [WORK, {**ASK, "offers": ["! make deploy"]}, WORK])
     _tick(w)
     card = _tick(w)
-    assert card["question"] is None and "offers" not in card
+    assert card["question"] is None and not card.get("offers")
 
 
 def test_a_question_still_on_the_second_capture_needs_you_at_once(monkeypatch):
@@ -99,7 +100,8 @@ def test_a_wait_on_others_turning_into_a_user_wait_is_confirmed(monkeypatch):
     user = {**WORK, "activity": "waiting", "waiting_on": "user"}  # the same key, no question
     w = _harness(monkeypatch, ["a", "b", "c"], [external, user])
     _tick(w)
-    assert _tick(w)["activity"] == "running"  # "b": its recapture moved on
+    card = _tick(w)  # "b": its recapture moved on, so the card the deck shows is held
+    assert (card["activity"], card["waiting_on"]) == ("waiting", "external")
 
 
 def test_a_rejected_flash_keeps_the_running_clock(monkeypatch):

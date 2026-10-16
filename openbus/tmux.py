@@ -26,6 +26,8 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from functools import cached_property
 
+from .history import AGENT_TOOLS
+
 logger = logging.getLogger(__name__)
 
 _HOST = socket.gethostname()
@@ -86,11 +88,11 @@ def _quiet_reader(tty: str, shell_pid: str) -> bool:
         return stat.read().rpartition(")")[2].split()[5] != shell_pid
 
 
-def _password_prompt(pane_id: str, tty: str, shell_pid: str) -> bool:
-    """A quiet reader (above) and the cursor's row ends in a password prompt (see
-    Pane.secret). Raises one of _UNREADABLE when it can't tell; each caller picks its
-    own default."""
-    if not _quiet_reader(tty, shell_pid):
+def _password_prompt(pane_id: str, tty: str, shell_pid: str, command: str) -> bool:
+    """A quiet reader (above) that is no agent TUI, and the cursor's row ends in a password
+    prompt (see Pane.secret). Raises one of _UNREADABLE when it can't tell; each caller
+    picks its own default."""
+    if command in AGENT_TOOLS or not _quiet_reader(tty, shell_pid):
         return False
     # The cursor's whole line: a narrow pane wraps a long prompt over several rows, which
     # -J joins. From the top of the screen and a few rows of history, so a prompt's start
@@ -149,7 +151,7 @@ class Pane:
         reads as no: this only picks the composer, and the send path decides for
         itself."""
         try:
-            return _password_prompt(self.id, self.tty, self.pid)
+            return _password_prompt(self.id, self.tty, self.pid, self.current_command)
         except _UNREADABLE:
             return False
 
@@ -894,8 +896,9 @@ def at_password_prompt(pane_id: str, *, unknown: bool = True) -> bool:
     as `unknown`, which each caller sets to fail closed: True for plain text, which
     might be a password, and False for a password, which needs the prompt confirmed."""
     try:
-        tty, pid = _run(["display-message", "-p", "-t", pane_id, "#{pane_tty} #{pane_pid}"]).split()
-        return _password_prompt(pane_id, tty, pid)
+        fields = "#{pane_tty} #{pane_pid} #{pane_current_command}"
+        tty, pid, command = _run(["display-message", "-p", "-t", pane_id, fields]).split(maxsplit=2)
+        return _password_prompt(pane_id, tty, pid, command.strip())
     except _UNREADABLE:
         return unknown
 
