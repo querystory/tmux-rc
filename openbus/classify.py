@@ -747,7 +747,7 @@ def _read_turn_chrome(result: dict, visible: str, pane: Pane, prev_activity) -> 
             or (tool == "opencode" and _opencode_running(visible))
             or (tool == "codex" and _CODEX_LIVE_RE.search(visible))):
         activity = "running"
-    elif state == ">" or (turn and result.get("activity") != "waiting"
+    elif state == ">" or (turn and result.get("activity") == "running"
                           and not _USER_ROW_RE.search(visible, turn.end())):  # no newer turn
         activity = "idle"  # the turn is over; background shells don't count
     elif state == "!" and prev_activity != "waiting":  # a waiting card keeps its controls
