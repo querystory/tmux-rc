@@ -161,6 +161,13 @@ const pendingAnswers = new Map();
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
+// Earlier history (docs/design/live-view.md): tmux rows above the live frame, fetched as you
+// near the top and kept, since a history row never changes. Rows are counted from the
+// oldest one tmux keeps, so new output (which only adds rows below) never renumbers a row
+// already here. #earlier holds rows [top, end); while it is empty both follow the frame's
+// own first row. `frameTop` and `frameWidth` come with each live frame.
+const EARLIER_LINES = 500;
+let earlier = { top: 0, end: 0, width: 0 }, frameTop = 0, frameWidth = 0;
 let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 // CSPRNG-random or omitted, never guessed. getRandomValues, unlike randomUUID, needs no
 // secure context, and a reconnecting chat finds its parked cards by this id.
@@ -1046,7 +1053,8 @@ function restartDetail() {
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
-function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; }
+function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; frameTop = frameWidth = 0; resetEarlier(); }
+const following = () => { const s = $("terminal-scroll"); return s.scrollTop + s.clientHeight >= s.scrollHeight - FOLLOW_SLACK_PX; };
 // One <span> per screen line, each ending in its own "\n" (except the last), so inside the
 // <pre>'s `white-space: pre` the layout and copied text are exactly what one innerHTML of
 // the whole frame gave — no extra CSS, and no block children to lose the newlines. The
@@ -1080,11 +1088,61 @@ function paintCapture() {
   const selection = getSelection();
   if (selection && !selection.isCollapsed && selectionDirty(selection, lines)) { captureDirty = true; return; }
   captureDirty = false;
-  const scroll = $("terminal-scroll");
-  const follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - FOLLOW_SLACK_PX;
+  const scroll = $("terminal-scroll"), follow = following();
   paintLines(lines);
   paintedFrame = latestFrame;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
+  // A reflow (new width) renumbers every row, and trimmed or cleared history moves the
+  // frame's first row back: either way the rows held here no longer line up, so drop them.
+  if (frameWidth !== earlier.width || frameTop < earlier.end) resetEarlier();
+  if (earlier.top === earlier.end) earlier.top = earlier.end = frameTop;
+  loadEarlier();
+}
+function resetEarlier() {
+  $("earlier").replaceChildren();
+  earlier = { top: frameTop, end: frameTop, width: frameWidth };
+  paintEarlierCue();
+}
+function paintEarlierCue() {
+  const cue = earlier.loading ? "Loading earlier…" : earlier.top === 0 && earlier.end > 0 ? "Start of history" : "";
+  text($("earlier-cue"), cue); show("earlier-cue", !!cue);
+}
+// Rows added above what you are reading must not move it: measure the frame's first line,
+// make the change, and scroll by however far that line moved. Measured rather than
+// computed, so it is right whether or not the browser anchors scrolling itself.
+function holdView(change) {
+  const box = $("terminal-scroll"), mark = $("capture").firstChild || $("capture");
+  const y = mark.getBoundingClientRect().top;
+  change();
+  box.scrollTop += mark.getBoundingClientRect().top - y;
+}
+// Fill whatever is missing, one request at a time: first a gap (output moved the frame's
+// first row past #earlier's end while you read above it; left for later while you follow
+// the tail, so a streaming pane costs nothing), then older rows while you are within a
+// screen of the top. Each chunk is rendered by the live view's own renderer. A gap is not
+// held: its rows are the ones the frame just scrolled away, and they land where the frame
+// had shown them, so whatever you were reading there comes back to the same place.
+async function loadEarlier() {
+  const h = earlier, id = active, box = $("terminal-scroll");
+  if (h.busy || !id) return;
+  h.busy = true;
+  try {
+    for (;;) {
+      const gap = h.top < h.end && h.end < frameTop && !following();
+      if (!gap && !(h.top > 0 && box.scrollTop < box.clientHeight)) return;
+      const before = gap ? Math.min(frameTop, h.end + EARLIER_LINES) : h.top;
+      if (!gap) holdView(() => { h.loading = true; paintEarlierCue(); });
+      const query = new URLSearchParams({ before, lines: gap ? before - h.end : EARLIER_LINES });
+      const { text: rows, start } = await request(`${paneUrl(id, "history")}?${query}`);
+      if (h !== earlier) return;
+      const nodes = renderCaptureLines(rows, { color: true }).map((markup) => {
+        const node = document.createElement("span"); node.innerHTML = `${markup}\n`; return node;
+      });
+      if (gap) { $("earlier").append(...nodes); h.end = before; continue; }
+      holdView(() => { $("earlier").prepend(...nodes); h.top = start; h.loading = false; paintEarlierCue(); });
+    }
+  } catch {} // a failed chunk is asked for again on the next scroll or frame
+  finally { h.busy = h.loading = false; if (h === earlier) holdView(paintEarlierCue); }
 }
 async function streamTerminal(id, signal) {
   let frame = "";
@@ -1096,7 +1154,7 @@ async function streamTerminal(id, signal) {
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
+      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; frameTop = data.top; frameWidth = data.width; paintCapture(); }
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {
@@ -1594,7 +1652,7 @@ for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close",
 });
 // Crossing the breakpoint changes which form a panel takes (sheet or docked): close it.
 WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog")].forEach((d) => d.close()));
-function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
+function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("terminal-scroll").style.setProperty("--term-font", `${fontSize}px`); text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; wheelHome(active); };
 // Overscroll past the top of the live view scrolls the pane's own app (overscroll.js). Only
@@ -1651,7 +1709,7 @@ function wheelHome(id) {
 }
 function overscrollPane(dy) {
   const box = $("terminal-scroll"), pane = panes.find((p) => p.pane_id === active);
-  if (wheel.off || !dy || !WHEEL_TOOLS.has(pane?.tool)) return;
+  if (wheel.off || !dy || !WHEEL_TOOLS.has(pane?.tool) || (dy < 0 && earlier.top > 0)) return; // tmux history first
   if (dy < 0 ? box.scrollTop > 0 : box.scrollTop + box.clientHeight < box.scrollHeight - 1) return;
   wheelQueued += overscroll(wheel, dy, performance.now());
   paintWheelCue(); flushWheel();
@@ -1659,6 +1717,7 @@ function overscrollPane(dy) {
   wheelSpring = setTimeout(() => { if (!wheel.net) wheel.pull = 0; paintWheelCue(); }, IDLE_MS);
 }
 // Pinch-zoom arrives as a ctrl+wheel. deltaMode counts in px, ~16px lines (Firefox) or pages.
+$("terminal-scroll").addEventListener("scroll", loadEarlier, { passive: true });
 $("terminal-scroll").addEventListener("wheel", (e) => { if (!e.ctrlKey) overscrollPane(e.deltaY * [1, 16, e.currentTarget.clientHeight][e.deltaMode]); }, { passive: true });
 $("terminal-scroll").addEventListener("touchstart", (e) => { touchY = e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
 // A second finger drops the baseline, so the move after a pinch starts a new one.

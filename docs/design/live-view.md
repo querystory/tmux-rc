@@ -153,6 +153,48 @@ that pane. The resistance (160px) means a fling that only reaches the top never 
 pane. Touch uses the same path, because on a phone a fullscreen agent's view is one screen
 and nothing else reaches older output.
 
+## Loading earlier history
+
+The frame carries 200 rows of scrollback because it is resent on every screen change, but
+tmux keeps far more (50,000 rows here). Scrolling up used to stop at the frame's top. Now
+the view fetches older rows in chunks of 500 as you come within a screen of the top and
+puts them above the frame, until it reaches tmux's oldest row and says "Start of history".
+
+**Rows are addressed by absolute index from the oldest row tmux keeps.** tmux's own row
+numbers count from the screen, so the same number names a different row after every line
+of output, and a cached chunk would drift. Counting from the oldest row instead, new
+output only adds rows below, so chunks already fetched stay valid with no refetching and
+no reconciling. Each frame states the absolute index of its first row, and the client asks
+for "the 500 rows before row N". That leaves two windows to get right:
+
+- *Between computing a range and capturing it, output can arrive.* The translation from
+  absolute to tmux rows happens inside tmux (`run-shell -C` expands the history size in the
+  same command that captures, and reports the size in the same queue), so no output can
+  land in between. Doing the arithmetic in Python would need a retry loop on busy panes.
+- *Some events do renumber rows*: trimming at the history limit, clear-history, and a
+  reflow on a width change. All but the reflow move the frame's first row back, and the
+  frame reports the pane width, so the client drops what it holds when either happens.
+  Width and first row are part of the frame's identity hash, so a reflow that leaves the
+  joined text unchanged still reaches the client.
+
+**The gap.** While you read history, output moves the frame's first row down, past rows the
+client never fetched. It fetches that gap and places it at the end of the held rows, which
+is exactly where the frame showed them, so even a row you were reading inside the frame
+stays put. While you follow the tail the gap is left for later, so a streaming pane costs
+no extra requests; it is filled as soon as you scroll up. The browser's own scroll
+anchoring is off for the terminal: Chrome would pin a frame row and undo that placement,
+and older Safari has none, so the client holds the view itself, by measuring how far the content
+moved rather than predicting it.
+
+**On the alternate screen the frame reports nothing earlier.** The history above a
+fullscreen app belongs to whatever ran before it; scrolling up there should reach the app's
+transcript (the wheel, above). Inline apps get tmux history first, and the wheel only once
+there is nothing earlier to load.
+
+Rejected: a bigger frame (resent on every change, and still a cutoff), tmux copy mode
+(freezes the real pane), and counting rows from the bottom with client-side bookkeeping
+of how much output arrived (it needs the same history size, read less atomically).
+
 ## Rejected alternatives
 
 - **Flat client polling at 500ms.** Simplest, but 2 req/s per viewer through the tunnel

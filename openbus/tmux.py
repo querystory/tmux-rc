@@ -663,6 +663,10 @@ DIM_OPEN, DIM_CLOSE = "⟪dim⟫", "⟪/dim⟫"
 # C0 record/unit separators are inserted after capture, not terminal cells:
 # a pane printing the readable label cannot impersonate this capture boundary.
 VISIBLE_SCREEN = "\x1e[visible screen]\x1f"
+# History rows a capture reaches above the screen by default: enough for the parser and
+# the live frame, small enough to resend on every screen change. The live view pages
+# further back on demand (capture_history).
+LIVE_ROWS = 200
 # A faint run sitting right after a prompt glyph in an EMPTY input box is the agent's
 # greyed suggestion text (a placeholder) — categorically NOT the user's typed input,
 # which renders near-white. Marking it distinctly stops every LLM path from reading the
@@ -787,25 +791,17 @@ def _mark_dim(text: str) -> str:
     return s
 
 
-def capture_pane(
-    pane_id: str, lines: int = 200, mark_dim: bool = False, keep_colors: bool = False
-) -> str:
+def capture_pane(pane_id: str, lines: int = LIVE_ROWS, mark_dim: bool = False) -> str:
     """Current visible text of a pane, most recent `lines` rows. `-p` prints to
     stdout, `-J` joins wrapped lines so long lines aren't split mid-word, `-e` keeps
     escape sequences so OSC 8 hyperlinks can be materialized before the rest are
-    stripped. Two independent, orthogonal flags on that stripped-by-default output:
-
-      - `mark_dim` (LLM-bound captures): label the history/viewport boundary and
-        re-encode faint/gray runs as ⟪dim⟫ markers before stripping colors.
-      - `keep_colors` (live view): skip the strip entirely and return the raw SGR
-        runs, which the client renders as colored spans (docs/design/live-view.md).
-
-    The live path keeps colors and does NOT mark dim (the client renders color itself);
-    the parser path marks dim and strips. Phone-facing snapshots use neither."""
+    stripped. `mark_dim` (LLM-bound captures) labels the history/viewport boundary and
+    re-encodes faint/gray runs as ⟪dim⟫ markers before stripping colors; phone-facing
+    snapshots skip it. The live view keeps colors instead: see capture_live."""
     capture = ["capture-pane", "-p", "-J", "-e", "-t", pane_id]
     nonce = os.urandom(16).hex()  # tmux <3.5 vis-escapes C0 in display-message.
     args = [*capture, "-S", f"-{lines}"]
-    if mark_dim and not keep_colors:
+    if mark_dim:
         # Split in tmux's physical row coordinates BEFORE -J joins wrapped rows.
         # One command queue captures both regions; no second-process resize race.
         # -E -1 with no history clamps to row zero, so skip that capture entirely.
@@ -815,8 +811,6 @@ def capture_pane(
                 ";", *capture, "-S", "0",
                 ";", "display-message", "-p", "-t", pane_id, "#{e|-|:#{cursor_y},#{pane_height}}"]
     out = _materialize_links(_run(args)).replace(nonce, VISIBLE_SCREEN, 1)
-    if keep_colors:
-        return out.rstrip("\n")  # live view: raw SGR, client colorizes
     tail = ""
     if mark_dim:
         # The cursor on a blank row below all output ends the text in one empty row, so
@@ -825,6 +819,62 @@ def capture_pane(
         tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
         out = _mark_placeholder(_mark_dim(out))
     return _ANSI.sub("", out).rstrip("\n") + tail
+
+
+_PANE_ID = re.compile(r"%[0-9]+")
+
+
+def capture_rows(pane_id: str, start: str, end: str = "") -> tuple[str, int, int, int]:
+    """Colored rows (raw SGR, OSC 8 links materialized) from tmux row `start` to `end`
+    (0 is the screen's first row, negative is history; either may be a tmux format
+    expression), with the pane's history size, width and alternate-screen flag.
+
+    run-shell -C expands the formats and runs both commands in one queue, so no output can
+    land between working out the range, capturing it and reading the size. That is what
+    lets a client address history by absolute row (see capture_history). The pane id is
+    spliced into a command string tmux parses, so anything but a pane id is refused (as a
+    missing pane: the same 404 the callers already give)."""
+    if not _PANE_ID.fullmatch(pane_id):
+        raise subprocess.CalledProcessError(1, ["capture-pane", "-t", pane_id])
+    rows = f"-S {start}" + (f" -E {end}" if end else "")
+    meta = "'#{history_size} #{pane_width} #{alternate_on}'"
+    both = f"capture-pane -p -J -e -t {pane_id} {rows} ; display-message -p -t {pane_id} {meta}"
+    out = _materialize_links(_run(["run-shell", "-C", "-t", pane_id, both]))
+    text, _, meta = out.removesuffix("\n").rpartition("\n")
+    size, width, alt = map(int, meta.split())
+    return text, size, width, alt
+
+
+def capture_live(pane_id: str) -> tuple[str, int, int]:
+    """The live view's frame (docs/design/live-view.md): the screen plus LIVE_ROWS of
+    history, raw SGR for the client to colorize, trailing blank rows dropped. Also the
+    absolute row its first line is (0 = the oldest history row kept), which is where the
+    client pages back from, and the pane width, since a reflow renumbers every row.
+
+    On the alternate screen the history above belongs to whatever ran before the app, and
+    scrolling up past the top reaches the app's own history instead (the wheel), so the
+    frame then reports top 0: nothing earlier to load."""
+    text, size, width, alt = capture_rows(pane_id, f"-{LIVE_ROWS}")
+    return text.rstrip("\n"), 0 if alt else max(0, size - LIVE_ROWS), width
+
+
+def frame_id(text: str, top: int, width: int) -> str:
+    """The live frame's identity: what the client holds, and what a click must still match.
+    The geometry is in it because a reflow can renumber history rows while the joined text
+    stays the same, and the client must hear of that to drop the rows it holds."""
+    return hashlib.md5(f"{top} {width}\n{text}".encode()).hexdigest()
+
+
+def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int]:
+    """Rows [before - lines, before) by absolute row, and the first one's index. Counting
+    from the oldest row means new output, which only adds rows at the bottom, never moves
+    a row a client already holds, so its cached chunks stay valid. Blank rows are content
+    here (they sit between output), so nothing is stripped."""
+    start = max(0, before - lines)
+    if start >= before:
+        return "", start
+    row = "#{{e|-|:{},#{{history_size}}}}".format
+    return capture_rows(pane_id, row(start), row(before - 1))[0], start
 
 
 # tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a
@@ -1120,7 +1170,7 @@ def click(pane_id: str, from_bottom: int, col: int, *,
 
     The client counts lines from the BOTTOM because that is the one edge its frame
     shares with the screen: the frame starts somewhere in history and loses trailing
-    blank rows to the rstrip. Capturing the visible screen through the same capture_pane
+    blank rows to the rstrip. Capturing the visible screen through the same capture_live
     path and counting up from its last line puts the row in screen coordinates without
     the live stream having to carry any geometry. Reject wrapped screens: the joined
     capture loses their physical row boundaries, so guessing could click another action.
@@ -1136,8 +1186,8 @@ def click(pane_id: str, from_bottom: int, col: int, *,
         ]).split()
         if sgr != "1" or col > int(width):
             return False
-        frame = capture_pane(pane_id, keep_colors=True)
-        if hashlib.md5(frame.encode()).hexdigest() != expected_frame:
+        frame, top, frame_width = capture_live(pane_id)
+        if frame_id(frame, top, frame_width) != expected_frame:
             return False
         # Validate physical geometry against the exact visible suffix of the fresh
         # joined frame. Wrapped scrollback is irrelevant; a wrapped or changed screen

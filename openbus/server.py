@@ -29,7 +29,7 @@ import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
@@ -65,7 +65,7 @@ if os.environ.get("TMUXRC_PREFER_IPV4", "1") != "0":
         _getaddrinfo(*a, **kw), key=lambda info: info[0] != socket.AF_INET
     )
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
+from fastapi import FastAPI, HTTPException, Query, Request, UploadFile  # noqa: E402
 from fastapi.responses import (  # noqa: E402
     HTMLResponse,
     PlainTextResponse,
@@ -938,7 +938,7 @@ async def live_frame(
     stamped = False
     while True:
         try:
-            text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
+            text, top, width = await asyncio.to_thread(tmux.capture_live, pane_id)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
         # Presence ONCE per round, on the FIRST successful capture: a viewer of a live
@@ -949,8 +949,7 @@ async def live_frame(
         if not stamped:
             _note_live_poll(pane_id)
             stamped = True
-        data = text.encode()  # encode once — reused for the hash and the byte count
-        h = hashlib.md5(data).hexdigest()  # full digest: a truncated hash could collide
+        h = tmux.frame_id(text, top, width)  # full digest: a truncated hash could collide
         # a changed frame onto the client's hash and stall the stream
         changed = h != frame
         if changed or time.monotonic() >= deadline:
@@ -960,11 +959,31 @@ async def live_frame(
                 session,
                 time.monotonic() - started,
                 changed,
-                len(data) if changed else None,
+                len(text.encode()) if changed else None,
             )
             # changed ⇒ send the new colored frame; else unchanged, client re-holds.
-            return {"frame": h, "text": text} if changed else {"frame": h}
+            if not changed:
+                return {"frame": h}
+            return {"frame": h, "text": text, "top": top, "width": width}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
+
+
+# Older history, on demand (docs/design/live-view.md "Loading earlier history"). A request
+# is capped so a scroll to the top can't ask tmux for a 50,000-row capture in one go.
+HISTORY_MAX_LINES = 1000
+
+
+@app.get("/api/panes/{pane_id}/history")
+async def pane_history(pane_id: str, before: Annotated[int, Query(ge=0, le=2**31)],
+                       lines: Annotated[int, Query(ge=1, le=HISTORY_MAX_LINES)] = 500):
+    """Colored rows [before - lines, before) by absolute row (0 = the oldest kept), for the
+    live view to prepend above its frame: `before` is the frame's `top`, then each chunk's
+    `start`. Read-only: one capture-pane, never copy mode."""
+    try:
+        text, start = await asyncio.to_thread(tmux.capture_history, pane_id, before, lines)
+    except subprocess.CalledProcessError as e:
+        raise _pane_err(e) from None
+    return {"text": text, "start": start}
 
 
 def _note_live_poll(pane_id: str) -> None:
