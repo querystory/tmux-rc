@@ -294,6 +294,7 @@ _DEFAULT_LAUNCHERS = [
     {"label": "OpenCode", "command": "opencode", "icon": "opencode"},
     {"label": "omp", "command": "omp", "icon": "omp"},
     {"label": "Gemini", "command": "gemini", "icon": "gemini"},
+    {"label": "Antigravity", "command": "agy", "icon": "antigravity"},
     {"label": "Shell", "command": "bash", "icon": "shell"},
 ]
 

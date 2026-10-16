@@ -25,7 +25,7 @@ const has = (map, key) => Object.prototype.hasOwnProperty.call(map, key);
 // omp and OpenCode drive any vendor's model, so their own logo can't say whose is running.
 // The families match how the parsers emit pane.model ("GPT-6.1-Sol", "Claude Opus 5.5",
 // "Opus 4.8"); anything else gets no badge rather than a guess.
-const MULTI_VENDOR = ["omp", "opencode"];
+const MULTI_VENDOR = ["omp", "opencode", "antigravity"];
 const PROVIDERS = [[/\b(claude|opus|sonnet|haiku|fable)\b/i, "Anthropic", "/claude.png"], [/\b(gpt|o\d|codex)/i, "OpenAI", "/openai.svg"], [/\bgemini\b/i, "Google", "/gemini.svg"]];
 export const modelProvider = (pane) => (MULTI_VENDOR.includes(pane.tool) && PROVIDERS.find(([re]) => re.test(pane.model || ""))?.slice(1)) || null;
 // Set a pane's logo and animate it while it works; CSS keys the motion off .working and data-tool.
