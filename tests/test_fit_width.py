@@ -266,3 +266,12 @@ def test_reflow_key_ignores_layout_not_content():
     narrow = "\u256d\u2500\u256e\nthe release\nships on\nthursday\n"
     assert fit.reflow_key(wide) == fit.reflow_key(narrow)
     assert fit.reflow_key(narrow) != fit.reflow_key(narrow + "Ship it now?")
+
+
+def test_a_reflow_ignores_timers_and_scrollback_but_not_news():
+    wide = "\u256d\u2500\u2500\u2500\u256e\nolder output\nthe release ships on thursday\n"
+    narrow = "the release\nships on\nthursday\n"  # the oldest text fell out of the capture
+    assert watcher._reflowed(narrow, wide)
+    # A spinner and timer that moved on while it redrew are churn, not news.
+    assert watcher._reflowed(narrow + "\u2736 Working for 11s", wide + "\u273b Working for 10s")
+    assert not watcher._reflowed(narrow + "Ship it now?", wide)

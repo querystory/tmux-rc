@@ -71,8 +71,9 @@ and content. For a second after a resize that really changed the window's size, 
 change is taken as the redraw, since a look can catch it half done. This matters most when
 the watcher itself gives a window back, because it captures the pane milliseconds later.
 The first look after that second compares the settled screen with the one last read,
-ignoring what a reflow changes (whitespace, and box-drawing rules redrawn to the new
-width). The same content means it was only the reflow: no activity, no parse. Anything
+ignoring what a reflow changes (whitespace, box-drawing rules redrawn to the new width,
+and the oldest text, which can fall out of the capture's fixed row budget) and, as the
+watcher always does, timers and spinners. The same content means it was only the reflow: no activity, no parse. Anything
 new, such as a question that arrived during the redraw, is the app's own and is read as
 usual. So are a screen not yet parsed and a pending question, whose answer is checked
 against the rows on screen. An app that truncates rather than wraps (an ellipsis at the

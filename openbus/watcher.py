@@ -223,6 +223,17 @@ def _fingerprint(text: str) -> str:
     return "\n".join(lines)
 
 
+def _reflowed(text: str, before: str) -> bool:
+    """Is `text` the screen `before`, laid out at another width? Compared as _fingerprint
+    sees them (timers and spinners don't count) over the whole capture: a reflow moves rows
+    between scrollback and the screen, and the capture's fixed row budget can drop the
+    oldest text, so either side may be the other with its oldest text cut off. Anything
+    new lands at the bottom and breaks that."""
+    a, b = (fit.reflow_key(_fingerprint(t.replace(tmux.VISIBLE_SCREEN, "")))
+            for t in (text, before))
+    return a == b or (bool(a and b) and (a.endswith(b) or b.endswith(a)))
+
+
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     """Copy the pane's NAMES, NUMBERS and per-session focus onto a state dict. These
     live outside the captured text — an agent renames the title, tmux rename-window/
@@ -1376,7 +1387,7 @@ class Watcher:
         if phase and parsed is not None and parsed == self._seen_fp.get(pane.id) \
                 and not (self._state.get(pane.id) or {}).get("question"):
             last = (self.snapshots.get(pane.id) or [{"text": ""}])[-1]["text"]
-            if phase == "redraw" or fit.reflow_key(text) == fit.reflow_key(last):
+            if phase == "redraw" or _reflowed(text, last):
                 self._prev_fp[pane.id] = fp
                 moved = False
             else:
