@@ -260,17 +260,15 @@ export function setupSidebar(ctx) {
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
     form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
   }
-  // At a password prompt Reply opens the pane, whose own composer is the password field.
+  // On a phone, or at a password prompt, Reply opens the pane: its composer sits above the
+  // keyboard (and at a password prompt is the password field).
   function openReply(id, secret) {
-    if (secret && id !== ctx.active()) ctx.navigate(id);
+    if ((secret || !ctx.wide()) && id !== ctx.active()) ctx.navigate(id);
     if (id === ctx.active()) { document.getElementById(secret ? "secret" : "reply").focus(); return; } // its own composer is on screen
     replyTo = id;
     if (!drafts.has(id)) drafts.set(id, new Composer(repaint, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
     repaint();
     draft().editor.focus();
-    // A phone's keyboard shrinks the app once it is up: centre the reply in what is left.
-    const show = () => draft()?.editor.closest(".sb-compose")?.scrollIntoView({ block: "center" });
-    window.visualViewport?.addEventListener("resize", show, { once: true }); show();
   }
   // Folded to the rail: every pane the list shows, in its order, each with its state's dot
   // (and, with several accounts, its account's); hovering one shows its card.
