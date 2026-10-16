@@ -31,8 +31,8 @@ VIEWPORT, THUMB = (1280, 800), (480, 300)
 _SHOOTABLE = {".html", ".htm", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 _lock = threading.Lock()
 _pending: list[tuple[Path, str, dict]] = []
-_tried: set[tuple[str, float]] = set()  # folder versions queued
-_done: set[tuple[str, float]] = set()  # and worked
+_tried: set[tuple] = set()  # folder versions queued
+_done: set[tuple] = set()  # and worked
 _worker: threading.Thread | None = None
 
 
@@ -45,6 +45,12 @@ def browser() -> str | None:
     root = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or Path.home() / ".cache/ms-playwright")
     found = sorted(root.glob("chromium_headless_shell-*/*/chrome-headless-shell"))
     return str(found[-1]) if found else None
+
+
+def _version(item: dict) -> tuple:
+    """A folder's version: the folder itself (a replacement is new even with old mtimes)
+    and its newest file."""
+    return item["name"], item["inode"], item["updated"]
 
 
 def stale(item: dict) -> bool:
@@ -60,7 +66,7 @@ def queue(root: Path, listed: list[dict], describe: bool = True) -> None:
     can_shoot = browser() is not None
     with _lock:
         for i in listed:
-            key = (i["name"], i["updated"])
+            key = _version(i)
             if key not in _tried and (stale(i) or (describe and not i["description"])):
                 _tried.add(key)
                 _pending.append(i | {"describe": describe})
@@ -88,7 +94,7 @@ def _work(root: Path) -> None:
                     logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
                                    exc_info=True)
             with _lock:
-                _done.add((item["name"], item["updated"]))
+                _done.add(_version(item))
 
 
 class _Static(SimpleHTTPRequestHandler):
@@ -131,7 +137,7 @@ def serving(root: Path):
 
 
 def _thumbnail(root: Path, url: str, item: dict) -> None:
-    if stale(item) and (item["name"], item["updated"]) not in _done:  # once per version, even
+    if stale(item) and _version(item) not in _done:  # once per version, even
         # when the description is asked again
         shoot(url, root / item["name"] / "thumb.webp", root, item["updated"])
 
@@ -141,7 +147,7 @@ def _description(root: Path, _url: str, item: dict) -> None:
     if item["describe"] and not item["description"] and not describe(
             folder / "meta.json", item["page"], item["title"], root) and llm.backing_off():
         with _lock:  # the model is out, not the page at fault: ask again later
-            _tried.discard((item["name"], item["updated"]))
+            _tried.discard(_version(item))
 
 
 def _replace(path: Path, root: Path, write) -> None:

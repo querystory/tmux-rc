@@ -178,6 +178,15 @@ def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
             worker.join()
     assert shots == ["pending", "failed"]  # what the card says meanwhile; the shot made none
     assert [what for what, _ in done] == ["shot", "said"] and done[0][1].endswith("/p/")
+    folder = tmp_path / "p"  # replaced by a copy with the same mtimes: a new folder all the same
+    folder.rename(tmp_path / "old")
+    _page(tmp_path)
+    (tmp_path / "old" / "index.html").unlink()
+    (tmp_path / "old").rmdir()
+    S.queue(tmp_path, scratch.items(tmp_path))
+    while (worker := S._worker) is not None:
+        worker.join()
+    assert len(done) == 4
     S.queue(tmp_path, scratch.items(tmp_path), describe=False)
     assert S._worker is None  # nothing new to do
 
