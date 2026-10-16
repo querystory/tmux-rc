@@ -205,8 +205,10 @@ finish", even while some still run), CI, a review, a deploy, a poll or sleep loo
 
 "question": the yellow card, for something the user answers in this pane: a dialog, a
 prompt awaiting typed input, or the agent's ask. Its options become one-tap buttons that
-type into the pane, so a wait for a step done elsewhere (finishing a sign-in in the
-browser) has no question: the headline names it and its URL goes in "links". A settings panel the user
+type into the pane, so a wait for a step done elsewhere has no question. A program that
+printed "Opening a link in your default browser…" or "Waiting for the browser…" waits
+for the user to finish signing in there: report it waiting on the user with no question,
+name it in the headline, and put its URL in "links". A settings panel the user
 opened, an answered omp Ask receipt, and omp's right-aligned session title are not
 questions, though they show rows or a ❯ cursor: nothing there waits for an answer, and a
 Needs-you push would ping the user about a menu they are looking at themselves. When
@@ -223,11 +225,14 @@ headline names.
 - "answer_style" says how a tap answers. "menu": a dialog the tool holds open whose
   option rows, below its question, show their own digit (1. 2. 3.), answered with one
   keystroke; Claude Code's permission box ("❯ 1. Yes / 2. Yes, and don't ask again / 3.
-  No") is a menu, its ❯ notwithstanding: digits decide, so a dialog whose rows show
-  digits is a menu even with a ❯ cursor and an arrow-key footer. "cursor": a held dialog or picker whose rows carry
-  no digits, moved with arrows and committed with Enter (a digitless "❯ No / Yes"
+  No") is a menu, its ❯ notwithstanding. Digits decide: a dialog whose rows show digits
+  is a menu even when it also has a ❯ cursor and a "↑/↓ to navigate" footer, as Claude
+  Code's numbered questions do. "cursor": only a held dialog or picker whose rows carry no
+  digits at all, moved with arrows and committed with Enter (a digitless "❯ No / Yes"
   permission box, /resume's session picker, model and theme pickers); a typed digit or
-  label would land in its search box. "text": a typed reply, for a question in the agent's
+  label would land in its search box. Claude Code's /config settings panel is neither: it
+  is a page of settings the user opened to browse, with tabs and no question at its top,
+  so it gets no question. "text": a typed reply, for a question in the agent's
   prose or a prompt awaiting free text; the phone types the chosen option and presses
   Enter. A numbered list in the agent's own message above its question is content, not a
   menu: that question is "text", and the rows it names go in "items".
@@ -242,10 +247,11 @@ headline names.
 - "approval": true when the prompt asks permission for an action the agent wants to take
   (run a command, edit files, fetch a URL); the card then restates what approving does.
   False for a choice between alternatives ("Which environment?").
-- "items": when the question names rows of a list above it ("Want me to do 1 now and
-  prepare 2?", "Go with A or B?"), those rows, each quoted as shown: its label and its
-  first sentence ("1. Prune container images older than 14 days."). Only the rows it
-  names, so the card says what 1 and 2 are.
+- "items": when the question names rows of a list above it by number or letter ("Want me
+  to do 1 now and prepare 2?", "Go with A or B?"), exactly those rows, each quoted as
+  shown: its label and its first sentence ("1. Prune container images older than 14
+  days."). "Do 1 now and prepare 2" names rows 1 and 2, so a row 3 it never mentions
+  stays out.
 - "subject": with "items", the heading or lead-in line just above that list, quoted as
   shown, which says what is being decided ("Two ways to fix the webhook timeouts:",
   "Session store for the admin console").

@@ -807,7 +807,8 @@ def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
     # Fixed chrome read as facts, each saying what it means, so the model reads them first.
     if mode := claude_mode(visible):
         context += f"; Claude Code's status line shows its mode: '{mode}'" + (
-            " (it ends a turn only when it is done or needs the user)" * (mode == "auto"))
+            " (it ends a turn only when it is done or needs the user, so a finished turn"
+            " that ends asking the user something waits on them)" * (mode == "auto"))
     if host_tool == "claude" or mode:
         *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
         if turn:
