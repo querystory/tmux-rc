@@ -76,6 +76,8 @@ const LUCIDE = {
   cursor: '<path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4v-1M7 2h1a4 4 0 0 1 4 4v1"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  panelRightClose: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18M8 9l3 3-3 3"/>',
+  panelRightOpen: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18M10 15l-3-3 3-3"/>',
   dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
@@ -115,6 +117,11 @@ const WIDE = matchMedia("(min-width: 1100px)");
 // the focus layout shows. "focus" is what the Overview choice was saved as before the tab was.
 let reviewLayout = "auto";
 try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "summary", "terminal"].includes(saved)) reviewLayout = saved; else if (saved === "focus") reviewLayout = "summary"; } catch {}
+// Folding the side-by-side overview to a strip is a view of that layout, not a layout of its
+// own: the picker and Auto still resolve to "side", so nothing restarts the streams (the
+// terminal is captured at tmux's size, not ours) and the overview stays current underneath.
+let overviewFolded = false;
+try { overviewFolded = localStorage.getItem("tmuxrc-overview-folded") === "on"; } catch {}
 const focusChoice = () => ["summary", "terminal"].includes(reviewLayout);
 // The tab a pane opens on when its URL names none: the chosen one, so it survives pane switches.
 const defaultView = () => WIDE.matches && reviewLayout === "terminal" ? "terminal" : "summary";
@@ -650,6 +657,11 @@ reviewDivider.onkeydown = (e) => {
   e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
 };
 reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ? 360 : 280);
+$("overview-toggle").onclick = () => {
+  overviewFolded = !overviewFolded;
+  try { localStorage.setItem("tmuxrc-overview-folded", overviewFolded ? "on" : "off"); } catch {}
+  render();
+};
 
 // The fleet chart docks under the pane on a wide screen, behind a seam: drag it to any
 // height and release snaps to strip, medium or tall; a double-click or the chevron folds
@@ -855,6 +867,12 @@ function render() {
     button.setAttribute("aria-pressed", String(button.dataset.view === view));
   });
   show("review-divider", reviewing());
+  const toggle = $("overview-toggle");
+  $("detail").toggleAttribute("data-folded", overviewFolded);
+  show("overview-toggle", effectiveLayout() === "side");
+  toggle.setAttribute("aria-expanded", String(!overviewFolded));
+  toggle.title = toggle.ariaLabel = overviewFolded ? "Show overview" : "Hide overview";
+  html(toggle, licon(overviewFolded ? "panelRightOpen" : "panelRightClose", 18));
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
   if (wide) sizeFleet();
