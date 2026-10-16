@@ -22,7 +22,7 @@ const SHOTS = [
   ["website-voice-phone", PHONE, "light", "", voice],
   ["website-usage", WIDE, "light", "#pane=%259", undefined, "#usage"],
   ["website-dashboard", WIDE, "light", "#view=dashboard"],
-  ["website-atlas", WIDE, "light", "#view=dashboard", (page) => page.locator(".atlas-map").scrollIntoViewIfNeeded()],
+  ["website-atlas", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-layout-menu", WIDE, "light", "#pane=%259", (page) => page.click("#review-layout-picker summary")],

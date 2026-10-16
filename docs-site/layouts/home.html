@@ -113,8 +113,8 @@
       <img src="{{ "img/website-dashboard.png" | relURL }}" width="2880" height="1800" alt="Activity dashboard with stacked state history, a moving average, a goal line, and charts grouped by session" loading="lazy">
     </article>
     <article class="feature-detail" id="session-atlas">
-      <div><p class="eyebrow">A MAP OF YOUR WHOLE FLEET</p><h2>Find every pane at a glance.</h2><p>The session atlas gives each tmux session its own space, with a tile for every pane. State colors and agent icons help you spot what’s working and what needs attention across a large fleet.</p><ul><li>See panes grouped spatially by their tmux session.</li><li>Filter by session or agent tool.</li><li>Choose a pane to open its live terminal and overview.</li></ul><a href="{{ "documentation/" | relURL }}">Explore the docs <span aria-hidden="true">→</span></a></div>
-      <img src="{{ "img/website-atlas.png" | relURL }}" width="2880" height="1800" alt="Spatial session atlas showing the fictional fleet as groups of named, state-colored pane tiles" loading="lazy">
+      <div><p class="eyebrow">A MAP OF YOUR WHOLE FLEET</p><h2>Find every pane at a glance.</h2><p>The Sessions card gives each tmux session a card of its own: how many of its panes are running, its activity over the past week, and a tile for every pane with its agent and title. A ring marks each pane that’s working, so you can spot what’s moving and what needs you across a large fleet.</p><ul><li>See each session’s running count, and who needs you, in its header.</li><li>Compare sessions’ activity on one shared scale.</li><li>Choose a pane’s tile to open its live terminal and overview.</li></ul><a href="{{ "documentation/" | relURL }}">Explore the docs <span aria-hidden="true">→</span></a></div>
+      <img src="{{ "img/website-atlas.png" | relURL }}" width="2880" height="1800" alt="Sessions card with one card per fictional tmux session, each showing its running count, a week of activity, and a tile for every pane with its agent icon and title" loading="lazy">
     </article>
     <article class="feature-detail" id="voice">
       <div><p class="eyebrow">TALK, THEN KEEP GOING</p><h2>A conversation with your fleet.</h2><p>Use text chat or an active voice session from desktop or phone. Ask what your agents are doing, relay an instruction, and hear a follow-up when the work you directed changes.</p><ul><li>“Which agents need me?” — get a fleet update.</li><li>“Show me e2e triage.” — get an Open button.</li><li>“Tell it to rerun with tracing.” — send an instruction.</li><li>“Press Escape in that pane.” — send a control key.</li><li>“Resume the checkout session.” — find and resume earlier work when session history is installed.</li></ul><p class="feature-note">Chat offers pane-changing actions for approval. Voice follows your spoken instructions and reports back; routine fleet updates stay quiet.</p><a href="{{ "design/live-mode/" | relURL }}">Voice and chat setup <span aria-hidden="true">→</span></a></div>
@@ -124,6 +124,8 @@
 
   <section class="docs-entry wrap"><div><p class="eyebrow">GO DEEPER</p><h2>The docs live here, too.</h2><p>Setup, remote access, architecture, and the decisions behind the project.</p></div><a class="button" href="{{ "documentation/" | relURL }}">Browse documentation <span aria-hidden="true">→</span></a></section>
 </main>
+<!-- A screenshot opened full size (landing.js): they are shot at 2x and shown far smaller. -->
+<dialog class="zoom" id="zoom"><button class="zoom-close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><img alt=""></dialog>
 <footer class="wrap"><a class="brand" href="{{ .Site.Home.RelPermalink }}">tmux-rc</a><p>Open source · MIT · Your existing tmux sessions</p><a href="https://github.com/querystory/tmux-rc">GitHub <span aria-hidden="true">↗</span></a></footer>
 </body>
 </html>
