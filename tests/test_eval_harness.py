@@ -117,6 +117,16 @@ def test_links_require_each_expected_url_whole():
         assert not score_structured(malformed, want)[0]
 
 
+def test_question_link_is_pinned_exactly_where_a_sample_names_it():
+    url = "https://auth.example.dev/approve?state=abc"
+    want = {"question": {"answer_style": "text", "link": url}}
+    assert score_structured({"question": {"answer_style": "text", "link": url}}, want)[0]
+    for got in (None, url[:-3]):
+        assert not score_structured({"question": {"answer_style": "text", "link": got}}, want)[0]
+    assert score_structured({"question": {"answer_style": "text", "link": url}},
+                            {"question": {"answer_style": "text"}})[0]
+
+
 def test_copyable_texts_pin_the_exact_payload():
     want = {"copyables": True, "copyable_texts": ["a\n  b"]}
     assert score_structured({"copyables": [{"text": "a\n  b"}]}, want)[0]

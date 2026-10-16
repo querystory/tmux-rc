@@ -177,7 +177,8 @@ def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     reads around a menu's prompt), `items` (the list rows a typed question names) and
     `subject` (the paragraph leading into them) are pinned too. The model quotes items and
     subject, so items are scored by the labels they lead with ("1", "B") and subject by its
-    presence; `context` is read by code and is exact. An `ask` pinned null asserts a menu
+    presence; `context` is read by code and is exact, and so is `link` (the card's Open
+    link button needs the very href offered in links). An `ask` pinned null asserts a menu
     is NOT restated (a present one is left to the judge)."""
     if field is None:
         return None
@@ -237,7 +238,7 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
     extra = tuple(k for k in ("selected", "keymap", "context", "items",
-                              "subject", "ask")  # ask: only its absence
+                              "subject", "link", "ask")  # ask: only its absence
                   if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
