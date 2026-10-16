@@ -225,13 +225,19 @@ def _fingerprint(text: str) -> str:
 
 def _reflowed(text: str, before: str) -> bool:
     """Is `text` the screen `before`, laid out at another width? Compared as _fingerprint
-    sees them (timers and spinners don't count) over the whole capture: a reflow moves rows
-    between scrollback and the screen, and the capture's fixed row budget can drop the
-    oldest text, so either side may be the other with its oldest text cut off. Anything
-    new lands at the bottom and breaks that."""
-    a, b = (fit.reflow_key(_fingerprint(t.replace(tmux.VISIBLE_SCREEN, "")))
-            for t in (text, before))
-    return a == b or (bool(a and b) and (a.endswith(b) or b.endswith(a)))
+    sees them (timers and spinners don't count) over the whole capture, since a reflow
+    moves rows between scrollback and the screen. The capture's fixed row budget can also
+    drop the oldest scrollback, so one side may be the other minus text from the top of
+    its history; any other difference, on screen above an unchanged footer included, is
+    new."""
+    def key(t: str) -> str:
+        return fit.reflow_key(_fingerprint(t.replace(tmux.VISIBLE_SCREEN, "")))
+
+    (short, _), (long, long_text) = sorted([(key(text), text), (key(before), before)],
+                                           key=lambda k: len(k[0]))
+    history = long_text.split(tmux.VISIBLE_SCREEN, 1)[0] if tmux.VISIBLE_SCREEN in long_text else ""
+    return short == long or (bool(short) and long.endswith(short)
+                             and len(long) - len(short) <= len(key(history)))
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
