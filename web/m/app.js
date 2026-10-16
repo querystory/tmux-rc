@@ -1162,13 +1162,17 @@ async function loadEarlier() {
   try {
     for (;;) {
       const want = latestGeometry[0], gap = heldEnd < want && !following() && !captureDirty;
-      if (!gap && !(h.top > 0 && box.scrollTop < box.clientHeight)) return;
+      // Older rows only on the way up: near the top and off the tail, or a gesture up at the
+      // top of a frame too short to scroll (a few long wrapped lines), one chunk per gesture.
+      if (!gap && !(h.top > 0 && box.scrollTop < box.clientHeight && (h.asked || !following()))) return;
       const unseen = heldEnd < shownTop; // 1000: the daemon's cap
       const before = gap ? Math.min(want, heldEnd + 1000, unseen ? shownTop : Infinity) : h.top;
       if (!gap) holdView(() => { h.loading = true; paintEarlierCue(); });
-      const query = new URLSearchParams({ before, lines: gap ? before - heldEnd : EARLIER_LINES });
+      const query = new URLSearchParams({ before, lines: gap ? before - heldEnd : EARLIER_LINES }), shown = shownTop;
       const { text: rows, start, wraps } = await request(`${paneUrl(id, "history")}?${query}`);
       if (h !== earlier) return;
+      // A frame painted meanwhile moved the split this chunk was asked by: start the gap over.
+      if (gap && shownTop !== shown) { held = []; gone = null; heldEnd = h.end; continue; }
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;
       const join = edge && (gap ? edge.wraps : wraps) && !selected(edge);
       const raw = !join ? rows : gap ? joinWrapped(edge.raw, rows) : joinWrapped(rows, edge.raw);
@@ -1178,7 +1182,7 @@ async function loadEarlier() {
       nodes[0].raw = raw.slice(0, raw.indexOf("\n") >>> 0);
       Object.assign(nodes.at(-1), { raw: lastLine(raw), wraps: gap || !join ? wraps : edge.wraps });
       if (!gap) {
-        holdView(() => { if (join) edge.remove(); pre.prepend(...nodes); h.top = start; h.loading = false; paintEarlierCue(); });
+        holdView(() => { if (join) edge.remove(); pre.prepend(...nodes); h.top = start; h.loading = h.asked = false; paintEarlierCue(); });
       } else if (unseen) {
         holdView(() => { if (join) edge.remove(); pre.append(...nodes); h.end = heldEnd = before; }, true);
       } else {
@@ -1761,6 +1765,7 @@ function wheelHome(id) {
 }
 function overscrollPane(dy) {
   const box = $("terminal-scroll"), pane = panes.find((p) => p.pane_id === active);
+  if (dy < 0 && box.scrollTop === 0 && earlier.top > 0) { earlier.asked = true; loadEarlier(); }
   if (wheel.off || !dy || !WHEEL_TOOLS.has(pane?.tool) || (dy < 0 && earlier.top > 0)) return; // tmux history first
   if (dy < 0 ? box.scrollTop > 0 : box.scrollTop + box.clientHeight < box.scrollHeight - 1) return;
   wheelQueued += overscroll(wheel, dy, performance.now());

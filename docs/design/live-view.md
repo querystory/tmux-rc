@@ -159,6 +159,9 @@ The frame carries 200 rows of scrollback because it is resent on every screen ch
 tmux keeps far more (50,000 rows here). Scrolling up used to stop at the frame's top. Now
 the view fetches older rows in chunks of 500 as you come within a screen of the top and
 puts them above the frame, until it reaches tmux's oldest row and says "Start of history".
+It loads only on the way up: off the tail, or, when the frame is too short to scroll (a
+few long wrapped lines), one chunk per upward gesture at the top. A short frame would
+otherwise sit "near the top" forever and pull in all of history by itself.
 
 **Rows are addressed by absolute index from the oldest row tmux keeps.** tmux's own row
 numbers count from the screen, so the same number names a different row after every line
@@ -187,7 +190,8 @@ one, while rows above it are on screen nowhere (left while you followed the tail
 skipped by a frame painted after a failed fetch), so they land at once, held above the
 frame if you are reading it. Rows waiting for a frame that a text selection holds back are
 dropped and fetched again, rather than shown twice. A failed fetch paints the frame anyway
-and pauses loading for a few seconds before retrying. While you follow the tail the gap is left for later, so a streaming pane costs
+and pauses loading for a few seconds before retrying. A chunk asked for by a split that a
+newly painted frame has since moved is thrown away and asked for again. While you follow the tail the gap is left for later, so a streaming pane costs
 no extra requests. It is filled as soon as you scroll up. The same applies before any history has loaded: once you leave the
 tail, rows that output scrolls out of the frame come back as a gap. Only a painted frame
 moves the edge (one held back for a text selection is not on screen yet), a frame that
