@@ -151,8 +151,20 @@ Using the built thing surfaced what the mocks could not:
   7-day range (24 hours below that), so the line follows the days within the week rather
   than flattening across it.
 
-Screenshots of the shipped result belong here once the fixture-based screenshot tooling
-lands, so they show the same synthetic fleet as the mocks rather than someone's real panes.
+The fixture-based screenshot tooling has since landed: `make screenshots` shoots the app
+against a synthetic demo fleet (#306), and CI posts screenshot diffs on UI PRs (#311). Shots
+of the shipped result can now show the same invented fleet as the mocks rather than
+someone's real panes, which is how round 4 below was made.
+
+## Round 4: where topics live
+
+The dashboard's word cloud filters the sidebar list from the far side of the screen. Round
+4 holds the shipped sidebar and dashboard fixed and moves the topics: into the sidebar, into
+the search box, as a chip strip, beside the sidebar on the dashboard, as an ultra-wide
+panel, and as a Group by mode. Unlike the earlier rounds, every frame is the shipped UI
+redrawn with the demo fleet, and every frame was measured at five screen sizes rather than
+judged by eye. It also asks how topics are computed, since the shipped words are mostly
+pane states. See [Where topics live, and how they are computed](topics-placement.md).
 
 ## Next time
 
