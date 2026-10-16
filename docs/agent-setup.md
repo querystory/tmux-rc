@@ -17,9 +17,12 @@ The launcher respects Antigravity's configured model. Use `/model` or `agy model
 to see models available to your account before pinning one in `TMUXRC_LAUNCHERS`.
 An unavailable model can fall back to another model in interactive mode.
 
-For fewer approval prompts, choose **proceed-in-sandbox** in `/permissions`.
-Antigravity's settings persist separately from tmux-rc; the launcher does not bypass
-permissions. Agent identification, model badges, activity history, and arrow-driven
+For fewer approval prompts, set `enableTerminalSandbox: true` and
+`toolPermission: "proceed-in-sandbox"` in
+`~/.gemini/antigravity-cli/settings.json` (or launch `agy --sandbox` with that
+permission mode). Both settings are required: the mode only auto-approves commands
+that actually run inside the sandbox. Antigravity's settings persist separately
+from tmux-rc; the launcher does not bypass permissions. Agent identification, model badges, activity history, and arrow-driven
 menu selection recognize Antigravity independently of the model it runs.
 
 ## Why your agent's settings are tmux-rc's business at all
