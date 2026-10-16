@@ -250,8 +250,8 @@ export function setupSidebar(ctx) {
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
       if (o.part === "text") return text(el, o.offer);
-      const label = o.link ? "Open link" : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
-      text(el, label); el.title = o.link ? o.link.text : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
+      const label = o.link ? `${o.link.text || "Open link"} ↗` : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
+      text(el, label); el.title = o.link ? o.link.href : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
       el.classList.toggle("picked", !o.reply && !o.link && o.part !== "copy" && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
