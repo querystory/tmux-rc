@@ -715,7 +715,7 @@ _TRAILING_BLANK = re.compile(r"[ \t]+(?=(?:" + _SGR.pattern + r"|[ \t])*$)")
 
 
 def _cell_width(ch: str) -> int:
-    if unicodedata.combining(ch) or ch in "\u200d\ufe0f":
+    if unicodedata.category(ch) in ("Mn", "Me", "Cf"):  # marks, selectors, joiners
         return 0
     return 2 if unicodedata.east_asian_width(ch) in "WF" else 1
 

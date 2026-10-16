@@ -94,6 +94,7 @@ def test_lookalikes_stay_whole(rows):
     (_link("src/[id].py", "https://example.com/src/%5Bid%5D.py"), 11),
     (f"\x1b[2m{_link('docs', 'https://example.com/docs')}\x1b[0m", 4),
     ("See [docs](https://example.com/docs)", None),  # printed as is, every cell its own
+    ("♥\ufe0e e\u0301 a\u200db", 6),  # a selector, a combining mark and a joiner fill no cells
 ])
 def test_link_rows_split_on_their_screen_column(left, cells):
     rows = list(SCREEN)
