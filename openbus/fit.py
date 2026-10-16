@@ -7,6 +7,7 @@ alone. A fitted window carries the width in @tmuxrc-fit, with "!" when the viewe
 it past an attached terminal, and keeps it after the viewer leaves. It is given back only
 when a terminal attaches to an unforced fit, or the viewer unticks "Fit to my screen"."""
 
+import re
 import subprocess
 import threading
 import time
@@ -16,7 +17,6 @@ from . import tmux
 
 MIN_COLS = 40  # narrower and most TUIs stop laying out sensibly
 MARK = "@tmuxrc-fit"
-SETTLE_SECONDS = 3.0  # a redraw this soon after our own resize is the resize, not the app
 REDRAW_SECONDS = 1.0  # how long an app takes to redraw: looks before then may see it half done
 _SIZE = "#{window_width}x#{window_height}"
 # The pane's window: does the pane fill it, its sessions and every attached session (a
@@ -27,6 +27,7 @@ _FMT = "\t".join(["#{window_panes}", "#{window_zoomed_flag}", "#{pane_active}",
                   "#{S:#{?session_attached,#{session_name}#,,}}", "#{window_width}", _SIZE,
                   f"#{{{MARK}}}", "#{P:#{pane_id} }"])
 
+_REFLOWED = re.compile(r"[\s\u2500-\u259f]+")  # whitespace, box drawing, block elements
 _lock = threading.Lock()  # one read-decide-resize at a time
 _resized: dict[str, float] = {}  # pane -> when we began the last resize of its window
 
@@ -35,21 +36,26 @@ def _run(args: list[str]) -> str:
     return tmux._run(args)  # noqa: SLF001 - via the module, so a swapped-out tmux (demo, tests) holds
 
 
-def just_resized(pane_id: str, looked: float, moved: bool) -> bool:
-    """Is this look's change (`moved`, in a capture finished at `looked`) the app redrawing
-    for our resize, rather than the app doing something? While the app may still be
-    redrawing, every change is the redraw (a look can catch it half done). The first look
-    after that spends the resize: its change, if any, is the finished redraw. A resize
-    begun after the capture finished cannot be in it. Under the lock, so a look taken
-    while a resize lands waits for its token."""
+def just_resized(pane_id: str, looked: float) -> str:
+    """Where a look (its capture finished at `looked`) stands against our last resize of
+    the pane's window: "redraw" while the app may still be redrawing, so the screen can be
+    half done; "settled" for the first look after that, which spends the resize; "" with
+    none pending, or one begun after the capture finished (it cannot be in it). Under the
+    lock, so a look taken while a resize lands waits for its token."""
     with _lock:
         at = _resized.get(pane_id)
         if at is None or looked < at:
-            return False
+            return ""
         if looked - at < REDRAW_SECONDS:
-            return moved
+            return "redraw"
         del _resized[pane_id]
-        return moved and looked - at < SETTLE_SECONDS
+        return "settled"
+
+
+def reflow_key(text: str) -> str:
+    """A screen's content regardless of the width it was laid out at: what a reflow moves
+    around (whitespace) or redraws to a new length (box-drawing rules) is left out."""
+    return _REFLOWED.sub("", tmux.strip_dim(text))
 
 
 def view(pane_id: str, cols: int, force: bool = False) -> bool:

@@ -66,14 +66,17 @@ window whose `window-size` the user set before we ever touched it is never fitte
 itself out at the terminal's width: each resize made an idle pane look busy. The app
 redraws, so the capture changes, which reset the pane's idle clock, stamped it as just
 active (moving it to the top of the list), took a snapshot and spent a parse, an LLM call
-in production. So a resize that really changed the window's size marks each of its panes,
-and the watcher reads changes it sees within a second of the resize (the app may still be
-mid-redraw) and the first change after that as the same screen reflowed: no activity, no
-parse. The look after that second spends the mark, so the next change is the app's own.
-This matters most when the watcher itself gives a window back, since it captures the pane
-milliseconds later and can catch the redraw half done. Everything else is read as usual: a
-screen not yet parsed, and a pending question, whose answer is checked against the rows
-on screen.
+in production. A timer alone cannot tell a reflow from news, so the watcher uses both time
+and content. For a second after a resize that really changed the window's size, every
+change is taken as the redraw, since a look can catch it half done. This matters most when
+the watcher itself gives a window back, because it captures the pane milliseconds later.
+The first look after that second compares the settled screen with the one last read,
+ignoring what a reflow changes (whitespace, and box-drawing rules redrawn to the new
+width). The same content means it was only the reflow: no activity, no parse. Anything
+new, such as a question that arrived during the redraw, is the app's own and is read as
+usual. So are a screen not yet parsed and a pending question, whose answer is checked
+against the rows on screen. An app that truncates rather than wraps (an ellipsis at the
+new width) shows up as new content and costs one parse; that is the safe way to be wrong.
 
 **Reports are POSTs, never part of the live GET.** Folding the report into the live long
 poll would have been free, but a GET that resizes a real terminal breaks the rule the

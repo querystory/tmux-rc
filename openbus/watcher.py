@@ -1359,16 +1359,23 @@ class Watcher:
         # a snapshot every tick and pin idle_seconds at 0, so the pane never aged out of
         # "Recent" for as long as the outage lasted.
         moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
+        # Our own resize (openbus/fit.py) makes the app redraw at the new width: the same
+        # screen, reflowed, is not activity and not worth a parse. While the redraw may be
+        # half done every change is excused; the look after that checks the settled screen
+        # against the one last read, and anything new (a question that arrived meanwhile) is
+        # the app's own. Read as usual: a screen never parsed or still unread, and a pending
+        # question, whose answer is checked against the rows on screen.
+        phase = fit.just_resized(pane.id, looked)
         parsed = self._prev_fp.get(pane.id)
-        if fit.just_resized(pane.id, looked, moved) and parsed is not None \
-                and parsed == self._seen_fp.get(pane.id) \
+        if phase and parsed is not None and parsed == self._seen_fp.get(pane.id) \
                 and not (self._state.get(pane.id) or {}).get("question"):
-            # Our own resize (openbus/fit.py) made the app redraw at the new width: the same
-            # screen, reflowed. Not activity, and not worth a parse. Read as usual: a screen
-            # never parsed or still unread, and a question, whose answer is checked against
-            # the rows on screen.
-            self._prev_fp[pane.id] = fp
-            moved = False
+            last = (self.snapshots.get(pane.id) or [{"text": ""}])[-1]["text"]
+            if phase == "redraw" or fit.reflow_key(text) == fit.reflow_key(last):
+                self._prev_fp[pane.id] = fp
+                moved = False
+            else:
+                self._prev_fp.pop(pane.id)  # changed under the redraw: read it
+                moved = True
         self._seen_fp[pane.id] = fp
         if moved:
             self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN

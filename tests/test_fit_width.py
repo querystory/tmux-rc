@@ -6,10 +6,12 @@ Cleanup kills that socket's panes and nothing else."""
 
 import os
 import shutil
+import signal
 import subprocess
 import time
 import uuid
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -145,14 +147,20 @@ def test_endpoint_audits(pane, monkeypatch):
                       ("fit", "cols=70 force=False", "error: tmux rc 1")]
 
 
-def test_our_resize_is_not_activity(pane, monkeypatch, tmp_path):
-    """An app that lays out at the window's width redraws when we resize it. The watcher
-    must not count that as the pane doing something: no new parse, the idle clock runs on."""
-    app = tmp_path / "app.sh"
-    app.write_text("draw() { clear; printf 'x%.0s' $(seq $(tput cols)); echo; }\n"
-                   "trap draw WINCH; draw; while :; do sleep 1 & wait $!; done\n")
+@pytest.fixture
+def app(pane, monkeypatch, tmp_path):
+    """An app alone in its window that lays out at the window's width, as agent TUIs do (a
+    rule as wide as the screen, text folded to it), redraws on resize, and prints something
+    new on SIGUSR1. Yields a watcher on it, counting parses."""
+    script = tmp_path / "app.sh"
+    script.write_text(
+        "draw() { clear; printf '\u2500%.0s' $(seq $(tput cols)); echo;"
+        " echo 'the release ships on thursday once the checkout service passes its load"
+        " test and the docs are published' | fold -s -w $(tput cols); }\n"
+        "trap draw WINCH; trap 'echo Ship it now?' USR1; draw\n"
+        "while :; do sleep 1 & wait $!; done\n")
     tui = T._run(["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "s:",
-                  f"bash {app}"]).strip()
+                  f"bash {script}"]).strip()
     T._run(["kill-pane", "-t", pane])  # the app's window alone
     parses = []
     real = watcher.classify
@@ -161,29 +169,52 @@ def test_our_resize_is_not_activity(pane, monkeypatch, tmp_path):
     w = watcher.Watcher(target=None, use_llm=False, history=None)
 
     def screen():
-        return T._run(["capture-pane", "-p", "-t", tui]).split("\n")[0]
+        return T._run(["capture-pane", "-p", "-t", tui])
 
     def tick():
         w._tick()
         return next(s for s in w.states if s["pane_id"] == tui)
 
-    while "x" not in screen():
-        pass
-    before = tick()["last_activity_at"]
-    fit.view(tui, 50)
-    while len(screen()) != 50:  # redrawn at the new width
-        pass
-    state = tick()
-    assert len(parses) == 1
-    assert len(w.snapshots[tui]) == 1
-    assert state["last_activity_at"] == before  # not "now": the list doesn't reorder
-    monkeypatch.setattr(fit, "REDRAW_SECONDS", 0)  # the app has had its time to redraw
-    tick()  # this look spends the resize
-    T._run(["resize-window", "-x", "60", "-t", tui])  # so the next change is real
-    while len(screen()) != 60:
+    while "release" not in screen():
         pass
     tick()
-    assert len(parses) == 2
+    return SimpleNamespace(id=tui, screen=screen, tick=tick, parses=parses, w=w)
+
+
+def resize_and_wait(app, cols):
+    fit.view(app.id, cols)
+    while len(app.screen().split("\n")[0]) != cols:  # redrawn at the new width
+        pass
+
+
+def test_our_resize_is_not_activity(app):
+    """No new parse, and the idle clock runs on (the list doesn't reorder it to "now")."""
+    before = app.tick()["last_activity_at"]
+    resize_and_wait(app, 50)
+    assert app.tick()["last_activity_at"] == before  # mid-redraw: excused
+    time.sleep(fit.REDRAW_SECONDS)
+    state = app.tick()  # settled: the same content, reflowed
+    assert (len(app.parses), len(app.w.snapshots[app.id])) == (1, 1)
+    assert state["last_activity_at"] == before
+    T._run(["resize-window", "-x", "60", "-t", app.id])  # not ours: the app's own change
+    while len(app.screen().split("\n")[0]) != 60:
+        pass
+    app.tick()
+    assert len(app.parses) == 2
+
+
+def test_something_new_during_the_redraw_is_still_read(app):
+    before = app.tick()["last_activity_at"]
+    resize_and_wait(app, 50)
+    app.tick()  # mid-redraw: excused
+    os.kill(int(T._run(["display-message", "-p", "-t", app.id, "#{pane_pid}"])), signal.SIGUSR1)
+    while "Ship it now?" not in app.screen():
+        pass
+    app.tick()  # still inside the redraw window: excused too
+    time.sleep(fit.REDRAW_SECONDS)
+    state = app.tick()  # settled, and not just a reflow of what was last read
+    assert len(app.parses) == 2
+    assert state["last_activity_at"] > before
 
 
 def test_a_fit_before_the_first_look_is_read_as_usual(pane, monkeypatch):
@@ -216,18 +247,22 @@ def test_only_a_size_change_arms_the_redraw_hook(pane):
 def test_a_look_finished_before_the_resize_leaves_the_token(pane, monkeypatch):
     before = time.monotonic()
     fit.view(pane, 60)
-    assert not fit.just_resized(pane, before, moved=False)  # the old screen: kept
-    assert fit.just_resized(pane, time.monotonic(), moved=True)  # half redrawn: excused
-    assert fit.just_resized(pane, time.monotonic(), moved=True)  # still redrawing
+    assert fit.just_resized(pane, before) == ""  # the old screen: the token waits
+    assert fit.just_resized(pane, time.monotonic()) == "redraw"  # maybe half drawn
     monkeypatch.setattr(fit, "REDRAW_SECONDS", 0)
-    assert fit.just_resized(pane, time.monotonic(), moved=True)  # the finished redraw: spent
-    assert not fit.just_resized(pane, time.monotonic(), moved=True)  # the next is real
+    assert fit.just_resized(pane, time.monotonic()) == "settled"  # spends it
+    assert fit.just_resized(pane, time.monotonic()) == ""  # the next change is the app's
 
 
-def test_an_unchanged_look_spends_the_token_once_the_app_had_time(pane, monkeypatch):
+def test_the_hook_is_spent_on_the_next_look_even_if_nothing_moved(pane, monkeypatch):
     fit.view(pane, 60)  # `sleep` draws nothing, so later looks see no change
-    assert not fit.just_resized(pane, time.monotonic(), moved=False)
-    assert pane in fit._resized  # too soon: the redraw may still be coming
     monkeypatch.setattr(fit, "REDRAW_SECONDS", 0)
     watcher.Watcher(target=None, use_llm=False, history=None)._tick()
-    assert pane not in fit._resized  # a later change is the app's own
+    assert pane not in fit._resized
+
+
+def test_reflow_key_ignores_layout_not_content():
+    wide = "\u256d\u2500\u2500\u2500\u2500\u256e\nthe release ships on thursday\n"
+    narrow = "\u256d\u2500\u256e\nthe release\nships on\nthursday\n"
+    assert fit.reflow_key(wide) == fit.reflow_key(narrow)
+    assert fit.reflow_key(narrow) != fit.reflow_key(narrow + "Ship it now?")
