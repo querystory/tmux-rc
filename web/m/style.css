@@ -187,9 +187,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #list-nav :is([aria-pressed="true"], #chat.active) { background: var(--accent-bg); color: var(--accent); }
 #list-nav #attention-tab[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
 #list-nav #chat::after { content: attr(aria-label); }
-#list-nav #live-mode { flex: 0 0 52px; height: 52px; align-self: center; margin: 0 4px; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent); }
-#list-nav #live-mode.active { background: var(--red); }
-#list-nav #live-mode svg { width: 26px; height: 26px; }
+#list-nav #live-mode::after { content: "Voice"; }
+#list-nav #live-mode.active { color: var(--red); }
 .nav-icon { position: relative; display: grid; place-items: center; }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
 #list-nav .count { position: absolute; left: calc(50% + 5px); top: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: var(--surface); line-height: 18px; font-weight: 700; text-align: center; }

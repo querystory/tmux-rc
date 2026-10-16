@@ -298,8 +298,8 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     assert "takeOffer" not in app + side
     assert 'show("list-nav", !inPane && !wide)' in app
     # The tab bar hides in a pane, so Chat and the mic move to the header rather than vanish.
-    assert 'const callTo = inPane ? $("settings-open") : $("attention-tab");' in app
-    assert 'callTo.before($("live-mode"), $("chat"))' in app
+    assert 'const callTo = inPane ? $("settings-open") : $("all-tab");' in app
+    assert 'callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"))' in app
     assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app
     assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
     # Every group starts open (Idle too, by the user's call); only a fold the user made persists.

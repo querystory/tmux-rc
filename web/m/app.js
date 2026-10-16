@@ -805,10 +805,11 @@ function render() {
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
-  // A phone's Chat and mic ride its tab bar; a pane hides the bar, so its header takes them.
-  // Moved only when they are elsewhere: a move on every repaint would drop their focus.
-  const callTo = inPane ? $("settings-open") : $("attention-tab");
-  if (!wide && $("chat").nextElementSibling !== callTo) callTo.before($("live-mode"), $("chat"));
+  // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
+  // its header takes them. Moved only when they are elsewhere: a move on every repaint would
+  // drop their focus.
+  const callTo = inPane ? $("settings-open") : $("all-tab");
+  if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
   show("brand", wide || (!inPane && dashboard)); show("list-title", list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
@@ -1474,7 +1475,7 @@ enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
-// The phone's tab bar (Chat and the mic between them are live.js's). The gauge is Dashboard's
+// The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}${id === "attention" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
