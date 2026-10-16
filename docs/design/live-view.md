@@ -177,10 +177,12 @@ for "the 500 rows before row N". That leaves two windows to get right:
   Width and first row are part of the frame's identity hash, so a reflow that leaves the
   joined text unchanged still reaches the client.
 
-**The gap.** While you read history, output moves the frame's first row down, past rows the
-client never fetched. It fetches that gap and places it at the end of the held rows, which
-is exactly where the frame showed them, so even a row you were reading inside the frame
-stays put. While you follow the tail the gap is left for later, so a streaming pane costs
+**The gap.** While you read above the tail, output moves the frame's first row down, past
+rows the client never fetched. The new frame waits while the client fetches that gap. Then
+the gap rows go in at the end of the held rows, exactly where the old frame showed them,
+and the new frame is painted in the same step, so even a row you were reading inside the
+frame never moves, not even for the length of a request. A failed fetch paints the frame
+anyway. While you follow the tail the gap is left for later, so a streaming pane costs
 no extra requests. It is filled as soon as you scroll up. Those rows were never on screen,
 so if you are reading the frame they are held above it, and if you are reading older rows
 they land below you. The same applies before any history has loaded: once you leave the
@@ -195,7 +197,8 @@ moved rather than predicting it.
 **A line tmux wrapped across a chunk's edge** comes back in two pieces, because `-J` joins
 wrapped rows only within one capture. Each chunk says whether its last row wraps on (a
 two-row `-J` probe at the edge, in the same tmux queue), and the client renders the two
-pieces again as one line, so a long URL stays one link. Snapping chunk edges to whole lines
+pieces again as one line, so a long URL stays one link. A held piece inside a text
+selection is left split rather than replaced under the selection. Snapping chunk edges to whole lines
 instead would need per-row wrap flags that tmux does not expose. The frame's own first row
 can still start mid-line, as it always could.
 
