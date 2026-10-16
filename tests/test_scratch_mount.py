@@ -12,6 +12,7 @@ from openbus import server
 server.app.state.watcher = SimpleNamespace(states=[], pane_birth=lambda _: None)
 server.accounts.report = lambda *_: {"profiles": []}  # never this machine's accounts
 server.scratch_sidecars.browser = lambda: None  # nor its browser
+server.agent_history.reconcile = lambda: None  # nor its agent-history index
 c = TestClient(server.app, follow_redirects=False)
 for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/link.txt",
              "/scratch/sub/", "/scratch"):

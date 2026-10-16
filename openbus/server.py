@@ -2003,7 +2003,8 @@ if _scratch_dir:
             Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"],
             WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher),
             lambda listed: scratch_sidecars.queue(Path(_scratch_dir), listed,
-                                                  getattr(watcher, "use_llm", False)))))
+                                                  getattr(watcher, "use_llm", False)),
+            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
 
     _mount_static("/scratch", _scratch_dir)
 

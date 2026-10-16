@@ -31,7 +31,8 @@ VIEWPORT, THUMB = (1280, 800), (480, 300)
 _SHOOTABLE = {".html", ".htm", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 _lock = threading.Lock()
 _pending: list[tuple[Path, str, dict]] = []
-_tried: set[tuple[str, float]] = set()
+_tried: set[tuple[str, float]] = set()  # folder versions queued
+_done: set[tuple[str, float]] = set()  # and worked
 _worker: threading.Thread | None = None
 
 
@@ -56,12 +57,15 @@ def queue(root: Path, listed: list[dict], describe: bool = True) -> None:
     """Hand the listed folders that lack a fresh thumbnail or (with `describe`) a
     description to the worker."""
     global _worker  # noqa: PLW0603 - the one worker
+    can_shoot = browser() is not None
     with _lock:
         for i in listed:
-            if (i["name"], i["updated"]) not in _tried and (
-                    stale(i) or (describe and not i["description"])):
-                _tried.add((i["name"], i["updated"]))
+            key = (i["name"], i["updated"])
+            if key not in _tried and (stale(i) or (describe and not i["description"])):
+                _tried.add(key)
                 _pending.append(i | {"describe": describe})
+            # What a card without a fresh thumbnail shows meanwhile.
+            i["shot"] = stale(i) and ("failed" if key in _done or not can_shoot else "pending")
         if _pending and _worker is None:
             _worker = threading.Thread(target=_work, args=(root,), daemon=True,
                                        name="scratch-sidecars")
@@ -83,6 +87,8 @@ def _work(root: Path) -> None:
                 except Exception:
                     logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
                                    exc_info=True)
+            with _lock:
+                _done.add((item["name"], item["updated"]))
 
 
 class _Static(SimpleHTTPRequestHandler):

@@ -30,30 +30,8 @@ one time it is checked.
 
 ## The gallery
 
-`<your tmux-rc URL>/scratch/` is a gallery of every folder, most recently changed first:
-a thumbnail, its title, a line of description, when it was made and changed, and who made
-it, with a filter box. Tapping the title opens the page; tapping where it was made opens that pane in
-tmux-rc while it is still open. Settings links to it under More.
-
-A folder describes itself in an optional `meta.json` beside its page, which the snippet in
-[Telling agents about it](#telling-agents-about-it) asks agents to write:
-`title`, `description`, `pane` (the agent's `$TMUX_PANE`) and `created` (ISO 8601). Without
-one, the title is the page's own `<title>`, else the folder's name, and the times are its
-files' oldest and newest. A malformed file counts as absent.
-
-tmux-rc adds the rest itself, in the background. If Playwright's headless Chromium is
-installed (`make screenshots` installs it, or `npx playwright install chromium-headless-shell`;
-`TMUXRC_THUMB_BROWSER` names another), it shoots each page into a `thumb.webp` beside
-it, and shoots it again after the page changes. With the parse model configured, a folder
-without a description gets one sentence written into its `meta.json`, marked
-`"generated": ["description"]`. A description already there is never replaced.
-
-Who made a folder comes from that pane, named with its session, window, agent and account
-while it is open. Once the pane is gone, or with no `meta.json`, tmux-rc asks
-[agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history) which
-session, active when the folder appeared, mentioned its path; with no index, it says
-"unknown". That search reads transcripts, so the first visit after a restart can take a
-few seconds; its answers are kept until the next restart.
+`<your tmux-rc URL>/scratch/` lists every folder as a card with a thumbnail, a description
+and who made it. See [Scratch gallery](scratch-gallery.md).
 
 ## What `/scratch/` is for
 
@@ -118,19 +96,8 @@ stops the writes but leaves the last values in place until tmux restarts or you 
 
 It is off by default because it writes to your tmux server's environment, which you may
 manage yourself. The variables only say where scratch is; agents also need to be told what
-to do with it. Paste this into your agent instructions. It is written to be all an agent
-needs, so none has to read tmux-rc's source to work out how scratch behaves:
-
-    If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a built
-    static site, a report, images, a PDF). Write it into a new subfolder, for example
-    $TMUXRC_SCRATCH_DIR/<folder>/index.html, and give the user
-    $TMUXRC_SCRATCH_URL/<folder>/ (or the folder's path if that variable is unset). The
-    public URL sits behind the user's login, so to check the page yourself request
-    $TMUXRC_SCRATCH_LOCAL_URL/<folder>/ instead; a 200 means it is served. Everything in
-    that directory is visible to everyone who can reach tmux-rc: never put secrets or
-    private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or
-    WebSockets, or submit forms, so inline any data a page needs. Beside the page, write
-    meta.json: {"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}.
+to do with it. Paste [the agent snippet](scratch-gallery.md#the-agent-snippet) into your
+agent instructions.
 
 ### One instruction file for every agent
 

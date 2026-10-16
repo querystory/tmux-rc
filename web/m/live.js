@@ -135,7 +135,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
       $("chat").hidden = !(data.live_enabled && chatModels().length) && !run;
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
-      $("scratch").hidden = !data.scratch;
+      $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
   }

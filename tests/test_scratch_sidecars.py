@@ -167,11 +167,16 @@ def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "shoot", lambda url, out, root, at: done.append(("shot", url)))
     monkeypatch.setattr(S, "describe", lambda meta, page, title, root: done.append(("said", title)))
     monkeypatch.setattr(S, "_tried", set())
+    monkeypatch.setattr(S, "_done", set())
+    monkeypatch.setattr(S, "browser", lambda: "/bundled/shell")
     _page(tmp_path)
+    shots = []
     for _ in range(2):
-        S.queue(tmp_path, scratch.items(tmp_path))
+        S.queue(tmp_path, listed := scratch.items(tmp_path))
+        shots.append(listed[0]["shot"])
         while (worker := S._worker) is not None:
             worker.join()
+    assert shots == ["pending", "failed"]  # what the card says meanwhile; the shot made none
     assert [what for what, _ in done] == ["shot", "said"] and done[0][1].endswith("/p/")
     S.queue(tmp_path, scratch.items(tmp_path), describe=False)
     assert S._worker is None  # nothing new to do

@@ -28,7 +28,9 @@ _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
 _LOCK = threading.Lock()
 _found: dict[tuple[str, int], tuple[float, dict | None]] = {}
+_reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
+DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gallery.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
 # What every /scratch/ response is served under (see server.py's no_cache middleware).
 SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"
@@ -113,6 +115,9 @@ def _writers(todo: list[dict]) -> None:
         stale = {k for k, (at, hit) in _found.items() if hit is None and now - at > _RETRY}
         due = {i["name"]: i["created"] for i in todo
                if keys[i["name"]] not in _found or keys[i["name"]] in stale}
+        if due and now - _reconciled[0] > _RETRY:  # a running session's entry can be days old
+            agent_history.reconcile()
+            _reconciled[0] = now
         hits = agent_history.writers(_MENTION, due) if due else {}
         for n in due:
             _found[keys[n]] = (now, hits.get(n))
@@ -162,23 +167,28 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
 
 
 def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
-         pane_of=lambda _entry: None, sidecars=lambda _listed: None) -> str:
+         pane_of=lambda _entry: None, sidecars=lambda _listed: None, docs: str = DOCS) -> str:
     """The gallery, with `style` the app's stylesheet, `pane_of` the pane a running
-    agent-history entry is in (live.running_pane) and `sidecars` what queues the missing
-    thumbnails and descriptions (scratch_sidecars.queue)."""
+    agent-history entry is in (live.running_pane), `sidecars` what queues the missing
+    thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation."""
     listed = items(root)
     sidecars(listed)
     resolve(listed, states, profiles, pane_of)
     # The app's colour tokens, inlined: the page is sandboxed like the rest of /scratch/,
     # so it cannot count on a credentialed stylesheet load behind the front door.
     tokens = _TOKENS.findall(style.read_text())
-    cards = "".join(_card(i) for i in listed) or '<p class="muted">Nothing here yet.</p>'
-    return _PAGE.read_text().replace("/*tokens*/", "\n".join(tokens)).replace("<!--cards-->", cards)
+    out = _PAGE.read_text().replace("/*tokens*/", "\n".join(tokens)).replace("DOCS_URL", docs)
+    if not listed:  # what scratch is, and how agents come to publish here
+        out = out.replace('<section id="empty" hidden>', '<section id="empty">').replace(
+            '<input type="search"', '<input hidden type="search"').replace(
+            '<span class="seg"', '<span hidden class="seg"')
+    return out.replace("<!--cards-->", "".join(_card(i) for i in listed))
 
 
 def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
-    thumb = f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">' if i["thumb"] else ""
+    thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">' if i["thumb"]
+             else "Making a preview…" if i.get("shot") == "pending" else "No preview")
     where = (f'<a href="/m/#pane={quote(i["pane"], safe="")}">{e["where"]}</a>' if i["pane"]
              else e["where"])
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()

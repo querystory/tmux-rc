@@ -163,10 +163,12 @@ def _root(e: dict, by_id: dict) -> dict:
 
 def writers(pattern: str, due: dict[str, float], slack: float = 600) -> dict:
     """{name: the top-level session that wrote it} for each name in `due` (name -> when it
-    appeared): the earliest-started session active around that time whose transcript has
-    a match of `pattern` (an ERE) ending in "/<name>". One grep reads every transcript
-    active at some name's time, and no other: Python's re took seconds per gigabyte."""
-    entries = sorted(_entries(), key=lambda e: _when(e.get("started")))
+    appeared): the latest-started session active around that time whose transcript has a
+    match of `pattern` (an ERE) ending in "/<name>". Latest, because a long-lived session
+    that was merely open then (and passed the link on) started before the one that wrote
+    it. One grep reads every transcript active at some name's time, and no other: Python's
+    re took seconds per gigabyte."""
+    entries = sorted(_entries(), key=lambda e: -_when(e.get("started")))
     by_id = {e.get("session_id"): e for e in entries}
     wanted = {}
     for e in entries:
@@ -188,7 +190,7 @@ def writers(pattern: str, due: dict[str, float], slack: float = 600) -> dict:
         name = unquote(match.rpartition(b"/")[2].decode(errors="replace"))  # a URL's %20
         hits.add((source.decode(errors="replace"), name))
     found: dict[str, dict] = {}
-    for source, (e, names) in wanted.items():  # in start order: the earliest wins
+    for source, (e, names) in wanted.items():  # the latest started wins
         for name in names - found.keys():
             if (source, name) in hits:
                 found[name] = _root(e, by_id)

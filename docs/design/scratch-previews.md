@@ -60,6 +60,15 @@ the parse model once, from the page's title and visible text, and written into
 agent's own always wins. Sidecars don't count as the page or its changes, so writing them
 never reorders the gallery.
 
+**Grid and list are one renderer.** The list is the same cards laid out as rows, using CSS
+alone, so the two views can't drift apart. A phone starts on the list, because full-width
+thumbnails left room for barely two cards on a screen. The choice can't be remembered:
+the gallery is sandboxed like every `/scratch/` page, so its `localStorage` throws. The
+page tries anyway and falls back to the default for the screen size. The gallery stays a
+page of its own rather than a view inside the app. Embedding it would mean framing a
+sandboxed page whose links have to leave the frame, and that is exactly what the sandbox
+forbids. The sidebar's Scratch row links to it, and it links back.
+
 **Opt-in, with no default directory.** Whatever sits in the directory is published to
 everyone the front door admits. A default path (say under `~/.local/share`) would mean a
 file saved there for an unrelated reason gets published by an upgrade nobody read the notes
