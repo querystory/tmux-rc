@@ -25,11 +25,15 @@
 <main id="content">
   <section class="hero wrap">
     <p class="eyebrow"><span class="dot"></span> YOUR AGENTS. YOUR MACHINE. ANYWHERE.</p>
-    <h1>Manage your coding<br class="desktop-break"> agents <span>remotely.</span></h1>
+    <h1>Manage your coding <span class="desktop-break"><br></span>agents <span>remotely.</span></h1>
     <p class="lede">Desktop or phone. Chat, talk, point, or tap.<br>See what your agents are doing and step in when they need you.</p>
     <div class="hero-actions"><a class="button primary" href="#get-started">Set up tmux-rc <span aria-hidden="true">→</span></a><a class="button" href="{{ "documentation/" | relURL }}">Read the docs</a></div>
     <p class="agent-line">Claude Code <span>·</span> Codex <span>·</span> Gemini CLI <span>·</span> OpenCode <span>·</span> omp</p>
-    <nav class="feature-links" aria-label="Explore features"><span>Explore</span><a href="#subagents">Subagents</a><a href="#usage-limits">Usage limits</a><a href="#activity">Activity dashboard</a><a href="#session-atlas">Session atlas</a><a href="#voice">Voice &amp; chat</a></nav>
+    <nav class="feature-links" aria-label="Explore features"><span>Explore</span><a href="#subagents">Subagents</a><a href="#usage-limits">Usage limits</a><a href="#activity">Activity dashboard</a><a href="#session-atlas">Session atlas</a><a href="#voice">Voice &amp; chat</a><a href="#restore">Session restore</a></nav>
+    <figure class="hero-shot">
+      <div class="phones"><img src="{{ "img/one-tap-list.png" | relURL }}" width="780" height="1688" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both, Just #413 and Later buttons right on its row" fetchpriority="high"><img src="{{ "img/one-tap-pane.png" | relURL }}" width="780" height="1688" alt="The same question in the agent's overview: a summary, the three answers as buttons, and both PRs under Links with their titles"><img src="{{ "img/mobile-offers.png" | relURL }}" width="780" height="1688" alt="A finished turn hands you a command: the agent's merge command and a reply, each with Send it and Copy buttons"></div>
+      <figcaption>Answer your agents in one tap, from your phone.</figcaption>
+    </figure>
   </section>
 
   <section class="setup wrap" id="get-started">
@@ -94,9 +98,9 @@
   </section>
 
   <section class="capabilities wrap" aria-label="Managing your agents">
-    <article><span class="section-label">01 / UNDERSTAND</span><h2>Know what needs you.</h2><p>Summaries, pending questions, and activity across your fleet. Answer a choice directly instead of hunting through terminal output.</p></article>
-    <article><span class="section-label">02 / DIRECT</span><h2>Chat or take the controls.</h2><p>Ask about your agents in text or voice. Send a message, attach an image, or use the live terminal when you want to act directly.</p></article>
-    <article><span class="section-label">03 / STAY INFORMED</span><h2>Keep work moving.</h2><p>Get notified when an agent is waiting for you. See activity history and subscription usage while your sessions keep running.</p></article>
+    <article><span class="section-label">01 / REMOTE CONTROL</span><h2>Drive tmux from anywhere.</h2><p>Every pane, any agent, from your phone or browser: the live terminal, tappable answers, and the keys a phone keyboard lacks. A notification when an agent is waiting on you.</p></article>
+    <article><span class="section-label">02 / VOICE &amp; SUMMARIES</span><h2>Talk to your fleet.</h2><p>A plain-English summary of every pane. Ask in chat or by voice, relay an instruction or an image, and hear back as the work moves.</p></article>
+    <article><span class="section-label">03 / SESSION RESTORE</span><h2>Reboot without losing your fleet.</h2><p>Sessions, windows, splits and names come back, and each agent resumes its own conversation. One tap.</p></article>
   </section>
 
   <section class="feature-details wrap" aria-label="Explore tmux-rc features">
@@ -119,6 +123,10 @@
     <article class="feature-detail" id="voice">
       <div><p class="eyebrow">TALK, THEN KEEP GOING</p><h2>A conversation with your fleet.</h2><p>Use text chat or an active voice session from desktop or phone. Ask what your agents are doing, relay an instruction, and hear a follow-up when the work you directed changes.</p><ul><li>“Which agents need me?” — get a fleet update.</li><li>“Show me e2e triage.” — get an Open button.</li><li>“Tell it to rerun with tracing.” — send an instruction.</li><li>“Press Escape in that pane.” — send a control key.</li><li>“Resume the checkout session.” — find and resume earlier work when session history is installed.</li></ul><p class="feature-note">Chat offers pane-changing actions for approval. Voice follows your spoken instructions and reports back; routine fleet updates stay quiet.</p><a href="{{ "design/live-mode/" | relURL }}">Voice and chat setup <span aria-hidden="true">→</span></a></div>
       <img src="{{ "img/website-voice.png" | relURL }}" width="2880" height="1800" alt="Live Mode conversation delivering an instruction and following up on the checkout rerun" loading="lazy">
+    </article>
+    <article class="feature-detail" id="restore">
+      <div><p class="eyebrow">AFTER A REBOOT</p><h2>Your whole fleet, back in one tap.</h2><p>A reboot takes every tmux session with it. tmux-rc records the layout once a minute and which conversation each agent holds, then offers the lost workspace back: every session, window and split where it was, each agent resumed into its own conversation on the account it ran on.</p><ul><li>Recently active agents start ticked; long-idle agents and plain shells are yours to add.</li><li>An agent already running elsewhere is greyed out, with the reason.</li><li>Nothing comes back until you tap Restore, and Start fresh drops the offer.</li></ul><a href="https://github.com/querystory/tmux-rc#reboot-without-losing-your-fleet">How session restore works <span aria-hidden="true">→</span></a></div>
+      <img src="{{ "img/website-restore.png" | relURL }}" width="2880" height="1800" alt="The Restore view after a reboot: two sessions of agents with their conversations' titles, most ticked, a long-idle one unticked and one already running greyed out" loading="lazy">
     </article>
   </section>
 

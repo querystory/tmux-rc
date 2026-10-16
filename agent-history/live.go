@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +16,7 @@ type Running struct {
 	PID      int    `json:"pid"`
 	TmuxPane string `json:"tmux_pane,omitempty"` // e.g. "%48"; empty when not in tmux
 	Status   string `json:"status,omitempty"`    // the harness's own word: idle, busy, ...
+	Harness  string `json:"harness,omitempty"`   // set by LiveSessions
 }
 
 // LiveSessions merges every harness's live sessions, with the errors of any harness
@@ -29,7 +29,10 @@ func LiveSessions() (map[string]Running, map[string]error) {
 			errs[h.name] = err
 			report(fmt.Errorf("%s liveness: %w", h.name, err))
 		}
-		maps.Copy(out, running)
+		for id, r := range running {
+			r.Harness = h.name
+			out[id] = r
+		}
 	}
 	return out, errs
 }

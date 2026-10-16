@@ -14,6 +14,9 @@ const HD = { width: 1920, height: 1080 };
 
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
+  // The front page's lead: a question answered from the Needs you list, and its pane.
+  ["one-tap-list", PHONE, "light", "", (page) => page.click("#attention-tab")],
+  ["one-tap-pane", PHONE, "light", "#pane=%2548"],
   ["hero", WIDE, "light", "#pane=%259"],
   ["website-desktop", WIDE, "light", "#pane=%259"],
   ["website-chat", WIDE, "light", "#pane=%259", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
@@ -23,6 +26,8 @@ const SHOTS = [
   ["website-usage", PHONE, "light", "#view=dashboard", reach("#usage-panel"), "#usage-panel"],
   ["website-dashboard", WIDE, "light", "#view=dashboard"],
   ["website-atlas", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
+  ["website-restore", WIDE, "light", "#view=restore", afterReboot],
+  ["website-restore-phone", PHONE, "light", "#view=restore", afterReboot],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-layout-menu", WIDE, "light", "#pane=%259", (page) => page.click("#review-layout-picker summary")],
@@ -50,6 +55,7 @@ const SHOTS = [
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
+  ["mobile-open-link", PHONE, "light", "#pane=%2549"],
   ["mobile-question-items", PHONE, "light", "#pane=%2546"],
   ["mobile-question-subject", PHONE, "light", "#pane=%2547"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
@@ -163,7 +169,7 @@ function two(step) {
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
 // its state is emptied on the way to the page.
-async function noTmux(page) {
+async function noTmux(page, ready = ".start-session:not([hidden])") {
   // No timeout: the fetch may be a 25s long poll. A failure (the context closing under a
   // held poll) is dropped, not thrown — an unhandled one would end the whole run.
   await page.route(/\/api\/state/, async (route) => {
@@ -173,8 +179,10 @@ async function noTmux(page) {
     } catch { /* page gone */ }
   });
   await page.reload();
-  await page.waitForSelector(".start-session:not([hidden])");
+  await page.waitForSelector(ready);
 }
+// Just after a reboot: no tmux, and the demo fleet's dead server on offer.
+function afterReboot(page) { return noTmux(page, ".restore-pane"); }
 
 // Bring a dashboard node to the top once it, and the Open loops card above it (which arrives
 // after the page), have drawn; a base that predates either shoots the page as it is. `end`
@@ -285,6 +293,9 @@ try {
         data.live_models.push({ label: "Demo voice", hint: "Fictional conversation", text: false });
         await route.fulfill({ response, json: data });
       });
+      // The fleet's dead server is on offer in its own shots only: elsewhere its row would
+      // head every list, and a shot without tmux would open the offer instead.
+      if (!name.startsWith("website-restore")) await page.route("**/api/restore", (route) => route.fulfill({ json: { candidate: null } }));
       // The landing page shows a quieter fictional fleet so the compact session and
       // sub-agent rows fit below one actionable card. Other shots keep all states. As in
       // noTmux: no timeout on what may be a long poll, and a page gone under it is dropped.

@@ -1401,6 +1401,33 @@ def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 
 
+def test_a_turn_handing_over_offers_needs_you():
+    """Its next step is the user's (run this, say that), so it waits on the user as a
+    question does, outside auto mode too; a turn that offers nothing stays idle."""
+    screen = _auto_screen('Say "merge 415" to queue it.').replace("⏵⏵ auto mode on", "")
+    idle = lambda *_: {"activity": "idle", "tool": "claude"}  # noqa: E731 (a fresh read each call)
+    result = classify(_pane("claude"), screen, idle, reply='Say "merge 415" to queue it.')
+    assert (result["activity"], result["waiting_on"], result.get("question")) == (
+        "waiting", "user", None)
+    assert classify(_pane("claude"), screen, idle)["activity"] == "idle"
+
+
+def test_put_offers_takes_only_their_own_wait_with_them():
+    from openbus.classify import put_offers
+    card = {"activity": "idle", "parse_ok": False}  # the screen's own wait, read or not
+    put_offers(card, ["merge 415"])
+    assert card == {"activity": "waiting", "waiting_on": "user", "offers": ["merge 415"]}
+    put_offers(card, None)
+    assert card == {"activity": "idle"}
+    asked = {"activity": "waiting", "waiting_on": "user", "question": {"prompt": "Ship?"},
+             "offers": ["ship it"]}
+    put_offers(asked, [])
+    assert asked["activity"] == "waiting" and "offers" not in asked
+    running = {"activity": "running"}
+    put_offers(running, ["merge 415"])
+    assert running == {"activity": "running", "offers": ["merge 415"]}
+
+
 def test_codex_offers_nothing_yet():
     screen = ('\x1e[visible screen]\x1f\n• Ran cat notes.txt\n  └ Say "merge all" now.\n'
               "■ Selected model is at capacity. Please try a different model.\n\n› ")

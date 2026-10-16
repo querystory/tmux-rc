@@ -8,6 +8,23 @@ phone. A small local service reads a `tmux` pane, figures out what's happening, 
 shows a phone-native dashboard: status at a glance, alerts when an agent is blocked on
 a question, tappable answers, and a snapshot timeline.
 
+- **Drive tmux from anywhere.** Every pane, any agent, from a phone or a browser: the live
+  terminal, tappable answers to its questions, and the keys a phone keyboard lacks.
+- **Talk to your fleet.** A plain-English summary of every pane, and a chat or voice
+  conversation that relays your instructions and reports back
+  ([Live Mode](docs/design/live-mode.md)).
+- **Reboot without losing your fleet.** Sessions, windows, splits and names come back, and
+  each agent resumes its own conversation, in one tap
+  ([below](#reboot-without-losing-your-fleet)).
+
+<p align="center">
+  <img src="docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both, Just #413 and Later buttons right on its row" width="240">
+  <img src="docs/img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, the three answers as buttons, and both PRs under Links with their titles" width="240">
+  <img src="docs/img/mobile-offers.png" alt="A finished turn hands you a command: the agent's merge command and a reply, each with Send it and Copy buttons" width="240">
+</p>
+
+<p align="center"><em>Answer your agents in one tap, from your phone.</em></p>
+
 <p align="center">
   <img src="docs/img/hero.png" alt="The wide layout: the session list on the left with panes that need you highlighted, one pane's live terminal in the middle, and its Overview on the right with the headline, summary, links, tasks and sub-agents">
 </p>
@@ -37,6 +54,28 @@ walls, and Claude Code's remote control is the clearest example: it is locked to
 Anthropic API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the
 *terminal*, so it's vendor-agnostic on both axes — any agent, any model provider for
 the summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
+
+## Reboot without losing your fleet
+
+A reboot, a crash or a `tmux kill-server` takes every session with it, and rebuilding forty
+agents' windows by hand, then finding each one's conversation again, is an afternoon. So
+tmux-rc records the workspace as it runs: the layout once a minute, and which conversation
+each agent pane holds. When that tmux server is gone, the app offers it back.
+
+<p align="center">
+  <img src="docs/img/website-restore.png" alt="The Restore view after a reboot: two sessions with their windows and panes, each agent with its conversation's title, directory, idle time at shutdown and cost; most are ticked, a long-idle agent and a plain shell are not, and an agent already running elsewhere is greyed out with the reason">
+</p>
+
+- **What comes back:** each session, its windows at their numbers, the splits and their
+  sizes, hand-set names, zoom and focus, at the window size it had. Every pane starts in
+  its directory, and each agent resumes into its own conversation on the account it ran on.
+- **What's ticked:** agents active recently, or waiting on you. A long-idle agent and a
+  plain shell are there to tick but start unticked; one already running elsewhere, or
+  whose directory or conversation is gone, is greyed out with the reason.
+- **Nothing comes back without your tap,** which names the count ("Restore 5 agents in 2
+  sessions"). **Start fresh** drops the offer.
+
+Why it works this way: [docs/design/reboot-restore.md](docs/design/reboot-restore.md).
 
 > **Status: proof of concept.** The all-pane watch/control slice works end to end,
 > across every pane on the tmux server: watch → classify → phone card → detect a

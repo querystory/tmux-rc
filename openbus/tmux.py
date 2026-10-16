@@ -394,6 +394,17 @@ def list_panes() -> list[Pane]:
     return panes
 
 
+def run(*args: str) -> str:
+    """One tmux command's stripped output, for a caller driving a layout directly
+    (reboot restore builds sessions, windows and splits through it)."""
+    return _run(list(args)).strip()
+
+
+def rows(command: str, fmt: str) -> list[list[str]]:
+    """`tmux <command> -a -F <fmt>` (list-windows, list-panes, ...), as tab-split rows."""
+    return [r.split("\t") for r in _run([command, "-a", "-F", fmt]).splitlines() if r]
+
+
 def dedupe_grouped(panes: list[Pane]) -> list[Pane]:
     """One entry per pane, for anything that DISPLAYS panes.
 
@@ -579,7 +590,7 @@ def server_env() -> dict[str, str]:
 
 
 def new_session(name: str, cwd: str, command: str | list[str] | None = None, window: str = "",
-                env: dict[str, str] | None = None) -> str:
+                env: dict[str, str] | None = None, size: tuple[int, int] | None = None) -> str:
     """Create detached session `name` in `cwd` and return its first pane's id. Starts the
     tmux server if none is running (after a reboot, nothing else will), which is why this
     is the one tmux call with a scrubbed environment (server_env).
@@ -589,7 +600,8 @@ def new_session(name: str, cwd: str, command: str | list[str] | None = None, win
     `systemctl --user restart tmux-rc` would kill it along with every session in it.
     `command` (a configured launcher's) runs in the first window, as in new_window; None
     leaves tmux's default, the user's login shell. `env` is server_env() if the caller
-    already has it."""
+    already has it. `size` (columns, rows) sizes a session no client is attached to, which
+    tmux would otherwise make 80x24; it becomes the session's default-size too."""
     scope = []
     if os.environ.get("INVOCATION_ID"):  # set by systemd for the units it runs
         # Absolute: _run resolves argv[0] on the login shell's PATH, which may lack it.
@@ -603,6 +615,8 @@ def new_session(name: str, cwd: str, command: str | list[str] | None = None, win
     argv = ["new-session", "-d", "-E", "-P", "-F", "#{pane_id}", "-s", name, "-c", cwd]
     if window:
         argv += ["-n", window]
+    if size:
+        argv += ["-x", str(size[0]), "-y", str(size[1])]
     command = [command] if isinstance(command, str) else command or []
     return _run([*argv, *command], prefix=scope,
                 env=server_env() if env is None else env).strip()
@@ -924,6 +938,13 @@ def proc_read(pid: int | str, name: str) -> str:
             return f.read()
     except OSError:
         return ""
+
+
+def proc_stat(pid: int | str) -> list[str]:
+    """/proc/<pid>/stat fields from the state on (field 3), so field N is [N - 3]: [2] the
+    process group, [5] the terminal's foreground group, [19] the start time. Empty if the
+    process is gone. Counted from the last ")": the command name may hold spaces."""
+    return proc_read(pid, "stat").rpartition(")")[2].split()
 
 
 INTERPRETERS = ("bun", "node")  # an agent installed through npm or bun runs as one
