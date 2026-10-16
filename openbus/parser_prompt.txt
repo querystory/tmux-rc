@@ -11,7 +11,9 @@ frame. Use earlier frames for continuity (stay consistent as output trickles in)
 describe what just happened in "events". A pane is a fixed-width character grid, so
 alignment and columns carry meaning. Below the control-delimited [visible screen] marker
 is the live screen, where current state and questions come from; text above the marker
-is history.
+is history. Below a [status line] marker is the agent's own status chrome (cwd, branch,
+model, usage, mode, badges): model, context, cost and mode come from it, and its links and
+PR badges belong to no conversation, so they are never "links" or "working_prs".
 
 READING THE SCREEN
 Judge by how things look and behave, not by exact wording, which changes across versions
@@ -69,6 +71,13 @@ Each agent's own turn chrome is the clearest evidence of its state; use it:
   Claude Code's "⎿ API Error: 529 …") leaves the next step to the user: report a user
   wait whose question quotes the error, with "try again" as its option. Codex's
   "■ Conversation interrupted" is the user's own interrupt, not an error.
+- A settings or plugin panel the user opened (Claude Code's /config or /plugin): a ▔ rule
+  over a strip of three or more short tab names ("Settings  Status  Config  Usage"), a
+  search box (⌕) or ❯ on "name  value" rows, and a last-row key hint that closes, clears or
+  goes back on Esc ("Esc to close"). The user is browsing it on purpose and a row only
+  changes a setting, so the pane is idle and nothing is asked. A question's own footer
+  cancels on Esc instead ("Esc to cancel"), and a real dialog drawn below such a strip is
+  still a question.
 - Rows starting with the prompt glyph and text (❯ fix the tests) are the user's own turns.
   File content behind a line-number gutter ("12│", "+245│") is content being shown.
 - When the user has scrolled back inside the agent's history, an isolated chip such as
@@ -156,8 +165,8 @@ FIELD GUIDE — what each field is, how to decide it, and where the user sees it
 "headline": the title of the pane's row in the session list and the top of its card. One
 short sentence carrying the substance the user would react to, like a push notification:
 "Asking whether to commit to main or a branch", "Tests fail: 3 timeouts in auth_test".
-Always give one, naming the task rather than a spinner word, and never a name or title
-(the session's, or one printed in the transcript): it says what is happening. For a code edit, name the changed behavior and
+Always give one. Name the task rather than a spinner word, and never use the session's
+title as the headline: it names the conversation, not what is happening in it. For a code edit, name the changed behavior and
 the flag, function or API in the newest visible diff. For a server or log pane, the
 recurring meaningful activity in its logs. A housekeeping prompt (a satisfaction survey,
 an update notice, a telemetry opt-in) is optional and dismissible: the headline and
@@ -187,8 +196,8 @@ finished turn's last paragraph depends on the mode the context line gives:
     ("Want me to also add a make target, or are you good here?") leaves the pane idle with
     no question. Only an explicit request that the user run, approve or do a step
     themselves waits on the user.
-A message that only mentions, quotes or proposes commands, or reports what the agent ran,
-asks nothing. Decide by what the message asks of the user as a whole: a "don't run X"
+A message that only mentions, quotes or proposes commands, reports what the agent ran, or
+recaps the open items waiting on the user (a "Waiting on you:" list) asks nothing. Decide by what the message asks of the user as a whole: a "don't run X"
 elsewhere in it does not cancel a real ask to run Y. A question is answered once
 the user's reply is sent: a reply in the transcript followed by newer agent work (including
 an omp Ask result showing its chosen option) retires it. A reply still sitting in the input
@@ -201,11 +210,14 @@ prompt awaiting typed input, or the agent's ask. Its options become one-tap butt
 type into the pane, so a wait for a step done elsewhere has no question. A program that
 printed "Opening a link in your default browser…" or "Waiting for the browser…" waits
 for the user to finish signing in there: report it waiting on the user with no question,
-name it in the headline, and put its URL in "links". An answered omp Ask receipt and
-omp's right-aligned session title are not questions, though they show rows or a ❯ cursor:
-when the context line gives omp's run state as "running" or "idle", omp has no question
-open. A program prompt with output printed after it was answered and is no question
-either.
+name it in the headline, and put its URL in "links". A settings panel the user
+opened, an answered omp Ask receipt, and omp's right-aligned session title are not
+questions, though they show rows or a ❯ cursor: nothing there waits for an answer, and a
+Needs-you push would ping the user about a menu they are looking at themselves. When
+the context line gives omp's run state as "running" or "idle", omp has no question open.
+A program prompt with output printed after it was answered and is no question either; the
+pane may still wait on the user for something else (a browser sign-in), which the
+headline names.
 - "prompt": the question's own line quoted word for word from the screen, joining the
   terminal's wraps: a dialog's question row ("Do you want to proceed?"), a program's prompt
   ("Ok to proceed? (y)") while it is still the last line printed, or the agent's closing
@@ -220,10 +232,9 @@ either.
   Code's numbered questions do. "cursor": only a held dialog or picker whose rows carry no
   digits at all, moved with arrows and committed with Enter (a digitless "❯ No / Yes"
   permission box, /resume's session picker, model and theme pickers); a typed digit or
-  label would land in its search box. Claude Code's /config and /plugin panels are neither:
-  pages the user opened to browse (a ▔ rule over a strip of tab names, a ⌕ search box or
-  "name  value" rows, a footer that closes on Esc), with no question at the top, so the
-  pane is idle with no question. A question's footer cancels on Esc instead. "text": a typed reply, for a question in the agent's
+  label would land in its search box. Claude Code's /config settings panel is neither: it
+  is a page of settings the user opened to browse, with tabs and no question at its top,
+  so it gets no question. "text": a typed reply, for a question in the agent's
   prose or a prompt awaiting free text; the phone types the chosen option and presses
   Enter. A numbered list in the agent's own message above its question is content, not a
   menu: that question is "text", and the rows it names go in "items".

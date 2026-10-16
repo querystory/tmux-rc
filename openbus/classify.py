@@ -198,6 +198,7 @@ _PROCESS_TOOLS = {
     "gemini": "gemini",
     "opencode": "opencode",
     "omp": "omp",
+    "agy": "gemini",  # Antigravity's CLI, Google's Gemini agent
 }
 # An agent installed through npm or bun runs as `node`/`bun`, so the foreground executable
 # proves nothing; the agent that interpreter runs, found under the pane, does. omp's title
@@ -758,6 +759,22 @@ def _read_turn_chrome(result: dict, visible: str, pane: Pane, prev_activity) -> 
     result.pop("parse_ok", None)
 
 
+_STATUS_LINE = "\x1e[status line]\x1f"
+
+
+def _mark_status_line(text: str) -> str:
+    """Claude Code's input box (its prompt row between two rules) with a marker under it,
+    like the history boundary's: what follows is the agent's own status chrome."""
+    rows = text.split("\n")
+    plain = [strip_dim(row).strip() for row in rows]
+    for i in range(len(rows) - 2, 0, -1):
+        if VISIBLE_SCREEN in rows[i]:
+            break
+        if plain[i].startswith("❯") and all(re.match("[─━]{3,}", plain[j]) for j in (i - 1, i + 1)):
+            return "\n".join([*rows[:i + 2], _STATUS_LINE, *rows[i + 2:]])
+    return text
+
+
 def _with_prior(text: str, prior: list[str]) -> str:
     """Prepend recent prior captures (oldest→newest) as labeled context, so the model
     sees the trajectory. This keeps classification STABLE when content trickles in one
@@ -932,7 +949,9 @@ def classify(
     heuristic dict."""
     visible = _visible(text)
     process_tool = _host_tool(pane)
-    payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
+    payload = _with_recent_events(
+        _with_prior(_mark_status_line(text), [_mark_status_line(p) for p in prior or []]),
+        recent_events or [])
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).

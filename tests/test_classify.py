@@ -1368,3 +1368,11 @@ def test_an_ask_that_hands_over_an_offer_gets_no_reply_buttons():
     q = classify(_pane("claude"), screen, _llm(read),
                  replies_fn=lambda *a: calls.append(a) or {"options": ["Yes", "No"]})["question"]
     assert "options" not in q and not calls
+
+
+def test_claude_status_line_is_marked_for_the_model():
+    seen = []
+    screen = _auto_screen("Done.").replace("\n❯\n", "\n────\n❯ \n────\n")
+    classify(_pane("claude"), screen, lambda _s, text: seen.append(text) or {"tool": "claude"})
+    head, tail = seen[0].split("\x1e[status line]\x1f")
+    assert head.rstrip().endswith("────") and "auto mode on" in tail

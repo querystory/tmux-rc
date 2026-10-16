@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: a finished auto-mode turn ends with a recap section headed 'Waiting on you:' listing open items, and no question. A recap of open threads asks nothing: idle, no question.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ where are we on the launch?\n\n● Status for the launch:\n\n  Done:\n  - The pricing page is merged.\n  - Emails are scheduled for Tuesday.\n\n  Waiting on you:\n  - #88: check it on a preview and give the go.\n  - The press kit: approve the final logo.\n\n✻ Worked for 22s · done 9:14 AM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/kettle on main | Opus 5.5 | 8% ctx\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "question": null,
+    "headline": "Launch status: pricing merged, emails scheduled; preview check and logo approval pending"
+  }
+}

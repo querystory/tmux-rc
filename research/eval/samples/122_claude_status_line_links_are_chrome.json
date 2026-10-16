@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: Claude Code's status line carries a markdown help link and a PR badge link; the finished turn itself links nothing. Status-line links are the agent's chrome, never the pane's links.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ tidy the readme\n\n● Tidied the README: fixed two broken anchors and shortened the install section.\n\n✻ Worked for 22s · done 9:14 AM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/kettle on docs/readme | Opus 5.5 | [help:](https://example.com/statusline-help) •stats\n  ⏵⏵ accept edits on (shift+tab to cycle) · PR [#77](https://github.com/example-org/kettle/pull/77)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "links_exclude": [
+      "https://example.com/statusline-help",
+      "https://github.com/example-org/kettle/pull/77"
+    ],
+    "headline": "Tidied the README anchors and install section"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "description": "Synthetic: a pane whose foreground process is agy (Antigravity's CLI, Google's Gemini agent) is identified as gemini by its process.",
+  "current_command": "agy",
+  "capture": "\u001e[visible screen]\u001f\n● Ran npm test\n  12 passing\n\nThe date parser now accepts ISO week dates.\n\n──────────────────────────────────────────────────────────────────────────────────────────\n>\n──────────────────────────────────────────────────────────────────────────────────────────\n? for shortcuts                                                  Gemini 3.8 Flash · high",
+  "expected": {
+    "tool": "gemini",
+    "activity": "idle",
+    "headline": "Date parser now accepts ISO week dates; tests pass"
+  }
+}

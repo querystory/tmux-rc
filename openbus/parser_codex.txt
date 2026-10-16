@@ -27,3 +27,5 @@
   started: background processes rather than subagents, and no sign of Codex's own
   activity, which its chrome and words give (idle at an empty input, waiting on others
   when it says so).
+  Its "Queued follow-up inputs" band above the composer holds input queued for after the
+  current turn: chrome, not a question; the turn's state comes from its live row and footer.

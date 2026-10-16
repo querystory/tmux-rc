@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: Codex works on while its 'Queued follow-up inputs' band shows input queued for after the turn. The band is chrome, not a question: running.",
+  "current_command": "codex",
+  "capture": "\u001e[visible screen]\u001f\n• Ran pytest tests/test_rates.py\n  └ 12 passed\n\n• Working (1m 04s • esc to interrupt)\n\n• Queued follow-up inputs\n  ? 2 questions\n    shift+← to answer\n\n› Ask Codex to do anything\n\n  gpt-5.6-sol medium · Context 61% left · ~/src/rates · Working",
+  "expected": {
+    "tool": "codex",
+    "activity": "running",
+    "question": null,
+    "headline": "Running the rates tests while follow-up inputs are queued"
+  }
+}

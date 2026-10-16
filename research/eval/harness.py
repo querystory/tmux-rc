@@ -303,6 +303,12 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         ))[:3] if isinstance(links, list) else []
         if missing := [href for href in expected["links"] if href.rstrip("/") not in hrefs]:
             diffs.append(f"links: missing {missing!r}")
+    # Opt-in: URLs that must not be offered (status-line chrome links).
+    links = candidate.get("links")
+    hrefs = [str(link.get("href", "")).rstrip("/") for link in links
+             if isinstance(link, dict)] if isinstance(links, list) else []
+    diffs.extend(f"links: offered chrome link {h!r}" for h in expected.get("links_exclude", [])
+                 if h.rstrip("/") in hrefs)
     for k, got in presence.items():
         c, e = bool(got), bool(expected.get(k))
         if c != e:
