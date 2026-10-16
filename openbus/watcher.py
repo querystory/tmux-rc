@@ -20,13 +20,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 
-from . import tmux, transcript
+from . import fit, tmux, transcript
 from .classify import (
     _OMP_CTX_RE,
     _OPENCODE_RUNNING_RE,
     bootstrap,
     classify,
-    put_offers,
     question_rows,
     screen_offers,
 )
@@ -64,7 +63,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 20
+CARD_VERSION = 21
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -221,6 +220,16 @@ def _fingerprint(text: str) -> str:
         # removing it outright would weld the words together on that frame only.
         lines[i] = _WS_RUN_RE.sub(" ", _SPARKLE_RE.sub(" ", lines[i])).strip()
     return "\n".join(lines)
+
+
+def _reflowed(text: str, before: str) -> bool:
+    """Is `text` the screen `before`, laid out at another width? Compared as _fingerprint
+    sees them (timers and spinners don't count) over the whole capture, since a reflow
+    moves rows between scrollback and the screen. Exactly, deliberately: when a reflow also
+    pushes the oldest scrollback out of the capture's row budget the two differ, and that
+    costs one parse rather than ever taking new text for old."""
+    return len({fit.reflow_key(_fingerprint(t.replace(tmux.VISIBLE_SCREEN, "")))
+                for t in (text, before)}) == 1
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
@@ -684,8 +693,12 @@ class Watcher:
                     self.target,
                 )
             panes = [p] if p else []
+            if p:  # every session's row for it: an attached group sibling counts too
+                fit.release_attached([r for r in tmux.list_panes() if r.id == p.id])
         else:
-            panes = tmux.dedupe_grouped(tmux.list_panes())
+            rows = tmux.list_panes()
+            fit.release_attached(rows)  # every session's rows: any attached one counts
+            panes = tmux.dedupe_grouped(rows)
         if history_server and self._checkpoints is None:
             self._load_checkpoints(history_server, None if self.target else panes)
         self._server = history_server
@@ -1344,6 +1357,7 @@ class Watcher:
         now = time.time()  # before the capture: drop_question compares it with an answer's
         captured = time.monotonic()  # and what _confirmed's second capture waits out
         text = tmux.capture_pane(pane.id, mark_dim=True)
+        looked = time.monotonic()  # a resize begun before this may be in the capture
         fp = self.frame_fp(text)  # cheap to hold per pane; the checkpoint stores it too
         # First sighting since startup (or since a recycled id): resume from the
         # checkpoint when the screen is unchanged, else seed the clocks from tmux.
@@ -1360,15 +1374,37 @@ class Watcher:
         # a snapshot every tick and pin idle_seconds at 0, so the pane never aged out of
         # "Recent" for as long as the outage lasted.
         moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
-        self._seen_fp[pane.id] = fp
+        # Our own resize (openbus/fit.py) makes the app redraw at the new width: the same
+        # screen, reflowed, is not activity and not worth a parse. While the redraw may be
+        # half done the pane holds its last reading (nothing moved, nothing to parse or
+        # checkpoint); the look after that checks the settled screen against it, and
+        # anything new (a question that arrived meanwhile) is the app's own. Read as usual:
+        # a screen never parsed or still unread, and a pending question, whose answer is
+        # checked against the rows on screen.
+        phase = fit.just_resized(pane.id, looked)
+        parsed = self._prev_fp.get(pane.id)
+        hold = False
+        if phase and parsed is not None and parsed == self._seen_fp.get(pane.id) \
+                and not (self._state.get(pane.id) or {}).get("question"):
+            last = (self.snapshots.get(pane.id) or [{"text": ""}])[-1]["text"]
+            if phase == "redraw":
+                hold, moved = True, False
+            elif _reflowed(text, last):
+                self._prev_fp[pane.id] = fp
+                moved = False
+            else:
+                self._prev_fp.pop(pane.id)  # changed under the redraw: read it
+                moved = True
+        if not hold:
+            self._seen_fp[pane.id] = fp
         if moved:
             self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN
         # The agent's transcript can land after its screen settles; a reply the last
         # parse didn't have re-reads the card even though the screen is unchanged.
         reply = transcript.last_reply(pane, text)
-        changed = (fp != self._prev_fp.get(pane.id)  # differs from what we last parsed
-                   # A restored card has no parsed reply: the first one seen stands in.
-                   or reply != self._parsed_reply.setdefault(pane.id, reply))
+        changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
+                                # A restored card has no parsed reply: the first seen stands in.
+                                or reply != self._parsed_reply.setdefault(pane.id, reply))
         previous = self._state.get(pane.id)
         # Seed from tmux on restart; only observed content changes advance this clock.
         last_activity = (previous or {}).get("last_activity_at")
@@ -1399,11 +1435,11 @@ class Watcher:
         # today's screen would vouch for a question parsed from an older one.
         if cached is not None and not changed and not forced and "frame" in cached:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
-            # Offers send what they say: read off this very screen, which the fingerprint
-            # may call unchanged while a command's "10s" became "20s". First: they move the
-            # activity the clock below is keyed on, and a wait they make is read.
-            if put_offers(cached, screen_offers(text, cached.get("tool"), reply)):
-                self._parse_valid[pane.id] = True
+            # Offers send what they say: held to this very screen, which the fingerprint
+            # may call unchanged while a command's "10s" became "20s". Not off a screen held
+            # mid-redraw (see `hold`): it may be half drawn, offers and all.
+            if not hold and (offers := screen_offers(cached.pop("offers", None), text)):
+                cached["offers"] = offers
             cached.setdefault("input_generation", generation)  # a restored card has none
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
@@ -1454,8 +1490,6 @@ class Watcher:
             else None
         )
         self._parsed_reply[pane.id] = reply
-        held = dict(previous or {})  # what we last knew, so a failed parse holds that,
-        put_offers(held, None)  # but not a wait its offers made: this screen reads its own
         state = classify(
             pane,
             text,
@@ -1464,7 +1498,8 @@ class Watcher:
             reply=reply,
             prior=prior,
             recent_events=recent_texts,
-            prev_activity=held.get("activity"),
+            # What we last knew, so a failed parse holds that instead of guessing.
+            prev_activity=(previous or {}).get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
         # Preserve the parsed conversation name before session is stamped with the
@@ -1601,7 +1636,7 @@ class Watcher:
             # Links are the exception: a parse fails when its question or rewind is
             # rejected, yet the URLs it read off the screen still stand, and a login
             # link printed in that turn would otherwise never reach the card. Offers are the
-            # other: buttons that send, read off this screen alone (classify's _offers),
+            # other: buttons that send, held to this screen alone (classify.screen_offers),
             # never the last card's, which the user may have answered since.
             offers = state.get("offers")
             replacement_tool = state.get("identity_tool")
@@ -1611,28 +1646,23 @@ class Watcher:
                 and replacement_tool != previous_tool
             )
             state = {**previous, "links": state.get("links") or previous.get("links")}
-            put_offers(state, offers)
+            state.pop("offers", None)
+            if offers:
+                state["offers"] = offers
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 
-        # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
-        # unmistakable status-line/box, so if it says "shell" it IS a shell — never let
-        # a stale sticky value override that (that bug put the Claude icon on a bash
-        # pane). Only bridge "unknown"/missing (a transient we genuinely can't tell) with
-        # the last known agent, to cover the brief moment an agent shells out.
-        # Tool identity. The prompt decides claude-vs-shell from the whole picture, so we
-        # mostly trust it. Sticky bridge is TIME-BOUNDED to resolve the two failure modes
-        # that fought each other: a Claude pane shelling out was claude *just now* (bridge
-        # it), while a shell mis-tagged claude once was claude *a while ago* (let it go).
-        # So: only override a shell/unknown read with a remembered agent if we saw that
-        # agent within the last few seconds.
+        # Tool identity. The model's read stands: a "shell" it reports is a shell (a stale
+        # sticky value once put the Claude icon on a bash pane). Only an "unknown" or
+        # missing read is bridged with an agent seen in the last few seconds, which covers
+        # the moment a parse cannot tell while an agent shells out.
         tool = state.get("tool")
         if tool in AGENT_TOOLS:
             self._tool[pane.id] = (tool, now)
-        elif tool in ("shell", "unknown", None):
+        elif tool in ("unknown", None):
             prev = self._tool.get(pane.id)
             if prev and now - prev[1] < 8:
                 state["tool"] = prev[0]

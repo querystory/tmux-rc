@@ -61,6 +61,7 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
         "#{window_activity}",
         "#{session_attached}",
         "#{pane_tty}",
+        "#{@tmuxrc-fit}",
     ]
 )
 # The row the cursor sits on asks for a secret: "[sudo] password for x:", "x@host's
@@ -135,6 +136,7 @@ class Pane:
     # pane is filed under, via `is_attached` rather than any comparison to "1".
     session_attached: str = "0"
     tty: str = ""  # the pane's pts, read for `secret`
+    fit: str = ""  # the width tmux-rc fitted the window to (openbus/fit.py), if it did
 
     @cached_property  # once per listing, i.e. per watcher tick; the send path rereads
     def secret(self) -> bool:
@@ -215,6 +217,8 @@ _GENERIC_NAMES = {
     "claude",
     "codex",
     "gemini",
+    "agy",
+    "antigravity",
     "opencode",
     "omp",
     "aider",

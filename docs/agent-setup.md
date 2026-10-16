@@ -6,6 +6,25 @@ that it watches what a pane *renders* and integrates with no agent in particular
 unconfigured agent works. These settings make it work *better*, and two of them make it
 work considerably cheaper.
 
+## Antigravity CLI
+
+Install Google's [Antigravity CLI](https://antigravity.google/docs/getting-started?tab=cli)
+(`agy`), then choose **Antigravity** in the **+** launcher. It is a separate program
+from Gemini CLI (`gemini`); both launchers remain available. Complete sign-in and
+workspace setup in the terminal on first use.
+
+The launcher respects Antigravity's configured model. Use `/model` or `agy models`
+to see models available to your account before pinning one in `TMUXRC_LAUNCHERS`.
+An unavailable model can fall back to another model in interactive mode.
+
+For fewer approval prompts, set `enableTerminalSandbox: true` and
+`toolPermission: "proceed-in-sandbox"` in
+`~/.gemini/antigravity-cli/settings.json` (or launch `agy --sandbox` with that
+permission mode). Both settings are required: the mode only auto-approves commands
+that actually run inside the sandbox. Antigravity's settings persist separately
+from tmux-rc; the launcher does not bypass permissions. Agent identification, model badges, activity history, and arrow-driven
+menu selection recognize Antigravity independently of the model it runs.
+
 ## Why your agent's settings are tmux-rc's business at all
 
 tmux-rc never asks an agent what it is doing — it looks at the pane, the same pixels you

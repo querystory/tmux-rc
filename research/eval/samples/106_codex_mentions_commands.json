@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: Codex reports a fix and mentions a command that reproduces the bug, asking nothing. A mentioned command is no offer: idle.",
+  "current_command": "codex",
+  "capture": "\u001e[visible screen]\u001f\n› why does test_ledger_rollover flake?\n\n• It assumed the local timezone. I pinned TZ=UTC in conftest.py and the test passes 50\n  runs in a row. If it ever flakes again, pytest -k rollover --count 20 reproduces it.\n\n─ Worked for 21s ────────────────────────────────────────────────────────────\n\n› ⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫\n\n  gpt-5.6-sol medium · Context 88% left · ~/src/ledger · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "offers": null,
+    "headline": "Fixed the flaky rollover test by pinning the timezone to UTC"
+  }
+}
