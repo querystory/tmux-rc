@@ -9,6 +9,8 @@ discover what fields naturally show up, before committing the architecture.
     python -m research.probe [pane_target] [--save NAME]
 
 Samples we save (capture .txt + render .png) live in `samples/` for repeatable runs.
+The committed ones are invented panes of the same shapes; the numbers below were measured on
+the captures they replaced.
 
 ## Findings so far
 
@@ -21,7 +23,7 @@ Working Claude Code pane (`samples/working`):
 | text+image | 2111 | 187 | 2.3s | 0.286 |
 
 - All three parsed the working screen correctly, incl. a real task headline
-  ("Fixing argument parsing bug in probe.py") — not just the spinner word.
+  — not just the spinner word.
 - Text and image are ~equal in cost/latency; text+image is redundant here.
 Rewind picker (`samples/rewind`) — the supposed image-wins case:
 
