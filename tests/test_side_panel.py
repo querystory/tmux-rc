@@ -48,7 +48,7 @@ SCREEN = [
 ]
 
 
-def _capture(rows: list[str], split=split_side_panel) -> str:
+def _capture(rows: list[str], split=lambda raw: split_side_panel(raw, 60)) -> str:
     raw = "earlier output\n" + VISIBLE_SCREEN + "\n" + "\n".join(rows)
     return _ANSI.sub("", _mark_placeholder(_mark_dim(_materialize_links(split(raw)))))
 
@@ -78,12 +78,14 @@ def test_offer_reads_the_conversation_column():
     [f"│ {f'option {i}'.ljust(29)}│" for i in range(6)],  # a box dialog
     [f"  │ {f'row {i}'.ljust(10)}│ {f'value {i}'.ljust(10)}│" for i in range(8)],  # a table
     [f"  {i:>3}│value = {i} + offset  # some code that runs on" for i in range(8)],  # a gutter
+    ["─" * 60, *(f"  {i:>2}│x={i}" for i in range(4)), "❯ "],  # a gutter of short rows
     [_row("  checking the build", "log")] * 2 + [f"line {i}" for i in range(6)],  # a few rows
     [_row("build completed", " 3 targets"), "", ""],  # a sparse screen
     *(["Package".ljust(W) + "│ Result", line * W + cross + line * 10]  # unboxed tables
       + [f"pkg-{i}".ljust(W) + "│ " + ("FAIL" if i == 3 else "ok") for i in range(5)]
       for line, cross in ("─┼", "━╇")),
-], ids=["box", "table", "gutter", "few-rows", "sparse", "unboxed-table", "heavy-rule"])
+], ids=["box", "table", "gutter", "short-gutter", "few-rows", "sparse", "unboxed-table",
+        "heavy-rule"])
 def test_lookalikes_stay_whole(rows):
     assert _capture(rows) == _unsplit(rows)
 
@@ -109,12 +111,6 @@ def test_panel_link_after_a_literal_bracket():
     assert "notes" not in visible
 
 
-def test_a_joined_row_does_not_stand_for_the_pane():
-    rows = list(SCREEN)
-    rows[4] = "x" * 100  # a wrapped row -J joined, wider than the pane
-    assert SIDE_PANEL in _capture(rows)
-
-
 def test_a_gutter_in_the_conversation_does_not_hide_the_panel():
     rows = [_row(f"  {i:>2}│ step {i}", f"file-{i}.py") for i in range(6)]
     visible = _visible(_capture(rows))
@@ -133,5 +129,5 @@ def test_a_blank_cursor_row_beside_the_panel_still_ends_the_capture(monkeypatch)
     # The cursor rests on the last row, blank on the conversation's side: the capture ends
     # in an empty row, as it does with no panel (_answered_prompt reads that).
     screen = "\n".join([*SCREEN[:6], _row("", "tail")])
-    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n{screen}\n-1\n")
+    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n{screen}\n-1 60\n")
     assert tmux.capture_pane("%1", mark_dim=True).endswith("\n  Run this: ! make migrate\n")

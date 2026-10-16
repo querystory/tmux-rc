@@ -724,17 +724,17 @@ def _cell_width(ch: str) -> int:
     return 2 if unicodedata.east_asian_width(ch) in "WF" else 1
 
 
-def _bars(row: str) -> tuple[dict[int, int], int]:
-    """Screen column -> string index of each bar or junction in a raw row, and its width."""
+def _bars(row: str) -> dict[int, int]:
+    """Screen column -> string index of each bar or junction in a raw row."""
     bars, col = {}, 0
     for m in _CELL_RE.finditer(row):
         if m[0] in _VERTICALS + _JUNCTIONS:
             bars[col] = m.start()
         col += _cell_width(m[0]) if len(m[0]) == 1 else 0
-    return bars, col
+    return bars
 
 
-def _panel_halves(rows: list[str], bars, widths, col: int) -> dict[int, tuple[str, str]] | None:
+def _panel_halves(rows: list[str], bars, width: int, col: int) -> dict[int, tuple[str, str]] | None:
     """Each bar row's two sides at `col`, if that column divides a panel from the rest: a
     bar on most inked rows (three at least), right of the screen's middle (a line-number
     gutter is left of it), text on both sides, and no table's rule crossing it nor a bar
@@ -742,8 +742,6 @@ def _panel_halves(rows: list[str], bars, widths, col: int) -> dict[int, tuple[st
     at = [i for i, b in enumerate(bars) if col in b]
     if any(rows[i][bars[i][col]] in _JUNCTIONS for i in at) or len(at) < _PANEL_MIN_ROWS:
         return None
-    # The bar rows' median width is the pane's: -J joins a wrapped row into a longer one.
-    width = sorted(widths[i] for i in at)[len(at) // 2]
     if len(at) * 2 <= sum(bool(_ANSI.sub("", row).strip()) for row in rows) or col * 2 < width:
         return None
     halves = {i: (rows[i][: bars[i][col]], rows[i][bars[i][col] + 1 :]) for i in at}
@@ -752,14 +750,15 @@ def _panel_halves(rows: list[str], bars, widths, col: int) -> dict[int, tuple[st
     return halves if any(lefts) and any(rights) and not closed else None
 
 
-def split_side_panel(text: str) -> str:
+def split_side_panel(text: str, width: int) -> str:
     """Move a side panel out of the raw viewport rows into a SIDE_PANEL block above it,
-    trying each column of bars, most common first (a gutter may tie with the panel's)."""
+    trying each column of bars, most common first (a gutter may tie with the panel's).
+    `width` is the pane's, in cells."""
     head, mark, screen = text.rpartition(VISIBLE_SCREEN)
     rows = screen.split("\n")
-    bars, widths = zip(*map(_bars, rows), strict=True)
+    bars = list(map(_bars, rows))
     counts = Counter(col for row in bars for col in row)
-    halves = mark and next(filter(None, (_panel_halves(rows, bars, widths, col)
+    halves = mark and next(filter(None, (_panel_halves(rows, bars, width, col)
                                          for col, _ in counts.most_common())), None)
     if not halves:
         return text
@@ -884,7 +883,8 @@ def capture_pane(
         args = ["if-shell", "-F", "-t", pane_id, "#{>:#{history_size},0}", history,
                 ";", "display-message", "-p", nonce,
                 ";", *capture, "-S", "0",
-                ";", "display-message", "-p", "-t", pane_id, "#{e|-|:#{cursor_y},#{pane_height}}"]
+                ";", "display-message", "-p", "-t", pane_id,
+                "#{e|-|:#{cursor_y},#{pane_height}} #{pane_width}"]
     out = _run(args).replace(nonce, VISIBLE_SCREEN, 1)
     if keep_colors:
         return _materialize_links(out).rstrip("\n")  # live view: raw SGR, client colorizes
@@ -892,8 +892,9 @@ def capture_pane(
     if mark_dim:
         # The cursor on a blank row below all output ends the text in one empty row, so
         # the classifier can tell a prompt still awaiting input from one answered above.
-        out, cursor = out.rstrip("\n").rsplit("\n", 1)  # cursor: its row minus the height
-        out = split_side_panel(out)  # adds rows above the viewport only
+        out, cursor = out.rstrip("\n").rsplit("\n", 1)  # its row minus the height, the width
+        cursor, width = cursor.split()
+        out = split_side_panel(out, int(width))  # adds rows above the viewport only
         tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
         out = _mark_placeholder(_mark_dim(_materialize_links(out)))
     else:
