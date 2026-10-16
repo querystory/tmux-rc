@@ -12,11 +12,10 @@ from openbus.history import History
 from openbus.open_loops import OpenLoops
 from openbus.plan_usage import PlanUsage
 from scripts import demo_fleet as demo
+from tests.test_public_data import IDENTITY
 
-PRIVATE = re.compile(r"/home/|/Users/|querystory|qs-app|tmux-rc|shapor"
-                     r"|[\w.+-]+@[\w-]+\.[\w.-]+|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
-                     r"|AKIA[0-9A-Z]{8}|AIza[0-9A-Za-z_-]{10}"
-                     r"|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY", re.IGNORECASE)
+# A stranger's fleet: not even this project's own names or a home path.
+PRIVATE = re.compile(rf"/home/|querystory|qs-app|tmux-rc|{IDENTITY}", re.IGNORECASE)
 
 
 @pytest.fixture(autouse=True)

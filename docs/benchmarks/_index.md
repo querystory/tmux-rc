@@ -37,7 +37,8 @@ parity.
 
 ## Measured (2026-07, live)
 
-Same sample (`research/samples/working.txt`, a working Claude Code pane), same
+Same sample (`research/samples/working.txt`, a working Claude Code pane, since rebuilt as an
+invented pane of the same shape), same
 `PARSER_PROMPT`, `temperature=0`, JSON mode. Non-streaming total latency unless noted.
 
 | Model | Provider | Median total | Out tokens | Result |

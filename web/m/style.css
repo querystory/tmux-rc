@@ -203,8 +203,17 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #question:not(.answered) { background: var(--amber-bg); }
 #question h2 { font-size: 17px; white-space: pre-wrap; }
 #options { display: grid; gap: 8px; margin-top: 14px; }
-#options button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
-#options button:hover:not(:disabled) { border-color: var(--amber); }
+:is(#options, .offer-choices) button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
+:is(#options, .offer-choices) button:hover:not(:disabled) { border-color: var(--amber); }
+#offers:not(:empty) { display: grid; gap: 14px; margin-top: 14px; }
+#offers:not(:empty) + #options:empty, .offer-choices .picked svg, .offer-text.fits svg { display: none; } /* no gap for no answers; the spinner stands in for the icon */
+#prompt:empty ~ #offers { margin-top: 0; } /* a finished turn's card: no question above */
+.offer-text { display: flex; align-items: flex-start; gap: 6px; width: 100%; min-height: 40px; padding: 9px 6px 9px 12px; text-align: left; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.offer-text code { flex: 1; min-width: 0; font: 12.5px/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.offer-text[aria-expanded="true"] code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.offer-text svg { color: var(--muted); margin-top: 1px; }
+.offer-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.offer-choices button { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 #answer-status { color: var(--muted); font-size: 12px; padding-top: 10px; }
 #task-count { color: var(--muted); font-size: 12px; margin-left: 6px; }
 /* A title too long to share its line with the meta keeps the line beside its icon (the
@@ -223,8 +232,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #events-empty { font-size: 13px; margin-top: 10px; }
 .copyable { margin-top: 12px; }
 .copy-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.copy-heading strong { font-weight: 500; overflow-wrap: anywhere; margin-right: auto; }
-.copy-offer { min-height: 36px; padding: 0 16px; border-radius: 18px; }
+.copy-heading strong { font-weight: 500; overflow-wrap: anywhere; }
 .copyable pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--raised); border-radius: 4px; margin: 0; font-size: 12px; max-height: 200px; overflow: auto; }
 #terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--term-bg); color: #edf2ef; --raised: #252b28; --accent: var(--term-accent); }
 .terminal-toolbar { display: flex; align-items: center; padding: 0 12px; gap: 2px; border-bottom: 1px solid #343d38; }
@@ -284,10 +292,6 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent); }
 #keys::-webkit-scrollbar { display: none; }
-#offers { display: grid; gap: 6px; padding-bottom: 6px; max-height: 25dvh; overflow-y: auto; } /* never pushes the editor off screen */
-#offers:empty { display: none; }
-#offers button { min-height: 44px; padding: 8px 12px; background: var(--raised); text-align: left; font: 13px/1.35 var(--mono); overflow-wrap: anywhere; }
-#offers button::before { content: attr(data-verb); margin-right: 8px; color: var(--accent); font-weight: 600; }
 #keys button { background: var(--raised); padding: 0 12px; flex: none; min-width: 44px; font-size: 13px; }
 #reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
 #reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
@@ -666,6 +670,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
 .sb-replies button { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
 .sb-replies button:not(:disabled):hover { border-color: var(--amber); }
+.sb-offer { flex-basis: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 12px/1.35 var(--mono); }
 .sb-note { align-self: center; color: var(--muted); font-size: 12px; }
 .sb-compose { flex-wrap: nowrap; align-items: flex-end; gap: 2px; }
 .sb-compose[hidden] { display: none; }

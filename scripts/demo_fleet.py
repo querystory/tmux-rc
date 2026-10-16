@@ -25,7 +25,7 @@ SESSIONS = ["shop-api", "ci", "research", "docs", "ops", "infra", "marketing", "
 # session index | tool | run / need / idle | title | age | u = finished recently, or the
 # question when need | the activity line, or the reply options when need.
 ROWS = """\
-0|claude|idle|fact checker agent|2m||Waiting for the preview build after updating review docs.
+0|claude|idle|release notes agent|2m||Waiting for the preview build after updating review docs.
 0|codex|run|migration planner|now||Mapping table dependencies before proposing an order.
 0|opencode|run|schema reviewer|now||Checking the new column constraints against live data.
 0|claude|need|api contract diff|3m|Two endpoints changed. Bump the API version?|Bump to v3,Keep v2
