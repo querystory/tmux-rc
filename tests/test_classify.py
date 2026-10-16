@@ -1342,3 +1342,14 @@ def test_a_demoted_menu_gets_no_reply_buttons():
         "prompt": "Continue?", "answer_style": "menu", "options": ["Yes", "No"]}}),
         replies_fn=replies)["question"]
     assert q["answer_style"] == "text" and "options" not in q
+
+
+@pytest.mark.parametrize(("shown", "offer"), [
+    ('! git push --"dry-run"', "! git push --"),  # an opening quote inside the command
+    ('! git push "--dry-run"', "! git push "),  # and the space before it
+    ('! rm /tmp/cache".old"', "! rm /tmp/cache"),
+    ("! python <<'PY'\n\n  print(1)\n  PY", "! python <<'PY'"),  # a heredoc cut by its blank row
+])
+def test_an_offer_is_never_part_of_a_command(shown, offer):
+    screen = _auto_screen(f"Run this:\n\n  {shown}")
+    assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [offer]}))

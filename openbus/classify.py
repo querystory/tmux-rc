@@ -654,10 +654,12 @@ _CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
 def _parses(command: str) -> bool:
     """Whether bash reads `command` whole (`bash -n` runs nothing): the first part of a script
     split by a blank row ("for ... in", "&&", an open quote, "f()") does not parse. Quoting
-    checks alone pass grammar the shell rejects, so the shell is asked."""
+    checks alone pass grammar the shell rejects, so the shell is asked. Any diagnostic
+    counts: an unterminated heredoc only warns, and exits 0."""
     try:
-        return subprocess.run(["bash", "-n"], input=command, capture_output=True, text=True,
-                              timeout=2, check=False).returncode == 0
+        checked = subprocess.run(["bash", "-n"], input=command, capture_output=True,
+                                 text=True, timeout=2, check=False)
+        return checked.returncode == 0 and not checked.stderr
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -671,14 +673,15 @@ def screen_offers(offers: object, text: str) -> list[str]:
     does not reparse (its fingerprint ignores a duration)."""
     screen = _FRAME_BARS_RE.sub("", _visible(text))
 
-    def shown(o: str) -> bool:
+    def shown(o: str) -> bool:  # quoted whole, or the whole rest of its paragraph
         gap = " " if "  " in o else r"(?: |[ \t]*\n[ \t]*)"
-        return bool(re.search(r"(?<![^\s\"“`])" + gap.join(map(re.escape, o.split(" ")))
-                              + r"(?=[\"”`]|[.,;:?!)]?[ \t]*(?:\n[ \t]*(?:\n|\Z)|\Z))", screen))
+        words = gap.join(map(re.escape, o.split(" ")))
+        return bool(re.search(rf"(?<=[\"“`]){words}(?=[\"”`])|(?<!\S){words}"
+                              r"[.,;:?!)]?[ \t]*(?:\n[ \t]*(?:\n|\Z)|\Z)", screen))
 
     listed = offers if isinstance(offers, list) else ()
     return [o for o in dict.fromkeys(o for o in listed if isinstance(o, str))
-            if o.strip() and o.isprintable() and shown(o)
+            if o and o == o.strip() and o.isprintable() and shown(o)
             and not (o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:])))]
 
 
