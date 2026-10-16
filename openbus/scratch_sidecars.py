@@ -89,8 +89,14 @@ class _Static(SimpleHTTPRequestHandler):
     """scratch's files and nothing else, under the sandbox the daemon serves them with."""
 
     def translate_path(self, path):
-        full = Path(super().translate_path(path))
-        return str(full) if scratch.inside(full, Path(self.directory)) else "/nonexistent"
+        """At the daemon's own /scratch/ paths, so a page's root-relative links resolve; a
+        path or the index a folder would serve that leads out of scratch is not found."""
+        if not path.startswith("/scratch/"):
+            return "/nonexistent"
+        full = Path(super().translate_path(path.removeprefix("/scratch")))
+        served = [full, full / "index.html", full / "index.htm"] if full.is_dir() else [full]
+        return str(full) if all(scratch.inside(p, Path(self.directory)) for p in served
+                                if p.exists() or p.is_symlink()) else "/nonexistent"
 
     def end_headers(self):
         self.send_header("Content-Security-Policy", scratch.SANDBOX)
@@ -107,7 +113,7 @@ def serving(root: Path):
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(_Static, directory=str(root)))
     threading.Thread(target=server.serve_forever, daemon=True, name="scratch-static").start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}"
+        yield f"http://127.0.0.1:{server.server_port}/scratch"
     finally:
         server.shutdown()
         server.server_close()

@@ -103,13 +103,21 @@ def test_the_renderer_is_served_scratch_and_nothing_else(tmp_path):
     _page(root.parent, "scratch", page="<p>page</p>")
     (tmp_path / "secret.txt").write_text("outside")
     (root / "link.txt").symlink_to(tmp_path / "secret.txt")
+    for name in ("leak", "leak2"):
+        (root / name).mkdir()
+    (root / "leak" / "index.html").symlink_to(tmp_path / "secret.txt")
+    (root / "leak2" / "index.htm").symlink_to(tmp_path / "secret.txt")
     with S.serving(root) as base:
+        assert base.endswith("/scratch")  # a page's /scratch/... links resolve as served
         with urlopen(f"{base}/index.html") as page:
             assert page.read() == b"<p>page</p>"
             assert page.headers["Content-Security-Policy"] == scratch.SANDBOX
-        for path in ("/api/digest", "/link.txt", "/../secret.txt", "/%2e%2e/secret.txt"):
+        host = base.removesuffix("/scratch")
+        for url in (host + "/index.html", host + "/api/digest", base + "/link.txt",
+                    base + "/../secret.txt", base + "/%2e%2e/secret.txt", base + "/leak/",
+                    base + "/leak2/"):
             with pytest.raises(HTTPError):
-                urlopen(base + path)
+                urlopen(url)
 
 
 def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypatch):
