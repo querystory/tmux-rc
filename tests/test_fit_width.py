@@ -269,6 +269,15 @@ def test_a_second_resize_cannot_hide_the_first_redraw(pane):
     assert fit.just_resized(pane, looked) == "redraw"
 
 
+def test_a_later_resize_gets_its_own_redraw_time(pane, monkeypatch):
+    monkeypatch.setattr(fit, "REDRAW_SECONDS", 0.5)
+    fit.view(pane, 60)
+    time.sleep(0.4)
+    fit.view(pane, 70)  # its redraw starts now, not with the first one's
+    time.sleep(0.2)  # the first redraw's time is up; the second's is not
+    assert fit.just_resized(pane, time.monotonic()) == "redraw"
+
+
 def test_the_hook_is_spent_on_the_next_look_even_if_nothing_moved(pane, monkeypatch):
     fit.view(pane, 60)  # `sleep` draws nothing, so later looks see no change
     monkeypatch.setattr(fit, "REDRAW_SECONDS", 0)

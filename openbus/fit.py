@@ -29,7 +29,8 @@ _FMT = "\t".join(["#{window_panes}", "#{window_zoomed_flag}", "#{pane_active}",
 
 _REFLOWED = re.compile(r"[\s\u2500-\u259f]+")  # whitespace, box drawing, block elements
 _lock = threading.Lock()  # one read-decide-resize at a time
-_resized: dict[str, float] = {}  # pane -> when we began the last resize of its window
+# pane -> when the first and the latest still-unread resizes of its window began
+_resized: dict[str, tuple[float, float]] = {}
 
 
 def _run(args: list[str]) -> str:
@@ -43,10 +44,10 @@ def just_resized(pane_id: str, looked: float) -> str:
     none pending, or one begun after the capture finished (it cannot be in it). Under the
     lock, so a look taken while a resize lands waits for its token."""
     with _lock:
-        at = _resized.get(pane_id)
-        if at is None or looked < at:
+        first, latest = _resized.get(pane_id, (float("inf"),) * 2)
+        if looked < first:  # none pending, or begun after this capture
             return ""
-        if looked - at < REDRAW_SECONDS:
+        if looked - latest < REDRAW_SECONDS:
             return "redraw"
         del _resized[pane_id]
         return "settled"
@@ -95,12 +96,13 @@ def view(pane_id: str, cols: int, force: bool = False) -> bool:
 def _resize(pane_id: str, members: str, size: str, args: list[str]) -> None:
     """Run `args`; if the window's size changed (only then do its apps redraw), hand its
     panes a token for the watcher, stamped with when the resize began. A token not yet
-    spent keeps its earlier stamp, so a second resize can't hide the first one's redraw."""
+    spent keeps its first stamp (a second resize can't hide the first one's redraw) and
+    takes the new one as its latest (whose redraw must finish before the screen settles)."""
     began = time.monotonic()
     out = _run([*args, ";", "display-message", "-p", "-t", pane_id, _SIZE])
     if out.strip().rsplit("\n", 1)[-1] != size:
         for pane in members.split():
-            _resized.setdefault(pane, began)
+            _resized[pane] = (_resized.get(pane, (began,))[0], began)
 
 
 def release_attached(panes: list[tmux.Pane]) -> None:
