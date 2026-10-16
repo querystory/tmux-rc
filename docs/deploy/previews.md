@@ -28,6 +28,26 @@ Keep the directory outside every checkout, so no commit can pick up a preview an
 worktree cleanup can delete one. It must exist when the daemon starts, because that is the
 one time it is checked.
 
+## The gallery
+
+`<your tmux-rc URL>/scratch/` is a gallery of every folder, most recently changed first:
+its title, a line of description, when it was made and changed, and who made it, with a
+filter box. Tapping the title opens the page; tapping where it was made opens that pane in
+tmux-rc while it is still open. Settings links to it under More.
+
+A folder describes itself in an optional `meta.json` beside its page, which the snippet in
+[Telling agents about it](#telling-agents-about-it) asks agents to write:
+`title`, `description`, `pane` (the agent's `$TMUX_PANE`) and `created` (ISO 8601). Without
+one, the title is the page's own `<title>`, else the folder's name, and the times are its
+files' oldest and newest. A malformed file counts as absent.
+
+Who made a folder comes from that pane, named with its session, window, agent and account
+while it is open. Once the pane is gone, or with no `meta.json`, tmux-rc asks
+[agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history) which
+session, active when the folder appeared, mentioned its path; with no index, it says
+"unknown". That search reads transcripts, so the first visit after a restart can take a
+few seconds; its answers are kept until the next restart.
+
 ## What `/scratch/` is for
 
 Anything that is a pile of static files, not just tmux-rc work:
@@ -102,7 +122,8 @@ needs, so none has to read tmux-rc's source to work out how scratch behaves:
     $TMUXRC_SCRATCH_LOCAL_URL/<folder>/ instead; a 200 means it is served. Everything in
     that directory is visible to everyone who can reach tmux-rc: never put secrets or
     private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or
-    WebSockets, or submit forms, so inline any data a page needs.
+    WebSockets, or submit forms, so inline any data a page needs. Beside the page, write
+    meta.json: {"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}.
 
 ### One instruction file for every agent
 
@@ -138,13 +159,13 @@ global `AGENTS.md`, which the symlink makes moot.
 ## What it exposes, and what it won't run
 
 **Everything in the directory is published to everyone who can reach tmux-rc.** That is the
-whole access model: there is no per-file permission and no listing to hide behind a
-guessable name. Never put secrets, credentials or private data there. For the same reason
+whole access model: there is no per-file permission, and `/scratch/` itself lists every
+folder, so not even an unguessable name hides one. Never put secrets, credentials or private data there. For the same reason
 there is no default directory: an unset variable means nothing is served, so nothing gets
 published because someone saved a file in the wrong place.
 
-The mount does not list directories, and requests cannot climb out of it through `..` or
-symlinks.
+Inside a folder the mount lists nothing, and requests cannot climb out of scratch through
+`..` or symlinks; the gallery skips anything that would.
 
 **Pages are sandboxed.** A preview lives on the daemon's own hostname, where a script
 could otherwise call the daemon's API, which types into your terminals, using your
@@ -172,7 +193,8 @@ baked in, or give them their own hostname (below).
 
 - **404 at `/scratch/...`**: `TMUXRC_SCRATCH_DIR` is unset, names a directory that did not
   exist at startup, or was set without restarting the daemon. A folder with no
-  `index.html` also 404s at its bare URL, since there are no listings; link the file.
+  `index.html` also 404s at its bare URL, since a folder has no listing; link the file (the
+  gallery links such a folder's newest file).
 - **The page loads but its data doesn't**: a `fetch` or XHR failing (look for a CSP error
   in the browser console) is the sandbox doing its job. Inline the data into the page or
   bundle it as a classic script.

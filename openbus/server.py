@@ -75,7 +75,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import accounts, agent_history, expunge, restore, telemetry, tmux  # noqa: E402
+from . import accounts, agent_history, expunge, restore, scratch, telemetry, tmux  # noqa: E402
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
@@ -620,7 +620,8 @@ def get_version():
     keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
                for m in live_providers.models() if not m.available()]
     return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
-            "live_models": offered + keyless, "docs": DOCS_MOUNTED}
+            "live_models": offered + keyless, "docs": DOCS_MOUNTED,
+            "scratch": bool(_scratch_dir)}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -1983,6 +1984,14 @@ if DOCS_MOUNTED:
 _scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
 _scratch_dir = _scratch_dir if _scratch_dir and Path(_scratch_dir).is_dir() else None
 if _scratch_dir:
+    @app.get("/scratch/", include_in_schema=False)
+    async def scratch_listing() -> HTMLResponse:
+        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount."""
+        watcher = app.state.watcher
+        states = list(watcher.states)
+        return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
+            Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"])))
+
     _mount_static("/scratch", _scratch_dir)
 
 

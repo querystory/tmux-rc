@@ -581,3 +581,36 @@ def seed_restore(history: History) -> History:
         db.execute("INSERT INTO layout_snapshots VALUES (?, ?, ?, NULL)",
                    ("demo-boot:4242:1", DIED, json.dumps(payload)))
     return history
+
+
+# The scratch gallery (/scratch/): folder | minutes since created, last changed | pane, or
+# "-" for none | title, or "-" to fall back on the page's own | description. A pane the
+# fleet lacks has closed; its folder is found in the transcript in SCRATCH_WRITERS.
+SCRATCH = """\
+checkout-variants|40,25|%5|Checkout flow, two variants|Single page against stepped, at \
+phone width.
+ab-sweep-interim|130,70|%14|Prompt A/B sweep: interim|Variant C leads after 60 of 200 runs.
+release-notes-draft|190,190|%19|-|Merged PRs since v0.14, grouped by area.
+cost-breakdown|1500,1380|%77|Monthly cost breakdown|Compute, storage and egress by team.
+latency-heatmap|4400,4300|-|-|-"""
+SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
+                                      "source": "~/.claude/projects/ops/demo-cost.jsonl",
+                                      "title": "Billing export analysis"}}
+
+
+def seed_scratch(root) -> None:
+    """Write SCRATCH's folders, each an index.html and, when it names a pane, meta.json."""
+    for line in SCRATCH.splitlines():
+        name, ages, pane, title, description = line.split("|")
+        created, changed = (NOW - int(m) * 60 for m in ages.split(","))
+        folder = root / name
+        folder.mkdir()
+        page = name.replace("-", " ").capitalize()
+        (folder / "index.html").write_text(f"<title>{page}</title><h1>{page}</h1>")
+        meta = folder / "meta.json"
+        if pane != "-":
+            meta.write_text(json.dumps({
+                "title": "" if title == "-" else title, "description": description,
+                "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat()}))
+        for path in folder.iterdir():
+            os.utime(path, (created, changed if path.suffix == ".html" else created))

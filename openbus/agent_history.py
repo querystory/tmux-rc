@@ -4,12 +4,14 @@ coding-agent sessions.
 Live Mode uses it only when the user asks for past work ("resume the foo feature
 session", "where was I on live mode"): it's a routing lookup, never context fed to
 an agent. It is optional: without the binary, the Live tools that need it are not
-offered at all."""
+offered at all. The scratch gallery reads the same index to say which session made a
+folder (openbus/scratch.py)."""
 
 import json
 import os
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 # resolve reads a few MB of index and answers in tens of ms; a slow disk shouldn't
@@ -99,15 +101,12 @@ def live() -> dict | None:
     return _run("live")
 
 
-def recent_dirs(limit: int = 30) -> list[str]:
-    """Directories past agent sessions ran in, most recently active first, that still
-    exist. Read straight from the index's front matter (cwd, last_active — its documented
+def _entries():
+    """Every index entry's front matter, read straight from the index (its documented
     contract, see agent-history/README.md) rather than via the binary: no `resolve` call
-    can list without a query, and reading a few header lines per entry takes milliseconds.
-    Only top-level entries: a subagent runs in its parent's directory."""
+    can list without a query, and reading a few header lines per entry takes milliseconds."""
     root = Path(os.environ.get("AGENT_HISTORY_DIR") or Path.home() / "agent-history")
-    latest: dict[str, str] = {}
-    for path in (root / "index").glob("*/*.md"):
+    for path in (root / "index").glob("*/**/*.md"):
         meta = {}
         try:
             with path.open() as f:
@@ -115,12 +114,59 @@ def recent_dirs(limit: int = 30) -> list[str]:
                     if n and line.startswith("---"):
                         break  # end of front matter; the body is the human's messages
                     key, sep, value = line.partition(": ")
-                    if key in ("cwd", "last_active") and sep:
+                    if sep:
                         meta[key] = json.loads(value)
         except (OSError, ValueError, UnicodeDecodeError):
             continue
+        yield meta
+
+
+def _when(stamp) -> float:
+    try:
+        return datetime.fromisoformat(stamp).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def recent_dirs(limit: int = 30) -> list[str]:
+    """Directories past agent sessions ran in, most recently active first, that still
+    exist. Only top-level entries: a subagent runs in its parent's directory."""
+    latest: dict[str, str] = {}
+    for meta in _entries():
         cwd = meta.get("cwd")
-        if isinstance(cwd, str) and cwd:
+        if isinstance(cwd, str) and cwd and not meta.get("parent_session"):
             latest[cwd] = max(latest.get(cwd, ""), str(meta.get("last_active", "")))
     dirs = sorted(latest, key=latest.__getitem__, reverse=True)
     return [d for d in dirs if os.path.isdir(d)][:limit]
+
+
+def writers(pattern: str, due: dict[str, float], slack: float = 600) -> dict:
+    """{name: the top-level session that wrote it} for each name in `due` (name -> when it
+    appeared): the earliest-started session active around that time whose transcript has
+    a match of `pattern` (an ERE) ending in "/<name>". One grep reads every transcript
+    active at some name's time, and no other: Python's re took seconds per gigabyte."""
+    entries = sorted(_entries(), key=lambda e: _when(e.get("started")))
+    parents = {e.get("session_id"): e for e in entries if not e.get("parent_session")}
+    wanted = {}
+    for e in entries:
+        start, end = _when(e.get("started")) - slack, _when(e.get("last_active")) + slack
+        if isinstance(e.get("source"), str) and e["source"] not in wanted and (
+                names := {n for n, t in due.items() if start <= t <= end}):
+            wanted[e["source"]] = (e, names)
+    if not wanted:
+        return {}
+    try:  # -Z: a NUL after the file name, which may itself hold a colon
+        out = subprocess.run(["grep", "-oaHZE", "--", pattern, *wanted], capture_output=True,
+                             timeout=60, check=False, env={**os.environ, "LC_ALL": "C"}).stdout
+    except (subprocess.SubprocessError, OSError):
+        return {}
+    hits = set()
+    for line in out.splitlines():
+        source, _, match = line.partition(b"\0")
+        hits.add((source.decode(errors="replace"), match.rpartition(b"/")[2].decode()))
+    found: dict[str, dict] = {}
+    for source, (e, names) in wanted.items():  # in start order: the earliest wins
+        for name in names - found.keys():
+            if (source, name) in hits:
+                found[name] = parents.get(e.get("parent_session"), e)
+    return found

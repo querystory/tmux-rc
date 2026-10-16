@@ -7,7 +7,10 @@ import sys
 
 PROBE = """
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 from openbus import server
+server.app.state.watcher = SimpleNamespace(states=[], pane_birth=lambda _: None)
+server.accounts.report = lambda *_: {"profiles": []}  # never this machine's accounts
 c = TestClient(server.app, follow_redirects=False)
 for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/link.txt",
              "/scratch/sub/", "/scratch"):
@@ -23,8 +26,9 @@ print(int(c.get("/scratch/sub").headers.get("location") == "/scratch/sub/"))
 
 
 def _probe(env):
+    env = {**os.environ, "AGENT_HISTORY_DIR": "/nonexistent", **env}  # no real transcripts
     out = subprocess.run([sys.executable, "-c", PROBE], stdout=subprocess.PIPE, text=True,
-                         check=True, env={**os.environ, **env}, timeout=60).stdout
+                         check=True, env=env, timeout=60).stdout
     return [int(code) for code in out.split()]
 
 

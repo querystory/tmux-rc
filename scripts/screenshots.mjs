@@ -76,7 +76,14 @@ const SHOTS = [
   ["wide-settings", WIDE, "dark", "#view=dashboard", (page) => page.click("#settings-open")],
   ["wide-rail", WIDE, "light", "#pane=%259", async (page) => { await page.click("#collapse"); await page.hover("#side-list .sb-rail >> nth=2"); await page.locator("#side-hover").waitFor(); }],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
+  // The scratch gallery (openbus/scratch.py), the daemon's page rather than the app's.
+  ["mobile-scratch", PHONE, "dark", "", scratch],
+  ["wide-scratch", WIDE, "light", "", scratch],
 ];
+
+function scratch(page) {
+  return page.goto(new URL("/scratch/", page.url()).href);
+}
 
 // The same fleet with a second Claude account (TMUXRC_DEMO_ACCOUNTS=2, demo_fleet.PERSONAL):
 // badges, the strip by urgency, grouped Plan usage, the picker, the filter and Accounts….
