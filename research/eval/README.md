@@ -85,6 +85,8 @@ strictness is correct:
   the quote's extent is the model's.
 - `question.subject` — opt-in presence: the paragraph or heading that leads into those
   rows, which says what the question decides.
+- `copyables_include` — opt-in list of texts that must be offered as copyables (whitespace
+  collapsed), none of the offered ones keeping a quote or frame bar.
 - `links_exclude` — opt-in list of URLs that must not be offered (status-line chrome).
 - `question.link` — opt-in; pinned `null`, it asserts the question names no link to open
   (a question merely about a link).
@@ -228,6 +230,7 @@ actually hit:
 | `121_codex_queued_inputs_band_is_not_a_question` | synthetic: Codex's "Queued follow-up inputs" band while it works → running, no question |
 | `122_claude_status_line_links_are_chrome` | synthetic: a help link and PR badge on Claude's status line → neither in `links` (`links_exclude`) |
 | `123_agy_pane_is_gemini` | synthetic: an `agy` (Antigravity) foreground process → tool gemini |
+| `124_claude_quoted_post_draft_is_copyable` | synthetic: a social post draft shown as a `▎` block quote → copyable with the whole draft, bars stripped (`copyables_include`) |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown, and

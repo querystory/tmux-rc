@@ -298,11 +298,14 @@ URL the terminal wrapped across rows. "text" is a short human label ("Google OAu
 approval", "PR #18"). At most 3.
 
 "copyables": text the user will paste somewhere else, lifted off the screen for one-tap
-copying, since selecting from a terminal on a phone is hard: a command to run in another
-terminal, a drafted commit message or PR body, a generated token or id, a config snippet,
-a code block or diff for review, an error worth searching, a list to feed another tool.
-"text" is the text itself, verbatim and paste-ready: join wrapped lines, keep real
-newlines, and drop display chrome (box borders, gutters, line numbers, bullets, markers).
+copying, since selecting from a terminal on a phone is hard: anything the agent drafted
+for the user to post or send (a social post, an email, a message, a reply, a commit
+message or PR body, often shown as a block quote), a command to run in another terminal,
+a generated token or id, a config snippet, a code block or diff for review, an error worth
+searching, a list to feed another tool. "text" is the whole text itself, verbatim and
+paste-ready: join wrapped lines, keep real newlines and blank lines between paragraphs, and
+drop display chrome (quote bars such as "▎", box borders, gutters, line numbers, bullets,
+markers).
 Skip text cut off by the top of the screen rather than emit a fragment. "label" names
 what it is in under ~40 characters ("Commit message", "The 3 failing test names"). Each
 thing has one home: a URL goes in "links", a table in "tables", an answer in "question",

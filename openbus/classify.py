@@ -443,8 +443,9 @@ def _last_occurrence(prompt: str, visible: str) -> re.Match | None:
     return next(reversed(_occurrences(prompt, visible)), None)
 
 
-# A box's side bars, and the bar Claude Code draws down the right of its transcript.
-_FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$")
+# A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
+# Code draws down the right of its transcript.
+_FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
 
 
 def _quoted(text, visible: str) -> bool:

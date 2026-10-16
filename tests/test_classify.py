@@ -1376,3 +1376,11 @@ def test_claude_status_line_is_marked_for_the_model():
     classify(_pane("claude"), screen, lambda _s, text: seen.append(text) or {"tool": "claude"})
     head, tail = seen[0].split("\x1e[status line]\x1f")
     assert head.rstrip().endswith("────") and "auto mode on" in tail
+
+
+def test_a_block_quoted_draft_is_copyable_without_its_bars():
+    draft = "Line one of the post.\n\nLine two.\nhttps://example.com/x"
+    quoted = "\n".join(f"  ▎ {row}" if row else "  ▎" for row in draft.split("\n"))
+    screen = _auto_screen(f"Here's the draft:\n\n{quoted}\n\n  Want it shorter?")
+    result = classify(_pane("claude"), screen, _llm({"copyables": [{"label": "Post", "text": draft}]}))
+    assert result["copyables"] == [{"label": "Post", "text": draft}]
