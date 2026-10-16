@@ -447,12 +447,13 @@ _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$")
 
 
 def _quoted(text, visible: str) -> bool:
-    """The evidence gate for what the model quotes: its exact text is on the screen, the
-    terminal's wraps (and the bars framing a transcript row) allowed for."""
+    """The evidence gate for what the model quotes: its exact text is on the screen, where
+    a space may also be the terminal's wrap (and the bars framing a transcript row go)."""
     if not isinstance(text, str) or not text.strip():
         return False
     screen = _FRAME_BARS_RE.sub("", visible)
-    return bool(re.search(r"\s+".join(map(re.escape, text.split())), screen)
+    exact = re.escape(text.strip()).replace(r"\ ", r"(?: |[ \t]*\n[ \t]*)")
+    return bool(re.search(exact, screen)
                 or text.strip() in re.sub(r"[ \t]*\n[ \t]*", "", screen))  # a wrapped URL
 
 
