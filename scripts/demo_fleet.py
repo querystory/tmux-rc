@@ -29,7 +29,7 @@ ROWS = """\
 0|codex|run|migration planner|now||Mapping table dependencies before proposing an order.
 0|opencode|run|schema reviewer|now||Checking the new column constraints against live data.
 0|claude|need|api contract diff|3m|Two endpoints changed. Bump the API version?|Bump to v3,Keep v2
-0|claude|idle|preview deploy|2h||Deployed. Link posted in the PR thread.
+0|claude|need|preview deploy|6m|Preview is up. Run the checks yourself before I merge: ! make test|
 0|shell|idle|zsh ~/src/shop-api|41m||git status: clean, on main.
 0|codex|idle|seed data refresh|5h||Refreshed 12 fixtures. Tests green.
 1|claude|need|flaky test hunter|4m|Two reruns disagree. Which suite to quarantine?|e2e,integration
@@ -210,11 +210,12 @@ CAPTURES = {
         f"{cyn('~/src/shop-api')} on {mag('feat/money-type')} | {blu('Sonnet 5')}",
     ]),
     "preview deploy": "\n".join([
-        f"{b('●')} Deployed the preview. The merge needs your login, so run it yourself:",
-        "", f"  {blu('! gh pr merge 412 --squash --auto')}", "",
-        '  Or say "ship it" and I\'ll queue it behind CI.', "",
+        f"{b('●')} Preview is up. Run the checks yourself before I merge:",
+        "", f"  {blu('! make test')}", "",
+        '  Or say "ship it" and I\'ll merge it behind CI.', "",
         f"{dim('✻ Worked for 41s · done 2:14 PM')}", "", RULE, "❯ ", RULE,
         f"{cyn('~/src/shop-api')} on {mag('feat/preview')} | {blu('Opus 5')}",
+        f"{mag('⏵⏵ auto mode on')} {dim('(shift+tab to cycle)')}",
     ]),
     "backup verify": "\n".join([
         f"{grn('dev@ops')}$ sudo ./verify-snapshots.sh", "[sudo] password for dev: "]),
@@ -266,9 +267,10 @@ DETAIL = {
     # A question that sends you to a link: it leads the card as Open link.
     "prod deploy": {"links": [{"href": f"https://{ORG}/shop-api/actions/runs/1029384799",
                                "text": "Review the production deployment"}]},
-    # A finished turn that hands the user replies to type: classify()'s offers.
-    "preview deploy": {"offers": ["! gh pr merge 412 --squash --auto", "ship it"],
-                       "headline": "Preview deployed; the merge is yours to run."},
+    # A finished turn in auto mode that hands the user a command: classify()'s offers, and
+    # the question its _final_ask leaves (no reply options, since the command is the answer).
+    "preview deploy": {"offers": ["! make test", "ship it"],
+                       "headline": "Preview deployed; the checks are yours to run."},
     "cost report": {"activity": "compacting", "headline": "Compacting the conversation",
                         "status_line": "Compacting the conversation", "context_pct": 94},
     "terraform plan review": {
@@ -340,7 +342,7 @@ def _pane(i: int, line: str, window: int) -> dict:
     if st == "need":
         pane |= {"headline": extra, "status_line": extra, "session_summary": "",
                  "waiting_on": "user",
-                 "question": {"prompt": extra, "options": text.split(","),
+                 "question": {"prompt": extra, "options": text.split(",") if text else [],
                               "answer_style": "menu" if title in MENU else "text",
                               **MENU.get(title, {}), **ITEMS.get(title, {})}}
     return pane | DETAIL.get(title, {})
