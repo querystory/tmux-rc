@@ -1198,7 +1198,7 @@ async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll"), pre = $("earlier");
   if (h.busy || !id || !h.screen || captureDirty || backingOff()) return;
   h.busy = true;
-  let held = [], gone = null, heldEnd = h.end;
+  let held = [], gone = null, heldEnd = h.end, since = 0, older = false;
   const land = (force) => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
     if (gone && selected(gone)) return; // selected since: fetched again, and left split this time
@@ -1213,8 +1213,12 @@ async function loadEarlier() {
       // Only on the way up: off the tail, or by a gesture up at the top of a frame too short
       // to scroll (a few long wrapped lines), one chunk per gesture. Older rows also need you
       // within a screen of the top.
-      const up = h.asked || !following(), want = latestGeometry[0], gap = heldEnd < want && up;
-      if (!gap && !(h.top > 0 && box.scrollTop < box.clientHeight && up)) return;
+      // Gaps go first, but under steady output there is always one, so after each gap
+      // request an older one gets its turn when you are near the top.
+      const up = h.asked || !following(), want = latestGeometry[0];
+      older = (!older || heldEnd >= want) && h.top > 0 && box.scrollTop < box.clientHeight && up;
+      const gap = heldEnd < want && up && !older;
+      if (!gap && !older) return;
       const unseen = heldEnd < shownTop; // 1000: the daemon's cap
       const before = gap ? Math.min(want, heldEnd + 1000, unseen ? shownTop : Infinity) : h.top;
       if (!gap) holdView(() => { h.loading = true; paintEarlierCue(); });
@@ -1243,11 +1247,12 @@ async function loadEarlier() {
       } else {
         if (join && edge === held.at(-1)) held.pop(); else if (join) gone = edge;
         held.push(...nodes); heldEnd = before;
-        // Caught up, the waiting rows land with the newest frame. Output outrunning the
-        // requests (still a request's worth behind) can't hold them back: they land and that
-        // frame paints anyway, the rows it passed becoming a gap above it.
-        const behind = latestGeometry[0] - heldEnd;
-        if (behind <= 0 || behind > 1000) { land(behind > 0); held = []; gone = null; heldEnd = h.end; }
+        // Caught up, they land with the newest frame. Output that keeps ahead (over a
+        // request's worth, or for 5s) can't hold them back: they land and that frame paints
+        // anyway, the rows it passed becoming a gap above it.
+        const behind = latestGeometry[0] - heldEnd, now = performance.now();
+        since ||= now;
+        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; gone = null; heldEnd = h.end; since = 0; }
       }
     }
   } catch { h.failed = performance.now(); setTimeout(loadEarlier, 3000); }

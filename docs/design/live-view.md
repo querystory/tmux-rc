@@ -196,9 +196,11 @@ frame's first row: rows below it are on screen in that frame and must land with 
 one, while rows above it are on screen nowhere (left while you followed the tail, or
 skipped by a frame painted after a failed fetch), so they land at once, held above the
 frame if you are reading it. Rows waiting for a frame that a text selection holds back are
-dropped and fetched again, rather than shown twice. If output outruns the requests (still
-more than a request's worth behind after one), the waiting rows land and the newest frame
-paints anyway, and the rows it passed become a gap above it. A failed fetch paints the frame anyway
+dropped and fetched again, rather than shown twice. If output outruns the requests (more
+than a request's worth behind, or still behind after 5s), the waiting rows land and the
+newest frame paints anyway, and the rows it passed become a gap above it. Under steady
+output there is always a gap, so gap and older-row requests take turns while you are near
+the top. A failed fetch paints the frame anyway
 and pauses loading for a few seconds before retrying; frames paint normally meanwhile. A chunk asked for by a split that a
 newly painted frame has since moved is thrown away and asked for again. While you follow the tail the gap is left for later, so a streaming pane costs
 no extra requests. It is filled as soon as you scroll up. The same applies before any history has loaded: once you leave the
@@ -214,7 +216,10 @@ moved rather than predicting it.
 wrapped rows only within one capture. Each chunk says whether its last row wraps on (a
 two-row `-J` probe at the edge, in the same tmux queue), and the client renders the two
 pieces again as one line, so a long URL stays one link. A held piece inside a text
-selection is left split rather than replaced under the selection. One cost is accepted:
+selection is left split rather than replaced under the selection. A URL that an app broke
+with its own newline is rejoined only by linkify's grid heuristic. That heuristic reads
+the whole rendered text (every line's length), so it holds within a chunk but not across
+a chunk's edge, the same as at the live frame's own top edge. One cost is accepted:
 when such a line straddles the frame's first row, rejoining it can move the frame's rows
 by one line as its gap lands. Avoiding that would mean mapping joined lines back to
 physical rows, which the client cannot do without tmux's wrap flags. Snapping chunk edges to whole lines
