@@ -106,11 +106,16 @@ class _Static(SimpleHTTPRequestHandler):
         pass
 
 
+class _Server(ThreadingHTTPServer):
+    def handle_error(self, *_):
+        pass  # a renderer that stops loading mid-file (its time budget is up) is no error
+
+
 @contextmanager
 def serving(root: Path):
     """A loopback listener for the renderer that serves scratch alone: through the daemon,
     a page could frame, or navigate itself to, the API, and the shot would publish it."""
-    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(_Static, directory=str(root)))
+    server = _Server(("127.0.0.1", 0), partial(_Static, directory=str(root)))
     threading.Thread(target=server.serve_forever, daemon=True, name="scratch-static").start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/scratch"
