@@ -23,8 +23,7 @@ _TOKENS = re.compile(r"^:root(?:\.light)? \{.*?^\}", re.MULTILINE | re.DOTALL)  
 _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[A-Za-z0-9_.-]+"
 _RETRY = 600
 _found: dict[tuple[str, float], tuple[float, dict | None]] = {}
-_HERE = Path(__file__).resolve().parent
-_STYLE, _PAGE = _HERE.parent / "web" / "m" / "style.css", _HERE / "scratch.html"
+_PAGE = Path(__file__).resolve().parent / "scratch.html"
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -126,12 +125,13 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict]) -> Non
         i["where"] = s.get("title") or ""
 
 
-def page(root: Path, states: list[dict], profiles: list[dict]) -> str:
+def page(root: Path, states: list[dict], profiles: list[dict], style: Path) -> str:
+    """The gallery, with `style` the app's stylesheet."""
     listed = items(root)
     resolve(listed, states, profiles)
     # The app's colour tokens, inlined: the page is sandboxed like the rest of /scratch/,
     # so it cannot count on a credentialed stylesheet load behind the front door.
-    tokens = _TOKENS.findall(_STYLE.read_text())
+    tokens = _TOKENS.findall(style.read_text())
     cards = "".join(_card(i) for i in listed) or '<p class="muted">Nothing here yet.</p>'
     return _PAGE.read_text().replace("/*tokens*/", "\n".join(tokens)).replace("<!--cards-->", cards)
 

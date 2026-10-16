@@ -1990,7 +1990,8 @@ if _scratch_dir:
         watcher = app.state.watcher
         states = list(watcher.states)
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
-            Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"])))
+            Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"],
+            WEB_DIR / "m" / "style.css")))
 
     _mount_static("/scratch", _scratch_dir)
 

@@ -7,6 +7,9 @@ import os
 import pytest
 
 from openbus import agent_history, scratch
+from openbus.server import WEB_DIR
+
+STYLE = WEB_DIR / "m" / "style.css"
 
 
 @pytest.fixture(autouse=True)
@@ -54,8 +57,8 @@ def test_a_live_pane_names_its_window_and_account(tmp_path, monkeypatch):
     want = {"who": "claude · Work", "where": "web:ui", "pane": "%7"}
     assert items["mock"] | want == items["mock"]
     assert items["mock"]["created"] == 1767323045
-    page = scratch.page(tmp_path, states, [])
-    assert 'href="/m/#pane=%257"' in page and 'href="mock/"' in page
+    page = scratch.page(tmp_path, states, [], STYLE)
+    assert 'href="/m/#pane=%257"' in page and 'href="mock/"' in page and ":root.light {" in page
 
 
 def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
@@ -93,7 +96,7 @@ def test_nothing_outside_scratch_is_listed_or_read(tmp_path, monkeypatch):
     items, order = _resolved(root)
     assert order == ["inner"] and items["inner"]["title"] == "inner"  # <title> has no text
     _folder(root, "xss", 1000, {"title": "<img src=x onerror=alert(1)>"})
-    page = scratch.page(root, [], [])
+    page = scratch.page(root, [], [], STYLE)
     assert "secret" not in page and "<img" not in page and "&lt;img" in page
 
 
