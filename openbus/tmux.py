@@ -761,7 +761,7 @@ def split_side_panel(text: str) -> str:
         return text
     for i, (left, right) in halves.items():  # the panel's styles stay, so later rows keep theirs
         rows[i] = _TRAILING_BLANK.sub("", left + "".join(m[0] for m in _SGR.finditer(right)))
-    panel = "\n".join(_ANSI.sub("", right).rstrip() for _, right in halves.values())
+    panel = "\n".join(_ANSI.sub("", _materialize_links(r)).rstrip() for _, r in halves.values())
     return f"{head}{SIDE_PANEL}\n{panel.strip(chr(10))}\n{mark}" + "\n".join(rows)
 
 
@@ -889,8 +889,9 @@ def capture_pane(
         # The cursor on a blank row below all output ends the text in one empty row, so
         # the classifier can tell a prompt still awaiting input from one answered above.
         out, cursor = out.rstrip("\n").rsplit("\n", 1)  # cursor: its row minus the height
+        out = split_side_panel(out)  # adds rows above the viewport only
         tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
-        out = _mark_placeholder(_mark_dim(_materialize_links(split_side_panel(out))))
+        out = _mark_placeholder(_mark_dim(_materialize_links(out)))
     else:
         out = _materialize_links(out)
     return _ANSI.sub("", out).rstrip("\n") + tail
