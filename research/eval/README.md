@@ -202,6 +202,7 @@ actually hit:
 | `100_claude_handoff_beside_suggested_command` | a `! command` handoff in Claude's right-barred transcript, its greyed suggestion in the box → text user-wait quoting the agent, no reply buttons |
 | `101_claude_bare_command_after_colon_one_line` | a one-line message handing over a bare `! command` after a colon, no backticks → text user-wait offering that command |
 | `102_claude_bare_command_after_colon_wrapped` | a long bare `! command` after a colon, wrapped over screen rows but one row ending the transcript → offered whole, not just a copyable |
+| `103_claude_offer_outside_auto_needs_you` | synthetic: a finished turn outside auto mode handing over a `! command` (offers) with no question → user-wait (Needs you), not idle |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

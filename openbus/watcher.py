@@ -26,6 +26,7 @@ from .classify import (
     _OPENCODE_RUNNING_RE,
     bootstrap,
     classify,
+    put_offers,
     question_rows,
     screen_offers,
 )
@@ -1398,6 +1399,11 @@ class Watcher:
         # today's screen would vouch for a question parsed from an older one.
         if cached is not None and not changed and not forced and "frame" in cached:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
+            # Offers send what they say: read off this very screen, which the fingerprint
+            # may call unchanged while a command's "10s" became "20s". First: they move the
+            # activity the clock below is keyed on, and a wait they make is read.
+            if put_offers(cached, screen_offers(text, cached.get("tool"), reply)):
+                self._parse_valid[pane.id] = True
             cached.setdefault("input_generation", generation)  # a restored card has none
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
@@ -1406,11 +1412,6 @@ class Watcher:
             cached["updated_at"] = now
             cached["last_activity_at"] = last_activity
             cached["snapshot_id"] = self.snapshots[pane.id][-1]["id"]  # a restore's is stale
-            # Offers send what they say: read off this very screen, which the fingerprint
-            # may call unchanged while a command's "10s" became "20s".
-            cached.pop("offers", None)
-            if offers := screen_offers(text, cached.get("tool"), reply):
-                cached["offers"] = offers
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
@@ -1453,6 +1454,8 @@ class Watcher:
             else None
         )
         self._parsed_reply[pane.id] = reply
+        held = dict(previous or {})  # what we last knew, so a failed parse holds that,
+        put_offers(held, None)  # but not a wait its offers made: this screen reads its own
         state = classify(
             pane,
             text,
@@ -1461,8 +1464,7 @@ class Watcher:
             reply=reply,
             prior=prior,
             recent_events=recent_texts,
-            # What we last knew, so a failed parse holds that instead of guessing.
-            prev_activity=(previous or {}).get("activity"),
+            prev_activity=held.get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
         # Preserve the parsed conversation name before session is stamped with the
@@ -1609,9 +1611,7 @@ class Watcher:
                 and replacement_tool != previous_tool
             )
             state = {**previous, "links": state.get("links") or previous.get("links")}
-            state.pop("offers", None)
-            if offers:
-                state["offers"] = offers
+            put_offers(state, offers)
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)

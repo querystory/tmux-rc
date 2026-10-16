@@ -1126,6 +1126,27 @@ def screen_offers(text: str, tool: str | None, reply: str | None) -> list[str]:
     return _offers(final, reply) if final else []
 
 
+def put_offers(state: dict, offers: list[str] | None) -> bool:
+    """Put a screen's offers on its card, replacing the last card's. A finished turn whose
+    next step is the user's (run this, say that) waits on the user as a question does, so
+    it is Needs you everywhere the wait is read (list, badge, push); that wait leaves with
+    its offers, which a failed parse or an unreparsed screen may drop. Like _final_ask's,
+    the wait stands on a failed model read: push and history count it as read. True when
+    the offers made the wait."""
+    if (state.pop("offers", None) and not offers and state.get("activity") == "waiting"
+            and state.get("waiting_on") == "user"
+            and not (state.get("question") or state.get("rewind"))):
+        state["activity"] = "idle"
+        state.pop("waiting_on", None)
+    if offers:
+        state["offers"] = offers
+        if state.get("activity") in ("idle", "unknown", None):
+            state.update(activity="waiting", waiting_on="user")
+            state.pop("parse_ok", None)  # grounded in the turn's own chrome, not the model
+            return True
+    return False
+
+
 def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
@@ -1498,8 +1519,7 @@ def classify(
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
     result.pop("offers", None)  # buttons that send: the screen's alone, never the model's
-    if offers := screen_offers(text, tool, reply):
-        result["offers"] = offers
+    put_offers(result, offers := screen_offers(text, tool, reply))
     if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
