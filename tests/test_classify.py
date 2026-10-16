@@ -1337,5 +1337,5 @@ def test_a_demoted_menu_gets_no_reply_buttons():
 
 def test_an_offered_command_must_be_one_bash_reads_whole():
     screen = _auto_screen("Run this:\n\n  ! python <<'PY'\n\n  print(1)\n  PY")
-    offer = "! python <<'PY'"  # on screen, but a heredoc its blank row cut short
-    assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [offer]}))
+    for offer in ("! python <<'PY'", "\n! python <<'PY'"):  # a heredoc its blank row cut
+        assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [offer]}))

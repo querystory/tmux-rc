@@ -673,7 +673,7 @@ def screen_offers(offers: object, text: str) -> list[str]:
     `! command` is one bash reads whole. Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration)."""
     listed = offers if isinstance(offers, list) else ()
-    return [o for o in dict.fromkeys(o for o in listed if isinstance(o, str))
+    return [o for o in dict.fromkeys(o.strip() for o in listed if isinstance(o, str))
             if _quoted(o, _visible(text)) and not (o.startswith("! ") and not _parses(o[2:]))]
 
 
