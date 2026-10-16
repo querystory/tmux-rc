@@ -1339,3 +1339,20 @@ def test_an_offered_command_must_be_one_bash_reads_whole():
     screen = _auto_screen("Run this:\n\n  ! python <<'PY'\n\n  print(1)\n  PY")
     for offer in ("! python <<'PY'", "\n! python <<'PY'"):  # a heredoc its blank row cut
         assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [offer]}))
+
+
+def test_claude_mode_is_read_off_the_status_line_and_given_to_the_model():
+    seen = []
+    screen = _auto_screen("Done.")  # its last row: "⏵⏵ auto mode on"
+    result = classify(_pane("claude"), screen,
+                      lambda _s, text: seen.append(text) or {"tool": "claude", "mode": "normal"})
+    assert result["mode"] == "auto" and "mode: 'auto'" in seen[0]
+    quoted = "\x1e[visible screen]\x1f\n• ⏵⏵ auto mode on\n" + "\n".join(["out"] * 5) + "\n› "
+    assert "mode" not in classify(_pane("codex"), quoted, _llm({"tool": "codex"}))
+
+
+def test_an_offer_the_model_returns_is_a_user_wait():
+    screen = _auto_screen("Run it yourself:\n\n  ! make check-secrets")
+    result = classify(_pane("claude"), screen, _llm({
+        "tool": "claude", "activity": "idle", "offers": ["! make check-secrets"]}))
+    assert (result["activity"], result["waiting_on"]) == ("waiting", "user")

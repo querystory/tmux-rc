@@ -32,7 +32,9 @@ and tools.
   prompt is a pane idle at its prompt.
 - A program's own prompt (a y/n, a password, "Ok to proceed? (y)") is live only while it
   is the last thing printed, with the cursor on it: then it waits for a typed answer. Once
-  more output follows it, it was answered and the program moved on.
+  more output follows it, it was answered and the program moved on. A script may print its
+  prompt on a numbered step row ("1. Install the toolchain? [y/N]"): that is still a typed
+  answer, since no option rows follow it.
 - Spans wrapped in ⟪dim⟫…⟪/dim⟫ were drawn faint: unsent drafts, queued messages, ghost
   suggestions, hints, borders and status chrome. Report them as UI, never as something
   the agent did or said. ⟪placeholder⟫…⟪/placeholder⟫ is the greyed suggestion in an
@@ -50,8 +52,10 @@ Each agent's own turn chrome is the clearest evidence of its state; use it:
   its turn is over, so with no spinner below the stamp the agent is not running, whatever
   sits in the input box. A stamp's trailing "1 shell still running" or monitor count is
   background work, not the agent's turn.
-- Claude Code's auto mode ("⏵⏵ auto mode on" in its footer): the agent works on without
-  stopping for permission, and stops its turn only when it is done or needs the user.
+- Claude Code's permission mode is given in the tmux context line when its status line
+  shows one ("auto", "accept-edits", "plan", "bypass"). In auto mode ("⏵⏵ auto mode on")
+  the agent works on without stopping for permission, and stops its turn only when it is
+  done or needs the user.
 - Codex: a live row "Working (2m 32s • esc to interrupt)", or "Reviewing approval request
   (… • esc to interrupt)" while its own reviewer weighs an approval: both are the agent
   working, and nothing is asked of the user while it shows.
@@ -138,7 +142,7 @@ Return only compact JSON, with a field only when you can determine it:
   "waiting_on": "user"|"external",
   "headline": "...",
   "model": "...", "context_pct": <int>, "cost": "$...",
-  "mode": "plan|accept-edits|bypass|normal",
+  "mode": "auto|plan|accept-edits|bypass|normal",
   "status_entries": ["..."],
   "session": "...",
   "working": {"verb": "...", "elapsed": "...", "tokens": "..."},
@@ -198,7 +202,9 @@ with no keystroke for the user: subagents it waits for ("Waiting for N backgroun
 finish", even while some still run), CI, a review, a deploy, a poll or sleep loop.
 
 "question": the yellow card. Include it whenever the pane waits on the user, saying what
-for; its options become one-tap buttons that answer in the pane.
+for; its options become one-tap buttons that answer in the pane. A settings panel the user
+opened, an answered omp Ask receipt, and omp's right-aligned session title are not
+questions, though they show rows or a ❯ cursor: nothing there waits for an answer.
 - "prompt": the question's own line quoted word for word from the screen, joining the
   terminal's wraps: a dialog's question row ("Do you want to proceed?"), a program's prompt
   ("Ok to proceed? (y)"), or the agent's closing question or request. The rest of a
@@ -215,8 +221,11 @@ for; its options become one-tap buttons that answer in the pane.
   Enter. A numbered list in the agent's own message above its question is content, not a
   menu: that question is "text", and the rows it names go in "items".
 - "options": the answers as the screen offers them, in screen order (a menu's rows
-  without their digits). For a "text" question, the replies the user would plausibly
-  type, or none for an open question.
+  without their digits). For a "text" question, the distinct answers the question itself
+  offers, in its own words: yes and no for a yes/no question, each alternative of an
+  either/or, and for a question that names several things the combinations it asks about
+  ("File 1–3", "File 1–3 and start the five posts"). None for an open question; the user
+  can always type a reply.
 - "free_text": the index of an option that only opens the agent's own free-text field
   ("Type something", "Other"); the phone leaves it to its own text box.
 - "approval": true when the prompt asks permission for an action the agent wants to take
@@ -240,7 +249,9 @@ for; its options become one-tap buttons that answer in the pane.
 
 "offers": text the agent hands the user to send back into this same pane, each shown on
 the card with "Send it" and "Copy" buttons: Send it types exactly that text into this
-pane's input and presses Enter. Include one when the agent asks the user to send it here,
+pane's input and presses Enter. An offer means the pane waits on the user to send it, so
+report the wait and a text question quoting the ask with it. Include one when the agent
+asks the user to send it here,
 in whatever words: a command to run with the agent's own shell prefix ("run it yourself:
 ! gh pr merge 327", "run this here: ! make check-secrets"), or a reply to type back ('say
 "merge 415" and I'll queue it'). Copy the text exactly as the screen shows it, its "! "

@@ -493,7 +493,7 @@ def _ground_visible_fields(
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"
     retry = llm_fn(
-        prompt, f"{_parser_context(pane, None, host_tool)}\n\n{evidence}",
+        prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}",
     ) if llm_fn else None
     retry = retry if isinstance(retry, dict) else None
     if bad_action:
@@ -694,12 +694,13 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
 # parser prompt. Empty means open-ended: no buttons, the free-text box is always there.
 _REPLIES_SYSTEM = (
     "The coding agent just asked the user the question below. Reply as JSON "
-    '{"options": [...]} with reply buttons for it: short (under 8 words), distinct, each a '
-    "complete reply the user could type. Use an EMPTY list when the question is open-ended "
-    "(what, which, how, a choice between alternatives, a request for content). For a "
-    "yes/no question give the natural accept and decline. If it bundles several steps, "
-    'add between them one "Yes, but check with me before <step>" per step, naming only '
-    "steps the question names. The first option accepts; the last declines."
+    '{"options": [...]} with reply buttons for it: the distinct answers the question itself '
+    "offers, each in the question's own words, short (under 8 words), and a complete reply "
+    "the user could type. For a yes/no question, the natural accept first and decline last. "
+    "For an either/or, each alternative. For a question that names several things to do, "
+    'the combinations it asks about ("File 1-3", "File 1-3 and start the five posts"), '
+    "then the decline. An empty list for an open question (what, which, how, a request for "
+    "content): the user types those replies themselves."
 )
 _replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick
 
@@ -782,10 +783,28 @@ def _with_recent_events(text: str, recent: list[str]) -> str:
     )
 
 
-def _parser_context(pane: Pane, repository: str | None, host_tool: str | None) -> str:
+# Claude Code's permission mode, as its status line's last rows spell it out: fixed chrome,
+# read here so the model gets it as a fact (and the card as a chip).
+_CLAUDE_MODE_RE = re.compile(r"^[ \t]*(?:-- INSERT --[ \t]*)?(?:⏵⏵|⏸)[ \t]*"
+                             r"(auto mode|accept edits|plan mode|bypass permissions) on\b",
+                             re.MULTILINE)
+_CLAUDE_MODES = {"auto mode": "auto", "accept edits": "accept-edits", "plan mode": "plan",
+                 "bypass permissions": "bypass"}
+
+
+def claude_mode(visible: str) -> str | None:
+    """The mode Claude Code's status line shows in the screen's last rows, or None."""
+    *_, m = [None, *_CLAUDE_MODE_RE.finditer("\n".join(visible.rstrip().splitlines()[-4:]))]
+    return m and _CLAUDE_MODES[m[1]]
+
+
+def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
+                    visible: str = "") -> str:
     context = f"[tmux: this pane's foreground process is '{pane.current_command}'"
     if repository:
         context += f"; GitHub repository is '{repository}'"
+    if mode := claude_mode(visible):
+        context += f"; Claude Code's status line shows its mode: '{mode}'"
     # The title's live state must reach the model before an old Ask card can override it.
     if host_tool == "omp" and (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"]:
         state = omp["state"]
@@ -904,7 +923,7 @@ def classify(
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
-    payload = f"{_parser_context(pane, repository, process_tool)}\n\n{payload}"
+    payload = f"{_parser_context(pane, repository, process_tool, visible)}\n\n{payload}"
     result = None
     prompt = ""
     if llm_fn:
@@ -980,6 +999,8 @@ def classify(
         _read_turn_chrome(result, visible, pane, prev_activity)
     if offers := screen_offers(result.pop("offers", None), text):
         result["offers"] = offers
+    if mode := claude_mode(visible):
+        result["mode"] = mode
     question = result.get("question")
     # A numbered picker driven by arrows is walked, not answered with a digit, where the
     # screen shows its highlighted row, which a walk needs.
@@ -1038,11 +1059,10 @@ def classify(
             # keeps its own question.
             if question.get("approval") is True and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
-    # A detected question/rewind means the pane is waiting, regardless of what the
-    # model put in "activity" — this is the one bit of logic we keep out of the model.
-    # A question/rewind is a user-facing affordance, so it's a USER wait (overrides any
-    # stray "external" the model emitted).
-    if result.get("question") or result.get("rewind"):
+    # The model's own answers must agree: a question, rewind or offer it returned (and the
+    # screen showed) is something for the user to answer or send, so the pane waits on the
+    # user, whatever it put in "activity" (a stray "external" included).
+    if result.get("question") or result.get("rewind") or result.get("offers"):
         result["activity"] = "waiting"
         result["waiting_on"] = "user"
     # waiting_on says WHOM a WAITING pane is blocked on and is meaningful only then:
