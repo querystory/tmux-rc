@@ -45,10 +45,10 @@ def pane(tmp_path, monkeypatch):
                 ";", "new-session", "-d", "-P", "-F", "#{pane_id}", "-x", "80", "-y", "10",
                 "sh"]).strip()
 
-    def emit(start, count):  # numbered rows L<start>.., then wait until tmux has them all
-        run(["send-keys", "-t", pane, PRINT.format(start, count), "Enter"])
+    def emit(start, count, target=pane):  # rows L<start>.., then wait until tmux has them
+        run(["send-keys", "-t", target, PRINT.format(start, count), "Enter"])
         for _ in range(250):
-            if f"L{start + count - 1:05d}" in run(["capture-pane", "-p", "-t", pane]):
+            if f"L{start + count - 1:05d}" in run(["capture-pane", "-p", "-t", target]):
                 return
             time.sleep(0.02)
         pytest.fail("tmux never received the rows")
@@ -174,14 +174,19 @@ def tmux_says(args, meta, rows, edge=""):
 def test_trimmed_history_changes_the_screen_key(pane):
     """Trimming at the history limit drops the oldest rows; refilled to the same size
     between two looks, only the oldest rows' hash in `screen` tells the client."""
-    pane, emit, run = pane
-    run(["set", "-t", pane, "history-limit", "300"])  # this pane only
-    emit(1, 260)
-    before = tmux.capture_live(pane)
-    emit(1000, 200)  # past the limit: tmux trims a tenth, then fills again
-    after = tmux.capture_live(pane)
-    assert before[2] != after[2]
-    assert tmux.capture_history(pane, 5, 5)[3] == after[2]
+    _, emit, run = pane
+    run(["set", "-g", "history-limit", "300"])  # a pane takes the limit when it is made
+    small = run(["new-window", "-d", "-P", "-F", "#{pane_id}", "sh"]).strip()
+    try:
+        emit(1, 260, small)
+        before = tmux.capture_live(small)
+        emit(1000, 200, small)  # past the limit: tmux trims a tenth, then fills again
+        after = tmux.capture_live(small)
+        assert before[2] != after[2]
+        assert tmux.capture_history(small, 5, 5)[3] == after[2]
+    finally:
+        window = run(["display-message", "-p", "-t", small, "#{window_id}"]).strip()
+        run(["kill-window", "-t", window])
 
 
 def test_endpoint_bounds_and_pane_id(monkeypatch):
