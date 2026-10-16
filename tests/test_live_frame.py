@@ -25,6 +25,8 @@ def _inline_to_thread(monkeypatch):
         return fn(*a, **k)
 
     monkeypatch.setattr(server.asyncio, "to_thread", inline)
+    # A changed frame also says whether the app is full screen: never asked of a real tmux.
+    monkeypatch.setattr(server.fit, "alternate", lambda pane_id: False)
 
 
 def test_changed_frame_returns_immediately(monkeypatch):
