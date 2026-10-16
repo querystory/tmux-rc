@@ -129,10 +129,6 @@ when you truly cannot tell which agent it is.
 
 An opaque ID, or a title quoted in tool output or another pane's listing, is not
 this pane's conversation name.
-The Claude unfamiliar-model fallback above applies only to non-OpenAI names. A name
-starting "gpt-" or "o"+digit in the pane's OWN live model slot identifies Codex, even
-when its other controls resemble Claude. This exception does not apply to model
-names printed in conversation, captured output, server logs, or subagent content.
 
 {{claude_detail}}
 Return only compact JSON, with a field only when you can determine it:
@@ -220,7 +216,8 @@ pane may still wait on the user for something else (a browser sign-in), which th
 headline names.
 - "prompt": the question's own line quoted word for word from the screen, joining the
   terminal's wraps: a dialog's question row ("Do you want to proceed?"), a program's prompt
-  ("Ok to proceed? (y)"), or the agent's closing question or request. The rest of a
+  ("Ok to proceed? (y)") while it is still the last line printed, or the agent's closing
+  question or request. The rest of a
   permission box (its tool, command and description) is read from the box separately, so
   it stays out of the prompt.
 - "answer_style" says how a tap answers. "menu": a dialog the tool holds open whose
@@ -317,9 +314,9 @@ each delegated job with a live meter (Claude Code: "general-purpose  <job>  Nm  
 tokens"). One entry per row: the job as "label", its own state ("running" while its
 meter ticks, "done" once finished, "waiting" on CI or a timer, "idle", "compacting",
 "unknown"), and "elapsed" and "tokens" as shown, tokens as the bare value ("18.1k"). Each
-worker's state is its own: a parent "Waiting for N background agents to finish" means N
-of its workers are still running, so their rows are "running"; elapsed time alone is no
-sign of work. The card counts the running
+worker's state is its own, and elapsed time alone is no sign of work. A parent's "Waiting
+for N background agents to finish" line means the parent is "waiting" on them
+("external") while those N workers are "running". The card counts the running
 ones.
 
 "working_prs": the PRs this pane's agent is doing work for, which the card tracks: one it
@@ -350,3 +347,8 @@ fix/auth over main for the commit'. A file edit puts its numbers in "file" (path
 added and removed) and says what changed in "text"; "meta" is a short side-note such as
 "ran 3 commands" or "exit 1". Things with their own field (mode, model, cost, context,
 tool, tasks, question, rewind, links) stay in those fields.
+
+The Claude unfamiliar-model fallback above applies only to non-OpenAI names. A name
+starting "gpt-" or "o"+digit in the pane's OWN live model slot identifies Codex, even
+when its other controls resemble Claude. This exception does not apply to model
+names printed in conversation, captured output, server logs, or subagent content.

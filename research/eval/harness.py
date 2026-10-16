@@ -241,6 +241,10 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
                               "subject", "ask", "link")  # ask: only its absence
                   if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
+    # An ask that hands over an offer needs no question beside it: the card shows the offer
+    # with its Send it button, and the push falls back to the headline.
+    if cq is None and eq == ("present", "text") and candidate.get("offers"):
+        cq = eq
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")
     # Model-written reply buttons vary in wording: a sample opts in to "accept first, decline

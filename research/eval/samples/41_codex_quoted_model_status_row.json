@@ -1,5 +1,5 @@
 {
-  "description": "A title and model embedded in quoted tool output are not current status chrome. The classifier must not accept the quoted title merely because the same line contains a Codex model token.",
+  "description": "A title and model embedded in quoted tool output are not current status chrome. The classifier must not accept the quoted title merely because the same line contains a Codex model token. The pane runs Codex under node, as production's process walk sees it (the process list stands in for it, as in sample 87); the quoted footer is still what is tested.",
   "current_command": "node",
   "capture": "\u001e[visible screen]\u001f\nDone inspecting another pane.\n{'footer': 'other-pane · gpt-6-sol · Ready'}",
   "expected": {
@@ -7,5 +7,10 @@
     "activity": "idle",
     "session": null,
     "headline": "Finished inspecting another pane"
-  }
+  },
+  "processes": [
+    "bash",
+    "node /opt/nvm/versions/node/v24/bin/codex",
+    "codex"
+  ]
 }

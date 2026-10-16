@@ -77,6 +77,8 @@ strictness is correct:
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
+- An expected text `question` is also met by no question beside a (gated) offer: the
+  card shows the offer with its Send it button, and the push falls back to the headline.
 - `question.items` — opt-in: the numbered or lettered rows above a typed question that
   its prompt names ("do 1 now?", "A or B?"), which the model quotes and classify() keeps
   only where the screen shows them. Scored by the labels they lead with ("1", "B"), since

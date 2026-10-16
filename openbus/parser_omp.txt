@@ -8,3 +8,5 @@
   receipt of a past choice that explains the task now resumed. "Steering" and "After
   yield" bands with counts and numbered messages are the user's own queued outgoing
   input.
+  When the context line says no Ask is open, omp holds no question: report its activity
+  from the run state and leave "question" out.
