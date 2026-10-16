@@ -1425,6 +1425,23 @@ def test_claude_interrupt_is_the_user_at_an_idle_prompt():
          "waiting"),
     ]:
         assert classify(_pane("claude"), later, _llm(model))["activity"] == activity
+def test_codex_text_question_without_a_composer_is_not_typed(monkeypatch):
+    monkeypatch.setattr(classify_mod, "_host_tool", lambda _pane: "codex")
+    screen = _sample("98_codex_device_code_is_not_a_question")
+    code = [{"label": "Device login code", "text": "ABCD-12345"}]
+    def asked(_system, _text):  # fresh each call: classify() edits the parse in place
+        return {"activity": "waiting", "waiting_on": "user", "copyables": code,
+                "question": {"prompt": "Enter code ABCD-12345", "answer_style": "text"}}
+    result = classify(_pane("node"), screen, asked)
+    assert "question" not in result and result["copyables"] == code
+    assert (result["activity"], result["waiting_on"]) == ("waiting", "external")
+    # In the TUI the composer takes the answer, and a menu is answered by its keys.
+    composer = screen + "\n\n› \n\n  gpt-5.5 high · ~/src/app"
+    assert classify(_pane("node"), composer, asked)["waiting_on"] == "user"
+    menu = {"question": {"prompt": "Enter code ABCD-12345", "answer_style": "menu",
+                         "options": ["Yes", "No"]}}
+    menu_screen = screen + "\n› 1. Yes\n  2. No"
+    assert "question" in classify(_pane("node"), menu_screen, _llm(menu))
 
 
 def _auto_screen(message):

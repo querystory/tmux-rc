@@ -1553,6 +1553,14 @@ def classify(
         result.pop("question", None)
         if result.pop("parse_ok", True) is False or result.get("activity") != "running":
             result["activity"] = "idle"
+    # Codex reads typed text only in its › composer. A text question with no composer on
+    # screen has nowhere to be typed: `codex login --device-auth`'s "Enter code …" means
+    # in the browser, so the pane waits on something outside it.
+    if (result.get("tool") == "codex" and isinstance(result.get("question"), dict)
+            and result["question"].get("answer_style") == "text"
+            and not re.search(_PROMPT_ROW, visible, re.MULTILINE)):
+        del result["question"]
+        result.update(activity="waiting", waiting_on="external")
     question = result.get("question")
     # A numbered picker driven by arrows is walked, not answered with a digit, where the
     # screen shows its highlighted row, which a walk needs.

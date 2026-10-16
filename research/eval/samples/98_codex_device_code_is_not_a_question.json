@@ -1,0 +1,21 @@
+{
+  "description": "Codex's `codex login --device-auth` screen: a link to open, a one-time code, and a closing 'Enter code ABCD-12345'. That line tells the user to type the code in the BROWSER; the CLI shows no input prompt (no › composer, the cursor on a blank row below). The parser read it as a text question, the phone offered a Reply button, and tapping it typed the code into the pane. classify() now drops a Codex text question with no composer on screen and makes the pane an external wait (tests/test_classify.py proves the override). The link and code stay as links/copyables. Live capture with a fake code (tmux-rc, 2026-10-14).",
+  "current_command": "node",
+  "processes": [
+    "bash",
+    "node /opt/nvm/versions/node/v24/bin/codex login --device-auth",
+    "codex login --device-auth"
+  ],
+  "capture": "\u001e[visible screen]\u001f\n\nWelcome to Codex [v⟪dim⟫0.162.1⟪/dim⟫]\n⟪dim⟫OpenAI's command-line coding agent\n\n⟪/dim⟫Follow these steps to sign in with ChatGPT using device code authorization:\n\n1. Open this link in your browser and sign in to your account\n   https://auth.openai.com/codex/device\n\n2. Enter this one-time code ⟪dim⟫(expires in 15 minutes)\n   ⟪/dim⟫ABCD-12345\n\n⟪dim⟫Continue only if you started this login in Codex. If a website or another person gave you this code, cancel.\n\n⟪/dim⟫Enter code ABCD-12345\n",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "question": null,
+    "copyables": true,
+    "links": [
+      "https://auth.openai.com/codex/device"
+    ],
+    "headline": "Waiting for browser sign-in with the device code"
+  }
+}
