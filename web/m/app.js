@@ -165,9 +165,10 @@ let latestFrame = "", paintedFrame = "";
 // near the top and kept, since a history row never changes. Rows are counted from the
 // oldest one tmux keeps, so new output (which only adds rows below) never renumbers a row
 // already here. #earlier holds rows [top, end); while it is empty both follow the frame's
-// own first row. `frameTop` and `frameWidth` come with each live frame.
+// own first row. `frameTop` and `frameWidth` are the painted frame's (a frame held back for
+// a selection is not on screen yet, so rows it moved past are still shown in the old one).
 const EARLIER_LINES = 500;
-let earlier = { top: 0, end: 0, width: 0 }, frameTop = 0, frameWidth = 0;
+let earlier = { top: 0, end: 0, width: 0 }, frameTop = 0, frameWidth = 0, latestGeometry = [0, 0];
 let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 // CSPRNG-random or omitted, never guessed. getRandomValues, unlike randomUUID, needs no
 // secure context, and a reconnecting chat finds its parked cards by this id.
@@ -1091,14 +1092,17 @@ function paintCapture() {
   const scroll = $("terminal-scroll"), follow = following();
   paintLines(lines);
   paintedFrame = latestFrame;
+  [frameTop, frameWidth] = latestGeometry;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
   // A reflow (new width) renumbers every row, and trimmed or cleared history moves the
   // frame's first row back: either way the rows held here no longer line up, so drop them
   // (and, by replacing `earlier`, any chunk still on its way).
   if (frameWidth !== earlier.width || frameTop < earlier.seen) resetEarlier();
   earlier.seen = frameTop;
-  // Empty, the held range follows the frame, but not under a request it is the edge of.
-  if (earlier.top === earlier.end && !earlier.busy) earlier.top = earlier.end = frameTop;
+  // Empty, the held range follows the frame while you follow the tail and no request is
+  // using it as its edge. Reading further up, it stays, so the rows output scrolls out from
+  // under you come back as a gap.
+  if (earlier.top === earlier.end && !earlier.busy && follow) earlier.top = earlier.end = frameTop;
   loadEarlier();
 }
 function resetEarlier() {
@@ -1112,12 +1116,13 @@ function paintEarlierCue() {
 }
 // Rows added above what you are reading must not move it: measure the frame's first line,
 // make the change, and scroll by however far that line moved. Measured rather than
-// computed, so it is right whether or not the browser anchors scrolling itself.
-function holdView(change) {
+// computed, so it is right whether or not the browser anchors scrolling itself. `ifAbove`:
+// only when that line is above the view, i.e. you are reading the frame, not rows above it.
+function holdView(change, ifAbove = false) {
   const box = $("terminal-scroll"), mark = $("capture").firstChild || $("capture");
-  const y = mark.getBoundingClientRect().top;
+  const y = mark.getBoundingClientRect().top, hold = !ifAbove || y < box.getBoundingClientRect().top;
   change();
-  box.scrollTop += mark.getBoundingClientRect().top - y;
+  if (hold) box.scrollTop += mark.getBoundingClientRect().top - y;
 }
 // Fill whatever is missing, one request at a time: first a gap (output moved the frame's
 // first row past #earlier's end while you read above it; left for later while you follow
@@ -1126,8 +1131,8 @@ function holdView(change) {
 //
 // A gap filled at once is not held: its rows are the ones the frame just scrolled away, and
 // they land where the frame had shown them, so whatever you were reading comes back to the
-// same place. A gap left while you followed (`behind`) was never on screen, so it is held
-// like older rows: it lands above the frame you are reading.
+// same place. A gap left while you followed (`behind`) was never on screen, so if you are
+// reading the frame it is held, landing above it; above it, it lands below you anyway.
 //
 // A line tmux wrapped across a chunk's edge arrives in two pieces (tmux.capture_history),
 // so the held piece is rendered again together with the new one and replaced: a long URL
@@ -1139,7 +1144,7 @@ async function loadEarlier() {
   h.busy = true;
   try {
     for (;;) {
-      const lag = h.top < h.end && h.end < frameTop, gap = lag && !following();
+      const lag = h.end < frameTop, gap = lag && !following();
       if (lag && !gap) h.behind = true;
       if (!gap && !(h.top > 0 && box.scrollTop < box.clientHeight)) return;
       const before = gap ? Math.min(frameTop, h.end + EARLIER_LINES) : h.top;
@@ -1158,7 +1163,7 @@ async function loadEarlier() {
         if (join) edge.remove();
         if (gap) { pre.append(...nodes); h.end = before; } else { pre.prepend(...nodes); h.top = start; h.loading = false; paintEarlierCue(); }
       };
-      if (gap && !h.behind) place(); else holdView(place);
+      if (gap && !h.behind) place(); else holdView(place, gap);
       if (h.end >= frameTop) h.behind = false;
     }
   } catch {} // a failed chunk is asked for again on the next scroll or frame
@@ -1174,7 +1179,7 @@ async function streamTerminal(id, signal) {
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; frameTop = data.top; frameWidth = data.width; paintCapture(); }
+      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; latestGeometry = [data.top, data.width]; paintCapture(); }
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {

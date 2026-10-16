@@ -181,9 +181,12 @@ for "the 500 rows before row N". That leaves two windows to get right:
 client never fetched. It fetches that gap and places it at the end of the held rows, which
 is exactly where the frame showed them, so even a row you were reading inside the frame
 stays put. While you follow the tail the gap is left for later, so a streaming pane costs
-no extra requests; it is filled as soon as you scroll up, and since those rows were never on
-screen it is held like older rows, landing above the frame you are reading. A frame that
-arrives while the first chunk is in flight does not move the empty cache's edge, and a frame
+no extra requests. It is filled as soon as you scroll up. Those rows were never on screen,
+so if you are reading the frame they are held above it, and if you are reading older rows
+they land below you. The same applies before any history has loaded: once you leave the
+tail, rows that output scrolls out of the frame come back as a gap. Only a painted frame
+moves the edge (one held back for a text selection is not on screen yet), a frame that
+arrives while the first chunk is in flight leaves the empty cache's edge alone, and a frame
 whose first row moves back drops the cache however far behind its edge is. The browser's own scroll
 anchoring is off for the terminal: Chrome would pin a frame row and undo that placement,
 and older Safari has none, so the client holds the view itself, by measuring how far the content
