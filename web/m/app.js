@@ -167,7 +167,7 @@ let latestFrame = "", paintedFrame = "";
 // already here. #earlier holds rows [top, end); while it is empty both follow the frame's
 // own first row. `latestGeometry` is the newest frame's first row and pane width.
 const EARLIER_LINES = 500;
-let earlier = { top: 0, end: 0, width: 0 }, latestGeometry = [0, 0];
+let earlier = { top: 0, end: 0, width: 0 }, latestGeometry = [0, 0], shownTop = 0; // shownTop: the painted frame's first row
 let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 // CSPRNG-random or omitted, never guessed. getRandomValues, unlike randomUUID, needs no
 // secure context, and a reconnecting chat finds its parked cards by this id.
@@ -1053,7 +1053,7 @@ function restartDetail() {
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
-function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; latestGeometry = [0, 0]; resetEarlier(); }
+function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; latestGeometry = [0, 0]; shownTop = 0; resetEarlier(); }
 const following = () => { const s = $("terminal-scroll"); return s.scrollTop + s.clientHeight >= s.scrollHeight - FOLLOW_SLACK_PX; };
 // One <span> per screen line, each ending in its own "\n" (except the last), so inside the
 // <pre>'s `white-space: pre` the layout and copied text are exactly what one innerHTML of
@@ -1083,10 +1083,11 @@ function paintLines(lines) {
   });
   captureLines.splice(lines.length).forEach((node) => node.remove());
 }
+const frameLines = () => lineMarkup(renderCaptureLines(latestCapture, { color: true }));
+const selectionHolds = (lines) => { const s = getSelection(); return !!s && !s.isCollapsed && selectionDirty(s, lines); };
 function paintCapture(force = false) {
-  const lines = lineMarkup(renderCaptureLines(latestCapture, { color: true }));
-  const selection = getSelection();
-  if (selection && !selection.isCollapsed && selectionDirty(selection, lines)) { captureDirty = true; return; }
+  const lines = frameLines();
+  if (selectionHolds(lines)) { captureDirty = true; return; }
   captureDirty = false;
   const scroll = $("terminal-scroll"), follow = following(), [top, width] = latestGeometry;
   // A reflow (new width) renumbers every row, and trimmed or cleared history moves the
@@ -1096,12 +1097,12 @@ function paintCapture(force = false) {
   earlier.seen = top;
   // Empty, the held range follows the frame while you follow the tail and no request is
   // using it as its edge. Reading further up, it stays, so the rows output scrolls out from
-  // under you come back as a gap, and this frame waits for them: loadEarlier places them
-  // and paints it in one go, so what you are reading never jumps in between.
+  // under you come back as a gap, and this frame waits for them: loadEarlier lands them
+  // and paints it in one step, so what you are reading never jumps in between.
   if (earlier.top === earlier.end && !earlier.busy && follow) earlier.top = earlier.end = top;
   if (!follow && !force && earlier.end < top) { loadEarlier(); return; }
   paintLines(lines);
-  paintedFrame = latestFrame;
+  paintedFrame = latestFrame; shownTop = top;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
   loadEarlier();
 }
@@ -1130,14 +1131,16 @@ const selected = (node) => { const s = getSelection(); return !!s?.rangeCount &&
 // Fill whatever is missing, one request at a time: first a gap (output moved the frame's
 // first row past #earlier's end while you read above the tail; left for later while you
 // follow it, so a streaming pane costs nothing, and while a selection holds the frame
-// back, since that frame still shows those rows), then older rows while you are within a
-// screen of the top. Each chunk is rendered by the live view's own renderer.
+// back), then older rows while you are within a screen of the top. Each chunk is rendered
+// by the live view's own renderer. A failure pauses loading for a few seconds, then retries.
 //
-// A gap filled at once is not held: its rows are the ones the waiting frame scrolls away,
-// and they land where the old frame showed them, the new frame painted right after, so
-// whatever you were reading stays in place. A gap left while you followed (`behind`) was
-// never on screen, so if you are reading the frame it is held, landing above it; above it,
-// it lands below you anyway.
+// A gap has two parts, split at the painted frame's first row (`shownTop`), and requests
+// never straddle it. Rows above it are on screen nowhere (left while you followed, or after
+// a failed fetch), so they land at once and, if you are reading the frame, are held above
+// it. Rows below it are on screen in the painted frame and leave it only with the frame
+// that waits for them: they collect in `held` and land in the same step as that frame, in
+// the place the old frame showed them, so whatever you were reading stays put. If a
+// selection now holds that frame back, they are dropped and fetched again later.
 //
 // A line tmux wrapped across a chunk's edge arrives in two pieces (tmux.capture_history),
 // so the held piece is rendered again together with the new one and replaced: a long URL
@@ -1146,25 +1149,24 @@ const selected = (node) => { const s = getSelection(); return !!s?.rangeCount &&
 // A held piece inside a selection is left alone rather than replaced under it.
 async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll"), pre = $("earlier");
-  if (h.busy || !id) return;
+  if (h.busy || !id || performance.now() - (h.failed ?? -Infinity) < 3000) return;
   h.busy = true;
-  // Gap rows wait here while the frame does, so the two land together however many
-  // requests the gap takes; `gone` is a held piece they replace.
-  let held = [], gone = null;
+  let held = [], gone = null, heldEnd = h.end;
   const land = () => {
-    const tail = following(), place = () => { gone?.remove(); pre.append(...held); held = []; gone = null; };
-    if (h.behind) holdView(place, true); else place();
+    if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
+    const tail = following();
+    gone?.remove(); pre.append(...held); h.end = heldEnd;
     if (tail) box.scrollTop = box.scrollHeight;
     if (paintedFrame !== latestFrame) paintCapture(); // the frame that waited
   };
   try {
     for (;;) {
-      const want = latestGeometry[0], lag = h.end < want, gap = lag && !following() && !captureDirty;
-      if (lag && following()) h.behind = true;
+      const want = latestGeometry[0], gap = heldEnd < want && !following() && !captureDirty;
       if (!gap && !(h.top > 0 && box.scrollTop < box.clientHeight)) return;
-      const before = gap ? Math.min(want, h.end + 1000) : h.top; // 1000: the daemon's cap
+      const unseen = heldEnd < shownTop; // 1000: the daemon's cap
+      const before = gap ? Math.min(want, heldEnd + 1000, unseen ? shownTop : Infinity) : h.top;
       if (!gap) holdView(() => { h.loading = true; paintEarlierCue(); });
-      const query = new URLSearchParams({ before, lines: gap ? before - h.end : EARLIER_LINES });
+      const query = new URLSearchParams({ before, lines: gap ? before - heldEnd : EARLIER_LINES });
       const { text: rows, start, wraps } = await request(`${paneUrl(id, "history")}?${query}`);
       if (h !== earlier) return;
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;
@@ -1175,22 +1177,23 @@ async function loadEarlier() {
       });
       nodes[0].raw = raw.slice(0, raw.indexOf("\n") >>> 0);
       Object.assign(nodes.at(-1), { raw: lastLine(raw), wraps: gap || !join ? wraps : edge.wraps });
-      if (gap) {
+      if (!gap) {
+        holdView(() => { if (join) edge.remove(); pre.prepend(...nodes); h.top = start; h.loading = false; paintEarlierCue(); });
+      } else if (unseen) {
+        holdView(() => { if (join) edge.remove(); pre.append(...nodes); h.end = heldEnd = before; }, true);
+      } else {
         if (join && edge === held.at(-1)) held.pop(); else if (join) gone = edge;
-        held.push(...nodes); h.end = before;
-        if (h.end >= latestGeometry[0] || paintedFrame === latestFrame) land();
-        if (h.end >= latestGeometry[0]) h.behind = false;
-        continue;
+        held.push(...nodes); heldEnd = before;
+        if (heldEnd >= latestGeometry[0]) { land(); held = []; gone = null; heldEnd = h.end; }
       }
-      holdView(() => { if (join) edge.remove(); pre.prepend(...nodes); h.top = start; h.loading = false; paintEarlierCue(); });
     }
-  } catch {} // a failed chunk is asked for again on the next scroll or frame
+  } catch { h.failed = performance.now(); setTimeout(loadEarlier, 3000); }
   finally {
-    if (held.length && h === earlier) land();
     h.busy = h.loading = false;
     if (h === earlier) holdView(paintEarlierCue);
-    // A frame still waiting (a failed gap, or you went back to the tail) is painted as is.
-    if (h === earlier && paintedFrame !== latestFrame) paintCapture(true);
+    // A frame still waiting (its gap failed, or you went back to the tail) paints as is; the
+    // rows it skips are above it then, so a later fetch holds them.
+    if (h === earlier && paintedFrame !== latestFrame && !captureDirty) paintCapture(true);
   }
 }
 async function streamTerminal(id, signal) {

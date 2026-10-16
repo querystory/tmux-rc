@@ -181,11 +181,14 @@ for "the 500 rows before row N". That leaves two windows to get right:
 rows the client never fetched. The new frame waits while the client fetches that gap. Then
 the gap rows go in at the end of the held rows, exactly where the old frame showed them,
 and the new frame is painted in the same step, so even a row you were reading inside the
-frame never moves, not even for the length of a request. A failed fetch paints the frame
-anyway. While you follow the tail the gap is left for later, so a streaming pane costs
-no extra requests. It is filled as soon as you scroll up. Those rows were never on screen,
-so if you are reading the frame they are held above it, and if you are reading older rows
-they land below you. The same applies before any history has loaded: once you leave the
+frame never moves, not even for the length of a request. A gap is split at the painted
+frame's first row: rows below it are on screen in that frame and must land with the next
+one, while rows above it are on screen nowhere (left while you followed the tail, or
+skipped by a frame painted after a failed fetch), so they land at once, held above the
+frame if you are reading it. Rows waiting for a frame that a text selection holds back are
+dropped and fetched again, rather than shown twice. A failed fetch paints the frame anyway
+and pauses loading for a few seconds before retrying. While you follow the tail the gap is left for later, so a streaming pane costs
+no extra requests. It is filled as soon as you scroll up. The same applies before any history has loaded: once you leave the
 tail, rows that output scrolls out of the frame come back as a gap. Only a painted frame
 moves the edge (one held back for a text selection is not on screen yet), a frame that
 arrives while the first chunk is in flight leaves the empty cache's edge alone, and a frame
