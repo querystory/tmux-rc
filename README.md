@@ -83,6 +83,9 @@ Why it works this way: [docs/design/reboot-restore.md](docs/design/reboot-restor
 > items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
 > scope.
 
+[Why tmux-rc](docs/comparisons/_index.md): the existing tmux workflow we wanted to
+keep, the requirements other tools left open for us, and the alternatives we researched.
+
 ## Run
 
 Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and Google Cloud
