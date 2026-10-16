@@ -579,8 +579,7 @@ async def no_cache(request, call_next):
     # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
     if path.startswith(("/scratch/", "/docs/mocks/")):
-        resp.headers["Content-Security-Policy"] = (
-            "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")
+        resp.headers["Content-Security-Policy"] = scratch.SANDBOX
     else:  # nor may such a page frame the app or the API, whose answers it would then show
         resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
     # StaticFiles redirects a directory without its slash to an absolute URL built from
@@ -2003,22 +2002,14 @@ if _scratch_dir:
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
             Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"],
             WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher),
-            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), _local_scratch_url(),
-                                                  listed, getattr(watcher, "use_llm", False)))))
+            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), listed,
+                                                  getattr(watcher, "use_llm", False)))))
 
     _mount_static("/scratch", _scratch_dir)
 
 
 def _bind() -> tuple[str, int]:
     return os.environ.get("TMUXRC_HOST", "127.0.0.1"), int(os.environ.get("TMUXRC_PORT", "18030"))
-
-
-def _local_scratch_url() -> str:
-    """/scratch on the daemon's own address, which needs no login, unlike the public one."""
-    host, port = _bind()
-    host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)  # a wildcard: loopback
-    host = f"[{host}]" if ":" in host else host
-    return f"http://{host}:{port}/scratch"
 
 
 def _advertise_scratch() -> None:
@@ -2029,9 +2020,12 @@ def _advertise_scratch() -> None:
     tmux outlives the daemon, so whatever is no longer configured is removed, not kept."""
     if os.environ.get("TMUXRC_SCRATCH_ADVERTISE") != "1":
         return
+    host, port = _bind()
+    host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)  # a wildcard: loopback
+    host = f"[{host}]" if ":" in host else host
     env = {"TMUXRC_SCRATCH_DIR": _scratch_dir,
            "TMUXRC_SCRATCH_URL": os.environ.get("TMUXRC_SCRATCH_URL") or None,  # "" = unset
-           "TMUXRC_SCRATCH_LOCAL_URL": _local_scratch_url()}
+           "TMUXRC_SCRATCH_LOCAL_URL": f"http://{host}:{port}/scratch"}
     try:
         for name, value in env.items():
             tmux.set_env(name, value if _scratch_dir else None)

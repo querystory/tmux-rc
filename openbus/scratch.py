@@ -30,6 +30,8 @@ _LOCK = threading.Lock()
 _found: dict[tuple[str, int], tuple[float, dict | None]] = {}
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
+# What every /scratch/ response is served under (see server.py's no_cache middleware).
+SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"
 
 
 def inside(path: Path, root: Path) -> bool:

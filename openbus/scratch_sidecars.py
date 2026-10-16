@@ -13,7 +13,10 @@ import os
 import subprocess
 import tempfile
 import threading
+from contextlib import contextmanager
+from functools import partial
 from html.parser import HTMLParser
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import urlopen
@@ -49,37 +52,65 @@ def stale(item: dict) -> bool:
     return item["page"].suffix in _SHOOTABLE and (not shot or shot < item["updated"])
 
 
-def queue(root: Path, base: str, listed: list[dict], describe: bool = True) -> None:
+def queue(root: Path, listed: list[dict], describe: bool = True) -> None:
     """Hand the listed folders that lack a fresh thumbnail or (with `describe`) a
-    description to the worker; `base` is the daemon's own /scratch URL, so a page is shot
-    under the same sandbox it is served with."""
+    description to the worker."""
     global _worker  # noqa: PLW0603 - the one worker
     with _lock:
         for i in listed:
             if (i["name"], i["updated"]) not in _tried and (
                     stale(i) or (describe and not i["description"])):
                 _tried.add((i["name"], i["updated"]))
-                url = f"{base}/{i['href']}"
-                _pending.append((root, url, i | {"describe": describe}))
+                _pending.append(i | {"describe": describe})
         if _pending and _worker is None:
-            _worker = threading.Thread(target=_work, daemon=True, name="scratch-sidecars")
+            _worker = threading.Thread(target=_work, args=(root,), daemon=True,
+                                       name="scratch-sidecars")
             _worker.start()
 
 
-def _work() -> None:
+def _work(root: Path) -> None:
     global _worker  # noqa: PLW0603
-    while True:
-        with _lock:
-            if not _pending:
-                _worker = None  # under the lock, so queue() starts a new one for what comes next
-                return
-            root, url, item = _pending.pop(0)
-        for step in (_thumbnail, _description):
-            try:  # each on its own: one failing must stop neither the other nor the queue
-                step(root, url, item)
-            except Exception:
-                logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
-                               exc_info=True)
+    with serving(root) as base:
+        while True:
+            with _lock:
+                if not _pending:
+                    _worker = None  # under the lock, so queue() starts one for what comes next
+                    return
+                item = _pending.pop(0)
+            for step in (_thumbnail, _description):
+                try:  # each on its own: one failing must stop neither the other nor the queue
+                    step(root, f"{base}/{item['href']}", item)
+                except Exception:
+                    logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
+                                   exc_info=True)
+
+
+class _Static(SimpleHTTPRequestHandler):
+    """scratch's files and nothing else, under the sandbox the daemon serves them with."""
+
+    def translate_path(self, path):
+        full = Path(super().translate_path(path))
+        return str(full) if scratch.inside(full, Path(self.directory)) else "/nonexistent"
+
+    def end_headers(self):
+        self.send_header("Content-Security-Policy", scratch.SANDBOX)
+        super().end_headers()
+
+    def log_message(self, *_):
+        pass
+
+
+@contextmanager
+def serving(root: Path):
+    """A loopback listener for the renderer that serves scratch alone: through the daemon,
+    a page could frame, or navigate itself to, the API, and the shot would publish it."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(_Static, directory=str(root)))
+    threading.Thread(target=server.serve_forever, daemon=True, name="scratch-static").start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def _thumbnail(root: Path, url: str, item: dict) -> None:
@@ -120,9 +151,9 @@ def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
         return False
     with tempfile.TemporaryDirectory(prefix="tmux-rc-thumb-") as profile:
         png = Path(profile) / "shot.png"
-        # Every request but the daemon's own goes to a proxy that isn't there, loopback
-        # included: a page could otherwise frame a local or private-network service, which
-        # the shot would then publish.
+        # Every request but `url`'s host (serving's) goes to a proxy that isn't there,
+        # loopback included: a page could otherwise frame a local or private-network
+        # service, which the shot would then publish.
         subprocess.run([exe, "--headless", "--no-first-run", "--hide-scrollbars",
                         f"--user-data-dir={profile}", "--window-size={},{}".format(*VIEWPORT),
                         "--proxy-server=http://127.0.0.1:9",

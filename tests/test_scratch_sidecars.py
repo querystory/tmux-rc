@@ -6,6 +6,8 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 import pytest
 from PIL import Image
@@ -96,6 +98,20 @@ def test_nothing_is_read_or_written_once_a_folder_points_out_of_scratch(tmp_path
     assert not (outside / "meta.json").exists()
 
 
+def test_the_renderer_is_served_scratch_and_nothing_else(tmp_path):
+    root = tmp_path / "scratch"
+    _page(root.parent, "scratch", page="<p>page</p>")
+    (tmp_path / "secret.txt").write_text("outside")
+    (root / "link.txt").symlink_to(tmp_path / "secret.txt")
+    with S.serving(root) as base:
+        with urlopen(f"{base}/index.html") as page:
+            assert page.read() == b"<p>page</p>"
+            assert page.headers["Content-Security-Policy"] == scratch.SANDBOX
+        for path in ("/api/digest", "/link.txt", "/../secret.txt", "/%2e%2e/secret.txt"):
+            with pytest.raises(HTTPError):
+                urlopen(base + path)
+
+
 def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypatch):
     shell = tmp_path / "ms-playwright/chromium_headless_shell-9/chrome-linux/chrome-headless-shell"
     shell.parent.mkdir(parents=True)
@@ -141,11 +157,11 @@ def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "_tried", set())
     _page(tmp_path)
     for _ in range(2):
-        S.queue(tmp_path, "http://d/scratch", scratch.items(tmp_path))
+        S.queue(tmp_path, scratch.items(tmp_path))
         while (worker := S._worker) is not None:
             worker.join()
-    assert done == [("shot", "http://d/scratch/p/"), ("said", "T")]
-    S.queue(tmp_path, "http://d/scratch", scratch.items(tmp_path), describe=False)
+    assert [what for what, _ in done] == ["shot", "said"] and done[0][1].endswith("/p/")
+    S.queue(tmp_path, scratch.items(tmp_path), describe=False)
     assert S._worker is None  # nothing new to do
 
 
@@ -155,7 +171,7 @@ def test_a_failed_shot_still_gets_a_description(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "shoot", lambda *_: 1 / 0)
     monkeypatch.setattr(S, "describe", lambda *a: said.append(a[2]) or "Said.")
     _page(tmp_path)
-    S.queue(tmp_path, "http://d/scratch", scratch.items(tmp_path))
+    S.queue(tmp_path, scratch.items(tmp_path))
     while (worker := S._worker) is not None:
         worker.join()
     assert said == ["T"]
@@ -167,7 +183,7 @@ def test_a_description_missed_while_the_model_is_out_is_asked_again(tmp_path, mo
     monkeypatch.setattr(S, "describe", lambda *_: None)
     monkeypatch.setattr(llm, "backing_off", lambda: True)
     _page(tmp_path)
-    S.queue(tmp_path, "http://d/scratch", scratch.items(tmp_path))
+    S.queue(tmp_path, scratch.items(tmp_path))
     while (worker := S._worker) is not None:
         worker.join()
     assert S._tried == set()

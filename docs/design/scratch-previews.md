@@ -45,11 +45,12 @@ picture and a sentence. Both sit beside the page (`thumb.webp`, and the descript
 keeps them. A live `<iframe>` per card was rejected, since it runs every preview's scripts
 at once on a phone. The daemon instead shoots each page once with Playwright's bundled
 headless Chromium, in a fresh profile that it then deletes. It never uses the user's own
-browser, whose profile carries their logins. The shot goes through the daemon's local
-address, so the page renders under the same sandbox it is served with, and every other
-request goes to a proxy that isn't there: the shot runs on the daemon's machine, where a
-page could otherwise frame a loopback or private-network service and have its screen
-published as a thumbnail. Pages that pull fonts or images from the internet render
+browser, whose profile carries their logins. The page is served to that browser by
+a throwaway loopback listener that serves scratch and nothing else, under the same
+sandbox, and every other request goes to a proxy that isn't there. The shot runs on the
+daemon's machine, where a page could otherwise frame, or navigate itself to, the daemon's
+API or a loopback or private-network service, and have the answer published as its
+thumbnail. Everything outside `/scratch/` also refuses to be framed by such a page. Pages that pull fonts or images from the internet render
 without them, which is acceptable for a thumbnail. Shots run one at a
 time on a worker thread: the first listing after an upgrade backfills every folder without
 ever waiting on it, and cards show a placeholder until their picture exists. A thumbnail
