@@ -116,9 +116,7 @@ def _rollout_since(home: Path, start: str) -> bool:
     time `start` (clock ticks after boot) began. Unknown counts as yes."""
     if not start:
         return True
-    btime = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
-                 if line.startswith("btime "))
-    began = btime + int(start) / os.sysconf("SC_CLK_TCK")
+    began = tmux.started_at(start)
     return any(p.stat().st_mtime >= began for p in home.glob("sessions/*/*/*/rollout-*.jsonl"))
 
 

@@ -15,7 +15,7 @@ from html import escape, unescape
 from pathlib import Path
 from urllib.parse import quote
 
-from . import agent_history
+from . import agent_history, tmux
 
 _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 _TOKENS = re.compile(r"^:root(?:\.light)? \{.*?^\}", re.MULTILINE | re.DOTALL)  # app colours
@@ -53,30 +53,35 @@ def _when(stamp: str | None) -> float | None:
         return None
 
 
+def _item(root: Path, folder: Path) -> dict | None:
+    files = [(f.lstat().st_mtime, f) for f in folder.rglob("*")
+             if f.is_file() and _inside(f, folder)]
+    pages = [(t, f) for t, f in files if f.name != "meta.json"]
+    if not pages:
+        return None
+    meta, index = _meta(folder), folder / "index.html"
+    page = index if any(f == index for _, f in pages) else max(pages)[1]
+    title = meta.get("title")
+    if not title and page.suffix == ".html":
+        with page.open(errors="replace") as f:
+            m = _TITLE.search(f.read(65536))
+        title = m and unescape(m.group(1)).strip()
+    return {"name": folder.name, "title": title or folder.name,
+            "description": meta.get("description", ""), "pane": meta.get("pane"),
+            "href": quote(page.relative_to(root).as_posix() if page != index
+                          else folder.name + "/"),
+            "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0]}
+
+
 def items(root: Path) -> list[dict]:
     """Every folder of scratch, most recently updated first."""
     out = []
     for folder in root.iterdir():
-        if folder.is_symlink() or not folder.is_dir():
+        try:  # a folder deleted or rebuilt mid-scan is left out, not the whole gallery
+            if not folder.is_symlink() and folder.is_dir() and (item := _item(root, folder)):
+                out.append(item)
+        except OSError:
             continue
-        files = [(f.lstat().st_mtime, f) for f in folder.rglob("*")
-                 if f.is_file() and _inside(f, folder)]
-        pages = [(t, f) for t, f in files if f.name != "meta.json"]
-        if not pages:
-            continue
-        meta, index = _meta(folder), folder / "index.html"
-        page = index if any(f == index for _, f in pages) else max(pages)[1]
-        title = meta.get("title")
-        if not title and page.suffix == ".html":
-            with page.open(errors="replace") as f:
-                m = _TITLE.search(f.read(65536))
-            title = m and unescape(m.group(1)).strip()
-        out.append({"name": folder.name, "title": title or folder.name,
-                    "description": meta.get("description", ""), "pane": meta.get("pane"),
-                    "href": quote(page.relative_to(root).as_posix() if page != index
-                                  else folder.name + "/"),
-                    "created": _when(meta.get("created")) or min(files)[0],
-                    "updated": max(files)[0]})
     return sorted(out, key=lambda i: -i["updated"])
 
 
@@ -94,6 +99,12 @@ def _writers(todo: list[dict]) -> None:
         i["session"] = _found[keys[i["name"]]][1]
 
 
+def _since(pane: dict, created: float) -> bool:
+    """Whether the pane was already open when the folder appeared (unknown counts as yes)."""
+    stat = tmux.proc_stat(pane["birth"]) if pane.get("birth") else []
+    return len(stat) < 20 or tmux.started_at(stat[19]) <= created + 60
+
+
 def _who(tool: str | None, account: str | None) -> str:
     """"claude · Work"; the account left out when it only repeats the agent ("Codex")."""
     if account and account.lower() != (tool or "").lower():
@@ -105,6 +116,9 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict]) -> Non
     """Who made each item: `who` (agent and account), `where` (session:window, or the
     agent session's title) and `pane` when that pane is still open."""
     panes = {s.get("pane_id"): s for s in states}
+    for i in listed:  # a pane id from before a tmux restart names some other pane now
+        if (pane := panes.get(i["pane"])) and not _since(pane, i["created"]):
+            i["pane"] = None
     account = {p: a.get("name") for a in profiles for p in a.get("panes", [])}
     todo = [i for i in listed if i["pane"] not in panes]
     _writers(todo)

@@ -143,12 +143,12 @@ def recent_dirs(limit: int = 30) -> list[str]:
 
 def _transcripts(e: dict) -> list[str]:
     """Every file of an entry's conversation. A resumed Codex thread continues in a new
-    rollout under the same ID, sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl, and its
+    rollout under the same ID, sessions/<y>/<m>/<d>/rollout-<time>-<id>[_<n>].jsonl, and its
     entry's source is only the latest one (agent-history/codex.go)."""
     source, sid = Path(e["source"]), glob.escape(str(e.get("session_id")))
     if e.get("harness") != "codex" or len(source.parents) < 4:
         return [e["source"]]
-    return sorted({e["source"], *map(str, source.parents[3].glob(f"*/*/*/*-{sid}.jsonl"))})
+    return sorted({e["source"], *map(str, source.parents[3].glob(f"*/*/*/*-{sid}*.jsonl"))})
 
 
 def writers(pattern: str, due: dict[str, float], slack: float = 600) -> dict:

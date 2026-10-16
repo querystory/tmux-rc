@@ -947,6 +947,13 @@ def proc_stat(pid: int | str) -> list[str]:
     return proc_read(pid, "stat").rpartition(")")[2].split()
 
 
+def started_at(ticks: str) -> float:
+    """The wall-clock time of a /proc start time (proc_stat's [19], ticks after boot)."""
+    with open("/proc/stat") as f:
+        btime = next(int(line.split()[1]) for line in f if line.startswith("btime "))
+    return btime + int(ticks) / os.sysconf("SC_CLK_TCK")
+
+
 INTERPRETERS = ("bun", "node")  # an agent installed through npm or bun runs as one
 
 

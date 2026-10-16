@@ -87,6 +87,15 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
     assert calls == [{"gone": 1000, "nobody": 2000}]  # found and missed both cached
 
 
+def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    _folder(tmp_path, "old", 1000, {"pane": "%7"})  # this test's process began long after
+    states = [{"pane_id": "%7", "tool": "claude", "session": "s", "window_name": "w",
+               "birth": str(os.getpid())}]
+    items, _ = _resolved(tmp_path, states)
+    assert items["old"]["pane"] is None and items["old"]["who"] == "unknown"
+
+
 def test_nothing_outside_scratch_is_listed_or_read(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_history, "writers", lambda *_: {})
     root, outside = tmp_path / "scratch", tmp_path / "outside"
@@ -133,9 +142,9 @@ def test_writers_finds_the_session_that_named_the_folder(tmp_path, monkeypatch):
            "2026-01-01T10:40:00Z", parent="a")
     _entry(index, "claude", "late", tmp_path / "late.jsonl", "2026-01-02T10:00:00Z",
            "2026-01-02T11:00:00Z")
-    day = tmp_path / "sessions" / "2026" / "01" / "01"  # a resumed Codex thread: two rollouts
+    day = tmp_path / "sessions" / "2026" / "01" / "01"  # a resumed, segmented Codex thread
     day.mkdir(parents=True)
-    (day / "rollout-2026-01-01T09-00-00-t1.jsonl").write_text("/scratch/resumed/")
+    (day / "rollout-2026-01-01T09-00-00-t1_1.jsonl").write_text("/scratch/resumed/")
     (day / "rollout-2026-01-01T09-30-00-t1.jsonl").write_text("later turns")
     _entry(index, "codex", "t1", day / "rollout-2026-01-01T09-30-00-t1.jsonl",
            "2026-01-01T09:00:00Z", "2026-01-01T12:00:00Z")
