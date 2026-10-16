@@ -248,6 +248,9 @@ figure {
   --preview-height:560px;
   margin-top:44px
 }
+.hero-shot .phones img {
+  max-width:29%
+}
 .phones {
   height:var(--preview-height);
   display:flex;
@@ -507,6 +510,9 @@ footer p,footer>a:last-child {
   }
   .showcase,.hero-shot {
     --preview-height:340px
+  }
+  .hero-shot {
+    --preview-height:240px
   }
   .phones {
     gap:18px;
