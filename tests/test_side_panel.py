@@ -82,7 +82,9 @@ def test_offer_reads_the_conversation_column():
     [f"  {i:>3}│value = {i} + offset  # some code that runs on" for i in range(8)],  # a gutter
     [_row("  checking the build", "log")] * 2 + [f"line {i}" for i in range(6)],  # a few rows
     [_row("build completed", " 3 targets"), "", ""],  # a sparse screen
-], ids=["box", "table", "gutter", "few-rows", "sparse"])
+    ["Package".ljust(W) + "│ Result", "─" * W + "┼" + "─" * 10]
+    + [f"pkg-{i}".ljust(W) + "│ " + ("FAIL" if i == 3 else "ok") for i in range(5)],  # unboxed
+], ids=["box", "table", "gutter", "few-rows", "sparse", "unboxed-table"])
 def test_lookalikes_stay_whole(rows):
     assert _capture(rows) == _unsplit(rows)
 
@@ -111,3 +113,10 @@ def test_a_joined_row_does_not_stand_for_the_pane():
     rows = list(SCREEN)
     rows[4] = "x" * 100  # a wrapped row -J joined, wider than the pane
     assert SIDE_PANEL in _capture(rows)
+
+
+def test_a_gutter_in_the_conversation_does_not_hide_the_panel():
+    rows = [_row(f"  {i:>2}│ step {i}", f"file-{i}.py") for i in range(6)]
+    visible = _visible(_capture(rows))
+    assert "\n   3│ step 3\n" in visible
+    assert "file-" not in visible

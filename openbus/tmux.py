@@ -708,6 +708,7 @@ SIDE_PANEL = "\x1e[side panel]\x1f"
 _SIDE_PANEL_BLOCK = re.compile(
     re.escape(SIDE_PANEL) + ".*?(?=" + re.escape(VISIBLE_SCREEN) + r"|\Z)", re.DOTALL)
 _VERTICALS = "│┃║"
+_JUNCTIONS = "┼┬┴╪╫╬╋"  # where a table's rule crosses its column bar
 _PANEL_MIN_ROWS = 3  # a bar on one or two rows of a sparse screen is output, not a panel
 _CELL_RE = re.compile(_ANSI.pattern + "|.")
 _TRAILING_BLANK = re.compile(r"[ \t]+(?=(?:" + _SGR.pattern + r"|[ \t])*$)")
@@ -720,41 +721,48 @@ def _cell_width(ch: str) -> int:
 
 
 def _bars(row: str) -> tuple[dict[int, int], int]:
-    """Screen column -> string index of each vertical bar in a raw row, and its width."""
+    """Screen column -> string index of each bar or junction in a raw row, and its width."""
     bars, col = {}, 0
     for m in _CELL_RE.finditer(row):
-        if m[0] in _VERTICALS:
+        if m[0] in _VERTICALS + _JUNCTIONS:
             bars[col] = m.start()
         col += _cell_width(m[0]) if len(m[0]) == 1 else 0
     return bars, col
 
 
+def _panel_halves(rows: list[str], bars, widths, col: int) -> dict[int, tuple[str, str]] | None:
+    """Each bar row's two sides at `col`, if that column divides a panel from the rest: a
+    bar on most inked rows (three at least), right of the screen's middle (a line-number
+    gutter is left of it), text on both sides, and no table's rule crossing it nor a bar
+    closing the right side (a box or a table stays whole)."""
+    at = [i for i, b in enumerate(bars) if col in b]
+    if any(rows[i][bars[i][col]] in _JUNCTIONS for i in at) or len(at) < _PANEL_MIN_ROWS:
+        return None
+    # The bar rows' median width is the pane's: -J joins a wrapped row into a longer one.
+    width = sorted(widths[i] for i in at)[len(at) // 2]
+    if len(at) * 2 <= sum(bool(_ANSI.sub("", row).strip()) for row in rows) or col * 2 < width:
+        return None
+    halves = {i: (rows[i][: bars[i][col]], rows[i][bars[i][col] + 1 :]) for i in at}
+    lefts, rights = ([_ANSI.sub("", h[k]).rstrip() for h in halves.values()] for k in (0, 1))
+    closed = any(r.endswith(tuple(_VERTICALS)) for r in rights)
+    return halves if any(lefts) and any(rights) and not closed else None
+
+
 def split_side_panel(text: str) -> str:
-    """Move a side panel out of the raw viewport rows into a SIDE_PANEL block above it. A
-    panel is one column holding a vertical bar on most inked rows (three at least), right
-    of the screen's middle (a line-number gutter is left of it), with text on both sides,
-    and no bar closing the right side (that is a box or a table, which stays whole)."""
+    """Move a side panel out of the raw viewport rows into a SIDE_PANEL block above it,
+    trying each column of bars, most common first (a gutter may tie with the panel's)."""
     head, mark, screen = text.rpartition(VISIBLE_SCREEN)
     rows = screen.split("\n")
     bars, widths = zip(*map(_bars, rows), strict=True)
     counts = Counter(col for row in bars for col in row)
-    if not mark or not counts:
-        return text
-    col, n = counts.most_common(1)[0]
-    inked = sum(bool(_ANSI.sub("", row).strip()) for row in rows)
-    # The bar rows' median width is the pane's: -J joins a wrapped row into a longer one.
-    width = sorted(w for b, w in zip(bars, widths, strict=True) if col in b)[n // 2]
-    if n < _PANEL_MIN_ROWS or n * 2 <= inked or col * 2 < width:
-        return text
-    halves = {i: (row[: bars[i][col]], row[bars[i][col] + 1 :])
-              for i, row in enumerate(rows) if col in bars[i]}
-    lefts, rights = ([_ANSI.sub("", h[k]).rstrip() for h in halves.values()] for k in (0, 1))
-    if not (any(lefts) and any(rights)) or any(r.endswith(tuple(_VERTICALS)) for r in rights):
+    halves = mark and next(filter(None, (_panel_halves(rows, bars, widths, col)
+                                         for col, _ in counts.most_common())), None)
+    if not halves:
         return text
     for i, (left, right) in halves.items():  # the panel's styles stay, so later rows keep theirs
         rows[i] = _TRAILING_BLANK.sub("", left + "".join(m[0] for m in _SGR.finditer(right)))
-    panel = "\n".join(rights).strip("\n")
-    return f"{head}{SIDE_PANEL}\n{panel}\n{mark}" + "\n".join(rows)
+    panel = "\n".join(_ANSI.sub("", right).rstrip() for _, right in halves.values())
+    return f"{head}{SIDE_PANEL}\n{panel.strip(chr(10))}\n{mark}" + "\n".join(rows)
 
 
 def _first_marker(s: str) -> tuple[int, str] | None:
