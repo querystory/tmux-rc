@@ -329,7 +329,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
    WebKit column flexbox does not shrink it to fit (the sheet would run off the screen). */
 @media (max-width: 1099px) { :is(#settings, #launch-dialog) .panel-body { max-height: calc(88dvh - 64px); } }
 #settings h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
-#settings section:is(:has(#push[hidden]), :has(#docs[hidden]):has(#scratch[hidden])) { display: none; }
+#settings section:has(#push[hidden]), #settings section:has(#docs[hidden]):has(#scratch[hidden]) { display: none; }
 .set-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .set-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 8px 14px; border-radius: 0; text-align: left; text-decoration: none; font-size: 14px; color: var(--fg); }
 .set-row[hidden] { display: none; }
