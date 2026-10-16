@@ -268,6 +268,9 @@ export function setupSidebar(ctx) {
     if (!drafts.has(id)) drafts.set(id, new Composer(repaint, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
     repaint();
     draft().editor.focus();
+    // A phone's keyboard shrinks the app once it is up: centre the reply in what is left.
+    const show = () => draft()?.editor.closest(".sb-compose")?.scrollIntoView({ block: "center" });
+    window.visualViewport?.addEventListener("resize", show, { once: true }); show();
   }
   // Folded to the rail: every pane the list shows, in its order, each with its state's dot
   // (and, with several accounts, its account's); hovering one shows its card.
