@@ -719,28 +719,33 @@ def _cell_width(ch: str) -> int:
     return 2 if unicodedata.east_asian_width(ch) in "WF" else 1
 
 
-def _bars(row: str) -> dict[int, int]:
-    """Screen column -> string index of each vertical bar in a marked row."""
+# What fills screen cells: a marker fills none, a materialized link only its label.
+_CELL_RE = re.compile(_MARKER_RE.pattern + r"|\[([^\]\n]*)\]\([^\s)]*\)|.")
+
+
+def _bars(row: str) -> tuple[dict[int, int], int]:
+    """Screen column -> string index of each vertical bar in a marked row, and its width."""
     bars, col = {}, 0
-    for m in re.finditer(_MARKER_RE.pattern + "|.", row):
+    for m in _CELL_RE.finditer(row):
         if m[0] in _VERTICALS:
             bars[col] = m.start()
-        col += 0 if len(m[0]) > 1 else _cell_width(m[0])
-    return bars
+        col += sum(map(_cell_width, m[0] if len(m[0]) == 1 else m[1] or ""))
+    return bars, col
 
 
 def split_side_panel(text: str) -> str:
     """Move a side panel out of the viewport rows into a SIDE_PANEL block above it. A
-    panel is one column holding a vertical bar on most inked rows, with text on both sides,
-    and no bar closing the right side (that is a box or a table, which stays whole)."""
+    panel is one column holding a vertical bar on most inked rows, right of the screen's
+    middle (a line-number gutter is left of it), with text on both sides, and no bar closing
+    the right side (that is a box or a table, which stays whole)."""
     head, mark, screen = text.rpartition(VISIBLE_SCREEN)
     rows = screen.split("\n")
-    bars = [_bars(row) for row in rows]
+    bars, widths = zip(*map(_bars, rows), strict=True)
     counts = Counter(col for row in bars for col in row)
     if not mark or not counts:
         return text
     col, n = counts.most_common(1)[0]
-    if n * 2 <= sum(bool(strip_dim(row).strip()) for row in rows):
+    if n * 2 <= sum(bool(strip_dim(row).strip()) for row in rows) or col * 2 < max(widths):
         return text
     halves = {i: (row[: bars[i][col]], row[bars[i][col] + 1 :])
               for i, row in enumerate(rows) if col in bars[i]}

@@ -75,3 +75,17 @@ def test_bar_on_a_few_rows_stays_whole():
     rows = [_row("  checking the build", "log") for _ in range(2)] + [f"line {i}" for i in range(6)]
     text = _capture(rows)
     assert split_side_panel(text) == text
+
+
+def test_line_number_gutter_stays_whole():
+    rows = [f"  {i:>3}│value = {i} + offset  # some code that runs on" for i in range(8)]
+    text = _capture(rows)
+    assert split_side_panel(text) == text
+
+
+def test_linked_row_counts_only_its_label():
+    rows = list(SCREEN)
+    rows[1] = "[see #12](https://example.com/acme/shop/pull/12)".ljust(W + 41) + "│notes/"
+    text = split_side_panel(_capture(rows))
+    assert "notes/" not in _visible(text)
+    assert "\n[see #12](https://example.com/acme/shop/pull/12)\n" in _visible(text)
