@@ -276,8 +276,9 @@ earlier frame just for continuity. Position alone, selected checkboxes in an ACT
 picker, or unrelated background completion notices do not prove an answer. A current
 input dialog/approval prompt still needs input even when other work is visible.
 
-"question.prompt" quotes the current visible question verbatim. Put the supporting
-command, list, or decision context in "tables" so the question stands alone on a phone.
+"question.prompt" quotes the current visible question verbatim. Put the list rows it names
+in "question.items" and other supporting context in "tables", so the question stands alone
+on a phone.
 Include "question" only when genuinely blocked awaiting input; "rewind" only when the
 restore picker is shown.
 "rewind" vs a "cursor" question — both are ❯-marked scrollable lists of past items, so
