@@ -14,6 +14,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import unquote
 
 # resolve reads a few MB of index and answers in tens of ms; a slow disk shouldn't
 # stall a voice turn for long.
@@ -184,7 +185,8 @@ def writers(pattern: str, due: dict[str, float], slack: float = 600) -> dict:
     hits = set()
     for line in out.splitlines():
         source, _, match = line.partition(b"\0")
-        hits.add((source.decode(errors="replace"), match.rpartition(b"/")[2].decode()))
+        name = unquote(match.rpartition(b"/")[2].decode(errors="replace"))  # a URL's %20
+        hits.add((source.decode(errors="replace"), name))
     found: dict[str, dict] = {}
     for source, (e, names) in wanted.items():  # in start order: the earliest wins
         for name in names - found.keys():

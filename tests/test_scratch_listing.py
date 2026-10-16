@@ -86,6 +86,9 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
     items, _ = _resolved(tmp_path, [{"pane_id": "%9", "tool": "codex", "session": "s",
                                      "window_name": "w"}])
     assert items["gone"]["pane"] == "%9"
+    for name in ("index.html", "meta.json"):  # rewritten: created moves, the author stays
+        (tmp_path / "gone" / name).write_text('{"pane": "%3"}')
+    _resolved(tmp_path)
     assert calls == [{"gone": 1000, "nobody": 2000}]  # found and missed both cached
 
 
@@ -132,7 +135,8 @@ def _entry(index, harness, sid, source, started, last, parent=None):
 def test_writers_finds_the_session_that_named_the_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_HISTORY_DIR", str(tmp_path))
     index = tmp_path / "index"
-    for name, text in {"a": "wrote $TMUXRC_SCRATCH_DIR/mock/index.html", "b": "/scratch/mockup/",
+    for name, text in {"a": "wrote $TMUXRC_SCRATCH_DIR/mock/index.html", "b": "/scratch/mockup/ "
+                       "/scratch/mock+draft/x /scratch/design%20v2/",
                        "sub": '{"path":"/x/scratch/report/index.html"}',
                        "late": "/scratch/mock/ again"}.items():
         (tmp_path / f"{name}.jsonl").write_text(text)
@@ -155,8 +159,10 @@ def test_writers_finds_the_session_that_named_the_folder(tmp_path, monkeypatch):
     at = 1767262200  # 2026-01-01T10:10:00Z
     found = agent_history.writers(scratch._MENTION, {"mock": at, "report": at + 1500,
                                                      "mockup": at, "missing": at,
-                                                     "resumed": at})
+                                                     "resumed": at, "mock+draft": at,
+                                                     "design v2": at})
     # "mock" is not "mockup"; a subagent's work, nested or not, is its root's; the later one that
     # only mentions it is not its writer
     assert {n: e["session_id"] for n, e in found.items()} == {"mock": "a", "mockup": "b",
-                                                              "report": "a", "resumed": "t1"}
+                                                              "report": "a", "resumed": "t1",
+                                                              "mock+draft": "b", "design v2": "b"}

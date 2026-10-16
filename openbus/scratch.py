@@ -20,9 +20,11 @@ from . import agent_history, tmux
 _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 _TOKENS = re.compile(r"^:root(?:\.light)? \{.*?^\}", re.MULTILINE | re.DOTALL)  # app colours
 # How an agent names the folder: the served URL, the usual dir, or one of the variables.
-_MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[A-Za-z0-9_.-]+"
+# The whole path component, so "mock" never takes "mock+draft"'s author, up to what
+# ends a path in prose, markdown, JSON or a URL.
+_MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
-_found: dict[tuple[str, float], tuple[float, dict | None]] = {}
+_found: dict[tuple[str, int], tuple[float, dict | None]] = {}
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 
 
@@ -70,7 +72,8 @@ def _item(root: Path, folder: Path) -> dict | None:
             "description": meta.get("description", ""), "pane": meta.get("pane"),
             "href": quote(page.relative_to(root).as_posix() if page != index
                           else folder.name + "/"),
-            "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0]}
+            "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
+            "inode": folder.stat().st_ino}  # the folder until replaced, however rewritten
 
 
 def items(root: Path) -> list[dict]:
@@ -88,9 +91,10 @@ def items(root: Path) -> list[dict]:
 def _writers(todo: list[dict]) -> None:
     """Fill each item's `session` from the transcripts, through the cache."""
     now = time.time()
-    keys = {i["name"]: (i["name"], i["created"]) for i in todo}
-    due = {n: k[1] for n, k in keys.items()
-           if k not in _found or (_found[k][1] is None and now - _found[k][0] > _RETRY)}
+    keys = {i["name"]: (i["name"], i["inode"]) for i in todo}
+    stale = {k for k, (at, hit) in _found.items() if hit is None and now - at > _RETRY}
+    due = {i["name"]: i["created"] for i in todo
+           if keys[i["name"]] not in _found or keys[i["name"]] in stale}
     if due:
         hits = agent_history.writers(_MENTION, due)
         for n in due:
