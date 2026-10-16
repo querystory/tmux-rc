@@ -1,7 +1,7 @@
 // Ordered text/image model: what is sent is the draft in the order it was typed.
-// U+200B holds the caret after an image (see insert()); every chip is followed by one. Every one is dropped from what is
-// sent: it is invisible, so a draft that kept the user's own could not show it, and the
-// spacer survives typing, copy and paste in places no marker could follow.
+// A U+200B spacer follows every image to hold the caret after it (see insert()). Every
+// U+200B is dropped from what is sent: it is invisible, so a draft that kept the user's own
+// could not show it, and the spacer survives typing, copy and paste where no marker could.
 const ZW = /\u200B/g;
 const spacer = () => document.createTextNode("\u200B");
 export class Composer {
@@ -27,6 +27,36 @@ export class Composer {
       else this.insert(document.createTextNode(event.clipboardData?.getData("text/plain") || ""));
     };
     this.editor.ondrop = this.editor.ondragover = (event) => event.preventDefault();
+    // Backspace or Delete next to an image removes it and its spacer in one press: iOS spends
+    // a press on the invisible spacer and does not delete a non-editable image at all.
+    this.editor.addEventListener("beforeinput", (event) => {
+      const chip = this.adjacentChip(event.inputType);
+      if (!chip) return;
+      event.preventDefault();
+      const caret = document.createRange(); caret.setStartBefore(chip); // where the image was
+      this.drop(chip);
+      window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(caret);
+    });
+  }
+  // The image a collapsed caret would delete with `type`, with only spacers in between.
+  adjacentChip(type) {
+    const back = type === "deleteContentBackward";
+    const selection = window.getSelection();
+    if (!back && type !== "deleteContentForward") return null;
+    if (!selection?.isCollapsed || !this.editor.contains(selection.anchorNode)) return null;
+    const { anchorNode: node, anchorOffset: offset } = selection;
+    let near = node.childNodes[back ? offset - 1 : offset];
+    if (node.nodeType === Node.TEXT_NODE) {
+      if ((back ? node.nodeValue.slice(0, offset) : node.nodeValue.slice(offset)).replace(ZW, "")) return null;
+      near = back ? node.previousSibling : node.nextSibling;
+    }
+    return this.files.has(near) ? near : null;
+  }
+  // Remove an image and the spacer after it.
+  drop(chip) {
+    const after = chip.nextSibling;
+    if (after?.nodeType === Node.TEXT_NODE && after.nodeValue.startsWith("\u200B")) after.deleteData(0, 1);
+    chip.remove(); this.edited();
   }
   edited() {
     for (const [chip] of this.files) {
@@ -89,7 +119,7 @@ export class Composer {
     chip.setAttribute("aria-label", `Remove ${chip.alt}`); chip.title = `Remove ${chip.alt}`;
     const remove = () => {
       if (this.editor.contentEditable !== "true") return;
-      chip.remove(); this.editor.focus({ preventScroll: true }); this.edited();
+      this.editor.focus({ preventScroll: true }); this.drop(chip);
     };
     chip.onclick = remove;
     chip.onkeydown = (event) => {
