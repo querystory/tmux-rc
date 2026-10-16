@@ -1266,10 +1266,11 @@ def test_offers_the_model_names_are_kept_only_as_the_screen_shows_them():
                           '  Then say "merge 415".')
     read = {"tool": "claude", "activity": "waiting", "offers": [
         "! gh pr merge 327 --squash",  # wrapped on screen: kept whole
+        "! gh pr merge 327\n--squash",  # the wrap copied as a row break: sent as one line
         "merge 415",  # kept
         "! rm -rf ~",  # not on screen: dropped
         "! gh pr merge 327 --admin",  # not as the screen shows it: dropped
-        "! gh pr merge  327 --squash", "! gh pr merge\n327 --squash",  # nor its spacing
+        "! gh pr merge  327 --squash",  # nor its spacing
         "! make deploy && (",  # bash would not read it whole: dropped
         {"text": "x"}, 7]}  # not text: dropped
     assert classify(_pane("claude"), screen, _llm(read))["offers"] == [

@@ -672,9 +672,11 @@ def _parses(command: str) -> bool:
 def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`: each is on the screen (_quoted), and a
     `! command` is one bash reads whole. Classify's gate, and the watcher's on a screen it
-    does not reparse (its fingerprint ignores a duration)."""
+    does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
+    a row break the model copied from the screen's wrap becomes the space it stood for."""
     listed = offers if isinstance(offers, list) else ()
-    return [o for o in dict.fromkeys(o.strip() for o in listed if isinstance(o, str))
+    return [o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
+                                     for o in listed if isinstance(o, str))
             if _quoted(o, _visible(text)) and not (o.startswith("! ") and not _parses(o[2:]))]
 
 
