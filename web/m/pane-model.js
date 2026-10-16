@@ -147,10 +147,11 @@ export const sessionOf = (pane) => pane?.session === solo ? "" : pane?.session |
 // What a question decides, then the list rows it names ("do 1 now?", "A or B?"), one per
 // line, so it reads alone.
 export const questionItems = (question) => Array.isArray(question?.items) ? [question.subject, ...question.items].filter(Boolean).join("\n") : "";
-// The line a list shows under the name: the question it is stuck on, else what it is doing.
+// The line a list shows under the name: the question it is stuck on, else what it is doing,
+// else the headline (a daemon restart regenerates session_summary lazily).
 // A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare
 // "Do you want to proceed?" says nothing on a card.
-export const paneActivity = (pane) => pane.question?.ask || pane.question?.prompt || pane.status_line || pane.session_summary || "";
+export const paneActivity = (pane) => pane.question?.ask || pane.question?.prompt || pane.status_line || pane.session_summary || pane.headline || "";
 // The pane overview's headline and its stats line (model / context / cost / elapsed); the
 // sidebar's hover card shows the same two, so they are defined once.
 export const paneHeadline = (pane) => pane?.headline || pane?.status_line || pane?.session_summary || "";
