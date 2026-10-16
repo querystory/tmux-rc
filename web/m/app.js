@@ -1265,7 +1265,9 @@ async function streamTerminal(id, signal) {
   text($("terminal-status"), "Connecting");
   while (!signal.aborted) {
     try {
-      const query = new URLSearchParams({ frame });
+      // An unknown screen (loadEarlier met another numbering) asks for the whole frame again,
+      // since only a full answer says how rows are numbered now.
+      const query = new URLSearchParams({ frame: latestGeometry[1] ? frame : "" });
       if (liveSession) query.set("session", liveSession);
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
