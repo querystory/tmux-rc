@@ -1093,14 +1093,17 @@ function paintCapture() {
   paintedFrame = latestFrame;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
   // A reflow (new width) renumbers every row, and trimmed or cleared history moves the
-  // frame's first row back: either way the rows held here no longer line up, so drop them.
-  if (frameWidth !== earlier.width || frameTop < earlier.end) resetEarlier();
-  if (earlier.top === earlier.end) earlier.top = earlier.end = frameTop;
+  // frame's first row back: either way the rows held here no longer line up, so drop them
+  // (and, by replacing `earlier`, any chunk still on its way).
+  if (frameWidth !== earlier.width || frameTop < earlier.seen) resetEarlier();
+  earlier.seen = frameTop;
+  // Empty, the held range follows the frame, but not under a request it is the edge of.
+  if (earlier.top === earlier.end && !earlier.busy) earlier.top = earlier.end = frameTop;
   loadEarlier();
 }
 function resetEarlier() {
   $("earlier").replaceChildren();
-  earlier = { top: frameTop, end: frameTop, width: frameWidth };
+  earlier = { top: frameTop, end: frameTop, seen: frameTop, width: frameWidth };
   paintEarlierCue();
 }
 function paintEarlierCue() {
@@ -1119,27 +1122,44 @@ function holdView(change) {
 // Fill whatever is missing, one request at a time: first a gap (output moved the frame's
 // first row past #earlier's end while you read above it; left for later while you follow
 // the tail, so a streaming pane costs nothing), then older rows while you are within a
-// screen of the top. Each chunk is rendered by the live view's own renderer. A gap is not
-// held: its rows are the ones the frame just scrolled away, and they land where the frame
-// had shown them, so whatever you were reading there comes back to the same place.
+// screen of the top. Each chunk is rendered by the live view's own renderer.
+//
+// A gap filled at once is not held: its rows are the ones the frame just scrolled away, and
+// they land where the frame had shown them, so whatever you were reading comes back to the
+// same place. A gap left while you followed (`behind`) was never on screen, so it is held
+// like older rows: it lands above the frame you are reading.
+//
+// A line tmux wrapped across a chunk's edge arrives in two pieces (tmux.capture_history),
+// so the held piece is rendered again together with the new one and replaced: a long URL
+// stays one link. Each chunk's first and last lines keep their raw text on their nodes, and
+// the last line whether it wraps on.
 async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll");
   if (h.busy || !id) return;
   h.busy = true;
   try {
     for (;;) {
-      const gap = h.top < h.end && h.end < frameTop && !following();
+      const lag = h.top < h.end && h.end < frameTop, gap = lag && !following();
+      if (lag && !gap) h.behind = true;
       if (!gap && !(h.top > 0 && box.scrollTop < box.clientHeight)) return;
       const before = gap ? Math.min(frameTop, h.end + EARLIER_LINES) : h.top;
       if (!gap) holdView(() => { h.loading = true; paintEarlierCue(); });
       const query = new URLSearchParams({ before, lines: gap ? before - h.end : EARLIER_LINES });
-      const { text: rows, start } = await request(`${paneUrl(id, "history")}?${query}`);
+      const { text: rows, start, wraps } = await request(`${paneUrl(id, "history")}?${query}`);
       if (h !== earlier) return;
-      const nodes = renderCaptureLines(rows, { color: true }).map((markup) => {
+      const pre = $("earlier"), edge = gap ? pre.lastChild : pre.firstChild, join = edge && (gap ? edge.wraps : wraps);
+      const raw = (join ? (gap ? edge.raw + rows : rows + edge.raw) : rows).split("\n");
+      const nodes = renderCaptureLines(raw.join("\n"), { color: true }).map((markup) => {
         const node = document.createElement("span"); node.innerHTML = `${markup}\n`; return node;
       });
-      if (gap) { $("earlier").append(...nodes); h.end = before; continue; }
-      holdView(() => { $("earlier").prepend(...nodes); h.top = start; h.loading = false; paintEarlierCue(); });
+      nodes[0].raw = raw[0];
+      Object.assign(nodes.at(-1), { raw: raw.at(-1), wraps: gap || !join ? wraps : edge.wraps });
+      const place = () => {
+        if (join) edge.remove();
+        if (gap) { pre.append(...nodes); h.end = before; } else { pre.prepend(...nodes); h.top = start; h.loading = false; paintEarlierCue(); }
+      };
+      if (gap && !h.behind) place(); else holdView(place);
+      if (h.end >= frameTop) h.behind = false;
     }
   } catch {} // a failed chunk is asked for again on the next scroll or frame
   finally { h.busy = h.loading = false; if (h === earlier) holdView(paintEarlierCue); }

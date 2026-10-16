@@ -181,10 +181,20 @@ for "the 500 rows before row N". That leaves two windows to get right:
 client never fetched. It fetches that gap and places it at the end of the held rows, which
 is exactly where the frame showed them, so even a row you were reading inside the frame
 stays put. While you follow the tail the gap is left for later, so a streaming pane costs
-no extra requests; it is filled as soon as you scroll up. The browser's own scroll
+no extra requests; it is filled as soon as you scroll up, and since those rows were never on
+screen it is held like older rows, landing above the frame you are reading. A frame that
+arrives while the first chunk is in flight does not move the empty cache's edge, and a frame
+whose first row moves back drops the cache however far behind its edge is. The browser's own scroll
 anchoring is off for the terminal: Chrome would pin a frame row and undo that placement,
 and older Safari has none, so the client holds the view itself, by measuring how far the content
 moved rather than predicting it.
+
+**A line tmux wrapped across a chunk's edge** comes back in two pieces, because `-J` joins
+wrapped rows only within one capture. Each chunk says whether its last row wraps on (a
+two-row `-J` probe at the edge, in the same tmux queue), and the client renders the two
+pieces again as one line, so a long URL stays one link. Snapping chunk edges to whole lines
+instead would need per-row wrap flags that tmux does not expose. The frame's own first row
+can still start mid-line, as it always could.
 
 **On the alternate screen the frame reports nothing earlier.** The history above a
 fullscreen app belongs to whatever ran before it; scrolling up there should reach the app's

@@ -824,23 +824,26 @@ def capture_pane(pane_id: str, lines: int = LIVE_ROWS, mark_dim: bool = False) -
 _PANE_ID = re.compile(r"%[0-9]+")
 
 
-def capture_rows(pane_id: str, start: str, end: str = "") -> tuple[str, int, int, int]:
+def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
+                 ) -> tuple[str, int, int, int]:
     """Colored rows (raw SGR, OSC 8 links materialized) from tmux row `start` to `end`
     (0 is the screen's first row, negative is history; either may be a tmux format
-    expression), with the pane's history size, width and alternate-screen flag.
+    expression), with the pane's history size, width and alternate-screen flag. `then`
+    is more tmux commands, whose output follows the rows.
 
-    run-shell -C expands the formats and runs both commands in one queue, so no output can
+    run-shell -C expands the formats and runs every command in one queue, so no output can
     land between working out the range, capturing it and reading the size. That is what
     lets a client address history by absolute row (see capture_history). The pane id is
     spliced into a command string tmux parses, so anything but a pane id is refused (as a
     missing pane: the same 404 the callers already give)."""
     if not _PANE_ID.fullmatch(pane_id):
         raise subprocess.CalledProcessError(1, ["capture-pane", "-t", pane_id])
-    rows = f"-S {start}" + (f" -E {end}" if end else "")
     meta = "'#{history_size} #{pane_width} #{alternate_on}'"
-    both = f"capture-pane -p -J -e -t {pane_id} {rows} ; display-message -p -t {pane_id} {meta}"
-    out = _materialize_links(_run(["run-shell", "-C", "-t", pane_id, both]))
-    text, _, meta = out.removesuffix("\n").rpartition("\n")
+    rows = f"-S {start}" + (f" -E {end}" if end else "")
+    cmds = f"display-message -p -t {pane_id} {meta} ; capture-pane -p -J -e -t {pane_id} {rows}"
+    out = _materialize_links(_run(["run-shell", "-C", "-t", pane_id,
+                                   f"{cmds} ; {then}" if then else cmds]))
+    meta, _, text = out.partition("\n")  # the size first: rows can't end it early
     size, width, alt = map(int, meta.split())
     return text, size, width, alt
 
@@ -865,16 +868,26 @@ def frame_id(text: str, top: int, width: int) -> str:
     return hashlib.md5(f"{top} {width}\n{text}".encode()).hexdigest()
 
 
-def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int]:
-    """Rows [before - lines, before) by absolute row, and the first one's index. Counting
-    from the oldest row means new output, which only adds rows at the bottom, never moves
-    a row a client already holds, so its cached chunks stay valid. Blank rows are content
-    here (they sit between output), so nothing is stripped."""
+def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bool]:
+    """Rows [before - lines, before) by absolute row, the first one's index, and whether
+    the last row's line wraps on into row `before`. Counting from the oldest row means new
+    output, which only adds rows at the bottom, never moves a row a client already holds,
+    so its cached chunks stay valid. Blank rows are content here (they sit between output),
+    so nothing is stripped.
+
+    -J joins wrapped rows only inside one capture, so a line tmux wrapped across `before`
+    comes back in two pieces, the rest at the top of the next chunk or frame. The client
+    rejoins them (a long URL must stay one link), and needs to know where: -J prints the
+    two boundary rows as one line exactly when the first wraps into the second."""
     start = max(0, before - lines)
     if start >= before:
-        return "", start
+        return "", start, False
     row = "#{{e|-|:{},#{{history_size}}}}".format
-    return capture_rows(pane_id, row(start), row(before - 1))[0], start
+    nonce = os.urandom(16).hex()
+    edge = f"capture-pane -p -J -t {pane_id} -S {row(before - 1)} -E {row(before)}"
+    out = capture_rows(pane_id, row(start), row(before - 1), f"display-message -p {nonce} ; {edge}")
+    text, _, edge = out[0].rpartition(f"{nonce}\n")
+    return text.removesuffix("\n"), start, edge.count("\n") == 1
 
 
 # tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a

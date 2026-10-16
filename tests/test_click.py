@@ -16,8 +16,8 @@ def fake_tmux(monkeypatch, screen, sgr="1", physical=None, history=""):
         if argv[0] == "display-message":
             return f"80 {sgr}\n"
         if argv[0] == "run-shell":  # live-frame freshness: capture_live's rows + geometry
-            assert " -S -200 ;" in argv[-1]
-            return f"{history}{screen}\n0 80 0\n"
+            assert argv[-1].endswith(" -S -200")
+            return f"0 80 0\n{history}{screen}\n"
         if argv[0] == "capture-pane":
             assert argv[-1] == "-0"  # visible geometry
             assert "-N" in argv and "-T" in argv

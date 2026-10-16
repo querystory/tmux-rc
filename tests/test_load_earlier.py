@@ -17,11 +17,11 @@ from fastapi.testclient import TestClient
 from openbus import server, tmux
 
 TERMINAL_JS = (Path(__file__).resolve().parent.parent / "web" / "terminal.js").as_uri()
-# Colors left open across rows (31 at row 7k, reset at 7k+3) and a link every 50 rows,
-# so a chunk boundary lands inside a colored run and the renderer's linkify runs too.
+# Colors left open across rows (31 at row 7k, reset at 7k+3) and a link every 3 rows, long
+# enough to wrap at 80 columns: chunk boundaries land inside colored runs and wrapped links.
 PRINT = ("awk 'BEGIN{{for(i={0};i<{0}+{1};i++){{if(i%7==0)printf \"\\033[31m\";"
          'if(i%7==3)printf "\\033[0m";'
-         "printf \"L%05d%s\\n\",i,(i%50?\"\":\" https://example.com/\" i)}}}}'")
+         'printf "L%05d%s\\n",i,(i%3?"":" https://example.com/" i "/' + "a" * 120 + "\")}}}}'")
 
 
 @pytest.fixture
@@ -68,14 +68,14 @@ def test_chunks_stay_aligned_while_history_grows(pane):
     chunks, before = [], top
     while before:
         emit(10_000 + 1000 * len(chunks), 400)
-        text, before = tmux.capture_history(pane, before, 500)
+        text, before, _ = tmux.capture_history(pane, before, 500)
         chunks.insert(0, text)
     held = numbers("\n".join(chunks))
     assert held[0] == 1 and held[-1] == first - 1
     assert [n for n in held if n < 10_000] == list(range(1, first))
     # The gap: rows the frame moved past since `top` are exactly the ones between.
     _, new_top, _ = tmux.capture_live(pane)
-    gap, start = tmux.capture_history(pane, new_top, new_top - top)
+    gap, start, _ = tmux.capture_history(pane, new_top, new_top - top)
     later = tmux.capture_history(pane, new_top + 1, 1)[0]
     assert start == top and numbers(gap)[0] == first
     assert numbers(gap + "\n" + later) == sorted(numbers(gap + "\n" + later))
@@ -89,39 +89,54 @@ def test_chunks_render_like_one_capture(pane):
     _, top, _ = tmux.capture_live(pane)
     chunks, before = [], top
     while before:
-        text, before = tmux.capture_history(pane, before, 333)
-        chunks.insert(0, text)
+        text, before, wraps = tmux.capture_history(pane, before, 333)
+        chunks.insert(0, (text, wraps))
     size = int(run(["display-message", "-p", "-t", pane, "#{history_size}"]))
     whole = tmux._materialize_links(run(  # the same rows, in one plain capture
         ["capture-pane", "-p", "-J", "-e", "-t", pane, "-S", "-", "-E", str(top - 1 - size)]))
     whole = whole.removesuffix("\n")
+    # Chunks join where tmux wrapped a line across their edge, as the client rejoins them.
+    assert any(wraps for _, wraps in chunks[:-1])
+    groups = [""]
+    for text, wraps in chunks:
+        groups[-1] += text
+        groups.append("") if not wraps else None
+    groups = [g for g in groups if g]
+    # Same rows and lines; only the SGR differs, as each capture restates the open color.
+    assert tmux._ANSI.sub("", "\n".join(groups)) == tmux._ANSI.sub("", whole)
     script = (f"import {{ renderCaptureLines }} from {json.dumps(TERMINAL_JS)};"
               "import { readFileSync } from 'node:fs';"
-              "const { whole, chunks } = JSON.parse(readFileSync(0, 'utf8'));"
+              "const { whole, groups } = JSON.parse(readFileSync(0, 'utf8'));"
               "const one = renderCaptureLines(whole, { color: true });"
-              "const split = chunks.flatMap((c) => renderCaptureLines(c, { color: true }));"
+              "const split = groups.flatMap((c) => renderCaptureLines(c, { color: true }));"
               "process.stdout.write(JSON.stringify({ one, split }));")
     out = json.loads(subprocess.check_output(
         ["node", "--input-type=module", "-e", script],
-        input=json.dumps({"whole": whole, "chunks": chunks}), text=True))
+        input=json.dumps({"whole": whole, "groups": groups}), text=True))
     assert out["split"] == out["one"]
     assert "color:" in "".join(out["one"]) and "<a href" in "".join(out["one"])
 
 
 def test_endpoint_bounds_and_pane_id(monkeypatch):
     calls = []
-    monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or "row\n5 80 0\n")
+    def run(args):
+        calls.append(args)
+        nonce = args[-1].split("display-message -p ")[-1].split()[0]  # the edge probe's
+        return f"5 80 0\nrow\n{nonce}\nrow\nnext\n"
+
+    monkeypatch.setattr(tmux, "_run", run)
     client = TestClient(server.app)
     url = "/api/panes/{}/history"
     answer = client.get(url.format("%251"), params={"before": 3}).json()
-    assert answer == {"text": "row", "start": 0}
+    assert answer == {"text": "row", "start": 0, "wraps": False}
     assert "-S #{e|-|:0,#{history_size}} -E #{e|-|:2,#{history_size}} ;" in calls[0][-1]
     # Capped per request, never negative, and `before` is required.
     for params in ({"before": 9, "lines": 1001}, {"before": 9, "lines": 0}, {"before": -1}, {}):
         assert client.get(url.format("%251"), params=params).status_code == 422
     # Nothing above the oldest row: answered without asking tmux.
     calls.clear()
-    assert client.get(url.format("%251"), params={"before": 0}).json() == {"text": "", "start": 0}
+    assert client.get(url.format("%251"), params={"before": 0}).json() == {
+        "text": "", "start": 0, "wraps": False}
     # The id is spliced into a tmux command string: anything but %N is a missing pane.
     for bad in ("main", "%1 ; kill-server", "%1;x"):
         assert client.get(url.format(quote(bad, safe="")), params={"before": 9}).status_code == 404
@@ -131,5 +146,5 @@ def test_endpoint_bounds_and_pane_id(monkeypatch):
 @pytest.mark.parametrize(("alt", "top"), [("0", 300), ("1", 0)])
 def test_alternate_screen_has_nothing_earlier(monkeypatch, alt, top):
     # A fullscreen app's history is its own (reached by the wheel), not tmux's rows above.
-    monkeypatch.setattr(tmux, "_run", lambda args: f"screen\n\n500 80 {alt}\n")
+    monkeypatch.setattr(tmux, "_run", lambda args: f"500 80 {alt}\nscreen\n\n")
     assert tmux.capture_live("%1") == ("screen", top, 80)
