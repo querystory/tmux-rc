@@ -150,7 +150,7 @@ const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "ot
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
-let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0; // fitCols: see fitTo
+let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
 // Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
@@ -1036,7 +1036,7 @@ function restartDetail() {
   // Leaving the terminal, by pane, view or hidden page, sends a scrolled app home first, so the
   // watcher never keeps parsing old history nobody is looking at.
   if (detailId !== active || !terminalVisible() || document.hidden) wheelHome(detailId);
-  fitCols = 0; // a terminal stream reports afresh: attachment, or the pane's app, may have changed
+  fitCols = 0; fitAlt = undefined; // a terminal stream reports afresh: attachment, or the pane's app, may have changed
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
     latestCapture = ""; clearCapture(); detailId = active;
@@ -1070,9 +1070,12 @@ const store = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 let fitDefault = stored("tmuxrc-fit-default", "auto"), tallRows = Number(stored("tmuxrc-tall-rows", 500)) || 500;
 let fitPicks = {}; try { fitPicks = JSON.parse(stored("tmuxrc-fit-picks", "{}")) || {}; } catch {}
 const paneKey = (id) => `${id}:${panes.find((p) => p.pane_id === id)?.birth ?? ""}`;
+const fitMode = (id) => fitPicks[paneKey(id)] || fitDefault;
 function fitTo(id, cols) {
-  if (!id || !cols) return; // a hidden view measures nothing
-  const pick = fitPicks[paneKey(id)], mode = pick || fitDefault;
+  // Not before the pane is in state: its own pick is filed under its incarnation, which
+  // only state knows. fitCols stays 0, so the stream's next frame tries again.
+  if (!id || !cols || !panes.some((p) => p.pane_id === id)) return; // a hidden view measures nothing
+  const pick = fitPicks[paneKey(id)], mode = fitMode(id);
   if (mode === "off" && !pick) { fitCols = cols; return; } // nothing to send: the window is left as it is
   const body = { cols, mode, rows: tallRows, force: !!pick }, signal = detailController?.signal;
   const current = () => !signal?.aborted && id === active; // a reply to a stream since replaced is stale
@@ -1155,6 +1158,8 @@ async function streamTerminal(id, signal) {
       if (signal.aborted) return;
       frame = data.frame || "";
       if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
+      // A full-screen app came or went: Auto picks again between tall and width only.
+      if ("alt" in data && data.alt !== fitAlt) { if (fitAlt !== undefined && fitMode(id) === "auto") fitCols = 0; fitAlt = data.alt; }
       fitDue();
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);

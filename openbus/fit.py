@@ -64,6 +64,14 @@ def reflow_key(text: str) -> str:
     return _REFLOWED.sub("", text)
 
 
+def alternate(pane_id: str) -> bool | None:
+    """Is the pane's app on the alternate screen (None if the pane is gone)?"""
+    try:
+        return _run(["display-message", "-p", "-t", pane_id, "#{alternate_on}"]).strip() == "1"
+    except subprocess.CalledProcessError:
+        return None
+
+
 def view(pane_id: str, cols: int, force: bool = False, mode: str = "width",
          rows: int = 0) -> bool:
     """The phone shows `cols` columns of the pane (0 only checks for a give-back). Fits its

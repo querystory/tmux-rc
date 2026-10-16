@@ -963,7 +963,12 @@ async def live_frame(
                 len(data) if changed else None,
             )
             # changed ⇒ send the new colored frame; else unchanged, client re-holds.
-            return {"frame": h, "text": text} if changed else {"frame": h}
+            if not changed:
+                return {"frame": h}
+            # Read with each new frame: the view's Auto fit follows a full-screen app
+            # coming and going (openbus/fit.py).
+            alt = await asyncio.to_thread(fit.alternate, pane_id)
+            return {"frame": h, "text": text, "alt": alt}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
 
 
