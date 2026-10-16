@@ -196,7 +196,9 @@ frame's first row: rows below it are on screen in that frame and must land with 
 one, while rows above it are on screen nowhere (left while you followed the tail, or
 skipped by a frame painted after a failed fetch), so they land at once, held above the
 frame if you are reading it. Rows waiting for a frame that a text selection holds back are
-dropped and fetched again, rather than shown twice. A failed fetch paints the frame anyway
+dropped and fetched again, rather than shown twice. If output outruns the requests (still
+more than a request's worth behind after one), the waiting rows land and the newest frame
+paints anyway, and the rows it passed become a gap above it. A failed fetch paints the frame anyway
 and pauses loading for a few seconds before retrying; frames paint normally meanwhile. A chunk asked for by a split that a
 newly painted frame has since moved is thrown away and asked for again. While you follow the tail the gap is left for later, so a streaming pane costs
 no extra requests. It is filled as soon as you scroll up. The same applies before any history has loaded: once you leave the

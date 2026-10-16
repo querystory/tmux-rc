@@ -1157,13 +1157,13 @@ async function loadEarlier() {
   if (h.busy || !id || !h.screen || captureDirty || backingOff()) return;
   h.busy = true;
   let held = [], gone = null, heldEnd = h.end;
-  const land = () => {
+  const land = (force) => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
     if (gone && selected(gone)) return; // selected since: fetched again, and left split this time
     const tail = following();
     gone?.remove(); pre.append(...held); h.end = heldEnd;
     if (tail) box.scrollTop = box.scrollHeight;
-    if (paintedFrame !== latestFrame) paintCapture(); // the frame that waited
+    if (paintedFrame !== latestFrame) paintCapture(force); // the frame that waited
   };
   try {
     for (;;) {
@@ -1201,13 +1201,18 @@ async function loadEarlier() {
       } else {
         if (join && edge === held.at(-1)) held.pop(); else if (join) gone = edge;
         held.push(...nodes); heldEnd = before;
-        if (heldEnd >= latestGeometry[0]) { land(); held = []; gone = null; heldEnd = h.end; }
+        // Caught up, the waiting rows land with the newest frame. Output outrunning the
+        // requests (still a request's worth behind) can't hold them back: they land and that
+        // frame paints anyway, the rows it passed becoming a gap above it.
+        const behind = latestGeometry[0] - heldEnd;
+        if (behind <= 0 || behind > 1000) { land(behind > 0); held = []; gone = null; heldEnd = h.end; }
       }
     }
   } catch { h.failed = performance.now(); setTimeout(loadEarlier, 3000); }
   finally {
+    const cue = h.loading; // a failed load's cue; untouched otherwise, so a scroll stays put
     h.busy = h.loading = h.asked = false;
-    if (h === earlier) holdView(paintEarlierCue);
+    if (h === earlier && cue) holdView(paintEarlierCue);
     // A frame still waiting (its gap failed, or you went back to the tail) paints as is; the
     // rows it skips are above it then, so a later fetch holds them.
     if (h === earlier && paintedFrame !== latestFrame && !captureDirty) paintCapture(true);
