@@ -71,8 +71,9 @@ def _files(folder: Path):
 def _item(root: Path, folder: Path) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
     hidden (a sidecar half-written, a .git) are not the page and do not date it."""
+    sidecars = {(folder, name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
     files = [(f.lstat().st_mtime, f) for f in _files(folder)
-             if f.name not in SIDECARS and f.is_file() and inside(f, folder)]
+             if (f.parent, f.name) not in sidecars and f.is_file() and inside(f, folder)]
     if not files:
         return None
     meta, index, thumb = _meta(folder), folder / "index.html", folder / "thumb.webp"

@@ -41,6 +41,10 @@ def test_sidecars_neither_date_the_folder_nor_stand_in_for_its_page(tmp_path):
     (folder / "thumb.webp").symlink_to(tmp_path / "elsewhere.webp")
     assert S.stale(scratch.items(tmp_path)[0])  # a thumbnail out of scratch is none
     _page(tmp_path, ".staging")  # hidden at the root too
+    (folder / "img").mkdir()  # a page's own asset that happens to share a sidecar's name
+    (folder / "img" / "thumb.webp").write_text("asset")
+    os.utime(folder / "img" / "thumb.webp", (3000, 3000))
+    assert scratch.items(tmp_path)[0]["updated"] == 3000
     meta_only = tmp_path / "m"
     meta_only.mkdir()
     (meta_only / "meta.json").write_text("{}")
