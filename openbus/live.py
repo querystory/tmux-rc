@@ -919,7 +919,7 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     for p in projects:
         sessions = []
         for s in p["sessions"]:
-            pane = await _running_pane(s, watcher)
+            pane = await asyncio.to_thread(running_pane, s, watcher)
             if pane and pane not in labels:
                 watcher.request_reparse(pane)  # publish it before the model types there
             sessions.append({
@@ -949,10 +949,11 @@ _resume_lock = asyncio.Lock()
 _resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, audit rec)
 
 
-async def _running_pane(entry: dict, watcher) -> str | None:
-    """The pane a running session is in, in THIS tmux server, or None."""
+def running_pane(entry: dict, watcher) -> str | None:
+    """The pane a running agent-history session is in, in THIS tmux server, or None.
+    Blocking (it may ask tmux): the scratch gallery shares it."""
     running = entry.get("running")
-    pane = running and await asyncio.to_thread(tmux.running_pane, running)
+    pane = running and tmux.running_pane(running)
     if running and not pane and entry.get("harness") == "codex":
         pane = _codex_pane(watcher, entry["session_id"])
     return pane or None
@@ -1016,7 +1017,7 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     running = entry.get("running")
     if running:
         # The registry, not the watcher's last tick, is what says which pane it's in.
-        pane = await _running_pane(entry, watcher)
+        pane = await asyncio.to_thread(running_pane, entry, watcher)
         if not pane:
             return {"status": "rejected", "reason": "already running outside this tmux"}
         rec["pane_id"] = pane

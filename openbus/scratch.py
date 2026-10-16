@@ -117,7 +117,8 @@ def _who(tool: str | None, account: str | None) -> str:
     return tool or "unknown"
 
 
-def resolve(listed: list[dict], states: list[dict], profiles: list[dict]) -> None:
+def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
+            pane_of=lambda _entry: None) -> None:
     """Who made each item: `who` (agent and account), `where` (session:window, or the
     agent session's title) and `pane` when that pane is still open."""
     panes = {s.get("pane_id"): s for s in states}
@@ -131,8 +132,7 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict]) -> Non
     running = agent_history.get_many(ids) or {} if ids else {}
     for i in listed:
         s = i.pop("session", None) or {}
-        live = (running.get(s.get("session_id")) or {}).get("running") or {}
-        i["pane"] = (live and tmux.running_pane(live)) or i["pane"]  # its writer, still open
+        i["pane"] = pane_of(running.get(s.get("session_id")) or {}) or i["pane"]  # still open
         if (pane := panes.get(i["pane"])) is not None:
             i["who"] = _who(pane.get("tool"), account.get(i["pane"]))
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
@@ -145,10 +145,12 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict]) -> Non
         i["where"] = s.get("title") or ""
 
 
-def page(root: Path, states: list[dict], profiles: list[dict], style: Path) -> str:
-    """The gallery, with `style` the app's stylesheet."""
+def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
+         pane_of=lambda _entry: None) -> str:
+    """The gallery, with `style` the app's stylesheet and `pane_of` the pane a running
+    agent-history entry is in (live.running_pane)."""
     listed = items(root)
-    resolve(listed, states, profiles)
+    resolve(listed, states, profiles, pane_of)
     # The app's colour tokens, inlined: the page is sandboxed like the rest of /scratch/,
     # so it cannot count on a credentialed stylesheet load behind the front door.
     tokens = _TOKENS.findall(style.read_text())

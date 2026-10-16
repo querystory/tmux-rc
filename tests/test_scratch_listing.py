@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from openbus import agent_history, scratch, tmux
+from openbus import agent_history, scratch
 from openbus.server import WEB_DIR
 
 STYLE = WEB_DIR / "m" / "style.css"
@@ -29,9 +29,9 @@ def _folder(root, name, at, meta=None, page="<title>Its own title</title>"):
     return folder
 
 
-def _resolved(root, states=(), profiles=()):
+def _resolved(root, states=(), profiles=(), pane_of=lambda _entry: None):
     listed = scratch.items(root)
-    scratch.resolve(listed, list(states), list(profiles))
+    scratch.resolve(listed, list(states), list(profiles), pane_of)
     return {i["name"]: i for i in listed}, [i["name"] for i in listed]
 
 
@@ -75,8 +75,6 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_history, "writers", writers)
     running = {"s1": {"running": {"tmux_pane": "%9", "pid": 5}}}
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
-    monkeypatch.setattr(tmux, "pane_pid", lambda _pane: "5")  # %9 here is the writer's
-    monkeypatch.setattr(tmux, "ancestors", lambda pid: [pid])
     _folder(tmp_path, "gone", 1000, {"pane": "%3"})
     _folder(tmp_path, "nobody", 2000)
     items, _ = _resolved(tmp_path, [], [{"name": "Lab", "dir": "/c"}])
@@ -84,7 +82,8 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
     assert items["nobody"]["who"] == "unknown"
     # %9 is where its writer runs now, and once the watcher has it, the card links there
     items, _ = _resolved(tmp_path, [{"pane_id": "%9", "tool": "codex", "session": "s",
-                                     "window_name": "w"}])
+                                     "window_name": "w"}],
+                         pane_of=lambda e: e.get("running", {}).get("tmux_pane"))
     assert items["gone"]["pane"] == "%9"
     for name in ("index.html", "meta.json"):  # rewritten: created moves, the author stays
         (tmp_path / "gone" / name).write_text('{"pane": "%3"}')
