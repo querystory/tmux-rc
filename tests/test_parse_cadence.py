@@ -612,6 +612,25 @@ def test_an_unreparsed_screen_still_reads_its_own_offers(monkeypatch):
     assert calls["n"] == 1, "the second screen was not reparsed"
 
 
+def test_an_unreparsed_screen_that_offers_again_is_read(monkeypatch):
+    """A card left unread (retries spent) whose screen, unchanged to the fingerprint, now
+    matches the transcript: the offer's wait is read off the screen, so push counts it."""
+    screen = "● Run:\n\n  ! timeout {} make deploy\n\n✻ Worked for 3s\n\n❯\n"
+    frame = [screen.format("20s")]
+    w, _calls = _harness(monkeypatch, frame)
+    monkeypatch.setattr(W.transcript, "last_reply",
+                        lambda *_a: "Run:\n\n```\n! timeout 10s make deploy\n```")
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: {
+        "activity": "idle", "tool": "claude", "events": [], "parse_ok": False})
+    pane = _Pane(current_command="node")
+    for duration in ["20s"] * W.PARSE_RETRIES + ["10s"]:
+        frame[0] = screen.format(duration)
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+        assert needs_you(state) == (duration == "10s")
+    assert w.pane_parse_valid(pane.id)
+
+
 def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
     """The phone stops spinning an answered control when `parsed_at` advances. A forced
     reparse that FAILS still has to move it, or the control spins forever."""

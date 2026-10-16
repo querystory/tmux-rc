@@ -1126,12 +1126,13 @@ def screen_offers(text: str, tool: str | None, reply: str | None) -> list[str]:
     return _offers(final, reply) if final else []
 
 
-def put_offers(state: dict, offers: list[str] | None) -> None:
+def put_offers(state: dict, offers: list[str] | None) -> bool:
     """Put a screen's offers on its card, replacing the last card's. A finished turn whose
     next step is the user's (run this, say that) waits on the user as a question does, so
     it is Needs you everywhere the wait is read (list, badge, push); that wait leaves with
     its offers, which a failed parse or an unreparsed screen may drop. Like _final_ask's,
-    the wait stands on a failed model read: push and history count it as read."""
+    the wait stands on a failed model read: push and history count it as read. True when
+    the offers made the wait."""
     if (state.pop("offers", None) and not offers and state.get("activity") == "waiting"
             and state.get("waiting_on") == "user"
             and not (state.get("question") or state.get("rewind"))):
@@ -1142,6 +1143,8 @@ def put_offers(state: dict, offers: list[str] | None) -> None:
         if state.get("activity") in ("idle", "unknown", None):
             state.update(activity="waiting", waiting_on="user")
             state.pop("parse_ok", None)  # grounded in the turn's own chrome, not the model
+            return True
+    return False
 
 
 def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
