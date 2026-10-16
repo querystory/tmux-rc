@@ -82,8 +82,6 @@ strictness is correct:
   only where the screen shows them. Scored by the labels the rows lead with ("1", "B").
 - `question.subject` — opt-in: the paragraph or heading that leads into those rows, which
   says what the question decides. Scored by presence.
-- `question.link` — opt-in exact URL: the link the question asks the user to open, which
-  the Needs-you card offers as an Open link button only when it matches a `links` href.
 - `question.context` — opt-in exact string: the widget rows classify() reads around a
   menu's prompt (deterministic, so pinned exactly).
 - `copyable_texts` — opt-in exact list of copyable texts, for payloads lifted from the

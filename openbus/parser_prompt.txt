@@ -189,10 +189,6 @@ telemetry/config/docs links, often markdown [label](url)) — chrome, not conten
 user is being asked to open. Terminal wrapping splits long URLs across lines —
 REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a short
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
-When the question asks the user to open one of these (sign in, approve, paste back the
-code it gives), also set "question.link" to that same href: the Needs-you card then
-shows an Open link button beside Reply, so the user acts from the list without opening
-the pane.
 
 "offers": whenever the agent's latest message asks the user to send text back into this
 pane — a "! command" to run here, a phrase it says to reply with — put that text in
