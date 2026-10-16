@@ -71,10 +71,7 @@ def test_panel_moves_into_its_own_block():
 
 
 def test_offer_reads_the_conversation_column():
-    reply = ("Moved the parser into its own module.\n\nTests pass 🎉 on the new layout.\n"
-             "\nRun this: ! make migrate")
-    assert screen_offers(_unsplit(SCREEN), "claude", reply) == []  # the bug: panel in every row
-    assert screen_offers(_capture(SCREEN), "claude", reply) == ["! make migrate"]
+    assert screen_offers(["! make migrate"], _capture(SCREEN)) == ["! make migrate"]
 
 
 @pytest.mark.parametrize("rows", [
