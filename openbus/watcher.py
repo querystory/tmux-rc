@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 
-from . import tmux, transcript
+from . import fit, tmux, transcript
 from .classify import (
     _OMP_CTX_RE,
     _OPENCODE_RUNNING_RE,
@@ -221,6 +221,16 @@ def _fingerprint(text: str) -> str:
         # removing it outright would weld the words together on that frame only.
         lines[i] = _WS_RUN_RE.sub(" ", _SPARKLE_RE.sub(" ", lines[i])).strip()
     return "\n".join(lines)
+
+
+def _reflowed(text: str, before: str) -> bool:
+    """Is `text` the screen `before`, laid out at another width? Compared as _fingerprint
+    sees them (timers and spinners don't count) over the whole capture, since a reflow
+    moves rows between scrollback and the screen. Exactly, deliberately: when a reflow also
+    pushes the oldest scrollback out of the capture's row budget the two differ, and that
+    costs one parse rather than ever taking new text for old."""
+    return len({fit.reflow_key(_fingerprint(t.replace(tmux.VISIBLE_SCREEN, "")))
+                for t in (text, before)}) == 1
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
@@ -684,8 +694,12 @@ class Watcher:
                     self.target,
                 )
             panes = [p] if p else []
+            if p:  # every session's row for it: an attached group sibling counts too
+                fit.release_attached([r for r in tmux.list_panes() if r.id == p.id])
         else:
-            panes = tmux.dedupe_grouped(tmux.list_panes())
+            rows = tmux.list_panes()
+            fit.release_attached(rows)  # every session's rows: any attached one counts
+            panes = tmux.dedupe_grouped(rows)
         if history_server and self._checkpoints is None:
             self._load_checkpoints(history_server, None if self.target else panes)
         self._server = history_server
@@ -1344,6 +1358,7 @@ class Watcher:
         now = time.time()  # before the capture: drop_question compares it with an answer's
         captured = time.monotonic()  # and what _confirmed's second capture waits out
         text = tmux.capture_pane(pane.id, mark_dim=True)
+        looked = time.monotonic()  # a resize begun before this may be in the capture
         fp = self.frame_fp(text)  # cheap to hold per pane; the checkpoint stores it too
         # First sighting since startup (or since a recycled id): resume from the
         # checkpoint when the screen is unchanged, else seed the clocks from tmux.
@@ -1360,15 +1375,37 @@ class Watcher:
         # a snapshot every tick and pin idle_seconds at 0, so the pane never aged out of
         # "Recent" for as long as the outage lasted.
         moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
-        self._seen_fp[pane.id] = fp
+        # Our own resize (openbus/fit.py) makes the app redraw at the new width: the same
+        # screen, reflowed, is not activity and not worth a parse. While the redraw may be
+        # half done the pane holds its last reading (nothing moved, nothing to parse or
+        # checkpoint); the look after that checks the settled screen against it, and
+        # anything new (a question that arrived meanwhile) is the app's own. Read as usual:
+        # a screen never parsed or still unread, and a pending question, whose answer is
+        # checked against the rows on screen.
+        phase = fit.just_resized(pane.id, looked)
+        parsed = self._prev_fp.get(pane.id)
+        hold = False
+        if phase and parsed is not None and parsed == self._seen_fp.get(pane.id) \
+                and not (self._state.get(pane.id) or {}).get("question"):
+            last = (self.snapshots.get(pane.id) or [{"text": ""}])[-1]["text"]
+            if phase == "redraw":
+                hold, moved = True, False
+            elif _reflowed(text, last):
+                self._prev_fp[pane.id] = fp
+                moved = False
+            else:
+                self._prev_fp.pop(pane.id)  # changed under the redraw: read it
+                moved = True
+        if not hold:
+            self._seen_fp[pane.id] = fp
         if moved:
             self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN
         # The agent's transcript can land after its screen settles; a reply the last
         # parse didn't have re-reads the card even though the screen is unchanged.
         reply = transcript.last_reply(pane, text)
-        changed = (fp != self._prev_fp.get(pane.id)  # differs from what we last parsed
-                   # A restored card has no parsed reply: the first one seen stands in.
-                   or reply != self._parsed_reply.setdefault(pane.id, reply))
+        changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
+                                # A restored card has no parsed reply: the first seen stands in.
+                                or reply != self._parsed_reply.setdefault(pane.id, reply))
         previous = self._state.get(pane.id)
         # Seed from tmux on restart; only observed content changes advance this clock.
         last_activity = (previous or {}).get("last_activity_at")
@@ -1401,8 +1438,9 @@ class Watcher:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             # Offers send what they say: read off this very screen, which the fingerprint
             # may call unchanged while a command's "10s" became "20s". First: they move the
-            # activity the clock below is keyed on, and a wait they make is read.
-            if put_offers(cached, screen_offers(text, cached.get("tool"), reply)):
+            # activity the clock below is keyed on, and a wait they make is read. Not off
+            # a screen held mid-redraw (see `hold`): it may be half drawn, offers and all.
+            if not hold and put_offers(cached, screen_offers(text, cached.get("tool"), reply)):
                 self._parse_valid[pane.id] = True
             cached.setdefault("input_generation", generation)  # a restored card has none
             # Same activity/question as the last parse (nothing re-classified), so this
