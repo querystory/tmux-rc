@@ -305,12 +305,15 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
             diffs.append(f"links: missing {missing!r}")
     # Opt-in: copyables that must be offered, compared with whitespace collapsed (the
     # model's line breaks vary), none of them carrying a quote or frame bar.
-    copied = [" ".join(str(c.get("text", "")).split()) for c in candidate.get("copyables") or []
-              if isinstance(c, dict)] if isinstance(candidate.get("copyables"), list) else []
-    diffs.extend(f"copyables: missing {want[:40]!r}…" for want in expected.get("copyables_include", [])
+    cps = candidate.get("copyables")
+    copied = [" ".join(str(c.get("text", "")).split()) for c in cps
+              if isinstance(c, dict)] if isinstance(cps, list) else []
+    wanted = expected.get("copyables_include", [])
+    diffs.extend(f"copyables: missing {want[:40]!r}…" for want in wanted
                  if " ".join(want.split()) not in copied)
-    if "copyables_include" in expected:
-        diffs.extend(f"copyables: kept a bar in {c[:40]!r}" for c in copied if re.search("[▎│┃]", c))
+    if wanted:
+        diffs.extend(f"copyables: kept a bar in {c[:40]!r}" for c in copied
+                     if re.search("[▎│┃]", c))
     # Opt-in: URLs that must not be offered (status-line chrome links).
     links = candidate.get("links")
     hrefs = [str(link.get("href", "")).rstrip("/") for link in links
