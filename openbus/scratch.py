@@ -78,7 +78,7 @@ def _item(root: Path, folder: Path) -> dict | None:
     meta, index, thumb = _meta(folder), folder / "index.html", folder / "thumb.webp"
     page = index if any(f == index for _, f in files) else max(files)[1]
     title = meta.get("title")
-    if not title and page.suffix == ".html":
+    if not title and page.suffix in (".html", ".htm"):
         with page.open(errors="replace") as f:
             m = _TITLE.search(f.read(65536))
         title = m and unescape(m.group(1)).strip()

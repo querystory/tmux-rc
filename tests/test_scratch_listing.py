@@ -43,9 +43,13 @@ def test_newest_first_and_titles_fall_back(tmp_path, monkeypatch):
     _folder(tmp_path, "amp", 500, None, page="<title>Build &amp; review</title>")
     _folder(tmp_path, "typed", 1500, {"title": 7, "pane": ["%1"]})  # wrong types: ignored
     (tmp_path / "loose.html").write_text("a file, not a folder")
+    htm = tmp_path / "htm"
+    htm.mkdir()
+    (htm / "report.htm").write_text("<title>From an htm</title>")
+    os.utime(htm / "report.htm", (100, 100))
     items, order = _resolved(tmp_path)
-    assert order == ["new", "mid", "typed", "old", "amp"]
-    assert items["amp"]["title"] == "Build & review"
+    assert order == ["new", "mid", "typed", "old", "amp", "htm"]
+    assert items["amp"]["title"] == "Build & review" and items["htm"]["title"] == "From an htm"
     assert [items[n]["title"] for n in order[:4]] == ["Its own title", "mid", "Its own title",
                                                       "Named"]
     assert items["old"]["description"] == "Said so"
