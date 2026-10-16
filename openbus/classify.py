@@ -857,9 +857,12 @@ def _quoted(text, visible: str) -> bool:
     transcript row ignored."""
     if not isinstance(text, str) or not text.strip():
         return False
-    wrap = r"[ \t]*\n[ \t]*"
-    exact = f"(?:{wrap})?".join(f"(?: |{wrap})" if c == " " else re.escape(c)
-                                for c in text.strip())
+    # One row break at most between two characters, never a blank row: a space is a space
+    # or a wrap, and a word may wrap between any two of its letters.
+    wrap, text = r"[ \t]*\n[ \t]*", text.strip()
+    exact = "".join(f"(?: |{wrap})" if c == " " else re.escape(c) + (
+        f"(?:{wrap})?" if i + 1 < len(text) and " " not in text[i:i + 2] else "")
+        for i, c in enumerate(text))
     return bool(re.search(exact, _FRAME_BARS_RE.sub("", visible)))
 
 

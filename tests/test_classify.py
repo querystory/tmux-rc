@@ -1421,6 +1421,12 @@ def test_offers_the_model_names_are_kept_only_as_the_screen_shows_them():
     assert classify(_pane("claude"), screen, _llm(read))["offers"] == [
         "! gh pr merge 327 --squash", "merge 415"]
     assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": ["! rm -rf ~"]}))
+    blank = _auto_screen("Run:\n\n  ! printf '%s' 'a\n\n  b'")  # a blank row is no wrap
+    joined = _llm({"offers": ["! printf '%s' 'a b'"]})
+    assert "offers" not in classify(_pane("claude"), blank, joined)
+    words = " ".join(f"w{i}" for i in range(40))  # a near-miss over many wraps stays fast
+    near = _auto_screen("\n    ".join(words.split(" ")) + " x")
+    assert "offers" not in classify(_pane("claude"), near, _llm({"offers": [words + " y"]}))
     quoted = _auto_screen("Run it:\n\n  ▎ ! make deploy")  # a block quote's bar is no text
     assert classify(_pane("claude"), quoted, _llm({"offers": ["! make deploy"]}))["offers"] == [
         "! make deploy"]
