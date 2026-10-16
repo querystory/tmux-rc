@@ -177,7 +177,9 @@ def test_our_resize_is_not_activity(pane, monkeypatch, tmp_path):
     assert len(parses) == 1
     assert len(w.snapshots[tui]) == 1
     assert state["last_activity_at"] == before  # not "now": the list doesn't reorder
-    T._run(["resize-window", "-x", "60", "-t", tui])  # the next change is real, even this soon
+    monkeypatch.setattr(fit, "REDRAW_SECONDS", 0)  # the app has had its time to redraw
+    tick()  # this look spends the resize
+    T._run(["resize-window", "-x", "60", "-t", tui])  # so the next change is real
     while len(screen()) != 60:
         pass
     tick()
@@ -211,11 +213,14 @@ def test_only_a_size_change_arms_the_redraw_hook(pane):
         assert pane not in fit._resized
 
 
-def test_a_look_finished_before_the_resize_leaves_the_token(pane):
+def test_a_look_finished_before_the_resize_leaves_the_token(pane, monkeypatch):
     before = time.monotonic()
     fit.view(pane, 60)
     assert not fit.just_resized(pane, before, moved=False)  # the old screen: kept
-    assert fit.just_resized(pane, time.monotonic(), moved=True)  # the redraw: excused, spent
+    assert fit.just_resized(pane, time.monotonic(), moved=True)  # half redrawn: excused
+    assert fit.just_resized(pane, time.monotonic(), moved=True)  # still redrawing
+    monkeypatch.setattr(fit, "REDRAW_SECONDS", 0)
+    assert fit.just_resized(pane, time.monotonic(), moved=True)  # the finished redraw: spent
     assert not fit.just_resized(pane, time.monotonic(), moved=True)  # the next is real
 
 

@@ -17,7 +17,7 @@ from . import tmux
 MIN_COLS = 40  # narrower and most TUIs stop laying out sensibly
 MARK = "@tmuxrc-fit"
 SETTLE_SECONDS = 3.0  # a redraw this soon after our own resize is the resize, not the app
-REDRAW_SECONDS = 1.0  # by then an app has redrawn: a look still unchanged spends the token
+REDRAW_SECONDS = 1.0  # how long an app takes to redraw: looks before then may see it half done
 _SIZE = "#{window_width}x#{window_height}"
 # The pane's window: does the pane fill it, its sessions and every attached session (a
 # window can be in several, and a terminal on any of them sees it shrink), its width and
@@ -37,17 +37,18 @@ def _run(args: list[str]) -> str:
 
 def just_resized(pane_id: str, looked: float, moved: bool) -> bool:
     """Is this look's change (`moved`, in a capture finished at `looked`) the app redrawing
-    for our resize, rather than the app doing something? One resize excuses one change: a
-    look that moved spends it, and so does one still unchanged once the app has had time
-    to redraw. A resize begun after the capture finished cannot be in it, so its token
-    waits for the next look. Under the lock, so a look taken while a resize lands waits
-    for its token."""
+    for our resize, rather than the app doing something? While the app may still be
+    redrawing, every change is the redraw (a look can catch it half done). The first look
+    after that spends the resize: its change, if any, is the finished redraw. A resize
+    begun after the capture finished cannot be in it. Under the lock, so a look taken
+    while a resize lands waits for its token."""
     with _lock:
         at = _resized.get(pane_id)
         if at is None or looked < at:
             return False
-        if moved or looked - at >= REDRAW_SECONDS:
-            del _resized[pane_id]
+        if looked - at < REDRAW_SECONDS:
+            return moved
+        del _resized[pane_id]
         return moved and looked - at < SETTLE_SECONDS
 
 
