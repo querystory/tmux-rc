@@ -1159,7 +1159,8 @@ async function streamTerminal(id, signal) {
       frame = data.frame || "";
       if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
       // A full-screen app came or went: Auto picks again between tall and width only.
-      if ("alt" in data && data.alt !== fitAlt) { if (fitAlt !== undefined && fitMode(id) === "auto") fitCols = 0; fitAlt = data.alt; }
+      // Queued, not left to fitDue: a reply already in flight would otherwise mark it done.
+      if ("alt" in data && data.alt !== fitAlt) { if (fitAlt !== undefined && fitMode(id) === "auto") refitNow(); fitAlt = data.alt; }
       fitDue();
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
