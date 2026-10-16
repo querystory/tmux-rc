@@ -82,9 +82,15 @@ Two gaps here:
   small uid-to-title table written when a title changes. The table is preferred, because
   payloads are deduplicated whole and a title that changes every few minutes would defeat
   that.
-- **Hours per workstream** sum the panes whose PR associations fall in the workstream. A
-  pane associated with many PRs (a session that coordinates others) cannot be split
-  honestly; it is attributed to its most frequent workstream and the report says so.
+- **A closed pane loses its PRs too.** Hours per workstream sum the panes whose PR
+  associations fall in the workstream, but history records no associations, the watcher
+  retires a reference once its PR merges or closes, and a closed pane's remaining ones go
+  with it. So the work that finished last week, which is most of what a weekly report is
+  about, would have no PRs to attribute its hours to. History needs a durable uid-to-PR
+  record, written when an association first appears and never retired; hours from before
+  it existed are shown unattributed rather than guessed. A pane associated with many PRs
+  (a session that coordinates others) cannot be split honestly; it is attributed to its
+  most frequent workstream and the report says so.
 
 **Plan usage** already stores each account's weekly percentage, which gives a cost line
 for free ("this week used most of two accounts' weekly limits"). Optional; it costs no
@@ -133,8 +139,13 @@ a week, not every tick, it can afford a stronger model than the classifier uses.
 The report is built on a schedule (weekly, at a configurable local time) and on demand,
 and the result is stored: the grouping and prose are frozen with the time they were
 written, while Waiting on you is read live from open loops each time the page opens, so
-the first section is never a week stale. A stored report is also what makes two weeks
-comparable, and what a "last week" link reads; keeping the last dozen is small.
+the first section is never a week stale. Freezing a report does not by itself make two
+weeks comparable: a workstream that started last week would be regrouped, and maybe
+renamed, once its early PRs leave the window. So each stored report keeps its PR-to-
+workstream assignment, and the next grouping call is given the previous assignments as
+input, so a follow-up PR joins the workstream it continues and the name carries over;
+the model may still split or close a workstream, and the report says when it did. The
+stored reports are what a "last week" link reads; keeping the last dozen is small.
 
 A daily variant is the same report over a one-day window. It is not a second feature, but
 whether a day is worth a model call, rather than just the numbers, is an open question.
@@ -200,7 +211,7 @@ version of it so far needed a fix per counter-example.
 ## Build order
 
 1. Plumbing that fixes gaps open loops also has: approver names on rows, and pane titles
-   kept in history after a pane closes.
+   and PR associations kept in history after a pane closes or its PR merges.
 2. The report-time week search and the "This week" page with numbers, Waiting on you and
    agent hours, with stack-only grouping. Useful with no model at all.
 3. The model call for grouping and narratives, with eval samples, and the stored report.
