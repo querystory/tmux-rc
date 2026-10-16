@@ -217,6 +217,8 @@ _GENERIC_NAMES = {
     "claude",
     "codex",
     "gemini",
+    "agy",
+    "antigravity",
     "opencode",
     "omp",
     "aider",

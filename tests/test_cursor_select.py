@@ -382,3 +382,21 @@ def test_a_step_goes_only_to_the_screen_it_was_read_off(tmp_path, monkeypatch):
     finally:
         subprocess.run(["tmux", "-L", socket, "kill-pane", "-t", pane], env=env,
                        check=False, capture_output=True)
+
+
+def test_ascii_numbered_picker_is_drivable():
+    screen = "Choose a palette:\n > 1. Forest\n   2. Ocean\n\n ↑/↓ Navigate · enter Select"
+    result = classify(
+        Pane("demo", "0", "agy", "0", "%0", "agy", "demo"), screen,
+        lambda s, t: {"tool": "antigravity", "question": {
+            "prompt": "Choose a palette:", "answer_style": "menu",
+            "options": ["Forest", "Ocean"],
+        }},
+    )
+    question = result["question"]
+    assert question["answer_style"] == "cursor"
+    assert question["selected"] == 0
+    assert question["picker"] == picker_digest(screen, "Choose a palette:")
+    assert question["keymap"]["select"] == "Enter"
+    moved = screen.replace(" > 1. Forest", "   1. Forest").replace("   2. Ocean", " > 2. Ocean")
+    assert highlighted_row(moved, "Choose a palette:", ["Forest", "Ocean"]) == "Ocean"
