@@ -118,7 +118,8 @@ def test_nothing_outside_scratch_is_listed_or_read(tmp_path, monkeypatch):
     (linked / "report.pdf").write_text("pdf")
     _folder(root, "meta-only", 800, {"title": "nothing to open"}).joinpath("index.html").unlink()
     items, order = _resolved(root)
-    assert sorted(order) == ["inner", "linked", "loop"] and items["inner"]["title"] == "inner"  # no text
+    assert sorted(order) == ["inner", "linked", "loop"]
+    assert items["inner"]["title"] == "inner"  # its <title> has no text
     assert items["linked"]["href"] == "linked/report.pdf" and items["linked"]["title"] == "linked"
     _folder(root, "xss", 1000, {"title": "<img src=x onerror=alert(1)>"})
     page = scratch.page(root, [], [], STYLE)
