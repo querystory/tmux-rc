@@ -20,6 +20,7 @@ you are running. The public documentation website does not proxy your daemon's A
 | `GET /api/panes/{id}/events` | A pane's observed activity log |
 | `GET /api/panes/{id}/snapshots` | Saved terminal snapshots |
 | `GET /api/panes/{id}/live` | Current terminal frame; supports long polling |
+| `POST /api/panes/{id}/fit` | Fit the pane's window width to the phone ([fit width](design/fit-width.md)) |
 | `POST /api/panes/{id}/send` | Send text or keys, including structured prompt answers, into a real tmux pane |
 | `POST /api/panes/{id}/select` | Focus the pane in the host's tmux session; accepts no answer payload |
 | `POST /api/panes/{id}/image` | Send an image to a pane |

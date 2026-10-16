@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a finished turn presents a social post draft as a ▎ block quote, with bar-only rows between paragraphs and a URL last. The draft is for the user to post elsewhere: a copyable with the whole text and no quote bars.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ draft a launch post about the hiring\n\n● Here's a draft for the hiring post:\n\n  ▎ Three years ago we started Kettle in a spare room.\n  ▎\n  ▎ Today it brews for 2,000 teams, and we are hiring two engineers to help it grow.\n  ▎\n  ▎ If you like small tools that do one thing well, come talk to us.\n  ▎ https://example.com/kettle/jobs\n\n  Want it shorter?\n\n✻ Worked for 9s · done 11:02 AM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/kettle on main | Opus 5.5 | 8% ctx\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "copyables": true,
+    "copyables_include": [
+      "Three years ago we started Kettle in a spare room.\n\nToday it brews for 2,000 teams, and we are hiring two engineers to help it grow.\n\nIf you like small tools that do one thing well, come talk to us.\nhttps://example.com/kettle/jobs"
+    ],
+    "headline": "Drafted a hiring post for Kettle"
+  }
+}

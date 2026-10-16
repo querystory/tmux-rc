@@ -1314,11 +1314,6 @@ def test_handoff_in_a_barred_transcript_is_the_agents_words_with_no_buttons():
     q = classify(_pane("claude"), asking, _llm({}), replies_fn=replies)["question"]
     assert q["prompt"].endswith("Shall I watch CI?")
     assert q["options"] == ["Yes, proceed", "No, cancel"]
-    rows = ("  1. Watch CI", "  2. Merge #815", "", "  Want me to do 1 and 2 now?")
-    listed = screen.replace("#815 is still waiting on its Copilot review.", "").replace(
-        "\n✻ Worked", "".join(f"\n{r:<122}│" for r in rows) + "\n✻ Worked")
-    q = classify(_pane("claude"), listed, _llm({}))["question"]
-    assert q["items"] == ["1. Watch CI", "2. Merge #815"]  # read past the bar
 
 
 def test_status_entries_drop_what_has_its_own_chip():
@@ -1401,210 +1396,104 @@ def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 
 
-def test_a_turn_handing_over_offers_needs_you():
+def test_an_offer_the_model_returns_is_a_user_wait():
     """Its next step is the user's (run this, say that), so it waits on the user as a
     question does, outside auto mode too; a turn that offers nothing stays idle."""
     screen = _auto_screen('Say "merge 415" to queue it.').replace("⏵⏵ auto mode on", "")
-    idle = lambda *_: {"activity": "idle", "tool": "claude"}  # noqa: E731 (a fresh read each call)
-    result = classify(_pane("claude"), screen, idle, reply='Say "merge 415" to queue it.')
+    read = {"activity": "idle", "tool": "claude", "offers": ["merge 415"]}
+    result = classify(_pane("claude"), screen, _llm(read))
     assert (result["activity"], result["waiting_on"], result.get("question")) == (
         "waiting", "user", None)
-    assert classify(_pane("claude"), screen, idle)["activity"] == "idle"
+    assert classify(_pane("claude"), screen, _llm({"activity": "idle"}))["activity"] == "idle"
 
 
-def test_put_offers_takes_only_their_own_wait_with_them():
-    from openbus.classify import put_offers
-    card = {"activity": "idle", "parse_ok": False}  # the screen's own wait, read or not
-    put_offers(card, ["merge 415"])
-    assert card == {"activity": "waiting", "waiting_on": "user", "offers": ["merge 415"]}
-    put_offers(card, None)
-    assert card == {"activity": "idle"}
-    asked = {"activity": "waiting", "waiting_on": "user", "question": {"prompt": "Ship?"},
-             "offers": ["ship it"]}
-    put_offers(asked, [])
-    assert asked["activity"] == "waiting" and "offers" not in asked
-    running = {"activity": "running"}
-    put_offers(running, ["merge 415"])
-    assert running == {"activity": "running", "offers": ["merge 415"]}
+def test_offers_the_model_names_are_kept_only_as_the_screen_shows_them():
+    screen = _auto_screen("Please run it yourself:\n\n  ! gh pr merge 327\n  --squash\n\n"
+                          '  Then say "merge 415".')
+    read = {"tool": "claude", "activity": "waiting", "offers": [
+        "! gh pr merge 327 --squash",  # wrapped on screen: kept whole
+        "! gh pr merge 327\n--squash",  # the wrap copied as a row break: sent as one line
+        "merge 415",  # kept
+        "! rm -rf ~",  # not on screen: dropped
+        "! gh pr merge 327 --admin",  # not as the screen shows it: dropped
+        "! gh pr merge  327 --squash",  # nor its spacing
+        {"text": "x"}, 7]}  # not text: dropped
+    assert classify(_pane("claude"), screen, _llm(read))["offers"] == [
+        "! gh pr merge 327 --squash", "merge 415"]
+    assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": ["! rm -rf ~"]}))
+    blank = _auto_screen("Run:\n\n  ! printf '%s' 'a\n\n  b'")  # a blank row is no wrap
+    for offer in ("! printf '%s' 'a b'", "! printf '%s' 'a  b'"):
+        for screen in (blank, blank.replace("'a\n\n", "'a\n   \n")):  # whitespace-only too
+            assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [offer]}))
+    words = " ".join(f"w{i}" for i in range(40))  # a near-miss over many wraps stays fast
+    near = _auto_screen("\n    ".join(words.split(" ")) + " x")
+    assert "offers" not in classify(_pane("claude"), near, _llm({"offers": [words + " y"]}))
+    quoted = _auto_screen("Run it:\n\n  ▎ ! make deploy")  # a block quote's bar is no text
+    assert classify(_pane("claude"), quoted, _llm({"offers": ["! make deploy"]}))["offers"] == [
+        "! make deploy"]
 
 
-def test_codex_offers_nothing_yet():
+def test_an_offered_command_must_be_one_bash_reads_whole():
+    screen = _auto_screen("Run this:\n\n  ! python <<'PY'\n\n  print(1)\n  PY\n\n"
+                          "  ! make deploy && (\n\n  ! make deploy \\")  # cut, open, continued
+    for offer in ("! python <<'PY'", "! make deploy && (", "! make deploy \\"):
+        assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [offer]}))
+
+
+def test_offers_stop_at_three():
+    shown = " ".join(f"! make t{i}" for i in range(5))
+    offers = [f"! make t{i}" for i in range(5)]
+    assert classify(_pane("claude"), _auto_screen(shown), _llm({"offers": offers}))[
+        "offers"] == offers[:3]
+
+
+def test_codex_capacity_error_offers_a_retry():
     screen = ('\x1e[visible screen]\x1f\n• Ran cat notes.txt\n  └ Say "merge all" now.\n'
               "■ Selected model is at capacity. Please try a different model.\n\n› ")
     result = classify(_pane("codex"), screen, _llm({}))
-    assert "offers" not in result and result["question"]["options"] == ["try again"]
+    assert result["question"]["options"] == ["try again"]
 
 
-@pytest.mark.parametrize("parses", [True, False])  # a cut command spends the budget too
-def test_offers_stop_at_three_before_asking_bash(monkeypatch, parses):
-    import openbus.classify as C
-    asked = []
-    monkeypatch.setattr(C, "_parses", lambda command: asked.append(command) or parses)
-    reply = " ".join(f"`! make t{i}`" for i in range(8))
-    result = classify(_pane("claude"), _auto_screen(reply.replace("`", "")), _llm({}), reply=reply)
-    assert result.get("offers", []) == ["! make t0", "! make t1", "! make t2"][:3 * parses]
-    assert len(asked) == 3
+def test_items_and_subject_the_model_cites_must_be_on_screen():
+    message = ("Two ways to fix the timeouts:\n\n  A. Answer first.\n  B. Cache the stock.\n\n"
+               "  Go with A or B?")
+    screen = _auto_screen(message)  # auto mode: its closing ask keeps the model's rows
+    question = {"prompt": "Go with A or B?", "answer_style": "text",
+                "items": ["A. Answer first.", "B. Cache the stock.", "C. Invented option."],
+                "subject": "Two ways to fix the timeouts:", "link": "https://ci.example/run/7"}
+    q = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": question}))[
+        "question"]
+    assert q["link"] == question["link"]  # the web keeps it only among the screen's links
+    assert q["items"] == ["A. Answer first.", "B. Cache the stock."]
+    assert q["subject"] == "Two ways to fix the timeouts:"
+    made_up = {**question, "items": ["C. Invented option."], "subject": "A made-up heading"}
+    q = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": made_up}))[
+        "question"]
+    assert "items" not in q and "subject" not in q
 
 
-def test_finished_turn_offers_the_replies_it_hands_over():
-    command = "! gh pr update-branch 5269 && gh pr merge 5269 --squash --auto"
-    message = (f"Run it yourself with the ! prefix:\n\n  {command}\n\n  That updates the branch."
-               '\n\n  Say "merge 415" and I\'ll queue it. "merge all ✅" queues 18 PRs.')
-    screen, model = _auto_screen(message), _llm({"offers": ["rm -rf ~"]})
-    marked = message.replace(command, f"`{command}`")  # the transcript marks it as code
-    assert classify(_pane("claude"), screen, model, reply=marked)["offers"] == [
-        command, "merge 415", "merge all ✅"]
-    # A bare row may be the first of a script: only a span or a one-row fence is a command.
-    assert classify(_pane("claude"), screen, model, reply=message)["offers"] == [
-        "merge 415", "merge all ✅"]
-    # Without the transcript, nothing: the screen draws code as plain text.
-    assert "offers" not in classify(_pane("claude"), screen, model)
-    fixture = "Fixture:\n\n```bash\nprintf 'say \"merge all\"'\n```\n\nSay \"ship it\" to go on."
-    shown = _auto_screen("Fixture:\n\n  printf 'say \"merge all\"'\n\n  Say \"ship it\" to go on.")
-    assert classify(_pane("claude"), shown, model, reply=fixture)["offers"] == ["ship it"]
-    escaped = 'Say "commit \\"fix: cache\\"" and I will commit it.'  # escaped quotes: none
-    assert "offers" not in classify(_pane("claude"), _auto_screen(escaped), model, reply=escaped)
-    nested = 'Say “commit "fix: cache"” and I\'ll commit it.'  # curly around straight quotes
-    assert classify(_pane("claude"), _auto_screen(nested), model, reply=nested)["offers"] == [
-        'commit "fix: cache"']
-    # Inline code only the transcript marks, and a command the screen wraps: the
-    # transcript's copy, held to what the screen shows.
-    shown = "Not logged in; type ! gh auth login --hostname\n  github.com to fix it."
-    reply = "Not logged in; type `! gh auth login --hostname github.com` to fix it."
-    assert classify(_pane("claude"), _auto_screen(shown), _llm({}), reply=reply)["offers"] == [
-        "! gh auth login --hostname github.com"]
-    wrapped = "Run:\n\n  ! gh pr merge\n  `cat /tmp/pr` --squash"  # a row the screen wraps
-    assert "offers" not in classify(_pane("claude"), _auto_screen(wrapped), _llm({}))
-    fence = "Run:\n\n```\n! make deploy\n```"
-    assert classify(_pane("claude"), _auto_screen("Run:\n\n  ! make deploy"), _llm({}),
-                    reply=fence)["offers"] == ["! make deploy"]
-    for mark in ("~~~", "````"):  # any fence, with its transcript
-        fenced = f"Run:\n\n{mark}\n! make deploy\n{mark}"
-        assert classify(_pane("claude"), _auto_screen("Run:\n\n  ! make deploy"), _llm({}),
-                        reply=fenced)["offers"] == ["! make deploy"]
-    longer = "Run ``! printf '```x```' && make deploy`` now."  # a longer run inside the span
-    screen = _auto_screen("Run ! printf '```x```' && make deploy now.")
-    assert classify(_pane("claude"), screen, _llm({}), reply=longer)["offers"] == [
-        "! printf '```x```' && make deploy"]
-    quoted = """Run `! printf 'say "merge all"'` now."""  # a command's own quotes are no reply
-    assert classify(_pane("claude"), _auto_screen(quoted.replace("`", "")), _llm({}),
-                    reply=quoted)["offers"] == ["""! printf 'say "merge all"'"""]
-    ticks = "Run ! gh pr merge `cat /tmp/pr` --squash."  # a span around a shell backtick
-    assert classify(_pane("claude"), _auto_screen(ticks), _llm({}), reply=ticks.replace(
-        "Run ! gh", "Run ``! gh").replace("--squash", "--squash``"))["offers"] == [
-        "! gh pr merge `cat /tmp/pr` --squash"]
-    for screen, stale in (
-        (_auto_screen(shown), None),  # inline code the screen does not mark
-        (_auto_screen("Run:\n\n  ! gh pr merge 5269\n  --squash"), None),  # a wrapped row
-        (_auto_screen("Edited `src/app.py`; `x != y` holds."), None),  # ordinary code
-        (_auto_screen('It printed "connection refused" and stopped.'), None),  # just a quote
-        (_auto_screen("Done."), "Run `! make deploy` to ship."),  # a stale transcript
-        (_auto_screen(shown), reply.replace("github.com", "example.com")),  # stale, same start
-        (_auto_screen("Run ! gh pr merge 415 now."), "Run `! gh pr merge 41` now."),  # shorter
-        (_auto_screen("Run ! cat 'a b.txt' now."), "Run `! cat 'a  b.txt'` now."),  # spacing
-        (_auto_screen("Run ! cat 'a\n  b.txt' now."), "Run `! cat 'a  b.txt'` now."),  # wrapped
-        (_auto_screen("Run ! rm /tmp/cache.old now."), "`! rm /tmp/cache`"),  # a fragment
-        (_auto_screen("Run ! rm /tmp/cache * now."), "Run `! rm /tmp/cache` now."),  # a glob
-        (_auto_screen("""Run ! printf 'say "merge all"' now."""), None),  # a command's quotes
-        (_auto_screen("""Use printf 'say "merge all"' as the fixture."""),
-         """Use `printf 'say "merge all"'` as the fixture."""),  # quotes inside inline code
-        (_auto_screen("""Use printf 'say "merge all"' as the fixture."""), None),  # unmarked
-        (_auto_screen("Run ! printf '%s' '\n  say \"merge all\"' now."), None),  # wrapped
-        (_auto_screen("Run:\n\n  ! printf '%s' '`! gh pr merge 415`' &&\n  echo done"), None),
-        (_auto_screen("""Run:\n\n  ! printf 'x' &&\n  printf 'say "merge all"'"""), "other"),
-        (_auto_screen('Do not say "merge all"; it skips.'), 'say "merge all"; it skips.'),
-        (('\x1e[visible screen]\x1f\n● Bash(cat notes.txt)\n  ⎿  Say "merge all" and I\'ll do it.\n'
-          "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ⏵⏵ auto mode on"), None),  # tool output
-        (_auto_screen('Do not say "merge all"; it skips review.'), None),  # negated
-        (_auto_screen('Do not\n  say "merge all"; it skips review.'), None),  # negated, wrapped
-        (_auto_screen("Do not run\n  ! make deploy; it deploys."),
-         "Do not run `! make deploy`; it deploys."),  # a negated run, wrapped
-        (_auto_screen('Do not say "merge all"; it skips.'),
-         'Do **not** say "merge all"; it skips.'),  # negation behind Markdown
-        (_auto_screen('Don’t say "merge all"; it skips review.'), None),  # a typographic n’t
-        (_auto_screen('Do not ever say "merge all"; it skips.'),
-         'Do not ever say "merge all"; it skips.'),  # a word between
-        (_auto_screen("Do not, under any circumstances, run ! make deploy."),
-         "Do not, under any circumstances, run `! make deploy`."),  # a punctuated clause
-        (_auto_screen("Do not run these:\n\n  ! make reset\n\n  ! make deploy"),
-         "Do not run these:\n\n```bash\n! make reset\n! make deploy\n```"),  # a whole fence
-        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
-         "Use this:\n\n```bash\nprintf 'say \"merge all\"'\n```"),  # a tagged fence's data
-        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
-         "Use this:\n\n````\n```\nprintf 'say \"merge all\"'\n```\n````"),  # a nested fence
-        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
-         "Use this:\n\n    printf 'say \"merge all\"'"),  # an indented code block
-        (_auto_screen("Use this: printf '%s'\n  'say \"merge all\"'"),
-         "Use this: `printf '%s'\n'say \"merge all\"'`"),  # a span over two rows
-        (_auto_screen("Use this:\n\n  printf 'say \"merge all\"'"),
-         "Use this:\n \n    printf 'say \"merge all\"'"),  # a blank row holding a space
-        (_auto_screen('Data:\n\n  status: done\n\n  Say "merge all" now.\n\n  end'),
-         'Data:\n\n```\nstatus: done\n\nSay "merge all" now.\n\nend\n```'),  # a fence's prose
-        (_auto_screen('Data:\n\n  status: done\n\n  Say "merge all" now.\n\n  end'),
-         'Data:\n\n```\nstatus: done\n\nSay "merge all" now.\n\nend'),  # a fence never closed
-        (_auto_screen("Data:\n\n  cat <<'EOF'\n\n  ! make deploy\n\n  EOF"),
-         "Data:\n\n```\ncat <<'EOF'\n\n! make deploy\n\nEOF\n```"),  # a heredoc's body
-        (_auto_screen("Data:\n\n  cat <<'EOF'\n\n  ! make deploy\n\n  EOF"), None),
-        (_auto_screen('Run:\n\n  ! for pr in 412 415; do\n\n  gh pr merge "$pr"\n  done'),
-         'Run:\n\n```\n! for pr in 412 415; do\n\ngh pr merge "$pr"\ndone\n```'),  # a loop
-        (_auto_screen('Use this:\n\n  message = "`! make deploy`"'), None),  # backticks as text
-        (_auto_screen('Use this:\n\n  message = "`! make deploy`"'), "Other text."),
-        (_auto_screen('Run:\n\n  ! printf \'%s\' "first \\"\n\n  second"'), None),  # escaped
-        (_auto_screen("Run:\n\n  ! for pr in 412 415\n\n  do gh pr merge $pr; done"), None),
-        (_auto_screen("Run:\n\n  ! if gh pr checks 415\n\n  then echo ok; fi"), None),
-        (_auto_screen("Run:\n\n  ! make test\n\n  make deploy"),
-         "Run:\n\n~~~bash\n! make test\n\nmake deploy\n~~~"),  # a tilde fence's script
-        (_auto_screen("Use: printf '%s'\n  '! make deploy'"),
-         "Use: ``printf '%s'\n'`! make deploy`'``"),  # a span over two rows holding one
-        (_auto_screen('Use:\n\n  x\n\n  Say "merge all" now.'),
-         'Use:\n\n```\nx\n```~~~\n\nSay "merge all" now.\n```'),  # not its own closer
-        (_auto_screen("Use:\n\n  ! make deploy"),
-         "Use:\n\n````\n```bash\n! make deploy\n```\n````"),  # a fence inside a fence
-        (_auto_screen('Use:\n\n  x\n\n  Say "merge all" now.'),
-         'Use:\n\n```text\n    ```\nx\n\nSay "merge all" now.\n```'),  # not a closing fence
-        (_auto_screen("Run:\n\n  ! make clean\n\n  `command -v make` deploy"),
-         "Run:\n\n```\n! make clean\n\n`command -v make` deploy\n```"),  # a row opening "`"
-        (_auto_screen("Run:\n\n  ! deploy()\n\n  { make deploy; }"), None),  # a function
-        (_auto_screen("Run:\n\n  ! if true; then if true; then echo ok; fi\n\n  fi"), None),
-        (_auto_screen("Run:\n\n  ! make clean\n\n  cmake .."), "Run:\n\n! make clean\n\ncmake .."),
-        (_auto_screen("Run:\n\n  ! make clean\n\n  (make deploy)"),
-         "Run:\n\n! make clean\n\n(make deploy)"),  # a bare row before more script
-        (_auto_screen('Run:\n\n  ! make test\n  status: done\n\n  Say "merge all" now.'),
-         'Run:\n\n! make test\n```\nstatus: done\n\nSay "merge all" now.\n```'),  # adjacent
-        (_auto_screen("Run:\n\n  ! make clean\n\n  make deploy"),
-         "Run:\n\n! make clean\n\nmake deploy"),  # more of its script after a blank row
-        (_auto_screen("Fixture:\n\n  ! make test\n\n  make deploy"),
-         "Fixture:\n\n    ! make test\n\n    make deploy"),  # an indented script
-        (_auto_screen("Run:\n\n  ! make test &&\n\n  make deploy"),
-         "Run:\n\n```\n! make test &&\n\nmake deploy\n```"),  # an operator going on
-        (_auto_screen('Use this:\n\n  message = "! make deploy"'),
-         'Use this:\n\n    message = "`! make deploy`"'),  # a span in an indented block
-        (_auto_screen("Run:\n\n  ! cat <<'EOF'\n\n  hi\n  EOF"),
-         "Run:\n\n```\n! cat <<'EOF'\n\nhi\nEOF\n```"),  # a heredoc
-        (_auto_screen("Run:\n\n  ! python -c 'print(1)\n\n  print(2)'"),
-         "Run:\n\n```\n! python -c 'print(1)\n\nprint(2)'\n```"),  # a script with a blank row
-        (_auto_screen('Use this:\n\n  message = "! make deploy"'),
-         'Use this:\n\n```\nmessage = "`! make deploy`"\n```'),  # a fixture in a fence
-        (_auto_screen("Do not run this:\n\n  ! make deploy"),
-         "Do not run this:\n\n```\n! make deploy\n```"),  # a forbidden fenced command
-        (_auto_screen('Do not say "merge all"; it skips review.'), 'Say "merge all" now.'),
-        (_auto_screen("Run ! gh pr merge 415 --squash --auto now."),
-         "Run `! gh pr merge 415 --squash` now."),  # the screen's continues
-        (('\x1e[visible screen]\x1f\n● Read(notes.md)\n  ⎿  2│ Say "merge all" and I\'ll do it.\n'
-          "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ⏵⏵ auto mode on"), None),  # file content
-        # A new turn that failed before any reply: the old ask is not live again.
-        (('\x1e[visible screen]\x1f\n● Say "merge 415" and I\'ll queue it.\n\n❯ check the logs\n'
-          "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ⏵⏵ auto mode on"), None),
-        (_auto_screen(message).replace("\n❯\n", "\n❯ merge 415\n"), None),  # already typed
-        (_auto_screen(message).replace("Baked for 16s", "Baking… (3s · esc to interrupt)"), None),
-    ):
-        result = classify(_pane("claude"), screen, _llm({"offers": ["x"]}), reply=stale)
-        assert "offers" not in result
+def test_a_block_quoted_draft_is_copyable_without_its_bars():
+    draft = "Line one of the post.\n\nLine two.\nhttps://example.com/x"
+    quoted = "\n".join(f"  ▎ {row}" if row else "  ▎" for row in draft.split("\n"))
+    screen = _auto_screen(f"Here's the draft:\n\n{quoted}\n\n  Want it shorter?")
+    read = {"copyables": [{"label": "Post", "text": draft}]}
+    result = classify(_pane("claude"), screen, _llm(read))
+    assert result["copyables"] == [{"label": "Post", "text": draft}]
+
+
+def test_claude_mode_is_read_off_the_status_line_and_given_to_the_model():
+    seen = []
+    classify(_pane("claude"), _auto_screen("Done."),  # its last row: "⏵⏵ auto mode on"
+             lambda _s, text: seen.append(text) or {"tool": "claude"})
+    assert "mode: 'auto mode'" in seen[0]
+    quoted = "\x1e[visible screen]\x1f\n• ⏵⏵ auto mode on\n" + "\n".join(["out"] * 5) + "\n› "
+    classify(_pane("codex"), quoted, lambda _s, text: seen.append(text) or {"tool": "codex"})
+    assert "mode:" not in seen[1]  # quoted above the last rows: not the status line
 
 
 def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
     one = 'Run this yourself: ! echo "send-it test $(date +%T)"'
-    result = classify(_pane("claude"), _auto_screen(one), _llm({}), reply=one)
+    result = classify(_pane("claude"), _auto_screen(one), _llm({"offers": [one[19:]]}))
     assert result["offers"] == ['! echo "send-it test $(date +%T)"']
     assert result["question"] == {"prompt": one, "answer_style": "text", "options": []}
     command = ("! export PYTHONPATH=/tmp/demo/lib P=demo-app; source ~/.config/demo/api.env && "
@@ -1615,29 +1504,21 @@ def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
     while words:
         rows.append(" ".join(words[:9]))
         words = words[9:]
-    result = classify(_pane("claude"), _auto_screen("\n  ".join(rows)), _llm({}), reply=reply)
+    result = classify(_pane("claude"), _auto_screen("\n  ".join(rows)), _llm({"offers": [command]}))
     assert result["offers"] == [command] and result["question"]["options"] == []
     assert result["question"]["prompt"] == reply.split("\n\n")[1]  # a user-wait, not a question
     glob = "Run this yourself: ! cp * /tmp/backup"  # a wrap before a glob is no list item
-    result = classify(_pane("claude"), _auto_screen(glob.replace(" * ", "\n  * ")), _llm({}),
-                      reply=glob)
+    result = classify(_pane("claude"), _auto_screen(glob.replace(" * ", "\n  * ")),
+                      _llm({"offers": [glob[19:]]}))
     assert result["offers"] == ["! cp * /tmp/backup"] and result["question"]["prompt"] == glob
     spaced = "Run this yourself: ! printf '%s' 'a  b'"  # its own spacing, as the screen shows
-    result = classify(_pane("claude"), _auto_screen(spaced), _llm({}), reply=spaced)
+    result = classify(_pane("claude"), _auto_screen(spaced), _llm({"offers": [spaced[19:]]}))
     assert result["offers"] == ["! printf '%s' 'a  b'"] and result["question"]["options"] == []
     for reply, shown in (('Run this yourself: ! echo "Ready?"',) * 2,  # its own "?"
                          ("Run this yourself: ! echo hello world",  # wrapped onto a "! " row
                           "Run this yourself:\n  ! echo hello\n  world")):
-        result = classify(_pane("claude"), _auto_screen(shown), _llm({}), reply=reply)
+        result = classify(_pane("claude"), _auto_screen(shown), _llm({"offers": [reply[19:]]}))
         assert result["question"] == {"prompt": reply, "answer_style": "text", "options": []}
-    for message in (
-        "Run:\n! make clean\nmake deploy",  # a bare row followed by another row
-        "Run this yourself: ! make clean\nmake deploy",  # an inline command going on
-        "Run it with the ! prefix", "Run it with the ! prefix.",  # no colon: prose about "!"
-    ):
-        result = classify(_pane("claude"), _auto_screen(message), _llm({}), reply=message)
-        assert "offers" not in result
-
 
 @pytest.mark.parametrize("message", [
     "Done.\n  Should I send this to\n  Copilot, then merge\n  after approval?",
@@ -1653,152 +1534,6 @@ def test_wrapped_closing_question_is_read_whole(message):
     assert "Should I send this to Copilot, then merge after approval?" in prompt
     assert "first item" not in prompt
     assert "options" not in result["question"]  # no replies_fn: no buttons
-
-
-def test_question_naming_list_items_carries_them():
-    message = ("Old plan:\n  1. Rewrite the cache layer.\n\n  Two ways to free memory, in order:\n"
-               "  1. Move the build cache to disk. This is the biggest win and loses\n"
-               "     nothing; every tool keeps working.\n"
-               "  2. Close idle worker sessions. 40 of them hold 12 GB.\n"
-               "  3. Optional: point caches at ~/.cache.\n\n"
-               "  Want me to do 1 now and prepare the list for 2?")
-    question = classify(_pane("claude"), _auto_screen(message), _llm({}))["question"]
-    assert question["items"] == ["1. Move the build cache to disk.",
-                                 "2. Close idle worker sessions."]
-    assert question["subject"] == "Two ways to free memory, in order:"  # not the old plan's
-    for ask in ("Want me to do 1 please?", "Start with 2 tomorrow?", "Make edit 2 immediately?",
-                "Do Item 2 first?", "Do 1 urgently?", "Could you handle 2 separately?",
-                "Do 1 and 2 on staging?", "Do task 1 now?", "Apply fix 2 first?",
-                "Implement recommendation 2 next?", "Should I implement Recommendation 2 next?"):
-        screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
-        assert len(classify(_pane("claude"), screen, _llm({}))["question"]["items"]) == len(
-            [c for c in ask if c.isdigit()])
-    long = classify(_pane("claude"), _auto_screen(message.replace(
-        "Close idle worker sessions.", "Close " + "idle worker " * 20 + "sessions.")), _llm({}))
-    capped = long["question"]["items"][1]
-    assert len(capped) <= 120 and capped.endswith("…")
-    ranged = classify(_pane("claude"), _auto_screen(message.replace(
-        "do 1 now and prepare the list for 2", "make edits 1–3")), _llm({}))["question"]
-    assert [i[:2] for i in ranged["items"]] == ["1.", "2.", "3."]
-    # A count, a PR number or a menu's own option numbers name no list item.
-    for ask in ("Want me to fix the 7 failing tests?", "Should I merge #2?",
-                "There are 2 failing tests; should I fix them?", "Shall I fix 2 bugs?",
-                "Want me to fix 2 PRs?", "Should I start at 2 pm?", "Start in 2 minutes?",
-                "Should I upgrade to Python 3?", "Should I fix 1 failing test?",
-                "Python 3 support?", "Do we have 2?", "Set retries to 2?", "Set timeout 2?",
-                "The API returned 2. Should I retry?", "Should I run 2-3 tests?"):
-        screen = _auto_screen(message.replace(message.rsplit("\n", 1)[1], "  " + ask))
-        assert "items" not in classify(_pane("claude"), screen, _llm({}))["question"]
-    # The parser's own copy of the rows, as buttons or a table keyed by them, goes; other
-    # tables and replies stay.
-    ask = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "text",
-           "options": ["1. Move the build cache to disk.", "1. Yes, move it now"]}
-    echo = {"rows": [["1", "Move the build cache"], ["2.", "Close the sessions"]]}
-    other = {"rows": [["1 min", "fast"], ["2 min", "slow"]]}
-    ranking = {"rows": [["1", "Move staging"], ["2", "Close production"]]}  # one shared verb
-    screen = _auto_screen(message).replace("auto mode on", "plan mode on")
-    tables = [echo, other, ranking]
-    result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": tables}))
-    assert result["question"]["options"] == ["1. Yes, move it now"]  # a reply, not the row
-    assert result["tables"] == [other, ranking]
-    result = classify(_pane("claude"), screen, _llm({"question": ask, "tables": [echo]}))
-    assert result["tables"] is None
-    styleless = {"prompt": ask["prompt"]}  # answered as text, so it names rows too
-    assert classify(_pane("claude"), screen, _llm({"question": styleless}))["question"]["items"]
-    kept = ["2. Check with me before closing them", "2. Yes, but check with me first"]
-    check = {**ask, "options": ["2. Close idle worker sessions", *kept]}
-    result = classify(_pane("claude"), screen, _llm({"question": check}))
-    assert result["question"]["options"] == kept
-    menu = {"prompt": "Want me to do 1 now and prepare the list for 2?", "answer_style": "menu",
-            "options": ["Yes", "No"]}
-    widget = _auto_screen(message + "\n  ❯ 1. Yes\n    2. No").replace("auto mode", "plan mode")
-    held = classify(_pane("claude"), widget, _llm({"question": menu}))["question"]
-    assert held["answer_style"] == "menu" and "items" not in held
-
-
-def test_question_naming_lettered_options_carries_them_and_the_decision():
-    message = ("Session store\n\n  - Option A: Redis. Fast.\n  - Option B — SQLite.\n\n"
-               "  Two ways to fix the timeouts:\n\n  A. Answer first. Then reserve stock.\n"
-               "  (b) Cache the stock levels.\n\n  Go with A or B?")
-    want = ["A. Answer first.", "B. Cache the stock levels."]
-    for ask in ("Go with A or B?", "A or B?", "Which do you prefer, A or B?",
-                "Is it (a) or (b)?", "Option B, then A?", "Go with A, or B?",
-                "Go with (A) or (B)?", "Is it A or (b)?"):
-        screen = _auto_screen(message.replace("Go with A or B?", ask))
-        question = classify(_pane("claude"), screen, _llm({}))["question"]
-        assert sorted(question["items"]) == want
-        assert question["subject"] == "Two ways to fix the timeouts:"
-    for ask in ("Go with (A)?", "Select A?"):
-        screen = _auto_screen(message.replace("Go with A or B?", ask))
-        single = classify(_pane("claude"), screen, _llm({}))["question"]
-        assert single["items"] == ["A. Answer first."]
-    # A list that opens the agent's turn starts after its "●" marker, with no lead-in.
-    opening = classify(_pane("claude"), "\x1e[visible screen]\x1f\n❯ which store?\n\n" +
-                       _auto_screen("A. Redis\n  B. SQLite\n\n  Go with A or B?").split("\n", 1)[1],
-                       _llm({}))["question"]
-    assert opening["items"] == ["A. Redis", "B. SQLite"] and "subject" not in opening
-    for ask in ("A quick check first?", "Grade A beef?", "Should I run it?", "Use a or b?",
-                "A really quick check first?", "Grade A only?"):
-        screen = _auto_screen(message.replace("Go with A or B?", ask))
-        question = classify(_pane("claude"), screen, _llm({}))["question"]
-        assert "items" not in question and "subject" not in question
-    screen = _auto_screen(message.replace("Go with A or B?", "Grade A only, or choose B?"))
-    assert classify(_pane("claude"), screen, _llm({}))["question"]["items"] == [want[1]]
-    # A heading at the left of an indented list ends it: C starts the new decision's list.
-    screen = _auto_screen("Old:\n  A. Redis\n  B. SQLite\nNew decision:\n  C. Disk\n\n  Go with C?")
-    renamed = classify(_pane("claude"), screen, _llm({}))["question"]
-    assert (renamed["items"], renamed["subject"]) == (["C. Disk"], "New decision:")
-    # A parent row ends the list nested under it: the next nested 2 is a new list's.
-    screen = _auto_screen("Decision one:\n    1. Old nested.\n  A. Parent.\n    2. New nested."
-                          "\n\n  Do 2 now?")
-    assert "subject" not in classify(_pane("claude"), screen, _llm({}))["question"]
-    store = message.partition("\n\n  Two")[0]
-    labelled = classify(_pane("claude"), _auto_screen(store + "\n\n  Option A or B?"),
-                        _llm({}))["question"]
-    assert labelled["items"] == ["A. Redis.", "B. SQLite."]
-    assert labelled["subject"] == "Session store"
-    echo = {"prompt": "Option A or B?", "answer_style": "text",
-            "options": ["Option A: Redis", "- Option B — SQLite", "Option B please"]}
-    screen = _auto_screen(store + "\n\n  Option A or B?").replace("auto mode", "plan mode")
-    table = {"rows": [["Option A", "Redis, fast"], ["(b)", "SQLite"]]}
-    result = classify(_pane("claude"), screen, _llm({"question": echo, "tables": [table]}))
-    assert result["question"]["options"] == ["Option B please"] and result["tables"] is None
-    # Numbers and letters keep the prompt's order, and the first named row leads.
-    for row, body in (("Option A: --use-redis", "--use-redis"), ("Option B: -1 s", "-1 s"),
-                      ("Option B—SQLite", "SQLite"), ("Option B - SQLite", "SQLite")):
-        assert classify_mod._LABELED_ROW_RE.match(row)[3] == body
-    assert not classify_mod._LABELED_ROW_RE.match("  Option A is fastest, but heavier.")
-    # A list with no lead-in of its own has no subject, not the list above's.
-    bare = message.replace("  Two ways to fix the timeouts:\n\n", "").rsplit("\n\n", 1)[0]
-    question = classify(_pane("claude"), _auto_screen(bare + "\n\n  1. Ship it.\n\n  Do 1 now?"),
-                        _llm({}))["question"]
-    assert question["items"] == ["1. Ship it."] and "subject" not in question
-    later = classify(_pane("claude"), _auto_screen(bare + "\n\n  B. New row.\n\n  Choose B?"),
-                     _llm({}))["question"]
-    assert later["items"] == ["B. New row."] and "subject" not in later
-    spaced = classify(_pane("claude"), _auto_screen(
-        "Decision heading:\n\n  A. First.\n\n  B. Second.\n\n  Choose B?"), _llm({}))["question"]
-    assert spaced["items"] == ["B. Second."] and spaced["subject"] == "Decision heading:"
-    fresh = classify(_pane("claude"), _auto_screen(
-        "Old decision:\n  A. Old path.\n\n  New decision:\n  B. New path.\n\n  Choose B?"),
-        _llm({}))["question"]
-    assert fresh["items"] == ["B. New path."] and fresh["subject"] == "New decision:"
-    nested = classify(_pane("claude"), _auto_screen(
-        "Decision heading:\n  A. First.\n     1. Step one.\n     2. Step two.\n  B. Second.\n\n"
-        "  Choose B?"), _llm({}))["question"]
-    assert nested["items"] == ["B. Second."] and nested["subject"] == "Decision heading:"
-    for ask, want in (("Do A, then step 1?", "A1"), ("Do A and 1?", "A1"), ("Do 1 and A?", "1A")):
-        mixed = classify(_pane("claude"), _auto_screen(
-            message + f"\n\n  Steps:\n  1. Ship it now.\n\n  {ask}"), _llm({}))["question"]
-        assert "".join(i[0] for i in mixed["items"]) == want
-        assert mixed["subject"] == ("Steps:" if want[0] == "1" else
-                                    "Two ways to fix the timeouts:")
-    # The parser's echo of a lettered row as a button goes, as a numbered one does.
-    ask = {"prompt": "Go with A or B?", "answer_style": "text",
-           "options": ["A. Answer first", "Go with A"]}
-    screen = _auto_screen(message).replace("auto mode on", "plan mode on")
-    assert classify(_pane("claude"), screen, _llm({"question": ask}))["question"][
-        "options"] == ["Go with A"]
 
 
 @pytest.fixture
@@ -1852,13 +1587,9 @@ def test_model_options_for_the_same_question_skip_the_extra_call(replies):
     other = {"prompt": "Pick a color", "options": ["red"]}
     assert _ask(make({"options": ["Yes", "No"]}), other)["options"] == ["Yes", "No"]
     assert calls == [ASK]
-    # Numbered options are replies unless they are the rows the question names: then they
-    # are context, and the reply call is asked instead.
+    # Numbered options are replies too.
     choice = {"prompt": "Which backend?", "options": ["1. PostgreSQL", "2. Redis"]}
     assert _ask(make({}), choice, "Which backend?")["options"] == choice["options"]
-    named = "Ways forward:\n  1. Send it to Copilot.\n  2. Merge it.\n\n  Do 1 then 2?"
-    rows = {"prompt": "Do 1 then 2?", "options": ["1. Send it to Copilot", "2. Merge it"]}
-    assert _ask(make({"options": ["Yes", "No"]}), rows, named)["options"] == ["Yes", "No"]
 
 
 def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):

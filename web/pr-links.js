@@ -29,10 +29,9 @@ export function paneLinks(pane) {
   return [...prs, ...transient];
 }
 
-// The link a question asks the user to open ("Open this link", a device-login URL): the
-// first screen link, when the question's own words point at one. PR links never qualify.
+// The link a question asks the user to open (a sign-in or device-login URL): the screen
+// link the parser names as the question's own (question.link), else none.
 export function askLink(pane) {
-  const q = pane?.question;
-  return q && /\b(link|url|browser)\b|https?:\/\//i.test(`${q.ask || ""}\n${q.prompt || ""}`)
-    ? paneLinks(pane).slice(paneLinks({ prs: pane.prs }).length)[0] || null : null; // past the PRs, deduped
+  const href = pane?.question?.link;
+  return (href && paneLinks({ links: pane.links }).find((link) => link.href === href)) || null;
 }

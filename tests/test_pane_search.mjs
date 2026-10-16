@@ -102,13 +102,12 @@ test("one tmux session drops its name; two keep it", () => {
   noteSessions([]);
 });
 
-test("a question that points at a link leads with the first screen link, never a PR", () => {
+test("a question leads with the screen link the parser names as its own, and only that", () => {
   const login = { href: "https://accounts.example/device", text: "Sign-in approval" };
-  const ask = (words) => ({ ...pane, question: { ask: words }, links: [login] });
-  assert.deepEqual(askLink(ask("1. Open this link, ideally on your phone. 2. Paste the code here.")), login);
-  assert.equal(askLink(ask("Merge it now?")), null);
-  assert.equal(askLink({ ...pane, question: { ask: "Open the link" } }), null);
+  const other = { href: "https://docs.example/setup", text: "Setup notes" };
+  const ask = (link) => ({ ...pane, question: { prompt: "Open the link, then paste the code here", link }, links: [other, login] });
+  assert.deepEqual(askLink(ask(login.href)), login);
+  assert.equal(askLink(ask(undefined)), null);  // a question that mentions a link but names none
+  assert.equal(askLink(ask("https://elsewhere.example/")), null);  // not among the screen's links
   assert.equal(askLink({ ...pane, links: [login] }), null);
-  const pr = "https://github.com/querystory/qs-app/pull/4955";
-  for (const href of [pr, pr + "/"]) assert.deepEqual(askLink({ ...ask("Open this link"), links: [{ href, text: "PR" }, login] }), login);
 });

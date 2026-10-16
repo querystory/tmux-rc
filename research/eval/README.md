@@ -77,15 +77,17 @@ strictness is correct:
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
-- `question.items` — opt-in exact list: the numbered or lettered rows above a typed
-  question that its prompt names ("do 1 now?", "A or B?"), which classify() reads off the
-  screen.
-- `question.subject` — opt-in exact string: the paragraph or heading that leads into
-  those rows, which says what the question decides.
+- `question.items` — opt-in: the numbered or lettered rows above a typed question that
+  its prompt names ("do 1 now?", "A or B?"), which the model quotes and classify() keeps
+  only where the screen shows them. Scored by the labels the rows lead with ("1", "B").
+- `question.subject` — opt-in: the paragraph or heading that leads into those rows, which
+  says what the question decides. Scored by presence.
 - `question.context` — opt-in exact string: the widget rows classify() reads around a
   menu's prompt (deterministic, so pinned exactly).
 - `copyable_texts` — opt-in exact list of copyable texts, for payloads lifted from the
   agent's transcript (`reply`), which are deterministic.
+- `copyables_include` — opt-in list of texts that must each be a copyable, compared with
+  whitespace collapsed, none of the copyables keeping a quote or frame bar.
 - `question.ask` — opt-in, judged: the plain "The agent wants to … Continue?" restatement
   of an approval prompt must carry the same most consequential effect as the expected
   one, name its destructive steps (and a description/command mismatch), and quote no
