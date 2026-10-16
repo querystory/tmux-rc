@@ -19,7 +19,7 @@ from urllib.request import urlopen
 
 from PIL import Image
 
-from . import llm
+from . import llm, scratch
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ def queue(root: Path, base: str, listed: list[dict], describe: bool = True) -> N
                     stale(i) or (describe and not i["description"])):
                 _tried.add((i["name"], i["updated"]))
                 url = f"{base}/{i['href']}"
-                _pending.append((root / i["name"], url, i | {"describe": describe}))
+                _pending.append((root, url, i | {"describe": describe}))
         if _pending and _worker is None:
             _worker = threading.Thread(target=_work, daemon=True, name="scratch-sidecars")
             _worker.start()
@@ -72,28 +72,35 @@ def _work() -> None:
             if not _pending:
                 _worker = None  # under the lock, so queue() starts a new one for what comes next
                 return
-            folder, url, item = _pending.pop(0)
+            root, url, item = _pending.pop(0)
+        folder = root / item["name"]
         try:
             if stale(item):
-                shoot(url, folder / "thumb.webp")
+                shoot(url, folder / "thumb.webp", root, item["updated"])
             if item["describe"] and not item["description"] and not describe(
-                    folder / "meta.json", item["page"], item["title"]) and llm.backing_off():
+                    folder / "meta.json", item["page"], item["title"], root) and llm.backing_off():
                 with _lock:  # the model is out, not the page at fault: ask again later
                     _tried.discard((item["name"], item["updated"]))
         except Exception:  # one bad page must not stop the rest
             logger.warning("Scratch sidecars for %s failed", folder.name, exc_info=True)
 
 
-def _replace(path: Path, write) -> None:
-    """Write `path` whole or not at all, never through a symlink planted at its name."""
+def _replace(path: Path, root: Path, write) -> None:
+    """Write `path` whole or not at all, never through a symlink planted at its name, and
+    only while its folder is still really in scratch: it may have been swapped for a
+    symlink out since it was listed."""
+    if not scratch.inside(path.parent, root):
+        raise PermissionError(f"{path.parent} is no longer in scratch")
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.unlink(missing_ok=True)
     write(tmp)
     tmp.replace(path)
 
 
-def shoot(url: str, out: Path) -> bool:
-    """Render `url` at VIEWPORT in a fresh, throwaway profile and save it as a THUMB webp."""
+def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
+    """Render `url` at VIEWPORT in a fresh, throwaway profile and save it as a THUMB webp,
+    dated `at` (the page's version it was queued for), so an edit made while it rendered
+    still reads as newer."""
     exe = browser()
     if not exe:
         return False
@@ -111,7 +118,9 @@ def shoot(url: str, out: Path) -> bool:
             return False
         with Image.open(png) as im:
             im.thumbnail(THUMB)
-            _replace(out, lambda tmp: im.save(tmp, "WEBP", quality=70))
+            _replace(out, root, lambda tmp: im.save(tmp, "WEBP", quality=70))
+    if at:
+        os.utime(out, (at, at))
     return True
 
 
@@ -135,11 +144,13 @@ class _Text(HTMLParser):
             self.parts.append(data)
 
 
-def describe(meta: Path, page: Path, title: str) -> str | None:
+def describe(meta: Path, page: Path, title: str, root: Path) -> str | None:
     """Ask the parse model for one sentence on the page and add it to meta.json, marked as
     generated. Never over a description already there, nor into a meta.json that is
     unreadable or a symlink: those are the agent's to fix."""
     text = ""
+    if not scratch.inside(page, root):
+        return None
     if page.suffix in (".html", ".htm"):
         parser = _Text()
         with page.open(errors="replace") as f:
@@ -157,5 +168,5 @@ def describe(meta: Path, page: Path, title: str) -> str | None:
     if not isinstance(current, dict) or str(current.get("description") or "").strip():
         return None
     data = {**current, "description": sentence, "generated": ["description"]}
-    _replace(meta, lambda tmp: tmp.write_text(json.dumps(data, indent=1) + "\n"))
+    _replace(meta, root, lambda tmp: tmp.write_text(json.dumps(data, indent=1) + "\n"))
     return sentence

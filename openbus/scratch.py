@@ -31,7 +31,7 @@ _PAGE = Path(__file__).resolve().parent / "scratch.html"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
 
 
-def _inside(path: Path, root: Path) -> bool:
+def inside(path: Path, root: Path) -> bool:
     """The file is really in this folder of scratch, not a symlink out of it."""
     try:
         return path.resolve().is_relative_to(root.resolve())
@@ -43,7 +43,7 @@ def _meta(folder: Path) -> dict:
     """meta.json's string fields; anything malformed counts as absent."""
     path = folder / "meta.json"
     try:
-        meta = json.loads(path.read_text()) if _inside(path, folder) else {}
+        meta = json.loads(path.read_text()) if inside(path, folder) else {}
     except (OSError, ValueError):
         return {}
     if not isinstance(meta, dict):
@@ -62,7 +62,7 @@ def _item(root: Path, folder: Path) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and dotfiles
     (a sidecar half-written) are not the page and do not date it."""
     files = [(f.lstat().st_mtime, f) for f in folder.rglob("*") if f.is_file()
-             and f.name not in SIDECARS and not f.name.startswith(".") and _inside(f, folder)]
+             and f.name not in SIDECARS and not f.name.startswith(".") and inside(f, folder)]
     if not files:
         return None
     meta, index, thumb = _meta(folder), folder / "index.html", folder / "thumb.webp"
@@ -78,7 +78,7 @@ def _item(root: Path, folder: Path) -> dict | None:
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
-            "page": page, "thumb": _inside(thumb, folder) and thumb.is_file()
+            "page": page, "thumb": inside(thumb, folder) and thumb.is_file()
             and thumb.stat().st_mtime}
 
 

@@ -59,7 +59,7 @@ def model(monkeypatch):
 def test_a_description_is_written_once_and_marked(tmp_path, model):
     folder = _page(tmp_path, page="<title>T</title><script>secret()</script><p>Hello</p>")
     (folder / "meta.json").write_text('{"pane": "%3", "created": 5}')
-    assert S.describe(folder / "meta.json", folder / "index.html", "T") == "A chart."
+    assert S.describe(folder / "meta.json", folder / "index.html", "T", tmp_path) == "A chart."
     assert "Hello" in model[0] and "secret" not in model[0]
     assert json.loads((folder / "meta.json").read_text()) == {
         "pane": "%3", "created": 5, "description": "A chart.", "generated": ["description"]}
@@ -70,7 +70,7 @@ def test_a_description_is_written_once_and_marked(tmp_path, model):
 def test_never_over_what_the_agent_wrote(tmp_path, model, meta):
     folder = _page(tmp_path)
     (folder / "meta.json").write_text(meta)
-    assert S.describe(folder / "meta.json", folder / "index.html", "T") is None
+    assert S.describe(folder / "meta.json", folder / "index.html", "T", tmp_path) is None
     assert (folder / "meta.json").read_text() == meta
 
 
@@ -78,8 +78,19 @@ def test_never_through_a_symlinked_meta(tmp_path, model):
     folder, outside = _page(tmp_path), tmp_path / "outside.json"
     outside.write_text("{}")
     (folder / "meta.json").symlink_to(outside)
-    assert S.describe(folder / "meta.json", folder / "index.html", "T") is None
+    assert S.describe(folder / "meta.json", folder / "index.html", "T", tmp_path) is None
     assert outside.read_text() == "{}"
+
+
+def test_nothing_is_read_or_written_once_a_folder_points_out_of_scratch(tmp_path, model):
+    root, outside = tmp_path / "scratch", _page(tmp_path, "outside")
+    root.mkdir()
+    (root / "p").symlink_to(outside)  # swapped after it was listed
+    meta = root / "p" / "meta.json"
+    assert S.describe(meta, root / "p" / "index.html", "T", root) is None and not model
+    with pytest.raises(PermissionError):
+        S._replace(meta, root, lambda tmp: tmp.write_text("{}"))
+    assert not (outside / "meta.json").exists()
 
 
 def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypatch):
@@ -101,7 +112,7 @@ def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypa
 
     monkeypatch.setattr(S.subprocess, "run", run)
     out = tmp_path / "thumb.webp"
-    assert S.shoot("http://127.0.0.1:1/scratch/p/", out)
+    assert S.shoot("http://127.0.0.1:1/scratch/p/", out, tmp_path, 1234)
     [argv] = runs
     assert argv[0] == str(shell) and "--headless" in argv
     profile = next(a for a in argv if a.startswith("--user-data-dir="))[16:]
@@ -109,19 +120,20 @@ def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypa
     assert not any(str(Path.home()) in a for a in argv)
     with Image.open(out) as im:
         assert (im.format, im.size) == ("WEBP", S.THUMB)
+    assert out.stat().st_mtime == 1234  # the version it shows, not when it was saved
 
 
 def test_no_bundled_shell_means_no_shot(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))  # however Chrome is on PATH
     monkeypatch.delenv("TMUXRC_THUMB_BROWSER", raising=False)
     monkeypatch.setattr(S.subprocess, "run", lambda *a, **k: pytest.fail("ran a browser"))
-    assert S.browser() is None and not S.shoot("http://127.0.0.1:1/", tmp_path / "t.webp")
+    assert S.browser() is None and not S.shoot("http://127.0.0.1:1/", tmp_path / "t.webp", tmp_path)
 
 
 def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
     done = []
-    monkeypatch.setattr(S, "shoot", lambda url, out: done.append(("shot", url)))
-    monkeypatch.setattr(S, "describe", lambda meta, page, title: done.append(("said", title)))
+    monkeypatch.setattr(S, "shoot", lambda url, out, root, at: done.append(("shot", url)))
+    monkeypatch.setattr(S, "describe", lambda meta, page, title, root: done.append(("said", title)))
     monkeypatch.setattr(S, "_tried", set())
     _page(tmp_path)
     for _ in range(2):
@@ -135,7 +147,7 @@ def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
 
 def test_a_description_missed_while_the_model_is_out_is_asked_again(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "_tried", set())
-    monkeypatch.setattr(S, "shoot", lambda url, out: None)
+    monkeypatch.setattr(S, "shoot", lambda *_: None)
     monkeypatch.setattr(S, "describe", lambda *_: None)
     monkeypatch.setattr(llm, "backing_off", lambda: True)
     _page(tmp_path)
