@@ -824,12 +824,20 @@ def capture_pane(pane_id: str, lines: int = LIVE_ROWS, mark_dim: bool = False) -
 _PANE_ID = re.compile(r"%[0-9]+")
 
 
+# The oldest rows tmux keeps, up to 8 (all of a shorter history): their hash is part of the
+# row numbering's identity (capture_rows), since trimming at the history limit replaces them.
+_OLDEST = "-S - -E '#{?#{e|<:#{history_size},8},-1,#{e|-|:7,#{history_size}}}'"
+
+
 def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
-                 ) -> tuple[str, int, int, int]:
+                 ) -> tuple[str, int, bool, str]:
     """Colored rows (raw SGR, OSC 8 links materialized) from tmux row `start` to `end`
     (0 is the screen's first row, negative is history; either may be a tmux format
-    expression), with the pane's history size, width and alternate-screen flag. `then`
-    is more tmux commands, whose output follows the rows.
+    expression), with the pane's history size, whether the alternate screen is up, and
+    `screen`: a key that changes whenever history rows are renumbered. That is a width
+    change (reflow), a switch of screen, or trimming at the history limit, which drops the
+    oldest rows (and can refill to the same size between two looks, so a size alone can't
+    tell). `then` is more tmux commands, whose output follows the rows.
 
     run-shell -C expands the formats and runs every command in one queue, so no output can
     land between working out the range, capturing it and reading the size. That is what
@@ -838,28 +846,31 @@ def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
     missing pane: the same 404 the callers already give)."""
     if not _PANE_ID.fullmatch(pane_id):
         raise subprocess.CalledProcessError(1, ["capture-pane", "-t", pane_id])
-    meta = "'#{history_size} #{pane_width} #{alternate_on}'"
+    meta, nonce = "'#{history_size} #{pane_width} #{alternate_on}'", os.urandom(16).hex()
     rows = f"-S {start}" + (f" -E {end}" if end else "")
-    cmds = f"display-message -p -t {pane_id} {meta} ; capture-pane -p -J -e -t {pane_id} {rows}"
+    cmds = (f"display-message -p -t {pane_id} {meta} ; capture-pane -p -J -t {pane_id} {_OLDEST}"
+            f" ; display-message -p {nonce} ; capture-pane -p -J -e -t {pane_id} {rows}")
     out = _materialize_links(_run(["run-shell", "-C", "-t", pane_id,
                                    f"{cmds} ; {then}" if then else cmds]))
-    meta, _, text = out.partition("\n")  # the size first: rows can't end it early
+    meta, _, out = out.partition("\n")  # the size first: rows can't end it early
+    oldest, _, text = out.partition(f"{nonce}\n")
     size, width, alt = map(int, meta.split())
-    return text, size, width, alt
+    oldest = hashlib.md5(oldest.encode()).hexdigest()[:8]
+    return text, size, bool(alt), f"{width}{'a' * alt}.{oldest}"
 
 
 def capture_live(pane_id: str) -> tuple[str, int, str]:
     """The live view's frame (docs/design/live-view.md): the screen plus LIVE_ROWS of
     history, raw SGR for the client to colorize, trailing blank rows dropped. Also the
     absolute row its first line is (0 = the oldest history row kept), which is where the
-    client pages back from, and `screen`, which names how rows are numbered: the width,
-    since a reflow renumbers every row, and which screen is up.
+    client pages back from, and `screen` (capture_rows), which changes whenever rows are
+    renumbered, so the client knows to drop the rows it holds.
 
     On the alternate screen the history above belongs to whatever ran before the app, and
     scrolling up past the top reaches the app's own history instead (the wheel), so the
     frame then reports top 0: nothing earlier to load."""
-    text, size, width, alt = capture_rows(pane_id, f"-{LIVE_ROWS}")
-    return text.rstrip("\n"), 0 if alt else max(0, size - LIVE_ROWS), f"{width}{'a' * alt}"
+    text, size, alt, screen = capture_rows(pane_id, f"-{LIVE_ROWS}")
+    return text.rstrip("\n"), 0 if alt else max(0, size - LIVE_ROWS), screen
 
 
 def frame_id(text: str, top: int, screen: str) -> str:
@@ -869,26 +880,28 @@ def frame_id(text: str, top: int, screen: str) -> str:
     return hashlib.md5(f"{top} {screen}\n{text}".encode()).hexdigest()
 
 
-def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bool]:
-    """Rows [before - lines, before) by absolute row, the first one's index, and whether
-    the last row's line wraps on into row `before`. Counting from the oldest row means new
-    output, which only adds rows at the bottom, never moves a row a client already holds,
-    so its cached chunks stay valid. Blank rows are content here (they sit between output),
-    so nothing is stripped.
+def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bool, str]:
+    """Rows [before - lines, before) by absolute row, the first one's index, whether the
+    last row's line wraps on into row `before`, and the `screen` key they were numbered
+    under (the client drops them if it isn't the one its rows were). Counting from the
+    oldest row means new output, which only adds rows at the bottom, never moves a row a
+    client already holds, so its cached chunks stay valid. Blank rows are content here
+    (they sit between output), so nothing is stripped.
 
     -J joins wrapped rows only inside one capture, so a line tmux wrapped across `before`
     comes back in two pieces, the rest at the top of the next chunk or frame. The client
     rejoins them (a long URL must stay one link), and needs to know where: -J prints the
     two boundary rows as one line exactly when the first wraps into the second."""
     start = max(0, before - lines)
-    if start >= before:
-        return "", start, False
     row = "#{{e|-|:{},#{{history_size}}}}".format
+    if start >= before:
+        return "", start, False, ""  # nothing above the oldest row: tmux isn't asked
     nonce = os.urandom(16).hex()
     edge = f"capture-pane -p -J -t {pane_id} -S {row(before - 1)} -E {row(before)}"
-    out = capture_rows(pane_id, row(start), row(before - 1), f"display-message -p {nonce} ; {edge}")
-    text, _, edge = out[0].rpartition(f"{nonce}\n")
-    return text.removesuffix("\n"), start, edge.count("\n") == 1
+    text, _, _, screen = capture_rows(pane_id, row(start), row(before - 1),
+                                      f"display-message -p {nonce} ; {edge}")
+    text, _, edge = text.rpartition(f"{nonce}\n")
+    return text.removesuffix("\n"), start, edge.count("\n") == 1, screen
 
 
 # tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a

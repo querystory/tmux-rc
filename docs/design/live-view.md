@@ -177,11 +177,13 @@ for "the 500 rows before row N". That leaves two windows to get right:
   same command that captures, and reports the size in the same queue), so no output can
   land in between. Doing the arithmetic in Python would need a retry loop on busy panes.
 - *Some events do renumber rows*: trimming at the history limit, clear-history, a reflow
-  on a width change, and switching to or from the alternate screen. Trimming and clearing
-  move the frame's first row back. For the rest, the frame reports a screen key (the
-  width, and whether the alternate screen is up). The client drops what it holds when
-  either happens. The key and the first row are part of the frame's identity hash, so a
-  reflow that leaves the joined text unchanged still reaches the client.
+  on a width change, and switching to or from the alternate screen. Every frame and chunk
+  carries a screen key: the width, whether the alternate screen is up, and a hash of the
+  oldest few rows tmux keeps. Trimming replaces those rows, and it can refill to the same
+  size between two looks, so a size alone can't show it. The client drops everything it
+  holds when the key changes or the frame's first row moves back, and throws away a chunk
+  numbered under another key. The key and first row are part of the frame's identity hash,
+  so a reflow that leaves the joined text unchanged still reaches the client.
 
 **The gap.** While you read above the tail, output moves the frame's first row down, past
 rows the client never fetched. The new frame waits while the client fetches that gap. Then

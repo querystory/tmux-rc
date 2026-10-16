@@ -978,13 +978,14 @@ async def pane_history(pane_id: str, before: Annotated[int, Query(ge=0, le=2**31
                        lines: Annotated[int, Query(ge=1, le=HISTORY_MAX_LINES)] = 500):
     """Colored rows [before - lines, before) by absolute row (0 = the oldest kept), for the
     live view to prepend above its frame: `before` is the frame's `top`, then each chunk's
-    `start`. `wraps`: the last row's line continues in row `before`. Read-only: captures
-    only, never copy mode."""
+    `start`. `wraps`: the last row's line continues in row `before`. `screen`: the numbering
+    they come from, as the live frame reports it. Read-only: captures only, never copy mode."""
     try:
-        text, start, wraps = await asyncio.to_thread(tmux.capture_history, pane_id, before, lines)
+        text, start, wraps, screen = await asyncio.to_thread(
+            tmux.capture_history, pane_id, before, lines)
     except subprocess.CalledProcessError as e:
         raise _pane_err(e) from None
-    return {"text": text, "start": start, "wraps": wraps}
+    return {"text": text, "start": start, "wraps": wraps, "screen": screen}
 
 
 def _note_live_poll(pane_id: str) -> None:

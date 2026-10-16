@@ -1154,7 +1154,7 @@ const selected = (node) => { const s = getSelection(); return !!s?.rangeCount &&
 // A held piece inside a selection is left alone rather than replaced under it.
 async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll"), pre = $("earlier");
-  if (h.busy || !id || captureDirty || backingOff()) return;
+  if (h.busy || !id || !h.screen || captureDirty || backingOff()) return;
   h.busy = true;
   let held = [], gone = null, heldEnd = h.end;
   const land = () => {
@@ -1177,8 +1177,12 @@ async function loadEarlier() {
       const before = gap ? Math.min(want, heldEnd + 1000, unseen ? shownTop : Infinity) : h.top;
       if (!gap) holdView(() => { h.loading = true; paintEarlierCue(); });
       const query = new URLSearchParams({ before, lines: gap ? before - heldEnd : EARLIER_LINES }), shown = shownTop;
-      const { text: rows, start, wraps } = await request(`${paneUrl(id, "history")}?${query}`);
+      const { text: rows, start, wraps, screen } = await request(`${paneUrl(id, "history")}?${query}`);
       if (h !== earlier) return;
+      // Numbered differently from the rows held here (history trimmed since, say): none of
+      // them can be trusted. Drop them and load nothing until a frame says how rows are
+      // numbered now; the frame waiting, if any, paints as it is.
+      if (screen !== h.screen) { resetEarlier(latestGeometry[0]); paintCapture(true); return; }
       // A frame painted meanwhile moved the split this chunk was asked by: start the gap over.
       if (gap && shownTop !== shown) { held = []; gone = null; heldEnd = h.end; continue; }
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;

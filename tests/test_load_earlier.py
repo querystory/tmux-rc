@@ -4,7 +4,9 @@ bounds; and chunks rendering exactly as the same rows would in one capture.
 
 The real-tmux test runs on a private server socket, never the user's."""
 
+import hashlib
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -63,20 +65,20 @@ def test_chunks_stay_aligned_while_history_grows(pane):
     pane, emit, _ = pane
     emit(1, 3000)
     frame, top, screen = tmux.capture_live(pane)
-    assert screen == "80" and top > 2500
+    assert screen.startswith("80.") and top > 2500
     first = numbers(frame)[0]
     # Output arrives between the frame and every chunk; absolute rows don't move.
     chunks, before = [], top
     while before:
         emit(10_000 + 1000 * len(chunks), 400)
-        text, before, _ = tmux.capture_history(pane, before, 500)
+        text, before, *_ = tmux.capture_history(pane, before, 500)
         chunks.insert(0, text)
     held = numbers("\n".join(chunks))
     assert held[0] == 1 and held[-1] == first - 1
     assert [n for n in held if n < 10_000] == list(range(1, first))
     # The gap: rows the frame moved past since `top` are exactly the ones between.
     _, new_top, _ = tmux.capture_live(pane)
-    gap, start, _ = tmux.capture_history(pane, new_top, new_top - top)
+    gap, start, *_ = tmux.capture_history(pane, new_top, new_top - top)
     later = tmux.capture_history(pane, new_top + 1, 1)[0]
     assert start == top and numbers(gap)[0] == first
     assert numbers(gap + "\n" + later) == sorted(numbers(gap + "\n" + later))
@@ -90,7 +92,7 @@ def test_chunks_render_like_one_capture(pane):
     _, top, _ = tmux.capture_live(pane)
     chunks, before = [], top
     while before:
-        text, before, wraps = tmux.capture_history(pane, before, 333)
+        text, before, wraps, _ = tmux.capture_history(pane, before, 333)
         chunks.insert(0, (text, wraps))
     size = int(run(["display-message", "-p", "-t", pane, "#{history_size}"]))
     whole = tmux._materialize_links(run(  # the same rows, in one plain capture
@@ -129,7 +131,7 @@ def test_rejoined_edges_render_like_one_capture(pane):
     _, top, _ = tmux.capture_live(pane)
     chunks, before = [], top
     while before:
-        text, start, wraps = tmux.capture_history(pane, before, 40)
+        text, start, wraps, _ = tmux.capture_history(pane, before, 40)
         chunks.insert(0, (text, start, before, wraps))
         before = start
     size = int(run(["display-message", "-p", "-t", pane, "#{history_size}"]))
@@ -155,18 +157,40 @@ def test_rejoined_edges_render_like_one_capture(pane):
     assert pairs and bad == []
 
 
+OLD = hashlib.md5(b"old\n").hexdigest()[:8]
+
+
+def tmux_says(args, meta, rows, edge=""):
+    """What tmux prints for capture_rows' command list: its size line, the oldest rows,
+    then each part after the nonce that precedes it."""
+    nonces = re.findall(r"display-message -p ([0-9a-f]{32})", args[-1])
+    return f"{meta}\nold\n{nonces[0]}\n{rows}" + (f"{nonces[1]}\n{edge}" if edge else "")
+
+
+def test_trimmed_history_changes_the_screen_key(pane):
+    """Trimming at the history limit drops the oldest rows; refilled to the same size
+    between two looks, only the oldest rows' hash in `screen` tells the client."""
+    pane, emit, run = pane
+    run(["set", "-t", pane, "history-limit", "300"])  # this pane only
+    emit(1, 260)
+    before = tmux.capture_live(pane)
+    emit(1000, 200)  # past the limit: tmux trims a tenth, then fills again
+    after = tmux.capture_live(pane)
+    assert before[2] != after[2]
+    assert tmux.capture_history(pane, 5, 5)[3] == after[2]
+
+
 def test_endpoint_bounds_and_pane_id(monkeypatch):
     calls = []
     def run(args):
         calls.append(args)
-        nonce = args[-1].split("display-message -p ")[-1].split()[0]  # the edge probe's
-        return f"5 80 0\nrow\n{nonce}\nrow\nnext\n"
+        return tmux_says(args, "5 80 0", "row\n", "row\nnext\n")
 
     monkeypatch.setattr(tmux, "_run", run)
     client = TestClient(server.app)
     url = "/api/panes/{}/history"
     answer = client.get(url.format("%251"), params={"before": 3}).json()
-    assert answer == {"text": "row", "start": 0, "wraps": False}
+    assert answer == {"text": "row", "start": 0, "wraps": False, "screen": f"80.{OLD}"}
     assert "-S #{e|-|:0,#{history_size}} -E #{e|-|:2,#{history_size}} ;" in calls[0][-1]
     # Capped per request, never negative, and `before` is required.
     for params in ({"before": 9, "lines": 1001}, {"before": 9, "lines": 0}, {"before": -1}, {}):
@@ -174,15 +198,15 @@ def test_endpoint_bounds_and_pane_id(monkeypatch):
     # Nothing above the oldest row: answered without asking tmux.
     calls.clear()
     assert client.get(url.format("%251"), params={"before": 0}).json() == {
-        "text": "", "start": 0, "wraps": False}
+        "text": "", "start": 0, "wraps": False, "screen": ""}
     # The id is spliced into a tmux command string: anything but %N is a missing pane.
     for bad in ("main", "%1 ; kill-server", "%1;x"):
         assert client.get(url.format(quote(bad, safe="")), params={"before": 9}).status_code == 404
     assert calls == []
 
 
-@pytest.mark.parametrize(("alt", "top", "screen"), [("0", 300, "80"), ("1", 0, "80a")])
+@pytest.mark.parametrize(("alt", "top", "screen"), [("0", 300, "80."), ("1", 0, "80a.")])
 def test_alternate_screen_has_nothing_earlier(monkeypatch, alt, top, screen):
     # A fullscreen app's history is its own (reached by the wheel), not tmux's rows above.
-    monkeypatch.setattr(tmux, "_run", lambda args: f"500 80 {alt}\nscreen\n\n")
-    assert tmux.capture_live("%1") == ("screen", top, screen)  # a switch renumbers rows
+    monkeypatch.setattr(tmux, "_run", lambda args: tmux_says(args, f"500 80 {alt}", "screen\n\n"))
+    assert tmux.capture_live("%1") == ("screen", top, screen + OLD)  # a switch renumbers rows
