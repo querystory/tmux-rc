@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import itertools
 import logging
 import math
 import os
@@ -81,7 +82,7 @@ from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
-from .plan_usage import PlanUsage  # noqa: E402
+from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher, _fingerprint  # noqa: E402
 
@@ -270,6 +271,10 @@ class AccountSessionBody(BaseModel):
     dir: str
     session: str
     provider: Literal["claude", "codex"] | None = None  # with dir "": clear its default
+
+
+class SignInBody(AccountSessionBody):
+    command: str | None = None  # the sign-in line as edited in the sheet; None: the default
 
 
 class SignInWindowBody(BaseModel):
@@ -1293,34 +1298,158 @@ def _session_account(body: AccountSessionBody, request: Request, action: str) ->
 
 
 @app.post("/api/accounts/login")
-def account_login(body: AccountSessionBody, request: Request):
+def account_login(body: SignInBody, request: Request):
     """Open a window running the provider's own sign-in on this account's dir. The user
-    signs in there; the daemon never sees a password or a token."""
+    signs in there; the daemon never sees a password or a token. The sheet's line is
+    `VAR=<dir> <binary> [args]`, editable: its one assignment must be the provider's
+    variable on this very dir, its program the provider's own binary, and it runs as argv
+    with that variable set here, never through a shell."""
     profile = _session_account(body, request, "account_login")
-    argv = accounts.LOGIN[profile["provider"]]
+    default, var = accounts.LOGIN[profile["provider"]], ENV[profile["provider"]]
+    try:
+        words = (shlex.split(body.command) if body.command is not None
+                 else [f"{var}={profile['dir']}", *default])
+    except ValueError as e:
+        _refuse(request, "account_login", body.dir[:120], 400, f"Cannot read that command: {e}")
+    lead = list(itertools.takewhile(lambda w: re.match(r"[A-Za-z_]\w*=", w), words))
+    argv = words[len(lead):]
+    if [(k, canonical(v)) for k, v in (w.split("=", 1) for w in lead)] != [(var, profile["dir"])]:
+        _refuse(request, "account_login", body.dir[:120], 400,
+                f"The command must keep {var}={profile['tilde']}")
+    if argv[:len(default)] != default:  # `codex login …`: a sign-in, nothing else
+        _refuse(request, "account_login", body.dir[:120], 400,
+                f"The sign-in command must run {' '.join(default)}")
     if why := _unavailable(argv[0], tmux.server_path()):
         _refuse(request, "account_login", body.dir[:120], 400, why)
-    pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
-                              accounts.command(profile["provider"], profile["dir"], argv))
+    device = "--device-auth" in argv
+    with _SIGN_IN_LOCK:  # the check and the window it allows, as one step
+        # A browser `codex login` listens on one fixed port: a second could not take callbacks.
+        if profile["provider"] == "codex" and not device and any(
+                e["codex"] and not e["device"] for _, e in _live_sign_ins()):
+            _refuse(request, "account_login", body.dir[:120], 409, "A browser sign-in to Codex "
+                    "is already open. Finish or close it first, or use a device code.")
+        pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
+                                  accounts.command(profile["provider"], profile["dir"], argv))
+        pid = tmux.pane_pid(pane_id) or ""
+        _SIGN_IN.pop(pane_id, None)  # a recycled id goes last, as the newest window
+        _SIGN_IN[pane_id] = {"pid": pid, "dir": profile["dir"], "device": device,
+                             "codex": profile["provider"] == "codex", "session": body.session}
     _audit(request, "account_login", pane_id, f"dir={body.dir[:120]!r}")
-    _SIGN_IN[pane_id] = pid = tmux.pane_pid(pane_id) or ""
     return {**_opened(pane_id), "pid": pid}
 
 
-# The sign-in windows this daemon opened, pane id -> pid: the only ones its close may end.
-_SIGN_IN: dict[str, str] = {}
+# The sign-in windows this daemon opened, by pane id: its pid, the account's dir, and
+# whether it runs Codex's device-code flow. The only panes its close and callback touch.
+_SIGN_IN: dict[str, dict] = {}
+# Opening, closing, pruning and replaying to sign-in windows, one at a time: the registry
+# and the one callback port then never change under a request that relies on them.
+_SIGN_IN_LOCK = threading.RLock()
+
+
+def _alive(pane_id: str, entry: dict | None) -> bool:
+    """Whether this entry's own process still runs in that pane (tmux recycles pane ids)."""
+    return bool(entry and entry["pid"] and tmux.pane_pid(pane_id) == entry["pid"]
+                and not tmux.pane_dead(pane_id))  # remain-on-exit keeps a finished one
+
+
+def _live_sign_ins() -> list[tuple[str, dict]]:
+    """The sign-in windows still running, oldest first. One whose pane is gone (signed in,
+    or closed by hand) is dropped from the registry, unless a newer window took its pane id
+    meanwhile; one exited but kept on screen (remain-on-exit) stays registered, so the
+    sheet can still close it, but is not live."""
+    live = []
+    with _SIGN_IN_LOCK:
+        for pane_id, entry in list(_SIGN_IN.items()):
+            if not entry["pid"] or tmux.pane_pid(pane_id) != entry["pid"]:
+                _SIGN_IN.pop(pane_id, None)
+            elif not tmux.pane_dead(pane_id):
+                live.append((pane_id, entry))
+    return live
+
+
+def _sign_in_screen(pane_id: str) -> str:
+    """The sign-in window's screen; 404 if it closed just now (as one does, signed in)."""
+    try:
+        return tmux.capture_pane(pane_id)
+    except subprocess.CalledProcessError:
+        raise HTTPException(404, "the sign-in window has closed") from None
+
+
+def _sign_in(pane_id: str) -> dict | None:
+    """The sign-in window this daemon opened in that pane, while it is still there."""
+    entry = _SIGN_IN.get(pane_id)
+    return entry if _alive(pane_id, entry) else None
+
+
+@app.get("/api/accounts/login/window")
+def account_login_window(pane_id: str = "", dir: str = ""):  # noqa: A002 - the API's name
+    """The open sign-in window, by pane or by account dir, with the sign-in link (and a
+    device code) as its screen shows them, so the sheet can offer them without the user
+    leaving it. 404 when there is none."""
+    want = canonical(dir) if dir else None
+    windows = _live_sign_ins()  # a snapshot: other requests open and close them
+    pane = next((p for p, e in reversed(windows) if p == pane_id or e["dir"] == want), None)
+    if pane is None:
+        raise HTTPException(404, "no sign-in window open")
+    entry = dict(windows)[pane]
+    # Older windows on the same account: their links are stale, and a paste from one fails.
+    older = windows[:[p for p, _ in windows].index(pane)]  # oldest first: those before it
+    others = [{"pane_id": p, "pid": e["pid"]} for p, e in older if e["dir"] == entry["dir"]]
+    return {"pane_id": pane, **entry, **accounts.sign_in_link(_sign_in_screen(pane)),
+            "others": others}
 
 
 @app.post("/api/accounts/login/close")
 def account_login_close(body: SignInWindowBody, request: Request):
     """Close a sign-in window that /api/accounts/login opened, by its exact pane and while
     that same process still owns it; any other pane is refused untouched."""
-    if not body.pid or _SIGN_IN.get(body.pane_id) != body.pid:
-        _refuse(request, "account_login_close", body.pane_id, 404, "not a sign-in window")
-    _kill_window(request, body.pane_id, "account_login_close", pid=body.pid)
-    _SIGN_IN.pop(body.pane_id)
+    with _SIGN_IN_LOCK:
+        if not body.pid or (_SIGN_IN.get(body.pane_id) or {}).get("pid") != body.pid:
+            _refuse(request, "account_login_close", body.pane_id, 404, "not a sign-in window")
+        _kill_window(request, body.pane_id, "account_login_close", pid=body.pid)
+        _SIGN_IN.pop(body.pane_id, None)
     _audit(request, "account_login_close", body.pane_id)
     return {"ok": True}
+
+
+class SignInCallbackBody(BaseModel):
+    pane_id: str
+    url: str
+
+
+@app.post("/api/accounts/login/callback")
+def account_login_callback(body: SignInCallbackBody, request: Request):
+    """Finish a browser `codex login` from afar: replay the localhost callback address the
+    user's browser landed on to the login waiting on this machine, for a sign-in window
+    this daemon opened and that still runs Codex. Only that callback is requested, and its
+    code and state are never logged."""
+    action = "account_login_callback"
+    if not (path := accounts.codex_callback(body.url)):
+        _refuse(request, action, body.pane_id, 400,
+                f"Not the http://127.0.0.1:{accounts.CODEX_CALLBACK_PORT}/auth/callback?… address")
+    with _SIGN_IN_LOCK:  # the window checked is the one listening, through the replay
+        entry = _sign_in(body.pane_id)
+        if not entry or not entry["codex"] or entry["device"]:
+            _refuse(request, action, body.pane_id, 404, "not a browser sign-in window")
+        # The link this window printed carries its state; an address from another window's
+        # link (an older sign-in) would only be refused by codex, so say which up front.
+        shown = accounts.oauth_state(accounts.sign_in_link(_sign_in_screen(body.pane_id))["url"])
+        if shown and shown != accounts.oauth_state(path):
+            _refuse(request, action, body.pane_id, 409, _OLDER_LINK)
+        reply = accounts.replay_codex_callback(path)
+    status = reply[0] if reply else None
+    _audit(request, action, body.pane_id, outcome=f"codex {status}")  # never the code or state
+    if reply is None:
+        raise HTTPException(502, "Nothing is waiting for it any more. Open a new sign-in window.")
+    if status >= 400:  # codex says "State mismatch" for another link's address
+        older = "state mismatch" in reply[1].lower()
+        raise HTTPException(409 if older else 502, _OLDER_LINK if older else
+                            "That code was already used or expired. Sign in again.")
+    return {"ok": True}
+
+
+_OLDER_LINK = ("This address came from an older sign-in link. Open the link in the current "
+               "sign-in window (the button above) and try again.")
 
 
 @app.post("/api/accounts/default")

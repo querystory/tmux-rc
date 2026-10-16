@@ -147,10 +147,42 @@ From Settings → Manage accounts… → Add account, or "+ Add account" in New 
    `settings.json` is off by default because it often carries work-only hooks, MCP servers
    or permissions. The login, `.claude.json` and `projects/` are listed as never linked.
 3. **Sign in.** tmux-rc opens a normal new window running `CLAUDE_CONFIG_DIR=<dir> claude`
-   (or `CODEX_HOME=<dir> codex login`), and the user runs the provider's own `/login`
-   there. tmux-rc never shows a password field, never handles a token and never drives the
-   login; it only polls the dir's non-secret account info until it appears. That keeps the
-   credential boundary exactly where the provider put it.
+   (or `CODEX_HOME=<dir> codex login`), and the user signs in there: `/login` in Claude,
+   while the Codex command is the sign-in itself. Every flow has to finish in a browser on
+   another machine, since tmux-rc users are remote. Claude's `/login` shows a link whose
+   page hands back a code to paste into the window. Codex offers two ways. With a device
+   code (`--device-auth`) it shows a link and a one-time code, but a ChatGPT workspace can
+   disable device codes. Its browser sign-in instead redirects to a callback on this
+   machine's `localhost:1455`, which the remote browser cannot reach. The user pastes the
+   failed address into the sheet, and the daemon replays it to the waiting `codex login`.
+   That replay is the one place tmux-rc touches part of a login: a one-time code that
+   only the `codex login` holding its PKCE verifier can redeem. So the server accepts
+   exactly `http://localhost|127.0.0.1:1455/auth/callback?…` and sends it as a GET to that
+   port. It follows a redirect only once, and only to that same local server (see below).
+   It answers only success or a plain reason for failure, and logs neither the code nor
+   the state. It also requires a sign-in window this daemon opened, so the endpoint is
+   no general proxy. The alternative was to tunnel the remote browser's request to the
+   callback. That would need a listener on the user's device, and the paste costs one step.
+   The sheet reads the sign-in link (and a device code) off the window's screen and offers
+   it as a button, with the paste field beside it. Leaving the sheet to find the link is
+   what lost the field before, and the field is on the window's own card too. Each
+   `codex login` gets a fresh OAuth state, so an address from an older window's link can
+   never work. The server compares the pasted state with the one in this window's link
+   before sending it, and maps Codex's own refusal to that same plain reason. The sheet
+   also lists other sign-in windows open on the account so they can be closed. A
+   successful callback answers with a redirect to Codex's success page, and `codex login`
+   exits only once that page has loaded, so the server loads it too. It follows only a
+   redirect to the same local server, never one to another host.
+   The whole line is editable (to add a flag the provider grows), but the server accepts
+   it only if its one leading assignment is the provider's variable on this account's dir
+   and its program is the provider's own binary, and runs it as argv with no shell, so an
+   edit can neither inject a command nor sign a different dir in. The sheet checks the
+   same rules as you type, to say why before the server refuses. Codex is signed in
+   when `auth.json` exists or, failing that, when `codex login status` says so: its login
+   can live in the OS keyring instead, where no file shows it. Apart from the replayed
+   callback, tmux-rc never shows a password field, never handles a token and never drives
+   the login; it only polls the dir's non-secret account info until it appears. That
+   keeps the credential boundary where the provider put it.
 4. **Done:** the identity read from that info, and a pre-ticked "make it the default for
    session X".
 
