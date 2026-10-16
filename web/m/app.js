@@ -1162,11 +1162,13 @@ function paintEarlierCue() {
 // Rows added above what you are reading must not move it: measure the frame's first line,
 // make the change, and scroll by however far that line moved. Measured rather than
 // computed, so it is right whether or not the browser anchors scrolling itself. `ifAbove`:
-// only when that line is above the view, i.e. you are reading the frame, not rows above it.
+// only when you are reading the frame, not rows above it: that line is above the view, or
+// there are no rows above it at all.
 // Back at the tail, the view stays there instead.
 function holdView(change, ifAbove = false) {
   const box = $("terminal-scroll"), mark = $("capture").firstChild || $("capture"), tail = following();
-  const y = mark.getBoundingClientRect().top, hold = !ifAbove || y < box.getBoundingClientRect().top;
+  const y = mark.getBoundingClientRect().top;
+  const hold = !ifAbove || !$("earlier").firstChild || y < box.getBoundingClientRect().top; // nothing above: the frame it is
   change();
   if (tail) box.scrollTop = box.scrollHeight;
   else if (hold) box.scrollTop += mark.getBoundingClientRect().top - y;
