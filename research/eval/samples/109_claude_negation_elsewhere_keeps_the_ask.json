@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a finished turn warns against one command and asks the user to run another. The warning covers `make deploy` only: the ask to run `! make check-secrets` is a user-wait offering exactly that command (as sample 103, no question beside the offer).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ deploy the config change\n\n  Read 2 files\n\n● Don't run make deploy yet: the config is half migrated. Please run this first, to check the\n  secrets are in place:\n\n  ! make check-secrets\n\n✻ Worked for 14s · done 3:05 PM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/kettle on main | Opus 5.5 | 8% ctx\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "offers": [
+      "! make check-secrets"
+    ],
+    "headline": "Asking the user to run the secrets check before deploying"
+  }
+}

@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import queue
-import re
 import secrets
 import subprocess
 import tempfile
@@ -47,9 +46,6 @@ DEFAULT_PUSH_HOSTS = (
     "fcm.googleapis.com",
     "updates.push.services.mozilla.com",
     ".notify.windows.com",
-)
-_FREETEXT_OPTION = re.compile(
-    r"^(type\b|other\b|something else|let me|custom|free.?text|write )", re.IGNORECASE
 )
 
 
@@ -300,8 +296,9 @@ def renderable_options(question: dict) -> list[tuple[int, str]]:
         return []
     out = []
     for index, option in enumerate(options):
-        if (not isinstance(option, str) or not option.strip()
-                or _FREETEXT_OPTION.match(option.strip())):
+        # The row the model marks as opening the agent's own free-text field is left to
+        # the composer, which is always there.
+        if not isinstance(option, str) or not option.strip() or index == question.get("free_text"):
             continue
         out.append((index, option))
     return out

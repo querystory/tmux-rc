@@ -205,7 +205,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #options { display: grid; gap: 8px; margin-top: 14px; }
 :is(#options, .offer-choices) button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
 :is(#options, .offer-choices) button:hover:not(:disabled) { border-color: var(--amber); }
-#offers:not(:empty) { display: grid; gap: 14px; margin-top: 14px; }
+#offers:not(:empty) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 14px; } /* minmax: a long offer clips, not widens the card */
 #offers:not(:empty) + #options:empty, .offer-choices .picked svg, .offer-text.fits svg { display: none; } /* no gap for no answers; the spinner stands in for the icon */
 #prompt:empty ~ #offers { margin-top: 0; } /* a finished turn's card: no question above */
 .offer-text { display: flex; align-items: flex-start; gap: 6px; width: 100%; min-height: 40px; padding: 9px 6px 9px 12px; text-align: left; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 60%, transparent); }
@@ -1120,6 +1120,9 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 .ending .badge.running { position: static; width: auto; height: auto; clip-path: none; }
 :is(.ending :is(.badge, .sb-open .a, .m), button.picked, .pending)::before { content: ""; display: inline-block; width: .7em; height: .7em; margin-right: .35em; vertical-align: -.05em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; }
 @media (prefers-reduced-motion: no-preference) { :is(.ending :is(.badge, .sb-open .a, .m), button.picked, .pending)::before { animation: logo-spin .8s linear infinite; } }
+/* On iOS this spinner sat unturned, a static "C", inside the list's line-clamped boxes (display:
+   -webkit-box). "Summarizing…" is one line, so a waiting line drops the clamp. */
+:is(.row-status, .sb-open p, #side-hover .x).pending { display: block; }
 button.picked:disabled { opacity: 1; }
 
 /* Agent accounts (accounts.js): drawn only for a provider with two or more. */

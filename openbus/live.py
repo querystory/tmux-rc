@@ -454,8 +454,6 @@ _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 # Typing a new message while a card waits answers it: the user moved on, so the model is
 # told not to retry and to take the new turn (queued behind this one) instead.
 _DECLINED = {"declined": "the user declined",
-             "unanchored": "the user's message only agrees, and you asked them nothing: "
-                           "nothing was sent; ask what they want",
              "superseded": "the user sent a new message instead of answering; do not retry "
                            "this, answer their new message (it follows)"}
 # A card whose connection dropped before the user answered (iOS drops the socket on every
@@ -592,11 +590,8 @@ async def _approved(
     pane's pid when it was proposed: the card named THAT process, and tmux recycles %N, so
     an approval must not type into whatever holds the id by the time the user taps. A
     malformed call can be approved and is still refused by _dispatch: this gate only ever
-    removes actions. A turn that only agrees ("yes") with nothing asked is refused before any
-    card (live_chat.only_agrees); the session's caution, if any, rides on the card."""
-    if getattr(session, "unanchored", False):
-        rec["consent"] = "unanchored"
-        return False, None
+    removes actions. Whether the user's words ask for it is the chat model's call, which
+    this card puts before the user; the session's caution, if any, rides on it."""
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
     digest = watcher.digest()

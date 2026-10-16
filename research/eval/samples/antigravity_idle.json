@@ -1,0 +1,10 @@
+{
+  "description": "Antigravity executable identifies its host even when the selected model is Gemini Argon. Invented idle garden planner.",
+  "current_command": "agy",
+  "capture": "Antigravity CLI\nModel: Gemini 4 Argon\n\nReady to help with the garden planner.\n\n> \n",
+  "expected": {
+    "tool": "antigravity",
+    "activity": "idle",
+    "headline": "Antigravity ready for a task"
+  }
+}

@@ -79,6 +79,7 @@ from . import (  # noqa: E402
     accounts,
     agent_history,
     expunge,
+    fit,
     restore,
     scratch,
     scratch_sidecars,
@@ -298,6 +299,7 @@ _DEFAULT_LAUNCHERS = [
     {"label": "OpenCode", "command": "opencode", "icon": "opencode"},
     {"label": "omp", "command": "omp", "icon": "omp"},
     {"label": "Gemini", "command": "gemini", "icon": "gemini"},
+    {"label": "Antigravity", "command": "agy", "icon": "antigravity"},
     {"label": "Shell", "command": "bash", "icon": "shell"},
 ]
 
@@ -1172,6 +1174,27 @@ def click(pane_id: str, body: ClickBody, request: Request):
                               expected_frame=body.frame)
     return {"sent": _mouse("click", pane_id, f"from_bottom={body.from_bottom} col={body.col}",
                            request, deliver)}
+
+
+class FitBody(BaseModel):
+    cols: int = Field(ge=1)
+    force: bool = False  # "Fit to my screen": fit even with a terminal attached
+
+
+@app.post("/api/panes/{pane_id}/fit")
+def fit_width(pane_id: str, body: FitBody, request: Request):
+    """Fit the pane's window width to the phone (openbus/fit.py), posted as the terminal
+    opens, on zoom or resize, and on the toggle. A POST, never part of the live GET: it
+    resizes a real terminal, and the preview sandbox relies on GETs changing nothing.
+    `attached` says a terminal is attached, the one case the toggle matters."""
+    detail = f"cols={body.cols} force={body.force}"
+    try:
+        attached = fit.view(pane_id, body.cols, body.force)
+    except subprocess.CalledProcessError as e:
+        _audit(request, "fit", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
+        raise _pane_err(e) from None
+    _audit(request, "fit", pane_id, detail)
+    return {"attached": attached}
 
 
 @app.post("/api/panes/{pane_id}/wheel")

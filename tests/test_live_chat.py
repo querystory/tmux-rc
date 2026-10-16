@@ -403,62 +403,14 @@ def test_restored_text_is_bounded_to_its_tail():
     s = _Fake([])
     s.restore([{"role": "user", "text": "x" * C.RESTORED_CHARS}, {"role": "model", "text": "end?"}])
     assert "(earlier turns omitted)" in s._restored and s._restored.count("x") < C.RESTORED_CHARS
-    assert s.asked
-    s = _Fake([])
-    s.restore([{"role": "model", "text": "Reopen it? " + "x" * C.RESTORED_CHARS}])
-    assert not s.asked  # the question was cut, so it anchors nothing
 
 
-def test_a_refused_bare_yes_never_ends_silent(monkeypatch):
-    """No card and no typed row show for the refusal, so a model quiet after it doesn't
-    leave the turn empty: the turn asks what to do itself."""
-    s = _Fake([_TYPE, ("", []), ("", [])])
-    frames, _, typed = _turn(s, "yes", monkeypatch, ok=True)
-    assert typed == [] and _said(frames) == [C._UNANCHORED]
-
-
-def test_a_bare_yes_with_nothing_asked_never_reaches_a_pane(monkeypatch):
-    """With no question from the assistant in this conversation, "yes" has no referent: the
-    pane change is refused before any card, and the model is told to ask instead."""
-    s = _Fake([_TYPE, ("What should I say yes to?", [])])
-    frames, audits, typed = _turn(s, "Yes, ok - do it! Thanks", monkeypatch, ok=True)
-    assert typed == [] and not any(f["type"] == "propose" for f in frames)
-    assert s.history[2] == ("results", [("type_in_pane", "declined")])
-    assert audits == ["live_type_in_pane"]
-    assert s.asked  # the model asked back, so the next "yes" has its referent
-
-
-@pytest.mark.parametrize(("text", "bare"), [
-    ("Yes, that's fine", True), ("that’s right, go ahead", True), ("let's go", True),
-    ("yes, please do that", True),
-    ("yes, that's the auth fix", False), ("yes, rebase it", False),
-    ("go right", False), ("please go right", False)])
-def test_agreement_is_matched_on_its_words(text, bare):
-    assert C.only_agrees(text) is bare
-
-
-def test_a_question_anchors_only_the_next_message_sent():
-    """A "yes" queued while a turn runs was written before that turn's reply: a question
-    in the reply must not anchor it after the fact."""
-    async def go():
-        s = _Fake([])
-        s.asked = True
-        await s.send_text("tell work to rebase")
-        await s.send_text("yes")  # sent while that turn runs, before its reply
-        return [s._inbox.get_nowait()[2] for _ in range(2)]
-    assert asyncio.run(go()) == [True, False]
-
-
-@pytest.mark.parametrize(("reply", "asks"), [
-    ("Reopen it? It is idle.", True), ("Reopen it?**", True),
-    ("See https://example.com/x?id=1 for it.", False), ("Done.", False)])
-def test_only_a_sentence_ending_in_a_question_mark_asks(reply, asks):
-    assert bool(C._ASKS.search(reply)) is asks
-
-
-def test_a_bare_yes_to_a_question_is_carded_with_a_warning(monkeypatch):
+def test_a_bare_yes_is_the_chat_models_call_and_still_carded(monkeypatch):
+    """No word list judges a reply: whether "yes" asks for an action is the chat model's
+    call, and the consent card still puts what it would send before the user."""
     s = _Fake([_TYPE, ("Sent yes to work.", [])])
-    s.asked = True  # the last reply asked something (set at turn end, as tested above)
-    frames, _, typed = _turn(s, "ok", monkeypatch, ok=True)
-    assert next(f for f in frames if f["type"] == "propose")["warn"] == C.CAUTION_BARE.format("ok")
+    frames, _, typed = _turn(s, "yes", monkeypatch, ok=True)
+    assert next(f for f in frames if f["type"] == "propose")["warn"] is None
     assert typed == [("%1", "yes", True, True)]
+
+

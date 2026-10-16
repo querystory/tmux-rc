@@ -1,0 +1,14 @@
+{
+  "description": "Invented Antigravity palette picker with numbered labels and an ASCII highlight. Its footer requires arrows and Enter.",
+  "current_command": "agy",
+  "capture": "Choose a palette:\n > 1. Forest\n   2. Ocean\n\n \u2191/\u2193 Navigate \u00b7 enter Select",
+  "expected": {
+    "tool": "antigravity",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "cursor"
+    },
+    "headline": "Choose a palette"
+  }
+}

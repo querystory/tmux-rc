@@ -96,7 +96,7 @@ const html = (node, value) => { if (node._html !== value) { node.innerHTML = val
 const show = (id, visible) => { $(id).hidden = !visible; };
 const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
-const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", opencode: "/opencode.svg", omp: "/omp.svg", shell: "/bash.png" };
+const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", antigravity: "/antigravity.svg", opencode: "/opencode.svg", omp: "/omp.svg", shell: "/bash.png" };
 const NO_TMUX = "tmux is not running on this host (it does not survive a reboot).";
 // What an empty list says was filtered: "No Personal panes are working."
 const STATE_VERB = { attention: "need you", working: "are working", finished: "just finished", idle: "are idle" };
@@ -151,7 +151,7 @@ const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "ot
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
-let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
+let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0; // fitCols: see fitTo
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
 // Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
@@ -618,7 +618,7 @@ function sizeReview(persist = false, requested = reviewSizes[effectiveLayout()])
 const detailResize = new ResizeObserver(() => {
   if (active && streamedLayout !== effectiveLayout()) {
     restartDetail(); render();
-  } else { sizeReview(); if (WIDE.matches) sizeFleet(); }
+  } else { sizeReview(); if (WIDE.matches) sizeFleet(); refit(); }
 });
 detailResize.observe($("detail"));
 detailResize.observe($("composer"));
@@ -1037,6 +1037,8 @@ function restartDetail() {
   // Leaving the terminal, by pane, view or hidden page, sends a scrolled app home first, so the
   // watcher never keeps parsing old history nobody is looking at.
   if (detailId !== active || !terminalVisible() || document.hidden) wheelHome(detailId);
+  // A terminal stream reports afresh (attachment may have changed), and only it shows the toggle.
+  fitCols = 0; show("fit-pane", false);
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
     latestCapture = ""; clearCapture(); detailId = active;
@@ -1046,6 +1048,44 @@ function restartDetail() {
   if (terminalVisible()) streamTerminal(active, detailController.signal);
   if (pane && overviewVisible()) loadEvents(pane);
 }
+
+// Fit width (docs/design/fit-width.md): the columns this view shows at its font, which the
+// daemon sizes a lone pane's window to so its app lays out at the screen's edge: reported
+// as the terminal opens, and again on zoom, resize or the toggle. The window keeps the
+// width after the view leaves (see the design note for why there is no restore).
+function termCols() {
+  const probe = $("capture").appendChild(document.createElement("span"));
+  probe.textContent = "0".repeat(100);
+  const char = probe.offsetWidth / 100, pad = parseFloat(getComputedStyle($("capture")).paddingLeft) * 2;
+  probe.remove();
+  return char ? Math.max(0, Math.floor(($("terminal-scroll").clientWidth - pad) / char)) : 0;
+}
+// One at a time, in the order asked: a tick and untick must reach the daemon in that order.
+// fitCols is what the daemon last took; a failed report leaves it 0 for the stream to retry.
+let fitLine = Promise.resolve(), fitBusy = 0; // fitBusy: reports queued or in flight
+function fitTo(id, cols) {
+  if (!id || !cols) return; // a hidden view measures nothing
+  const body = { cols, force: $("fit-toggle").checked }, signal = detailController?.signal;
+  const current = () => !signal?.aborted && id === active; // a reply to a stream since replaced is stale
+  fitBusy++;
+  fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body)).finally(() => fitBusy--).then((r) => {
+    if (!current() || !terminalVisible()) return fitDue();
+    fitCols = cols; show("fit-pane", r.attached);
+    refit(); // resized while this was in flight: the last size wins
+  }, () => { if (current()) fitCols = 0; else fitDue(); }); // our own failure: the stream's next frame retries
+}
+// The view on screen has no accepted report and none is queued: send one (the stream's first
+// once rendered, a retry, or the one a stale reply held up).
+const fitDue = () => { if (!fitCols && !fitBusy && terminalVisible()) fitTo(active, termCols()); };
+// Mid-gesture sizes coalesce: while a report is in flight its reply measures again.
+const refit = () => { const cols = !fitBusy && terminalVisible() && termCols(); if (cols && cols !== fitCols) fitTo(active, cols); };
+try { $("fit-toggle").checked = localStorage.getItem("tmuxrc-fit") === "1"; } catch {}
+// A terminal may have attached since: the menu asks again, so the toggle is there to tick.
+$("pane-menu").addEventListener("toggle", () => { if ($("pane-menu").open && terminalVisible()) fitTo(active, termCols()); });
+$("fit-toggle").onchange = () => {
+  try { localStorage.setItem("tmuxrc-fit", $("fit-toggle").checked ? "1" : "0"); } catch {}
+  if (terminalVisible()) fitTo(active, termCols()); // this terminal, measured now
+};
 
 function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; }
 // One <span> per screen line, each ending in its own "\n" (except the last), so inside the
@@ -1098,6 +1138,7 @@ async function streamTerminal(id, signal) {
       if (signal.aborted) return;
       frame = data.frame || "";
       if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
+      fitDue();
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {
@@ -1272,10 +1313,11 @@ async function sendKeys(body, id = active) {
   return delivered;
 }
 
-// A closing question's tappable answers, for the pane's question card and the sidebar's
-// Needs you cards alike. Free-text escapes ("Type something") are left to the composer.
+// A question's tappable answers, for the pane's question card and the sidebar's Needs you
+// cards alike. The row the parser marks as the agent's own free-text field is left to the
+// composer (push.renderable_options reads the same mark).
 function answerOptions(question) {
-  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option, index }) => typeof option === "string" && option.trim() && index !== question.free_text);
 }
 // What makes a question the same ask: its prompt, context, items and subject, and its options unless
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
@@ -1329,7 +1371,7 @@ async function answer(id, option, index, offer = false) {
   else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
 }
 
-// What a finished turn hands over to type back (classify.py's _offers), whatever the pane's
+// What the agent hands the user to send back (classify.screen_offers), whatever the pane's
 // state: choices on the pane's question card and its list card, sent with one tap.
 function offersOf(pane) { return (Array.isArray(pane?.offers) ? pane.offers : []).filter((o) => typeof o === "string"); }
 
@@ -1595,7 +1637,7 @@ for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close",
 });
 // Crossing the breakpoint changes which form a panel takes (sheet or docked): close it.
 WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog")].forEach((d) => d.close()));
-function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
+function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; refit(); }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; wheelHome(active); };
 // Overscroll past the top of the live view scrolls the pane's own app (overscroll.js). Only
@@ -1604,7 +1646,7 @@ $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll"
 // not asked for mouse reports (an inline Claude Code), after which this pane stops asking.
 // Touch takes the same path, since a fullscreen agent's phone view is one screen and nothing
 // else reaches older output.
-const WHEEL_TOOLS = new Set(["claude", "opencode", "gemini"]);
+const WHEEL_TOOLS = new Set(["claude", "opencode", "gemini", "antigravity"]);
 function paintWheelCue() {
   const pull = wheel.net ? 0 : wheel.pull / RESIST_PX;
   $("capture").style.transform = pull ? `translateY(${Math.round(pull * 24)}px)` : "";
@@ -1768,7 +1810,7 @@ document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => o
 $("new-window").onclick = () => openLaunch(false, $("new-window"));
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
-const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
+const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", antigravity: "Google Antigravity CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
 async function openLaunch(fresh, opener) {
   launchPick?.remove(); launchPick = null;
   const load = ++launchLoad; // a second open, or a close, while this one loads makes it stale

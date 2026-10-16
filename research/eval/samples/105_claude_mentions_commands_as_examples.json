@@ -1,0 +1,13 @@
+{
+  "description": "Synthetic: a finished turn outside auto mode whose final message mentions `! make test` and `! git status` only as examples in a proposal, and asks the user to do nothing. Commands named as examples are not a step handed to the user: idle, no question, and no tap-to-send offers.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ the demo hook keeps running the real deploy\n\n  Read 1 file\n\n● The demo hook in hooks/after_save.sh calls the deploy script directly. I'd change it to\n  something harmless like `! make test` or `! git status`, so a demo run touches nothing.\n  Both are read-only and finish in a few seconds.\n\n✻ Worked for 9s · done 2:40 PM\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/kettle on main | Opus 5.5 | dev@example.com\n  session: +0/-0 lines · 4% ctx · 6m · $0.21\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "reply": "The demo hook in hooks/after_save.sh calls the deploy script directly. I'd change it to something harmless like `! make test` or `! git status`, so a demo run touches nothing. Both are read-only and finish in a few seconds.",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "model": "Opus 5.5",
+    "headline": "Proposes swapping the demo hook's deploy call for a harmless command",
+    "offers": null
+  }
+}
