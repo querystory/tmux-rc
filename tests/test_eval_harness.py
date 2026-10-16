@@ -120,9 +120,13 @@ def test_links_require_each_expected_url_whole():
 def test_question_link_is_pinned_exactly_where_a_sample_names_it():
     url = "https://auth.example.dev/approve?state=abc"
     want = {"question": {"answer_style": "text", "link": url}}
-    assert score_structured({"question": {"answer_style": "text", "link": url}}, want)[0]
+    asked = {"question": {"answer_style": "text", "link": url}}
+    assert score_structured({**asked, "links": [{"href": url}]}, want)[0]
+    assert not score_structured(asked, want)[0]  # no links: the card has no button to draw
+    assert not score_structured({**asked, "links": [{"href": url + "/"}]}, want)[0]
     for got in (None, url[:-3]):
-        assert not score_structured({"question": {"answer_style": "text", "link": got}}, want)[0]
+        assert not score_structured({"question": {"answer_style": "text", "link": got},
+                                     "links": [{"href": url}]}, want)[0]
     assert score_structured({"question": {"answer_style": "text", "link": url}},
                             {"question": {"answer_style": "text"}})[0]
 
