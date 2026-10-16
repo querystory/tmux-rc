@@ -16,7 +16,7 @@ const RANGES = ['24h', '3d', '7d', '30d'], AVERAGES = ['1d', '3d', '7d'];
 // workers), or panes alone. One choice for every surface, so the strip, the split, the
 // dashboard and the cards all count the same thing.
 const METRICS = [['all', 'Panes + background agents'], ['panes', 'Panes only']];
-const AGENT_TOOLS = new Set(['claude', 'codex', 'gemini', 'opencode', 'omp']); // history.py's AGENT_TOOLS
+const AGENT_TOOLS = new Set(['claude', 'codex', 'gemini', 'antigravity', 'opencode', 'omp']); // history.py's AGENT_TOOLS
 
 // Live counts by state in the chosen metric, as history.py's agent_counts records them: a
 // worker's state like a pane's (its waits are external unless it says otherwise), and an

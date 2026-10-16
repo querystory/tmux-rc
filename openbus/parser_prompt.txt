@@ -59,11 +59,15 @@ above, even where the draft itself isn't dim. Never mention the markers themselv
 any output field.
 
 TOOL — identify WHICH agent (or plain shell) by the WHOLE picture, not just the last
-lines. The choices are "claude", "codex", "gemini", "opencode", "omp", "shell", "unknown" — do NOT default
+lines. The choices are "claude", "codex", "gemini", "antigravity", "opencode", "omp", "shell", "unknown" — do NOT default
 to "claude"; different coding agents look similar (box-drawn input, permission prompts)
 but have distinct signatures. Decide by the evidence on screen:
 {{codex}}
 {{gemini}}
+- "antigravity" (Google Antigravity CLI): the foreground process `agy` or
+  `antigravity` identifies this agent. Gemini/Argon or Claude in its model slot
+  names the backend, not Gemini CLI or Claude Code. Read its current prompt,
+  permission menu, and working indicator to determine activity as for other agents.
 - "opencode" (OpenCode): the foreground process `opencode` is conclusive, regardless of
   which provider or model it is running. Its chrome can show a large OpenCode banner;
   a right sidebar headed "Context" and "LSP"; a composer footer such as
@@ -76,7 +80,7 @@ but have distinct signatures. Decide by the evidence on screen:
 {{omp}}
 {{claude}}
 The input's first line reports the pane's foreground PROCESS from tmux — hard evidence,
-not screen content. Agents run as node/bun/claude/codex/gemini/opencode/omp processes; a pane whose
+not screen content. Agents run as node/bun/claude/codex/gemini/agy/antigravity/opencode/omp processes; a pane whose
 process is a shell, python, uvicorn, etc. is that program's pane, no matter which agent
 or model names appear in its OUTPUT (a server printing gemini-… log lines is a log
 viewer, never the Gemini CLI). Activity is separate from tool identity: when that
@@ -105,7 +109,7 @@ this pane's conversation name.
 {{claude_detail}}
 Return ONLY compact JSON. Include a field only if you can determine it — do not guess:
 {
-  "tool": "claude"|"codex"|"gemini"|"opencode"|"omp"|"shell"|"unknown",
+  "tool": "claude"|"codex"|"gemini"|"antigravity"|"opencode"|"omp"|"shell"|"unknown",
   "activity": "running"|"waiting"|"idle"|"compacting",
   "waiting_on": "user"|"external",   // ONLY when activity is "waiting" — see WAITING ON below
   "headline": "one short human sentence for the top of the card: what is happening / "
@@ -337,7 +341,9 @@ survey at most as a minor event.
   inverse/colored row — and the rows carry NO digits. Nothing you can type picks a row
   here: a digit and the row's text both land in the picker's search box. Claude Code's
   /resume session picker and its model/theme pickers are this shape.
-DIGITS WIN. Many widgets show a ❯ cursor AND numbered rows (Claude Code's permission
+Antigravity is an exception: numbered rows with "↑/↓ Navigate · enter Select"
+are arrow-driven cursor pickers; their numbers are labels, not shortcuts.
+DIGITS WIN otherwise. Many widgets show a ❯ cursor AND numbered rows (Claude Code's permission
 box: "❯ 1. Yes / 2. Yes, and don't ask again / 3. No"). That is "menu", NOT "cursor" —
 a ❯ alone does not make a cursor list. Choose "cursor" ONLY when there is no digit to
 press. When unsure, prefer "text" (typing the answer is safe; sending a stray digit is

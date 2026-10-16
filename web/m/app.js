@@ -95,7 +95,7 @@ const html = (node, value) => { if (node._html !== value) { node.innerHTML = val
 const show = (id, visible) => { $(id).hidden = !visible; };
 const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
-const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", opencode: "/opencode.svg", omp: "/omp.svg", shell: "/bash.png" };
+const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", antigravity: "/antigravity.svg", opencode: "/opencode.svg", omp: "/omp.svg", shell: "/bash.png" };
 const NO_TMUX = "tmux is not running on this host (it does not survive a reboot).";
 // What an empty list says was filtered: "No Personal panes are working."
 const STATE_VERB = { attention: "need you", working: "are working", finished: "just finished", idle: "are idle" };
@@ -1603,7 +1603,7 @@ $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll"
 // not asked for mouse reports (an inline Claude Code), after which this pane stops asking.
 // Touch takes the same path, since a fullscreen agent's phone view is one screen and nothing
 // else reaches older output.
-const WHEEL_TOOLS = new Set(["claude", "opencode", "gemini"]);
+const WHEEL_TOOLS = new Set(["claude", "opencode", "gemini", "antigravity"]);
 function paintWheelCue() {
   const pull = wheel.net ? 0 : wheel.pull / RESIST_PX;
   $("capture").style.transform = pull ? `translateY(${Math.round(pull * 24)}px)` : "";
@@ -1767,7 +1767,7 @@ document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => o
 $("new-window").onclick = () => openLaunch(false, $("new-window"));
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
-const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
+const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", antigravity: "Google Antigravity CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
 async function openLaunch(fresh, opener) {
   launchPick?.remove(); launchPick = null;
   const load = ++launchLoad; // a second open, or a close, while this one loads makes it stale

@@ -2081,3 +2081,12 @@ def test_codex_live_row_is_only_its_status_row():
     done = "\x1e[visible screen]\x1f\n• Documentation example (2s • esc to interrupt)\n\n› "
     assert classify(_pane("node"), done, _llm({"tool": "codex", "activity": "idle"}))[
         "activity"] == "idle"
+
+
+@pytest.mark.parametrize("command", ["agy", "antigravity"])
+def test_antigravity_process_wins_over_backend_model(command):
+    result = classify(
+        _pane(command), "Antigravity CLI\nGemini 4 Argon\n> ",
+        _llm({"tool": "gemini", "activity": "idle"}),
+    )
+    assert result["tool"] == "antigravity"

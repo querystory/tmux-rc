@@ -128,7 +128,7 @@ def _tabbed_panel_open(visible: str) -> bool:
 # ahead of a value column ("Auto-compact      true"). Only a row that opens with a frame
 # loses one closing bar: a label's own bar is content.
 _HIGHLIGHT_RE = re.compile(
-    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
+    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}>][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
     r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
 # A picker heading's live count ("Resume session (1 of 47)"): it redraws with every move
 # and filter while the picker stays the same, so it is never part of the prompt.
@@ -136,7 +136,7 @@ _LIVE_COUNT = r"\(\d+ of \d+\)"
 _LIVE_COUNT_RE = re.compile(rf"\s*{_LIVE_COUNT}\s*$")
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
 # Codex's compact key-hint footer, led by its commit key: "enter continue · esc back".
-_ENTER_FOOTER_RE = re.compile(r"\s*enter \w+ · ")
+_ENTER_FOOTER_RE = re.compile(r"\s*(?:enter \w+ · |↑/↓ Navigate · enter (?:Select|Confirm))")
 
 
 def arrow_driven(question: dict, text: str) -> bool:
@@ -245,6 +245,8 @@ _PROCESS_TOOLS = {
     "claude": "claude",
     "codex": "codex",
     "gemini": "gemini",
+    "agy": "antigravity",
+    "antigravity": "antigravity",
     "opencode": "opencode",
     "omp": "omp",
 }
