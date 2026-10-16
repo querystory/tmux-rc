@@ -17,6 +17,8 @@ import random
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from PIL import Image, ImageDraw
+
 from openbus.history import COVERAGE, History
 
 NOW = datetime(2026, 6, 16, 15, 30, tzinfo=UTC).timestamp()  # a Tuesday afternoon
@@ -598,9 +600,25 @@ SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-c
                                       "title": "Billing export analysis"}}
 
 
+def _thumb(path, hue: int) -> None:
+    """A stand-in thumbnail: a page's header, a heading and blocks of content, in one hue."""
+    im = Image.new("RGB", (480, 300), "#f5f7f6")
+    d, ink = ImageDraw.Draw(im), f"hsl({hue}, 45%, 45%)"
+    d.rectangle((0, 0, 480, 36), fill=f"hsl({hue}, 35%, 88%)")
+    d.rectangle((24, 60, 260, 78), fill=ink)
+    for n, width in enumerate((420, 380, 300)):
+        d.rectangle((24, 98 + n * 18, 24 + width, 106 + n * 18), fill="#c8d1cc")
+    for n in range(3):
+        d.rounded_rectangle((24 + n * 148, 170, 156 + n * 148, 276), 8,
+                            fill=f"hsl({hue + n * 25}, 40%, 70%)")
+    im.save(path, "WEBP", quality=70)
+
+
 def seed_scratch(root) -> None:
-    """Write SCRATCH's folders, each an index.html and, when it names a pane, meta.json."""
-    for line in SCRATCH.splitlines():
+    """Write SCRATCH's folders: each an index.html, a thumbnail but for the oldest (its
+    placeholder shows), and, when it names a pane, meta.json."""
+    lines = SCRATCH.splitlines()
+    for n, line in enumerate(lines):
         name, ages, pane, title, description = line.split("|")
         created, changed = (NOW - int(m) * 60 for m in ages.split(","))
         folder = root / name
@@ -612,5 +630,7 @@ def seed_scratch(root) -> None:
             meta.write_text(json.dumps({
                 "title": "" if title == "-" else title, "description": description,
                 "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat()}))
+        if n < len(lines) - 1:
+            _thumb(folder / "thumb.webp", 150 + n * 47)
         for path in folder.iterdir():
-            os.utime(path, (created, changed if path.suffix == ".html" else created))
+            os.utime(path, (created, changed if path.suffix != ".json" else created))

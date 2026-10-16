@@ -31,8 +31,8 @@ one time it is checked.
 ## The gallery
 
 `<your tmux-rc URL>/scratch/` is a gallery of every folder, most recently changed first:
-its title, a line of description, when it was made and changed, and who made it, with a
-filter box. Tapping the title opens the page; tapping where it was made opens that pane in
+a thumbnail, its title, a line of description, when it was made and changed, and who made
+it, with a filter box. Tapping the title opens the page; tapping where it was made opens that pane in
 tmux-rc while it is still open. Settings links to it under More.
 
 A folder describes itself in an optional `meta.json` beside its page, which the snippet in
@@ -40,6 +40,13 @@ A folder describes itself in an optional `meta.json` beside its page, which the 
 `title`, `description`, `pane` (the agent's `$TMUX_PANE`) and `created` (ISO 8601). Without
 one, the title is the page's own `<title>`, else the folder's name, and the times are its
 files' oldest and newest. A malformed file counts as absent.
+
+tmux-rc adds the rest itself, in the background. If Playwright's headless Chromium is
+installed (`make screenshots` installs it, or `npx playwright install chromium-headless-shell`;
+`TMUXRC_THUMB_BROWSER` names another), it shoots each page into a `thumb.webp` beside
+it, and shoots it again after the page changes. With the parse model configured, a folder
+without a description gets one sentence written into its `meta.json`, marked
+`"generated": ["description"]`. A description already there is never replaced.
 
 Who made a folder comes from that pane, named with its session, window, agent and account
 while it is open. Once the pane is gone, or with no `meta.json`, tmux-rc asks

@@ -36,9 +36,24 @@ session some time after it starts. The page stays under the scratch sandbox like
 other `/scratch/` response: one policy for the whole prefix is easier to trust than an
 exception for one path. That costs it the app's saved theme (no `localStorage` in an
 opaque origin), so it follows the system's, and it inlines the app's colour tokens rather
-than loading the stylesheet with the viewer's cookie. Thumbnails were left out: a live
-`<iframe>` per card runs every preview's scripts at once, and screenshots would need a
-browser in the daemon.
+than loading the stylesheet with the viewer's cookie.
+
+**Thumbnails and descriptions are sidecar files, made in the background.** A gallery of
+titles alone made people open pages to remember what they were, so each card has a
+picture and a sentence. Both sit beside the page (`thumb.webp`, and the description in
+`meta.json`) rather than in a database: deleting a folder deletes them, and a copied folder
+keeps them. A live `<iframe>` per card was rejected, since it runs every preview's scripts
+at once on a phone. The daemon instead shoots each page once with Playwright's bundled
+headless Chromium, in a fresh profile that it then deletes. It never uses the user's own
+browser, whose profile carries their logins. The shot goes through the daemon's local
+address, so the page renders under the same sandbox it is served with. Shots run one at a
+time on a worker thread: the first listing after an upgrade backfills every folder without
+ever waiting on it, and cards show a placeholder until their picture exists. A thumbnail
+is redone when it is older than the page's newest file. A missing description is asked of
+the parse model once, from the page's title and visible text, and written into
+`meta.json` marked `generated`. It is only ever added where no description exists, so an
+agent's own always wins. Sidecars don't count as the page or its changes, so writing them
+never reorders the gallery.
 
 **Opt-in, with no default directory.** Whatever sits in the directory is published to
 everyone the front door admits. A default path (say under `~/.local/share`) would mean a

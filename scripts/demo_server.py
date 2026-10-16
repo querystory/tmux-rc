@@ -171,6 +171,7 @@ def install() -> None:
             writers=lambda _pattern, due: {n: demo.SCRATCH_WRITERS[n] for n in due
                                            if n in demo.SCRATCH_WRITERS},
             get_many=lambda _ids: {})
+        server.scratch_sidecars.browser = lambda: None  # thumbnails are seeded, never shot
     live.enabled = lambda: True
     live.offered = lambda: [live_providers.LiveModel("Demo chat", "demo", "anthropic")]
     live_providers.models = list

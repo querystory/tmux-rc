@@ -28,6 +28,7 @@ _RETRY = 600
 _LOCK = threading.Lock()
 _found: dict[tuple[str, int], tuple[float, dict | None]] = {}
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
+SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -58,13 +59,14 @@ def _when(stamp: str | None) -> float | None:
 
 
 def _item(root: Path, folder: Path) -> dict | None:
-    files = [(f.lstat().st_mtime, f) for f in folder.rglob("*")
-             if f.is_file() and _inside(f, folder)]
-    pages = [(t, f) for t, f in files if f.name != "meta.json"]
-    if not pages:
+    """One card's data; None for a folder with nothing to open. Its sidecars and dotfiles
+    (a sidecar half-written) are not the page and do not date it."""
+    files = [(f.lstat().st_mtime, f) for f in folder.rglob("*") if f.is_file()
+             and f.name not in SIDECARS and not f.name.startswith(".") and _inside(f, folder)]
+    if not files:
         return None
-    meta, index = _meta(folder), folder / "index.html"
-    page = index if any(f == index for _, f in pages) else max(pages)[1]
+    meta, index, thumb = _meta(folder), folder / "index.html", folder / "thumb.webp"
+    page = index if any(f == index for _, f in files) else max(files)[1]
     title = meta.get("title")
     if not title and page.suffix == ".html":
         with page.open(errors="replace") as f:
@@ -75,7 +77,9 @@ def _item(root: Path, folder: Path) -> dict | None:
             "href": quote(page.relative_to(root).as_posix() if page != index
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
-            "inode": folder.stat().st_ino}  # the folder until replaced, however rewritten
+            "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
+            "page": page, "thumb": _inside(thumb, folder) and thumb.is_file()
+            and thumb.stat().st_mtime}
 
 
 def items(root: Path) -> list[dict]:
@@ -146,10 +150,12 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
 
 
 def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
-         pane_of=lambda _entry: None) -> str:
-    """The gallery, with `style` the app's stylesheet and `pane_of` the pane a running
-    agent-history entry is in (live.running_pane)."""
+         pane_of=lambda _entry: None, sidecars=lambda _listed: None) -> str:
+    """The gallery, with `style` the app's stylesheet, `pane_of` the pane a running
+    agent-history entry is in (live.running_pane) and `sidecars` what queues the missing
+    thumbnails and descriptions (scratch_sidecars.queue)."""
     listed = items(root)
+    sidecars(listed)
     resolve(listed, states, profiles, pane_of)
     # The app's colour tokens, inlined: the page is sandboxed like the rest of /scratch/,
     # so it cannot count on a credentialed stylesheet load behind the front door.
@@ -160,10 +166,12 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
 
 def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
+    thumb = f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">' if i["thumb"] else ""
     where = (f'<a href="/m/#pane={quote(i["pane"], safe="")}">{e["where"]}</a>' if i["pane"]
              else e["where"])
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
     return (f'<article data-q="{escape(words)}">'
+            f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}">{e["title"]}</a></h2>'
             + (f'<p class="desc">{e["description"]}</p>' if i["description"] else "")
             + f'<p class="by"><button type="button" class="who">{e["who"]}</button>'

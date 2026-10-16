@@ -75,7 +75,16 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import accounts, agent_history, expunge, restore, scratch, telemetry, tmux  # noqa: E402
+from . import (  # noqa: E402
+    accounts,
+    agent_history,
+    expunge,
+    restore,
+    scratch,
+    scratch_sidecars,
+    telemetry,
+    tmux,
+)
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
@@ -1991,13 +2000,23 @@ if _scratch_dir:
         states = list(watcher.states)
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
             Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"],
-            WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))))
+            WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher),
+            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), _local_scratch_url(),
+                                                  listed, getattr(watcher, "use_llm", False)))))
 
     _mount_static("/scratch", _scratch_dir)
 
 
 def _bind() -> tuple[str, int]:
     return os.environ.get("TMUXRC_HOST", "127.0.0.1"), int(os.environ.get("TMUXRC_PORT", "18030"))
+
+
+def _local_scratch_url() -> str:
+    """/scratch on the daemon's own address, which needs no login, unlike the public one."""
+    host, port = _bind()
+    host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)  # a wildcard: loopback
+    host = f"[{host}]" if ":" in host else host
+    return f"http://{host}:{port}/scratch"
 
 
 def _advertise_scratch() -> None:
@@ -2008,12 +2027,9 @@ def _advertise_scratch() -> None:
     tmux outlives the daemon, so whatever is no longer configured is removed, not kept."""
     if os.environ.get("TMUXRC_SCRATCH_ADVERTISE") != "1":
         return
-    host, port = _bind()
-    host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)  # a wildcard: loopback
-    host = f"[{host}]" if ":" in host else host
     env = {"TMUXRC_SCRATCH_DIR": _scratch_dir,
            "TMUXRC_SCRATCH_URL": os.environ.get("TMUXRC_SCRATCH_URL") or None,  # "" = unset
-           "TMUXRC_SCRATCH_LOCAL_URL": f"http://{host}:{port}/scratch"}
+           "TMUXRC_SCRATCH_LOCAL_URL": _local_scratch_url()}
     try:
         for name, value in env.items():
             tmux.set_env(name, value if _scratch_dir else None)
