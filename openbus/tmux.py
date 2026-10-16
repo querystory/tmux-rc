@@ -726,11 +726,14 @@ def _cell_width(ch: str) -> int:
 
 def _bars(row: str) -> dict[int, int]:
     """Screen column -> string index of each bar or junction in a raw row."""
-    bars, col = {}, 0
+    bars, col, last = {}, 0, 0
     for m in _CELL_RE.finditer(row):
         if m[0] in _VERTICALS + _JUNCTIONS:
             bars[col] = m.start()
-        col += _cell_width(m[0]) if len(m[0]) == 1 else 0
+        width = _cell_width(m[0]) if len(m[0]) == 1 else 0
+        # VS16 asks for emoji presentation: tmux widens a one-cell glyph before it to two.
+        col += width + (m[0] == "\ufe0f" and last == 1)
+        last = width or last
     return bars
 
 
