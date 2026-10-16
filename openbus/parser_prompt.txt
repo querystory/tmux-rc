@@ -167,15 +167,19 @@ FIELD GUIDE — what each field is, how to decide it, and where the user sees it
 "headline": the title of the pane's row in the session list and the top of its card. One
 short sentence carrying the substance the user would react to, like a push notification:
 "Asking whether to commit to main or a branch", "Tests fail: 3 timeouts in auth_test".
-Name the task rather than a spinner word. For a code edit, name the changed behavior and
+Always give one. Name the task rather than a spinner word, and never use the session's
+title as the headline: it names the conversation, not what is happening in it. For a code edit, name the changed behavior and
 the flag, function or API in the newest visible diff. For a server or log pane, the
 recurring meaningful activity in its logs. A housekeeping prompt (a satisfaction survey,
 an update notice, a telemetry opt-in) is optional and dismissible: the headline and
 activity come from the work above it, and the survey is at most a minor event.
 
 "activity": groups the pane in the session list. "running" while the agent or program is
-working; "compacting" while it condenses its own context; "idle" when its turn is over
-and it is not blocked on anyone; "waiting" when it cannot go on until someone else acts.
+working: a live spinner or timer, or output still streaming; "compacting" while it
+condenses its own context; "idle" when its turn is over and it is not blocked on anyone;
+"waiting" when it cannot go on until someone else acts. A finished stamp as the turn's
+last row means the turn is over, and a draft in the input box below it has not been sent,
+so the agent has not started on it.
 
 "waiting_on", only with "waiting": whom the pane is blocked on. "user" puts the pane under
 "Needs you" and sends a push to the user's phone, so a false one interrupts them for
@@ -183,15 +187,17 @@ nothing and a missed one leaves an agent stuck until they happen to look. It is 
 when the next step is the user's: a permission or approval prompt, a y/n confirmation, a
 selection menu, a prompt awaiting typed input, or a finished turn whose last message asks
 the user to do a step themselves (run a command, open a link, sign in). How to read a
-finished turn's closing question depends on the mode:
-  - In Claude Code's auto mode the agent stops only when it needs the user, so a finished
-    turn that ends by asking the user something (a decision, whether to go ahead, which
-    option) or by asking them to run or do something waits on the user. Only a plainly
+finished turn's last paragraph depends on the mode the context line gives:
+  - Mode "auto": the agent stops only when it needs the user. If the last paragraph asks
+    the user anything (a yes/no, a decision, whether to go ahead) or asks them to run or do
+    something ("Run this yourself: ! …"), the pane waits on the user: report "waiting",
+    "user", a text question quoting that ask, and any command as an offer. Only a plainly
     rhetorical flourish ("Not bad for a Friday, right?") asks nothing.
-  - Outside auto mode the agent ends every turn by handing control back, so a closing
-    offer of more work or a check-in ("Want me to also add a make target?", "…or are you
-    good here?") leaves the pane idle; what still waits on the user there is a step only
-    they can do.
+  - Any other mode: the agent ends every turn by handing control back, and the user
+    replies whenever they like, so a closing question, offer of more work or check-in
+    ("Want me to also add a make target, or are you good here?") leaves the pane idle with
+    no question. Only an explicit request that the user run, approve or do a step
+    themselves waits on the user.
 A message that only mentions, quotes or proposes commands, or reports what the agent ran,
 asks nothing. Decide by what the message asks of the user as a whole: a "don't run X"
 elsewhere in it does not cancel a real ask to run Y. A question is answered once
@@ -204,7 +210,11 @@ finish", even while some still run), CI, a review, a deploy, a poll or sleep loo
 "question": the yellow card. Include it whenever the pane waits on the user, saying what
 for; its options become one-tap buttons that answer in the pane. A settings panel the user
 opened, an answered omp Ask receipt, and omp's right-aligned session title are not
-questions, though they show rows or a ❯ cursor: nothing there waits for an answer.
+questions, though they show rows or a ❯ cursor: nothing there waits for an answer. When
+the context line gives omp's run state as "running" or "idle", omp has no question open.
+A program prompt with output printed after it was answered and is no question either; the
+pane may still wait on the user for something else (a browser sign-in), which the
+headline names.
 - "prompt": the question's own line quoted word for word from the screen, joining the
   terminal's wraps: a dialog's question row ("Do you want to proceed?"), a program's prompt
   ("Ok to proceed? (y)"), or the agent's closing question or request. The rest of a
@@ -213,7 +223,8 @@ questions, though they show rows or a ❯ cursor: nothing there waits for an ans
 - "answer_style" says how a tap answers. "menu": a dialog the tool holds open whose
   option rows, below its question, show their own digit (1. 2. 3.), answered with one
   keystroke; Claude Code's permission box ("❯ 1. Yes / 2. Yes, and don't ask again / 3.
-  No") is a menu, its ❯ notwithstanding. "cursor": a held dialog or picker whose rows carry
+  No") is a menu, its ❯ notwithstanding: digits decide, so a dialog whose rows show
+  digits is a menu even with a ❯ cursor and an arrow-key footer. "cursor": a held dialog or picker whose rows carry
   no digits, moved with arrows and committed with Enter (a digitless "❯ No / Yes"
   permission box, /resume's session picker, model and theme pickers); a typed digit or
   label would land in its search box. "text": a typed reply, for a question in the agent's
@@ -250,7 +261,8 @@ questions, though they show rows or a ❯ cursor: nothing there waits for an ans
 "offers": text the agent hands the user to send back into this same pane, each shown on
 the card with "Send it" and "Copy" buttons: Send it types exactly that text into this
 pane's input and presses Enter. An offer means the pane waits on the user to send it, so
-report the wait and a text question quoting the ask with it. Include one when the agent
+report the wait and a text question quoting the agent's ask with it; the offer is its
+answer button, so the question needs no options. Include one when the agent
 asks the user to send it here,
 in whatever words: a command to run with the agent's own shell prefix ("run it yourself:
 ! gh pr merge 327", "run this here: ! make check-secrets"), or a reply to type back ('say
@@ -301,8 +313,10 @@ findings, and an old plan higher in the scrollback are content.
 each delegated job with a live meter (Claude Code: "general-purpose  <job>  Nm  ↓Nk
 tokens"). One entry per row: the job as "label", its own state ("running" while its
 meter ticks, "done" once finished, "waiting" on CI or a timer, "idle", "compacting",
-"unknown"), and "elapsed" and "tokens" as shown, tokens as the bare value ("18.1k"). The
-card counts the running ones.
+"unknown"), and "elapsed" and "tokens" as shown, tokens as the bare value ("18.1k"). Each
+worker's state is its own: a parent waiting on its workers leaves the ones whose meters
+tick "running", and elapsed time alone is no sign of work. The card counts the running
+ones.
 
 "working_prs": the PRs this pane's agent is doing work for, which the card tracks: one it
 is implementing, creating, updating, reviewing, testing, debugging or shepherding through

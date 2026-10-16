@@ -1356,3 +1356,12 @@ def test_an_offer_the_model_returns_is_a_user_wait():
     result = classify(_pane("claude"), screen, _llm({
         "tool": "claude", "activity": "idle", "offers": ["! make check-secrets"]}))
     assert (result["activity"], result["waiting_on"]) == ("waiting", "user")
+
+
+def test_an_ask_that_hands_over_an_offer_gets_no_reply_buttons():
+    screen = _auto_screen("Run it yourself:\n\n  ! make check-secrets")
+    calls = []
+    q = classify(_pane("claude"), screen, _llm({"tool": "claude", "offers": ["! make check-secrets"],
+                 "question": {"prompt": "Run it yourself:", "options": ["! make check-secrets"]}}),
+                 replies_fn=lambda *a: calls.append(a) or {"options": ["Yes", "No"]})["question"]
+    assert "options" not in q and not calls

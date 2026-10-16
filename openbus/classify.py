@@ -447,14 +447,15 @@ _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$")
 
 
 def _quoted(text, visible: str) -> bool:
-    """The evidence gate for what the model quotes: its exact text is on the screen, where
-    a space may also be the terminal's wrap (and the bars framing a transcript row go)."""
+    """The evidence gate for what the model quotes: its exact text is on the screen, the
+    terminal's wraps allowed for (a wrap may fall at a space or inside a word) and the bars
+    framing a transcript row ignored."""
     if not isinstance(text, str) or not text.strip():
         return False
-    screen = _FRAME_BARS_RE.sub("", visible)
-    exact = re.escape(text.strip()).replace(r"\ ", r"(?: |[ \t]*\n[ \t]*)")
-    return bool(re.search(exact, screen)
-                or text.strip() in re.sub(r"[ \t]*\n[ \t]*", "", screen))  # a wrapped URL
+    wrap = r"[ \t]*\n[ \t]*"
+    exact = f"(?:{wrap})?".join(f"(?: |{wrap})" if c == " " else re.escape(c)
+                                for c in text.strip())
+    return bool(re.search(exact, _FRAME_BARS_RE.sub("", visible)))
 
 
 def _supported_rewind(rewind, visible: str) -> bool:
@@ -1048,9 +1049,12 @@ def classify(
             question.pop("options", None)
         # A typed answer's buttons are typed into the input box: the model's, else the
         # reply call's for the question; none at all for an open question.
+        # An offer is its own button: an ask that hands one over gets no reply buttons.
         if style == "text" and asked and not demoted:
-            options = _clean_options(question.pop("options", None), asked)
-            if options := options or _reply_options(asked, replies_fn):
+            offered = result.get("offers") or []
+            options = [o for o in _clean_options(question.pop("options", None), asked)
+                       if o not in offered]
+            if options := options or (not offered and _reply_options(asked, replies_fn)):
                 question["options"] = options
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         if context := style == "menu" and asked and _widget_text(asked, visible):
