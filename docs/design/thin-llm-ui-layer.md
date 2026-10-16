@@ -160,10 +160,11 @@ judgement it encoded — is the agent asking the user to send this, or just ment
 is exactly the easy-for-a-reader, hard-for-a-rule kind this doc is about.
 
 What stays in code is the evidence, because the output is an action with side effects: an
-offer must be on the screen word for word and bounded (a wrap may stand for a space; a run
-of spaces must show as is), one line, and a `! ` command must be one bash reads whole
-(`bash -n`, which runs nothing), so a tap never sends text the screen does not show or a
-command a blank row cut short. A missed offer costs the old copy-paste; a false one costs
+offer must be on the screen exactly as the model wrote it (the terminal's wraps allowed),
+and a `! ` command must be one bash reads whole (`bash -n`, which runs nothing), so a tap
+never sends text the screen does not show or a command a blank row cut short. The gate
+deliberately stops there: rules about where an offer may start or end are judgement again,
+and an edge case goes to the prompt or an eval sample. A missed offer costs the old copy-paste; a false one costs
 a tap the user reads first, since the card shows the text before Send it and nothing is
 sent without that tap.
 
