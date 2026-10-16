@@ -9,6 +9,7 @@ while, since agent-history indexes a session only some time after it starts."""
 
 import json
 import re
+import threading
 import time
 from datetime import datetime
 from html import escape, unescape
@@ -24,6 +25,7 @@ _TOKENS = re.compile(r"^:root(?:\.light)? \{.*?^\}", re.MULTILINE | re.DOTALL)  
 # ends a path in prose, markdown, JSON or a URL.
 _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
+_LOCK = threading.Lock()
 _found: dict[tuple[str, int], tuple[float, dict | None]] = {}
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 
@@ -90,13 +92,12 @@ def items(root: Path) -> list[dict]:
 
 def _writers(todo: list[dict]) -> None:
     """Fill each item's `session` from the transcripts, through the cache."""
-    now = time.time()
-    keys = {i["name"]: (i["name"], i["inode"]) for i in todo}
-    stale = {k for k, (at, hit) in _found.items() if hit is None and now - at > _RETRY}
-    due = {i["name"]: i["created"] for i in todo
-           if keys[i["name"]] not in _found or keys[i["name"]] in stale}
-    if due:
-        hits = agent_history.writers(_MENTION, due)
+    now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}
+    with _LOCK:  # a second request waits for the first's search instead of repeating it
+        stale = {k for k, (at, hit) in _found.items() if hit is None and now - at > _RETRY}
+        due = {i["name"]: i["created"] for i in todo
+               if keys[i["name"]] not in _found or keys[i["name"]] in stale}
+        hits = agent_history.writers(_MENTION, due) if due else {}
         for n in due:
             _found[keys[n]] = (now, hits.get(n))
     for i in todo:
