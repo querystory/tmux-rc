@@ -215,7 +215,8 @@ def describe(meta: Path, page: Path, title: str, root: Path) -> str | None:
         text = " ".join(" ".join(parser.parts).split())[:4000]
     sentence = llm.one_sentence(
         "Describe this web page in ONE short sentence (under 20 words) for a gallery of "
-        f"previews: what it shows. Plain text, no preamble.\nTitle: {title}\n\n{text}")
+        f'previews: what it shows, starting with the subject (never "This page"). Plain '
+        f"text.\nTitle: {title}\n\n{text}")
     if not sentence or meta.is_symlink():
         return None
     try:  # read again: the agent may have written one meanwhile
