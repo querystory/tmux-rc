@@ -26,9 +26,13 @@ and tools.
   returned is "running", even while its latest log line sits still. Its headline names
   the meaningful work in its logs.
 - Text after a shell prompt on the last line, or in an agent's input box (the ❯ or › line
-  near the bottom, between border lines), is what the user is typing and has not sent.
-  A command counts as run only when its output or a fresh prompt follows it, so a lone
-  "git ad" at a prompt is a pane idle at its prompt.
+  near the bottom, between border lines), is what the user is typing and has not sent:
+  the agent has not seen it, so it starts nothing and answers nothing yet. A command
+  counts as run only when its output or a fresh prompt follows it, so a lone "git ad" at a
+  prompt is a pane idle at its prompt.
+- A program's own prompt (a y/n, a password, "Ok to proceed? (y)") is live only while it
+  is the last thing printed, with the cursor on it: then it waits for a typed answer. Once
+  more output follows it, it was answered and the program moved on.
 - Spans wrapped in ⟪dim⟫…⟪/dim⟫ were drawn faint: unsent drafts, queued messages, ghost
   suggestions, hints, borders and status chrome. Report them as UI, never as something
   the agent did or said. ⟪placeholder⟫…⟪/placeholder⟫ is the greyed suggestion in an
@@ -43,22 +47,31 @@ and tools.
 Each agent's own turn chrome is the clearest evidence of its state; use it:
 - Claude Code: a gerund spinner row with a running timer ("✶ Befuddling… (1m 7s · ↓ 2k
   tokens)") while it works; a finished stamp ("✻ Worked for 40s · done 4:47 AM") when
-  its turn is over. A stamp's trailing "1 shell still running" or monitor count is
-  background work, not the agent's turn. "⏵⏵ auto mode on" in its footer means it runs
-  without stopping for permission and ends a turn only when it is done or needs the user.
+  its turn is over, so with no spinner below the stamp the agent is not running, whatever
+  sits in the input box. A stamp's trailing "1 shell still running" or monitor count is
+  background work, not the agent's turn.
+- Claude Code's auto mode ("⏵⏵ auto mode on" in its footer): the agent works on without
+  stopping for permission, and stops its turn only when it is done or needs the user.
 - Codex: a live row "Working (2m 32s • esc to interrupt)", or "Reviewing approval request
   (… • esc to interrupt)" while its own reviewer weighs an approval: both are the agent
   working, and nothing is asked of the user while it shows.
 - OpenCode: an animated block row ending "esc interrupt" below its composer while a turn
   runs.
-- omp: the tmux context line gives omp's live run state; it is current evidence.
+- omp: the tmux context line gives omp's live run state, which is current evidence:
+  "idle" and "running" mean nothing on screen is waiting on the user (any Ask on screen is
+  an answered receipt or the session title), and "waiting" means its Ask or approval
+  dialog is open.
 - A provider error that stopped the turn (Codex's "■ Selected model is at capacity…",
   Claude Code's "⎿ API Error: 529 …") leaves the next step to the user: report a user
   wait whose question quotes the error, with "try again" as its option. Codex's
   "■ Conversation interrupted" is the user's own interrupt, not an error.
-- A settings or plugin panel the user opened (/config, /plugin: a strip of tabs such as
-  "Settings  Status  Config", a search box or name/value rows, a footer closing on Esc)
-  is the user browsing; the pane is idle and nothing is asked.
+- A settings or plugin panel the user opened (Claude Code's /config or /plugin): a ▔ rule
+  over a strip of three or more short tab names ("Settings  Status  Config  Usage"), a
+  search box (⌕) or ❯ on "name  value" rows, and a last-row key hint that closes, clears or
+  goes back on Esc ("Esc to close"). The user is browsing it on purpose and a row only
+  changes a setting, so the pane is idle and nothing is asked. A question's own footer
+  cancels on Esc instead ("Esc to cancel"), and a real dialog drawn below such a strip is
+  still a question.
 - Rows starting with the prompt glyph and text (❯ fix the tests) are the user's own turns.
   File content behind a line-number gutter ("12│", "+245│") is content being shown.
 - When the user has scrolled back inside the agent's history, an isolated chip such as
@@ -69,32 +82,53 @@ Each agent's own turn chrome is the clearest evidence of its state; use it:
   headline ("Scrolled back reviewing history — refactoring the auth module"). Once the
   chip is gone, read the frame normally.
 
-TOOL — which agent, or a plain shell, runs in this pane. The choices are "claude",
-"codex", "gemini", "opencode", "omp", "shell", "unknown". Agents look alike (boxed input,
-permission prompts), so decide by each one's own signature:
+TOOL — identify WHICH agent (or plain shell) by the WHOLE picture, not just the last
+lines. The choices are "claude", "codex", "gemini", "opencode", "omp", "shell", "unknown" — do NOT default
+to "claude"; different coding agents look similar (box-drawn input, permission prompts)
+but have distinct signatures. Decide by the evidence on screen:
 {{codex}}
 {{gemini}}
-- "opencode" (OpenCode): the foreground process `opencode` is conclusive, whichever
-  provider or model it runs. Its chrome can show a large OpenCode banner; a right sidebar
-  headed "Context" and "LSP"; a composer footer such as "Build · Claude Opus 5.5 · Amazon
-  Bedrock"; and a bottom status row with cwd, tokens/context/cost, "ctrl+p commands" and
-  "OpenCode <version>". A Claude, GPT or Gemini name in its model slot is only the
-  selected backend; the host is still OpenCode.
+- "opencode" (OpenCode): the foreground process `opencode` is conclusive, regardless of
+  which provider or model it is running. Its chrome can show a large OpenCode banner;
+  a right sidebar headed "Context" and "LSP"; a composer footer such as
+  "Build · Claude Opus 5.5 · Amazon Bedrock"; and a bottom status row with cwd,
+  tokens/context/cost, "ctrl+p commands", and "OpenCode <version>". Claude/GPT/Gemini
+  text in OpenCode's MODEL slot identifies the selected backend only — it never turns
+  the host application into Claude Code, Codex, or Gemini CLI. While a turn is active,
+  OpenCode shows an animated block row ending "esc interrupt" below the composer. That
+  row is decisive activity=running chrome — do not discard it as spinner decoration.
 {{omp}}
 {{claude}}
-The input's first line gives the pane's foreground process from tmux: hard evidence, not
-screen content. Agents run as node, bun, claude, codex, gemini, opencode or omp. A pane
-whose process is a shell, python, uvicorn and so on is that program's pane, whatever
-agent or model names appear in its output: a server printing gemini-… log lines is a log
-viewer, and its activity is "running" while no shell prompt has returned. Words like
-`shell/idle` in a server's own logs describe other panes. Identify an agent by its own
-chrome (status bar, input box, permission prompts, banner); names in logs, URLs, code or
-discussion are content. An agent pane stays that agent while a command it launched fills
-the screen, and stays the agent earlier frames identified unless new evidence says
-otherwise. Use "shell" when no agent chrome is present, and "unknown" only when you truly
-cannot tell. A name starting "gpt-" or "o"+digit in the pane's own live model slot
-identifies Codex even where other controls resemble Claude's; in conversation, logs or
-subagent output it identifies nothing.
+The input's first line reports the pane's foreground PROCESS from tmux — hard evidence,
+not screen content. Agents run as node/bun/claude/codex/gemini/opencode/omp processes; a pane whose
+process is a shell, python, uvicorn, etc. is that program's pane, no matter which agent
+or model names appear in its OUTPUT (a server printing gemini-… log lines is a log
+viewer, never the Gemini CLI). Activity is separate from tool identity: when that
+foreground process is an ordinary command/server such as python or uvicorn and no bare
+shell prompt has returned, activity is "running". Words like `shell/idle` printed in
+the server's own log lines describe other panes or old events, not this pane's state.
+For the headline, describe the server's newest/repeated operational work visible in
+its logs (for example, parsing panes), not merely its older startup banner.
+Identify an agent by ITS OWN UI CHROME (status bar, input box, permission prompts,
+banner) — never by agent/model names merely APPEARING IN CONTENT. A pane whose text
+mentions "gemini"/"claude"/"gpt" in log lines, API URLs (…/models/gemini-…:generateContent),
+code, or discussion is NOT that agent — a server log spamming Gemini endpoints is
+whatever program is actually running there (a shell running a server, a log tail), not
+"gemini".
+An agent pane STAYS that agent even when a shell command it launched fills the screen —
+the agent is driving it. Use earlier frames and the model name for continuity; if recent
+frames identified a specific agent, prefer that SAME agent (do not switch to a different
+agent or to claude without new evidence). Call it "shell" when no agent
+chrome is present — a plain interactive shell, including one running an ordinary
+command or server whose output fills the pane. Use "unknown" only
+when you truly cannot tell which agent it is.
+
+An opaque ID, or a title quoted in tool output or another pane's listing, is not
+this pane's conversation name.
+The Claude unfamiliar-model fallback above applies only to non-OpenAI names. A name
+starting "gpt-" or "o"+digit in the pane's OWN live model slot identifies Codex, even
+when its other controls resemble Claude. This exception does not apply to model
+names printed in conversation, captured output, server logs, or subagent content.
 
 {{claude_detail}}
 Return only compact JSON, with a field only when you can determine it:
@@ -143,15 +177,20 @@ and it is not blocked on anyone; "waiting" when it cannot go on until someone el
 "Needs you" and sends a push to the user's phone, so a false one interrupts them for
 nothing and a missed one leaves an agent stuck until they happen to look. It is "user"
 when the next step is the user's: a permission or approval prompt, a y/n confirmation, a
-selection menu, a prompt awaiting typed input, or an agent that finished its turn by
-asking the user something it needs answered before it can go on, or by asking the user to
-do a step themselves (run a command, open a link, sign in). A question mark alone makes no
-wait: a rhetorical question, a recap that ends "anything else?", or an optional offer of
-more work after the requested work is done leaves the pane idle, and outside auto mode
-Claude Code ends every turn handing control back, so its closing offers are usually
-idle. A message that only mentions, quotes or proposes commands, or reports what the
-agent ran, asks nothing. Decide by what the message asks of the user as a whole: a "don't
-run X" elsewhere in it does not cancel a real ask to run Y. A question is answered once
+selection menu, a prompt awaiting typed input, or a finished turn whose last message asks
+the user to do a step themselves (run a command, open a link, sign in). How to read a
+finished turn's closing question depends on the mode:
+  - In Claude Code's auto mode the agent stops only when it needs the user, so a finished
+    turn that ends by asking the user something (a decision, whether to go ahead, which
+    option) or by asking them to run or do something waits on the user. Only a plainly
+    rhetorical flourish ("Not bad for a Friday, right?") asks nothing.
+  - Outside auto mode the agent ends every turn by handing control back, so a closing
+    offer of more work or a check-in ("Want me to also add a make target?", "…or are you
+    good here?") leaves the pane idle; what still waits on the user there is a step only
+    they can do.
+A message that only mentions, quotes or proposes commands, or reports what the agent ran,
+asks nothing. Decide by what the message asks of the user as a whole: a "don't run X"
+elsewhere in it does not cancel a real ask to run Y. A question is answered once
 the user's reply is sent: a reply in the transcript followed by newer agent work (including
 an omp Ask result showing its chosen option) retires it. A reply still sitting in the input
 box is unsent, so the question still waits on the user. "external" is a wait on something
@@ -160,16 +199,21 @@ finish", even while some still run), CI, a review, a deploy, a poll or sleep loo
 
 "question": the yellow card. Include it whenever the pane waits on the user, saying what
 for; its options become one-tap buttons that answer in the pane.
-- "prompt": the question or request quoted from the screen, word for word (join the
-  terminal's wraps), so it reads alone on the card.
-- "answer_style" says how a tap answers. "menu": a widget whose rows show their own digit
-  (1. 2. 3.) or a y/n confirmation, answered with one keystroke; Claude Code's permission
-  box ("❯ 1. Yes / 2. Yes, and don't ask again / 3. No") is a menu, its ❯ notwithstanding.
-  "cursor": a highlighted list with no digits, moved with arrows and committed with Enter
-  (/resume's session picker, model and theme pickers); a typed digit or label would land
-  in its search box. "text": a typed reply, for a question in the agent's prose or a
-  prompt awaiting free text; the phone types the chosen option and presses Enter. When
-  unsure, "text".
+- "prompt": the question's own line quoted word for word from the screen, joining the
+  terminal's wraps: a dialog's question row ("Do you want to proceed?"), a program's prompt
+  ("Ok to proceed? (y)"), or the agent's closing question or request. The rest of a
+  permission box (its tool, command and description) is read from the box separately, so
+  it stays out of the prompt.
+- "answer_style" says how a tap answers. "menu": a dialog the tool holds open whose
+  option rows, below its question, show their own digit (1. 2. 3.), answered with one
+  keystroke; Claude Code's permission box ("❯ 1. Yes / 2. Yes, and don't ask again / 3.
+  No") is a menu, its ❯ notwithstanding. "cursor": a held dialog or picker whose rows carry
+  no digits, moved with arrows and committed with Enter (a digitless "❯ No / Yes"
+  permission box, /resume's session picker, model and theme pickers); a typed digit or
+  label would land in its search box. "text": a typed reply, for a question in the agent's
+  prose or a prompt awaiting free text; the phone types the chosen option and presses
+  Enter. A numbered list in the agent's own message above its question is content, not a
+  menu: that question is "text", and the rows it names go in "items".
 - "options": the answers as the screen offers them, in screen order (a menu's rows
   without their digits). For a "text" question, the replies the user would plausibly
   type, or none for an open question.
@@ -182,8 +226,9 @@ for; its options become one-tap buttons that answer in the pane.
   prepare 2?", "Go with A or B?"), those rows, each quoted as shown: its label and its
   first sentence ("1. Prune container images older than 14 days."). Only the rows it
   names, so the card says what 1 and 2 are.
-- "subject": the heading or lead-in sentence above that list, quoted, saying what is being
-  decided ("Two ways to fix the webhook timeouts:").
+- "subject": with "items", the heading or lead-in line just above that list, quoted as
+  shown, which says what is being decided ("Two ways to fix the webhook timeouts:",
+  "Session store for the admin console").
 - "link": when the question asks the user to open a link (a sign-in or device-login URL),
   that URL, also listed in "links"; the card leads with it.
 - For "cursor" only: "selected" is the 0-based index into your options of the
@@ -199,7 +244,8 @@ pane's input and presses Enter. Include one when the agent asks the user to send
 in whatever words: a command to run with the agent's own shell prefix ("run it yourself:
 ! gh pr merge 327", "run this here: ! make check-secrets"), or a reply to type back ('say
 "merge 415" and I'll queue it'). Copy the text exactly as the screen shows it, its "! "
-prefix included, as one line, joining the terminal's wraps. A command the user is to run
+prefix included, as one line, joining the terminal's wraps. Every agent here runs a "! "
+command in its own shell, so an ask to run one is an offer whatever the agent. A command the user is to run
 somewhere else (another terminal, a server) belongs in "copyables", since typing it here
 would only send it to the agent as a message. A command merely mentioned, proposed as an
 example, quoted in narrative, or reported as already run is no offer; neither is a command
@@ -229,7 +275,8 @@ newlines, and drop display chrome (box borders, gutters, line numbers, bullets, 
 Skip text cut off by the top of the screen rather than emit a fragment. "label" names
 what it is in under ~40 characters ("Commit message", "The 3 failing test names"). Each
 thing has one home: a URL goes in "links", a table in "tables", an answer in "question",
-text to send back into this pane in "offers". Conversational prose and findings stay in
+text to send back into this pane in "offers", and a command shown inside a permission or
+approval box is answered by the question, so it is not copied. Conversational prose and findings stay in
 headline and events. Most screens have nothing to copy. At most 3, most useful first.
 
 "tables": tabular data on screen (box-drawn or aligned columns) as headers and rows, with

@@ -948,6 +948,13 @@ def classify(
     # names (OpenCode showing "Claude Opus" is still OpenCode).
     if process_tool:
         result["tool"] = process_tool
+    elif pane.current_command in ("bash", "zsh", "sh", "fish") and _obvious_idle(visible):
+        # A returned shell prompt is stronger evidence than an agent in history.
+        if result.get("tool") != "shell":
+            result["headline"] = "Shell ready for a command"
+        result.update(tool="shell", activity="idle")
+        result.pop("question", None)
+        result.pop("rewind", None)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
