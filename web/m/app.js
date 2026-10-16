@@ -1098,7 +1098,9 @@ function pickFit(v) {
 }
 const paintFit = () => choices("fit-pane", FIT_PICKS, fitPicks[paneKey(active)] || "", pickFit);
 $("pane-menu").addEventListener("toggle", () => {
-  show("fit-row", terminalVisible()); // the fit is the terminal's: only there is it offered
+  // The fit is the terminal's, and a choice is filed under the pane's incarnation, which
+  // only state knows: offered on the terminal once the pane is in state.
+  show("fit-row", terminalVisible() && panes.some((p) => p.pane_id === active));
   if ($("pane-menu").open) paintFit();
 });
 const setFitDefault = (v) => { fitDefault = v; store("tmuxrc-fit-default", v); paintSettings(); refitNow(); };
