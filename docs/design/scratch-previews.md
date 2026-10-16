@@ -46,7 +46,11 @@ keeps them. A live `<iframe>` per card was rejected, since it runs every preview
 at once on a phone. The daemon instead shoots each page once with Playwright's bundled
 headless Chromium, in a fresh profile that it then deletes. It never uses the user's own
 browser, whose profile carries their logins. The shot goes through the daemon's local
-address, so the page renders under the same sandbox it is served with. Shots run one at a
+address, so the page renders under the same sandbox it is served with, and every other
+request goes to a proxy that isn't there: the shot runs on the daemon's machine, where a
+page could otherwise frame a loopback or private-network service and have its screen
+published as a thumbnail. Pages that pull fonts or images from the internet render
+without them, which is acceptable for a thumbnail. Shots run one at a
 time on a worker thread: the first listing after an upgrade backfills every folder without
 ever waiting on it, and cards show a placeholder until their picture exists. A thumbnail
 is redone when it is older than the page's newest file. A missing description is asked of

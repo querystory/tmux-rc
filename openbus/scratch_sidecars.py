@@ -15,6 +15,7 @@ import tempfile
 import threading
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 from PIL import Image
@@ -98,9 +99,9 @@ def _replace(path: Path, root: Path, write) -> None:
 
 
 def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
-    """Render `url` at VIEWPORT in a fresh, throwaway profile and save it as a THUMB webp,
-    dated `at` (the page's version it was queued for), so an edit made while it rendered
-    still reads as newer."""
+    """Render `url` at VIEWPORT in a fresh, throwaway profile, offline but for `url`'s own
+    host, and save it as a THUMB webp dated `at` (the page's version it was queued for),
+    so an edit made while it rendered still reads as newer."""
     exe = browser()
     if not exe:
         return False
@@ -110,8 +111,13 @@ def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
         return False
     with tempfile.TemporaryDirectory(prefix="tmux-rc-thumb-") as profile:
         png = Path(profile) / "shot.png"
+        # Every request but the daemon's own goes to a proxy that isn't there, loopback
+        # included: a page could otherwise frame a local or private-network service, which
+        # the shot would then publish.
         subprocess.run([exe, "--headless", "--no-first-run", "--hide-scrollbars",
                         f"--user-data-dir={profile}", "--window-size={},{}".format(*VIEWPORT),
+                        "--proxy-server=http://127.0.0.1:9",
+                        f"--proxy-bypass-list=<-loopback>;{urlsplit(url).netloc}",
                         "--virtual-time-budget=3000", f"--screenshot={png}", url],
                        capture_output=True, timeout=60, check=False)
         if not png.is_file():

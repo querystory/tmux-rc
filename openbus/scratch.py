@@ -59,10 +59,11 @@ def _when(stamp: str | None) -> float | None:
 
 
 def _item(root: Path, folder: Path) -> dict | None:
-    """One card's data; None for a folder with nothing to open. Its sidecars and dotfiles
-    (a sidecar half-written) are not the page and do not date it."""
+    """One card's data; None for a folder with nothing to open. Its sidecars and anything
+    hidden (a sidecar half-written, a .git) are not the page and do not date it."""
     files = [(f.lstat().st_mtime, f) for f in folder.rglob("*") if f.is_file()
-             and f.name not in SIDECARS and not f.name.startswith(".") and inside(f, folder)]
+             and f.name not in SIDECARS and inside(f, folder)
+             and not any(part.startswith(".") for part in f.relative_to(folder).parts)]
     if not files:
         return None
     meta, index, thumb = _meta(folder), folder / "index.html", folder / "thumb.webp"

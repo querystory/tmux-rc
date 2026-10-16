@@ -26,6 +26,8 @@ def test_sidecars_neither_date_the_folder_nor_stand_in_for_its_page(tmp_path):
     folder = _page(tmp_path)
     (folder / "meta.json").write_text('{"description": "Said"}')
     (folder / ".thumb.webp.tmp").write_text("half written")
+    (folder / ".git").mkdir()
+    (folder / ".git" / "HEAD").write_text("ref")
     Image.new("RGB", (4, 4)).save(folder / "thumb.webp")
     os.utime(folder / "thumb.webp", (900, 900))
     [item] = scratch.items(tmp_path)
@@ -115,6 +117,7 @@ def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypa
     assert S.shoot("http://127.0.0.1:1/scratch/p/", out, tmp_path, 1234)
     [argv] = runs
     assert argv[0] == str(shell) and "--headless" in argv
+    assert "--proxy-bypass-list=<-loopback>;127.0.0.1:1" in argv  # nothing else reachable
     profile = next(a for a in argv if a.startswith("--user-data-dir="))[16:]
     assert Path(profile).parent == Path(tempfile.gettempdir()) and not Path(profile).exists()
     assert not any(str(Path.home()) in a for a in argv)
