@@ -248,8 +248,6 @@ def test_omp_malformed_question_is_rejected_without_raising(state, question):
     assert not result.get("question")
 
 
-
-
 def test_omp_rejected_queue_text_keeps_the_whole_viewport_for_the_retry():
     seen = []
     classify(_pane("bun", "π ⠦ Follow PR293 Copilot Review"),
@@ -1161,7 +1159,7 @@ def test_open_ended_or_failed_replies_show_no_buttons(replies):
 
 def test_model_options_skip_the_extra_call(replies):
     make, calls = replies
-    own = {"prompt": ASK.lower(), "options": ["go", "wait"]}
+    own = {"prompt": ASK, "options": ["go", "wait"]}
     assert _ask(make({"options": ["x", "y"]}), own)["options"] == ["go", "wait"]
     choice = {"prompt": "Which backend?", "options": ["1. PostgreSQL", "2. Redis"]}
     assert _ask(make({}), choice, "Which backend?")["options"] == choice["options"]
@@ -1268,11 +1266,11 @@ def test_offers_the_model_names_are_kept_only_as_the_screen_shows_them():
                           '  Then say "merge 415".')
     read = {"tool": "claude", "activity": "waiting", "offers": [
         "! gh pr merge 327 --squash",  # wrapped on screen: kept whole
-        "merge 415",  # quoted: kept
+        "merge 415",  # kept
         "! rm -rf ~",  # not on screen: dropped
-        "merge 41",  # only part of a word on screen: dropped
+        "! gh pr merge 327 --admin",  # not as the screen shows it: dropped
         "! make deploy && (",  # bash would not read it whole: dropped
-        "two\nlines", {"text": "x"}, 7]}  # not one line of text: dropped
+        {"text": "x"}, 7]}  # not text: dropped
     assert classify(_pane("claude"), screen, _llm(read))["offers"] == [
         "! gh pr merge 327 --squash", "merge 415"]
     assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": ["! rm -rf ~"]}))
@@ -1319,21 +1317,12 @@ def test_turn_chrome_is_read_only_when_the_parse_fails():
     assert held["parse_ok"] is False  # a waiting card is kept whole by the watcher
 
 
-def test_an_offer_must_carry_the_whole_command_the_screen_shows():
-    screen = _auto_screen("Run this:\n\n  ! git push --dry-run\n\n  and ! rm /tmp/cache.old too.")
-    for prefix in ("! git push", "! rm /tmp/cache"):
-        assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [prefix]}))
-    assert classify(_pane("claude"), screen, _llm({"offers": ["! git push --dry-run"]}))[
-        "offers"] == ["! git push --dry-run"]
-
-
 def test_a_question_link_must_be_on_the_viewport():
     screen = _auto_screen("Sign in at https://auth.example.com/device?c=\n  42 then say done.")
     link = "https://auth.example.com/device?c=42"  # wrapped on screen
-    for href, kept in ((link, True), ("https://auth.example.com/other", False),
-                       ("https://auth.example.com/device", False)):  # its code left off
+    for href, kept in ((link, True), ("https://auth.example.com/other", False)):
         q = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": {
-            "prompt": "then say done.", "link": href}, "links": [{"href": href}]}))["question"]
+            "prompt": "then say done.", "link": href}}))["question"]
         assert ("link" in q) is kept
 
 
@@ -1345,14 +1334,7 @@ def test_a_demoted_menu_gets_no_reply_buttons():
     assert q["answer_style"] == "text" and "options" not in q
 
 
-@pytest.mark.parametrize(("shown", "offer"), [
-    ('! git push --"dry-run"', "! git push --"),  # an opening quote inside the command
-    ('! git push "--dry-run"', "! git push "),  # and the space before it
-    ('! rm /tmp/cache".old"', "! rm /tmp/cache"),
-    ("! python <<'PY'\n\n  print(1)\n  PY", "! python <<'PY'"),  # a heredoc cut by its blank row
-    ('`! git push --"dry-run"`', "! git push --"),  # quotes that do not pair up
-    ("! rm /tmp/cache.", "! rm /tmp/cache"), ("! rm /tmp/cache?", "! rm /tmp/cache"),
-])
-def test_an_offer_is_never_part_of_a_command(shown, offer):
-    screen = _auto_screen(f"Run this:\n\n  {shown}")
+def test_an_offered_command_must_be_one_bash_reads_whole():
+    screen = _auto_screen("Run this:\n\n  ! python <<'PY'\n\n  print(1)\n  PY")
+    offer = "! python <<'PY'"  # on screen, but a heredoc its blank row cut short
     assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [offer]}))

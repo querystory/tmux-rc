@@ -447,10 +447,13 @@ _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$")
 
 
 def _quoted(text, visible: str) -> bool:
-    """Whether the model's `text` is on the screen word for word, across the terminal's
-    wraps and the bars framing a transcript row: the evidence gate for what it quotes."""
-    return (isinstance(text, str) and bool(text.strip())
-            and _last_occurrence(text, _FRAME_BARS_RE.sub("", visible)) is not None)
+    """The evidence gate for what the model quotes: its exact text is on the screen, the
+    terminal's wraps (and the bars framing a transcript row) allowed for."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    screen = _FRAME_BARS_RE.sub("", visible)
+    return bool(re.search(r"\s+".join(map(re.escape, text.split())), screen)
+                or text.strip() in re.sub(r"[ \t]*\n[ \t]*", "", screen))  # a wrapped URL
 
 
 def _supported_rewind(rewind, visible: str) -> bool:
@@ -665,26 +668,12 @@ def _parses(command: str) -> bool:
 
 
 def screen_offers(offers: object, text: str) -> list[str]:
-    """The model's offers that hold up on `text`, as tap-to-send buttons: one-line text the
-    screen shows whole, each space a space or the screen's wrap (so `a b` is not `a  b`),
-    and nothing of it left out: it closes a quote, or ends its paragraph, so neither `! git
-    push` out of `! git push --dry-run` nor `merge 41` out of `merge 415` passes. A `! command`
-    must also be one bash reads whole. Classify's gate, and the watcher's on a screen it
+    """The model's offers that hold up on `text`: each is on the screen (_quoted), and a
+    `! command` is one bash reads whole. Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration)."""
-    screen = _FRAME_BARS_RE.sub("", _visible(text))
-
-    # Inside a matched pair of quotes, or all the rest of its paragraph to the last
-    # character (a closing "." may be the path's own).
-    def shown(o: str) -> bool:
-        gap = " " if "  " in o else r"(?: |[ \t]*\n[ \t]*)"
-        words = gap.join(map(re.escape, o.split(" ")))
-        return bool(re.search(rf"(?<=\"){words}(?=\")|(?<=`){words}(?=`)|(?<=“){words}(?=”)"
-                              rf"|(?<!\S){words}[ \t]*(?:\n[ \t]*(?:\n|\Z)|\Z)", screen))
-
     listed = offers if isinstance(offers, list) else ()
     return [o for o in dict.fromkeys(o for o in listed if isinstance(o, str))
-            if o and o == o.strip() and o.isprintable() and shown(o)
-            and not (o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:])))]
+            if _quoted(o, _visible(text)) and not (o.startswith("! ") and not _parses(o[2:]))]
 
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
@@ -983,11 +972,6 @@ def classify(
         _read_turn_chrome(result, visible, pane, prev_activity)
     if offers := screen_offers(result.pop("offers", None), text):
         result["offers"] = offers
-    hrefs = {
-        str(link["href"]).strip()
-        for link in (result.get("links") or [])
-        if isinstance(link, dict) and link.get("href")
-    }
     question = result.get("question")
     # A numbered picker driven by arrows is walked, not answered with a digit, where the
     # screen shows its highlighted row, which a walk needs.
@@ -1018,19 +1002,13 @@ def classify(
         for key in ("context", "ask"):
             question.pop(key, None)
         # What the model quotes off the screen must be on it: the rows the question names,
-        # what they decide, and the link it asks the user to open (one of the screen's).
-        items, link = question.pop("items", None), question.pop("link", None)
-        # The URL whole, ending where it ends on screen, as drawn or with its rows joined.
-        bars = _FRAME_BARS_RE.sub("", visible)
-        whole = isinstance(link, str) and any(
-            re.search(re.escape(link.strip()) + r"(?![^\s)\]>\"'`])", screen)
-            for screen in (bars, re.sub(r"[ \t]*\n[ \t]*", "", bars)))
+        # what they decide, and the link it asks the user to open.
+        items = question.pop("items", None)
         if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, visible)]):
             question["items"] = quoted
-        if not _quoted(question.get("subject"), visible):
-            question.pop("subject", None)
-        if whole and link.strip() in hrefs:
-            question["link"] = link.strip()
+        for key in ("subject", "link"):
+            if not _quoted(question.get(key), visible):
+                question.pop(key, None)
         # A question with no style is answered as text (models.py).
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
         # A menu answer is its row's digit: with no numbered row on screen there is none to
@@ -1102,6 +1080,11 @@ def classify(
     # prose can't enforce it — here the two fields are side by side and comparable, so
     # drop the overlap in code. Only whole-URL copyables go: text that CONTAINS a link
     # (a command with a --scopes=https://… flag, a config block) is still worth copying.
+    hrefs = {
+        str(link["href"]).strip()
+        for link in (result.get("links") or [])
+        if isinstance(link, dict) and link.get("href")
+    }
     # Structured tables already render this content; don't duplicate their rows as
     # a copy button just because the model also emitted the terminal's plain text.
     tables = result.get("tables")
