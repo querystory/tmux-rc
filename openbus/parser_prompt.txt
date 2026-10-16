@@ -135,7 +135,8 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"|"cursor",
                "selected": <int|null>,   // cursor style: index of the ❯-highlighted option
                "free_text": <int>,   // index of an option that only opens the agent's own free-text field
-               "items": ["..."], "subject": "...",   // the list rows a typed question names (below)
+               "items": ["1. ..."],   // when it names rows of a list above it ("do 1 and 2?", "A or B?"): exactly the rows it names
+               "subject": "...",   // with "items": the heading or lead-in line just above that list
                "link": "https://...",   // the URL in "links" this question asks the user to open, if any
                "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": true|false}},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
@@ -187,9 +188,10 @@ user is being asked to open. Terminal wrapping splits long URLs across lines —
 REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a short
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
 
-"offers": text the agent asks the user to send back into this pane (a "! command" to run,
-a phrase it says to reply with), exactly as the screen shows it; the phone's Send button
-types it into the pane.
+"offers": whenever the agent's latest message asks the user to send text back into this
+pane — a "! command" to run here, a phrase it says to reply with — put that text in
+"offers", whole and exactly as shown (its "! " kept, a wrapped command joined into one line), so the
+phone's Send button can type it; a command or phrase merely mentioned is no offer.
 
 "copyables": text the user will plausibly want to PASTE SOMEWHERE ELSE, lifted off the
 screen for one-tap copying. Selecting text out of a terminal on a phone is genuinely
@@ -262,8 +264,9 @@ visible caption in "title". Omit "tables" when no tabular data is visible.
 "question.items": when a typed question names rows of a list above it by number or letter
 ("Want me to do 1 now and prepare 2?", "Go with A or B?"), exactly those rows, each quoted
 as shown: its label and its first sentence ("1. Prune container images older than 14
-days."); "question.subject" is the heading or lead-in line just above that list, quoted as
-shown, which says what is being decided.
+days."), never as "options" (options are replies the user types); "question.subject" is
+the heading or lead-in line just above that list, quoted as shown, which says what is
+being decided.
 
 ANSWERED QUESTIONS can remain visible in the transcript after the agent moves on.
 A submitted answer (including an omp Ask result showing the chosen option) followed

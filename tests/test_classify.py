@@ -1428,8 +1428,8 @@ def test_offers_the_model_names_are_kept_only_as_the_screen_shows_them():
 
 def test_an_offered_command_must_be_one_bash_reads_whole():
     screen = _auto_screen("Run this:\n\n  ! python <<'PY'\n\n  print(1)\n  PY\n\n"
-                          "  ! make deploy && (")
-    for offer in ("! python <<'PY'", "! make deploy && ("):  # a heredoc a blank row cut; an open (
+                          "  ! make deploy && (\n\n  ! make deploy \\")  # cut, open, continued
+    for offer in ("! python <<'PY'", "! make deploy && (", "! make deploy \\"):
         assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": [offer]}))
 
 
@@ -1453,9 +1453,10 @@ def test_items_and_subject_the_model_cites_must_be_on_screen():
     screen = _auto_screen(message)  # auto mode: its closing ask keeps the model's rows
     question = {"prompt": "Go with A or B?", "answer_style": "text",
                 "items": ["A. Answer first.", "B. Cache the stock.", "C. Invented option."],
-                "subject": "Two ways to fix the timeouts:"}
+                "subject": "Two ways to fix the timeouts:", "link": "https://ci.example/run/7"}
     q = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": question}))[
         "question"]
+    assert q["link"] == question["link"]  # the web keeps it only among the screen's links
     assert q["items"] == ["A. Answer first.", "B. Cache the stock."]
     assert q["subject"] == "Two ways to fix the timeouts:"
     made_up = {**question, "items": ["C. Invented option."], "subject": "A made-up heading"}

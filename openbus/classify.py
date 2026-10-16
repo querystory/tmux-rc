@@ -629,7 +629,7 @@ def _ground_visible_fields(
         result.pop("links", None)
         if retry and isinstance(retry.get("links"), list) and retry["links"]:
             result["links"] = retry["links"]
-        state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
+        state_fields = ("activity", "waiting_on", "headline", "question", "rewind", "offers")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
         for key in state_fields:
@@ -865,13 +865,15 @@ def _quoted(text, visible: str) -> bool:
 
 def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`, three at most: each is on the screen
-    (_quoted), and a `! command` is one bash reads whole. Classify's gate, and the
-    watcher's on a screen it does not reparse (its fingerprint ignores a duration). An
-    offer is sent as one line, so a row break the model copied from a wrap is a space."""
+    (_quoted), and a `! command` is one bash reads whole and that does not end in a line
+    continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
+    does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
+    a row break the model copied from a wrap is a space."""
     listed = offers if isinstance(offers, list) else ()
-    return [o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
-                                     for o in listed if isinstance(o, str))
-            if _quoted(o, _visible(text)) and not (o.startswith("! ") and not _parses(o[2:]))][:3]
+    return list(islice((o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
+                                                  for o in listed if isinstance(o, str))
+                        if _quoted(o, _visible(text)) and not (o.startswith("! ") and (
+                            o.endswith("\\") or not _parses(o[2:])))), 3))
 
 
 def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
@@ -1270,7 +1272,7 @@ def classify(
             or _reply_options(ask["prompt"], replies_fn)
         ):
             ask["options"] = options
-        ask.update({k: own[k] for k in ("items", "subject") if k in own})
+        ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     if result.get("tool") == "claude" and _tabbed_panel_open(visible):
