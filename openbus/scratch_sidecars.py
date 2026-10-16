@@ -131,7 +131,8 @@ def serving(root: Path):
 
 
 def _thumbnail(root: Path, url: str, item: dict) -> None:
-    if stale(item):
+    if stale(item) and (item["name"], item["updated"]) not in _done:  # once per version, even
+        # when the description is asked again
         shoot(url, root / item["name"] / "thumb.webp", root, item["updated"])
 
 

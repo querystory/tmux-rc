@@ -195,12 +195,15 @@ def test_a_failed_shot_still_gets_a_description(tmp_path, monkeypatch):
 
 
 def test_a_description_missed_while_the_model_is_out_is_asked_again(tmp_path, monkeypatch):
+    calls = []
     monkeypatch.setattr(S, "_tried", set())
-    monkeypatch.setattr(S, "shoot", lambda *_: None)
-    monkeypatch.setattr(S, "describe", lambda *_: None)
+    monkeypatch.setattr(S, "_done", set())
+    monkeypatch.setattr(S, "shoot", lambda *_: calls.append("shot"))
+    monkeypatch.setattr(S, "describe", lambda *_: calls.append("said"))
     monkeypatch.setattr(llm, "backing_off", lambda: True)
     _page(tmp_path)
-    S.queue(tmp_path, scratch.items(tmp_path))
-    while (worker := S._worker) is not None:
-        worker.join()
-    assert S._tried == set()
+    for _ in range(2):
+        S.queue(tmp_path, scratch.items(tmp_path))
+        while (worker := S._worker) is not None:
+            worker.join()
+    assert calls == ["shot", "said", "said"]  # the failed shot is not redone with it
