@@ -237,19 +237,22 @@ export function setupSidebar(ctx) {
   function replies(node, p) {
     const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
     const options = needsYou(p) ? ctx.answers(p.question) : [], link = needsYou(p) && askLink(p);
-    // A finished turn's offers ride every card, Needs you or not (app.js takeOffer).
-    const items = [...(link ? [{ link }] : []), ...options, ...ctx.offers(p).map((offer) => ({ offer })), ...(!needsYou(p) ? [] : answered ? [{ note: answered.note }] : [{ reply: true }])];
-    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.link ? `link:${o.link.href}` : o.offer ? `offer:${o.offer}` : `${o.index}:${o.option}`, (o) => {
+    // A finished turn's first offer rides every card, Needs you or not (app.js render shows all).
+    const offers = ctx.offers(p).slice(0, 1).flatMap((offer) => ["text", "send", "copy"].map((part) => ({ offer, part, option: offer, index: -1 })));
+    const items = [...(link ? [{ link }] : []), ...options, ...offers, ...(answered ? [{ note: answered.note }] : needsYou(p) ? [{ reply: true }] : [])];
+    reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.link ? `link:${o.link.href}` : o.part ? `${o.part}:${o.offer}` : `${o.index}:${o.option}`, (o) => {
       if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
+      if (o.part === "text") return Object.assign(document.createElement("code"), { className: "sb-offer" });
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.link ? window.open(o.link.href, "_blank", "noopener,noreferrer") : o.reply ? openReply(node._p.pane_id, node._p.secret) : o.offer ? ctx.takeOffer(node._p.pane_id, o.offer) : ctx.answer(node._p.pane_id, o.option, o.index);
+      button.onclick = () => o.link ? window.open(o.link.href, "_blank", "noopener,noreferrer") : o.reply ? openReply(node._p.pane_id, node._p.secret) : o.part === "copy" ? ctx.copy(o.offer) : ctx.answer(node._p.pane_id, o.option, o.index, !!o.part);
       return button;
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
-      const label = o.link ? "Open link" : o.reply ? "Reply" : o.offer || o.option;
-      text(el, label); el.title = o.link ? o.link.text : o.reply ? "" : label; el.disabled = busy && !o.link;
-      el.classList.toggle("picked", !o.reply && !o.link && !o.offer && ctx.picked(p, o));
+      if (o.part === "text") return text(el, o.offer);
+      const label = o.link ? "Open link" : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
+      text(el, label); el.title = o.link ? o.link.text : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
+      el.classList.toggle("picked", !o.reply && !o.link && o.part !== "copy" && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;

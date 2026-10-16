@@ -92,11 +92,11 @@ def test_changed_screen_or_recycled_pid_falls_back(monkeypatch, tmp_path, change
 @pytest.mark.parametrize("bump", [0, 1])
 def test_a_card_version_bump_drops_prs_an_older_parser_saved(monkeypatch, tmp_path, bump):
     db = tmp_path / "h.db"
-    daemon(monkeypatch, db, prs=[{"repo": "acme/demo", "number": 5283}])  # a guessed repo
+    daemon(monkeypatch, db, prs=[{"repo": "acme/demo", "number": 212}])  # a guessed repo
     monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + bump)
     w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
     assert calls == (["parse", "bootstrap"] if bump else [])
-    assert w._prs.get("%1", []) == ([] if bump else [{"repo": "acme/demo", "number": 5283}])
+    assert w._prs.get("%1", []) == ([] if bump else [{"repo": "acme/demo", "number": 212}])
 
 
 def test_database_failure_falls_back(monkeypatch, tmp_path):

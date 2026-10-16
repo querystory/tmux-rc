@@ -2,8 +2,8 @@
 
 Every classify call emits a record (model, latency, TTFT, tokens, cost, activity, …)
 to an OTLP log receiver (a small Cloud Run service: OTLP/gRPC in, Bearer auth) which
-flattens it to JSONL in object storage → QueryStory. That lets us switch
-TMUXRC_GEMINI_MODEL during real work and compare latency/cost/accuracy in QS instead of
+flattens it to JSONL in object storage for analysis. That lets us switch
+TMUXRC_GEMINI_MODEL during real work and compare latency/cost/accuracy there instead of
 running synthetic benchmarks.
 
 Privacy is client-side and fail-closed by policy:
@@ -22,10 +22,7 @@ Config (env):
   OTEL_EXPORTER_OTLP_ENDPOINT   receiver URL (gRPC). Unset ⇒ telemetry disabled.
   OTEL_EXPORTER_OTLP_HEADERS    e.g. "authorization=Bearer <token>"
   TMUXRC_QSDEBUG=1              attach raw pane text + output JSON (default: off)
-Get endpoint/token:
-  gcloud run services describe otel-receiver --region "$REGION" --project "$PROJECT" \
-    --format 'value(status.url)'
-  gcloud secrets versions access latest --secret=otel-receiver-token --project="$PROJECT"
+The endpoint and token come from whoever runs your receiver.
 """
 
 from __future__ import annotations

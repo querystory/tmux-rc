@@ -292,7 +292,10 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     assert 'reconcile($("options"), answerOptions(question)' in app
     assert 'compose(active, $("secret").hidden ? draft() : $("secret"))' in app
     assert "await ctx.compose(id, value)" in side
-    assert "ctx.answer(node._p.pane_id, o.option, o.index)" in side
+    assert "ctx.answer(node._p.pane_id, o.option, o.index, !!o.part)" in side
+    # An offer is sent by the same path, from the card and the list, never via the composer.
+    assert "send.onclick = () => answer(active, node._offer, -1, true);" in app
+    assert "takeOffer" not in app + side
     assert 'show("list-nav", !inPane && !wide)' in app
     # The tab bar hides in a pane, so Chat and the mic move to the header rather than vanish.
     assert 'const callTo = inPane ? $("settings-open") : $("attention-tab");' in app

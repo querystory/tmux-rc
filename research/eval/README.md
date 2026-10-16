@@ -72,7 +72,8 @@ strictness is correct:
   given fields of some parsed row (e.g. a workflow row's `label` and `progress`).
 - `working_prs` — opt-in exact comparison of semantic `owner/name#number` associations.
   An explicit empty list pins the important negative case: PRs may be visible without
-  this session actually working on any of them.
+  this session actually working on any of them. An entry marked `"optional": true` may
+  be reported or left out, for a PR whose association the model can fairly miss.
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
@@ -178,6 +179,7 @@ actually hit:
 | `25_working_pr_review` | active review work associates the pane with that PR |
 | `26_pr_list_is_not_work` | a visible `gh pr list` does not create associations |
 | `101_bare_pr_numbers_outside_a_checkout` | synthetic: a pane outside any checkout → only the PR written with its repo; bare `#N`s get no repo guessed from the folder or another mention |
+| `104_bare_pr_numbers_beside_another_repos_link` | synthetic: outside a checkout, bare `#N`s beside a status-line link to another repo → only the PR whose github.com URL is on screen |
 | `28_opencode_claude_model` | OpenCode using Claude/Bedrock → tool=opencode, not claude |
 | `29_opencode_interrupt_spinner` | OpenCode `esc interrupt` spinner → running, not idle |
 | `54_claude_user_turn_is_not_question` | the user's own ❯ turn above a live spinner → running, no question |
@@ -189,7 +191,7 @@ actually hit:
 | `62_omp_ask_picker` | omp `ask` cursor picker → user-wait with the selected option |
 | `63_omp_folder_segment_running` | synthetic: omp outside a repo (`📁 <path>` segment) with a `↻` activity line → running, title not a question |
 | `64_omp_wrapped_by_bash` | omp behind a bash wrapper (`current_command=bash`) → tool=omp from its chrome, running with two workers |
-| `65_omp_gutter_code_is_not_question` | real omp capture + one earlier frame: a question string inside a line-numbered Edit diff (`+246│`) is code, not a prompt → running, no question |
+| `65_omp_gutter_code_is_not_question` | omp screen + one earlier frame: a question string inside a line-numbered Edit diff (`+246│`) is code, not a prompt → running, no question |
 | `66_omp_queued_user_question` | omp's outgoing numbered Steering message → running, no question, even without dim styling |
 | `67_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
 | `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
@@ -198,6 +200,8 @@ actually hit:
 | `92_claude_question_names_lettered_options` | a bare "Go with A or B?" under lettered options → the A and B rows in `question.items`, and the line leading into them in `question.subject` |
 | `93_claude_decision_heading_above_options` | a heading over bulleted "Option A:" / "Option B —" rows, asked "option A or B?" → the heading as `question.subject`, both rows in `question.items` |
 | `100_claude_handoff_beside_suggested_command` | a `! command` handoff in Claude's right-barred transcript, its greyed suggestion in the box → text user-wait quoting the agent, no reply buttons |
+| `101_claude_bare_command_after_colon_one_line` | a one-line message handing over a bare `! command` after a colon, no backticks → text user-wait offering that command |
+| `102_claude_bare_command_after_colon_wrapped` | a long bare `! command` after a colon, wrapped over screen rows but one row ending the transcript → offered whole, not just a copyable |
 | `103_claude_offer_outside_auto_needs_you` | synthetic: a finished turn outside auto mode handing over a `! command` (offers) with no question → user-wait (Needs you), not idle |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
@@ -212,23 +216,17 @@ flipped the unrelated sample 47.
 
 ### Committed vs local — what's repo-safe
 
-The corpus is **committed** and runnable by anyone/CI. tmux-rc dogfooding content is
-fine verbatim: cwd like `~/src/qs/termiphone`, tmux-rc code/output, PR numbers — the repo
-watches itself. The `samples/.gitignore` guards against dropping **raw scratch captures**
-(`.txt`, `.png` from `probe.py --save`) into the corpus dir. When you turn a real capture
-into a `.json` sample, only scrub content from **another codebase** (proprietary source
-that happened to be on screen) or an **actual secret/token/credential**.
-
-Samples here are a mix of **real tmux-rc captures** (the working/running case) and
-**faithful synthetic reproductions** (the permission boxes, rewind picker, external-wait,
-the log-trap) — synthesized where the only real example would drag in another codebase's
-content, or where hand-authoring reproduces the pattern more cleanly than hunting a live
-occurrence.
+The corpus is **committed** and public, so every sample is invented (AGENTS.md: "This
+repository is public"). A real capture, even renamed or redacted, still describes the work it
+came from: use it only to learn the shape that triggers the bug, then rebuild that shape from
+scratch around an unrelated topic, as short as it can be. The `samples/.gitignore` guards
+against dropping **raw scratch captures** (`.txt`, `.png` from `probe.py --save`) into the
+corpus dir, and `tests/test_public_data.py` rejects the usual tells.
 
 ## Adding a sample
 
-1. Capture or author the pane text. If real, scrub only other-codebase content / secrets
-   (see above).
+1. Author the pane text from scratch (see above): a local capture may show you the shape
+   that triggers the bug, but none of its text goes in the sample.
 2. Decide the blessed `expected` — the structured fields the UI must get right, plus a
    headline that captures the situation.
 3. Write `samples/NN_short_name.json` in the shape above.
