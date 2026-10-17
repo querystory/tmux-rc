@@ -1265,7 +1265,7 @@ async function loadEarlier() {
   if (h.busy || !id || !h.screen || captureDirty || backingOff()) return;
   h.busy = true;
   const whole = (raw) => raw.split("\n").length >= pre.children.length; // one end's rows are all there are, so both ends'
-  let held = [], gone = [], heldEnd = h.end, heldTail = h.tail, heldWraps = h.wraps, since = 0, older = false;
+  let held = [], gone = [], heldEnd = h.end, heldTail, heldWraps, since = 0, older = false; // held's own, while it has rows
   const land = (force) => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
     if (gone.some(selected)) return; // selected since: fetched again, and left split this time
@@ -1300,10 +1300,11 @@ async function loadEarlier() {
       // frame already here keep it unknown); the frame waiting, if any, paints as it is.
       if (screen !== h.screen) { latestGeometry = [latestGeometry[0], ""]; paintCapture(true); return; }
       // A frame painted meanwhile moved the split this chunk was asked by: start the gap over.
-      if (gap && shownTop !== shown) { held = []; gone = []; ({ end: heldEnd, tail: heldTail, wraps: heldWraps } = h); continue; }
+      if (gap && shownTop !== shown) { held = []; gone = []; heldEnd = h.end; continue; }
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;
       const join = edge && !selected(edge);
-      const { lines, raw, again } = besideHeld(rows, join ? gap ? heldTail : h.head : null, gap, gap ? heldWraps : wraps);
+      const [endRaw, endWraps] = held.length ? [heldTail, heldWraps] : [h.tail, h.wraps];
+      const { lines, raw, again } = besideHeld(rows, join ? gap ? endRaw : h.head : null, gap, gap ? endWraps : wraps);
       // The edge and, from it inward, each held line a URL wrapped over that now renders
       // differently (left alone when selected) are swapped for the new rendering.
       const near = (n) => !gap ? n.nextSibling : held.includes(n) ? held[held.indexOf(n) - 1] : n.previousSibling;
@@ -1326,7 +1327,7 @@ async function loadEarlier() {
         // anyway, the rows it passed becoming a gap above it.
         const behind = latestGeometry[0] - heldEnd, now = performance.now();
         since ||= now;
-        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; gone = []; ({ end: heldEnd, tail: heldTail, wraps: heldWraps } = h); since = 0; }
+        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; gone = []; heldEnd = h.end; since = 0; }
       }
     }
   } catch { h.failed = performance.now(); setTimeout(loadEarlier, 3000); }
