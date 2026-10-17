@@ -1532,6 +1532,7 @@ $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 // A phone's ☰ drawer: each row presses the control that already goes there (a tab, Scratch,
 // Settings, the docs link), shown when it is and current while it is pressed. A modal
 // dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a drag left closes it.
+// It slides every way it comes and goes (settle, below), a row's place opening once it is gone.
 html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-nav", "Scratch", "images"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
   .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
 $("menu-open").onclick = () => {
@@ -1542,21 +1543,22 @@ $("menu-open").onclick = () => {
   text($("drawer-nav").querySelector('[data-via="attention-tab"] .count'), $("attention-count").textContent);
   // ☰ first, so closing returns there even when an edge swipe opened it (and not to search, whose
   // focus would bring the keyboard back); then the drawer, not its first row: no ring until Tab.
-  $("menu-open").focus({ preventScroll: true }); $("drawer").showModal(); $("drawer").focus();
+  $("menu-open").focus({ preventScroll: true }); drawer.showModal(); drawer.focus();
+  if (!drag?.live) { slide(-drawer.offsetWidth); getComputedStyle(drawer, "::backdrop").opacity; settle(true); } // read: the scrim starts clear
 };
-$("drawer").onclick = (e) => { const row = e.target.closest("[data-via]"); if (row || e.target === $("drawer")) $("drawer").close(); row && $(row.dataset.via).click(); };
+$("drawer").onclick = (e) => { const row = e.target.closest("[data-via]"); if (row || e.target === drawer) settle(false, () => row && $(row.dataset.via).click()); };
+$("drawer").addEventListener("cancel", (e) => { e.preventDefault(); settle(false); });
 // It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
 // edge, it follows with its scrim fading in step, then settles open or shut, shut once a third of
 // it has gone or on a flick. A drag that starts vertical is left to scroll.
 const drawer = $("drawer"), still = matchMedia("(prefers-reduced-motion: reduce)");
-// A drag holds the drawer (.held: no entrance animation) until it closes; .settling animates the
-// release. Only the latest release may finish: a new drag cancels the one still settling.
+// .settling animates the release (or an open or close). Only the latest may finish: a new drag
+// or settle cancels the one still settling.
 let drag = null, settling;
-drawer.addEventListener("close", () => drawer.classList.remove("held"));
 const slide = (x) => { if (drag) drag.pos = x; drawer.style.transform = `translateX(${x}px)`; drawer.style.setProperty("--shown", 1 + x / drawer.offsetWidth); };
-function settle(open) {
-  drawer.classList.add("settling"); slide(open ? 0 : -drawer.offsetWidth);
-  settling = setTimeout(() => { drawer.classList.remove("settling"); drawer.style.transform = ""; drawer.style.removeProperty("--shown"); if (!open) drawer.close(); }, still.matches ? 0 : 200);
+function settle(open, then) {
+  clearTimeout(settling); drawer.classList.add("settling"); slide(open ? 0 : -drawer.offsetWidth);
+  settling = setTimeout(() => { drawer.classList.remove("settling"); drawer.style.transform = ""; drawer.style.removeProperty("--shown"); if (!open) { drawer.close(); then?.(); } }, still.matches ? 0 : 200);
 }
 addEventListener("touchmove", (e) => {
   if (!drag) return;
@@ -1564,7 +1566,7 @@ addEventListener("touchmove", (e) => {
   if (!drag.live) {
     if (dy > Math.abs(dx)) { if (dy > 10) drag = null; return; } // vertical: a scroll, not a drag
     if (Math.abs(dx) < 10 || !drag.open && dx < 0) return;
-    drag.live = true; clearTimeout(settling); drawer.classList.remove("settling"); drawer.classList.add("held"); if (!drawer.open) $("menu-open").click(); drag.base = drag.open ? 0 : -drawer.offsetWidth;
+    drag.live = true; clearTimeout(settling); drawer.classList.remove("settling"); if (!drawer.open) $("menu-open").click(); drag.base = drag.open ? 0 : -drawer.offsetWidth;
   }
   drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));

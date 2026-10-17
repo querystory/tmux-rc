@@ -294,9 +294,7 @@ dialog::backdrop { background: #0008; }
 /* A phone's ☰ drawer (Gmail's): a sheet from the left, the logo atop the rows; the current
    one is a tinted pill. */
 #drawer { inset: 0 auto 0 0; width: min(304px, 84vw); height: 100%; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border: 0; border-radius: 0 16px 16px 0; }
-#drawer[open] { animation-name: drawer-in; }
-@keyframes drawer-in { from { transform: translateX(-100%); } }
-#drawer.held { animation: none; }
+#drawer[open] { animation: none; } /* it slides in and out by script (app.js settle), as a drag does */
 #drawer::backdrop { opacity: var(--shown, 1); }
 @media (prefers-reduced-motion: no-preference) { #drawer.settling, #drawer.settling::backdrop { transition: transform .2s ease-out, opacity .2s ease-out; } }
 .drawer-brand { display: flex; align-items: center; gap: 10px; padding: 10px 16px 14px; font-size: 20px; font-weight: 650; }
