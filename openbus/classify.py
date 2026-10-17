@@ -1282,7 +1282,11 @@ def classify(
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
-    if offers := screen_offers(result.pop("offers", None), text):
+    # What to send is the model's call: its offers, and the copyables it marks to send here.
+    sends = [c["text"] for c in result.get("copyables") or []
+             if isinstance(c, dict) and c.get("send") is True and isinstance(c.get("text"), str)]
+    offered = result.pop("offers", None)
+    if offers := screen_offers([*sends, *(offered if isinstance(offered, list) else ())], text):
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:

@@ -149,7 +149,8 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "offers": ["..."],
   "copyables": [{"label": "one-line summary of WHAT this text is, e.g. 'Commit message' "
                  "or 'The 3 failing test names'",
-                 "text": "the EXACT text to put on the clipboard, verbatim"}],
+                 "text": "the EXACT text to put on the clipboard, verbatim",
+                 "send": true|false   // true when the agent needs the user to send this text into this pane}],
   "events": [
     {"text": "WHAT happened, human phrase — e.g. 'Reworked the file list into an activity view'",
      "file": {"path": "...", "added": <int>, "removed": <int>},   // OPTIONAL: if this event was a file edit
