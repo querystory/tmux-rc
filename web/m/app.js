@@ -331,6 +331,7 @@ function route() {
   const wasDashboardVisible = dashboardVisible(), wasPage = page;
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
+  dropGesture();
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, page } = state);
@@ -1762,7 +1763,9 @@ addEventListener("touchmove", (e) => {
   if (!drag.live) {
     if (dy > Math.abs(dx)) { if (dy > 10) drag = null; return; } // vertical: a scroll, not a drag
     if (Math.abs(dx) < 10 || !drag.open && dx < 0) return;
-    drag.live = true; clearTimeout(settling); drawer.classList.remove("settling"); if (!drawer.open) $("menu-open").click(); drag.base = drag.open ? 0 : -drawer.offsetWidth;
+    // From where it is, which may be partway through settling, read before .settling is dropped.
+    const x = drawer.open && new DOMMatrix(getComputedStyle(drawer).transform).m41;
+    drag.live = true; clearTimeout(settling); drawer.classList.remove("settling"); if (!drawer.open) $("menu-open").click(); drag.base = x === false ? -drawer.offsetWidth : x;
   }
   drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
@@ -1774,14 +1777,18 @@ $("back").onclick = $("close-pane").onclick = () => navigate();
 // A phone's Back is also a swipe in from the left edge: it presses the Back of the pane or the
 // view (on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
+// Installed only: in a browser tab that edge is the browser's own Back, and both at once slide
+// two things in (☰ still opens the drawer there, and an open one still drags).
 let edge = null;
 addEventListener("touchstart", (e) => {
   if (drag?.live) return; // a second finger: the drag stays the first one's
   const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
-  edge = !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+  edge = standalone() && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
   drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
-addEventListener("touchcancel", () => { edge = null; if (drag?.live) settle(drag.open); drag = null; });
+// A gesture the page moved under (a touchcancel, or a route() mid-swipe) springs back to where it began.
+const dropGesture = () => { edge = null; if (drag?.live) settle(drag.open); drag = null; };
+addEventListener("touchcancel", dropGesture);
 addEventListener("touchend", (e) => {
   const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
   if (drag?.live && e.timeStamp - drag.t > 100) drag.v = 0; // held before letting go: no flick
@@ -2191,9 +2198,9 @@ async function launchWindow(launcher, button) {
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
 
+const standalone = () => navigator.standalone || matchMedia("(display-mode: standalone)").matches; // installed, not a browser tab
 function fitViewport() {
   const viewport = window.visualViewport, root = document.documentElement;
-  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
   const focused = document.activeElement;
   const textInput = focused?.tagName === "INPUT"
     && ["text", "search", "email", "url", "tel", "number", "password"].includes(focused.type);
@@ -2201,7 +2208,7 @@ function fitViewport() {
     || ((textInput || focused?.tagName === "TEXTAREA") && !focused.readOnly && !focused.disabled);
   // Installed mode lets iOS reserve the status bar outside the app. Fill that
   // available viewport while browsing; editors still follow the keyboard.
-  root.classList.toggle("standalone-fill", !!standalone && !editing);
+  root.classList.toggle("standalone-fill", !!standalone() && !editing);
   root.classList.toggle("editing", !!editing); // the keyboard is up: the tab bar steps aside (style.css)
   // Only an editor measures: iOS resizes the visual viewport, not the layout viewport, for
   // its keyboard. At rest CSS sizes the app from dvh, so a height measured with the keyboard

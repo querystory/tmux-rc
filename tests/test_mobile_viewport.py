@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(process.argv[1], 'utf8');
-const start = source.indexOf('function fitViewport()');
+const start = source.indexOf('const standalone = ');
 const end = source.indexOf('window.visualViewport?.addEventListener("resize", fitViewport)', start);
 assert.ok(start >= 0 && end > start, 'viewport helper moved');
 const properties = {}, classes = {};
