@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import io
 import logging
 import math
@@ -30,6 +31,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
@@ -75,7 +77,17 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import accounts, agent_history, expunge, fit, restore, telemetry, tmux  # noqa: E402
+from . import (  # noqa: E402
+    accounts,
+    agent_history,
+    expunge,
+    fit,
+    restore,
+    scratch,
+    scratch_sidecars,
+    telemetry,
+    tmux,
+)
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
@@ -536,9 +548,12 @@ app = FastAPI(
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
 # The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
 # busy pane's ~100KB/s into ~22KB/s. minimum_size skips tiny replies (no-change frames).
-from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+from starlette.middleware import gzip  # noqa: E402
 
-app.add_middleware(GZipMiddleware, minimum_size=512)
+app.add_middleware(gzip.GZipMiddleware, minimum_size=512)
+# Video and audio come compressed already, and gzip over a 206 garbles its Content-Range.
+# The responder reads this tuple on every response, so extending it is the hook.
+gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/")
 
 # Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
@@ -571,8 +586,9 @@ async def no_cache(request, call_next):
     # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
     if path.startswith(("/scratch/", "/docs/mocks/")):
-        resp.headers["Content-Security-Policy"] = (
-            "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")
+        resp.headers["Content-Security-Policy"] = scratch.SANDBOX
+    else:  # nor may such a page frame the app or the API, whose answers it would then show
+        resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
     # StaticFiles redirects a directory without its slash to an absolute URL built from
     # the request's own scheme — http:// behind the TLS-terminating tunnel, which the
     # phone can't reach (#174). Make same-host redirects path-only.
@@ -621,7 +637,8 @@ def get_version():
     keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
                for m in live_providers.models() if not m.available()]
     return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
-            "live_models": offered + keyless, "docs": DOCS_MOUNTED}
+            "live_models": offered + keyless, "docs": DOCS_MOUNTED,
+            "scratch": bool(_scratch_dir)}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -962,10 +979,11 @@ async def live_frame(
                 changed,
                 len(text.encode()) if changed else None,
             )
-            # changed ⇒ send the new colored frame; else unchanged, client re-holds.
-            if not changed:
-                return {"frame": h}
-            return {"frame": h, "text": text, "top": top, "screen": screen}
+            # changed ⇒ send the new colored frame; else unchanged, client re-holds. Every
+            # answer says whether the app is full screen, so the view's Auto fit follows one
+            # coming and going (openbus/fit.py), even when that leaves the text unchanged.
+            alt = await asyncio.to_thread(fit.alternate, pane_id)
+            return {"frame": h, "alt": alt, **({"text": text, "top": top, "screen": screen} if changed else {})}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
 
 
@@ -1187,7 +1205,9 @@ def click(pane_id: str, body: ClickBody, request: Request):
 
 class FitBody(BaseModel):
     cols: int = Field(ge=1)
-    force: bool = False  # "Fit to my screen": fit even with a terminal attached
+    force: bool = False  # a choice made for this pane: fit even with a terminal attached
+    mode: Literal["width", "tall", "auto", "off"] = "width"
+    rows: int = Field(default=0, ge=0, le=2000)  # the tall height
 
 
 @app.post("/api/panes/{pane_id}/fit")
@@ -1196,9 +1216,9 @@ def fit_width(pane_id: str, body: FitBody, request: Request):
     opens, on zoom or resize, and on the toggle. A POST, never part of the live GET: it
     resizes a real terminal, and the preview sandbox relies on GETs changing nothing.
     `attached` says a terminal is attached, the one case the toggle matters."""
-    detail = f"cols={body.cols} force={body.force}"
+    detail = f"cols={body.cols} force={body.force} mode={body.mode} rows={body.rows}"
     try:
-        attached = fit.view(pane_id, body.cols, body.force)
+        attached = fit.view(pane_id, body.cols, body.force, body.mode, body.rows)
     except subprocess.CalledProcessError as e:
         _audit(request, "fit", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
         raise _pane_err(e) from None
@@ -2000,7 +2020,66 @@ def _mount_static(prefix: str, directory: str) -> None:
         return RedirectResponse(prefix + "/" + (f"?{query}" if query else ""))
 
     app.add_api_route(prefix, slash, include_in_schema=False)
-    app.mount(prefix, StaticFiles(directory=directory, html=True), name=prefix.strip("/"))
+    app.mount(prefix, _short_ranges(StaticFiles(directory=directory, html=True)),
+              name=prefix.strip("/"))
+
+
+# A reverse tunnel may carry each response as one message with a size cap (10 MB on the
+# one this runs behind), so a video asked for whole ("bytes=0-", what a player sends)
+# never arrives. A server may answer a range with less than was asked; the player then
+# asks for the rest, so each answer stays well under any such cap. Small, too: such a
+# tunnel holds an answer until all of it arrives, so a seek waits out a whole piece.
+RANGE_PIECE = 1 << 20
+# Nor can any answer this big go out at once, whatever made it (no range, a suffix or
+# multipart range, a stale If-Range, a directory's index.html), so the check is on the
+# answer StaticFiles is about to send. Opening a video or audio file shows it in a player
+# page instead, whose element reads it in ranges; anything else is refused with a reason.
+WHOLE_MAX = 8 << 20
+
+
+class _TooBigError(Exception):
+    pass
+
+
+def _too_big(scope, kind: str, size: str):
+    if (dict(scope["headers"]).get(b"sec-fetch-dest") == b"document"
+            and kind.startswith(("video/", "audio/"))):
+        return HTMLResponse(
+            '<meta name="viewport" content="width=device-width">'
+            '<body style="margin:0;background:#000">'
+            f'<video controls src="{html.escape(quote(posixpath.basename(scope["path"])))}" '
+            'style="width:100vw;height:100vh"></video>')
+    return PlainTextResponse(
+        f"{size} bytes is too big to send at once; ask for it in ranges of up to "
+        f"{RANGE_PIECE} bytes.\n", 403, headers={"Accept-Ranges": "bytes"})
+
+
+def _short_ranges(static: StaticFiles):
+    def piece(value: bytes) -> bytes:
+        asked = re.fullmatch(rb"bytes=(\d+)-(\d*)", value.strip())
+        if not asked or (asked[2] and int(asked[2]) - int(asked[1]) < RANGE_PIECE):
+            return value
+        return b"bytes=%d-%d" % (int(asked[1]), int(asked[1]) + RANGE_PIECE - 1)
+
+    async def app(scope, receive, send):
+        if scope["type"] == "http":
+            scope = {**scope, "headers": [(k, piece(v) if k == b"range" else v)
+                                          for k, v in scope["headers"]]}
+
+        async def guard(message):  # raising here stops StaticFiles before it reads the file
+            if message["type"] == "http.response.start" and scope.get("method") != "HEAD":
+                sent = dict(message["headers"])
+                if int(sent.get(b"content-length", 0)) > WHOLE_MAX:
+                    raise _TooBigError(sent.get(b"content-type", b"").decode(),
+                                  sent[b"content-length"].decode())
+            await send(message)
+
+        try:
+            await static(scope, receive, guard)
+        except _TooBigError as refused:
+            await _too_big(scope, *refused.args)(scope, receive, send)
+
+    return app
 
 
 # Docs site (Hugo build) at /docs. The site is built with --baseURL /docs/ (see
@@ -2026,6 +2105,18 @@ if DOCS_MOUNTED:
 _scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
 _scratch_dir = _scratch_dir if _scratch_dir and Path(_scratch_dir).is_dir() else None
 if _scratch_dir:
+    @app.get("/scratch/", include_in_schema=False)
+    async def scratch_listing() -> HTMLResponse:
+        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount."""
+        watcher = app.state.watcher
+        states = list(watcher.states)
+        return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
+            Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"],
+            WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher),
+            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), listed,
+                                                  getattr(watcher, "use_llm", False)),
+            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
+
     _mount_static("/scratch", _scratch_dir)
 
 

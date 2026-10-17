@@ -9,6 +9,7 @@ import { paneLinks, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
+import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
 import { renderUsage, renderStrip, byUrgency, shownUsage, moreUsage, staleUsage } from "/m/usage.js";
@@ -75,11 +76,14 @@ const LUCIDE = {
   cursor: '<path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4v-1M7 2h1a4 4 0 0 1 4 4v1"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  panelRightClose: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18M8 9l3 3-3 3"/>',
+  panelRightOpen: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18M10 15l-3-3 3-3"/>',
   dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
   gauge: '<path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/>',
+  images: '<path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18"/><circle cx="12" cy="8" r="2"/><rect width="16" height="16" x="6" y="2" rx="2"/>',
   arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
   filter: '<path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>',
@@ -114,6 +118,11 @@ const WIDE = matchMedia("(min-width: 1100px)");
 // the focus layout shows. "focus" is what the Overview choice was saved as before the tab was.
 let reviewLayout = "auto";
 try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "summary", "terminal"].includes(saved)) reviewLayout = saved; else if (saved === "focus") reviewLayout = "summary"; } catch {}
+// Folding the side-by-side overview to a strip is a view of that layout, not a layout of its
+// own: the picker and Auto still resolve to "side", so nothing restarts the streams (the
+// terminal is captured at tmux's size, not ours) and the overview stays current underneath.
+let overviewFolded = false;
+try { overviewFolded = localStorage.getItem("tmuxrc-overview-folded") === "on"; } catch {}
 const focusChoice = () => ["summary", "terminal"].includes(reviewLayout);
 // The tab a pane opens on when its URL names none: the chosen one, so it survives pane switches.
 const defaultView = () => WIDE.matches && reviewLayout === "terminal" ? "terminal" : "summary";
@@ -150,7 +159,7 @@ const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "ot
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
-let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0; // fitCols: see fitTo
+let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
 // Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
@@ -250,7 +259,7 @@ let noticeTimer;
 // Restore is a view of its own, so the dashboard behind it stays whole. An offer that turns up
 // on the bare app (no pane, no view chosen) opens it; a spent one leaves it.
 const restore = setupRestore({ mount: $("restore"), request, slow: NO_TIMEOUT, logos: LOGOS, licon, notice: (...a) => notice(...a), running: () => tmuxRunning,
-  open: () => { if (page !== "restore") openPage("restore"); }, // again would leave Back nowhere to go
+  open: () => openPage("restore"),
   opened: () => { if (!active && !page && !dashboard) navigate(null, "restore", { mode: "replace" }); },
   closed: () => { if (page === "restore") closePage(); } });
 function notice(message = "", ms = 0, action = null) {
@@ -292,7 +301,8 @@ function navigate(id = null, nextView = "summary", { mode, acct = accounts.key()
 // filter tap is a request for the list.
 // Opened from its card, a view's entry says so in history.state, which survives a reload and
 // Back/Forward; its Back then steps back rather than stacking a second dashboard entry.
-const openPage = (name) => { navigate(null, name); history.replaceState({ fromCard: true }, ""); };
+// Not the view already open: that adds no entry, so its Back would leave the app.
+const openPage = (name) => { if (page !== name) { navigate(null, name); history.replaceState({ fromCard: true }, ""); } };
 const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
 const stayPut = (opts) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", opts);
 // Clear all: every filter (the states, the accounts and the search), not the grouping or the
@@ -345,7 +355,7 @@ function route() {
   // Focus follows: into the view's Back, then back to the card's Details.
   if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
   // Not into Restore: its first button is the Restore itself, which an Enter would press.
-  if (page && !wasPage) { $("landing").scrollTop = 0; if (page !== "restore") $("dash-page").querySelector("button")?.focus({ preventScroll: true }); }
+  if (page && !wasPage) { $("landing").scrollTop = 0; if (page !== "restore") $("dash-page").querySelector(".landing-head h2")?.focus({ preventScroll: true }); }
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
   }
@@ -391,7 +401,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText,
+  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
@@ -440,7 +450,8 @@ function renderList() {
   $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
   // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && page !== "restore"));
-  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && page !== "restore"));
+  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && !["restore", "scratch"].includes(page)));
+  $("scratch-nav").setAttribute("aria-pressed", String(page === "scratch"));
   $("restore").setAttribute("aria-pressed", String(page === "restore"));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), scope.tools.join(", "), accounts.on().join(", "), scope.session, $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
@@ -495,6 +506,7 @@ const renderLanding = steady(() => {
   if (page === "restore") { if (!$("dash-page").contains(restore.card)) $("dash-page").replaceChildren(restore.card); return restore.card; }
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
+  if (page === "scratch") return scratchPage();
   if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
   paintUsage(); // follows the tool chips
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
@@ -657,6 +669,11 @@ reviewDivider.onkeydown = (e) => {
   e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
 };
 reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ? 360 : 280);
+$("overview-toggle").onclick = () => {
+  overviewFolded = !overviewFolded;
+  try { localStorage.setItem("tmuxrc-overview-folded", overviewFolded ? "on" : "off"); } catch {}
+  render();
+};
 
 // The fleet chart docks under the pane on a wide screen, behind a seam: drag it to any
 // height and release snaps to strip, medium or tall; a double-click or the chevron folds
@@ -766,6 +783,24 @@ function openLane(lane) {
   const at = loopsView.querySelector(`[data-lane="${lane}"]`);
   if (at) { at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true }); }
 }
+// The scratch gallery, in the content area so the app stays put (the page is sandboxed, so a frame).
+const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/scratch/", title: "Scratch", className: "scratch-frame" });
+// Its Grid/List sits in the page head, opposite the title. The sandboxed page cannot keep the
+// choice, or read the app's theme, so the app tells the page both (scratch.html listens).
+let scratchView = "grid";
+try { scratchView = localStorage.getItem("tmuxrc-scratch-view") || "grid"; } catch {}
+const scratchSeg = Object.assign(document.createElement("span"), { id: "scratch-view", className: "seg" });
+scratchSeg.setAttribute("role", "group"); scratchSeg.setAttribute("aria-label", "View");
+const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light") }, "*"); // its origin is opaque
+scratchFrame.addEventListener("load", tellScratch);
+addEventListener("message", (e) => { if (e.source === scratchFrame.contentWindow && /^%\d+$/.test(e.data?.pane)) navigate(e.data.pane); });
+function scratchPage() {
+  const head = cardView("Scratch", scratchFrame).previousSibling;
+  if (scratchSeg.parentNode !== head) head.append(scratchSeg); // a move would drop its focus
+  choices("scratch-view", { grid: "Grid", list: "List" }, scratchView, (v) => {
+    scratchView = v; try { localStorage.setItem("tmuxrc-scratch-view", v); } catch {} scratchPage(); tellScratch(); });
+  return scratchFrame;
+}
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
   if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);
@@ -801,10 +836,11 @@ function render() {
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
-  // A phone's Chat and mic ride its tab bar; a pane hides the bar, so its header takes them.
-  // Moved only when they are elsewhere: a move on every repaint would drop their focus.
-  const callTo = inPane ? $("settings-open") : $("attention-tab");
-  if (!wide && $("chat").nextElementSibling !== callTo) callTo.before($("live-mode"), $("chat"));
+  // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
+  // its header takes them. Moved only when they are elsewhere: a move on every repaint would
+  // drop their focus.
+  const callTo = inPane ? $("settings-open") : $("all-tab");
+  if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
   show("brand", wide || (!inPane && dashboard)); show("list-title", list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
@@ -862,6 +898,12 @@ function render() {
     button.setAttribute("aria-pressed", String(button.dataset.view === view));
   });
   show("review-divider", reviewing());
+  const toggle = $("overview-toggle");
+  $("detail").toggleAttribute("data-folded", overviewFolded);
+  show("overview-toggle", effectiveLayout() === "side");
+  toggle.setAttribute("aria-expanded", String(!overviewFolded));
+  toggle.title = toggle.ariaLabel = overviewFolded ? "Show overview" : "Hide overview";
+  html(toggle, licon(overviewFolded ? "panelRightOpen" : "panelRightClose", 18));
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
   if (wide) sizeFleet();
@@ -1044,8 +1086,7 @@ function restartDetail() {
   // Leaving the terminal, by pane, view or hidden page, sends a scrolled app home first, so the
   // watcher never keeps parsing old history nobody is looking at.
   if (detailId !== active || !terminalVisible() || document.hidden) wheelHome(detailId);
-  // A terminal stream reports afresh (attachment may have changed), and only it shows the toggle.
-  fitCols = 0; show("fit-pane", false);
+  fitCols = 0; fitAlt = undefined; // a terminal stream reports afresh: attachment, or the pane's app, may have changed
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
     latestCapture = ""; clearCapture(); detailId = active;
@@ -1070,14 +1111,28 @@ function termCols() {
 // One at a time, in the order asked: a tick and untick must reach the daemon in that order.
 // fitCols is what the daemon last took; a failed report leaves it 0 for the stream to retry.
 let fitLine = Promise.resolve(), fitBusy = 0; // fitBusy: reports queued or in flight
+// What to fit: the pane's own pick (made in its menu, so it applies even with a terminal
+// attached), else this browser's default. Picks are kept per pane incarnation.
+const FIT_DEFAULTS = { auto: "Auto", width: "Width only", off: "Off" };
+const FIT_PICKS = { "": "Default", width: "Width", tall: "Tall", off: "Off" };
+const stored = (k, fallback) => { try { return localStorage.getItem(k) ?? fallback; } catch { return fallback; } };
+const store = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+let fitDefault = stored("tmuxrc-fit-default", "auto"), tallRows = Number(stored("tmuxrc-tall-rows", 500)) || 500;
+let fitPicks = {}; try { fitPicks = JSON.parse(stored("tmuxrc-fit-picks", "{}")) || {}; } catch {}
+const paneKey = (id) => `${id}:${panes.find((p) => p.pane_id === id)?.birth ?? ""}`;
+const fitMode = (id) => fitPicks[paneKey(id)] || fitDefault;
 function fitTo(id, cols) {
-  if (!id || !cols) return; // a hidden view measures nothing
-  const body = { cols, force: $("fit-toggle").checked }, signal = detailController?.signal;
+  // Not before the pane is in state: its own pick is filed under its incarnation, which
+  // only state knows. fitCols stays 0, so the stream's next frame tries again.
+  if (!id || !cols || !panes.some((p) => p.pane_id === id)) return; // a hidden view measures nothing
+  const pick = fitPicks[paneKey(id)], mode = fitMode(id);
+  if (mode === "off" && !pick) { fitCols = cols; return; } // nothing to send: the window is left as it is
+  const body = { cols, mode, rows: tallRows, force: !!pick }, signal = detailController?.signal;
   const current = () => !signal?.aborted && id === active; // a reply to a stream since replaced is stale
   fitBusy++;
   fitLine = fitLine.then(() => post(paneUrl(id, "fit"), body)).finally(() => fitBusy--).then((r) => {
     if (!current() || !terminalVisible()) return fitDue();
-    fitCols = cols; show("fit-pane", r.attached);
+    fitCols = cols;
     refit(); // resized while this was in flight: the last size wins
   }, () => { if (current()) fitCols = 0; else fitDue(); }); // our own failure: the stream's next frame retries
 }
@@ -1086,12 +1141,22 @@ function fitTo(id, cols) {
 const fitDue = () => { if (!fitCols && !fitBusy && terminalVisible()) fitTo(active, termCols()); };
 // Mid-gesture sizes coalesce: while a report is in flight its reply measures again.
 const refit = () => { const cols = !fitBusy && terminalVisible() && termCols(); if (cols && cols !== fitCols) fitTo(active, cols); };
-try { $("fit-toggle").checked = localStorage.getItem("tmuxrc-fit") === "1"; } catch {}
-// A terminal may have attached since: the menu asks again, so the toggle is there to tick.
-$("pane-menu").addEventListener("toggle", () => { if ($("pane-menu").open && terminalVisible()) fitTo(active, termCols()); });
-$("fit-toggle").onchange = () => {
-  try { localStorage.setItem("tmuxrc-fit", $("fit-toggle").checked ? "1" : "0"); } catch {}
-  if (terminalVisible()) fitTo(active, termCols()); // this terminal, measured now
+const refitNow = () => { if (terminalVisible()) fitTo(active, termCols()); }; // this terminal, measured now
+function pickFit(v) {
+  if (v) fitPicks[paneKey(active)] = v; else delete fitPicks[paneKey(active)];
+  store("tmuxrc-fit-picks", JSON.stringify(fitPicks)); paintFit(); refitNow();
+}
+const paintFit = () => choices("fit-pane", FIT_PICKS, fitPicks[paneKey(active)] || "", pickFit);
+$("pane-menu").addEventListener("toggle", () => {
+  // The fit is the terminal's, and a choice is filed under the pane's incarnation, which
+  // only state knows: offered on the terminal once the pane is in state.
+  show("fit-row", terminalVisible() && panes.some((p) => p.pane_id === active));
+  if ($("pane-menu").open) paintFit();
+});
+const setFitDefault = (v) => { fitDefault = v; store("tmuxrc-fit-default", v); paintSettings(); refitNow(); };
+$("tall-rows").onchange = (e) => {
+  tallRows = Math.max(100, Math.min(2000, Math.round(Number(e.target.value)) || 500));
+  e.target.value = tallRows; store("tmuxrc-tall-rows", tallRows); refitNow();
 };
 
 function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; latestGeometry = [0, ""]; shownTop = 0; resetEarlier(); }
@@ -1280,6 +1345,10 @@ async function streamTerminal(id, signal) {
       if (signal.aborted) return;
       frame = data.frame || "";
       if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; latestGeometry = [data.top, data.screen]; paintCapture(); }
+      // A full-screen app came or went: Auto picks again between tall and width only.
+      // The first word too: a fit sent before it may have judged a shell the app has since
+      // left. Queued, not left to fitDue: a reply already in flight would mark it done.
+      if ("alt" in data && data.alt !== fitAlt) { if (fitMode(id) === "auto") refitNow(); fitAlt = data.alt; }
       fitDue();
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
@@ -1598,8 +1667,8 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
-// The phone's tab bar (Chat and the mic between them are live.js's). The gauge is Dashboard's
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "app-menu-button": "menu", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+// The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}${id === "attention" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
@@ -1652,9 +1721,24 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
+$("scratch-nav").onclick = (e) => { e.preventDefault(); openPage("scratch"); };
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
+// A phone's Back is a swipe in from the left edge: it presses the hidden Back of the pane or
+// the view. Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
+// it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
+let edge = null;
+addEventListener("touchstart", (e) => {
+  const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
+  edge = !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+}, { passive: true });
+addEventListener("touchcancel", () => { edge = null; });
+addEventListener("touchend", (e) => {
+  const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
+  if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
+  edge = null;
+});
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
 const searched = () => { writeHash(formatHash({ ...parseHash(location.hash), q: $("search").value })); renderList(); };
 $("search").oninput = searched;
@@ -1726,7 +1810,7 @@ function setTheme(theme) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
   document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
-  paintSettings();
+  paintSettings(); tellScratch();
 }
 matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => { if (savedTheme() === "system") setTheme("system"); });
 const savedTheme = () => { try { return localStorage.getItem("tmuxrc-theme") || "system"; } catch { return "system"; } };
@@ -1747,6 +1831,8 @@ function paintSettings() {
   choices("usage-mode", WIDE.matches ? { [usageMode === "on" ? "on" : "auto"]: "On", off: "Off" } : USAGE_MODES, usageMode, setUsageMode);
   choices("sort", SORTS, sort, setSort);
   choices("pin-needs", { on: "On", off: "Off" }, pinNeeds ? "on" : "off", setPinNeeds);
+  choices("fit-default", FIT_DEFAULTS, fitDefault, setFitDefault);
+  $("tall-rows").value = tallRows;
   show("sort-row", !WIDE.matches); // wide, the filter menu's Sort by sets it
 }
 $("settings-open").onclick = () => {
@@ -1755,6 +1841,10 @@ $("settings-open").onclick = () => {
   accounts.refresh(); // repaints Settings, as every refresh does while it is open
 };
 $("close-settings").onclick = () => $("settings").close();
+const closeAppMenu = () => { $("app-menu").open = false; $("app-menu-button").focus(); }; // a pick's sheet returns focus here
+$("menu-settings").onclick = () => { closeAppMenu(); $("settings-open").click(); };
+$("menu-scratch").onclick = (e) => { e.preventDefault(); closeAppMenu(); openPage("scratch"); };
+$("menu-docs").onclick = closeAppMenu;
 // Wide, Settings and New window dock as a panel beside the sidebar, not over the screen:
 // non-modal, so the list stays in view and live, and closed by Escape or a click anywhere
 // but the panel or the button that opened it. A phone keeps its sheet.
@@ -1771,12 +1861,24 @@ document.addEventListener("click", (e) => {
   if (!document.querySelector("dialog:modal")) besides().forEach((d) => { if (!d.contains(e.target) && !d._opener.contains(e.target)) d.close(); });
 }, true);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
+// A click in a frame (the Scratch gallery) never reaches this document, but it takes the focus.
+addEventListener("blur", () => { if (document.activeElement?.tagName === "IFRAME" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
 // Closed by its × or Escape, focus goes back to what opened it; not after a launch, whose
 // navigation has already put focus on the pane.
 for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close", () => {
   if (d.classList.contains("beside") && [null, document.body].includes(document.activeElement)) d._opener?.focus({ preventScroll: true });
   d.classList.remove("beside");
 });
+// A phone's sheets close as their × does when dragged down, or tapped above (on the dim
+// backdrop: modal, so the tap reaches nothing under it). Every sheet's heading leads with its ×.
+for (const d of document.querySelectorAll("dialog")) {
+  const close = () => d.querySelector(".dialog-heading button").click();
+  dragToDismiss(d, { onClose: close });
+  d.addEventListener("click", (e) => {
+    const r = d.getBoundingClientRect();
+    if (e.target === d && !WIDE.matches && d.matches(":modal") && (e.clientY < r.top || e.clientX < r.left || e.clientX > r.right)) close();
+  });
+}
 // Crossing the breakpoint changes which form a panel takes (sheet or docked): close it.
 WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog")].forEach((d) => d.close()));
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("terminal-scroll").style.setProperty("--term-font", `${fontSize}px`); text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; refit(); }
@@ -2054,6 +2156,7 @@ function fitViewport() {
   // Installed mode lets iOS reserve the status bar outside the app. Fill that
   // available viewport while browsing; editors still follow the keyboard.
   root.classList.toggle("standalone-fill", !!standalone && !editing);
+  root.classList.toggle("editing", !!editing); // the keyboard is up: the tab bar steps aside (style.css)
   // Only an editor measures: iOS resizes the visual viewport, not the layout viewport, for
   // its keyboard. At rest CSS sizes the app from dvh, so a height measured with the keyboard
   // up (or mid-dismissal, or while backgrounded) has nothing left to strand.
@@ -2120,7 +2223,7 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
 // as "close this view", and pressing it should never end a process. 404 means it is already
 // gone, the outcome asked for.
-dismissable($("pane-menu"));
+dismissable($("pane-menu")); dismissable($("app-menu"));
 const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));

@@ -62,6 +62,17 @@ export function dismissable(details) {
     if (event.key === 'Escape') { details.open = false; summary.focus(); event.preventDefault(); }
   });
   // The path as dispatched: a click that redraws its own button (a multi-select's) is still inside.
-  document.addEventListener('click', event => { if (!event.composedPath().includes(details)) details.open = false; });
+  // Captured, so on a phone the tap that closes a shown menu is swallowed, as an iOS sheet's
+  // is: it neither opens the row under it nor focuses the search box (a mousedown's default).
+  // Not one a route left open but out of sight: that only closes.
+  const outside = event => details.open && !event.composedPath().includes(details);
+  const swallows = event => outside(event) && details.getClientRects().length > 0 && !matchMedia('(min-width: 1100px)').matches;
+  document.addEventListener('mousedown', event => { if (swallows(event)) event.preventDefault(); }, true);
+  document.addEventListener('click', event => {
+    if (swallows(event)) { event.preventDefault(); event.stopPropagation(); }
+    if (outside(event)) details.open = false;
+  }, true);
   window.addEventListener('resize', () => { details.open = false; });
+  // A tap in a frame (the Scratch gallery) never reaches this document, but it takes the focus.
+  window.addEventListener('blur', () => { details.open = false; });
 }

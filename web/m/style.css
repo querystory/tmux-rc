@@ -46,13 +46,17 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
    case (narrow, in a pane), so it takes the slack; hidden, it contributes nothing, and
    #brand keeps the auto margin on every screen that shows the brand. */
 #back { margin-right: auto; }
+/* A touch phone goes back by swiping in from the left edge (app.js), so its Back arrows are
+   clipped out of sight, not removed: a screen reader or keyboard still reaches them (a
+   keyboard's focus shows one), and a zero-wide #back keeps the slack it takes in the header. */
+@media (max-width: 1099px) and (pointer: coarse) { :is(#back, .landing-head [data-key="page-back"]):not(:focus-visible) { width: 0; overflow: hidden; clip-path: inset(50%); } }
 /* Now inside #detail, above the tabs. Narrow reads as the header row it replaced: the
    same type, the same 16px gutter, its own rule under it. */
 #heading { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
 .pane-heading-text { min-width: 0; flex: 1; }
 #heading h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Navigation focuses the title (tabindex=-1) so focus lands in the opened pane without painting a ring on a button; Tab still reaches real controls with their :focus-visible ring. */
-#pane-title:focus { outline: none; }
+/* Navigation focuses the title (tabindex=-1) so focus lands in the opened pane or page without painting a ring on a button; Tab still reaches real controls with their :focus-visible ring. */
+:is(#pane-title, .landing-head h2):focus { outline: none; }
 #pane-location { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #connection { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 #connection::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
@@ -180,6 +184,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   --lens: blur(8px) saturate(200%) brightness(.8); --drop: 0 12px 30px rgb(0 0 0 / .55), 0 2px 6px rgb(0 0 0 / .35);
   background: linear-gradient(180deg, var(--sheen), transparent 55%), var(--fill); -webkit-backdrop-filter: var(--lens); backdrop-filter: var(--lens);
   border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--spec), inset 0 -1px 1px rgb(0 0 0 / .06), var(--drop); }
+.editing #list-nav { display: none; } /* typing: the keyboard's rows, not the tabs, go above it */
 :root.light #list-nav { --fill: rgb(255 255 255 / .08); --sheen: rgb(255 255 255 / .38); --edge: rgb(255 255 255 / .65); --spec: #fff; --ink: #1f2e27; --halo: rgb(255 255 255 / .7);
   --lens: blur(8px) saturate(220%) brightness(1.03); --drop: 0 10px 28px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .12); }
 #list-nav button { flex: 1 1 0; min-width: 0; width: auto; height: auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 2px; border-radius: 28px; font-size: 10.5px; font-weight: 600; white-space: nowrap; color: var(--ink); text-shadow: 0 0 4px var(--halo); box-shadow: none; }
@@ -187,9 +192,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #list-nav :is([aria-pressed="true"], #chat.active) { background: var(--accent-bg); color: var(--accent); }
 #list-nav #attention-tab[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
 #list-nav #chat::after { content: attr(aria-label); }
-#list-nav #live-mode { flex: 0 0 52px; height: 52px; align-self: center; margin: 0 4px; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent); }
-#list-nav #live-mode.active { background: var(--red); }
-#list-nav #live-mode svg { width: 26px; height: 26px; }
+#list-nav #live-mode::after { content: "Voice"; }
+#list-nav #live-mode.active { color: var(--red); }
 .nav-icon { position: relative; display: grid; place-items: center; }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
 #list-nav .count { position: absolute; left: calc(50% + 5px); top: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: var(--surface); line-height: 18px; font-weight: 700; text-align: center; }
@@ -307,7 +311,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #reply:focus-visible, #secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
 dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; width: min(760px, 100%); max-width: 100%; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); max-height: 88dvh; }
-dialog::backdrop { background: #0008; }
+dialog::backdrop { background: #0008; opacity: var(--drag, 1); } /* fades as the sheet is dragged away (drag-dismiss.js) */
 .sheet-handle { width: 32px; height: 4px; background: var(--line); border-radius: 2px; margin: 0 auto 12px; }
 .choice-list { display: flex; flex-direction: column; margin-top: 12px; }
 .choice-list button { display: flex; align-items: center; gap: 14px; padding: 16px 4px; min-height: 64px; text-align: left; border-radius: 0; border-bottom: 1px solid var(--line); }
@@ -338,7 +342,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
    WebKit column flexbox does not shrink it to fit (the sheet would run off the screen). */
 @media (max-width: 1099px) { :is(#settings, #launch-dialog) .panel-body { max-height: calc(88dvh - 64px); } }
 #settings h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
-#settings section:has(#push[hidden], #docs[hidden]) { display: none; }
+#settings section:has(#push[hidden]), #settings section:has(#docs[hidden]):has(#scratch[hidden]) { display: none; }
 .set-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .set-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 8px 14px; border-radius: 0; text-align: left; text-decoration: none; font-size: 14px; color: var(--fg); }
 .set-row[hidden] { display: none; }
@@ -352,6 +356,9 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .seg { display: inline-flex; flex: none; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
 .seg button { min-height: 28px; padding: 0 10px; border-radius: 6px; font-size: 13px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; }
+#fit-row { display: grid; gap: 6px; padding: 6px 10px; font-size: 14px; }
+#fit-row .seg button { min-height: 32px; display: inline; }
+#tall-rows { width: 6em; }
 #push { position: relative; width: 38px; height: 22px; min-height: 22px; padding: 0; flex: none; border-radius: 11px; background: var(--line); }
 #push svg { display: none; }
 #push::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: left 120ms; }
@@ -545,8 +552,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #sb-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 #sb-sticky { position: sticky; top: 0; z-index: 3; flex: none; background: var(--surface); transition: box-shadow 120ms; }
 #sb-sticky.stuck { box-shadow: 0 1px 0 var(--line), 0 6px 12px -8px rgb(0 0 0 / .25); }
-#dash-nav[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
-#dash-nav[aria-pressed="true"] svg { color: var(--fg); }
+:is(#dash-nav, #scratch-nav)[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
+:is(#dash-nav, #scratch-nav)[aria-pressed="true"] svg { color: var(--fg); }
 /* Sessions: the section's title and its green +; search and the filter on one row under it. */
 #sb-sess { display: flex; align-items: center; min-height: 34px; padding: 6px 14px 0 17px; flex: none; }
 #sb-sess b { padding-right: 8px; font-size: 14px; font-weight: 700; }
@@ -633,7 +640,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
 #app.rail #collapse { margin: 12px 0 6px; }
 #app.rail :is(#new-window, #find > *) { order: 1; }
-#app.rail #dash-nav { order: 2; }
+#app.rail :is(#dash-nav, #scratch-nav) { order: 2; }
 #app.rail :is(#chat, #live-mode) { order: 3; }
 #app.rail #side-list { order: 4; }
 #app.rail #settings-open { order: 5; margin: 6px 0 10px; }
@@ -845,6 +852,14 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
   #detail[data-layout="stack"] > #review-divider::after { inset: 5px 0; }
   #review-divider:hover::after, #review-divider:focus-visible::after, #review-divider.dragging::after { background: var(--accent); }
   #review-divider.dragging ~ #overview, #review-divider.dragging ~ #terminal { user-select: none; }
+  /* The side overview folds to a strip that is itself the button back, so the way out stays
+     where the overview was. Unfolded, the button sits in the overview's top corner. */
+  #detail[data-layout="side"] > #overview-toggle { grid-column: 2; grid-row: 3; justify-self: end; align-self: start; z-index: 6; width: 32px; height: 32px; margin: 7px 8px; color: var(--muted); }
+  #detail[data-layout="side"] .pane-summary .section-heading { margin-right: 28px; } /* clear of the button */
+  #detail[data-layout="side"][data-folded] { grid-template-columns: minmax(0, 1fr) 40px; }
+  #detail[data-layout="side"][data-folded] > :is(#overview, #review-divider) { display: none; }
+  #detail[data-layout="side"][data-folded] > #overview-toggle { grid-row: 3 / 5; justify-self: stretch; align-self: stretch; align-items: start; width: auto; height: auto; margin: 0; padding-top: 7px; border-left: 1px solid var(--line); border-radius: 0; background: var(--surface); }
+  #overview-toggle:hover { color: var(--fg); }
 }
 
 .header-picker { position: relative; min-width: 0; }
@@ -1204,6 +1219,7 @@ button.picked:disabled { opacity: 1; }
   #find .search { flex: 1; min-width: 0; margin-right: 8px; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
   #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
+  #side-filter-picker .header-picker-menu::before { content: ""; display: block; width: 32px; height: 4px; margin: 4px auto 8px; border-radius: 2px; background: var(--line); } /* the grab handle: drag it down to close */
   #side-filter-picker [aria-label="Group by"] { display: none; }
   #side-filter-picker .acct-opt { min-height: 44px; font-size: 15px; }
 }
@@ -1360,3 +1376,14 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .restore-pane.blocked { opacity: .55; }
 .restore-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .restore-actions button { min-height: 40px; padding: 0 14px; border-radius: 6px; }
+/* The phone's ☰ (index.html #app-menu): its places, in place of the gear. */
+#app-menu > summary::after { content: none; }
+#app-menu .header-picker-menu { min-width: 180px; }
+#app-menu .header-picker-menu :is(a, button) { display: flex; align-items: center; width: 100%; min-height: 44px; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: var(--fg); text-decoration: none; font: inherit; font-size: 15px; text-align: left; }
+#app-menu .header-picker-menu :is(a, button):hover { background: var(--raised); }
+@media (min-width: 1100px) { #app-menu { display: none; } }
+@media (max-width: 1099.98px) { .app-header > #settings-open { display: none; } }
+#scratch-view { margin-left: auto; }
+/* A spinner behind the frame until the gallery paints over it (a frame reloads on every visit). */
+.scratch-frame { display: block; width: 100%; height: calc(100dvh - 110px); border: 0;
+  background: center 96px / 28px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%238a948f' stroke-width='2.5' stroke-dasharray='42 15'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.8s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E"); }

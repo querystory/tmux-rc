@@ -355,24 +355,23 @@ def classify_text(
 
 
 def summarize_events(event_texts: list[str]) -> str | None:
-    """One-line summary of a burst of activity events (for the idle collapse). Returns
-    plain text, or None on failure. Cheap: no schema, tiny output."""
-    if not event_texts or _backoff_remaining() > 0:
+    """One-line summary of a burst of activity events (for the idle collapse)."""
+    if not event_texts:
+        return None
+    joined = "\n".join(f"- {t}" for t in event_texts[-60:])
+    return one_sentence("Summarize this burst of terminal activity in ONE short sentence "
+                        f"(what was accomplished, past tense):\n{joined}")
+
+
+def one_sentence(prompt: str) -> str | None:
+    """The model's one-line answer to `prompt` as plain text, or None on failure. Cheap: no
+    schema, tiny output."""
+    if _backoff_remaining() > 0:
         return None  # skip while rate-limited — same gate as classify_text
     try:
         types = genai_types()
-
-        joined = "\n".join(f"- {t}" for t in event_texts[-60:])
-        resp = _generate(
-            model=_MODEL,
-            contents=[
-                (
-                    "Summarize this burst of terminal activity in ONE short sentence "
-                    f"(what was accomplished, past tense):\n{joined}"
-                )
-            ],
-            config=types.GenerateContentConfig(temperature=0.0),
-        )
+        resp = _generate(model=_MODEL, contents=[prompt],
+                         config=types.GenerateContentConfig(temperature=0.0))
         _record(resp)
         return (resp.text or "").strip()[:200] or None
     except Exception as e:  # noqa: BLE001

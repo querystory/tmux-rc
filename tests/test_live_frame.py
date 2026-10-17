@@ -25,6 +25,8 @@ def _inline_to_thread(monkeypatch):
         return fn(*a, **k)
 
     monkeypatch.setattr(server.asyncio, "to_thread", inline)
+    # A changed frame also says whether the app is full screen: never asked of a real tmux.
+    monkeypatch.setattr(server.fit, "alternate", lambda pane_id: False)
 
 
 def test_changed_frame_returns_immediately(monkeypatch):
@@ -44,7 +46,7 @@ def test_unchanged_holds_then_replies_no_text(monkeypatch):
     monkeypatch.setattr(server, "LIVE_CHECK_SECONDS", 0.0)
     h = server.tmux.frame_id("same", 0, "80")  # client already holds the current hash
     out = _run(server.live_frame("%1", frame=h))
-    assert out == {"frame": h}  # no change, past deadline → {frame} only, no "text"
+    assert out == {"frame": h, "alt": False}  # no change, past deadline → no "text"
 
 
 def test_full_not_truncated_hash(monkeypatch):
@@ -71,3 +73,13 @@ def test_tmux_timeout_maps_to_504(monkeypatch):
     with pytest.raises(server.HTTPException) as e:
         _run(server.live_frame("%1", frame=""))
     assert e.value.status_code == 504
+
+
+def test_a_full_screen_switch_alone_still_reaches_the_view(monkeypatch):
+    """Entering a blank alternate screen from a blank one changes no text: the answer at the
+    end of the hold still says so, for the view's Auto fit."""
+    monkeypatch.setattr(server.tmux, "capture_live", lambda pid: ("", 0, "80"))
+    monkeypatch.setattr(server.fit, "alternate", lambda pane_id: True)
+    monkeypatch.setattr(server, "LIVE_HOLD_SECONDS", 0)
+    h = _run(server.live_frame("%1"))["frame"]
+    assert _run(server.live_frame("%1", frame=h)) == {"frame": h, "alt": True}

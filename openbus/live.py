@@ -914,7 +914,7 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     for p in projects:
         sessions = []
         for s in p["sessions"]:
-            pane = await _running_pane(s, watcher)
+            pane = await asyncio.to_thread(running_pane, s, watcher)
             if pane and pane not in labels:
                 watcher.request_reparse(pane)  # publish it before the model types there
             sessions.append({
@@ -944,19 +944,11 @@ _resume_lock = asyncio.Lock()
 _resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, audit rec)
 
 
-def _pane_of(running: dict) -> str | None:
-    """A running session's pane in THIS tmux server, or None. Its %N comes from whatever
-    server the agent ran under, so it counts only if that pane's process here is an
-    ancestor of the agent's pid."""
-    pane, pid = running.get("tmux_pane"), running.get("pid")
-    root = pane and isinstance(pid, int) and tmux.pane_pid(pane)
-    return pane if root and int(root) in tmux.ancestors(pid) else None
-
-
-async def _running_pane(entry: dict, watcher) -> str | None:
-    """The pane a running session is in, in THIS tmux server, or None."""
+def running_pane(entry: dict, watcher) -> str | None:
+    """The pane a running agent-history session is in, in THIS tmux server, or None.
+    Blocking (it may ask tmux): the scratch gallery shares it."""
     running = entry.get("running")
-    pane = running and await asyncio.to_thread(_pane_of, running)
+    pane = running and tmux.running_pane(running)
     if running and not pane and entry.get("harness") == "codex":
         pane = _codex_pane(watcher, entry["session_id"])
     return pane or None
@@ -1020,7 +1012,7 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     running = entry.get("running")
     if running:
         # The registry, not the watcher's last tick, is what says which pane it's in.
-        pane = await _running_pane(entry, watcher)
+        pane = await asyncio.to_thread(running_pane, entry, watcher)
         if not pane:
             return {"status": "rejected", "reason": "already running outside this tmux"}
         rec["pane_id"] = pane
