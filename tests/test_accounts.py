@@ -345,7 +345,8 @@ W = "CODEX_HOME=~/.codex-work"
     (f"{W} sh -c 'codex login'", 400, None),  # only the provider's own binary
     (f"{W} /tmp/codex login", 400, None),
     (W, 400, None),
-    (f"{W} codex login -v; rm -rf ~", 200, ["codex", "login", "-v;", "rm", "-rf", "~"]),  # argv
+    # argv, its ';' escaped for tmux's parser (test_new_session reads it back from real tmux)
+    (f"{W} codex login -v; rm -rf ~", 200, ["codex", "login", "-v\\;", "rm", "-rf", "~"]),
     (f"{W} codex -c a=b login", 400, None),  # `codex login` itself, nothing else
     (f"{W} codex 'login", 400, None),  # unbalanced quote
 ])

@@ -550,8 +550,10 @@ def new_window(session: str, name: str, command: str | list[str], cwd: str | Non
     `cwd` overrides it for a command that must start somewhere specific (a resumed
     agent session only exists in the directory it was started in).
     A `command` given as a list is executed directly by tmux, with no shell, so its
-    arguments are never parsed as shell syntax."""
-    argv = command if isinstance(command, list) else [command]
+    arguments are never parsed as shell syntax. tmux still ends a command at an argument
+    ending in ';' (after `--` too), so that ';' goes escaped as tmux's literal one."""
+    argv = [a[:-1] + "\\;" if a.endswith(";") else a
+            for a in (command if isinstance(command, list) else [command])]
     return _run(
         ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd or "#{session_path}",
          "-t", f"{session}:", "-n", name, "--", *argv]

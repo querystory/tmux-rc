@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import uuid
 
 import pytest
@@ -80,6 +81,20 @@ def test_new_server_gets_the_login_shells_path(sock, audits, tmp_path, monkeypat
     r = TestClient(S.app).post("/api/sessions", json={"name": "login", "cwd": str(tmp_path)})
     assert r.status_code == 200, r.text
     assert T._run(["show-environment", "-g", "PATH"]).startswith("PATH=/login/bin:")
+
+
+def test_a_window_argv_ending_in_a_semicolon_stays_one_command(sock, audits, tmp_path):
+    """tmux ends a command at an argument ending in ';', even after `--`."""
+    r = TestClient(S.app).post("/api/sessions", json={"name": "semi", "cwd": str(tmp_path)})
+    assert r.status_code == 200, r.text
+    out, hit = tmp_path / "argv", tmp_path / "injected"
+    args = ["a;", ";", "b\\;", "run-shell", f"touch {hit}"]
+    T.new_window("semi", "w", ["sh", "-c", f'printf "%s\\n" "$@" > {out}', "x", *args])
+    for _ in range(50):
+        if out.exists() and out.read_text():
+            break
+        time.sleep(0.1)
+    assert out.read_text().splitlines() == args and not hit.exists()
 
 
 def test_existing_name_is_a_conflict(sock, audits, tmp_path):
