@@ -46,6 +46,10 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
    case (narrow, in a pane), so it takes the slack; hidden, it contributes nothing, and
    #brand keeps the auto margin on every screen that shows the brand. */
 #back { margin-right: auto; }
+/* A touch phone goes back by swiping in from the left edge (app.js), so its Back arrows are
+   clipped out of sight, not removed: a screen reader or keyboard still reaches them (a
+   keyboard's focus shows one), and a zero-wide #back keeps the slack it takes in the header. */
+@media (max-width: 1099px) and (pointer: coarse) { :is(#back, .landing-head [data-key="page-back"]):not(:focus-visible) { width: 0; overflow: hidden; clip-path: inset(50%); } }
 /* Now inside #detail, above the tabs. Narrow reads as the header row it replaced: the
    same type, the same 16px gutter, its own rule under it. */
 #heading { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
@@ -187,9 +191,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #list-nav :is([aria-pressed="true"], #chat.active) { background: var(--accent-bg); color: var(--accent); }
 #list-nav #attention-tab[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
 #list-nav #chat::after { content: attr(aria-label); }
-#list-nav #live-mode { flex: 0 0 52px; height: 52px; align-self: center; margin: 0 4px; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent); }
-#list-nav #live-mode.active { background: var(--red); }
-#list-nav #live-mode svg { width: 26px; height: 26px; }
+#list-nav #live-mode::after { content: "Voice"; }
+#list-nav #live-mode.active { color: var(--red); }
 .nav-icon { position: relative; display: grid; place-items: center; }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
 #list-nav .count { position: absolute; left: calc(50% + 5px); top: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: var(--surface); line-height: 18px; font-weight: 700; text-align: center; }
@@ -329,7 +332,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
    WebKit column flexbox does not shrink it to fit (the sheet would run off the screen). */
 @media (max-width: 1099px) { :is(#settings, #launch-dialog) .panel-body { max-height: calc(88dvh - 64px); } }
 #settings h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
-#settings section:has(#push[hidden], #docs[hidden]) { display: none; }
+#settings section:has(#push[hidden]), #settings section:has(#docs[hidden]):has(#scratch[hidden]) { display: none; }
 .set-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .set-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 8px 14px; border-radius: 0; text-align: left; text-decoration: none; font-size: 14px; color: var(--fg); }
 .set-row[hidden] { display: none; }
@@ -627,7 +630,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
 #app.rail #collapse { margin: 12px 0 6px; }
 #app.rail :is(#new-window, #find > *) { order: 1; }
-#app.rail #dash-nav { order: 2; }
+#app.rail :is(#dash-nav, #scratch-nav) { order: 2; }
 #app.rail :is(#chat, #live-mode) { order: 3; }
 #app.rail #side-list { order: 4; }
 #app.rail #settings-open { order: 5; margin: 6px 0 10px; }
@@ -839,6 +842,14 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
   #detail[data-layout="stack"] > #review-divider::after { inset: 5px 0; }
   #review-divider:hover::after, #review-divider:focus-visible::after, #review-divider.dragging::after { background: var(--accent); }
   #review-divider.dragging ~ #overview, #review-divider.dragging ~ #terminal { user-select: none; }
+  /* The side overview folds to a strip that is itself the button back, so the way out stays
+     where the overview was. Unfolded, the button sits in the overview's top corner. */
+  #detail[data-layout="side"] > #overview-toggle { grid-column: 2; grid-row: 3; justify-self: end; align-self: start; z-index: 6; width: 32px; height: 32px; margin: 7px 8px; color: var(--muted); }
+  #detail[data-layout="side"] .pane-summary .section-heading { margin-right: 28px; } /* clear of the button */
+  #detail[data-layout="side"][data-folded] { grid-template-columns: minmax(0, 1fr) 40px; }
+  #detail[data-layout="side"][data-folded] > :is(#overview, #review-divider) { display: none; }
+  #detail[data-layout="side"][data-folded] > #overview-toggle { grid-row: 3 / 5; justify-self: stretch; align-self: stretch; align-items: start; width: auto; height: auto; margin: 0; padding-top: 7px; border-left: 1px solid var(--line); border-radius: 0; background: var(--surface); }
+  #overview-toggle:hover { color: var(--fg); }
 }
 
 .header-picker { position: relative; min-width: 0; }

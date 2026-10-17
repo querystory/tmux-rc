@@ -250,8 +250,8 @@ export function setupSidebar(ctx) {
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
       if (o.part === "text") return text(el, o.offer);
-      const label = o.link ? "Open link" : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
-      text(el, label); el.title = o.link ? o.link.text : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
+      const label = o.link ? `${o.link.text || "Open link"} ↗` : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
+      text(el, label); el.title = o.link ? o.link.href : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
       el.classList.toggle("picked", !o.reply && !o.link && o.part !== "copy" && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
@@ -260,10 +260,19 @@ export function setupSidebar(ctx) {
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
     form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
   }
-  // At a password prompt Reply opens the pane, whose own composer is the password field.
+  // On a phone, or at a password prompt, Reply opens the pane: its composer sits above the
+  // keyboard (and at a password prompt is the password field), scrolled to the question.
   function openReply(id, secret) {
-    if (secret && id !== ctx.active()) ctx.navigate(id);
-    if (id === ctx.active()) { document.getElementById(secret ? "secret" : "reply").focus(); return; } // its own composer is on screen
+    if ((secret || !ctx.wide()) && id !== ctx.active()) ctx.navigate(id);
+    if (id === ctx.active()) { // its own composer is on screen
+      const box = document.getElementById(secret ? "secret" : "reply");
+      box.focus({ preventScroll: true });
+      // Until the keyboard shrinks the pane there may be too little below the question to
+      // lift it to the top, so land again once it is up (if still replying to this pane).
+      const land = (behavior) => document.getElementById("question").scrollIntoView({ block: "start", behavior });
+      window.visualViewport?.addEventListener("resize", () => id === ctx.active() && document.activeElement === box && land("smooth"), { once: true });
+      return land("instant");
+    }
     replyTo = id;
     if (!drafts.has(id)) drafts.set(id, new Composer(repaint, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
     repaint();

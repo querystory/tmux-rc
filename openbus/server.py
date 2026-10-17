@@ -75,7 +75,17 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import accounts, agent_history, expunge, fit, restore, telemetry, tmux  # noqa: E402
+from . import (  # noqa: E402
+    accounts,
+    agent_history,
+    expunge,
+    fit,
+    restore,
+    scratch,
+    scratch_sidecars,
+    telemetry,
+    tmux,
+)
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
@@ -571,8 +581,9 @@ async def no_cache(request, call_next):
     # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
     if path.startswith(("/scratch/", "/docs/mocks/")):
-        resp.headers["Content-Security-Policy"] = (
-            "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")
+        resp.headers["Content-Security-Policy"] = scratch.SANDBOX
+    else:  # nor may such a page frame the app or the API, whose answers it would then show
+        resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
     # StaticFiles redirects a directory without its slash to an absolute URL built from
     # the request's own scheme — http:// behind the TLS-terminating tunnel, which the
     # phone can't reach (#174). Make same-host redirects path-only.
@@ -621,7 +632,8 @@ def get_version():
     keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
                for m in live_providers.models() if not m.available()]
     return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
-            "live_models": offered + keyless, "docs": DOCS_MOUNTED}
+            "live_models": offered + keyless, "docs": DOCS_MOUNTED,
+            "scratch": bool(_scratch_dir)}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -2010,6 +2022,18 @@ if DOCS_MOUNTED:
 _scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
 _scratch_dir = _scratch_dir if _scratch_dir and Path(_scratch_dir).is_dir() else None
 if _scratch_dir:
+    @app.get("/scratch/", include_in_schema=False)
+    async def scratch_listing() -> HTMLResponse:
+        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount."""
+        watcher = app.state.watcher
+        states = list(watcher.states)
+        return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
+            Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"],
+            WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher),
+            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), listed,
+                                                  getattr(watcher, "use_llm", False)),
+            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
+
     _mount_static("/scratch", _scratch_dir)
 
 

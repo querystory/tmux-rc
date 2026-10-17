@@ -75,11 +75,14 @@ const LUCIDE = {
   cursor: '<path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4v-1M7 2h1a4 4 0 0 1 4 4v1"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  panelRightClose: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18M8 9l3 3-3 3"/>',
+  panelRightOpen: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18M10 15l-3-3 3-3"/>',
   dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
   gauge: '<path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/>',
+  images: '<path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18"/><circle cx="12" cy="8" r="2"/><rect width="16" height="16" x="6" y="2" rx="2"/>',
   arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
   filter: '<path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>',
@@ -114,6 +117,11 @@ const WIDE = matchMedia("(min-width: 1100px)");
 // the focus layout shows. "focus" is what the Overview choice was saved as before the tab was.
 let reviewLayout = "auto";
 try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "summary", "terminal"].includes(saved)) reviewLayout = saved; else if (saved === "focus") reviewLayout = "summary"; } catch {}
+// Folding the side-by-side overview to a strip is a view of that layout, not a layout of its
+// own: the picker and Auto still resolve to "side", so nothing restarts the streams (the
+// terminal is captured at tmux's size, not ours) and the overview stays current underneath.
+let overviewFolded = false;
+try { overviewFolded = localStorage.getItem("tmuxrc-overview-folded") === "on"; } catch {}
 const focusChoice = () => ["summary", "terminal"].includes(reviewLayout);
 // The tab a pane opens on when its URL names none: the chosen one, so it survives pane switches.
 const defaultView = () => WIDE.matches && reviewLayout === "terminal" ? "terminal" : "summary";
@@ -383,7 +391,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText,
+  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
@@ -649,6 +657,11 @@ reviewDivider.onkeydown = (e) => {
   e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
 };
 reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ? 360 : 280);
+$("overview-toggle").onclick = () => {
+  overviewFolded = !overviewFolded;
+  try { localStorage.setItem("tmuxrc-overview-folded", overviewFolded ? "on" : "off"); } catch {}
+  render();
+};
 
 // The fleet chart docks under the pane on a wide screen, behind a seam: drag it to any
 // height and release snaps to strip, medium or tall; a double-click or the chevron folds
@@ -793,10 +806,11 @@ function render() {
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
-  // A phone's Chat and mic ride its tab bar; a pane hides the bar, so its header takes them.
-  // Moved only when they are elsewhere: a move on every repaint would drop their focus.
-  const callTo = inPane ? $("settings-open") : $("attention-tab");
-  if (!wide && $("chat").nextElementSibling !== callTo) callTo.before($("live-mode"), $("chat"));
+  // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
+  // its header takes them. Moved only when they are elsewhere: a move on every repaint would
+  // drop their focus.
+  const callTo = inPane ? $("settings-open") : $("all-tab");
+  if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
   show("brand", wide || (!inPane && dashboard)); show("list-title", list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
@@ -854,6 +868,12 @@ function render() {
     button.setAttribute("aria-pressed", String(button.dataset.view === view));
   });
   show("review-divider", reviewing());
+  const toggle = $("overview-toggle");
+  $("detail").toggleAttribute("data-folded", overviewFolded);
+  show("overview-toggle", effectiveLayout() === "side");
+  toggle.setAttribute("aria-expanded", String(!overviewFolded));
+  toggle.title = toggle.ariaLabel = overviewFolded ? "Show overview" : "Hide overview";
+  html(toggle, licon(overviewFolded ? "panelRightOpen" : "panelRightClose", 18));
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
   if (wide) sizeFleet();
@@ -1482,8 +1502,8 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
-// The phone's tab bar (Chat and the mic between them are live.js's). The gauge is Dashboard's
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+// The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}${id === "attention" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
@@ -1539,6 +1559,20 @@ $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
+// A phone's Back is a swipe in from the left edge: it presses the hidden Back of the pane or
+// the view. Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
+// it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
+let edge = null;
+addEventListener("touchstart", (e) => {
+  const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
+  edge = !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+}, { passive: true });
+addEventListener("touchcancel", () => { edge = null; });
+addEventListener("touchend", (e) => {
+  const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
+  if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
+  edge = null;
+});
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
 const searched = () => { writeHash(formatHash({ ...parseHash(location.hash), q: $("search").value })); renderList(); };
 $("search").oninput = searched;
