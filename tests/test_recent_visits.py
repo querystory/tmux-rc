@@ -35,13 +35,14 @@ def test_opened_skips_folders_gone_and_takes_titles_as_the_gallery_does(tmp_path
 
 
 def test_opening_a_pane_is_a_visit_and_recent_lists_only_live_ones(tmp_path, monkeypatch):
-    births = {"%1": "100", "%2": "200", "%3": "300"}
+    births, known = {"%1": "100", "%2": "200", "%3": "300"}, {"%1": "100"}
     watcher = SimpleNamespace(states=[{"pane_id": p} for p in ("%1", "%2")],
-                              pane_birth=births.get)
+                              pane_birth=known.get)
     h = History(tmp_path / "h.db")
     monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
     monkeypatch.setattr(server.app.state, "history", h, raising=False)
-    monkeypatch.setattr(server.tmux, "find_pane", lambda _id: object())
+    monkeypatch.setattr(server.tmux, "server_uid", lambda: "boot:1")
+    monkeypatch.setattr(server.tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid=births[p]))
     monkeypatch.setattr(server.tmux, "select_pane", lambda _id: None)
     monkeypatch.setattr(server, "_audit", lambda *_a, **_k: None)
     (tmp_path / "s" / "mock").mkdir(parents=True)
@@ -50,7 +51,9 @@ def test_opening_a_pane_is_a_visit_and_recent_lists_only_live_ones(tmp_path, mon
     client = TestClient(server.app)
     for pane in ("%1", "%3", "%2", "%1"):  # %3 closes after; %1 again is no second row
         assert client.post(f"/api/panes/{pane}/select").status_code == 200
-    h.visit("pane", "%2:old", 1e12)  # a recycled id: some other pane than %2 now
+    known["%2"] = "200"  # %2, just launched, was opened before the watcher found it
+    h.visit("pane", "boot:1:%2:old", 1e12)  # a recycled id: some other pane than %2 now
+    h.visit("pane", "boot:0:%2:200", 1e12)  # an earlier tmux server's %2, the same pid
     h.visit("scratch", "mock")
     body = client.get("/api/recent").json()
     assert [p["pane_id"] for p in body["panes"]] == ["%1", "%2"]

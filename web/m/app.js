@@ -1563,7 +1563,7 @@ function paintRecent() {
   const recent = opened.length ? opened.flatMap((v) => byId.has(v.pane_id) ? [[byId.get(v.pane_id), since({ state_since: v.at })]] : [])
     : [...panes].sort(newestFirst).slice(0, 5).map((p) => [p, age(p)]);
   html($("drawer-panes"), recentList("Recent", recent.map(([p, when]) => `<button type="button" data-pane="${esc(p.pane_id)}"><span class="pane-icon"><img alt=""></span><span>${esc(paneName(p))}</span><time>${when}</time></button>`)));
-  $("drawer-panes").querySelectorAll("img").forEach((img, i) => markWorking(img, recent[i][0], LOGOS));
+  $("drawer-panes").querySelectorAll("img:first-child").forEach((img, i) => markWorking(img, recent[i][0], LOGOS));
 }
 function openRecent() {
   paintRecent();
