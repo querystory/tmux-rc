@@ -544,6 +544,19 @@ approved a card they read as the reopen, and the model then described work the p
   turn asks what it did, not the "outcome".
 - A card carries a warning line when its turn followed a restore, where the user's intent
   and the model's reading most easily part.
+- A turn starts with the pane the conversation is on: the one the last action reached. In
+  one chat, "ask the agent" right after acting on a pane went to a different pane whose
+  screen shared a word with the request; the history held the answer, but the model
+  weighed a loud screen over it. A fact at the top of the turn settles that without
+  examples in the prompt. Only actions move it: a declined card or an open-pane button
+  reached nothing. A queued message keeps the pane shown when it was typed. Inferring the
+  pane from names in the replies, and refusing sends to any other pane in code, were
+  tried and dropped: both judged meaning with word matching, which is the model's job.
+- A pending question that is a numbered menu lists its rows in the pane state, and the
+  prompt says a menu takes the one key that picks a row, with no Enter: typed text plus
+  Enter picks the highlighted row, usually "1. Yes", and an Enter after a digit lands on
+  the next screen. A code gate on keys and rows was tried instead and dropped for the
+  same reason as above; the consent card still shows exactly what would be typed.
 
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
