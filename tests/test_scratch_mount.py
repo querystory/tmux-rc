@@ -28,8 +28,13 @@ print(int(all(c.get(p).headers.get("content-security-policy") == "frame-ancestor
               for p in ("/api/version", "/m/"))))
 print(int(c.get("/scratch?opt=E7").headers.get("location") == "/scratch/?opt=E7"))
 print(int(c.get("/scratch/sub").headers.get("location") == "/scratch/sub/"))
-# Visits: the folder's page and nothing else (not the gallery, an asset or a 404)
-print(int([k for k, _ in server.app.state.history.visits("scratch")] == ["sub"]))
+# Visits: a browser opening the folder's page and nothing else (not the gallery, an asset, a
+# 404, nor the plain GETs above, as an agent checks its page is served)
+seen = lambda: [k for k, _ in server.app.state.history.visits("scratch")]
+print(int(seen() == []))
+for path in ("/scratch/", "/scratch/mock.html", "/scratch/sub/", "/scratch/nope/"):
+    c.get(path, headers={"Sec-Fetch-Dest": "document"})
+print(int(seen() == ["sub"]))
 """
 
 
@@ -55,7 +60,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # bare-prefix one keeping its query
     # bare-prefix one keeping its query; and only the folder's page counted as a visit
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [200, 404, 404, 200, 307,
-                                                                       1, 1, 1, 1, 1, 1]
+                                                                       1, 1, 1, 1, 1, 1, 1]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):
