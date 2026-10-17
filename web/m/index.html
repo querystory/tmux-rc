@@ -118,11 +118,12 @@
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
       <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
       <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div>
-      <span id="connection" role="status">Connecting</span>
       <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
       <!-- Settings: the wide sidebar's row; a phone opens it from the drawer. -->
       <button id="settings-open" class="icon-button" aria-label="Settings" title="Settings"></button>
     </header>
+    <!-- Outside the header, which a phone's pane hides, so the status is still read out there. -->
+    <span id="connection" role="status">Connecting</span>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
     <!-- Wide screens: #sessions is the sidebar. app.js moves the header's brand and buttons

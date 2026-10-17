@@ -57,7 +57,7 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #connection.online::before { background: var(--accent); }
 /* The status is a dot (the word stays in the node, still read out): on the wide sidebar's
    logo, on a phone's ☰, and in a pane, where there is no ☰, on its Back. */
-.app-header #connection { position: absolute; opacity: 0; pointer-events: none; }
+#app > #connection { position: absolute; opacity: 0; pointer-events: none; }
 :is(#sb-head #brand, #menu-open, #back) { position: relative; }
 :is(#sb-head #brand, #menu-open, #back)::before { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
 #app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back)::before { background: var(--accent); }
