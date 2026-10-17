@@ -2003,8 +2003,9 @@ def _mount_static(prefix: str, directory: str) -> None:
 # A reverse tunnel may carry each response as one message with a size cap (10 MB on the
 # one this runs behind), so a video asked for whole ("bytes=0-", what a player sends)
 # never arrives. A server may answer a range with less than was asked; the player then
-# asks for the rest, so each answer stays well under any such cap.
-RANGE_PIECE = 4 << 20
+# asks for the rest, so each answer stays well under any such cap. Small, too: such a
+# tunnel holds an answer until all of it arrives, so a seek waits out a whole piece.
+RANGE_PIECE = 1 << 20
 # Nor can any answer this big go out at once, whatever made it (no range, a suffix or
 # multipart range, a stale If-Range, a directory's index.html), so the check is on the
 # answer StaticFiles is about to send. Opening a video or audio file shows it in a player
