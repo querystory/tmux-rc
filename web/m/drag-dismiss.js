@@ -17,10 +17,11 @@ const SPRING_MS = 200;
 
 export function dragToDismiss(el, { axis = "y", onClose }) {
   const y = axis === "y", sign = y ? 1 : -1, at = (t) => sign * (y ? t.clientY : t.clientX);
-  let g = null;
+  let g = null, settling = false;
   el.addEventListener("touchstart", (e) => {
+    if (g?.on) return end(e); // a second finger: spring back
     const t = e.touches[0];
-    g = e.touches.length === 1 && !matchMedia(WIDE).matches ? { x0: t.clientX, y0: t.clientY, from: at(t), last: at(t), when: e.timeStamp, speed: 0, on: null } : null;
+    g = e.touches.length === 1 && !settling && !matchMedia(WIDE).matches ? { x0: t.clientX, y0: t.clientY, from: at(t), last: at(t), when: e.timeStamp, speed: 0, on: null } : null;
   }, { passive: true });
   el.addEventListener("touchmove", (e) => {
     if (!g || g.on === false) return;
@@ -42,7 +43,7 @@ export function dragToDismiss(el, { axis = "y", onClose }) {
     el.style.transform = `translate${axis.toUpperCase()}(${sign * px}px)`;
     el.style.setProperty("--drag", String(1 - px / g.size));
   }, { passive: false });
-  const end = (e) => {
+  function end(e) {
     if (!g?.on) return void (g = null);
     const close = e.type === "touchend" && dismisses(g.last - g.from, g.size, e.timeStamp - g.when > 100 ? 0 : g.speed); // a pause, then letting go, is no flick
     g = null;
@@ -50,12 +51,14 @@ export function dragToDismiss(el, { axis = "y", onClose }) {
     el.style.transition = still ? "none" : `transform ${SPRING_MS}ms ease-out`;
     el.style.transform = close ? `translate${axis.toUpperCase()}(${sign * 100}%)` : "";
     el.style.setProperty("--drag", close ? "0" : "1");
+    settling = true; // a new drag waits for this one to settle (and close, if it does)
     setTimeout(() => {
+      settling = false;
       if (close) onClose();
       el.style.transition = el.style.transform = "";
       el.style.removeProperty("--drag");
     }, still ? 0 : SPRING_MS);
-  };
+  }
   el.addEventListener("touchend", end);
   el.addEventListener("touchcancel", end);
 }
