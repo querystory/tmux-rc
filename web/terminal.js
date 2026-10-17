@@ -107,22 +107,30 @@ function linkify(text, join = true) {
 const SGR_SPLIT = /(\x1b\[[0-9;]*m)/;
 const SGR_ONE = /^\x1b\[([0-9;]*)m$/;
 
-// A line tmux wrapped across two captures comes back in two pieces (the live view's
-// earlier history, web/m/app.js). lastLine(text) is a capture's last line carrying every SGR
-// before it, so it renders in the style it had there; joinWrapped(head, rest) puts the
-// pieces back together. Each capture states its style from the default, so the rest's
-// leading SGR is dropped when it only restates the style the head left open (the usual
-// case, and it keeps a wrapped URL in one run, so one link); otherwise a reset goes between.
+// Earlier history arrives in chunks (the live view's, web/m/app.js), each its own capture,
+// and a line can run across the edge between two: wrapped by tmux (`wraps`: it comes back in
+// two pieces) or by the app with its own newline (a TUI's long URL). besideHeld renders a
+// new chunk, `rows`, against the chunk already shown beside it, `held` (above it when `below`),
+// as one capture, so the line keeps its colors and a URL stays one link with the whole href.
+// It returns the new chunk's lines plus the held chunk's edge line rendered again (to replace
+// it), and their raw text, held in turn: its first and last line each start in the style
+// they had there. Each capture states its style from the default, so where tmux wrapped,
+// the rest's leading SGR is dropped when it only restates the style the head left open
+// (the usual case, and it keeps a wrapped URL in one run); otherwise a reset goes between.
 const SGR_ALL = /\x1b\[[0-9;]*m/g, SGR_LEAD = /^(?:\x1b\[[0-9;]*m)*/;
 const sgrOf = (text) => (text.match(SGR_ALL) || []).join("");
 const styleOf = (sgr) => renderCapture(`${sgr}x`, { color: true });
-export const lastLine = (text) => {
-  const cut = text.lastIndexOf("\n") + 1;
-  return sgrOf(text.slice(0, cut)) + text.slice(cut);
-};
-export function joinWrapped(head, rest) {
+function joinWrapped(head, rest) {
   const lead = SGR_LEAD.exec(rest)[0];
   return styleOf(sgrOf(head)) === styleOf(lead) ? head + rest.slice(lead.length) : `${head}\x1b[0m${rest}`;
+}
+export function besideHeld(rows, held, below, wraps) {
+  if (held == null) return { lines: renderCaptureLines(rows, { color: true }), raw: rows };
+  const [head, rest] = below ? [held, rows] : [rows, held], cut = head.lastIndexOf("\n") + 1;
+  const raw = joinWrapped(head, (wraps ? "" : "\n") + rest), lines = renderCaptureLines(raw, { color: true });
+  const kept = held.split("\n").length - 1, nl = rest.indexOf("\n"); // held lines left as shown
+  return below ? { lines: lines.slice(kept), raw: sgrOf(raw.slice(0, cut)) + raw.slice(cut) }
+    : { lines: lines.slice(0, lines.length - kept), raw: nl < 0 ? raw : raw.slice(0, raw.length - rest.length + nl) };
 }
 
 // Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the

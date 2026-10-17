@@ -1,6 +1,6 @@
 import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
-import { renderCaptureLines, linkifyText, lastLine, joinWrapped } from "/terminal.js";
+import { renderCaptureLines, linkifyText, besideHeld } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
@@ -1254,10 +1254,11 @@ const selected = (node) => { const s = getSelection(); return !!s?.rangeCount &&
 // the place the old frame showed them, so whatever you were reading stays put. If a
 // selection now holds that frame back, they are dropped and fetched again later.
 //
-// A line tmux wrapped across a chunk's edge arrives in two pieces (tmux.capture_history),
-// so the held piece is rendered again together with the new one and replaced: a long URL
-// stays one link, in its own colors. Each chunk's first and last lines keep their raw text
-// on their nodes (the last with the style it starts in), and the last whether it wraps on.
+// A line wrapped across a chunk's edge, by tmux (tmux.capture_history says so) or by the
+// app's own newline, arrives in two pieces, so each chunk is rendered against the chunk
+// beside it and the held piece is replaced (besideHeld): a long URL stays one link, in its
+// own colors. A chunk's first and last lines keep its raw text on their nodes, and the
+// last whether it wraps on.
 // A held piece inside a selection is left alone rather than replaced under it.
 async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll"), pre = $("earlier");
@@ -1300,13 +1301,13 @@ async function loadEarlier() {
       // A frame painted meanwhile moved the split this chunk was asked by: start the gap over.
       if (gap && shownTop !== shown) { held = []; gone = null; heldEnd = h.end; continue; }
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;
-      const join = edge && (gap ? edge.wraps : wraps) && !selected(edge);
-      const raw = !join ? rows : gap ? joinWrapped(edge.raw, rows) : joinWrapped(rows, edge.raw);
-      const nodes = renderCaptureLines(raw, { color: true }).map((markup) => {
+      const join = edge && !selected(edge);
+      const { lines, raw } = besideHeld(rows, join ? edge.raw : null, gap, gap ? edge?.wraps : wraps);
+      const nodes = lines.map((markup) => {
         const node = document.createElement("span"); node.innerHTML = `${markup}\n`; return node;
       });
-      nodes[0].raw = raw.slice(0, raw.indexOf("\n") >>> 0);
-      Object.assign(nodes.at(-1), { raw: lastLine(raw), wraps: gap || !join ? wraps : edge.wraps });
+      nodes[0].raw = raw;
+      Object.assign(nodes.at(-1), { raw, wraps: gap || !join ? wraps : edge.wraps });
       if (!gap) {
         holdView(() => { if (join) edge.remove(); pre.prepend(...nodes); h.top = start; h.loading = h.asked = false; paintEarlierCue(); });
       } else if (unseen) {

@@ -144,15 +144,16 @@ def test_rejoined_edges_render_like_one_capture(pane):
          "-E", str(b[2] - 1 - size)])).removesuffix("\n")}
         for a, b in pairwise(chunks) if a[3]]
     assert any("\x1b[31m" in p["a"].rsplit("\n", 1)[0] for p in pairs)  # a colored head
-    names = "renderCaptureLines as render, lastLine, joinWrapped"
+    names = "renderCaptureLines as render, besideHeld"
     script = (f"import {{ {names} }} from {json.dumps(TERMINAL_JS)};"
               "import { readFileSync } from 'node:fs';"
               "const c = { color: true }, bad = [];"
-              "const r = (t) => render(t, c).map((l) => l.replace(/<span[^>]*><\\/span>/g, ''));"
+              "const e = (l) => l.map((l) => l.replace(/<span[^>]*><\\/span>/g, ''));"
+              "const r = (t) => e(render(t, c));"
               "for (const { a, b, whole } of JSON.parse(readFileSync(0, 'utf8'))) {"
               "  const one = JSON.stringify(r(whole));"
-              "  const gap = [...r(a).slice(0, -1), ...r(joinWrapped(lastLine(a), b))];"
-              "  const up = [...r(joinWrapped(a, b.split('\\n')[0])), ...r(b).slice(1)];"
+              "  const gap = [...r(a).slice(0, -1), ...e(besideHeld(b, a, true, true).lines)];"
+              "  const up = [...e(besideHeld(a, b, false, true).lines), ...r(b).slice(1)];"
               "  if (JSON.stringify(gap) !== one || JSON.stringify(up) !== one) bad.push(whole);"
               "}"
               "process.stdout.write(JSON.stringify(bad));")
