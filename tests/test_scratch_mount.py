@@ -35,7 +35,8 @@ seen = lambda: [k for k, _ in server.app.state.history.visits("scratch")]
 print(int(seen() == []))
 for path in ("/scratch/", "/scratch/mock.html", "/scratch/sub/", "/scratch/nope/"):
     c.get(path, headers={"Sec-Fetch-Dest": "document"})
-print(int(seen() == ["sub"]))
+c.get("/scratch/viewed/", headers={"Sec-Fetch-Dest": "iframe"})  # the app's viewer
+print(int(sorted(seen()) == ["sub", "viewed"]))
 """
 
 
@@ -52,6 +53,8 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     (scratch / "sub").mkdir(parents=True)
     (scratch / "mock.html").write_text("mock")
     (scratch / "sub" / "index.html").write_text("site")
+    (scratch / "viewed").mkdir()
+    (scratch / "viewed" / "index.html").write_text("site")
     (scratch / "notes.md").write_text("# Notes")
     (tmp_path / "secret.txt").write_text("outside")
     (scratch / "link.txt").symlink_to(tmp_path / "secret.txt")

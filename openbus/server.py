@@ -572,12 +572,12 @@ async def no_cache(request, call_next):
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
     if path.startswith(("/scratch/", "/docs/mocks/")):
         resp.headers["Content-Security-Policy"] = scratch.SANDBOX
-        # A browser opening a page from a folder of scratch (not the gallery, a loose file, a
-        # thumbnail or an asset, nor an agent's curl checking its page is served) is a visit,
-        # for the ☰ drawer's Recent.
+        # A browser opening a page from a folder of scratch, in a tab or the app's viewer (not
+        # the gallery, a loose file, a thumbnail or an asset, nor an agent's curl checking its
+        # page is served) is a visit, for the ☰ drawer's Recent.
         inner = path.startswith("/scratch/") and request.url.path.count("/") > 2
         folder = path.split("/")[2] if inner else ""
-        if folder and request.headers.get("sec-fetch-dest") == "document" and (
+        if folder and request.headers.get("sec-fetch-dest") in ("document", "iframe") and (
                 resp.status_code == 200):
             await asyncio.to_thread(_visited, "scratch", folder)
     else:  # nor may such a page frame the app or the API, whose answers it would then show
