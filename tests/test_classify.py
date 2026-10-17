@@ -1848,8 +1848,10 @@ def test_copyables_the_model_marks_to_send_here_are_offers_in_its_order():
 def test_an_offer_the_reply_has_whole_is_kept_over_a_longer_block():
     shown = _auto_screen("Run:\n\n  ! make migrate\n\n  ! make migrate --check")
     reply = "Run:\n\n```\n! make migrate\n```\n\n```\n! make migrate --check\n```"
-    for offers in (["! make migrate", "! make migrate --check"], ["! make"]):  # ambiguous: kept
-        assert classify(_pane("claude"), shown, _llm({"offers": offers}), reply=reply)[
+    spaced = reply + "\n\n```\n!  make migrate\n```"  # the same words twice: ambiguous too
+    for offers, said in ((["! make migrate", "! make migrate --check"], reply),
+                         (["! make"], reply), (["! make migrate"], spaced)):
+        assert classify(_pane("claude"), shown, _llm({"offers": offers}), reply=said)[
             "offers"] == offers
     assert classify(_pane("claude"), shown, _llm(  # not a list: no sends, the offers stand
         {"copyables": True, "offers": ["! make migrate"]}))["offers"] == ["! make migrate"]

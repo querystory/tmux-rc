@@ -1123,10 +1123,13 @@ def _from_reply(offer: str, reply: str | None) -> str:
     one-line code block of the reply begins with, word for word, is that block, whatever
     the screen cut."""
     key = " ".join(offer.split())
-    lines = {" ".join(t.split()): t for block in _code_blocks(reply)
-             if "\n" not in (t := block["text"].strip())}
-    hits = [t for k, t in lines.items() if f"{k} ".startswith(f"{key} ")]
-    return lines.get(key) or (hits[0] if len(hits) == 1 else offer)  # exact, else unambiguous
+    lines = [(" ".join(t.split()), t) for block in _code_blocks(reply)
+             if "\n" not in (t := block["text"].strip())]
+    for hits in ({t for k, t in lines if k == key},  # exact, else a prefix; only one block
+                 {t for k, t in lines if f"{k} ".startswith(f"{key} ")}):
+        if hits:
+            return hits.pop() if len(hits) == 1 else offer
+    return offer
 
 
 def _fold_sends(result: dict) -> None:
