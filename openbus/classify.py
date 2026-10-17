@@ -905,11 +905,19 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         if handoff is None:
             return None
         paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
-        # The command itself is offered to send when it stands alone on its row: a row run
-        # on below it may be its wrap or the prose after it, which the screen cannot tell.
-        rows = [*message.splitlines(), ""]
-        start = max(i for i, row in enumerate(rows) if row.strip().startswith("! "))
-        offer = None if rows[start + 1].strip() else rows[start].strip()
+        # The command itself is offered to send, with the rows it wrapped onto: a row breaks
+        # for a wrap when the next row's first word would not have fit on it (tmux pads each
+        # row to the pane's width). A command that is itself a wrapped tail, or that runs on
+        # into prose or a word cut at the edge, could be anything, so nothing is offered.
+        width = max(map(len, message.splitlines()))
+        rows = ["", *(row.rstrip() for row in message.splitlines()), ""]
+        wraps = lambda i: bool(rows[i + 1].strip()) and (  # noqa: E731
+            len(rows[i]) + 1 + len(rows[i + 1].split()[0]) > width)
+        start = end = max(i for i, row in enumerate(rows) if row.strip().startswith("! "))
+        while wraps(end) and len(rows[end]) < width - 1:
+            end += 1
+        offer = (None if wraps(start - 1) or rows[end + 1].strip()
+                 else " ".join(row.strip() for row in rows[start:end + 1]))
         return {"prompt": paragraph, "answer_style": "text", "options": [], "offer": offer}
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
