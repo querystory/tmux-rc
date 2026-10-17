@@ -143,8 +143,18 @@ def test_tall_screen_old_question_is_off_the_gated_screen(monkeypatch):
     assert classify.screen_offers(["Done: banner is teal."], text) == ["Done: banner is teal."]
 
 
+def test_wrapped_output_counts_its_physical_rows(monkeypatch):
+    # -J joins each 200-cell line from the three 80-cell rows it wrapped across.
+    rows = ["Which color?", *[f"{i:03} " + "x" * 196 for i in range(100)], "❯ "]
+    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n" + "\n".join(rows) + "\n-1 80\n")
+    history, visible = tmux.capture_pane("%1", mark_dim=True).split(tmux.VISIBLE_SCREEN)
+    assert "Which color?" in history
+    assert visible.strip("\n").split("\n") == rows[-51:]  # 50 x 3 rows: the top straddles
+
+
 def test_short_screen_is_unchanged(monkeypatch):
-    monkeypatch.setattr(tmux, "_run", lambda args: f"old\n{args[9]}\na\n\n" + "\n" * 300 + "-300 80\n")
+    out = "old\n{}\na\n\n" + "\n" * 300 + "-300 80\n"
+    monkeypatch.setattr(tmux, "_run", lambda args: out.format(args[9]))
     assert tmux.capture_pane("%1", mark_dim=True) == f"old\n{tmux.VISIBLE_SCREEN}\na\n"
 
 

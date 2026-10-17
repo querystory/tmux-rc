@@ -870,12 +870,16 @@ def _mark_dim(text: str) -> str:
 VIEWPORT_ROWS = 150
 
 
-def _bottom_viewport(out: str) -> str:
-    """Move the VISIBLE_SCREEN boundary down to VIEWPORT_ROWS above the last inked row."""
+def _bottom_viewport(out: str, width: int) -> str:
+    """Move the VISIBLE_SCREEN boundary down to VIEWPORT_ROWS above the last inked row,
+    counted in the physical rows a -J-joined line wrapped across at `width` cells."""
     head, mark, screen = out.rpartition(VISIBLE_SCREEN)
     rows = screen.split("\n")  # rows[0] ends the boundary's own line
     last = max((i for i, row in enumerate(rows) if _ANSI.sub("", row).strip()), default=0)
-    cut = last + 1 - VIEWPORT_ROWS
+    cut, height = last + 1, 0
+    while cut > 1 and height < VIEWPORT_ROWS:
+        cut -= 1
+        height += max(1, -(-sum(map(_cell_width, _ANSI.sub("", rows[cut]).rstrip())) // width))
     if not mark or cut < 2:
         return out
     return "\n".join([head + "\n".join(rows[1:cut]), mark, *rows[cut:]])
@@ -920,7 +924,7 @@ def capture_pane(
         out, cursor = out.rstrip("\n").rsplit("\n", 1)  # its row minus the height, the width
         cursor, width = cursor.split()
         # Both add or move rows above the viewport only: the cursor's offset still holds.
-        out = split_side_panel(_bottom_viewport(out), int(width))
+        out = split_side_panel(_bottom_viewport(out, int(width)), int(width))
         tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
         out = _mark_placeholder(_mark_dim(_materialize_links(out)))
     else:
