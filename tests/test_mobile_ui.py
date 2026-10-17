@@ -226,7 +226,7 @@ def test_wide_usage_strip_resizes_hides_and_draws_once():
 def test_settings_holds_what_the_old_menus_did():
     """The ☰ dropdown and the sidebar's icon row are gone (docs/design/sidebar.md): every
     control they held lives in the one Settings, on desktop and phone alike, and Settings
-    and New window dock beside the sidebar through one helper."""
+    and New session dock beside the sidebar through one helper."""
     root = Path(__file__).resolve().parents[1] / "web/m"
     html = (root / "index.html").read_text()
     start = html.index('<dialog id="settings"')

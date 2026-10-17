@@ -949,7 +949,15 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   /* The list and the dashboard end clear of the tab bar. */
   #sessions { display: flex; flex-direction: column; }
   #sessions, #landing { padding-bottom: var(--bar-room); }
-  .app-header #new-window { color: var(--accent); background: none; }
+  /* New session: Gmail's Compose, floating bottom right just over the tab bar; the list's
+     scroll folds it to its + (app.js). The list's alone: the dashboard's sticky chart sits
+     where it would, and the keyboard (.editing) hides it. */
+  .app-header #new-window { position: absolute; z-index: 5; right: calc(16px + env(safe-area-inset-right)); bottom: var(--bar-room); width: auto; height: 56px; padding: 0 16px; gap: 12px; border-radius: 16px; font-size: 15px; font-weight: 600; transition: gap .2s; box-shadow: 0 4px 12px rgb(0 0 0 / .25), 0 1px 3px rgb(0 0 0 / .15); }
+  .app-header #new-window svg { width: 24px; height: 24px; }
+  .app-header #new-window::after { content: attr(aria-label); max-width: 9em; overflow: hidden; white-space: nowrap; transition: max-width .2s, margin .2s; }
+  .app-header #new-window.folded { gap: 0; }
+  .app-header #new-window.folded::after { max-width: 0; }
+  :is(.editing, .app-header:has(> #find[hidden])) #new-window { display: none; }
 }
 
 
@@ -1218,7 +1226,7 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
 #side-filter-picker summary[data-n=""]::after { display: none; }
 /* A phone's list screen opens on Gmail's search pill: the header itself, ☰ on its left, search
-   filling it, the filter button and New window on its right; plan usage and the list scroll
+   filling it, the filter button on its right (New session floats, below); plan usage and the list scroll
    under it. The filter button opens the menu as a bottom sheet (its grouping is the wide
    list's), and it and the list's foot say what is filtered: no chips under search. In a pane
    the header goes: #heading leads with Back, its actions on that row and the title under. */

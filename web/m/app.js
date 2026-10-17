@@ -464,8 +464,6 @@ function renderList() {
   // Not before boot: an empty `panes` then would open the dialog in New session mode.
   $("new-window").disabled = !booted;
   const startable = booted && !panes.length;
-  const launchLabel = startable ? "New session" : "New window"; // what openLaunch will open
-  $("new-window").setAttribute("aria-label", launchLabel); $("new-window").title = launchLabel;
   show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
   show("landing-start", startable);
 }
@@ -2115,7 +2113,7 @@ $("capture").onclick = (event) => {
 // in directory + name fields and posts /api/sessions instead of /api/windows.
 const launchMode = () => {
   const fresh = !$("launch-session").value;
-  show("launch-new", fresh); text($("launch-title"), fresh ? "New session" : "New window");
+  show("launch-new", fresh); text($("launch-title"), "New session");
 };
 $("launch-session").onchange = launchMode;
 // The name defaults to the directory's basename, shown as the placeholder so typing a
@@ -2124,6 +2122,13 @@ const sessionName = (dir) => (dir.replace(/\/+$/, "").split("/").pop() || "").re
 $("launch-dir").oninput = () => { $("launch-name").placeholder = sessionName($("launch-dir").value.trim()); };
 document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => openLaunch(true, b); }); // docked beside the sidebar too
 $("new-window").onclick = () => openLaunch(false, $("new-window"));
+// A phone's New session floats over the list like Gmail's Compose: scrolling down folds it to
+// its +, scrolling up or reaching the top opens it out again.
+let listTop = 0;
+$("sessions").addEventListener("scroll", () => {
+  const y = $("sessions").scrollTop;
+  if (Math.abs(y - listTop) > 8 || y <= 0) { $("new-window").classList.toggle("folded", y > listTop && y > 0); listTop = y; }
+}, { passive: true });
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
 const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", antigravity: "Google Antigravity CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
