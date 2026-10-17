@@ -19,17 +19,25 @@ def test_long_ranges_come_back_a_piece_at_a_time(tmp_path, monkeypatch):
     assert c.get("/reel.mp4").content == bytes(range(25))  # unranged: whole, as before
 
 
-def test_a_file_too_big_to_send_whole_is_never_sent_whole(tmp_path, monkeypatch):
+def test_an_answer_too_big_to_send_at_once_is_never_sent(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "RANGE_PIECE", 10)
     monkeypatch.setattr(server, "WHOLE_MAX", 20)
     (tmp_path / "my reel.mp4").write_bytes(bytes(25))
     (tmp_path / "data.bin").write_bytes(bytes(25))
-    c = TestClient(server._short_ranges(StaticFiles(directory=tmp_path)))
+    (tmp_path / "site").mkdir()
+    (tmp_path / "site" / "index.html").write_bytes(bytes(25))
+    c = TestClient(server._short_ranges(StaticFiles(directory=tmp_path, html=True)))
     opened = c.get("/my%20reel.mp4", headers={"Sec-Fetch-Dest": "document"})
     assert opened.headers["content-type"].startswith("text/html")
     assert 'src="my%20reel.mp4"' in opened.text  # its player reads it in ranges
-    for path, dest in (("/my%20reel.mp4", "empty"), ("/data.bin", "document")):
-        r = c.get(path, headers={"Sec-Fetch-Dest": dest})  # a download, a fetch
-        assert (r.status_code, r.headers["accept-ranges"]) == (403, "bytes")
+    for path, headers in (("/my%20reel.mp4", {"Sec-Fetch-Dest": "empty"}),  # a download
+                          ("/data.bin", {"Sec-Fetch-Dest": "document"}),
+                          ("/site/", {}),
+                          ("/data.bin", {"Range": "bytes=-21"}),
+                          ("/data.bin", {"Range": "bytes=0-11,12-23"}),
+                          ("/data.bin", {"Range": "bytes=0-1", "If-Range": '"stale"'})):
+        r = c.get(path, headers=headers)
+        assert (r.status_code, r.headers["accept-ranges"]) == (403, "bytes"), (path, headers)
     assert c.get("/data.bin", headers={"Range": "bytes=0-"}).status_code == 206
     assert c.head("/data.bin").headers["content-length"] == "25"
 

@@ -16,7 +16,6 @@ import html
 import io
 import logging
 import math
-import mimetypes
 import os
 import posixpath
 import re
@@ -24,7 +23,6 @@ import shlex
 import shutil
 import socket
 import sqlite3
-import stat
 import subprocess
 import tempfile
 import threading
@@ -2007,23 +2005,27 @@ def _mount_static(prefix: str, directory: str) -> None:
 # never arrives. A server may answer a range with less than was asked; the player then
 # asks for the rest, so each answer stays well under any such cap.
 RANGE_PIECE = 4 << 20
-# Nor can a file this big go whole. Opening a video or audio file shows it in a player
-# page instead, whose element reads it in ranges; anything else asked for whole (a
-# download, a plain fetch) is refused with a reason, as it could only drop the tunnel.
+# Nor can any answer this big go out at once, whatever made it (no range, a suffix or
+# multipart range, a stale If-Range, a directory's index.html), so the check is on the
+# answer StaticFiles is about to send. Opening a video or audio file shows it in a player
+# page instead, whose element reads it in ranges; anything else is refused with a reason.
 WHOLE_MAX = 8 << 20
 
 
-def _too_big(scope, asked: dict, size: int):
-    name = posixpath.basename(scope["path"])
-    if (asked.get(b"sec-fetch-dest") == b"document"
-            and (mimetypes.guess_type(name)[0] or "").startswith(("video/", "audio/"))):
+class _TooBigError(Exception):
+    pass
+
+
+def _too_big(scope, kind: str, size: str):
+    if (dict(scope["headers"]).get(b"sec-fetch-dest") == b"document"
+            and kind.startswith(("video/", "audio/"))):
         return HTMLResponse(
             '<meta name="viewport" content="width=device-width">'
             '<body style="margin:0;background:#000">'
-            f'<video controls src="{html.escape(quote(name))}" '
+            f'<video controls src="{html.escape(quote(posixpath.basename(scope["path"])))}" '
             'style="width:100vw;height:100vh"></video>')
     return PlainTextResponse(
-        f"{size} bytes is too big to send whole; ask for it in ranges of up to "
+        f"{size} bytes is too big to send at once; ask for it in ranges of up to "
         f"{RANGE_PIECE} bytes.\n", 403, headers={"Accept-Ranges": "bytes"})
 
 
@@ -2035,16 +2037,22 @@ def _short_ranges(static: StaticFiles):
         return b"bytes=%d-%d" % (int(asked[1]), int(asked[1]) + RANGE_PIECE - 1)
 
     async def app(scope, receive, send):
-        serve = static
         if scope["type"] == "http":
-            asked = dict(scope["headers"])
-            whole = (scope["method"] == "GET" and b"range" not in asked
-                     and static.lookup_path(static.get_path(scope))[1])
-            if whole and stat.S_ISREG(whole.st_mode) and whole.st_size > WHOLE_MAX:
-                serve = _too_big(scope, asked, whole.st_size)
             scope = {**scope, "headers": [(k, piece(v) if k == b"range" else v)
                                           for k, v in scope["headers"]]}
-        await serve(scope, receive, send)
+
+        async def guard(message):  # raising here stops StaticFiles before it reads the file
+            if message["type"] == "http.response.start" and scope.get("method") != "HEAD":
+                sent = dict(message["headers"])
+                if int(sent.get(b"content-length", 0)) > WHOLE_MAX:
+                    raise _TooBigError(sent.get(b"content-type", b"").decode(),
+                                  sent[b"content-length"].decode())
+            await send(message)
+
+        try:
+            await static(scope, receive, guard)
+        except _TooBigError as refused:
+            await _too_big(scope, *refused.args)(scope, receive, send)
 
     return app
 
