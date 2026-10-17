@@ -2004,10 +2004,15 @@ RANGE_PIECE = 4 << 20
 
 def _short_ranges(static: StaticFiles):
     def piece(value: bytes) -> bytes:
-        asked = re.fullmatch(rb"bytes=(\d+)-(\d*)", value.strip())
-        if not asked or (asked[2] and int(asked[2]) - int(asked[1]) < RANGE_PIECE):
-            return value
-        return b"bytes=%d-%d" % (int(asked[1]), int(asked[1]) + RANGE_PIECE - 1)
+        # Only the first of several ranges is answered; a form this can't bound is refused.
+        asked = re.match(rb"(?i)\s*bytes\s*=\s*(\d{0,18})\s*-\s*(\d{0,18})\s*(,|$)", value)
+        if not asked or not (asked[1] or asked[2]):
+            return b"bytes="  # Starlette answers 400
+        if not asked[1]:  # "-N", the last N bytes
+            return b"bytes=-%d" % min(int(asked[2]), RANGE_PIECE)
+        start = int(asked[1])
+        end = int(asked[2]) if asked[2] else start + RANGE_PIECE
+        return b"bytes=%d-%d" % (start, min(end, start + RANGE_PIECE - 1))
 
     async def app(scope, receive, send):
         if scope["type"] == "http":
