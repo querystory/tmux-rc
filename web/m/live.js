@@ -39,7 +39,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const text = run ? run.text : mode === "text", title = name({ text });
     $("live-mode").classList.toggle("active", !!run && !run.text);
     $("chat").classList.toggle("active", !!run?.text);
-    $("live-mode").title = $("live-mode").ariaLabel = run && !run.text ? "Live Mode active" : "Live Mode";
+    $("live-mode").title = $("live-mode").ariaLabel = run && !run.text ? "Voice active" : "Voice";
     $("voice-title").textContent = title;
     $("voice-start").textContent = `End ${title}`;
     $("voice-start").hidden = !run;

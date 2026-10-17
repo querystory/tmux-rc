@@ -20,7 +20,9 @@ import subprocess
 import termios
 import threading
 import time
+import unicodedata
 import weakref
+from collections import Counter
 from collections.abc import Callable
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -692,6 +694,7 @@ def _mark_placeholder(text: str) -> str:
 
 def strip_dim(text: str) -> str:
     """Collapse a marked capture back to the plain text the phone renders."""
+    text = _SIDE_PANEL_BLOCK.sub("", text)
     for a, b in ((DIM_OPEN, DIM_CLOSE), (PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE)):
         text = text.replace(a, "").replace(b, "")
     return text.replace(VISIBLE_SCREEN + "\n", "").replace(VISIBLE_SCREEN, "")
@@ -700,6 +703,74 @@ def strip_dim(text: str) -> str:
 _OPENS = (DIM_OPEN, PLACEHOLDER_OPEN)
 _CLOSES = (DIM_CLOSE, PLACEHOLDER_CLOSE)
 _MARKERS = _OPENS + _CLOSES
+# A panel an agent TUI draws beside its conversation (Claude Code's file/changes list) is
+# appended to every row by the capture, so the agent's message, its offers and questions
+# read the panel too. split_side_panel moves it into its own block above the viewport,
+# which strip_dim drops: the phone shows the conversation column only. It reads the raw
+# capture, where escapes (OSC 8 links included) fill no cells, so columns are the screen's.
+SIDE_PANEL = "\x1e[side panel]\x1f"
+_SIDE_PANEL_BLOCK = re.compile(
+    re.escape(SIDE_PANEL) + ".*?(?=" + re.escape(VISIBLE_SCREEN) + r"|\Z)", re.DOTALL)
+_VERTICALS = "│┃║"
+_JUNCTIONS = "".join(  # where a table's rule meets its column bar: ┬ ┼ ╇ ╬ …
+    c for c in map(chr, range(0x2500, 0x2580)) if re.search(r"\b(?:UP|DOWN|VERTICAL)\b", n := (
+        unicodedata.name(c, ""))) and ("HORIZONTAL" in n or ("LEFT" in n and "RIGHT" in n)))
+_PANEL_MIN_ROWS = 3  # a bar on one or two rows of a sparse screen is output, not a panel
+_CELL_RE = re.compile(_ANSI.pattern + "|.")
+_TRAILING_BLANK = re.compile(r"[ \t]+(?=(?:" + _SGR.pattern + r"|[ \t])*$)")
+
+
+def _cell_width(ch: str) -> int:
+    if unicodedata.category(ch) in ("Mn", "Me", "Cf"):  # marks, selectors, joiners
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+
+
+def _bars(row: str) -> dict[int, int]:
+    """Screen column -> string index of each bar or junction in a raw row."""
+    bars, col, last = {}, 0, 0
+    for m in _CELL_RE.finditer(row):
+        if m[0] in _VERTICALS + _JUNCTIONS:
+            bars[col] = m.start()
+        width = _cell_width(m[0]) if len(m[0]) == 1 else 0
+        # VS16 asks for emoji presentation: tmux widens a one-cell glyph before it to two.
+        col += width + (m[0] == "\ufe0f" and last == 1)
+        last = width or last
+    return bars
+
+
+def _panel_halves(rows: list[str], bars, width: int, col: int) -> dict[int, tuple[str, str]] | None:
+    """Each bar row's two sides at `col`, if that column divides a panel from the rest: a
+    bar on most inked rows (three at least), right of the screen's middle (a line-number
+    gutter is left of it), text on both sides, and no table's rule crossing it nor a bar
+    closing the right side (a box or a table stays whole)."""
+    at = [i for i, b in enumerate(bars) if col in b]
+    if any(rows[i][bars[i][col]] in _JUNCTIONS for i in at) or len(at) < _PANEL_MIN_ROWS:
+        return None
+    if len(at) * 2 <= sum(bool(_ANSI.sub("", row).strip()) for row in rows) or col * 2 < width:
+        return None
+    halves = {i: (rows[i][: bars[i][col]], rows[i][bars[i][col] + 1 :]) for i in at}
+    lefts, rights = ([_ANSI.sub("", h[k]).rstrip() for h in halves.values()] for k in (0, 1))
+    closed = any(r.endswith(tuple(_VERTICALS)) for r in rights)
+    return halves if any(lefts) and any(rights) and not closed else None
+
+
+def split_side_panel(text: str, width: int) -> str:
+    """Move a side panel out of the raw viewport rows into a SIDE_PANEL block above it,
+    trying each column of bars, most common first (a gutter may tie with the panel's).
+    `width` is the pane's, in cells."""
+    head, mark, screen = text.rpartition(VISIBLE_SCREEN)
+    rows = screen.split("\n")
+    bars = list(map(_bars, rows))
+    counts = Counter(col for row in bars for col in row)
+    halves = mark and next(filter(None, (_panel_halves(rows, bars, width, col)
+                                         for col, _ in counts.most_common())), None)
+    if not halves:
+        return text
+    for i, (left, right) in halves.items():  # the panel's styles stay, so later rows keep theirs
+        rows[i] = _TRAILING_BLANK.sub("", left + "".join(m[0] for m in _SGR.finditer(right)))
+    panel = "\n".join(_ANSI.sub("", _materialize_links(r)).rstrip() for _, r in halves.values())
+    return f"{head}{SIDE_PANEL}\n{panel.strip(chr(10))}\n{mark}" + "\n".join(rows)
 
 
 def _first_marker(s: str) -> tuple[int, str] | None:
@@ -817,17 +888,22 @@ def capture_pane(
         args = ["if-shell", "-F", "-t", pane_id, "#{>:#{history_size},0}", history,
                 ";", "display-message", "-p", nonce,
                 ";", *capture, "-S", "0",
-                ";", "display-message", "-p", "-t", pane_id, "#{e|-|:#{cursor_y},#{pane_height}}"]
-    out = _materialize_links(_run(args)).replace(nonce, VISIBLE_SCREEN, 1)
+                ";", "display-message", "-p", "-t", pane_id,
+                "#{e|-|:#{cursor_y},#{pane_height}} #{pane_width}"]
+    out = _run(args).replace(nonce, VISIBLE_SCREEN, 1)
     if keep_colors:
-        return out.rstrip("\n")  # live view: raw SGR, client colorizes
+        return _materialize_links(out).rstrip("\n")  # live view: raw SGR, client colorizes
     tail = ""
     if mark_dim:
         # The cursor on a blank row below all output ends the text in one empty row, so
         # the classifier can tell a prompt still awaiting input from one answered above.
-        out, cursor = out.rstrip("\n").rsplit("\n", 1)  # cursor: its row minus the height
+        out, cursor = out.rstrip("\n").rsplit("\n", 1)  # its row minus the height, the width
+        cursor, width = cursor.split()
+        out = split_side_panel(out, int(width))  # adds rows above the viewport only
         tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
-        out = _mark_placeholder(_mark_dim(out))
+        out = _mark_placeholder(_mark_dim(_materialize_links(out)))
+    else:
+        out = _materialize_links(out)
     return _ANSI.sub("", out).rstrip("\n") + tail
 
 

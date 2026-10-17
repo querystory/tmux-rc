@@ -30,8 +30,9 @@ export function paneLinks(pane) {
 }
 
 // The link a question asks the user to open (a sign-in or device-login URL): the screen
-// link the parser names as the question's own (question.link), else none.
+// link the parser names as the question's own (question.link), else the first link the
+// screen offers, since an asking pane's links are what it asks you to open.
 export function askLink(pane) {
-  const href = pane?.question?.link;
-  return (href && paneLinks({ links: pane.links }).find((link) => link.href === href)) || null;
+  const href = pane?.question?.link, links = paneLinks({ links: pane?.links });
+  return (href ? links.find((link) => link.href === href) : links[0]) || null;
 }

@@ -252,6 +252,10 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         first = [str(o).lower() for o in opts[:2]] if isinstance(opts, list) else []
         if len(first) < 2 or not re.match(r"yes\b", first[0]) or not re.match(r"no\b", first[1]):
             diffs.append(f"question.options: want accept then decline, got {opts!r}")
+    # Opt-in: text the question's prompt must not quote (a panel drawn beside the message).
+    prompt = str(got_q.get("prompt")) if isinstance(got_q, dict) else ""
+    if quoted := [t for t in (want_q or {}).get("prompt_excludes", []) if t in prompt]:
+        diffs.append(f"question.prompt: quotes {quoted!r}")
     # Presence-only fields. `copyables` is here rather than compared by content: the
     # LABEL is free prose and the TEXT is a verbatim payload whose exact whitespace we
     # don't want to bless brittlely — what must not regress is "the model noticed there
