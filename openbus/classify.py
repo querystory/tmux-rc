@@ -905,12 +905,6 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         if handoff is None:
             return None
         paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
-        # The command itself is offered to send when it stands alone on its row: a row run
-        # on below it may be its wrap or the prose after it, which the screen cannot tell.
-        rows = [*message.splitlines(), ""]
-        start = max(i for i, row in enumerate(rows) if row.strip().startswith("! "))
-        offer = None if rows[start + 1].strip() else rows[start].strip()
-        return {"prompt": paragraph, "answer_style": "text", "options": [], "offer": offer}
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 
@@ -1281,10 +1275,6 @@ def classify(
     if offers := screen_offers(result.pop("offers", None), text):
         result["offers"] = offers
     if final and (ask := _final_ask(visible, tool, final, offers)):
-        # The model offered nothing: the command handed over is the one to send.
-        command = ask.pop("offer", None)
-        if command and not offers and (sendable := screen_offers([command], text)):
-            result["offers"] = sendable
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         own = _same_question(result.get("question"), ask)
