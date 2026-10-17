@@ -76,7 +76,9 @@ const show = (view) => { document.getElementById("cards").classList.toggle("list
   for (const b of views) b.setAttribute("aria-pressed", String(b.dataset.view === view)); };
 let saved; try { saved = localStorage.getItem("tmuxrc-scratch-view"); } catch { /* sandboxed */ }
 show(saved || "grid"); // big thumbnails first; List is the compact choice
-addEventListener("message", (e) => { if (e.source === parent && ["grid", "list"].includes(e.data?.view)) show(e.data.view); });
+addEventListener("message", (e) => { if (e.source !== parent) return; // the app: its view and theme
+  if (["grid", "list"].includes(e.data?.view)) show(e.data.view);
+  if (typeof e.data?.light === "boolean") document.documentElement.classList.toggle("light", e.data.light); });
 // Inside the app, the pane that made a page opens there, not as a second app in this frame.
 // Every other link opens a tab of its own, so this frame only ever holds the gallery: the app
 // trusts what it posts, and its Grid/List keeps a page to steer.

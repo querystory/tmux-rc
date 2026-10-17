@@ -777,12 +777,12 @@ function openLane(lane) {
 // The scratch gallery, in the content area so the app stays put (the page is sandboxed, so a frame).
 const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/scratch/", title: "Scratch", className: "scratch-frame" });
 // Its Grid/List sits in the page head, opposite the title. The sandboxed page cannot keep the
-// choice, so the app keeps it and tells the page (scratch.html listens for it).
+// choice, or read the app's theme, so the app tells the page both (scratch.html listens).
 let scratchView = "grid";
 try { scratchView = localStorage.getItem("tmuxrc-scratch-view") || "grid"; } catch {}
 const scratchSeg = Object.assign(document.createElement("span"), { id: "scratch-view", className: "seg" });
 scratchSeg.setAttribute("role", "group"); scratchSeg.setAttribute("aria-label", "View");
-const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratchView }, "*"); // its origin is opaque
+const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light") }, "*"); // its origin is opaque
 scratchFrame.addEventListener("load", tellScratch);
 addEventListener("message", (e) => { if (e.source === scratchFrame.contentWindow && /^%\d+$/.test(e.data?.pane)) navigate(e.data.pane); });
 function scratchPage() {
@@ -1639,7 +1639,7 @@ function setTheme(theme) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
   document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
-  paintSettings();
+  paintSettings(); tellScratch();
 }
 matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => { if (savedTheme() === "system") setTheme("system"); });
 const savedTheme = () => { try { return localStorage.getItem("tmuxrc-theme") || "system"; } catch { return "system"; } };
@@ -1688,6 +1688,8 @@ document.addEventListener("click", (e) => {
   if (!document.querySelector("dialog:modal")) besides().forEach((d) => { if (!d.contains(e.target) && !d._opener.contains(e.target)) d.close(); });
 }, true);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
+// A click in a frame (the Scratch gallery) never reaches this document, but it takes the focus.
+addEventListener("blur", () => { if (document.activeElement?.tagName === "IFRAME" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
 // Closed by its × or Escape, focus goes back to what opened it; not after a launch, whose
 // navigation has already put focus on the pane.
 for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close", () => {
