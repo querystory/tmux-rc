@@ -17,10 +17,9 @@ from html import escape, unescape
 from pathlib import Path
 from urllib.parse import quote
 
-from . import agent_history, tmux
+from . import agent_history, scratch_markdown, tmux
 
 _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
-_TOKENS = re.compile(r"^:root(?:\.light)? \{.*?^\}", re.MULTILINE | re.DOTALL)  # app colours
 # How an agent names the folder: the served URL, the usual dir, or one of the variables.
 # The whole path component, so "mock" never takes "mock+draft"'s author, up to what
 # ends a path in prose, markdown, JSON or a URL.
@@ -78,10 +77,14 @@ def _item(root: Path, folder: Path) -> dict | None:
              if (f.parent, f.name) not in sidecars and f.is_file() and inside(f, folder)]
     if not files:
         return None
-    meta, index, thumb = _meta(folder), folder / "index.html", folder / "thumb.webp"
-    page = index if any(f == index for _, f in files) else max(files)[1]
+    meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
+    # The folder's own page, served at folder/: index.html, or an index.md (rendered).
+    index = next((i for i in (folder / "index.html", folder / "index.md") if i in names), None)
+    page = index or max(files)[1]
     title = meta.get("title")
-    if not title and page.suffix in (".html", ".htm"):
+    if not title and page.suffix == ".md":
+        title = scratch_markdown.render(page)[2]
+    elif not title and page.suffix in (".html", ".htm"):
         with page.open(errors="replace") as f:
             m = _TITLE.search(f.read(65536))
         title = m and unescape(m.group(1)).strip()
@@ -174,10 +177,8 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     listed = items(root)
     sidecars(listed)
     resolve(listed, states, profiles, pane_of)
-    # The app's colour tokens, inlined: the page is sandboxed like the rest of /scratch/,
-    # so it cannot count on a credentialed stylesheet load behind the front door.
-    tokens = _TOKENS.findall(style.read_text())
-    out = _PAGE.read_text().replace("/*tokens*/", "\n".join(tokens)).replace("DOCS_URL", docs)
+    out = _PAGE.read_text().replace("/*tokens*/", scratch_markdown.tokens(style)).replace(
+        "DOCS_URL", docs)
     if not listed:  # what scratch is, and how agents come to publish here
         out = out.replace('<section id="empty" hidden>', '<section id="empty">').replace(
             '<input type="search"', '<input hidden type="search"').replace(

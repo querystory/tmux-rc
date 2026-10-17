@@ -19,7 +19,7 @@ systemd unit runs), and restart:
     echo "TMUXRC_SCRATCH_DIR=$HOME/.local/share/tmux-rc/scratch" >> .env
     systemctl --user restart tmux-rc
 
-Drop a folder in, say `report/` with an `index.html`, and open
+Drop a folder in, say `report/` with an `index.html` or an `index.md`, and open
 `<your tmux-rc URL>/scratch/report/`. **Your scratch URL is simply the base URL you
 already open tmux-rc at, plus `/scratch/`**: nothing about it depends on how you reach the
 daemon. Files added later appear without a restart; deleting a folder unpublishes it.
@@ -38,6 +38,8 @@ and who made it. See [Scratch gallery](scratch-gallery.md).
 Anything that is a pile of static files, not just tmux-rc work:
 
 - an HTML mock or design study an agent just wrote;
+- a Markdown document, such as a plan or a design note with Mermaid diagrams, which opens
+  rendered ([Markdown pages](scratch-gallery.md#markdown-pages));
 - the build output of a static site (a docs site, a landing page, a single-page app's
   `dist/`) for another project;
 - a generated report, a chart, a screenshot set, a PDF.
@@ -166,8 +168,8 @@ baked in, or give them their own hostname (below).
 ## Troubleshooting
 
 - **404 at `/scratch/...`**: `TMUXRC_SCRATCH_DIR` is unset, names a directory that did not
-  exist at startup, or was set without restarting the daemon. A folder with no
-  `index.html` also 404s at its bare URL, since a folder has no listing; link the file (the
+  exist at startup, or was set without restarting the daemon. A folder with neither
+  `index.html` nor `index.md` also 404s at its bare URL, since a folder has no listing; link the file (the
   gallery links such a folder's newest file).
 - **The page loads but its data doesn't**: a `fetch` or XHR failing (look for a CSP error
   in the browser console) is the sandbox doing its job. Inline the data into the page or

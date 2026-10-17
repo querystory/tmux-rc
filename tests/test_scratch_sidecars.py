@@ -14,6 +14,7 @@ from PIL import Image
 
 from openbus import llm, scratch
 from openbus import scratch_sidecars as S
+from openbus.server import WEB_DIR
 
 
 def _page(root, name="p", at=1000, page="<title>T</title><p>Hello</p>"):
@@ -111,7 +112,7 @@ def test_the_renderer_is_served_scratch_and_nothing_else(tmp_path):
         (root / name).mkdir()
     (root / "leak" / "index.html").symlink_to(tmp_path / "secret.txt")
     (root / "leak2" / "index.htm").symlink_to(tmp_path / "secret.txt")
-    with S.serving(root) as base:
+    with S.serving(root, WEB_DIR) as base:
         assert base.endswith("/scratch")  # a page's /scratch/... links resolve as served
         with urlopen(f"{base}/index.html") as page:
             assert page.read() == b"<p>page</p>"
@@ -172,7 +173,7 @@ def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
     _page(tmp_path)
     shots = []
     for _ in range(2):
-        S.queue(tmp_path, listed := scratch.items(tmp_path))
+        S.queue(tmp_path, WEB_DIR, listed := scratch.items(tmp_path))
         shots.append(listed[0]["shot"])
         while (worker := S._worker) is not None:
             worker.join()
@@ -183,11 +184,11 @@ def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
     _page(tmp_path)
     (tmp_path / "old" / "index.html").unlink()
     (tmp_path / "old").rmdir()
-    S.queue(tmp_path, scratch.items(tmp_path))
+    S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path))
     while (worker := S._worker) is not None:
         worker.join()
     assert len(done) == 4
-    S.queue(tmp_path, scratch.items(tmp_path), describe=False)
+    S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path), describe=False)
     assert S._worker is None  # nothing new to do
 
 
@@ -197,7 +198,7 @@ def test_a_failed_shot_still_gets_a_description(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "shoot", lambda *_: 1 / 0)
     monkeypatch.setattr(S, "describe", lambda *a: said.append(a[2]) or "Said.")
     _page(tmp_path)
-    S.queue(tmp_path, scratch.items(tmp_path))
+    S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path))
     while (worker := S._worker) is not None:
         worker.join()
     assert said == ["T"]
@@ -212,7 +213,7 @@ def test_a_description_missed_while_the_model_is_out_is_asked_again(tmp_path, mo
     monkeypatch.setattr(llm, "backing_off", lambda: True)
     _page(tmp_path)
     for _ in range(2):
-        S.queue(tmp_path, scratch.items(tmp_path))
+        S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path))
         while (worker := S._worker) is not None:
             worker.join()
     assert calls == ["shot", "said", "said"]  # the failed shot is not redone with it

@@ -7,6 +7,7 @@ more than the slowest of them at once, and the listing never waits on it. Each f
 is tried once per version of its files: a page that cannot be shot or described is not
 retried until it changes, unless the model was out (llm's shared backoff)."""
 
+import io
 import json
 import logging
 import os
@@ -23,12 +24,12 @@ from urllib.request import urlopen
 
 from PIL import Image
 
-from . import llm, scratch
+from . import llm, scratch, scratch_markdown
 
 logger = logging.getLogger(__name__)
 
 VIEWPORT, THUMB = (1280, 800), (480, 300)
-_SHOOTABLE = {".html", ".htm", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
+_SHOOTABLE = {".html", ".htm", ".md", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 _lock = threading.Lock()
 _pending: list[tuple[Path, str, dict]] = []
 _tried: set[tuple] = set()  # folder versions queued
@@ -59,9 +60,10 @@ def stale(item: dict) -> bool:
     return item["page"].suffix in _SHOOTABLE and (not shot or shot < item["updated"])
 
 
-def queue(root: Path, listed: list[dict], describe: bool = True) -> None:
+def queue(root: Path, web: Path, listed: list[dict], describe: bool = True) -> None:
     """Hand the listed folders that lack a fresh thumbnail or (with `describe`) a
-    description to the worker."""
+    description to the worker; `web` is the app's static dir, which a Markdown page's
+    styles and mermaid.js come from."""
     global _worker  # noqa: PLW0603 - the one worker
     can_shoot = browser() is not None
     with _lock:
@@ -73,14 +75,14 @@ def queue(root: Path, listed: list[dict], describe: bool = True) -> None:
             # What a card without a fresh thumbnail shows meanwhile.
             i["shot"] = stale(i) and ("failed" if key in _done or not can_shoot else "pending")
         if _pending and _worker is None:
-            _worker = threading.Thread(target=_work, args=(root,), daemon=True,
+            _worker = threading.Thread(target=_work, args=(root, web), daemon=True,
                                        name="scratch-sidecars")
             _worker.start()
 
 
-def _work(root: Path) -> None:
+def _work(root: Path, web: Path) -> None:
     global _worker  # noqa: PLW0603
-    with serving(root) as base:
+    with serving(root, web) as base:
         while True:
             with _lock:
                 if not _pending:
@@ -98,17 +100,37 @@ def _work(root: Path) -> None:
 
 
 class _Static(SimpleHTTPRequestHandler):
-    """scratch's files and nothing else, under the sandbox the daemon serves them with."""
+    """scratch's files and nothing else, under the sandbox the daemon serves them with, a
+    Markdown page rendered as the daemon renders it, with the mermaid.js it loads."""
+
+    def __init__(self, *args, web: Path, **kwargs):
+        self.web = web  # before handling, which the base class does on construction
+        super().__init__(*args, **kwargs)
 
     def translate_path(self, path):
         """At the daemon's own /scratch/ paths, so a page's root-relative links resolve; a
         path or the index a folder would serve that leads out of scratch is not found."""
+        if path.startswith(scratch_markdown.MERMAID):
+            return str(self.web / scratch_markdown.MERMAID.removeprefix("/"))
         if not path.startswith("/scratch/"):
             return "/nonexistent"
         full = Path(super().translate_path(path.removeprefix("/scratch")))
         served = [full, full / "index.html", full / "index.htm"] if full.is_dir() else [full]
+        if full.is_dir() and not any(p.exists() for p in served[1:]):
+            served.append(full := full / "index.md")
         return str(full) if all(scratch.inside(p, Path(self.directory)) for p in served
                                 if p.exists() or p.is_symlink()) else "/nonexistent"
+
+    def send_head(self):
+        page = Path(self.translate_path(self.path))
+        if page.suffix != ".md" or not page.is_file():
+            return super().send_head()
+        body = scratch_markdown.page(page, self.web).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        return io.BytesIO(body)
 
     def end_headers(self):
         self.send_header("Content-Security-Policy", scratch.SANDBOX)
@@ -124,10 +146,10 @@ class _Server(ThreadingHTTPServer):
 
 
 @contextmanager
-def serving(root: Path):
+def serving(root: Path, web: Path):
     """A loopback listener for the renderer that serves scratch alone: through the daemon,
     a page could frame, or navigate itself to, the API, and the shot would publish it."""
-    server = _Server(("127.0.0.1", 0), partial(_Static, directory=str(root)))
+    server = _Server(("127.0.0.1", 0), partial(_Static, directory=str(root), web=web))
     threading.Thread(target=server.serve_forever, daemon=True, name="scratch-static").start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/scratch"
@@ -218,14 +240,16 @@ def describe(meta: Path, page: Path, title: str, root: Path) -> str | None:
     """Ask the parse model for one sentence on the page and add it to meta.json, marked as
     generated. Never over a description already there, nor into a meta.json that is
     unreadable or a symlink: those are the agent's to fix."""
-    text = ""
     if not scratch.inside(page, root):
         return None
-    if page.suffix in (".html", ".htm"):
-        parser = _Text()
+    parser, html = _Text(), ""
+    if page.suffix == ".md":  # what it renders to, not its markup
+        html = scratch_markdown.render(page)[1]
+    elif page.suffix in (".html", ".htm"):
         with page.open(errors="replace") as f:
-            parser.feed(f.read(524288))
-        text = " ".join(" ".join(parser.parts).split())[:4000]
+            html = f.read(524288)
+    parser.feed(html)
+    text = " ".join(" ".join(parser.parts).split())[:4000]
     sentence = llm.one_sentence(
         "Describe this web page in ONE short sentence (under 20 words) for a gallery of "
         f'previews: what it shows, starting with the subject (never "This page"). Plain '
