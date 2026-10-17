@@ -20,6 +20,9 @@ def test_a_revisit_moves_up_and_only_the_newest_are_kept(tmp_path, monkeypatch):
     assert h.visits("pane") == [("d", 4), ("c", 3), ("a", 2)]
     assert h.visits("scratch") == []  # older than the newest three, of either kind
     assert History(tmp_path / "h.db").visits("pane")[0] == ("d", 4)  # it survives a restart
+    for key in "wxyz":  # at one moment: still only three, the last written
+        h.visit("pane", key, 9)
+    assert h.visits("pane") == [("z", 9), ("y", 9), ("x", 9)]
 
 
 def test_opened_skips_folders_gone_and_takes_titles_as_the_gallery_does(tmp_path):
