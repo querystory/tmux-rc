@@ -1269,8 +1269,9 @@ async function loadEarlier() {
   let held = [], redraws = [], heldEnd = h.end, heldTail, heldWraps, since = 0, older = false; // the staged rows' own, while any are
   const land = (force) => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
+    if (redraws.some(([node]) => selected(node))) return; // selected since: fetched again, left as shown meanwhile
     const tail = following();
-    for (const [node, markup] of redraws) if (!selected(node)) draw(node, markup); // selected since: left as shown
+    for (const [node, markup] of redraws) draw(node, markup);
     pre.append(...held); Object.assign(h, { end: heldEnd, tail: heldTail, wraps: heldWraps }); if (whole(heldTail)) h.head = heldTail;
     if (tail) box.scrollTop = box.scrollHeight;
     if (paintedFrame !== latestFrame) paintCapture(force); // the frame that waited
