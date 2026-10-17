@@ -14,7 +14,9 @@ def test_long_ranges_come_back_a_piece_at_a_time(tmp_path, monkeypatch):
     for asked, got in (("bytes=0-", "bytes 0-9/25"), ("bytes=20-", "bytes 20-24/25"),
                        ("bytes=3-24", "bytes 3-12/25"), ("bytes=3-5", "bytes 3-5/25"),
                        ("bytes=-20", "bytes 15-24/25"), ("bytes=0-1, 4-", "bytes 0-1/25"),
-                       ("bytes=30-40,4-", "bytes 4-13/25")):
+                       ("bytes=30-40,4-", "bytes 4-13/25"),
+                       ("bytes=0-9223372036854775807", "bytes 0-9/25"),
+                       ("bytes=0-9,-0", "bytes 0-9/25"), ("bytes=-0,-20", "bytes 15-24/25")):
         r = c.get("/reel.mp4", headers={"Range": asked})
         assert (r.status_code, r.headers["content-range"]) == (206, got)
     for bad in ("bytes=0-" + "9" * 5000, "bytes=" + " " * 50000 + "x"):

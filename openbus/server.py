@@ -2007,8 +2007,8 @@ def _short_ranges(static: StaticFiles):
         # One of several ranges is answered (a suffix, else the lowest start: satisfiable if
         # any is); a form this can't bound is refused.
         squeezed = b"".join(value.split()).lower()
-        asks = [m for m in re.finditer(rb"(?:^bytes=|,)(\d{0,18})-(\d{0,18})(?=,|$)", squeezed)
-                if m[1] or m[2]]
+        asks = [m for m in re.finditer(rb"(?:^bytes=|,)(\d{0,20})-(\d{0,20})(?=,|$)", squeezed)
+                if m[1] or int(m[2] or 0)]  # "-0" asks for nothing
         if not asks:
             return b"bytes="  # Starlette answers 400
         asked = min(asks, key=lambda m: (bool(m[1]), int(m[1] or 0)))
