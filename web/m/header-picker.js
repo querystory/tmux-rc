@@ -62,12 +62,15 @@ export function dismissable(details) {
     if (event.key === 'Escape') { details.open = false; summary.focus(); event.preventDefault(); }
   });
   // The path as dispatched: a click that redraws its own button (a multi-select's) is still inside.
-  // Captured, so on a phone the tap that closes it is swallowed, as an iOS sheet's is: it does
-  // not also open the row under it.
+  // Captured, so on a phone the tap that closes a shown menu is swallowed, as an iOS sheet's
+  // is: it neither opens the row under it nor focuses the search box (a mousedown's default).
+  // Not one a route left open but out of sight: that only closes.
+  const outside = event => details.open && !event.composedPath().includes(details);
+  const swallows = event => outside(event) && details.getClientRects().length > 0 && !matchMedia('(min-width: 1100px)').matches;
+  document.addEventListener('mousedown', event => { if (swallows(event)) event.preventDefault(); }, true);
   document.addEventListener('click', event => {
-    if (!details.open || event.composedPath().includes(details)) return;
-    details.open = false;
-    if (details.isConnected && !matchMedia('(min-width: 1100px)').matches) { event.preventDefault(); event.stopPropagation(); } // not one a route left open, out of the page
+    if (swallows(event)) { event.preventDefault(); event.stopPropagation(); }
+    if (outside(event)) details.open = false;
   }, true);
   window.addEventListener('resize', () => { details.open = false; });
 }
