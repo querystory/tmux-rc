@@ -1535,7 +1535,10 @@ $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-nav", "Scratch", "images"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
   .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
 $("menu-open").onclick = () => {
-  for (const row of $("drawer-nav").children) { const via = $(row.dataset.via); row.hidden = via.hidden; row.setAttribute("aria-current", via.getAttribute("aria-pressed") === "true" ? "page" : "false"); }
+  // One current row, the most specific pressed (rows run general to specific): Scratch, not
+  // also the Dashboard it opens within.
+  const rows = [...$("drawer-nav").children], here = rows.findLast((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
+  for (const row of rows) { row.hidden = $(row.dataset.via).hidden; row.setAttribute("aria-current", row === here ? "page" : "false"); }
   text($("drawer-nav").querySelector('[data-via="attention-tab"] .count'), $("attention-count").textContent);
   // ☰ first, so closing returns there even when an edge swipe opened it (and not to search, whose
   // focus would bring the keyboard back); then the drawer, not its first row: no ring until Tab.
