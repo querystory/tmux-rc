@@ -311,16 +311,16 @@ class History:
             with self.connect() as db:
                 db.execute("INSERT INTO visits VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET "
                            "at=excluded.at", (kind, key, time.time() if now is None else now))
-                db.execute("DELETE FROM visits WHERE at < (SELECT at FROM visits "
-                           "ORDER BY at DESC LIMIT 1 OFFSET ?)", (VISITS - 1,))
+                db.execute("DELETE FROM visits WHERE rowid NOT IN (SELECT rowid FROM visits "
+                           "ORDER BY at DESC, rowid DESC LIMIT ?)", (VISITS,))
         except (OSError, sqlite3.Error):
             logger.warning("Could not record a visit", exc_info=True)
 
     def visits(self, kind: str) -> list[tuple[str, float]]:
         """Visits of this kind, (key, when), most recent first."""
         with self.connect() as db:
-            return db.execute("SELECT key, at FROM visits WHERE kind=? ORDER BY at DESC",
-                              (kind,)).fetchall()
+            return db.execute("SELECT key, at FROM visits WHERE kind=? "
+                              "ORDER BY at DESC, rowid DESC", (kind,)).fetchall()
 
     def load_checkpoints(self) -> dict[str, dict]:
         """Every pane checkpoint, read once at startup; memory is authoritative after."""
