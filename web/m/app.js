@@ -1943,6 +1943,7 @@ function fitViewport() {
   // Installed mode lets iOS reserve the status bar outside the app. Fill that
   // available viewport while browsing; editors still follow the keyboard.
   root.classList.toggle("standalone-fill", !!standalone && !editing);
+  root.classList.toggle("editing", !!editing); // the keyboard is up: the tab bar steps aside (style.css)
   // Only an editor measures: iOS resizes the visual viewport, not the layout viewport, for
   // its keyboard. At rest CSS sizes the app from dvh, so a height measured with the keyboard
   // up (or mid-dismissal, or while backgrounded) has nothing left to strand.
