@@ -115,13 +115,14 @@ const SGR_ONE = /^\x1b\[([0-9;]*)m$/;
 // `held` is the raw text of the rows already shown at that end, up to KEEP of them (enough
 // for any wrapped URL), so a URL that began rows before the edge still links whole. It
 // returns the new chunk's lines with the held edge line rendered again (to replace it);
-// `again`, the other held lines as rendered now, nearest the edge first, since a URL
-// wrapped over several lines changes those too; and `raw`, the rows now at that end, to
-// hold next time (starting in the style they had there). Each capture states its style
+// `again`, the held lines further in that the URL crossing the edge also runs over (each a
+// fragment linking the same href), as rendered now, nearest the edge first; and `raw`, the
+// rows now at that end, to hold next time (starting in the style they had there). Only
+// that URL's rows change: the rest stay as shown, however the rows held now would render. Each capture states its style
 // from the default, so the rest's leading SGR is dropped when it only restates the style
 // the head left open (the usual case, and it keeps a wrapped URL in one run); otherwise a
 // reset goes between.
-const KEEP = 2000;
+const KEEP = 2000, HREF = /href="[^"]*"/g;
 const SGR_ALL = /\x1b\[[0-9;]*m/g, SGR_LEAD = /^(?:\x1b\[[0-9;]*m)*/;
 const sgrOf = (text) => { // what is still in force: from the last reset on
   const all = text.match(SGR_ALL) || [];
@@ -135,9 +136,11 @@ function joinWrapped(head, rest) {
 export function besideHeld(rows, held, below, wraps) {
   const sep = wraps ? "" : "\n", raw = held == null ? rows : below ? joinWrapped(held + sep, rows) : joinWrapped(rows + sep, held);
   const lines = renderCaptureLines(raw, { color: true }), kept = held == null ? 0 : held.split("\n").length - 1;
-  if (!below) return { lines: lines.slice(0, lines.length - kept), again: lines.slice(lines.length - kept), raw: raw.split("\n").slice(0, KEEP).join("\n") };
+  const edge = lines[below ? kept : lines.length - 1 - kept].match(HREF) || [], url = below ? edge[0] : edge.at(-1);
+  const linked = (rest) => { const end = url ? rest.findIndex((line) => !line.includes(url)) : 0; return end < 0 ? rest : rest.slice(0, end); };
+  if (!below) return { lines: lines.slice(0, lines.length - kept), again: linked(lines.slice(lines.length - kept)), raw: raw.split("\n").slice(0, KEEP).join("\n") };
   const tail = raw.split("\n").slice(-KEEP).join("\n"), cut = raw.length - tail.length;
-  return { lines: lines.slice(kept), again: lines.slice(0, kept).reverse(), raw: sgrOf(raw.slice(0, cut)) + tail };
+  return { lines: lines.slice(kept), again: linked(lines.slice(0, kept).reverse()), raw: sgrOf(raw.slice(0, cut)) + tail };
 }
 
 // Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the

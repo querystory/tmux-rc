@@ -1305,9 +1305,9 @@ async function loadEarlier() {
       const join = edge && !selected(edge);
       const [endRaw, endWraps] = held.length ? [heldTail, heldWraps] : [h.tail, h.wraps];
       const { lines, raw, again } = besideHeld(rows, join ? gap ? endRaw : h.head : null, gap, gap ? endWraps : wraps);
-      // The edge is replaced; every other held line that now renders differently (a URL
-      // wrapped over several lines) is redrawn in place, unless selected. Staged rows run on
-      // into the shown rows above them, past the one they will replace.
+      // The edge is replaced, and the held rows the URL crossing it runs over are redrawn in
+      // place where they changed, unless selected. Staged rows run on into the shown rows
+      // above them, past the one they will replace.
       const near = (n) => !gap ? n.nextSibling : !held.includes(n) ? n.previousSibling
         : n !== held[0] ? held[held.indexOf(n) - 1] : gone ? gone.previousSibling : pre.lastChild;
       for (let n = join && near(edge), i = 0; n && i < again.length; n = near(n), i++)
