@@ -64,4 +64,6 @@ export function dismissable(details) {
   // The path as dispatched: a click that redraws its own button (a multi-select's) is still inside.
   document.addEventListener('click', event => { if (!event.composedPath().includes(details)) details.open = false; });
   window.addEventListener('resize', () => { details.open = false; });
+  // A tap in a frame (the Scratch gallery) never reaches this document, but it takes the focus.
+  window.addEventListener('blur', () => { details.open = false; });
 }

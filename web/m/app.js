@@ -785,7 +785,8 @@ const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratc
 scratchFrame.addEventListener("load", tellScratch);
 addEventListener("message", (e) => { if (e.source === scratchFrame.contentWindow && /^%\d+$/.test(e.data?.pane)) navigate(e.data.pane); });
 function scratchPage() {
-  cardView("Scratch", scratchFrame).previousSibling.append(scratchSeg);
+  const head = cardView("Scratch", scratchFrame).previousSibling;
+  if (scratchSeg.parentNode !== head) head.append(scratchSeg); // a move would drop its focus
   choices("scratch-view", { grid: "Grid", list: "List" }, scratchView, (v) => {
     scratchView = v; try { localStorage.setItem("tmuxrc-scratch-view", v); } catch {} scratchPage(); tellScratch(); });
   return scratchFrame;

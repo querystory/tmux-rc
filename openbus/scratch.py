@@ -21,7 +21,8 @@ from . import agent_history, tmux
 
 _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 # The app's colours, and its account chip so the cards wear the same one.
-_TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n]*)", re.MULTILINE | re.DOTALL)
+_TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n]*)",
+                     re.MULTILINE | re.DOTALL)
 # How an agent names the folder: the served URL, the usual dir, or one of the variables.
 # The whole path component, so "mock" never takes "mock+draft"'s author, up to what
 # ends a path in prose, markdown, JSON or a URL.
@@ -132,11 +133,15 @@ def _since(pane: dict, created: float) -> bool:
     return len(stat) < 20 or tmux.started_at(stat[19]) <= created + 60
 
 
-def _who(tool: str | None, account: str | None) -> str:
-    """"claude · Work"; the account left out when it only repeats the agent ("Codex")."""
+def _author(i: dict, tool: str | None, acct: dict) -> None:
+    """The agent, its account and that account's chip colour, and `who` reading them as
+    "claude · Work"; the account left out when it only repeats the agent ("Codex")."""
+    i["tool"], i["account"], i["color"] = tool, acct.get("name"), acct.get("color")
+    account = i["account"]
     if account and account.lower() != (tool or "").lower():
-        return f"{tool} · {account}" if tool else account
-    return tool or "unknown"
+        i["who"] = f"{tool} · {account}" if tool else account
+    else:
+        i["who"] = tool or "unknown"
 
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
@@ -156,16 +161,13 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         s = i.pop("session", None) or {}
         i["pane"] = pane_of(running.get(s.get("session_id")) or {}) or i["pane"]  # still open
         if (pane := panes.get(i["pane"])) is not None:
-            acct = account.get(i["pane"]) or {}
-            i["tool"], i["account"], i["color"] = pane.get("tool"), acct.get("name"), acct.get("color")
-            i["who"] = _who(i["tool"], i["account"])
+            _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
             continue
         source = s.get("source") or ""
         acct = next((a for a in profiles if source.startswith(a.get("dir", "") + "/")), {})
         i["pane"] = None
-        i["tool"], i["account"], i["color"] = s.get("harness"), acct.get("name"), acct.get("color")
-        i["who"] = _who(i["tool"], i["account"])
+        _author(i, s.get("harness"), acct)
         i["where"] = s.get("title") or ""
 
 
@@ -189,12 +191,15 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
 
 
 def _chip(i: dict, e: dict) -> str:
-    """The agent, then its account as the app's own chip (accounts.js badge); a tap filters."""
-    tool = f'<span class="tool">{e.get("tool") or "unknown"}</span>'
+    """The agent, then its account as the app's own chip (accounts.js badge); a tap on
+    either filters the cards to it."""
+    tool = (f'<button type="button" class="who tool">{e["tool"]}</button>' if "tool" in e
+            else '<span class="tool">unknown</span>')
     if not i.get("account") or i["account"].lower() == (i.get("tool") or "").lower():
         return tool
-    return (f'{tool}<button type="button" class="who acct-badge" style="--a:var(--acct-{e.get("color", "")})">'
-            f'<i class="acct-dot"></i><span>{e["account"]}</span></button>')
+    return (f'{tool}<button type="button" class="who acct-badge" '
+            f'style="--a:var(--acct-{e.get("color", "")})"><i class="acct-dot"></i>'
+            f'<span>{e["account"]}</span></button>')
 
 
 def _card(i: dict) -> str:

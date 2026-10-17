@@ -41,7 +41,7 @@ p { margin: 0; overflow-wrap: anywhere; }
 .desc { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .by { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
 .who { font-family: inherit; cursor: pointer; }
-.tool { color: var(--muted); }
+.tool { padding: 0; font: inherit; color: var(--muted); background: none; border: 0; }
 .where { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
 .muted { color: var(--muted); font-size: 13px; }
 a { color: var(--accent); }
@@ -78,7 +78,12 @@ let saved; try { saved = localStorage.getItem("tmuxrc-scratch-view"); } catch { 
 show(saved || "grid"); // big thumbnails first; List is the compact choice
 addEventListener("message", (e) => { if (e.source === parent && ["grid", "list"].includes(e.data?.view)) show(e.data.view); });
 // Inside the app, the pane that made a page opens there, not as a second app in this frame.
-if (window.top !== window) for (const a of document.querySelectorAll('.where a[href^="/m/#pane="]'))
-  a.onclick = (e) => { e.preventDefault(); parent.postMessage({ pane: decodeURIComponent(a.getAttribute("href").slice(9)) }, "*"); };
+// Every other link opens a tab of its own, so this frame only ever holds the gallery: the app
+// trusts what it posts, and its Grid/List keeps a page to steer.
+if (window.top !== window) {
+  document.head.append(Object.assign(document.createElement("base"), { target: "_blank" }));
+  for (const a of document.querySelectorAll('.where a[href^="/m/#pane="]'))
+    a.onclick = (e) => { e.preventDefault(); parent.postMessage({ pane: decodeURIComponent(a.getAttribute("href").slice(9)) }, "*"); };
+}
 for (const b of views) b.onclick = () => { show(b.dataset.view); try { localStorage.setItem("tmuxrc-scratch-view", b.dataset.view); } catch { /* sandboxed */ } };
 </script></body></html>

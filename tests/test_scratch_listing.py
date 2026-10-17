@@ -71,8 +71,9 @@ def test_a_live_pane_names_its_window_and_account(tmp_path, monkeypatch):
     page = scratch.page(tmp_path, states, profiles, STYLE)
     assert 'href="/m/#pane=%257"' in page and 'href="mock/"' in page and ":root.light {" in page
     # The account wears the app's own chip, its rules carried over with the colours.
-    assert '<span class="tool">claude</span><button type="button" class="who acct-badge" ' \
-        'style="--a:var(--acct-2)"><i class="acct-dot"></i><span>Work</span></button>' in page
+    assert ('<button type="button" class="who tool">claude</button><button type="button" '
+            'class="who acct-badge" style="--a:var(--acct-2)"><i class="acct-dot"></i>'
+            '<span>Work</span></button>') in page
     assert re.search(r"^\.acct-badge \{", page, re.MULTILINE)
 
 
@@ -110,7 +111,8 @@ def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypa
                "birth": str(os.getpid())}]
     items, _ = _resolved(tmp_path, states)
     assert items["old"]["pane"] is None and items["old"]["who"] == "unknown"
-    assert '<p class="by"><span class="tool">unknown</span><span' in scratch.page(tmp_path, states, [], STYLE)
+    page = scratch.page(tmp_path, states, [], STYLE)
+    assert '<p class="by"><span class="tool">unknown</span><span' in page
 
 
 def test_nothing_outside_scratch_is_listed_or_read(tmp_path, monkeypatch):
