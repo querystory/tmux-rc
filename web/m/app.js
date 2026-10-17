@@ -1535,7 +1535,7 @@ $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 // It slides every way it comes and goes (settle, below), a row's place opening once it is gone.
 html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-nav", "Scratch", "images"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
   .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
-$("menu-open").onclick = () => {
+$("menu-open").onclick = (e) => {
   // One current row, the most specific pressed (rows run general to specific): Scratch, not
   // also the Dashboard it opens within.
   const rows = [...$("drawer-nav").children], here = [...rows].reverse().find((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
@@ -1543,22 +1543,25 @@ $("menu-open").onclick = () => {
   text($("drawer-nav").querySelector('[data-via="attention-tab"] .count'), $("attention-count").textContent);
   // ☰ first, so closing returns there even when an edge swipe opened it (and not to search, whose
   // focus would bring the keyboard back); then the drawer, not its first row: no ring until Tab.
+  // Focus goes back to ☰ only for a keyboard (a click with no pointer, or Escape); after a tap
+  // nothing is left focused, so Safari paints no ring.
+  keyed = !e.detail && !drag?.live;
   $("menu-open").focus({ preventScroll: true }); drawer.showModal(); drawer.focus();
   if (!drag?.live) { slide(-drawer.offsetWidth); getComputedStyle(drawer, "::backdrop").opacity; settle(true); } // read: the scrim starts clear
 };
-$("drawer").onclick = (e) => { const row = e.target.closest("[data-via]"); if (row || e.target === drawer) settle(false, () => row && $(row.dataset.via).click()); };
-$("drawer").addEventListener("cancel", (e) => { e.preventDefault(); settle(false); });
+$("drawer").onclick = (e) => { keyed ||= !e.detail; const row = e.target.closest("[data-via]"); if (row || e.target === drawer) settle(false, () => row && $(row.dataset.via).click()); };
+$("drawer").addEventListener("cancel", (e) => { e.preventDefault(); keyed = true; settle(false); });
 // It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
 // edge, it follows with its scrim fading in step, then settles open or shut, shut once a third of
 // it has gone or on a flick. A drag that starts vertical is left to scroll.
 const drawer = $("drawer"), still = matchMedia("(prefers-reduced-motion: reduce)");
 // .settling animates the release (or an open or close). Only the latest may finish: a new drag
 // or settle cancels the one still settling.
-let drag = null, settling;
+let drag = null, settling, keyed;
 const slide = (x) => { if (drag) drag.pos = x; drawer.style.transform = `translateX(${x}px)`; drawer.style.setProperty("--shown", 1 + x / drawer.offsetWidth); };
 function settle(open, then) {
   clearTimeout(settling); drawer.classList.add("settling"); slide(open ? 0 : -drawer.offsetWidth);
-  settling = setTimeout(() => { drawer.classList.remove("settling"); drawer.style.transform = ""; drawer.style.removeProperty("--shown"); if (!open) { drawer.close(); then?.(); } }, still.matches ? 0 : 200);
+  settling = setTimeout(() => { drawer.classList.remove("settling"); drawer.style.transform = ""; drawer.style.removeProperty("--shown"); if (!open) { drawer.close(); if (!keyed) document.activeElement?.blur(); then?.(); } }, still.matches ? 0 : 200);
 }
 addEventListener("touchmove", (e) => {
   if (!drag) return;
