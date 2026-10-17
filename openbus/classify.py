@@ -905,12 +905,6 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         if handoff is None:
             return None
         paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
-        # The command itself is offered to send when it stands alone on its row: a row run
-        # on below it may be its wrap or the prose after it, which the screen cannot tell.
-        rows = [*message.splitlines(), ""]
-        start = max(i for i, row in enumerate(rows) if row.strip().startswith("! "))
-        offer = None if rows[start + 1].strip() else rows[start].strip()
-        return {"prompt": paragraph, "answer_style": "text", "options": [], "offer": offer}
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 
@@ -1122,6 +1116,16 @@ def _code_blocks(reply: str | None) -> list[dict]:
     return blocks[::-1]
 
 
+def _from_reply(offer: str, reply: str | None) -> str:
+    """The model picks what to send; the agent's reply has its exact text. An offer that a
+    one-line code block of the reply begins with, word for word, is that block, whatever
+    the screen cut."""
+    key = " ".join(offer.split())
+    return next((block["text"].strip() for block in _code_blocks(reply)
+                 if "\n" not in block["text"].strip()
+                 and f'{" ".join(block["text"].split())} '.startswith(f"{key} ")), offer)
+
+
 def classify(
     pane: Pane,
     text: str,
@@ -1278,13 +1282,13 @@ def classify(
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
-    if offers := screen_offers(result.pop("offers", None), text):
-        result["offers"] = offers
+    # What to send is the model's call: its offers, and the text it gives copyables to send here.
+    sends = [c["send"] for c in result.get("copyables") or []
+             if isinstance(c, dict) and isinstance(c.get("send"), str)]
+    offered = result.pop("offers", None)
+    if offers := screen_offers([*sends, *(offered if isinstance(offered, list) else ())], text):
+        result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     if final and (ask := _final_ask(visible, tool, final, offers)):
-        # The model offered nothing: the command handed over is the one to send.
-        command = ask.pop("offer", None)
-        if command and not offers and (sendable := screen_offers([command], text)):
-            result["offers"] = sendable
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         own = _same_question(result.get("question"), ask)

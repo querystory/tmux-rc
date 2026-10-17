@@ -862,6 +862,29 @@ def _mark_dim(text: str) -> str:
     return s
 
 
+# Agent windows run hundreds of rows tall so the browser can scroll an app that keeps no
+# tmux history, and then the whole screen reads as current: old, answered turns included.
+# For the parser only the last VIEWPORT_ROWS rows down to the last inked one are labeled
+# the visible screen; the rows above it are relabeled history, but all of them are still
+# sent: the model writes better headlines from the whole screen than from a crop.
+VIEWPORT_ROWS = 150
+
+
+def _bottom_viewport(out: str, width: int) -> str:
+    """Move the VISIBLE_SCREEN boundary down to VIEWPORT_ROWS above the last inked row,
+    counted in the physical rows a -J-joined line wrapped across at `width` cells."""
+    head, mark, screen = out.rpartition(VISIBLE_SCREEN)
+    rows = screen.split("\n")  # rows[0] ends the boundary's own line
+    last = max((i for i, row in enumerate(rows) if _ANSI.sub("", row).strip()), default=0)
+    cut, height = last + 1, 0
+    while cut > 1 and height < VIEWPORT_ROWS:
+        cut -= 1
+        height += max(1, -(-sum(map(_cell_width, _ANSI.sub("", rows[cut]).rstrip())) // width))
+    if not mark or cut < 2:
+        return out
+    return "\n".join([head + "\n".join(rows[1:cut]), mark, *rows[cut:]])
+
+
 def capture_pane(
     pane_id: str, lines: int = 200, mark_dim: bool = False, keep_colors: bool = False
 ) -> str:
@@ -870,8 +893,9 @@ def capture_pane(
     escape sequences so OSC 8 hyperlinks can be materialized before the rest are
     stripped. Two independent, orthogonal flags on that stripped-by-default output:
 
-      - `mark_dim` (LLM-bound captures): label the history/viewport boundary and
-        re-encode faint/gray runs as ⟪dim⟫ markers before stripping colors.
+      - `mark_dim` (LLM-bound captures): label the history/viewport boundary (at most
+        VIEWPORT_ROWS rows above the last inked row) and re-encode faint/gray runs as
+        ⟪dim⟫ markers before stripping colors.
       - `keep_colors` (live view): skip the strip entirely and return the raw SGR
         runs, which the client renders as colored spans (docs/design/live-view.md).
 
@@ -899,7 +923,8 @@ def capture_pane(
         # the classifier can tell a prompt still awaiting input from one answered above.
         out, cursor = out.rstrip("\n").rsplit("\n", 1)  # its row minus the height, the width
         cursor, width = cursor.split()
-        out = split_side_panel(out, int(width))  # adds rows above the viewport only
+        # Both add or move rows above the viewport only: the cursor's offset still holds.
+        out = split_side_panel(_bottom_viewport(out, int(width)), int(width))
         tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
         out = _mark_placeholder(_mark_dim(_materialize_links(out)))
     else:

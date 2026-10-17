@@ -1381,14 +1381,6 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     only_command = ("\x1e[visible screen]\x1f\n● ! git push\n✻ Worked for 3s\n❯\n"
                     "⏵⏵ auto mode on")
     assert classify(_pane("claude"), only_command, _llm({}))["question"]["prompt"] == "! git push"
-    # The handed-over command is offered to send even when the model offered nothing, its
-    # spacing kept, but not when rows run on below it: a wrap or prose, no screen tells.
-    assert classify(_pane("claude"), only_command, _llm({}))["offers"] == ["! git push"]
-    spaced = _auto_screen("Run:\n\n  ! printf '%s' 'a  b'\n\n  Then tell me.")
-    assert classify(_pane("claude"), spaced, _llm({}))["offers"] == ["! printf '%s' 'a  b'"]
-    for run_on in ("  ! cat /tmp/demo-re\n  port.txt", "  ! git push\n  Then tell me."):
-        assert "offers" not in classify(_pane("claude"), _auto_screen(f"Run:\n\n{run_on}"),
-                                        _llm({}))
     bare = classify(_pane("claude"), screen.replace("  ⎿  API Error: 529", "API Error handling"),
                     _llm({}))
     assert "question" not in bare  # only the ⎿ result marker is provider-error chrome
@@ -1839,3 +1831,25 @@ def test_a_checked_row_is_still_the_highlighted_row():
     rows = ["demo Docs", "demo Mail"]
     visible = classify_mod._visible(screen)
     assert classify_mod.highlighted_row(visible, "Manage MCP servers", rows) == "demo Docs"
+
+
+def test_an_offer_the_screen_cut_is_the_replys_whole_command():
+    """The model picks the offer; the reply's one-line code block it begins (word for word)
+    is its exact text, the part the screen wrapped onto later rows included."""
+    shown = _auto_screen("Run it:\n\n  ! terraform apply\n  /tmp/demo/p.tfplan\n\n  Then tell me.")
+    reply = "Run it:\n\n```\n! terraform apply /tmp/demo/p.tfplan\n```\n\nThen tell me."
+    for offer, sent in (("! terraform apply", "! terraform apply /tmp/demo/p.tfplan"),
+                        ("! terraform", "! terraform apply /tmp/demo/p.tfplan"),
+                        ("! terra", "! terra")):  # not a word boundary: kept as the model gave it
+        assert classify(_pane("claude"), shown, _llm({"offers": [offer]}), reply=reply)[
+            "offers"] == [sent]
+
+
+def test_copyables_the_model_marks_to_send_here_are_offers_in_its_order():
+    shown = _auto_screen("Run them in order:\n\n  ! make migrate\n\n  ! make deploy\n\n"
+                         "  Then tell me.")
+    model = {"copyables": [{"label": "First", "text": "make migrate", "send": "! make migrate"},
+                           {"label": "Second", "text": "make deploy", "send": "! make deploy"},
+                           {"label": "Log", "text": "make: done"}]}
+    assert classify(_pane("claude"), shown, _llm(model))["offers"] == ["! make migrate",
+                                                                       "! make deploy"]
