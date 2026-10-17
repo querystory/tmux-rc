@@ -1531,7 +1531,7 @@ $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 // A phone's ☰ drawer: each row presses the control that already goes there (a tab, Scratch,
 // Settings, the docs link), shown when it is and current while it is pressed. A modal
-// dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a swipe left closes it.
+// dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a drag left closes it.
 html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-nav", "Scratch", "images"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
   .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
 $("menu-open").onclick = () => {
@@ -1540,25 +1540,45 @@ $("menu-open").onclick = () => {
   $("drawer").showModal(); $("drawer").focus(); // the drawer, not its first row: no ring until Tab
 };
 $("drawer").onclick = (e) => { const row = e.target.closest("[data-via]"); if (row || e.target === $("drawer")) $("drawer").close(); row && $(row.dataset.via).click(); };
-let drawn = 0;
-$("drawer").addEventListener("touchstart", (e) => { drawn = e.touches[0].clientX; }, { passive: true });
-$("drawer").addEventListener("touchend", (e) => { if (drawn - e.changedTouches[0].clientX > 60) $("drawer").close(); });
+// It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
+// edge, it follows with its scrim fading in step, then settles open or shut, shut once a third of
+// it has gone or on a flick. A drag that starts vertical is left to scroll.
+const drawer = $("drawer"), still = matchMedia("(prefers-reduced-motion: reduce)");
+let drag = null;
+const slide = (x) => { if (drag) drag.pos = x; drawer.style.transform = `translateX(${x}px)`; drawer.style.setProperty("--shown", 1 + x / drawer.offsetWidth); };
+function settle(open) {
+  drawer.classList.replace("dragging", "settling"); slide(open ? 0 : -drawer.offsetWidth);
+  setTimeout(() => { drawer.classList.remove("settling"); drawer.style.transform = ""; drawer.style.removeProperty("--shown"); if (!open) drawer.close(); }, still.matches ? 0 : 200);
+}
+addEventListener("touchmove", (e) => {
+  if (!drag) return;
+  const t = e.touches[0], dx = t.clientX - drag.x, dy = Math.abs(t.clientY - drag.y);
+  if (!drag.live) {
+    if (dy > Math.abs(dx)) { if (dy > 10) drag = null; return; } // vertical: a scroll, not a drag
+    if (Math.abs(dx) < 10 || !drag.open && dx < 0) return;
+    drag.live = true; drawer.classList.add("dragging"); if (!drawer.open) $("menu-open").click(); drag.base = drag.open ? 0 : -drawer.offsetWidth;
+  }
+  drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
+  slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
+}, { passive: true });
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 // A phone's Back is also a swipe in from the left edge: it presses the Back of the pane or the
-// view, and elsewhere ☰, as Gmail's swipe opens its drawer. Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
+// view (on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
 let edge = null;
 addEventListener("touchstart", (e) => {
   const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
   edge = !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+  drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
-addEventListener("touchcancel", () => { edge = null; });
+addEventListener("touchcancel", () => { edge = null; if (drag?.live) settle(drag.open); drag = null; });
 addEventListener("touchend", (e) => {
   const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
-  if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page ? $("dash-page").querySelector('[data-key="page-back"]') : $("menu-open"))?.click();
-  edge = null;
+  if (drag?.live) settle(drag.v > .5 || drag.v > -.5 && drag.pos > -drawer.offsetWidth * (drag.open ? 1 : 2) / 3);
+  else if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
+  edge = drag = null;
 });
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
 const searched = () => { writeHash(formatHash({ ...parseHash(location.hash), q: $("search").value })); renderList(); };
