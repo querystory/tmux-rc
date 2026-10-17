@@ -50,7 +50,7 @@ const SHOTS = [
   ["mobile-activity", PHONE, "dark", "#view=dashboard", reach(".atlas-pulse", true)],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
-  ["mobile-settings", PHONE, "light", "", (page) => page.click("#settings-open")],
+  ["mobile-settings", PHONE, "light", "", phoneSettings],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
   ["mobile-usage-30d", PHONE, "light", "#view=usage", pickRange("30d")],
@@ -104,7 +104,7 @@ const TWO_ACCOUNTS = [
   })],
   ["accounts-mobile-list", PHONE, "light", "", two()],
   ["accounts-mobile-list-dark", PHONE, "dark", "", two()],
-  ["accounts-mobile-settings", PHONE, "light", "", two((page) => page.click("#settings-open"))],
+  ["accounts-mobile-settings", PHONE, "light", "", two(phoneSettings)],
   ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { const tab = page.locator('#list-nav [data-filter="working"]'), base = await tab.count(); if (base) await tab.click(); await page.click("#side-filter-picker summary"); if (!base) await page.click('#side-filter-picker [data-v="working"]'); await page.click('#acct-filter [data-acct="claude-personal"]'); await page.click("#side-filter-picker summary"); })],
   ["accounts-wide-filter", WIDE, "light", "", two((page) => page.click("#side-filter-picker summary"))],
   ["accounts-wide-rail", WIDE, "dark", "#pane=%2513", two((page) => page.click("#collapse"))],
@@ -116,8 +116,8 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-moved", PHONE, "light", "#pane=%2513", moveMenu("#move-pane", "Exit the old pane"), "#move-dialog"],
   ["accounts-mobile-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); })],
   ["accounts-mobile-consent", PHONE, "light", "", two(chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge"))],
-  ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await page.click("#settings-open"); await page.click("#accounts-open"); })],
-  ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await page.click("#settings-open"); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
+  ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); })],
+  ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
   // Adding "Demo", step by step, each cropped to its sheet (docs/design/agent-accounts.md).
   // Last, and in this order: opening the sign-in window changes the demo server's state.
   ["accounts-add-1-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }), "#launch-dialog"],
@@ -129,11 +129,16 @@ const TWO_ACCOUNTS = [
   ["accounts-add-6-done", PHONE, "light", "", two(addFlow("done")), "#acct-dialog"],
   ["accounts-add-7-list", PHONE, "light", "", two((page) => page.fill("#search", "sign in"))],
 ];
+// A phone opens Settings from the ☰ drawer, its own button being a wide screen's.
+async function phoneSettings(page) {
+  await page.click("#menu-open"); await page.click('#drawer-nav [data-via="settings-open"]');
+  await page.waitForSelector("#settings[open]");
+}
 // The add flow up to `until`: name, share, login (its step before the window opens), wait
 // (the window open, signing in) or done.
 function addFlow(until) {
   return async (page) => {
-    await page.click("#settings-open"); await page.click("#accounts-open");
+    await phoneSettings(page); await page.click("#accounts-open");
     const added = page.locator('#acct-dialog [data-remove="~/.claude-demo"]'); // by an earlier shot
     if (await added.count()) { // remove it, and wait for the list to come back without it
       await added.click(); await page.click("#acct-dialog [data-remove-ok]");
