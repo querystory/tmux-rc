@@ -1838,8 +1838,8 @@ def test_an_offer_the_screen_cut_is_the_replys_whole_command():
 def test_copyables_the_model_marks_to_send_here_are_offers_in_its_order():
     shown = _auto_screen("Run them in order:\n\n  ! make migrate\n\n  ! make deploy\n\n"
                          "  Then tell me.")
-    model = {"copyables": [{"label": "First", "text": "! make migrate", "send": True},
-                           {"label": "Second", "text": "! make deploy", "send": True},
-                           {"label": "Log", "text": "make: done", "send": False}]}
+    model = {"copyables": [{"label": "First", "text": "make migrate", "send": "! make migrate"},
+                           {"label": "Second", "text": "make deploy", "send": "! make deploy"},
+                           {"label": "Log", "text": "make: done"}]}
     assert classify(_pane("claude"), shown, _llm(model))["offers"] == ["! make migrate",
                                                                        "! make deploy"]
