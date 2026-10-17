@@ -1206,7 +1206,7 @@ button.picked:disabled { opacity: 1; }
   .app-header #settings-open, #app:has(> #detail:not([hidden])) > .app-header, #search-icon { display: none; }
   #find { flex: 1; min-width: 0; display: flex; align-items: center; }
   #find .search { flex: 1; min-width: 0; margin: 0; padding: 0 0 0 4px; background: none; box-shadow: none; }
-  #sessions .acct-pill { display: none; }
+  #find + .acct-pill { display: none; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
   .app-header #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
   #heading { flex-wrap: wrap; gap: 0; padding: 4px 4px 8px 16px; }
