@@ -63,12 +63,18 @@ def test_a_live_pane_names_its_window_and_account(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_history, "writers", lambda *_: pytest.fail("pane was enough"))
     _folder(tmp_path, "mock", 1000, {"pane": "%7", "created": "2026-01-02T03:04:05+00:00"})
     states = [{"pane_id": "%7", "tool": "claude", "session": "web", "window_name": "ui"}]
-    items, _ = _resolved(tmp_path, states, [{"name": "Work", "dir": "/c", "panes": ["%7"]}])
-    want = {"who": "claude · Work", "where": "web:ui", "pane": "%7"}
+    profiles = [{"name": "Work", "dir": "/c", "panes": ["%7"], "color": 2}]
+    items, _ = _resolved(tmp_path, states, profiles)
+    want = {"who": "claude · Work", "where": "web:ui", "pane": "%7", "color": 2}
     assert items["mock"] | want == items["mock"]
     assert items["mock"]["created"] == 1767323045
-    page = scratch.page(tmp_path, states, [], STYLE)
+    page = scratch.page(tmp_path, states, profiles, STYLE)
     assert 'href="/m/#pane=%257"' in page and 'href="mock/"' in page and ":root.light {" in page
+    # The account wears the app's own chip, its rules carried over with the colours.
+    assert ('<button type="button" class="who tool">claude</button><button type="button" '
+            'class="who acct-badge" style="--a:var(--acct-2)"><i class="acct-dot"></i>'
+            '<span>Work</span></button>') in page
+    assert re.search(r"^\.acct-badge \{", page, re.MULTILINE)
 
 
 def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
@@ -105,6 +111,8 @@ def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypa
                "birth": str(os.getpid())}]
     items, _ = _resolved(tmp_path, states)
     assert items["old"]["pane"] is None and items["old"]["who"] == "unknown"
+    page = scratch.page(tmp_path, states, [], STYLE)
+    assert '<p class="by"><span class="tool">unknown</span><span' in page
 
 
 def test_nothing_outside_scratch_is_listed_or_read(tmp_path, monkeypatch):
@@ -190,3 +198,12 @@ def test_an_empty_gallery_says_how_agents_publish_there(tmp_path):
     assert unescape(shown) == " ".join(line.strip() for line in block.splitlines())  # unwrapped
     _folder(tmp_path, "one", 1000)
     assert '<section id="empty" hidden>' in scratch.page(tmp_path, [], [], STYLE)
+
+
+def test_a_pending_preview_names_the_image_the_page_retries():
+    from openbus.scratch import _card
+    item = {"name": "a b", "href": "a%20b/", "title": "t", "description": "", "who": "",
+            "where": "", "pane": None, "thumb": False, "shot": "pending",
+            "created": 0, "updated": 0}
+    assert 'data-pending="a%20b/thumb.webp"' in _card(item)
+    assert "data-pending" not in _card({**item, "shot": "failed"})

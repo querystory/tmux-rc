@@ -22,7 +22,9 @@ from starlette.staticfiles import StaticFiles
 
 _PAGE = Path(__file__).resolve().parent / "scratch_markdown.html"
 MERMAID = "/m/vendor/mermaid.min.js"  # the vendored build, under the app's static dir
-_TOKENS = re.compile(r"^:root(?:\.light)? \{.*?^\}", re.MULTILINE | re.DOTALL)  # app colours
+# The app's colours, and its account chip so the gallery's cards wear the same one.
+_TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n]*)",
+                     re.MULTILINE | re.DOTALL)
 _CALLOUT = re.compile(r"^ {0,3}> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\] *$",
                       re.IGNORECASE | re.MULTILINE)
 _QUOTED = re.compile(r" {0,3}> ?")

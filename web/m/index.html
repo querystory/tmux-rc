@@ -122,6 +122,8 @@
            window and the gear, which opens Settings as the sidebar's row does. -->
       <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
       <button id="settings-open" class="icon-button" aria-label="Settings" title="Settings"></button>
+      <!-- A phone has no sidebar: its places sit behind ☰ in place of the gear. -->
+      <details id="app-menu" class="header-picker"><summary id="app-menu-button" class="icon-button" aria-label="Menu" title="Menu"></summary><div class="header-picker-menu"><a id="menu-scratch" href="#view=scratch" hidden>Scratch</a><button id="menu-settings" type="button">Settings</button><a id="menu-docs" href="/docs/" hidden>Documentation</a></div></details>
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
@@ -133,9 +135,9 @@
            #sessions is the scroller (style.css). -->
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
       <div id="sb-scroll">
-      <!-- The places you go, as rows: Dashboard, Scratch (agents' previews, a page of its own) and Settings (app.js moves Settings in). Chat and
+      <!-- The places you go, as rows: Dashboard, Scratch (agents' previews, in the content area) and Settings (app.js moves Settings in). Chat and
            Voice are toggles, icons in the head. -->
-      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><a id="scratch-nav" class="icon-button" href="/scratch/" aria-label="Scratch" title="Scratch" hidden></a></div>
+      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><a id="scratch-nav" class="icon-button" href="#view=scratch" aria-label="Scratch" title="Scratch" hidden></a></div>
       <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div>
       <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
       <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div></div>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName } from "../web/m/pane-model.js";
+import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName, paneActivity } from "../web/m/pane-model.js";
 import { paneLinks, askLink } from "../web/pr-links.js";
 
 test("PR titles are primary, with the repository and number beneath", () => {
@@ -111,4 +111,10 @@ test("a question leads with the screen link the parser names as its own, else th
   assert.deepEqual(askLink({ ...ask(undefined), links: [{ href: "javascript:alert(1)" }, login] }), login);
   assert.equal(askLink(ask("https://elsewhere.example/")), null);  // not among the screen's links
   assert.equal(askLink({ ...ask(undefined), links: [] }), null);
+});
+
+test("a row falls back to the headline until a summary exists", () => {
+  assert.equal(paneActivity({ headline: "Fixing the parser" }), "Fixing the parser");
+  assert.equal(paneActivity({ headline: "h", session_summary: "s" }), "s");
+  assert.equal(paneActivity({}), "");
 });
