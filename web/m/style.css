@@ -958,6 +958,7 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   .app-header #new-window.folded { gap: 0; }
   .app-header #new-window.folded::after { max-width: 0; }
   :is(.editing, .app-header:has(> #find[hidden])) #new-window { display: none; }
+  #sessions { padding-bottom: calc(var(--bar-room) + 68px); } /* the last row scrolls clear of it */
 }
 
 
