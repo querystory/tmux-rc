@@ -213,10 +213,11 @@ def _profiles(pane_dirs) -> list[dict]:
         if entry.get("provider") in ENV:
             found[config] = entry["provider"]
     used, dirty, out = {e.get("color") for e in store.values()}, False, []
-    # Codex's own status checks side by side, so one slow dir does not stall them all.
+    # Codex's own status checks all at once, so one pass waits one timeout at most and its
+    # answers are all still fresh for the next pass of the same report.
     ask = [Path(c) for c, t in found.items() if t == "codex" and not store.get(c, {}).get("hidden")
            and not (Path(c) / "auth.json").exists()]
-    with ThreadPoolExecutor(max_workers=min(max(len(ask), 1), 8)) as pool:
+    with ThreadPoolExecutor(max_workers=max(len(ask), 1)) as pool:
         codex_says = dict(zip(ask, pool.map(_codex_login, ask), strict=True))
     for config, provider in found.items():
         entry = store.get(config, {})

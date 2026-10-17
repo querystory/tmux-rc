@@ -6,6 +6,7 @@ import os
 import stat
 import subprocess
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -163,6 +164,15 @@ def test_codex_is_asked_about_that_dir_alone(tmp_path, monkeypatch):
     assert CODEX_LOGIN(tmp_path / "in")  # asked a moment ago: the answer is kept
     accounts._CODEX_SEEN.clear()
     assert not CODEX_LOGIN(tmp_path / "in")  # no codex at all
+
+
+def test_every_codex_status_check_runs_at_once(home, monkeypatch):
+    # Batched, nine slow dirs would wait two timeouts a pass: past the sheet's deadline.
+    for i in range(9):
+        (home / f".codex-{i}").mkdir()
+    gate = threading.Barrier(9, timeout=5)
+    monkeypatch.setattr(accounts, "_codex_login", lambda config: gate.wait() >= 0)
+    assert sum(p["signed_in"] for p in accounts.profiles()) == 2 + 2 + 9
 
 
 def test_two_people_of_one_organisation_are_told_apart(home):

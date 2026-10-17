@@ -289,7 +289,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     render(); if (!dlg.open) dlg.showModal();
   }
   let seq = 0; // bumped by every step taken: a lookup answered after another step is stale
-  const go = (step, extra = {}) => { seq++; Object.assign(F, { renaming: null, removing: null, error: null, line: null, callback: "", ...extra, step }); render(); };
+  // Each step a new flow: a request still out for the last one clears only its own busy flags.
+  const go = (step, extra = {}) => { seq++; F = { ...F, renaming: null, removing: null, error: null, line: null, callback: "", opening: false, sending: false, ...extra, step }; render(); };
   // The sign-in line: as edited in this flow, else VAR=<dir> and the remembered command.
   const lineFor = (cmd) => `${ENV[F.provider]}=${shq(F.dir)} ${cmd}`, lineOf = () => F.line ?? lineFor(cmdOf(F.provider));
   const ways = () => `<div class="acct-seg">${CODEX_WAYS.map(([cmd, name]) => `<button type="button" data-way="${cmd}" aria-pressed="${device() === cmd.includes("--device-auth")}">${name}</button>`).join("")}</div><p class="acct-note">${CODEX_WAYS.map(([, name, how]) => `<b>${name}</b>: ${how}.`).join(" ")}</p>`;
