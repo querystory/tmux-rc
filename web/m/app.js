@@ -1549,11 +1549,14 @@ $("drawer").onclick = (e) => { const row = e.target.closest("[data-via]"); if (r
 // edge, it follows with its scrim fading in step, then settles open or shut, shut once a third of
 // it has gone or on a flick. A drag that starts vertical is left to scroll.
 const drawer = $("drawer"), still = matchMedia("(prefers-reduced-motion: reduce)");
-let drag = null;
+// A drag holds the drawer (.held: no entrance animation) until it closes; .settling animates the
+// release. Only the latest release may finish: a new drag cancels the one still settling.
+let drag = null, settling;
+drawer.addEventListener("close", () => drawer.classList.remove("held"));
 const slide = (x) => { if (drag) drag.pos = x; drawer.style.transform = `translateX(${x}px)`; drawer.style.setProperty("--shown", 1 + x / drawer.offsetWidth); };
 function settle(open) {
-  drawer.classList.replace("dragging", "settling"); slide(open ? 0 : -drawer.offsetWidth);
-  setTimeout(() => { drawer.classList.remove("settling"); drawer.style.transform = ""; drawer.style.removeProperty("--shown"); if (!open) drawer.close(); }, still.matches ? 0 : 200);
+  drawer.classList.add("settling"); slide(open ? 0 : -drawer.offsetWidth);
+  settling = setTimeout(() => { drawer.classList.remove("settling"); drawer.style.transform = ""; drawer.style.removeProperty("--shown"); if (!open) drawer.close(); }, still.matches ? 0 : 200);
 }
 addEventListener("touchmove", (e) => {
   if (!drag) return;
@@ -1561,7 +1564,7 @@ addEventListener("touchmove", (e) => {
   if (!drag.live) {
     if (dy > Math.abs(dx)) { if (dy > 10) drag = null; return; } // vertical: a scroll, not a drag
     if (Math.abs(dx) < 10 || !drag.open && dx < 0) return;
-    drag.live = true; drawer.classList.add("dragging"); if (!drawer.open) $("menu-open").click(); drag.base = drag.open ? 0 : -drawer.offsetWidth;
+    drag.live = true; clearTimeout(settling); drawer.classList.remove("settling"); drawer.classList.add("held"); if (!drawer.open) $("menu-open").click(); drag.base = drag.open ? 0 : -drawer.offsetWidth;
   }
   drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
@@ -1574,6 +1577,7 @@ $("back").onclick = $("close-pane").onclick = () => navigate();
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
 let edge = null;
 addEventListener("touchstart", (e) => {
+  if (drag?.live) return; // a second finger: the drag stays the first one's
   const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
   edge = !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
   drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
