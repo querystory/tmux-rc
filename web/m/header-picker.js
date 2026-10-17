@@ -67,7 +67,7 @@ export function dismissable(details) {
   document.addEventListener('click', event => {
     if (!details.open || event.composedPath().includes(details)) return;
     details.open = false;
-    if (!matchMedia('(min-width: 1100px)').matches) { event.preventDefault(); event.stopPropagation(); }
+    if (details.isConnected && !matchMedia('(min-width: 1100px)').matches) { event.preventDefault(); event.stopPropagation(); } // not one a route left open, out of the page
   }, true);
   window.addEventListener('resize', () => { details.open = false; });
 }
