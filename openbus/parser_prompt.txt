@@ -150,7 +150,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "copyables": [{"label": "one-line summary of WHAT this text is, e.g. 'Commit message' "
                  "or 'The 3 failing test names'",
                  "text": "the EXACT text to put on the clipboard, verbatim",
-                 "send": true|false   // true when the agent needs the user to send this text into this pane}],
+                 "send": true|false   // true only when the agent's latest message is waiting on the user to type exactly this text into this pane (a reply it asks for, or a command its input runs, e.g. Claude Code's "! command" with its "!")}],
   "events": [
     {"text": "WHAT happened, human phrase — e.g. 'Reworked the file list into an activity view'",
      "file": {"path": "...", "added": <int>, "removed": <int>},   // OPTIONAL: if this event was a file edit
