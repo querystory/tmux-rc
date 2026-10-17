@@ -29,6 +29,7 @@ import threading
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import quote
@@ -84,6 +85,7 @@ from . import (  # noqa: E402
     fit,
     restore,
     scratch,
+    scratch_markdown,
     scratch_sidecars,
     telemetry,
     tmux,
@@ -2007,7 +2009,7 @@ def _to_png(data: bytes) -> bytes:
     return buf.getvalue()
 
 
-def _mount_static(prefix: str, directory: str) -> None:
+def _mount_static(prefix: str, directory: str, files=StaticFiles) -> None:
     """Serve a directory read-only at prefix/, before the "/" mount so it wins. StaticFiles
     confines lookups to the directory (no ../ or symlink escape) and lists nothing.
     Bare prefix (no trailing slash) 404s under the real ASGI server — the mount only
@@ -2021,7 +2023,7 @@ def _mount_static(prefix: str, directory: str) -> None:
         return RedirectResponse(prefix + "/" + (f"?{query}" if query else ""))
 
     app.add_api_route(prefix, slash, include_in_schema=False)
-    app.mount(prefix, _short_ranges(StaticFiles(directory=directory, html=True)),
+    app.mount(prefix, _short_ranges(files(directory=directory, html=True)),
               name=prefix.strip("/"))
 
 
@@ -2114,11 +2116,11 @@ if _scratch_dir:
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
             Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"],
             WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher),
-            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), listed,
+            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed,
                                                   getattr(watcher, "use_llm", False)),
             "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
 
-    _mount_static("/scratch", _scratch_dir)
+    _mount_static("/scratch", _scratch_dir, partial(scratch_markdown.Files, web=WEB_DIR))
 
 
 def _bind() -> tuple[str, int]:

@@ -86,7 +86,7 @@ export function setupSidebar(ctx) {
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
   // The rail's search is the box's own icon: focusing the box (a click, or Tab) expands the sidebar.
-  const search = document.querySelector("#sessions .search"), input = search.querySelector("input");
+  const search = document.querySelector("#find .search"), input = search.querySelector("input");
   search.addEventListener("click", () => input.focus());
   input.addEventListener("focus", () => { if (prefs.rail) { prefs.rail = false; rerender(); } });
 
