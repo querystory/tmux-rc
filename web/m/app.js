@@ -807,12 +807,12 @@ function render() {
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
-  // its header takes them. Moved only when they are elsewhere: a move on every repaint would
-  // drop their focus.
-  const callTo = inPane ? $("settings-open") : $("all-tab");
+  // its heading takes them, by the overflow menu. Moved only when they are elsewhere: a move
+  // on every repaint would drop their focus.
+  const callTo = inPane ? $("pane-menu") : $("all-tab");
   if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
-  const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
-  show("brand", wide || (!inPane && dashboard)); show("list-title", list);
+  const list = !inPane && !dashboard; // a phone's list screen: the only one with search and sort
+  show("brand", wide || !list); show("find", wide || list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -1475,7 +1475,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -1529,11 +1529,25 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
+// A phone's ☰ drawer: each row presses the control that already goes there (a tab, Scratch,
+// Settings, the docs link), shown when it is and current while it is pressed. A modal
+// dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a swipe left closes it.
+html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-nav", "Scratch", "images"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
+  .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
+$("menu-open").onclick = () => {
+  for (const row of $("drawer-nav").children) { const via = $(row.dataset.via); row.hidden = via.hidden; row.setAttribute("aria-current", via.getAttribute("aria-pressed") === "true" ? "page" : "false"); }
+  text($("drawer-nav").querySelector('[data-via="attention-tab"] .count'), $("attention-count").textContent);
+  $("drawer").showModal();
+};
+$("drawer").onclick = (e) => { const row = e.target.closest("[data-via]"); if (row || e.target === $("drawer")) $("drawer").close(); row && $(row.dataset.via).click(); };
+let drawn = 0;
+$("drawer").addEventListener("touchstart", (e) => { drawn = e.touches[0].clientX; }, { passive: true });
+$("drawer").addEventListener("touchend", (e) => { if (drawn - e.changedTouches[0].clientX > 60) $("drawer").close(); });
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
-// A phone's Back is a swipe in from the left edge: it presses the hidden Back of the pane or
-// the view. Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
+// A phone's Back is also a swipe in from the left edge: it presses the Back of the pane or the
+// view, and elsewhere ☰, as Gmail's swipe opens its drawer. Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
 let edge = null;
 addEventListener("touchstart", (e) => {
@@ -1543,7 +1557,7 @@ addEventListener("touchstart", (e) => {
 addEventListener("touchcancel", () => { edge = null; });
 addEventListener("touchend", (e) => {
   const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
-  if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
+  if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page ? $("dash-page").querySelector('[data-key="page-back"]') : $("menu-open"))?.click();
   edge = null;
 });
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
@@ -1669,7 +1683,7 @@ for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close",
   d.classList.remove("beside");
 });
 // Crossing the breakpoint changes which form a panel takes (sheet or docked): close it.
-WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog")].forEach((d) => d.close()));
+WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog"), $("drawer")].forEach((d) => d.close()));
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; refit(); }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; wheelHome(active); };
@@ -1966,7 +1980,7 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // The wide sidebar takes the header's controls into its slots, in this order; a phone
 // gets them back where index.html put them (a comment marks each home), so every control
 // is one element with one set of listeners, whichever layout it is in.
-const CHROME = { "sb-head": ["brand", "connection", "chat", "live-mode", "collapse"], "sb-nav": ["settings-open"], "sb-sess": ["new-window"] };
+const CHROME = { "sb-head": ["brand", "connection", "chat", "live-mode", "collapse"], "sb-nav": ["settings-open"], "sb-sess": ["new-window"], "sb-sticky": ["find"] };
 const homes = {};
 let railPlaced = null;
 function placeChrome() {
@@ -1984,11 +1998,11 @@ function placeChrome() {
 // The active filters' chips: under search (a phone's list hides them there: its filter button
 // and the list's foot say it), and on a phone's dashboard (no search there) under its header,
 // so a filter is never on without saying so. There the filter button moves into the header
-// too, beside the gear: the dashboard's filter row folds behind it (style.css).
+// too, beside New window: the dashboard's filter row folds behind it (style.css).
 function placePill() {
   const dash = !WIDE.matches && dashboard, at = dash ? document.querySelector(".app-header") : $("find"), picker = renderSidebar.picker;
   if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
-  if (dash && picker.nextElementSibling !== $("settings-open")) $("settings-open").before(picker);
+  if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
 }
 // Folded to the rail, the controls move in the DOM to the order they show in (expand, +,

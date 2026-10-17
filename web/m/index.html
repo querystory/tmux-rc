@@ -111,16 +111,16 @@
 <body>
   <div id="app">
     <header class="app-header">
-      <button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button>
-      <!-- A phone's list screen is one iOS-style large-title row: this title, its live dot
-           and the actions. It names the app, not "Sessions": the list holds panes and
-           agents, which belong to sessions. The brand stands in on the dashboard. -->
-      <h1 id="list-title">tmux-rc</h1>
+      <!-- A phone's list screen is Gmail's: one pill, ☰ (the drawer, its dot the live status),
+           search and the filter button, then New window. The dashboard shows the brand
+           instead of search; a pane has no header (its Back heads #heading). -->
+      <button id="menu-open" class="icon-button" aria-label="Menu" title="Menu" aria-haspopup="dialog" aria-controls="drawer"></button>
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
+      <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
+      <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div>
       <span id="connection" role="status">Connecting</span>
-      <!-- A phone's Chat and mic sit in its tab bar, in thumb's reach; the header keeps New
-           window and the gear, which opens Settings as the sidebar's row does. -->
       <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
+      <!-- Settings: the wide sidebar's row; a phone opens it from the drawer. -->
       <button id="settings-open" class="icon-button" aria-label="Settings" title="Settings"></button>
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
@@ -136,9 +136,7 @@
       <!-- The places you go, as rows: Dashboard, Scratch (agents' previews, a page of its own) and Settings (app.js moves Settings in). Chat and
            Voice are toggles, icons in the head. -->
       <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><a id="scratch-nav" class="icon-button" href="/scratch/" aria-label="Scratch" title="Scratch" hidden></a></div>
-      <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div>
-      <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
-      <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div></div>
+      <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div></div>
       <button type="button" id="restore" hidden></button>
       <div id="pane-list"></div>
       <div id="side-list" class="sb-only"></div>
@@ -167,7 +165,7 @@
            screen the header spans both columns, so a title there floats above the sidebar
            it does not describe. Kept as ONE node for both layouts — narrow stacks it above
            the tabs exactly as the old header row read, wide sits it on the tab line. -->
-      <div id="heading" hidden><div class="pane-heading-text"><h1 id="pane-title" tabindex="-1"></h1><p id="pane-location"></p></div>
+      <div id="heading" hidden><button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button><div class="pane-heading-text"><h1 id="pane-title" tabindex="-1"></h1><p id="pane-location"></p></div>
         <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" data-view="summary" aria-pressed="true">Overview</button><button type="button" data-view="terminal" aria-pressed="false">Terminal</button></div><select id="review-layout" aria-label="Pane layout" aria-description="Applies to all panes · remembered in this browser"></select></div>
         <details id="pane-menu" class="header-picker"><summary id="pane-menu-button" class="icon-button" aria-label="More actions" title="More actions"></summary><div class="header-picker-menu"><label id="fit-pane" hidden><input type="checkbox" id="fit-toggle">Fit to my screen</label><button id="kill-pane" type="button"></button><button id="move-pane" hidden type="button"></button><hr id="expunge-rule" hidden><button id="expunge-pane" hidden type="button"></button></div></details>
         <button id="close-pane" class="icon-button" aria-label="Close" title="Close"></button>
@@ -202,6 +200,8 @@
       <section id="fleet" aria-label="Fleet chart" hidden></section>
     </section>
     <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="live-mode" class="icon-button" aria-label="Voice" title="Voice" hidden></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
+    <!-- A phone's ☰: a drawer from the left, the places you go as rows (app.js fills them). -->
+    <dialog id="drawer" aria-label="Menu"><div class="drawer-brand"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></div><nav id="drawer-nav"></nav></dialog>
     <dialog id="launch-dialog" aria-labelledby="launch-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><div class="panel-body"><p class="panel-sub">Start an agent or shell in a new tmux window.</p><div class="launch-row"><label for="launch-session">Session</label><select id="launch-session" required></select></div><div id="launch-new" hidden><label for="launch-dir">Directory</label><input id="launch-dir" list="launch-dirs" value="~" autocomplete="off" autocapitalize="off" spellcheck="false"><datalist id="launch-dirs"></datalist><label for="launch-name">Session name</label><input id="launch-name" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9_\-]{1,64}"></div><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></div></dialog>
     <!-- Settings: what you set once, not a place you go (docs/design/sidebar.md). Wide, a panel
          beside the sidebar; a phone, a sheet. -->
