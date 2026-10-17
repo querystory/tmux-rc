@@ -983,7 +983,8 @@ async def live_frame(
             # answer says whether the app is full screen, so the view's Auto fit follows one
             # coming and going (openbus/fit.py), even when that leaves the text unchanged.
             alt = await asyncio.to_thread(fit.alternate, pane_id)
-            return {"frame": h, "alt": alt, **({"text": text, "top": top, "screen": screen} if changed else {})}
+            new = {"text": text, "top": top, "screen": screen} if changed else {}
+            return {"frame": h, "alt": alt, **new}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
 
 
