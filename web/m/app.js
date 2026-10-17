@@ -829,12 +829,12 @@ function render() {
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
-  // its header takes them. Moved only when they are elsewhere: a move on every repaint would
-  // drop their focus.
-  const callTo = inPane ? $("settings-open") : $("all-tab");
+  // its heading takes them, by the overflow menu. Moved only when they are elsewhere: a move
+  // on every repaint would drop their focus.
+  const callTo = inPane ? $("pane-menu") : $("all-tab");
   if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
-  const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
-  show("brand", wide || (!inPane && dashboard)); show("list-title", list);
+  const list = !inPane && !dashboard; // a phone's list screen: the only one with search and sort
+  show("brand", wide || !list); show("find", wide || list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -1497,7 +1497,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "app-menu-button": "menu", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -1551,23 +1551,72 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
+// A phone's ☰ drawer: each row presses the control that already goes there (a tab, Scratch,
+// Settings, the docs link), shown when it is and current while it is pressed. A modal
+// dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a drag left closes it.
+// It slides every way it comes and goes (settle, below), a row's place opening once it is gone.
+html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-nav", "Scratch", "images"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
+  .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
+$("menu-open").onclick = (e) => {
+  // One current row, the most specific pressed (rows run general to specific): Scratch, not
+  // also the Dashboard it opens within.
+  const rows = [...$("drawer-nav").children], here = [...rows].reverse().find((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
+  for (const row of rows) { row.hidden = $(row.dataset.via).hidden; row.setAttribute("aria-current", row === here ? "page" : "false"); }
+  text($("drawer-nav").querySelector('[data-via="attention-tab"] .count'), $("attention-count").textContent);
+  // ☰ first, so closing returns there even when an edge swipe opened it (and not to search, whose
+  // focus would bring the keyboard back); then the drawer, not its first row: no ring until Tab.
+  // Focus goes back to ☰ only for a keyboard (a click with no pointer, or Escape); after a tap
+  // nothing is left focused, so Safari paints no ring.
+  keyed = !e.detail && !drag?.live;
+  $("menu-open").focus({ preventScroll: true }); drawer.showModal(); drawer.focus();
+  if (!drag?.live) { slide(-drawer.offsetWidth); getComputedStyle(drawer, "::backdrop").opacity; settle(true); } // read: the scrim starts clear
+};
+$("drawer").onclick = (e) => { keyed ||= !e.detail; const row = e.target.closest("[data-via]"); if (row || e.target === drawer) settle(false, () => row && $(row.dataset.via).click()); };
+$("drawer").addEventListener("cancel", (e) => { e.preventDefault(); keyed = true; settle(false); });
+// It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
+// edge, it follows with its scrim fading in step, then settles open or shut, shut once a third of
+// it has gone or on a flick. A drag that starts vertical is left to scroll.
+const drawer = $("drawer"), still = matchMedia("(prefers-reduced-motion: reduce)");
+// .settling animates the release (or an open or close). Only the latest may finish: a new drag
+// or settle cancels the one still settling.
+let drag = null, settling, keyed;
+const slide = (x) => { if (drag) drag.pos = x; drawer.style.transform = `translateX(${x}px)`; drawer.style.setProperty("--shown", 1 + x / drawer.offsetWidth); };
+function settle(open, then) {
+  clearTimeout(settling); drawer.classList.add("settling"); slide(open ? 0 : -drawer.offsetWidth);
+  settling = setTimeout(() => { drawer.classList.remove("settling"); drawer.style.transform = ""; drawer.style.removeProperty("--shown"); if (!open) { drawer.close(); if (!keyed) document.activeElement?.blur(); then?.(); } }, still.matches ? 0 : 200);
+}
+addEventListener("touchmove", (e) => {
+  if (!drag) return;
+  const t = e.touches[0], dx = t.clientX - drag.x, dy = Math.abs(t.clientY - drag.y);
+  if (!drag.live) {
+    if (dy > Math.abs(dx)) { if (dy > 10) drag = null; return; } // vertical: a scroll, not a drag
+    if (Math.abs(dx) < 10 || !drag.open && dx < 0) return;
+    drag.live = true; clearTimeout(settling); drawer.classList.remove("settling"); if (!drawer.open) $("menu-open").click(); drag.base = drag.open ? 0 : -drawer.offsetWidth;
+  }
+  drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
+  slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
+}, { passive: true });
 $("scratch-nav").onclick = (e) => { e.preventDefault(); openPage("scratch"); };
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
-// A phone's Back is a swipe in from the left edge: it presses the hidden Back of the pane or
-// the view. Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
+// A phone's Back is also a swipe in from the left edge: it presses the Back of the pane or the
+// view (on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
 let edge = null;
 addEventListener("touchstart", (e) => {
+  if (drag?.live) return; // a second finger: the drag stays the first one's
   const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
   edge = !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+  drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
-addEventListener("touchcancel", () => { edge = null; });
+addEventListener("touchcancel", () => { edge = null; if (drag?.live) settle(drag.open); drag = null; });
 addEventListener("touchend", (e) => {
   const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
-  if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
-  edge = null;
+  if (drag?.live && e.timeStamp - drag.t > 100) drag.v = 0; // held before letting go: no flick
+  if (drag?.live) settle(drag.v > .5 || drag.v > -.5 && drag.pos > -drawer.offsetWidth * (drag.open ? 1 : 2) / 3);
+  else if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
+  edge = drag = null;
 });
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
 const searched = () => { writeHash(formatHash({ ...parseHash(location.hash), q: $("search").value })); renderList(); };
@@ -1669,10 +1718,6 @@ $("settings-open").onclick = () => {
   accounts.refresh(); // repaints Settings, as every refresh does while it is open
 };
 $("close-settings").onclick = () => $("settings").close();
-const closeAppMenu = () => { $("app-menu").open = false; $("app-menu-button").focus(); }; // a pick's sheet returns focus here
-$("menu-settings").onclick = () => { closeAppMenu(); $("settings-open").click(); };
-$("menu-scratch").onclick = (e) => { e.preventDefault(); closeAppMenu(); openPage("scratch"); };
-$("menu-docs").onclick = closeAppMenu;
 // Wide, Settings and New window dock as a panel beside the sidebar, not over the screen:
 // non-modal, so the list stays in view and live, and closed by Escape or a click anywhere
 // but the panel or the button that opened it. A phone keeps its sheet.
@@ -1699,7 +1744,7 @@ for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close",
 });
 // A phone's sheets close as their × does when dragged down, or tapped above (on the dim
 // backdrop: modal, so the tap reaches nothing under it). Every sheet's heading leads with its ×.
-for (const d of document.querySelectorAll("dialog")) {
+for (const d of document.querySelectorAll("dialog:not(#drawer)")) { // the drawer drags itself
   const close = () => d.querySelector(".dialog-heading button").click();
   dragToDismiss(d, { onClose: close });
   d.addEventListener("click", (e) => {
@@ -1708,7 +1753,7 @@ for (const d of document.querySelectorAll("dialog")) {
   });
 }
 // Crossing the breakpoint changes which form a panel takes (sheet or docked): close it.
-WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog")].forEach((d) => d.close()));
+WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog"), $("drawer")].forEach((d) => d.close()));
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; refit(); }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; wheelHome(active); };
@@ -2006,7 +2051,7 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // The wide sidebar takes the header's controls into its slots, in this order; a phone
 // gets them back where index.html put them (a comment marks each home), so every control
 // is one element with one set of listeners, whichever layout it is in.
-const CHROME = { "sb-head": ["brand", "connection", "chat", "live-mode", "collapse"], "sb-nav": ["settings-open"], "sb-sess": ["new-window"] };
+const CHROME = { "sb-head": ["brand", "connection", "chat", "live-mode", "collapse"], "sb-nav": ["settings-open"], "sb-sess": ["new-window"], "sb-sticky": ["find"] };
 const homes = {};
 let railPlaced = null;
 function placeChrome() {
@@ -2024,11 +2069,11 @@ function placeChrome() {
 // The active filters' chips: under search (a phone's list hides them there: its filter button
 // and the list's foot say it), and on a phone's dashboard (no search there) under its header,
 // so a filter is never on without saying so. There the filter button moves into the header
-// too, beside the gear: the dashboard's filter row folds behind it (style.css).
+// too, beside New window: the dashboard's filter row folds behind it (style.css).
 function placePill() {
   const dash = !WIDE.matches && dashboard, at = dash ? document.querySelector(".app-header") : $("find"), picker = renderSidebar.picker;
   if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
-  if (dash && picker.nextElementSibling !== $("settings-open")) $("settings-open").before(picker);
+  if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
 }
 // Folded to the rail, the controls move in the DOM to the order they show in (expand, +,
@@ -2049,7 +2094,7 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
 // as "close this view", and pressing it should never end a process. 404 means it is already
 // gone, the outcome asked for.
-dismissable($("pane-menu")); dismissable($("app-menu"));
+dismissable($("pane-menu"));
 const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));

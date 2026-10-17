@@ -40,16 +40,10 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #app { position: absolute; top: var(--app-top, 0px); left: 0; right: 0; height: 100dvh; height: var(--app-height, 100dvh); max-width: 760px; margin: auto; display: flex; flex-direction: column; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .app-header { display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex: none; }
 #brand { display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 18px; font-weight: 650; margin-right: auto; white-space: nowrap; }
-/* #heading used to be the header's flex:1 filler, so hiding #brand (narrow, in a pane)
-   still left something to push the status and the buttons right. With the heading moved
-   into #detail, nothing did and they all bunched left. #back is shown in exactly that
-   case (narrow, in a pane), so it takes the slack; hidden, it contributes nothing, and
-   #brand keeps the auto margin on every screen that shows the brand. */
-#back { margin-right: auto; }
-/* A touch phone goes back by swiping in from the left edge (app.js), so its Back arrows are
-   clipped out of sight, not removed: a screen reader or keyboard still reaches them (a
-   keyboard's focus shows one), and a zero-wide #back keeps the slack it takes in the header. */
-@media (max-width: 1099px) and (pointer: coarse) { :is(#back, .landing-head [data-key="page-back"]):not(:focus-visible) { width: 0; overflow: hidden; clip-path: inset(50%); } }
+/* A phone's pane heading leads with Back (a swipe in from the left edge presses it too,
+   app.js), its actions pushed right and the title wrapped to the line below: Gmail's
+   thread view. Wide shows no Back: the sidebar it would return to is already there. */
+#back { margin: 0 auto 0 -12px; }
 /* Now inside #detail, above the tabs. Narrow reads as the header row it replaced: the
    same type, the same 16px gutter, its own rule under it. */
 #heading { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
@@ -61,18 +55,13 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #connection { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 #connection::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
 #connection.online::before { background: var(--accent); }
-/* The phone header's status is a dot on the logo (the word stays in the node, still read
-   out); in a pane, where the brand is hidden, the dot stands on its own. */
-.app-header #connection { font-size: 0; gap: 0; }
-/* The wide sidebar's head does the same with its logo. */
-:is(.app-header, #sb-head) #brand { position: relative; }
-:is(.app-header, #sb-head) #brand::before, #list-title::after { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
-.app-header #brand::before { position: absolute; left: 20px; top: 19px; box-shadow: 0 0 0 2px var(--bg); }
-#sb-head #brand::before { position: absolute; }
-:is(.app-header, #sb-head):has(#connection.online) #brand::before, .app-header:has(#connection.online) #list-title::after { background: var(--accent); }
-.app-header :is(#brand, #list-title):not([hidden]) ~ #connection { position: absolute; opacity: 0; }
-/* The list screen's large title, its live dot beside it. */
-#list-title { display: flex; align-items: center; gap: 8px; margin-right: auto; font-size: 28px; font-weight: 750; white-space: nowrap; }
+/* The status is a dot (the word stays in the node, still read out): on the wide sidebar's
+   logo, on a phone's ☰, and in a pane, where there is no ☰, on its Back. */
+#app > #connection { position: absolute; opacity: 0; pointer-events: none; }
+:is(#sb-head #brand, #menu-open, #back) { position: relative; }
+:is(#sb-head #brand, #menu-open, #back)::before { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+#app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back)::before { background: var(--accent); }
+:is(#menu-open, #back)::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
@@ -303,6 +292,16 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
 dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; width: min(760px, 100%); max-width: 100%; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); max-height: 88dvh; }
 dialog::backdrop { background: #0008; opacity: var(--drag, 1); } /* fades as the sheet is dragged away (drag-dismiss.js) */
+/* A phone's ☰ drawer (Gmail's): a sheet from the left, the logo atop the rows; the current
+   one is a tinted pill. */
+#drawer { inset: 0 auto 0 0; width: min(304px, 84vw); height: 100%; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border: 0; border-radius: 0 16px 16px 0; }
+#drawer[open] { animation: none; } /* it slides in and out by script (app.js settle), as a drag does */
+#drawer::backdrop { opacity: var(--shown, 1); }
+@media (prefers-reduced-motion: no-preference) { #drawer.settling, #drawer.settling::backdrop { transition: transform .2s ease-out, opacity .2s ease-out; } }
+.drawer-brand { display: flex; align-items: center; gap: 10px; padding: 10px 16px 14px; font-size: 20px; font-weight: 650; }
+#drawer-nav button { display: flex; align-items: center; gap: 18px; width: 100%; min-height: 48px; padding: 0 16px; border-radius: 24px; font-size: 15px; font-weight: 600; text-align: left; }
+#drawer-nav [aria-current="page"] { background: var(--accent-bg); color: var(--accent); }
+#drawer-nav .count { margin-left: auto; color: var(--amber); font-weight: 700; }
 .sheet-handle { width: 32px; height: 4px; background: var(--line); border-radius: 2px; margin: 0 auto 12px; }
 .choice-list { display: flex; flex-direction: column; margin-top: 12px; }
 .choice-list button { display: flex; align-items: center; gap: 14px; padding: 16px 4px; min-height: 64px; text-align: left; border-radius: 0; border-bottom: 1px solid var(--line); }
@@ -378,7 +377,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); padding-inline: 16px; }
 /* The sheet itself takes initial focus (tabindex=-1, focused in show()), so no button opens with a ring painted on it; Tab still lands on real controls, which keep their :focus-visible ring. */
 #voice-dialog:focus { outline: none; }
-:is(#settings, #launch-dialog):focus { outline: none; } /* focused as a whole on open (openBeside); its controls show the ring */
+:is(#settings, #launch-dialog, #drawer):focus { outline: none; } /* focused as a whole on open (openBeside); its controls show the ring */
 #voice-dialog .sheet-handle, #voice-dialog .dialog-heading, #voice-status, .voice-controls { flex: none; }
 #voice-models { min-height: 0; overflow-y: auto; }
 #voice-models button:disabled { opacity: .5; }
@@ -1198,14 +1197,22 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker summary:not([data-n=""]) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-bg); color: var(--accent); }
 #side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
 #side-filter-picker summary[data-n=""]::after { display: none; }
-/* A phone: the list opens on plan usage, which scrolls away under search and the filter
-   button, pinned. The button opens the menu as a bottom sheet (its grouping is the wide
-   list's), and it and the list's foot say what is filtered: no chips under search. */
+/* A phone's list screen opens on Gmail's search pill: the header itself, ☰ on its left, search
+   filling it, the filter button and New window on its right; plan usage and the list scroll
+   under it. The filter button opens the menu as a bottom sheet (its grouping is the wide
+   list's), and it and the list's foot say what is filtered: no chips under search. In a pane
+   the header goes: #heading leads with Back, its actions on that row and the title under. */
 @media (max-width: 1099px) {
-  #find { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; padding-right: 16px; background: var(--bg); }
-  #sessions .acct-pill { display: none; }
-  #find .search { flex: 1; min-width: 0; margin-right: 8px; }
+  .app-header:has(> #find:not([hidden])) { min-height: 48px; margin: 8px 16px; padding: 0 2px; gap: 0; border: 0; border-radius: 24px; background: var(--raised); --ring: var(--raised); }
+  .app-header:has(.search:focus-within) { box-shadow: 0 0 0 2px var(--accent); }
+  .app-header #settings-open, #app:has(> #detail:not([hidden])) > .app-header, #search-icon { display: none; }
+  #find { flex: 1; min-width: 0; display: flex; align-items: center; }
+  #find .search { flex: 1; min-width: 0; margin: 0; padding: 0 0 0 4px; background: none; box-shadow: none; }
+  #find + .acct-pill { display: none; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
+  .app-header #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
+  #heading { flex-wrap: wrap; gap: 0; padding: 4px 4px 8px 16px; }
+  #heading .pane-heading-text { order: 1; flex-basis: 100%; }
   #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
   #side-filter-picker .header-picker-menu::before { content: ""; display: block; width: 32px; height: 4px; margin: 4px auto 8px; border-radius: 2px; background: var(--line); } /* the grab handle: drag it down to close */
   #side-filter-picker [aria-label="Group by"] { display: none; }
@@ -1364,12 +1371,6 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .restore-pane.blocked { opacity: .55; }
 .restore-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .restore-actions button { min-height: 40px; padding: 0 14px; border-radius: 6px; }
-/* The phone's ☰ (index.html #app-menu): its places, in place of the gear. */
-#app-menu > summary::after { content: none; }
-#app-menu .header-picker-menu { min-width: 180px; }
-#app-menu .header-picker-menu :is(a, button) { display: flex; align-items: center; width: 100%; min-height: 44px; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: var(--fg); text-decoration: none; font: inherit; font-size: 15px; text-align: left; }
-#app-menu .header-picker-menu :is(a, button):hover { background: var(--raised); }
-@media (min-width: 1100px) { #app-menu { display: none; } }
 @media (max-width: 1099.98px) { .app-header > #settings-open { display: none; } }
 #scratch-view { margin-left: auto; }
 /* A spinner behind the frame until the gallery paints over it (a frame reloads on every visit). */
