@@ -188,7 +188,8 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
 def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
     thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">' if i["thumb"]
-             else "Making a preview…" if i.get("shot") == "pending" else "No preview")
+             else f'<span data-pending="{quote(i["name"])}/thumb.webp">Making a preview…</span>'
+             if i.get("shot") == "pending" else "No preview")
     where = (f'<a href="/m/#pane={quote(i["pane"], safe="")}">{e["where"]}</a>' if i["pane"]
              else e["where"])
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()

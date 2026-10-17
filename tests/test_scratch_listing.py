@@ -190,3 +190,11 @@ def test_an_empty_gallery_says_how_agents_publish_there(tmp_path):
     assert unescape(shown) == " ".join(line.strip() for line in block.splitlines())  # unwrapped
     _folder(tmp_path, "one", 1000)
     assert '<section id="empty" hidden>' in scratch.page(tmp_path, [], [], STYLE)
+
+
+def test_a_pending_preview_names_the_image_the_page_retries():
+    from openbus.scratch import _card
+    item = {"name": "a b", "href": "a%20b/", "title": "t", "description": "", "who": "", "where": "",
+            "pane": None, "thumb": False, "shot": "pending", "created": 0, "updated": 0}
+    assert 'data-pending="a%20b/thumb.webp"' in _card(item)
+    assert "data-pending" not in _card({**item, "shot": "failed"})

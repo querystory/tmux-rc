@@ -59,6 +59,16 @@ const box = document.querySelector("input");
 const filter = () => { const q = box.value.trim().toLowerCase();
   for (const a of document.querySelectorAll("article")) a.hidden = !a.dataset.q.includes(q); };
 box.addEventListener("input", filter);
+// A preview still being made appears when it lands: the sandbox allows no fetch, but an
+// image may be retried, so the page itself (and a filter being typed) is left alone.
+for (const wait of document.querySelectorAll("[data-pending]")) {
+  let tries = 0;
+  const poll = () => { const img = Object.assign(new Image(), { alt: "" });
+    img.onload = () => wait.replaceWith(img);
+    img.onerror = () => ++tries < 100 && setTimeout(poll, 3000);
+    img.src = `${wait.dataset.pending}?${Date.now()}`; };
+  poll();
+}
 for (const b of document.querySelectorAll(".who")) b.onclick = () => { box.value = b.textContent; filter(); };
 // Grid or list. Remembered where the browser allows it; the sandbox usually doesn't, so a
 // phone starts on the list, a wider screen on the grid.
