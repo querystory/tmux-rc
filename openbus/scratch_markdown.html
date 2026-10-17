@@ -49,7 +49,7 @@ summary { cursor: pointer; }
 </style></head><body>
 <nav><button type="button" data-copy="markdown">Copy Markdown</button><button type="button" data-copy="formatted">Copy formatted</button><a href="?raw">Source</a></nav>
 <article><!--body--></article>
-<textarea hidden id="source"><!--source--></textarea>
+<textarea hidden><!--source--></textarea>
 <!--mermaid-->
 <script>
 // Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
@@ -73,7 +73,7 @@ const copy = async (data) => {
 };
 for (const b of document.querySelectorAll("[data-copy]")) b.onclick = async () => {
   const label = b.textContent;
-  await copy(b.dataset.copy === "markdown" ? { "text/plain": document.getElementById("source").value }
+  await copy(b.dataset.copy === "markdown" ? { "text/plain": document.querySelector("body > textarea").value }
     : { "text/html": article.innerHTML, "text/plain": article.innerText });
   b.textContent = "Copied";
   setTimeout(() => { b.textContent = label; }, 1500);

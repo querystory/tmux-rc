@@ -14,8 +14,8 @@ from urllib.parse import parse_qs
 
 import anyio
 import markdown
+from markdown.blockprocessors import BlockProcessor
 from markdown.extensions import Extension
-from markdown.preprocessors import Preprocessor
 from pygments.formatters import HtmlFormatter
 from starlette.responses import HTMLResponse
 from starlette.staticfiles import StaticFiles
@@ -23,7 +23,8 @@ from starlette.staticfiles import StaticFiles
 _PAGE = Path(__file__).resolve().parent / "scratch_markdown.html"
 MERMAID = "/m/vendor/mermaid.min.js"  # the vendored build, under the app's static dir
 _TOKENS = re.compile(r"^:root(?:\.light)? \{.*?^\}", re.MULTILINE | re.DOTALL)  # app colours
-_CALLOUT = re.compile(r" {0,3}> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\] *", re.IGNORECASE)
+_CALLOUT = re.compile(r"^ {0,3}> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\] *$",
+                      re.IGNORECASE | re.MULTILINE)
 _QUOTED = re.compile(r" {0,3}> ?")
 # GitHub's CAUTION is red, Material's caution orange: it becomes a danger titled Caution.
 _ADMONITION = {"caution": 'danger "Caution"'}
@@ -40,26 +41,29 @@ def tokens(style: Path) -> str:
     return "\n".join(_TOKENS.findall(style.read_text()))
 
 
-class _Callouts(Preprocessor):
-    """GitHub's `> [!NOTE]` callout, rewritten as the `!!! note` admonition it mirrors.
-    Fenced code is already stashed by now, so a callout quoted in one stays as written."""
+class _Callouts(BlockProcessor):
+    """GitHub's `> [!NOTE]` callout, handed back to the parser as the `!!! note` admonition
+    it mirrors. A block processor, so it sees what Markdown parses (inside a markdown="1"
+    container too) and never code or literal HTML, which are stashed by then."""
 
-    def run(self, lines):
-        out, inside = [], False
-        for line in lines:
-            if inside and _QUOTED.match(line):
-                out.append("    " + _QUOTED.sub("", line, count=1))
-                continue
-            if inside:
-                out.append("")  # the admonition ends with the quote
-            inside = bool(m := _CALLOUT.fullmatch(line))
-            out += ["", f"!!! {_ADMONITION.get(m[1].lower(), m[1].lower())}"] if m else [line]
-        return out
+    def test(self, _parent, block):
+        return bool(_CALLOUT.search(block))
+
+    def run(self, _parent, blocks):
+        block = blocks.pop(0)
+        m = _CALLOUT.search(block)
+        lines = block[m.end():].split("\n")[1:]
+        n = next((i for i, line in enumerate(lines) if not _QUOTED.match(line)), len(lines))
+        body = "".join("\n    " + _QUOTED.sub("", line, count=1) for line in lines[:n])
+        kind = m[1].lower()
+        admonition = f"!!! {_ADMONITION.get(kind, kind)}{body}"
+        blocks[:0] = [b for b in (block[:m.start()].rstrip(), admonition, "\n".join(lines[n:]))
+                      if b.strip()]
 
 
 class _GitHub(Extension):
     def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown's name
-        md.preprocessors.register(_Callouts(md), "github_callouts", 24)  # after fences (25)
+        md.parser.blockprocessors.register(_Callouts(md.parser), "github_callouts", 21)
 
 
 def _mermaid(source, *_args, **_kwargs):

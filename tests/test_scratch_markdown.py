@@ -42,6 +42,20 @@ flowchart LR
 
 <details><summary>More</summary>Raw HTML stays.</details>
 
+<pre>
+> [!WARNING]
+> literal, left alone
+</pre>
+
+<div markdown="1">
+> [!IMPORTANT]
+> Inside a container.
+</div>
+
+Para before
+> [!CAUTION]
+> Hot.
+
 See [the next page](next.md).
 """
 
@@ -64,6 +78,10 @@ def test_the_docs_sites_markdown_and_githubs_callouts_render(tmp_path):
     assert "[!TIP]" in html and "admonition tip" not in html  # code is code
     assert '<input type="checkbox" disabled checked/> Written' in html
     assert "<details><summary>More</summary>Raw HTML stays.</details>" in html
+    assert "<pre>\n> [!WARNING]\n> literal, left alone\n</pre>" in html
+    assert '<div class="admonition important">' in html and "<p>Inside a container.</p>" in html
+    assert ('<p>Para before</p>\n<div class="admonition danger">\n'
+            '<p class="admonition-title">Caution') in html
     assert '<a href="next.md">the next page</a>' in html  # the next rendered page, as written
     assert 'class="headerlink"' in html
 
@@ -72,7 +90,7 @@ def test_a_page_loads_mermaid_only_for_a_diagram(tmp_path):
     page = M.page(_doc(tmp_path), WEB_DIR)
     assert f'<script src="{M.MERMAID}">' in page and "<title>Launch plan &amp; notes" in page
     assert "--accent:" in page and "Copy formatted" in page
-    assert "&gt; [!NOTE]" in page  # the Markdown, kept for "Copy Markdown"
+    assert "<textarea hidden>" in page and "&gt; [!NOTE]" in page  # kept for Copy Markdown
     plain = M.page(_doc(tmp_path, "plain.md", "Just text."), WEB_DIR)
     assert M.MERMAID not in plain and "<title>plain</title>" in plain
     assert (WEB_DIR / M.MERMAID.removeprefix("/")).is_file()
