@@ -1307,7 +1307,9 @@ async function loadEarlier() {
       const { lines, raw, again } = besideHeld(rows, join ? gap ? endRaw : h.head : null, gap, gap ? endWraps : wraps);
       // The edge and, from it inward, each held line a URL wrapped over that now renders
       // differently (left alone when selected) are swapped for the new rendering.
-      const near = (n) => !gap ? n.nextSibling : held.includes(n) ? held[held.indexOf(n) - 1] : n.previousSibling;
+      // Staged rows run on into the shown rows above them, past those they will replace.
+      const near = (n) => !gap ? n.nextSibling : !held.includes(n) ? n.previousSibling
+        : n !== held[0] ? held[held.indexOf(n) - 1] : gone.length ? gone.at(-1).previousSibling : pre.lastChild;
       const swap = join ? [edge] : [];
       for (let n = join && near(edge); n && swap.length <= again.length && !selected(n) && n.markup !== again[swap.length - 1]; n = near(n)) swap.push(n);
       const more = again.slice(0, Math.max(0, swap.length - 1));
@@ -1320,7 +1322,8 @@ async function loadEarlier() {
       } else if (unseen) {
         holdView(() => { for (const n of swap) n.remove(); pre.append(...nodes); h.end = heldEnd = before; Object.assign(h, { tail: raw, wraps }); if (whole(raw)) h.head = raw; }, true);
       } else {
-        if (held.includes(edge)) held.splice(held.length - swap.length); else gone = swap;
+        const out = swap.filter((n) => !held.includes(n)); // shown now, gone when these land
+        held.splice(held.length - (swap.length - out.length)); gone = [...gone, ...out];
         held.push(...nodes); heldEnd = before;
         // Caught up, they land with the newest frame. Output that keeps ahead (over a
         // request's worth, or for 5s) can't hold them back: they land and that frame paints
