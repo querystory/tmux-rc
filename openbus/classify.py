@@ -19,7 +19,7 @@ import re
 import subprocess
 import textwrap
 from functools import lru_cache
-from itertools import islice, takewhile
+from itertools import islice
 from pathlib import Path
 
 from .tmux import (
@@ -905,11 +905,12 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         if handoff is None:
             return None
         paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
-        # The command itself is offered to send: its row and any it wrapped onto.
-        rows = message.splitlines()
+        # The command itself is offered to send when it stands alone on its row: a row run
+        # on below it may be its wrap or the prose after it, which the screen cannot tell.
+        rows = [*message.splitlines(), ""]
         start = max(i for i, row in enumerate(rows) if row.strip().startswith("! "))
-        command = " ".join(" ".join(takewhile(str.strip, rows[start:])).split())
-        return {"prompt": paragraph, "answer_style": "text", "options": [], "offer": command}
+        offer = None if rows[start + 1].strip() else rows[start].strip()
+        return {"prompt": paragraph, "answer_style": "text", "options": [], "offer": offer}
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 

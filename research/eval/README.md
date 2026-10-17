@@ -208,6 +208,7 @@ actually hit:
 | `102_claude_bare_command_after_colon_wrapped` | a long bare `! command` after a colon, wrapped over screen rows but one row ending the transcript → offered whole, not just a copyable |
 | `103_claude_offer_outside_auto_needs_you` | synthetic: a finished turn outside auto mode handing over a `! command` (offers) with no question → user-wait (Needs you), not idle |
 | `105_claude_side_panel_beside_offer` | a `! command` handoff after a colon with Claude's changes panel split into its `[side panel]` block → the command offered, a question prompt quoting none of the panel |
+| `111_claude_handoff_command_alone_offered` | synthetic: a `! command` alone on its row, then a sentence → text user-wait offering that command, whether or not the model names it |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

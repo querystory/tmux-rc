@@ -1381,13 +1381,14 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     only_command = ("\x1e[visible screen]\x1f\n● ! git push\n✻ Worked for 3s\n❯\n"
                     "⏵⏵ auto mode on")
     assert classify(_pane("claude"), only_command, _llm({}))["question"]["prompt"] == "! git push"
-    # The handed-over command is offered to send even when the model offered nothing, whole
-    # however the screen wrapped it.
+    # The handed-over command is offered to send even when the model offered nothing, its
+    # spacing kept, but not when rows run on below it: a wrap or prose, no screen tells.
     assert classify(_pane("claude"), only_command, _llm({}))["offers"] == ["! git push"]
-    wrapped = _auto_screen("Paste this:\n\n  ! gcloud storage buckets add-iam-policy-binding\n"
-                           "  gs://demo --role=roles/viewer\n\n  Then tell me.")
-    assert classify(_pane("claude"), wrapped, _llm({}))["offers"] == [
-        "! gcloud storage buckets add-iam-policy-binding gs://demo --role=roles/viewer"]
+    spaced = _auto_screen("Run:\n\n  ! printf '%s' 'a  b'\n\n  Then tell me.")
+    assert classify(_pane("claude"), spaced, _llm({}))["offers"] == ["! printf '%s' 'a  b'"]
+    for run_on in ("  ! cat /tmp/demo-re\n  port.txt", "  ! git push\n  Then tell me."):
+        assert "offers" not in classify(_pane("claude"), _auto_screen(f"Run:\n\n{run_on}"),
+                                        _llm({}))
     bare = classify(_pane("claude"), screen.replace("  ⎿  API Error: 529", "API Error handling"),
                     _llm({}))
     assert "question" not in bare  # only the ⎿ result marker is provider-error chrome
@@ -1427,9 +1428,7 @@ def test_offers_the_model_names_are_kept_only_as_the_screen_shows_them():
         {"text": "x"}, 7]}  # not text: dropped
     assert classify(_pane("claude"), screen, _llm(read))["offers"] == [
         "! gh pr merge 327 --squash", "merge 415"]
-    # Not the model's invention, but the command the screen hands over.
-    assert classify(_pane("claude"), screen, _llm({"offers": ["! rm -rf ~"]}))["offers"] == [
-        "! gh pr merge 327 --squash"]
+    assert "offers" not in classify(_pane("claude"), screen, _llm({"offers": ["! rm -rf ~"]}))
     blank = _auto_screen("Run:\n\n  ! printf '%s' 'a\n\n  b'")  # a blank row is no wrap
     for offer in ("! printf '%s' 'a b'", "! printf '%s' 'a  b'"):
         for screen in (blank, blank.replace("'a\n\n", "'a\n   \n")):  # whitespace-only too
