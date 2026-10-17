@@ -2,6 +2,7 @@
 response as one capped message still delivers a video, which its player reads in ranges."""
 
 from fastapi.testclient import TestClient
+from starlette.responses import PlainTextResponse
 from starlette.staticfiles import StaticFiles
 
 from openbus import server
@@ -16,3 +17,24 @@ def test_long_ranges_come_back_a_piece_at_a_time(tmp_path, monkeypatch):
         r = c.get("/reel.mp4", headers={"Range": asked})
         assert (r.status_code, r.headers["content-range"]) == (206, got)
     assert c.get("/reel.mp4").content == bytes(range(25))  # unranged: whole, as before
+
+
+def test_a_file_too_big_to_send_whole_is_never_sent_whole(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "WHOLE_MAX", 20)
+    (tmp_path / "my reel.mp4").write_bytes(bytes(25))
+    (tmp_path / "data.bin").write_bytes(bytes(25))
+    c = TestClient(server._short_ranges(StaticFiles(directory=tmp_path)))
+    opened = c.get("/my%20reel.mp4", headers={"Sec-Fetch-Dest": "document"})
+    assert opened.headers["content-type"].startswith("text/html")
+    assert 'src="my%20reel.mp4"' in opened.text  # its player reads it in ranges
+    for path, dest in (("/my%20reel.mp4", "empty"), ("/data.bin", "document")):
+        r = c.get(path, headers={"Sec-Fetch-Dest": dest})  # a download, a fetch
+        assert (r.status_code, r.headers["accept-ranges"]) == (403, "bytes")
+    assert c.get("/data.bin", headers={"Range": "bytes=0-"}).status_code == 206
+    assert c.head("/data.bin").headers["content-length"] == "25"
+
+
+def test_media_is_not_gzipped():  # importing server excludes it from the app's GZip
+    for kind, encoded in (("video/mp4", None), ("text/plain", "gzip")):
+        c = TestClient(server.gzip.GZipMiddleware(PlainTextResponse("x" * 4096, media_type=kind)))
+        assert c.get("/").headers.get("content-encoding") == encoded

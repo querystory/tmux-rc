@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import io
 import logging
 import math
+import mimetypes
 import os
 import posixpath
 import re
@@ -22,6 +24,7 @@ import shlex
 import shutil
 import socket
 import sqlite3
+import stat
 import subprocess
 import tempfile
 import threading
@@ -30,6 +33,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
@@ -546,9 +550,12 @@ app = FastAPI(
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
 # The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
 # busy pane's ~100KB/s into ~22KB/s. minimum_size skips tiny replies (no-change frames).
-from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+from starlette.middleware import gzip  # noqa: E402
 
-app.add_middleware(GZipMiddleware, minimum_size=512)
+app.add_middleware(gzip.GZipMiddleware, minimum_size=512)
+# Video and audio come compressed already, and gzip over a 206 garbles its Content-Range.
+# The responder reads this tuple on every response, so extending it is the hook.
+gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/")
 
 # Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
@@ -2000,6 +2007,24 @@ def _mount_static(prefix: str, directory: str) -> None:
 # never arrives. A server may answer a range with less than was asked; the player then
 # asks for the rest, so each answer stays well under any such cap.
 RANGE_PIECE = 4 << 20
+# Nor can a file this big go whole. Opening a video or audio file shows it in a player
+# page instead, whose element reads it in ranges; anything else asked for whole (a
+# download, a plain fetch) is refused with a reason, as it could only drop the tunnel.
+WHOLE_MAX = 8 << 20
+
+
+def _too_big(scope, asked: dict, size: int):
+    name = posixpath.basename(scope["path"])
+    if (asked.get(b"sec-fetch-dest") == b"document"
+            and (mimetypes.guess_type(name)[0] or "").startswith(("video/", "audio/"))):
+        return HTMLResponse(
+            '<meta name="viewport" content="width=device-width">'
+            '<body style="margin:0;background:#000">'
+            f'<video controls src="{html.escape(quote(name))}" '
+            'style="width:100vw;height:100vh"></video>')
+    return PlainTextResponse(
+        f"{size} bytes is too big to send whole; ask for it in ranges of up to "
+        f"{RANGE_PIECE} bytes.\n", 403, headers={"Accept-Ranges": "bytes"})
 
 
 def _short_ranges(static: StaticFiles):
@@ -2010,10 +2035,16 @@ def _short_ranges(static: StaticFiles):
         return b"bytes=%d-%d" % (int(asked[1]), int(asked[1]) + RANGE_PIECE - 1)
 
     async def app(scope, receive, send):
+        serve = static
         if scope["type"] == "http":
+            asked = dict(scope["headers"])
+            whole = (scope["method"] == "GET" and b"range" not in asked
+                     and static.lookup_path(static.get_path(scope))[1])
+            if whole and stat.S_ISREG(whole.st_mode) and whole.st_size > WHOLE_MAX:
+                serve = _too_big(scope, asked, whole.st_size)
             scope = {**scope, "headers": [(k, piece(v) if k == b"range" else v)
                                           for k, v in scope["headers"]]}
-        await static(scope, receive, send)
+        await serve(scope, receive, send)
 
     return app
 
