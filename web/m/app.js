@@ -1538,7 +1538,7 @@ html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["all-tab", "Ses
 $("menu-open").onclick = () => {
   // One current row, the most specific pressed (rows run general to specific): Scratch, not
   // also the Dashboard it opens within.
-  const rows = [...$("drawer-nav").children], here = rows.findLast((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
+  const rows = [...$("drawer-nav").children], here = [...rows].reverse().find((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
   for (const row of rows) { row.hidden = $(row.dataset.via).hidden; row.setAttribute("aria-current", row === here ? "page" : "false"); }
   text($("drawer-nav").querySelector('[data-via="attention-tab"] .count'), $("attention-count").textContent);
   // ☰ first, so closing returns there even when an edge swipe opened it (and not to search, whose
@@ -1587,6 +1587,7 @@ addEventListener("touchstart", (e) => {
 addEventListener("touchcancel", () => { edge = null; if (drag?.live) settle(drag.open); drag = null; });
 addEventListener("touchend", (e) => {
   const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
+  if (drag?.live && e.timeStamp - drag.t > 100) drag.v = 0; // held before letting go: no flick
   if (drag?.live) settle(drag.v > .5 || drag.v > -.5 && drag.pos > -drawer.offsetWidth * (drag.open ? 1 : 2) / 3);
   else if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
   edge = drag = null;
