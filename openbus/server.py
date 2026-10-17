@@ -2004,10 +2004,14 @@ RANGE_PIECE = 4 << 20
 
 def _short_ranges(static: StaticFiles):
     def piece(value: bytes) -> bytes:
-        # Only the first of several ranges is answered; a form this can't bound is refused.
-        asked = re.match(rb"(?i)bytes=(\d{0,18})-(\d{0,18})(,|$)", b"".join(value.split()))
-        if not asked or not (asked[1] or asked[2]):
+        # One of several ranges is answered (a suffix, else the lowest start: satisfiable if
+        # any is); a form this can't bound is refused.
+        squeezed = b"".join(value.split()).lower()
+        asks = [m for m in re.finditer(rb"(?:^bytes=|,)(\d{0,18})-(\d{0,18})(?=,|$)", squeezed)
+                if m[1] or m[2]]
+        if not asks:
             return b"bytes="  # Starlette answers 400
+        asked = min(asks, key=lambda m: (bool(m[1]), int(m[1] or 0)))
         if not asked[1]:  # "-N", the last N bytes
             return b"bytes=-%d" % min(int(asked[2]), RANGE_PIECE)
         start = int(asked[1])
