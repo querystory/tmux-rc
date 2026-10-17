@@ -622,6 +622,8 @@ def _ground_visible_fields(
         prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}",
     ) if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
+    if retry:
+        _fold_sends(retry)
     if retry and receipt and kind == "prompt":
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
@@ -1121,9 +1123,19 @@ def _from_reply(offer: str, reply: str | None) -> str:
     one-line code block of the reply begins with, word for word, is that block, whatever
     the screen cut."""
     key = " ".join(offer.split())
-    return next((block["text"].strip() for block in _code_blocks(reply)
-                 if "\n" not in block["text"].strip()
-                 and f'{" ".join(block["text"].split())} '.startswith(f"{key} ")), offer)
+    lines = {" ".join(t.split()): t for block in _code_blocks(reply)
+             if "\n" not in (t := block["text"].strip())}
+    hits = [t for k, t in lines.items() if f"{k} ".startswith(f"{key} ")]
+    return lines.get(key) or (hits[0] if len(hits) == 1 else offer)  # exact, else unambiguous
+
+
+def _fold_sends(result: dict) -> None:
+    """What to send is the model's call: the text it gives copyables to send here leads
+    its offers, so a corrective re-read replaces both together."""
+    cps, offers = result.get("copyables"), result.get("offers")
+    result["offers"] = [*(c["send"] for c in (cps if isinstance(cps, list) else ())
+                          if isinstance(c, dict) and isinstance(c.get("send"), str)),
+                        *(offers if isinstance(offers, list) else ())]
 
 
 def classify(
@@ -1210,6 +1222,7 @@ def classify(
         result.update(tool="shell", activity="idle")
         result.pop("question", None)
         result.pop("rewind", None)
+    _fold_sends(result)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
@@ -1282,11 +1295,7 @@ def classify(
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
-    # What to send is the model's call: its offers, and the text it gives copyables to send here.
-    sends = [c["send"] for c in result.get("copyables") or []
-             if isinstance(c, dict) and isinstance(c.get("send"), str)]
-    offered = result.pop("offers", None)
-    if offers := screen_offers([*sends, *(offered if isinstance(offered, list) else ())], text):
+    if offers := screen_offers(result.pop("offers", None), text):
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:

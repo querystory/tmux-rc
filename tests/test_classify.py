@@ -1843,3 +1843,25 @@ def test_copyables_the_model_marks_to_send_here_are_offers_in_its_order():
                            {"label": "Log", "text": "make: done"}]}
     assert classify(_pane("claude"), shown, _llm(model))["offers"] == ["! make migrate",
                                                                        "! make deploy"]
+
+
+def test_an_offer_the_reply_has_whole_is_kept_over_a_longer_block():
+    shown = _auto_screen("Run:\n\n  ! make migrate\n\n  ! make migrate --check")
+    reply = "Run:\n\n```\n! make migrate\n```\n\n```\n! make migrate --check\n```"
+    for offers in (["! make migrate", "! make migrate --check"], ["! make"]):  # ambiguous: kept
+        assert classify(_pane("claude"), shown, _llm({"offers": offers}), reply=reply)[
+            "offers"] == offers
+    assert classify(_pane("claude"), shown, _llm(  # not a list: no sends, the offers stand
+        {"copyables": True, "offers": ["! make migrate"]}))["offers"] == ["! make migrate"]
+
+
+def test_a_corrective_read_replaces_the_sends_with_the_offers():
+    screen = "Old approval?\n\x1e[visible screen]\x1f\n! make deploy\n› Ready"
+    send = {"copyables": [{"label": "Deploy", "text": "make deploy", "send": "! make deploy"}]}
+    for retry, want in (({"activity": "idle"}, None), ({"activity": "idle", **send},
+                                                       ["! make deploy"])):
+        replies = iter([{"tool": "codex", "question": {"prompt": "Old approval?"}, **send},
+                        {"tool": "codex", **retry}])
+        result = classify(_pane("codex"), screen,
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert "question" not in result and result.get("offers") == want
