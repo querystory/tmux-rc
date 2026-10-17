@@ -440,7 +440,8 @@ function renderList() {
   $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
   // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && page !== "restore"));
-  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && page !== "restore"));
+  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && !["restore", "scratch"].includes(page)));
+  $("scratch-nav").setAttribute("aria-pressed", String(page === "scratch"));
   $("restore").setAttribute("aria-pressed", String(page === "restore"));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), scope.tools.join(", "), accounts.on().join(", "), scope.session, $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
@@ -495,6 +496,7 @@ const renderLanding = steady(() => {
   if (page === "restore") { if (!$("dash-page").contains(restore.card)) $("dash-page").replaceChildren(restore.card); return restore.card; }
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
+  if (page === "scratch") return scratchPage();
   if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
   paintUsage(); // follows the tool chips
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
@@ -770,6 +772,23 @@ function openLane(lane) {
   openPage("loops");
   const at = loopsView.querySelector(`[data-lane="${lane}"]`);
   if (at) { at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true }); }
+}
+// The scratch gallery, in the content area so the app stays put (the page is sandboxed, so a frame).
+const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/scratch/", title: "Scratch", className: "scratch-frame" });
+// Its Grid/List sits in the page head, opposite the title. The sandboxed page cannot keep the
+// choice, so the app keeps it and tells the page (scratch.html listens for it).
+let scratchView = "grid";
+try { scratchView = localStorage.getItem("tmuxrc-scratch-view") || "grid"; } catch {}
+const scratchSeg = Object.assign(document.createElement("span"), { id: "scratch-view", className: "seg" });
+scratchSeg.setAttribute("role", "group"); scratchSeg.setAttribute("aria-label", "View");
+const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratchView }, "*"); // its origin is opaque
+scratchFrame.addEventListener("load", tellScratch);
+addEventListener("message", (e) => { if (e.source === scratchFrame.contentWindow && /^%\d+$/.test(e.data?.pane)) navigate(e.data.pane); });
+function scratchPage() {
+  cardView("Scratch", scratchFrame).previousSibling.append(scratchSeg);
+  choices("scratch-view", { grid: "Grid", list: "List" }, scratchView, (v) => {
+    scratchView = v; try { localStorage.setItem("tmuxrc-scratch-view", v); } catch {} scratchPage(); tellScratch(); });
+  return scratchFrame;
 }
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
@@ -1475,7 +1494,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "app-menu-button": "menu", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -1529,6 +1548,7 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
+$("scratch-nav").onclick = (e) => { e.preventDefault(); openPage("scratch"); };
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
@@ -1646,6 +1666,10 @@ $("settings-open").onclick = () => {
   accounts.refresh(); // repaints Settings, as every refresh does while it is open
 };
 $("close-settings").onclick = () => $("settings").close();
+const closeAppMenu = () => { $("app-menu").open = false; };
+$("menu-settings").onclick = () => { closeAppMenu(); $("settings-open").click(); };
+$("menu-scratch").onclick = (e) => { e.preventDefault(); closeAppMenu(); openPage("scratch"); };
+$("menu-docs").onclick = closeAppMenu;
 // Wide, Settings and New window dock as a panel beside the sidebar, not over the screen:
 // non-modal, so the list stays in view and live, and closed by Escape or a click anywhere
 // but the panel or the button that opened it. A phone keeps its sheet.
@@ -2009,7 +2033,7 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
 // as "close this view", and pressing it should never end a process. 404 means it is already
 // gone, the outcome asked for.
-dismissable($("pane-menu"));
+dismissable($("pane-menu")); dismissable($("app-menu"));
 const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));

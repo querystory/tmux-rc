@@ -539,8 +539,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #sb-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 #sb-sticky { position: sticky; top: 0; z-index: 3; flex: none; background: var(--surface); transition: box-shadow 120ms; }
 #sb-sticky.stuck { box-shadow: 0 1px 0 var(--line), 0 6px 12px -8px rgb(0 0 0 / .25); }
-#dash-nav[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
-#dash-nav[aria-pressed="true"] svg { color: var(--fg); }
+:is(#dash-nav, #scratch-nav)[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
+:is(#dash-nav, #scratch-nav)[aria-pressed="true"] svg { color: var(--fg); }
 /* Sessions: the section's title and its green +; search and the filter on one row under it. */
 #sb-sess { display: flex; align-items: center; min-height: 34px; padding: 6px 14px 0 17px; flex: none; }
 #sb-sess b { padding-right: 8px; font-size: 14px; font-weight: 700; }
@@ -1362,3 +1362,12 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .restore-pane.blocked { opacity: .55; }
 .restore-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .restore-actions button { min-height: 40px; padding: 0 14px; border-radius: 6px; }
+/* The phone's ☰ (index.html #app-menu): its places, in place of the gear. */
+#app-menu > summary::after { content: none; }
+#app-menu .header-picker-menu { min-width: 180px; }
+#app-menu .header-picker-menu :is(a, button) { display: flex; align-items: center; width: 100%; min-height: 44px; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: var(--fg); text-decoration: none; font: inherit; font-size: 15px; text-align: left; }
+#app-menu .header-picker-menu :is(a, button):hover { background: var(--raised); }
+@media (min-width: 1100px) { #app-menu { display: none; } }
+@media (max-width: 1099.98px) { .app-header > #settings-open { display: none; } }
+#scratch-view { margin-left: auto; }
+.scratch-frame { display: block; width: 100%; height: calc(100dvh - 110px); border: 0; }
