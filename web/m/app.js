@@ -9,6 +9,7 @@ import { paneLinks, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
+import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
 import { renderUsage, renderStrip, byUrgency, shownUsage, moreUsage, staleUsage } from "/m/usage.js";
@@ -1668,6 +1669,16 @@ for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close",
   if (d.classList.contains("beside") && [null, document.body].includes(document.activeElement)) d._opener?.focus({ preventScroll: true });
   d.classList.remove("beside");
 });
+// A phone's sheets close as their × does when dragged down, or tapped above (on the dim
+// backdrop: modal, so the tap reaches nothing under it). Every sheet's heading leads with its ×.
+for (const d of document.querySelectorAll("dialog")) {
+  const close = () => d.querySelector(".dialog-heading button").click();
+  dragToDismiss(d, { onClose: close });
+  d.addEventListener("click", (e) => {
+    const r = d.getBoundingClientRect();
+    if (e.target === d && !WIDE.matches && d.matches(":modal") && (e.clientY < r.top || e.clientX < r.left || e.clientX > r.right)) close();
+  });
+}
 // Crossing the breakpoint changes which form a panel takes (sheet or docked): close it.
 WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog")].forEach((d) => d.close()));
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; refit(); }

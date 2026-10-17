@@ -62,6 +62,12 @@ export function dismissable(details) {
     if (event.key === 'Escape') { details.open = false; summary.focus(); event.preventDefault(); }
   });
   // The path as dispatched: a click that redraws its own button (a multi-select's) is still inside.
-  document.addEventListener('click', event => { if (!event.composedPath().includes(details)) details.open = false; });
+  // Captured, so on a phone the tap that closes it is swallowed, as an iOS sheet's is: it does
+  // not also open the row under it.
+  document.addEventListener('click', event => {
+    if (!details.open || event.composedPath().includes(details)) return;
+    details.open = false;
+    if (!matchMedia('(min-width: 1100px)').matches) { event.preventDefault(); event.stopPropagation(); }
+  }, true);
   window.addEventListener('resize', () => { details.open = false; });
 }
