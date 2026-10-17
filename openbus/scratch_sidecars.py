@@ -116,7 +116,7 @@ class _Static(SimpleHTTPRequestHandler):
             return "/nonexistent"
         full = Path(super().translate_path(path.removeprefix("/scratch")))
         served = [full, full / "index.html", full / "index.htm"] if full.is_dir() else [full]
-        if full.is_dir() and not any(p.exists() for p in served[1:]):
+        if full.is_dir() and not served[1].exists():  # the daemon's order: index.md next
             served.append(full := full / "index.md")
         return str(full) if all(scratch.inside(p, Path(self.directory)) for p in served
                                 if p.exists() or p.is_symlink()) else "/nonexistent"

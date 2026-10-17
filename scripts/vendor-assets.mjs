@@ -58,20 +58,21 @@ notices += `--- Rolldown generated runtime ---\n${await readFile(path.join(root,
 files.set('markdown-it.THIRD-PARTY-LICENSE', Buffer.from(notices));
 files.set('mermaid.LICENSE', await readFile(path.join(root, 'node_modules/mermaid/LICENSE')));
 // Mermaid bundles some fifty packages. Each one its source map names gets its own license
-// text and notices, or its package.json license where it ships none; js-yaml is a build-time
-// dependency of mermaid's, so npm never installs it here.
+// text and notices. Where npm supplies none (fastdom ships its license only in its README;
+// js-yaml is a build-time dependency of mermaid's, never installed here), the upstream text
+// is kept in scripts/licenses/; a package with neither fails the build.
 const mermaidMap = JSON.parse(await readFile(path.join(root, 'node_modules/mermaid/dist/mermaid.min.js.map'), 'utf8'));
-const notInstalled = { 'js-yaml': 'MIT' };
 let mermaidNotices = '';
 for (const name of [...new Set(mermaidMap.sources.map(s => s.match(/.*node_modules\/((?:@[^/]+\/)?[^/]+)/)?.[1]).filter(Boolean))].sort()) {
   const dir = path.join(root, 'node_modules', name);
-  let pkg, text;
-  try { pkg = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8')); }
-  catch (error) { if (error.code !== 'ENOENT' || !notInstalled[name]) throw new Error(`Missing bundled license: ${name}`); }
-  for (const f of pkg ? (await readdir(dir)).filter(f => /^(licen[cs]e|notice)(-\w+)?(\.(md|txt))?$/i.test(f)).sort() : []) {
-    text = (text ?? '') + await readFile(path.join(dir, f), 'utf8');
+  const names = await readdir(dir).catch(() => []);
+  let text = '';
+  for (const f of names.filter(f => /^(licen[cs]e|notice)(-\w+)?(\.(md|txt))?$/i.test(f)).sort()) {
+    text += await readFile(path.join(dir, f), 'utf8');
   }
-  mermaidNotices += `--- ${name} ${pkg?.version ?? ''} ---\n${text ?? `License: ${pkg?.license ?? notInstalled[name]}\n`}\n`;
+  text ||= await readFile(path.join(root, 'scripts/licenses', `${name}.LICENSE`), 'utf8')
+    .catch(() => { throw new Error(`Missing bundled license: ${name}`); });
+  mermaidNotices += `--- ${name} ---\n${text}\n`;
 }
 files.set('mermaid.THIRD-PARTY-LICENSE', Buffer.from(mermaidNotices));
 files.set('versions.json', Buffer.from(`${JSON.stringify(versions, null, 2)}\n`));

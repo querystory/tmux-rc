@@ -102,6 +102,7 @@ def test_scratch_serves_markdown_as_its_page(tmp_path):
 
 def test_the_thumbnailer_renders_markdown_as_the_daemon_does(tmp_path):
     _doc(tmp_path / "doc", "index.md")
+    (tmp_path / "doc" / "index.htm").write_text("not the page the gallery opens")
     with S.serving(tmp_path, WEB_DIR) as base:
         with urlopen(f"{base}/doc/") as page:
             assert page.read().decode() == M.page(tmp_path / "doc" / "index.md", WEB_DIR)
