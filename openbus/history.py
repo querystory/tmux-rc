@@ -20,6 +20,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 HEARTBEAT = 60
 COVERAGE = 120
+VISITS = 200  # the drawer shows a handful; this many outlast the panes and folders now gone
 BACKFILL_TTL = 4 * 3600
 STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
 AGENT_TOOLS = {"claude", "codex", "gemini", "antigravity", "opencode", "omp"}
@@ -211,9 +212,16 @@ def _add_layout_snapshots(db) -> None:
                "payload TEXT NOT NULL, consumed TEXT)")
 
 
+def _add_visits(db) -> None:
+    # What the user opened, a pane or a scratch folder: one row each, for the ☰ drawer's Recent.
+    db.execute("CREATE TABLE visits (kind TEXT NOT NULL, key TEXT NOT NULL, at REAL NOT NULL, "
+               "PRIMARY KEY(kind, key))")
+    db.execute("CREATE INDEX visits_by_time ON visits(at)")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
               _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets,
-              _drop_plan_usage_resets, _add_layout_snapshots)
+              _drop_plan_usage_resets, _add_layout_snapshots, _add_visits)
 
 
 class History:
@@ -295,6 +303,24 @@ class History:
             logger.warning("Could not persist pane history; retrying in one minute", exc_info=True)
             return
         self._last, self._written, self._failed = payload, now, 0.0
+
+    def visit(self, kind: str, key: str, now: float | None = None) -> None:
+        """Note that the user opened this pane or scratch folder. A revisit (a reload, a
+        reconnect) only moves its time up, and just the newest VISITS are kept."""
+        try:
+            with self.connect() as db:
+                db.execute("INSERT INTO visits VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET "
+                           "at=excluded.at", (kind, key, time.time() if now is None else now))
+                db.execute("DELETE FROM visits WHERE rowid NOT IN (SELECT rowid FROM visits "
+                           "ORDER BY at DESC, rowid DESC LIMIT ?)", (VISITS,))
+        except (OSError, sqlite3.Error):
+            logger.warning("Could not record a visit", exc_info=True)
+
+    def visits(self, kind: str) -> list[tuple[str, float]]:
+        """Visits of this kind, (key, when), most recent first."""
+        with self.connect() as db:
+            return db.execute("SELECT key, at FROM visits WHERE kind=? "
+                              "ORDER BY at DESC, rowid DESC", (kind,)).fetchall()
 
     def load_checkpoints(self) -> dict[str, dict]:
         """Every pane checkpoint, read once at startup; memory is authoritative after."""

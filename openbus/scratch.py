@@ -14,6 +14,7 @@ import threading
 import time
 from datetime import datetime
 from html import escape, unescape
+from itertools import islice
 from pathlib import Path
 from urllib.parse import quote
 
@@ -95,17 +96,28 @@ def _item(root: Path, folder: Path) -> dict | None:
             and thumb.stat().st_mtime}
 
 
+def _listed(root: Path, folder: Path) -> dict | None:
+    """A folder's card, None for one hidden, a symlink, or gone (deleted or rebuilt mid-scan,
+    which leaves it out, not the whole gallery)."""
+    try:
+        if not (folder.name.startswith(".") or folder.is_symlink()) and folder.is_dir():
+            return _item(root, folder)
+    except OSError:
+        pass
+    return None
+
+
 def items(root: Path) -> list[dict]:
     """Every folder of scratch, most recently updated first."""
-    out = []
-    for folder in root.iterdir():
-        try:  # a folder deleted or rebuilt mid-scan is left out, not the whole gallery
-            if not (folder.name.startswith(".") or folder.is_symlink()) and folder.is_dir() and (
-                    item := _item(root, folder)):
-                out.append(item)
-        except OSError:
-            continue
-    return sorted(out, key=lambda i: -i["updated"])
+    return sorted(filter(None, (_listed(root, f) for f in root.iterdir())),
+                  key=lambda i: -i["updated"])
+
+
+def opened(root: Path, visits: list[tuple[str, float]], n: int) -> list[dict]:
+    """The first `n` folders of these visits, (name, when), still in scratch: the title and
+    link the gallery gives each, and when it was opened."""
+    found = ((item, at) for name, at in visits if (item := _listed(root, root / name)))
+    return [{"title": i["title"], "href": i["href"], "at": at} for i, at in islice(found, n)]
 
 
 def _writers(todo: list[dict]) -> None:

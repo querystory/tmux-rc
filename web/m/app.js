@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -1541,13 +1541,37 @@ $("menu-open").onclick = () => {
   const rows = [...$("drawer-nav").children], here = [...rows].reverse().find((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
   for (const row of rows) { row.hidden = $(row.dataset.via).hidden; row.setAttribute("aria-current", row === here ? "page" : "false"); }
   text($("drawer-nav").querySelector('[data-via="attention-tab"] .count'), $("attention-count").textContent);
+  openRecent();
   // ☰ first, so closing returns there even when an edge swipe opened it (and not to search, whose
   // focus would bring the keyboard back); then the drawer, not its first row: no ring until Tab.
   $("menu-open").focus({ preventScroll: true }); drawer.showModal(); drawer.focus();
   if (!drag?.live) { slide(-drawer.offsetWidth); getComputedStyle(drawer, "::backdrop").opacity; settle(true); } // read: the scrim starts clear
 };
-$("drawer").onclick = (e) => { const row = e.target.closest("[data-via]"); if (row || e.target === drawer) settle(false, () => row && $(row.dataset.via).click()); };
+$("drawer").onclick = (e) => {
+  const row = e.target.closest("button, a");
+  if (row || e.target === drawer) settle(false, () => row?.dataset.via ? $(row.dataset.via).click() : row?.dataset.pane && navigate(row.dataset.pane));
+};
 $("drawer").addEventListener("cancel", (e) => { e.preventDefault(); settle(false); });
+// Below the places, what you opened last (GET /api/recent, read only as the drawer opens: a
+// closed drawer costs a poll nothing), each with when it was opened. The panes paint at once, as
+// last read (before any visit, the list's most active, with their age), and again when the read
+// lands; scratch's pages then, beneath them.
+let opened = [];
+const recentList = (label, rows) => rows.length ? `<h2>${label}</h2>${rows.join("")}` : "";
+function paintRecent() {
+  const byId = new Map(panes.map((p) => [p.pane_id, p]));
+  const recent = opened.length ? opened.flatMap((v) => byId.has(v.pane_id) ? [[byId.get(v.pane_id), since({ state_since: v.at })]] : [])
+    : [...panes].sort(newestFirst).slice(0, 5).map((p) => [p, age(p)]);
+  html($("drawer-panes"), recentList("Recent", recent.map(([p, when]) => `<button type="button" data-pane="${esc(p.pane_id)}"><span class="pane-icon"><img alt=""></span><span>${esc(paneName(p))}</span><time>${when}</time></button>`)));
+  $("drawer-panes").querySelectorAll("img:first-child").forEach((img, i) => markWorking(img, recent[i][0], LOGOS));
+}
+function openRecent() {
+  paintRecent();
+  request("/api/recent").then((recent) => {
+    opened = recent.panes; paintRecent();
+    html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}">${licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));
+  }, () => {});
+}
 // It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
 // edge, it follows with its scrim fading in step, then settles open or shut, shut once a third of
 // it has gone or on a flick. A drag that starts vertical is left to scroll.
