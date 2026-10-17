@@ -7,7 +7,7 @@ import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
-import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
+import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -784,22 +784,35 @@ function openLane(lane) {
 }
 // The scratch gallery, in the content area so the app stays put (the page is sandboxed, so a frame).
 const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/scratch/", title: "Scratch", className: "scratch-frame" });
-// Its Grid/List sits in the page head, opposite the title. The sandboxed page cannot keep the
-// choice, or read the app's theme, so the app tells the page both (scratch.html listens).
+// Its Grid/List sits on its filter's line. The sandboxed page cannot keep the choice, or read
+// the app's theme, so the app keeps the one and tells the page both (scratch.html listens).
 let scratchView = "grid";
 try { scratchView = localStorage.getItem("tmuxrc-scratch-view") || "grid"; } catch {}
-const scratchSeg = Object.assign(document.createElement("span"), { id: "scratch-view", className: "seg" });
-scratchSeg.setAttribute("role", "group"); scratchSeg.setAttribute("aria-label", "View");
 const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light") }, "*"); // its origin is opaque
 scratchFrame.addEventListener("load", tellScratch);
-addEventListener("message", (e) => { if (e.source === scratchFrame.contentWindow && /^%\d+$/.test(e.data?.pane)) navigate(e.data.pane); });
-function scratchPage() {
-  const head = cardView("Scratch", scratchFrame).previousSibling;
-  if (scratchSeg.parentNode !== head) head.append(scratchSeg); // a move would drop its focus
-  choices("scratch-view", { grid: "Grid", list: "List" }, scratchView, (v) => {
-    scratchView = v; try { localStorage.setItem("tmuxrc-scratch-view", v); } catch {} scratchPage(); tellScratch(); });
-  return scratchFrame;
+// Only the gallery is heard, never a page the viewer shows: it opens a pane, keeps its view, or
+// opens one of its pages, a path under /scratch/ here and nothing else (url-state.js).
+addEventListener("message", (e) => {
+  if (e.source !== scratchFrame.contentWindow) return;
+  const { pane, view, open, title } = e.data || {}, href = scratchUrl(open, location.href);
+  if (/^%\d+$/.test(pane)) navigate(pane);
+  if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
+  if (href) viewScratch(href, title);
+});
+function scratchPage() { return cardView("Scratch", scratchFrame); }
+// A gallery page, full screen over the app in a frame of its own (sandboxed by the daemon's CSP
+// like every /scratch/ page), under a bar: Back, its title, and a real link out to a tab.
+// A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
+const viewer = $("scratch-viewer");
+function viewScratch(href, title) {
+  text($("viewer-title"), String(title || ""));
+  $("viewer-out").href = href;
+  viewer.querySelector("iframe")?.remove();
+  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title: String(title || "Scratch page") }));
+  viewer.showModal(); viewer.focus();
 }
+$("close-viewer").onclick = () => viewer.close();
+viewer.addEventListener("close", () => viewer.querySelector("iframe")?.remove());
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
   if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);
@@ -1673,7 +1686,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -1803,8 +1816,8 @@ $("scratch-nav").onclick = (e) => { e.preventDefault(); openPage("scratch"); };
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
-// A phone's Back is also a swipe in from the left edge: it presses the Back of the pane or the
-// view (on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
+// A phone's Back is also a swipe in from the left edge: it presses the Back of the pane, the
+// view or Scratch's viewer (whose left edge is kept for it; on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
 // Installed only: in a browser tab that edge is the browser's own Back, and both at once slide
 // two things in (☰ still opens the drawer there, and an open one still drags).
@@ -1812,7 +1825,7 @@ let edge = null;
 addEventListener("touchstart", (e) => {
   if (drag?.live) return; // a second finger: the drag stays the first one's
   const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
-  edge = standalone() && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+  edge = standalone() && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
   drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
 // A gesture the page moved under (a touchcancel, or a route() mid-swipe) springs back to where it began.
@@ -1822,7 +1835,7 @@ addEventListener("touchend", (e) => {
   const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
   if (drag?.live && e.timeStamp - drag.t > 100) drag.v = 0; // held before letting go: no flick
   if (drag?.live) settle(drag.v > .5 || drag.v > -.5 && drag.pos > -drawer.offsetWidth * (drag.open ? 1 : 2) / 3);
-  else if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
+  else if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (viewer.open ? $("close-viewer") : active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
   edge = drag = null;
 });
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.

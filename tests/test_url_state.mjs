@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatHash, historyMode, parseHash } from "../web/m/url-state.js";
+import { formatHash, historyMode, parseHash, scratchUrl } from "../web/m/url-state.js";
 
 test("every addressable state round-trips", () => {
   for (const state of [
@@ -123,4 +123,15 @@ test("stillOnPane understands old-format hashes", async () => {
   assert.equal(stillOnPane("#pane=%251", "%1"), true);
   assert.equal(stillOnPane("#pane=%252", "%1"), false);
   assert.equal(stillOnPane("", "%1"), false);
+});
+
+test("the gallery opens only a Scratch page on the app's own origin", () => {
+  const base = "https://rc.example/m/#view=scratch";
+  assert.equal(scratchUrl("https://rc.example/scratch/demo/", base), "https://rc.example/scratch/demo/");
+  assert.equal(scratchUrl("/scratch/a/b.html?x=1#y", base), "https://rc.example/scratch/a/b.html?x=1#y");
+  assert.equal(scratchUrl("/scratch/a/%2e./b/", base), "https://rc.example/scratch/b/");
+  for (const href of ["https://evil.example/scratch/x/", "//evil.example/scratch/", "javascript:alert(1)", "data:text/html,x",
+    "/m/", "/api/panes", "/scratch", "/scratch/../m/", "/scratch/%2e%2e/api/x", "/scratch\\..\\m/", "/scratch/..%2fm/", "/scratch/..%5Cm/",
+    "/docs/mocks/x/", "", undefined, null, 1, { href: "/scratch/x/" }, "http://[bad"])
+    assert.equal(scratchUrl(href, base), null, String(href));
 });
