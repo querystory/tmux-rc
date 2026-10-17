@@ -53,3 +53,19 @@ test("a URL rejoined by one load survives the next, either way", () => {
   const next = besideHeld(other.join("\n"), top.raw, true, false);
   assert.deepEqual([...shown.slice(0, shown.length - next.again.length - 1), ...next.again.reverse(), ...next.lines], one);
 });
+
+// linkify reads every row's width, so a short row landing can relink a URL rows away from
+// the edge: `again` has every held row as rendered now, not only the ones next to it.
+test("a change away from the edge is in again too", () => {
+  const held = [`${"x".repeat(30)} https://ex.com/${"a".repeat(14)}`, "b".repeat(60), "y".repeat(60), "z".repeat(60)];
+  const one = render([...held, "short"].join("\n"));
+  assert.match(one[1], /href=/);
+  const r = besideHeld("short", held.join("\n"), true, false);
+  assert.deepEqual([...r.again.reverse(), ...r.lines], one);
+});
+
+// The rows held at an end are all of them, a blank first row too.
+test("the held raw rows keep a blank first row", () => {
+  assert.equal(besideHeld("\nL11", null, true, false).raw, "\nL11");
+  assert.equal(besideHeld("L1\n", null, false, false).raw, "L1\n");
+});

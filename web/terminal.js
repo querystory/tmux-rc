@@ -135,13 +135,9 @@ function joinWrapped(head, rest) {
 export function besideHeld(rows, held, below, wraps) {
   const sep = wraps ? "" : "\n", raw = held == null ? rows : below ? joinWrapped(held + sep, rows) : joinWrapped(rows + sep, held);
   const lines = renderCaptureLines(raw, { color: true }), kept = held == null ? 0 : held.split("\n").length - 1;
-  let cut = below ? raw.length : -1, n = KEEP;
-  if (below) {
-    while (n-- > 0 && cut > 0) cut = raw.lastIndexOf("\n", cut - 1);
-    return { lines: lines.slice(kept), again: lines.slice(0, kept).reverse(), raw: sgrOf(raw.slice(0, cut + 1)) + raw.slice(cut + 1) };
-  }
-  while (n-- > 0 && (cut = raw.indexOf("\n", cut + 1)) >= 0);
-  return { lines: lines.slice(0, lines.length - kept), again: lines.slice(lines.length - kept), raw: cut < 0 ? raw : raw.slice(0, cut) };
+  if (!below) return { lines: lines.slice(0, lines.length - kept), again: lines.slice(lines.length - kept), raw: raw.split("\n").slice(0, KEEP).join("\n") };
+  const tail = raw.split("\n").slice(-KEEP).join("\n"), cut = raw.length - tail.length;
+  return { lines: lines.slice(kept), again: lines.slice(0, kept).reverse(), raw: sgrOf(raw.slice(0, cut)) + tail };
 }
 
 // Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the
