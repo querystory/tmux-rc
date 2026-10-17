@@ -17,6 +17,8 @@ import random
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from PIL import Image, ImageDraw
+
 from openbus.history import COVERAGE, History
 
 NOW = datetime(2026, 6, 16, 15, 30, tzinfo=UTC).timestamp()  # a Tuesday afternoon
@@ -581,3 +583,54 @@ def seed_restore(history: History) -> History:
         db.execute("INSERT INTO layout_snapshots VALUES (?, ?, ?, NULL)",
                    ("demo-boot:4242:1", DIED, json.dumps(payload)))
     return history
+
+
+# The scratch gallery (/scratch/): folder | minutes since created, last changed | pane, or
+# "-" for none | title, or "-" to fall back on the page's own | description. A pane the
+# fleet lacks has closed; its folder is found in the transcript in SCRATCH_WRITERS.
+SCRATCH = """\
+checkout-variants|40,25|%5|Checkout flow, two variants|Single page against stepped, at \
+phone width.
+ab-sweep-interim|130,70|%14|Prompt A/B sweep: interim|Variant C leads after 60 of 200 runs.
+release-notes-draft|190,190|%19|-|Merged PRs since v0.14, grouped by area.
+cost-breakdown|1500,1380|%77|Monthly cost breakdown|Compute, storage and egress by team.
+latency-heatmap|4400,4300|-|-|-"""
+SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
+                                      "source": "~/.claude/projects/ops/demo-cost.jsonl",
+                                      "title": "Billing export analysis"}}
+
+
+def _thumb(path, hue: int) -> None:
+    """A stand-in thumbnail: a page's header, a heading and blocks of content, in one hue."""
+    im = Image.new("RGB", (480, 300), "#f5f7f6")
+    d, ink = ImageDraw.Draw(im), f"hsl({hue}, 45%, 45%)"
+    d.rectangle((0, 0, 480, 36), fill=f"hsl({hue}, 35%, 88%)")
+    d.rectangle((24, 60, 260, 78), fill=ink)
+    for n, width in enumerate((420, 380, 300)):
+        d.rectangle((24, 98 + n * 18, 24 + width, 106 + n * 18), fill="#c8d1cc")
+    for n in range(3):
+        d.rounded_rectangle((24 + n * 148, 170, 156 + n * 148, 276), 8,
+                            fill=f"hsl({hue + n * 25}, 40%, 70%)")
+    im.save(path, "WEBP", quality=70)
+
+
+def seed_scratch(root) -> None:
+    """Write SCRATCH's folders: each an index.html, a thumbnail but for the oldest (its
+    placeholder shows), and, when it names a pane, meta.json."""
+    lines = SCRATCH.splitlines()
+    for n, line in enumerate(lines):
+        name, ages, pane, title, description = line.split("|")
+        created, changed = (NOW - int(m) * 60 for m in ages.split(","))
+        folder = root / name
+        folder.mkdir()
+        page = name.replace("-", " ").capitalize()
+        (folder / "index.html").write_text(f"<title>{page}</title><h1>{page}</h1>")
+        meta = folder / "meta.json"
+        if pane != "-":
+            meta.write_text(json.dumps({
+                "title": "" if title == "-" else title, "description": description,
+                "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat()}))
+        if n < len(lines) - 1:
+            _thumb(folder / "thumb.webp", 150 + n * 47)
+        for path in folder.iterdir():
+            os.utime(path, (created, changed if path.suffix != ".json" else created))

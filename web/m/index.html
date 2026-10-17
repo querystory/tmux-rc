@@ -133,9 +133,9 @@
            #sessions is the scroller (style.css). -->
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
       <div id="sb-scroll">
-      <!-- The places you go, as rows: Dashboard and Settings (app.js moves Settings in). Chat and
+      <!-- The places you go, as rows: Dashboard, Scratch (agents' previews, a page of its own) and Settings (app.js moves Settings in). Chat and
            Voice are toggles, icons in the head. -->
-      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button></div>
+      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><a id="scratch-nav" class="icon-button" href="/scratch/" aria-label="Scratch" title="Scratch" hidden></a></div>
       <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div>
       <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
       <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div></div>
@@ -173,6 +173,7 @@
         <button id="close-pane" class="icon-button" aria-label="Close" title="Close"></button>
       </div>
       <div id="review-divider" role="separator" tabindex="0" aria-label="Resize overview" hidden></div>
+      <button id="overview-toggle" class="icon-button" aria-controls="overview" hidden></button>
       <div id="overview" class="scroller">
         <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="session-summary" hidden></p><p id="metadata"></p></section>
         <section id="question" hidden><h2 id="prompt"></h2><p id="question-items" class="q-items"></p><div id="ask-link"></div><details id="question-command" class="q-command" hidden><summary>Details</summary><pre class="q-cmd"></pre></details><div id="offers" role="group" aria-label="Replies the agent offered"></div><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
@@ -200,7 +201,7 @@
       <div id="fleet-handle" role="separator" aria-orientation="horizontal" aria-label="Resize the fleet chart" title="Drag to resize. Double-click to fold or unfold." tabindex="0" hidden></div>
       <section id="fleet" aria-label="Fleet chart" hidden></section>
     </section>
-    <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button><button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
+    <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="live-mode" class="icon-button" aria-label="Voice" title="Voice" hidden></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
     <dialog id="launch-dialog" aria-labelledby="launch-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><div class="panel-body"><p class="panel-sub">Start an agent or shell in a new tmux window.</p><div class="launch-row"><label for="launch-session">Session</label><select id="launch-session" required></select></div><div id="launch-new" hidden><label for="launch-dir">Directory</label><input id="launch-dir" list="launch-dirs" value="~" autocomplete="off" autocapitalize="off" spellcheck="false"><datalist id="launch-dirs"></datalist><label for="launch-name">Session name</label><input id="launch-name" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9_\-]{1,64}"></div><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></div></dialog>
     <!-- Settings: what you set once, not a place you go (docs/design/sidebar.md). Wide, a panel
          beside the sidebar; a phone, a sheet. -->
@@ -208,7 +209,7 @@
       <h3>Accounts</h3><div class="set-card"><div id="settings-accounts"></div><button type="button" id="accounts-open" class="set-row set-link">Manage accounts…</button></div>
       <section><h3>Notifications</h3><div class="set-card"><div class="set-row"><span><b>Push notifications</b><small>Alert this device when a pane needs you.</small></span><button type="button" id="push" class="switch" aria-pressed="false" hidden></button></div></div></section>
       <h3>Appearance</h3><div class="set-card"><div class="set-row"><b>Theme</b><span id="theme" class="seg" role="group" aria-label="Theme"></span></div><div class="set-row"><b>Plan usage</b><span id="usage-mode" class="seg" role="group" aria-label="Plan usage"></span></div><div class="set-row"><span><b>Always show panes that need you</b><small>Even when a filter leaves them out (they are marked so).</small></span><span id="pin-needs" class="seg" role="group" aria-label="Always show panes that need you"></span></div><div id="sort-row" class="set-row"><b>Sort by</b><span id="sort" class="seg" role="group" aria-label="Sort by"></span></div></div>
-      <section><h3>Help</h3><div class="set-card"><a id="docs" class="set-row set-link" href="/docs/" hidden>Documentation</a></div></section>
+      <section><h3>More</h3><div class="set-card"><a id="scratch" class="set-row set-link" href="/scratch/" hidden>Scratch pages</a><a id="docs" class="set-row set-link" href="/docs/" hidden>Documentation</a></div></section>
     </div></dialog>
     <dialog id="expunge-dialog" aria-labelledby="expunge-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="expunge-title">Expunge session</h2><button type="button" id="close-expunge" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="expunge-what"></p><p id="expunge-caveat">Copies already sent via OpenTelemetry, or kept by Anthropic or OpenAI, are not affected.</p><button type="button" id="expunge-confirm"></button><button type="button" id="expunge-cancel">Cancel</button></dialog>
     <dialog id="move-dialog" aria-labelledby="move-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="move-title">Move to another account</h2><button type="button" id="close-move" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="move-what" role="status"></p><div id="move-choices" class="choice-list" aria-label="Account"></div></dialog>

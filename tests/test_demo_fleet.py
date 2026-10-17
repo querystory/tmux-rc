@@ -31,7 +31,7 @@ def _loops() -> dict:
 def _everything() -> str:
     fleet = demo.fleet()
     return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet], _loops(),
-                       demo.restore_snapshot()])
+                       demo.restore_snapshot(), demo.SCRATCH, demo.SCRATCH_WRITERS])
 
 
 def test_fleet_contains_nothing_private():

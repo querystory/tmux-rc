@@ -1381,6 +1381,14 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     only_command = ("\x1e[visible screen]\x1f\n● ! git push\n✻ Worked for 3s\n❯\n"
                     "⏵⏵ auto mode on")
     assert classify(_pane("claude"), only_command, _llm({}))["question"]["prompt"] == "! git push"
+    # The handed-over command is offered to send even when the model offered nothing, its
+    # spacing kept, but not when rows run on below it: a wrap or prose, no screen tells.
+    assert classify(_pane("claude"), only_command, _llm({}))["offers"] == ["! git push"]
+    spaced = _auto_screen("Run:\n\n  ! printf '%s' 'a  b'\n\n  Then tell me.")
+    assert classify(_pane("claude"), spaced, _llm({}))["offers"] == ["! printf '%s' 'a  b'"]
+    for run_on in ("  ! cat /tmp/demo-re\n  port.txt", "  ! git push\n  Then tell me."):
+        assert "offers" not in classify(_pane("claude"), _auto_screen(f"Run:\n\n{run_on}"),
+                                        _llm({}))
     bare = classify(_pane("claude"), screen.replace("  ⎿  API Error: 529", "API Error handling"),
                     _llm({}))
     assert "question" not in bare  # only the ⎿ result marker is provider-error chrome

@@ -102,12 +102,13 @@ test("one tmux session drops its name; two keep it", () => {
   noteSessions([]);
 });
 
-test("a question leads with the screen link the parser names as its own, and only that", () => {
+test("a question leads with the screen link the parser names as its own, else the first offered", () => {
   const login = { href: "https://accounts.example/device", text: "Sign-in approval" };
   const other = { href: "https://docs.example/setup", text: "Setup notes" };
   const ask = (link) => ({ ...pane, question: { prompt: "Open the link, then paste the code here", link }, links: [other, login] });
   assert.deepEqual(askLink(ask(login.href)), login);
-  assert.equal(askLink(ask(undefined)), null);  // a question that mentions a link but names none
+  assert.deepEqual(askLink(ask(undefined)), other);  // names none: the first link the screen offers
+  assert.deepEqual(askLink({ ...ask(undefined), links: [{ href: "javascript:alert(1)" }, login] }), login);
   assert.equal(askLink(ask("https://elsewhere.example/")), null);  // not among the screen's links
-  assert.equal(askLink({ ...pane, links: [login] }), null);
+  assert.equal(askLink({ ...ask(undefined), links: [] }), null);
 });
