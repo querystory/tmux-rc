@@ -250,7 +250,7 @@ let noticeTimer;
 // Restore is a view of its own, so the dashboard behind it stays whole. An offer that turns up
 // on the bare app (no pane, no view chosen) opens it; a spent one leaves it.
 const restore = setupRestore({ mount: $("restore"), request, slow: NO_TIMEOUT, logos: LOGOS, licon, notice: (...a) => notice(...a), running: () => tmuxRunning,
-  open: () => { if (page !== "restore") openPage("restore"); }, // again would leave Back nowhere to go
+  open: () => openPage("restore"),
   opened: () => { if (!active && !page && !dashboard) navigate(null, "restore", { mode: "replace" }); },
   closed: () => { if (page === "restore") closePage(); } });
 function notice(message = "", ms = 0, action = null) {
@@ -292,7 +292,8 @@ function navigate(id = null, nextView = "summary", { mode, acct = accounts.key()
 // filter tap is a request for the list.
 // Opened from its card, a view's entry says so in history.state, which survives a reload and
 // Back/Forward; its Back then steps back rather than stacking a second dashboard entry.
-const openPage = (name) => { navigate(null, name); history.replaceState({ fromCard: true }, ""); };
+// Not the view already open: that adds no entry, so its Back would leave the app.
+const openPage = (name) => { if (page !== name) { navigate(null, name); history.replaceState({ fromCard: true }, ""); } };
 const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
 const stayPut = (opts) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", opts);
 // Clear all: every filter (the states, the accounts and the search), not the grouping or the
