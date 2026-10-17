@@ -156,6 +156,7 @@ def install() -> None:
         accounts.report = lambda *_: {**demo.accounts(TWO_ACCOUNTS, _since_sign_in()),
                                       "shared": accounts.SHARED}
     tmux.capture_pane = _capture
+    tmux.capture_live = lambda pane_id: (_capture(pane_id), 0, "120")  # no history to page back
     if restore and hasattr(demo, "restore_seams"):
         for name, seam in demo.restore_seams().items():
             setattr(restore, name, seam)

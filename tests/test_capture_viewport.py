@@ -86,7 +86,7 @@ def test_classifier_capture_splits_before_wrapping(monkeypatch):
 def test_phone_capture_does_not_add_boundary(monkeypatch):
     calls = []
     monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or "plain\n")
-    assert tmux.capture_pane("%1", keep_colors=True) == "plain"
+    assert tmux.capture_pane("%1") == "plain"
     assert "if-shell" not in calls[0]
 
 

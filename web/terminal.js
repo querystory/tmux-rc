@@ -107,6 +107,24 @@ function linkify(text, join = true) {
 const SGR_SPLIT = /(\x1b\[[0-9;]*m)/;
 const SGR_ONE = /^\x1b\[([0-9;]*)m$/;
 
+// A line tmux wrapped across two captures comes back in two pieces (the live view's
+// earlier history, web/m/app.js). lastLine(text) is a capture's last line carrying every SGR
+// before it, so it renders in the style it had there; joinWrapped(head, rest) puts the
+// pieces back together. Each capture states its style from the default, so the rest's
+// leading SGR is dropped when it only restates the style the head left open (the usual
+// case, and it keeps a wrapped URL in one run, so one link); otherwise a reset goes between.
+const SGR_ALL = /\x1b\[[0-9;]*m/g, SGR_LEAD = /^(?:\x1b\[[0-9;]*m)*/;
+const sgrOf = (text) => (text.match(SGR_ALL) || []).join("");
+const styleOf = (sgr) => renderCapture(`${sgr}x`, { color: true });
+export const lastLine = (text) => {
+  const cut = text.lastIndexOf("\n") + 1;
+  return sgrOf(text.slice(0, cut)) + text.slice(cut);
+};
+export function joinWrapped(head, rest) {
+  const lead = SGR_LEAD.exec(rest)[0];
+  return styleOf(sgrOf(head)) === styleOf(lead) ? head + rest.slice(lead.length) : `${head}\x1b[0m${rest}`;
+}
+
 // Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the
 // terminal gets — markdown [label](url) and bare URLs — but with wrap-joining OFF, because
 // that heuristic reads equal line lengths as evidence of a fixed-width grid. In prose the

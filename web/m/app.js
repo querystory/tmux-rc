@@ -1,6 +1,6 @@
 import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
-import { renderCaptureLines, linkifyText } from "/terminal.js";
+import { renderCaptureLines, linkifyText, lastLine, joinWrapped } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
@@ -168,6 +168,14 @@ const pendingAnswers = new Map();
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
+// Earlier history (docs/design/live-view.md): tmux rows above the live frame, fetched as you
+// near the top and kept, since a history row never changes. Rows are counted from the
+// oldest one tmux keeps, so new output (which only adds rows below) never renumbers a row
+// already here. #earlier holds rows [top, end); while it is empty both follow the frame's
+// own first row. `latestGeometry` is the newest frame's first row and `screen` (how its
+// rows are numbered: the width and which screen is up; a change renumbers every row).
+const EARLIER_LINES = 500;
+let earlier = { top: 0, end: 0, screen: "" }, latestGeometry = [0, ""], shownTop = 0; // shownTop: the painted frame's first row
 let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 // CSPRNG-random or omitted, never guessed. getRandomValues, unlike randomUUID, needs no
 // secure context, and a reconnecting chat finds its parked cards by this id.
@@ -1105,7 +1113,8 @@ $("fit-toggle").onchange = () => {
   if (terminalVisible()) fitTo(active, termCols()); // this terminal, measured now
 };
 
-function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; }
+function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; latestGeometry = [0, ""]; shownTop = 0; resetEarlier(); }
+const following = () => { const s = $("terminal-scroll"); return s.scrollTop + s.clientHeight >= s.scrollHeight - FOLLOW_SLACK_PX; };
 // One <span> per screen line, each ending in its own "\n" (except the last), so inside the
 // <pre>'s `white-space: pre` the layout and copied text are exactly what one innerHTML of
 // the whole frame gave — no extra CSS, and no block children to lose the newlines. The
@@ -1134,28 +1143,162 @@ function paintLines(lines) {
   });
   captureLines.splice(lines.length).forEach((node) => node.remove());
 }
-function paintCapture() {
-  const lines = lineMarkup(renderCaptureLines(latestCapture, { color: true }));
-  const selection = getSelection();
-  if (selection && !selection.isCollapsed && selectionDirty(selection, lines)) { captureDirty = true; return; }
+const frameLines = () => lineMarkup(renderCaptureLines(latestCapture, { color: true }));
+const selectionHolds = (lines) => { const s = getSelection(); return !!s && !s.isCollapsed && selectionDirty(s, lines); };
+function paintCapture(force = false) {
+  // A reflow (new width) or a switch of screen renumbers every row, and trimmed or cleared
+  // history moves the frame's first row back: the rows held here no longer line up, so drop them
+  // (and, by replacing `earlier`, any chunk still on its way), even if a selection holds
+  // this frame back. While one does, nothing loads (loadEarlier), so no rows are placed
+  // against a frame that is not the one on screen.
+  const [top, screen] = latestGeometry;
+  if (screen !== earlier.screen || top < earlier.seen) resetEarlier(top, screen);
+  earlier.seen = top;
+  const lines = frameLines();
+  if (selectionHolds(lines)) { captureDirty = true; return; }
   captureDirty = false;
-  const scroll = $("terminal-scroll");
-  const follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - FOLLOW_SLACK_PX;
+  const scroll = $("terminal-scroll"), follow = following();
+  // Empty, the held range follows the frame while you follow the tail and no request is
+  // using it as its edge. Reading further up, it stays, so the rows output scrolls out from
+  // under you come back as a gap, and this frame waits for them: loadEarlier lands them
+  // and paints it in one step, so what you are reading never jumps in between.
+  if (earlier.top === earlier.end && !earlier.busy && follow) earlier.top = earlier.end = top;
+  if (!follow && !force && earlier.end < top && !backingOff()) { loadEarlier(); return; }
   paintLines(lines);
-  paintedFrame = latestFrame;
+  paintedFrame = latestFrame; shownTop = top;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
+  loadEarlier();
+}
+function resetEarlier(top = 0, screen = "") {
+  $("earlier").replaceChildren();
+  earlier = { top, end: top, seen: top, screen };
+  paintEarlierCue();
+}
+function paintEarlierCue() {
+  const cue = earlier.loading ? "Loading earlier…" : earlier.top === 0 && earlier.end > 0 ? "Start of history" : "";
+  text($("earlier-cue"), cue); show("earlier-cue", !!cue);
+}
+// Rows added above what you are reading must not move it: measure the frame's first line,
+// make the change, and scroll by however far that line moved. Measured rather than
+// computed, so it is right whether or not the browser anchors scrolling itself. `ifAbove`:
+// only when you are reading the frame, not rows above it: that line is above the view, or
+// there are no rows above it at all.
+// Back at the tail, the view stays there instead.
+function holdView(change, ifAbove = false) {
+  const box = $("terminal-scroll"), mark = $("capture").firstChild || $("capture"), tail = following();
+  const y = mark.getBoundingClientRect().top;
+  const hold = !ifAbove || !$("earlier").firstChild || y < box.getBoundingClientRect().top; // nothing above: the frame it is
+  change();
+  if (tail) box.scrollTop = box.scrollHeight;
+  else if (hold) box.scrollTop += mark.getBoundingClientRect().top - y;
+}
+const backingOff = () => performance.now() - (earlier.failed ?? -Infinity) < 3000; // after a failed request
+const selected = (node) => { const s = getSelection(); return !!s?.rangeCount && !s.isCollapsed && s.getRangeAt(0).intersectsNode(node); };
+// Fill whatever is missing, one request at a time: first a gap (output moved the frame's
+// first row past #earlier's end while you read above the tail; left for later while you
+// follow it, so a streaming pane costs nothing, and while a selection holds the frame
+// back), then older rows while you are within a screen of the top. Each chunk is rendered
+// by the live view's own renderer. A failure pauses loading for a few seconds, then retries.
+//
+// A gap has two parts, split at the painted frame's first row (`shownTop`), and requests
+// never straddle it. Rows above it are on screen nowhere (left while you followed, or after
+// a failed fetch), so they land at once and, if you are reading the frame, are held above
+// it. Rows below it are on screen in the painted frame and leave it only with the frame
+// that waits for them: they collect in `held` and land in the same step as that frame, in
+// the place the old frame showed them, so whatever you were reading stays put. If a
+// selection now holds that frame back, they are dropped and fetched again later.
+//
+// A line tmux wrapped across a chunk's edge arrives in two pieces (tmux.capture_history),
+// so the held piece is rendered again together with the new one and replaced: a long URL
+// stays one link, in its own colors. Each chunk's first and last lines keep their raw text
+// on their nodes (the last with the style it starts in), and the last whether it wraps on.
+// A held piece inside a selection is left alone rather than replaced under it.
+async function loadEarlier() {
+  const h = earlier, id = active, box = $("terminal-scroll"), pre = $("earlier");
+  if (h.busy || !id || !h.screen || captureDirty || backingOff()) return;
+  h.busy = true;
+  let held = [], gone = null, heldEnd = h.end, since = 0, older = false;
+  const land = (force) => {
+    if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
+    if (gone && selected(gone)) return; // selected since: fetched again, and left split this time
+    const tail = following();
+    gone?.remove(); pre.append(...held); h.end = heldEnd;
+    if (tail) box.scrollTop = box.scrollHeight;
+    if (paintedFrame !== latestFrame) paintCapture(force); // the frame that waited
+  };
+  try {
+    for (;;) {
+      if (captureDirty) return;
+      // Only on the way up: off the tail, or by a gesture up at the top of a frame too short
+      // to scroll (a few long wrapped lines), one chunk per gesture. Older rows also need you
+      // within a screen of the top.
+      // Gaps go first, but under steady output there is always one, so after each gap
+      // request an older one gets its turn when you are near the top, except while gap rows
+      // wait to land (at most 5s): a prepend could replace the piece they are to replace,
+      // or a frame painted meanwhile could strand them.
+      const up = h.asked || !following(), want = latestGeometry[0];
+      older = (!older || heldEnd >= want) && !held.length && h.top > 0 && box.scrollTop < box.clientHeight && up;
+      const gap = heldEnd < want && up && !older;
+      if (!gap && !older) return;
+      const unseen = heldEnd < shownTop; // 1000: the daemon's cap
+      const before = gap ? Math.min(want, heldEnd + 1000, unseen ? shownTop : Infinity) : h.top;
+      if (!gap) holdView(() => { h.loading = true; paintEarlierCue(); });
+      const query = new URLSearchParams({ before, lines: gap ? before - heldEnd : EARLIER_LINES }), shown = shownTop;
+      const { text: rows, start, wraps, screen } = await request(`${paneUrl(id, "history")}?${query}`);
+      if (h !== earlier) return;
+      // Numbered differently from the rows held here (history trimmed since, say): none of
+      // them can be trusted. Drop them and load nothing until the next live frame says how
+      // rows are numbered now (an unknown screen holds loading off, and repaints of the
+      // frame already here keep it unknown); the frame waiting, if any, paints as it is.
+      if (screen !== h.screen) { latestGeometry = [latestGeometry[0], ""]; paintCapture(true); return; }
+      // A frame painted meanwhile moved the split this chunk was asked by: start the gap over.
+      if (gap && shownTop !== shown) { held = []; gone = null; heldEnd = h.end; continue; }
+      const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;
+      const join = edge && (gap ? edge.wraps : wraps) && !selected(edge);
+      const raw = !join ? rows : gap ? joinWrapped(edge.raw, rows) : joinWrapped(rows, edge.raw);
+      const nodes = renderCaptureLines(raw, { color: true }).map((markup) => {
+        const node = document.createElement("span"); node.innerHTML = `${markup}\n`; return node;
+      });
+      nodes[0].raw = raw.slice(0, raw.indexOf("\n") >>> 0);
+      Object.assign(nodes.at(-1), { raw: lastLine(raw), wraps: gap || !join ? wraps : edge.wraps });
+      if (!gap) {
+        holdView(() => { if (join) edge.remove(); pre.prepend(...nodes); h.top = start; h.loading = h.asked = false; paintEarlierCue(); });
+      } else if (unseen) {
+        holdView(() => { if (join) edge.remove(); pre.append(...nodes); h.end = heldEnd = before; }, true);
+      } else {
+        if (join && edge === held.at(-1)) held.pop(); else if (join) gone = edge;
+        held.push(...nodes); heldEnd = before;
+        // Caught up, they land with the newest frame. Output that keeps ahead (over a
+        // request's worth, or for 5s) can't hold them back: they land and that frame paints
+        // anyway, the rows it passed becoming a gap above it.
+        const behind = latestGeometry[0] - heldEnd, now = performance.now();
+        since ||= now;
+        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; gone = null; heldEnd = h.end; since = 0; }
+      }
+    }
+  } catch { h.failed = performance.now(); setTimeout(loadEarlier, 3000); }
+  finally {
+    const cue = h.loading; // a failed load's cue; untouched otherwise, so a scroll stays put
+    h.busy = h.loading = h.asked = false;
+    if (h === earlier && cue) holdView(paintEarlierCue);
+    // A frame still waiting (its gap failed, or you went back to the tail) paints as is; the
+    // rows it skips are above it then, so a later fetch holds them.
+    if (h === earlier && paintedFrame !== latestFrame && !captureDirty) paintCapture(true);
+  }
 }
 async function streamTerminal(id, signal) {
   let frame = "";
   text($("terminal-status"), "Connecting");
   while (!signal.aborted) {
     try {
-      const query = new URLSearchParams({ frame });
+      // An unknown screen (loadEarlier met another numbering) asks for the whole frame again,
+      // since only a full answer says how rows are numbered now.
+      const query = new URLSearchParams({ frame: latestGeometry[1] ? frame : "" });
       if (liveSession) query.set("session", liveSession);
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
+      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; latestGeometry = [data.top, data.screen]; paintCapture(); }
       fitDue();
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
@@ -1669,7 +1812,7 @@ for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close",
 });
 // Crossing the breakpoint changes which form a panel takes (sheet or docked): close it.
 WIDE.addEventListener?.("change", () => [$("settings"), $("launch-dialog")].forEach((d) => d.close()));
-function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; refit(); }
+function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("terminal-scroll").style.setProperty("--term-font", `${fontSize}px`); text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; refit(); }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; wheelHome(active); };
 // Overscroll past the top of the live view scrolls the pane's own app (overscroll.js). Only
@@ -1726,7 +1869,8 @@ function wheelHome(id) {
 }
 function overscrollPane(dy) {
   const box = $("terminal-scroll"), pane = panes.find((p) => p.pane_id === active);
-  if (wheel.off || !dy || !WHEEL_TOOLS.has(pane?.tool)) return;
+  if (dy < 0 && box.scrollTop === 0 && (earlier.top > 0 || earlier.end < latestGeometry[0])) { earlier.asked = true; loadEarlier(); }
+  if (wheel.off || !dy || !WHEEL_TOOLS.has(pane?.tool) || (dy < 0 && earlier.top > 0)) return; // tmux history first
   if (dy < 0 ? box.scrollTop > 0 : box.scrollTop + box.clientHeight < box.scrollHeight - 1) return;
   wheelQueued += overscroll(wheel, dy, performance.now());
   paintWheelCue(); flushWheel();
@@ -1734,6 +1878,7 @@ function overscrollPane(dy) {
   wheelSpring = setTimeout(() => { if (!wheel.net) wheel.pull = 0; paintWheelCue(); }, IDLE_MS);
 }
 // Pinch-zoom arrives as a ctrl+wheel. deltaMode counts in px, ~16px lines (Firefox) or pages.
+$("terminal-scroll").addEventListener("scroll", loadEarlier, { passive: true });
 $("terminal-scroll").addEventListener("wheel", (e) => { if (!e.ctrlKey) overscrollPane(e.deltaY * [1, 16, e.currentTarget.clientHeight][e.deltaMode]); }, { passive: true });
 $("terminal-scroll").addEventListener("touchstart", (e) => { touchY = e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
 // A second finger drops the baseline, so the move after a pinch starts a new one.

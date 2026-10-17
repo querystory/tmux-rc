@@ -248,15 +248,24 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 /* Hover/focus helper, not a native title: a title never shows on a phone, and here the
    tap that toggles also hovers, so the new mode explains itself as it switches. */
 :is(#click-mode, #key-mode):is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
-#terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
+/* overflow-anchor: app.js holds the view itself (holdView), the same in every browser;
+   Chrome's own anchoring would also pin a frame row and undo a history gap's placement. */
+#terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; overflow-anchor: none; }
 /* Key passthrough is wide only (app.js): there the ring shows the terminal has the keys. */
 @media (min-width: 1100px) { #terminal.keys-live #terminal-scroll:focus { outline: 2px solid var(--accent); outline-offset: -2px; } }
 @media (max-width: 1099px) { #key-mode { display: none; } }
-#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 var(--mono); tab-size: 8; transition: transform .2s ease-out; }
+#capture, #earlier { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: var(--term-font, 13px)/1.45 var(--mono); tab-size: 8; }
+#capture { transition: transform .2s ease-out; }
+/* Earlier history (app.js loadEarlier) reads as one block with the live frame. */
+#earlier { padding-bottom: 0; }
+#earlier:empty { display: none; }
+#earlier:not(:empty) + #capture { padding-top: 0; }
+#earlier-cue { padding: 8px 12px 0; font-size: 12px; color: var(--term-dim); }
+#earlier-cue:not([hidden]) + #earlier { padding-top: 4px; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
-#capture > span > span { display: inline-block; vertical-align: top; }
-#capture a { color: #8ecbff; }
+:is(#capture, #earlier) > span > span { display: inline-block; vertical-align: top; }
+:is(#capture, #earlier) a { color: #8ecbff; }
 #capture.clicks { cursor: default; user-select: none; -webkit-user-select: none; }
 #session-summary { margin-top: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
 #links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
