@@ -1667,7 +1667,7 @@ $("settings-open").onclick = () => {
   accounts.refresh(); // repaints Settings, as every refresh does while it is open
 };
 $("close-settings").onclick = () => $("settings").close();
-const closeAppMenu = () => { $("app-menu").open = false; };
+const closeAppMenu = () => { $("app-menu").open = false; $("app-menu-button").focus(); }; // a pick's sheet returns focus here
 $("menu-settings").onclick = () => { closeAppMenu(); $("settings-open").click(); };
 $("menu-scratch").onclick = (e) => { e.preventDefault(); closeAppMenu(); openPage("scratch"); };
 $("menu-docs").onclick = closeAppMenu;
