@@ -153,8 +153,11 @@ def codex_callback(url: str) -> str | None:
 def sign_in_link(screen: str) -> dict:
     """The sign-in page a Codex login window shows (the last on screen, whole: tmux joins
     wrapped lines), and the one-time code the device flow shows beside it; "" for each it
-    has not shown yet."""
-    urls = re.findall(r"https://auth\.openai\.com/[^\s\x00-\x1f]+", screen)
+    has not shown yet. A labelled terminal link reaches here as `[label](url)`
+    (tmux._materialize_links): its target ends at the `)` that closes it, and a URL
+    label ends at its `]`."""
+    url = r"https://auth\.openai\.com/[^\s\x00-\x1f"
+    urls = [a or b for a, b in re.findall(rf"\]\(({url}]+)\)(?!\S)|({url}\]]+)", screen)]
     code = re.findall(r"\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b", screen)
     return {"url": urls[-1] if urls else "", "code": code[-1] if code else ""}
 

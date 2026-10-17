@@ -413,7 +413,8 @@ def test_a_pasted_callback_reaches_the_waiting_login(client, home, monkeypatch):
     monkeypatch.setattr(accounts, "CODEX_CALLBACK_PORT", server.server_port)
     pids = {"%42": "4242"}
     monkeypatch.setattr(T, "pane_pid", pids.get)
-    screen = ["https://auth.openai.com/oauth/authorize?response_type=code&state=s-2"]
+    # As capture_pane hands a labelled terminal link over: its state ends before the `)`.
+    screen = ["[Sign in](https://auth.openai.com/oauth/authorize?response_type=code&state=s-2)"]
     monkeypatch.setattr(T, "capture_pane", lambda pane_id: screen[0])
     added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-x"}).json()
     client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
