@@ -1991,7 +1991,31 @@ def _mount_static(prefix: str, directory: str) -> None:
         return RedirectResponse(prefix + "/" + (f"?{query}" if query else ""))
 
     app.add_api_route(prefix, slash, include_in_schema=False)
-    app.mount(prefix, StaticFiles(directory=directory, html=True), name=prefix.strip("/"))
+    app.mount(prefix, _short_ranges(StaticFiles(directory=directory, html=True)),
+              name=prefix.strip("/"))
+
+
+# A reverse tunnel may carry each response as one message with a size cap (10 MB on the
+# one this runs behind), so a video asked for whole ("bytes=0-", what a player sends)
+# never arrives. A server may answer a range with less than was asked; the player then
+# asks for the rest, so each answer stays well under any such cap.
+RANGE_PIECE = 4 << 20
+
+
+def _short_ranges(static: StaticFiles):
+    def piece(value: bytes) -> bytes:
+        asked = re.fullmatch(rb"bytes=(\d+)-(\d*)", value.strip())
+        if not asked or (asked[2] and int(asked[2]) - int(asked[1]) < RANGE_PIECE):
+            return value
+        return b"bytes=%d-%d" % (int(asked[1]), int(asked[1]) + RANGE_PIECE - 1)
+
+    async def app(scope, receive, send):
+        if scope["type"] == "http":
+            scope = {**scope, "headers": [(k, piece(v) if k == b"range" else v)
+                                          for k, v in scope["headers"]]}
+        await static(scope, receive, send)
+
+    return app
 
 
 # Docs site (Hugo build) at /docs. The site is built with --baseURL /docs/ (see
