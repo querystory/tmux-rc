@@ -112,27 +112,36 @@ const SGR_ONE = /^\x1b\[([0-9;]*)m$/;
 // two pieces) or by the app with its own newline (a TUI's long URL). besideHeld renders a
 // new chunk, `rows`, against the chunk already shown beside it, `held` (above it when `below`),
 // as one capture, so the line keeps its colors and a URL stays one link with the whole href.
-// It returns the new chunk's lines with the held chunk's edge line rendered again (to replace
-// it) and their raw text, held in turn (its first and last line each start in the style
-// they had there), and `again`, the held chunk's other lines as rendered now, nearest the
-// edge first: a URL wrapped over several lines changes those too. Each capture states its
-// style from the default, so the rest's leading SGR is dropped when it only restates the
-// style the head left open (the usual case, and it keeps a wrapped URL in one run);
-// otherwise a reset goes between.
+// `held` is the raw text of the rows already shown at that end, up to KEEP of them (enough
+// for any wrapped URL), so a URL that began rows before the edge still links whole. It
+// returns the new chunk's lines with the held edge line rendered again (to replace it);
+// `again`, the other held lines as rendered now, nearest the edge first, since a URL
+// wrapped over several lines changes those too; and `raw`, the rows now at that end, to
+// hold next time (starting in the style they had there). Each capture states its style
+// from the default, so the rest's leading SGR is dropped when it only restates the style
+// the head left open (the usual case, and it keeps a wrapped URL in one run); otherwise a
+// reset goes between.
+const KEEP = 2000;
 const SGR_ALL = /\x1b\[[0-9;]*m/g, SGR_LEAD = /^(?:\x1b\[[0-9;]*m)*/;
-const sgrOf = (text) => (text.match(SGR_ALL) || []).join("");
+const sgrOf = (text) => { // what is still in force: from the last reset on
+  const all = text.match(SGR_ALL) || [];
+  return all.slice(Math.max(0, all.findLastIndex((c) => c === "\x1b[0m" || c === "\x1b[m"))).join("");
+};
 const styleOf = (sgr) => renderCapture(`${sgr}x`, { color: true });
 function joinWrapped(head, rest) {
   const lead = SGR_LEAD.exec(rest)[0];
   return styleOf(sgrOf(head)) === styleOf(lead) ? head + rest.slice(lead.length) : `${head}\x1b[0m${rest}`;
 }
 export function besideHeld(rows, held, below, wraps) {
-  if (held == null) return { lines: renderCaptureLines(rows, { color: true }), raw: rows, again: [] };
-  const [head, rest] = below ? [held, rows] : [rows, held], cut = head.lastIndexOf("\n") + 1;
-  const raw = joinWrapped(head + (wraps ? "" : "\n"), rest), lines = renderCaptureLines(raw, { color: true });
-  const kept = held.split("\n").length - 1, nl = rest.indexOf("\n"); // held lines besides the edge
-  return below ? { lines: lines.slice(kept), raw: sgrOf(raw.slice(0, cut)) + raw.slice(cut), again: lines.slice(0, kept).reverse() }
-    : { lines: lines.slice(0, lines.length - kept), raw: nl < 0 ? raw : raw.slice(0, raw.length - rest.length + nl), again: lines.slice(lines.length - kept) };
+  const sep = wraps ? "" : "\n", raw = held == null ? rows : below ? joinWrapped(held + sep, rows) : joinWrapped(rows + sep, held);
+  const lines = renderCaptureLines(raw, { color: true }), kept = held == null ? 0 : held.split("\n").length - 1;
+  let cut = below ? raw.length : -1, n = KEEP;
+  if (below) {
+    while (n-- > 0 && cut > 0) cut = raw.lastIndexOf("\n", cut - 1);
+    return { lines: lines.slice(kept), again: lines.slice(0, kept).reverse(), raw: sgrOf(raw.slice(0, cut + 1)) + raw.slice(cut + 1) };
+  }
+  while (n-- > 0 && (cut = raw.indexOf("\n", cut + 1)) >= 0);
+  return { lines: lines.slice(0, lines.length - kept), again: lines.slice(lines.length - kept), raw: cut < 0 ? raw : raw.slice(0, cut) };
 }
 
 // Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the

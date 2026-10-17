@@ -1256,21 +1256,21 @@ const selected = (node) => { const s = getSelection(); return !!s?.rangeCount &&
 // selection now holds that frame back, they are dropped and fetched again later.
 //
 // A line wrapped across a chunk's edge, by tmux (tmux.capture_history says so) or by the
-// app's own newline, arrives in two pieces, so each chunk is rendered against the chunk
-// beside it and the held piece is replaced (besideHeld): a long URL stays one link, in its
-// own colors. A chunk's first and last lines keep its raw text on their nodes, and the
-// last whether it wraps on.
-// A held piece inside a selection is left alone rather than replaced under it.
+// app's own newline, arrives in two pieces, so each chunk is rendered against the raw rows
+// already held at that end (`head` and `tail`, and whether the last row wraps on) and the
+// held lines it changes are replaced (besideHeld): a long URL stays one link, in its own
+// colors. A held line inside a selection is left alone rather than replaced under it.
 async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll"), pre = $("earlier");
   if (h.busy || !id || !h.screen || captureDirty || backingOff()) return;
   h.busy = true;
-  let held = [], gone = [], heldEnd = h.end, since = 0, older = false;
+  const whole = (raw) => raw.split("\n").length >= pre.children.length; // one end's rows are all there are, so both ends'
+  let held = [], gone = [], heldEnd = h.end, heldTail = h.tail, heldWraps = h.wraps, since = 0, older = false;
   const land = (force) => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
     if (gone.some(selected)) return; // selected since: fetched again, and left split this time
     const tail = following();
-    for (const n of gone) n.remove(); pre.append(...held); h.end = heldEnd;
+    for (const n of gone) n.remove(); pre.append(...held); Object.assign(h, { end: heldEnd, tail: heldTail, wraps: heldWraps }); if (whole(heldTail)) h.head = heldTail;
     if (tail) box.scrollTop = box.scrollHeight;
     if (paintedFrame !== latestFrame) paintCapture(force); // the frame that waited
   };
@@ -1300,27 +1300,24 @@ async function loadEarlier() {
       // frame already here keep it unknown); the frame waiting, if any, paints as it is.
       if (screen !== h.screen) { latestGeometry = [latestGeometry[0], ""]; paintCapture(true); return; }
       // A frame painted meanwhile moved the split this chunk was asked by: start the gap over.
-      if (gap && shownTop !== shown) { held = []; gone = []; heldEnd = h.end; continue; }
+      if (gap && shownTop !== shown) { held = []; gone = []; ({ end: heldEnd, tail: heldTail, wraps: heldWraps } = h); continue; }
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;
       const join = edge && !selected(edge);
-      const { lines, raw, again } = besideHeld(rows, join ? edge.raw : null, gap, gap ? edge?.wraps : wraps);
+      const { lines, raw, again } = besideHeld(rows, join ? gap ? heldTail : h.head : null, gap, gap ? heldWraps : wraps);
       // The edge and, from it inward, each held line a URL wrapped over that now renders
       // differently (left alone when selected) are swapped for the new rendering.
       const near = (n) => !gap ? n.nextSibling : held.includes(n) ? held[held.indexOf(n) - 1] : n.previousSibling;
       const swap = join ? [edge] : [];
       for (let n = join && near(edge); n && swap.length <= again.length && !selected(n) && n.markup !== again[swap.length - 1]; n = near(n)) swap.push(n);
-      const more = again.slice(0, Math.max(0, swap.length - 1)), first = gap ? more.length : 0, last = first + lines.length - 1;
+      const more = again.slice(0, Math.max(0, swap.length - 1));
       const nodes = (gap ? [...more.reverse(), ...lines] : [...lines, ...more]).map((markup) => {
         const node = document.createElement("span"); node.innerHTML = `${markup}\n`; node.markup = markup; return node;
       });
-      // A swapped line keeps what the one it replaces carried; the new chunk's ends carry it.
-      for (const [i, old] of swap.entries()) if (i) Object.assign(nodes[gap ? first - i : last + i], { raw: old.raw, wraps: old.wraps });
-      nodes[first].raw = raw;
-      Object.assign(nodes[last], { raw, wraps: gap || !join ? wraps : edge.wraps });
+      if (gap) { heldTail = raw; heldWraps = wraps; } else h.head = raw;
       if (!gap) {
-        holdView(() => { for (const n of swap) n.remove(); pre.prepend(...nodes); h.top = start; h.loading = h.asked = false; paintEarlierCue(); });
+        holdView(() => { for (const n of swap) n.remove(); pre.prepend(...nodes); if (whole(h.head)) h.tail = h.head; if (!edge) h.wraps = wraps; h.top = start; h.loading = h.asked = false; paintEarlierCue(); });
       } else if (unseen) {
-        holdView(() => { for (const n of swap) n.remove(); pre.append(...nodes); h.end = heldEnd = before; }, true);
+        holdView(() => { for (const n of swap) n.remove(); pre.append(...nodes); h.end = heldEnd = before; Object.assign(h, { tail: raw, wraps }); if (whole(raw)) h.head = raw; }, true);
       } else {
         if (held.includes(edge)) held.splice(held.length - swap.length); else gone = swap;
         held.push(...nodes); heldEnd = before;
@@ -1329,7 +1326,7 @@ async function loadEarlier() {
         // anyway, the rows it passed becoming a gap above it.
         const behind = latestGeometry[0] - heldEnd, now = performance.now();
         since ||= now;
-        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; gone = []; heldEnd = h.end; since = 0; }
+        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; gone = []; ({ end: heldEnd, tail: heldTail, wraps: heldWraps } = h); since = 0; }
       }
     }
   } catch { h.failed = performance.now(); setTimeout(loadEarlier, 3000); }
