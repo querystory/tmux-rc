@@ -1537,7 +1537,9 @@ html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["all-tab", "Ses
 $("menu-open").onclick = () => {
   for (const row of $("drawer-nav").children) { const via = $(row.dataset.via); row.hidden = via.hidden; row.setAttribute("aria-current", via.getAttribute("aria-pressed") === "true" ? "page" : "false"); }
   text($("drawer-nav").querySelector('[data-via="attention-tab"] .count'), $("attention-count").textContent);
-  $("drawer").showModal(); $("drawer").focus(); // the drawer, not its first row: no ring until Tab
+  // ☰ first, so closing returns there even when an edge swipe opened it (and not to search, whose
+  // focus would bring the keyboard back); then the drawer, not its first row: no ring until Tab.
+  $("menu-open").focus({ preventScroll: true }); $("drawer").showModal(); $("drawer").focus();
 };
 $("drawer").onclick = (e) => { const row = e.target.closest("[data-via]"); if (row || e.target === $("drawer")) $("drawer").close(); row && $(row.dataset.via).click(); };
 // It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
