@@ -2040,7 +2040,7 @@ class _TooBigError(Exception):
 
 
 def _too_big(scope, kind: str, size: str):
-    if (dict(scope["headers"]).get(b"sec-fetch-dest") == b"document"
+    if (dict(scope["headers"]).get(b"sec-fetch-dest") in (b"document", b"iframe")
             and kind.startswith(("video/", "audio/"))):
         return HTMLResponse(
             '<meta name="viewport" content="width=device-width">'

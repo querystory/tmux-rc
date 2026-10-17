@@ -27,9 +27,10 @@ def test_an_answer_too_big_to_send_at_once_is_never_sent(tmp_path, monkeypatch):
     (tmp_path / "site").mkdir()
     (tmp_path / "site" / "index.html").write_bytes(bytes(25))
     c = TestClient(server._short_ranges(StaticFiles(directory=tmp_path, html=True)))
-    opened = c.get("/my%20reel.mp4", headers={"Sec-Fetch-Dest": "document"})
-    assert opened.headers["content-type"].startswith("text/html")
-    assert 'src="my%20reel.mp4"' in opened.text  # its player reads it in ranges
+    for dest in ("document", "iframe"):  # a tab, or scratch's in-app viewer
+        opened = c.get("/my%20reel.mp4", headers={"Sec-Fetch-Dest": dest})
+        assert opened.headers["content-type"].startswith("text/html")
+        assert 'src="my%20reel.mp4"' in opened.text  # its player reads it in ranges
     for path, headers in (("/my%20reel.mp4", {"Sec-Fetch-Dest": "empty"}),  # a download
                           ("/data.bin", {"Sec-Fetch-Dest": "document"}),
                           ("/site/", {}),
