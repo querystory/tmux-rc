@@ -1829,3 +1829,13 @@ def test_antigravity_process_wins_over_backend_model(command):
         _llm({"tool": "gemini", "activity": "idle"}),
     )
     assert result["tool"] == "antigravity"
+
+
+def test_a_checked_row_is_still_the_highlighted_row():
+    # Claude Code's /mcp list marks each server's state (✔ connected, ✘ failed) before its
+    # name: that mark is drawing, like a radio's, not part of the row.
+    screen = ("\x1e[visible screen]\x1f\n Manage MCP servers\n\n ❯ ✔ demo Docs      8 tools\n"
+              "   ✘ demo Mail      0 tools\n")
+    rows = ["demo Docs", "demo Mail"]
+    visible = classify_mod._visible(screen)
+    assert classify_mod.highlighted_row(visible, "Manage MCP servers", rows) == "demo Docs"
