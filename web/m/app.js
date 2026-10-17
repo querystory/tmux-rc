@@ -1266,7 +1266,7 @@ async function loadEarlier() {
   h.busy = true;
   const whole = (raw) => raw.split("\n").length >= pre.children.length; // one end's rows are all there are, so both ends'
   const draw = (node, markup) => { node.innerHTML = `${markup}\n`; node.markup = markup; return node; };
-  let held = [], redraws = [], heldEnd = h.end, heldTail, heldWraps, since = 0, older = false; // held's own, while it has rows
+  let held = [], redraws = [], heldEnd = h.end, heldTail, heldWraps, since = 0, older = false; // the staged rows' own, while any are
   const land = (force) => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
     const tail = following();
@@ -1286,7 +1286,7 @@ async function loadEarlier() {
       // wait to land (at most 5s): a prepend could replace the piece they are to replace,
       // or a frame painted meanwhile could strand them.
       const up = h.asked || !following(), want = latestGeometry[0];
-      older = (!older || heldEnd >= want) && !held.length && h.top > 0 && box.scrollTop < box.clientHeight && up;
+      older = (!older || heldEnd >= want) && heldEnd === h.end && h.top > 0 && box.scrollTop < box.clientHeight && up;
       const gap = heldEnd < want && up && !older;
       if (!gap && !older) return;
       const unseen = heldEnd < shownTop; // 1000: the daemon's cap
@@ -1304,7 +1304,7 @@ async function loadEarlier() {
       if (gap && shownTop !== shown) { held = []; redraws = []; heldEnd = h.end; continue; }
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;
       const join = edge && !selected(edge);
-      const [endRaw, endWraps] = held.length ? [heldTail, heldWraps] : [h.tail, h.wraps];
+      const [endRaw, endWraps] = heldEnd !== h.end ? [heldTail, heldWraps] : [h.tail, h.wraps]; // rows staged (a wrap's may add no node)
       const { lines, raw, again } = besideHeld(rows, join ? gap ? endRaw : h.head : null, gap, gap ? endWraps : wraps);
       // The held rows the new ones change are redrawn in place, from the edge in, unless
       // selected; staged rows run on into the shown rows above them.
