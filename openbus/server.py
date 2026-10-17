@@ -589,6 +589,13 @@ async def no_cache(request, call_next):
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
     if path.startswith(("/scratch/", "/docs/mocks/")):
         resp.headers["Content-Security-Policy"] = scratch.SANDBOX
+        # A page served from a folder of scratch (not the gallery, a loose file, a thumbnail
+        # or an asset) is a visit, for the ☰ drawer's Recent.
+        inner = path.startswith("/scratch/") and request.url.path.count("/") > 2
+        folder = path.split("/")[2] if inner else ""
+        if folder and request.method == "GET" and resp.status_code == 200 and resp.headers.get(
+                "content-type", "").startswith("text/html"):
+            await asyncio.to_thread(_visited, "scratch", folder)
     else:  # nor may such a page frame the app or the API, whose answers it would then show
         resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
     # StaticFiles redirects a directory without its slash to an absolute URL built from
@@ -1515,6 +1522,7 @@ def select(pane_id: str, request: Request):
         _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "select_pane", pane_id)
+    _visited("pane", _visit_key(pane_id))  # the app selects the pane it opens: a visit
     return {"ok": True}
 
 
@@ -2121,6 +2129,29 @@ if _scratch_dir:
             "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
 
     _mount_static("/scratch", _scratch_dir, partial(scratch_markdown.Files, web=WEB_DIR))
+
+
+# The pane a visit names, by its birth too: a recycled tmux pane id is some other pane.
+def _visit_key(pane_id: str) -> str:
+    return f"{pane_id}:{app.state.watcher.pane_birth(pane_id)}"
+
+
+def _visited(kind: str, key: str) -> None:
+    """Note what the user opened, for the ☰ drawer's Recent (History.visit)."""
+    if history := getattr(app.state, "history", None):
+        history.visit(kind, key)
+
+
+@app.get("/api/recent")
+def recent(n: Annotated[int, Query(ge=1, le=50)] = 5) -> dict:
+    """The ☰ drawer's Recent: the panes and scratch pages last opened, newest first, those
+    still there. Read only as the drawer opens."""
+    history = getattr(app.state, "history", None)
+    seen = history.visits if history else lambda _kind: []
+    alive = {_visit_key(s["pane_id"]): s["pane_id"] for s in app.state.watcher.states}
+    pages = scratch.opened(Path(_scratch_dir), seen("scratch"), n) if _scratch_dir else []
+    panes = [{"pane_id": alive[k], "at": at} for k, at in seen("pane") if k in alive]
+    return {"panes": panes[:n], "scratch": pages}
 
 
 def _bind() -> tuple[str, int]:
