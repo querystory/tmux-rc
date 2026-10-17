@@ -246,6 +246,7 @@ export function pageHead(title, icon, back) {
   button.onclick = back;
   const h2 = el('h2', '', title);
   h2.tabIndex = -1; // what opening the page focuses (app.js route), so no ring is painted on Back
+  h2.dataset.key = 'page-title'; // and a rebuilt view (history arriving) keeps it there
   head.append(button, h2);
   return head;
 }
