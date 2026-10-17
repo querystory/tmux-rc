@@ -190,10 +190,12 @@ user is being asked to open. Terminal wrapping splits long URLs across lines —
 REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a short
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
 
-"offers": whenever the agent's latest message asks the user to send text back into this
-pane — a "! command" to run here, a phrase it says to reply with — put that text in
-"offers", whole and exactly as shown (its "! " kept, a wrapped command joined into one line), so the
-phone's Send button can type it; a command or phrase merely mentioned is no offer.
+"offers": when the agent is blocked and needs the user to act, and that action is text to
+send into this pane (a command it could not run itself, a reply it asks for), put that
+text in "offers", whole and exactly as the agent gives it, so the phone's Send button can
+type it. A command the screen wraps onto further rows is one offer: its rows joined into one
+line. For example, Claude Code hands over a command to run here as "! command". A command
+or phrase merely mentioned is no offer.
 
 "copyables": text the user will plausibly want to PASTE SOMEWHERE ELSE, lifted off the
 screen for one-tap copying. Selecting text out of a terminal on a phone is genuinely

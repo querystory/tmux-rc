@@ -1821,3 +1821,15 @@ def test_antigravity_process_wins_over_backend_model(command):
         _llm({"tool": "gemini", "activity": "idle"}),
     )
     assert result["tool"] == "antigravity"
+
+
+def test_an_offer_the_screen_cut_is_the_replys_whole_command():
+    """The model picks the offer; the reply's one-line code block it begins (word for word)
+    is its exact text, the part the screen wrapped onto later rows included."""
+    shown = _auto_screen("Run it:\n\n  ! terraform apply\n  /tmp/demo/p.tfplan\n\n  Then tell me.")
+    reply = "Run it:\n\n```\n! terraform apply /tmp/demo/p.tfplan\n```\n\nThen tell me."
+    for offer, sent in (("! terraform apply", "! terraform apply /tmp/demo/p.tfplan"),
+                        ("! terraform", "! terraform apply /tmp/demo/p.tfplan"),
+                        ("! terra", "! terra")):  # not a word boundary: kept as the model gave it
+        assert classify(_pane("claude"), shown, _llm({"offers": [offer]}), reply=reply)[
+            "offers"] == [sent]

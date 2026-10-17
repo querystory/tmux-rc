@@ -1116,6 +1116,16 @@ def _code_blocks(reply: str | None) -> list[dict]:
     return blocks[::-1]
 
 
+def _from_reply(offer: str, reply: str | None) -> str:
+    """The model picks what to send; the agent's reply has its exact text. An offer that a
+    one-line code block of the reply begins with, word for word, is that block, whatever
+    the screen cut."""
+    key = " ".join(offer.split())
+    return next((block["text"].strip() for block in _code_blocks(reply)
+                 if "\n" not in block["text"].strip()
+                 and f'{" ".join(block["text"].split())} '.startswith(f"{key} ")), offer)
+
+
 def classify(
     pane: Pane,
     text: str,
@@ -1273,7 +1283,7 @@ def classify(
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
     if offers := screen_offers(result.pop("offers", None), text):
-        result["offers"] = offers
+        result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
