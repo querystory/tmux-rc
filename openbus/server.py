@@ -2005,7 +2005,7 @@ RANGE_PIECE = 4 << 20
 def _short_ranges(static: StaticFiles):
     def piece(value: bytes) -> bytes:
         # Only the first of several ranges is answered; a form this can't bound is refused.
-        asked = re.match(rb"(?i)\s*bytes\s*=\s*(\d{0,18})\s*-\s*(\d{0,18})\s*(,|$)", value)
+        asked = re.match(rb"(?i)bytes=(\d{0,18})-(\d{0,18})(,|$)", b"".join(value.split()))
         if not asked or not (asked[1] or asked[2]):
             return b"bytes="  # Starlette answers 400
         if not asked[1]:  # "-N", the last N bytes

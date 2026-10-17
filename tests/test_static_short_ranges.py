@@ -16,6 +16,6 @@ def test_long_ranges_come_back_a_piece_at_a_time(tmp_path, monkeypatch):
                        ("bytes=-20", "bytes 15-24/25"), ("bytes=0-1, 4-", "bytes 0-1/25")):
         r = c.get("/reel.mp4", headers={"Range": asked})
         assert (r.status_code, r.headers["content-range"]) == (206, got)
-    for bad in ("bytes=, 0-", "bytes=0-" + "9" * 5000):
+    for bad in ("bytes=, 0-", "bytes=0-" + "9" * 5000, "bytes=" + " " * 50000 + "x"):
         assert c.get("/reel.mp4", headers={"Range": bad}).status_code == 400
     assert c.get("/reel.mp4").content == bytes(range(25))  # unranged: whole, as before
