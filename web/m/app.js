@@ -1265,12 +1265,13 @@ async function loadEarlier() {
   if (h.busy || !id || !h.screen || captureDirty || backingOff()) return;
   h.busy = true;
   const whole = (raw) => raw.split("\n").length >= pre.children.length; // one end's rows are all there are, so both ends'
-  let held = [], gone = null, heldEnd = h.end, heldTail, heldWraps, since = 0, older = false; // held's own, while it has rows
+  const draw = (node, markup) => { node.innerHTML = `${markup}\n`; node.markup = markup; return node; };
+  let held = [], redraws = [], heldEnd = h.end, heldTail, heldWraps, since = 0, older = false; // held's own, while it has rows
   const land = (force) => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
-    if (gone && selected(gone)) return; // selected since: fetched again, and left split this time
     const tail = following();
-    gone?.remove(); pre.append(...held); Object.assign(h, { end: heldEnd, tail: heldTail, wraps: heldWraps }); if (whole(heldTail)) h.head = heldTail;
+    for (const [node, markup] of redraws) if (!selected(node)) draw(node, markup); // selected since: left as shown
+    pre.append(...held); Object.assign(h, { end: heldEnd, tail: heldTail, wraps: heldWraps }); if (whole(heldTail)) h.head = heldTail;
     if (tail) box.scrollTop = box.scrollHeight;
     if (paintedFrame !== latestFrame) paintCapture(force); // the frame that waited
   };
@@ -1300,35 +1301,32 @@ async function loadEarlier() {
       // frame already here keep it unknown); the frame waiting, if any, paints as it is.
       if (screen !== h.screen) { latestGeometry = [latestGeometry[0], ""]; paintCapture(true); return; }
       // A frame painted meanwhile moved the split this chunk was asked by: start the gap over.
-      if (gap && shownTop !== shown) { held = []; gone = null; heldEnd = h.end; continue; }
+      if (gap && shownTop !== shown) { held = []; redraws = []; heldEnd = h.end; continue; }
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;
       const join = edge && !selected(edge);
       const [endRaw, endWraps] = held.length ? [heldTail, heldWraps] : [h.tail, h.wraps];
       const { lines, raw, again } = besideHeld(rows, join ? gap ? endRaw : h.head : null, gap, gap ? endWraps : wraps);
-      // The edge is replaced, and the held rows the URL crossing it runs over are redrawn in
-      // place where they changed, unless selected. Staged rows run on into the shown rows
-      // above them, past the one they will replace.
-      const near = (n) => !gap ? n.nextSibling : !held.includes(n) ? n.previousSibling
-        : n !== held[0] ? held[held.indexOf(n) - 1] : gone ? gone.previousSibling : pre.lastChild;
-      for (let n = join && near(edge), i = 0; n && i < again.length; n = near(n), i++)
-        if (n.markup !== again[i] && !selected(n)) { n.innerHTML = `${again[i]}\n`; n.markup = again[i]; }
-      const nodes = lines.map((markup) => {
-        const node = document.createElement("span"); node.innerHTML = `${markup}\n`; node.markup = markup; return node;
-      });
+      // The held rows the new ones change are redrawn in place, from the edge in, unless
+      // selected; staged rows run on into the shown rows above them.
+      const near = (n) => !gap ? n.nextSibling : !held.includes(n) ? n.previousSibling : n !== held[0] ? held[held.indexOf(n) - 1] : pre.lastChild;
+      const changes = [];
+      for (let n = join && edge, i = 0; n && i < again.length; n = near(n), i++) if (!selected(n)) changes.push([n, again[i]]);
+      const redraw = () => { for (const [node, markup] of changes) draw(node, markup); };
+      const nodes = lines.map((markup) => draw(document.createElement("span"), markup));
       if (gap) { heldTail = raw; heldWraps = wraps; } else h.head = raw;
       if (!gap) {
-        holdView(() => { if (join) edge.remove(); pre.prepend(...nodes); if (whole(h.head)) h.tail = h.head; if (!edge) h.wraps = wraps; h.top = start; h.loading = h.asked = false; paintEarlierCue(); });
+        holdView(() => { redraw(); pre.prepend(...nodes); if (whole(h.head)) h.tail = h.head; if (!edge) h.wraps = wraps; h.top = start; h.loading = h.asked = false; paintEarlierCue(); });
       } else if (unseen) {
-        holdView(() => { if (join) edge.remove(); pre.append(...nodes); h.end = heldEnd = before; Object.assign(h, { tail: raw, wraps }); if (whole(raw)) h.head = raw; }, true);
+        holdView(() => { redraw(); pre.append(...nodes); h.end = heldEnd = before; Object.assign(h, { tail: raw, wraps }); if (whole(raw)) h.head = raw; }, true);
       } else {
-        if (join && edge === held.at(-1)) held.pop(); else if (join) gone = edge;
+        redraws.push(...changes); // with the rows that land
         held.push(...nodes); heldEnd = before;
         // Caught up, they land with the newest frame. Output that keeps ahead (over a
         // request's worth, or for 5s) can't hold them back: they land and that frame paints
         // anyway, the rows it passed becoming a gap above it.
         const behind = latestGeometry[0] - heldEnd, now = performance.now();
         since ||= now;
-        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; gone = null; heldEnd = h.end; since = 0; }
+        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; redraws = []; heldEnd = h.end; since = 0; }
       }
     }
   } catch { h.failed = performance.now(); setTimeout(loadEarlier, 3000); }

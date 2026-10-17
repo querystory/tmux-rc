@@ -152,8 +152,9 @@ def test_rejoined_edges_render_like_one_capture(pane):
               "const r = (t) => e(render(t, c));"
               "for (const { a, b, whole } of JSON.parse(readFileSync(0, 'utf8'))) {"
               "  const one = JSON.stringify(r(whole));"
-              "  const gap = [...r(a).slice(0, -1), ...e(besideHeld(b, a, true, true).lines)];"
-              "  const up = [...e(besideHeld(a, b, false, true).lines), ...r(b).slice(1)];"
+              "  const g = besideHeld(b, a, true, true), u = besideHeld(a, b, false, true), ra = render(a, c), rb = render(b, c);"
+              "  const gap = e([...ra.slice(0, ra.length - g.again.length), ...g.again.reverse(), ...g.lines]);"
+              "  const up = e([...u.lines, ...u.again, ...rb.slice(u.again.length)]);"
               "  if (JSON.stringify(gap) !== one || JSON.stringify(up) !== one) bad.push(whole);"
               "}"
               "process.stdout.write(JSON.stringify(bad));")
