@@ -55,7 +55,7 @@ summary { cursor: pointer; }
 // Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
 const light = matchMedia("(prefers-color-scheme: light)").matches;
 document.documentElement.classList.toggle("light", light);
-if (window.mermaid) {
+if (window.mermaid?.initialize) { // a "Mermaid" heading alone is window.mermaid too
   mermaid.initialize({ startOnLoad: false, theme: light ? "default" : "dark" });
   mermaid.run();
 }
