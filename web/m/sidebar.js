@@ -10,6 +10,7 @@
 // Phones never draw this list (theirs is renderPhoneList in app.js), but their Needs-you rows
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
+import { dragToDismiss } from "/m/drag-dismiss.js";
 import { Composer, enterSubmits } from "/m/composer.js";
 import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
 import { paneLinks, askLink } from "/pr-links.js";
@@ -105,6 +106,7 @@ export function setupSidebar(ctx) {
   picker.innerHTML = `<summary title="Filter" aria-label="Filter panes" data-n="">${licon("filter", 16)}</summary>`;
   menu.className = "header-picker-menu"; picker.append(menu);
   dismissable(picker);
+  dragToDismiss(menu, { onClose: () => { picker.open = false; } }); // a phone's bottom sheet
   // A group of the menu: options are buttons whose aria-pressed draws the check (and, for the
   // states, a dot in the state's colour, as their chips have). Options that come and go (the
   // agents and sessions present) are redrawn only when they change, so a focused one keeps focus.

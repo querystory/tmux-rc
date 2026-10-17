@@ -20,7 +20,9 @@ from urllib.parse import quote
 from . import agent_history, tmux
 
 _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
-_TOKENS = re.compile(r"^:root(?:\.light)? \{.*?^\}", re.MULTILINE | re.DOTALL)  # app colours
+# The app's colours, and its account chip so the cards wear the same one.
+_TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n]*)",
+                     re.MULTILINE | re.DOTALL)
 # How an agent names the folder: the served URL, the usual dir, or one of the variables.
 # The whole path component, so "mock" never takes "mock+draft"'s author, up to what
 # ends a path in prose, markdown, JSON or a URL.
@@ -131,11 +133,15 @@ def _since(pane: dict, created: float) -> bool:
     return len(stat) < 20 or tmux.started_at(stat[19]) <= created + 60
 
 
-def _who(tool: str | None, account: str | None) -> str:
-    """"claude · Work"; the account left out when it only repeats the agent ("Codex")."""
+def _author(i: dict, tool: str | None, acct: dict) -> None:
+    """The agent, its account and that account's chip colour, and `who` reading them as
+    "claude · Work"; the account left out when it only repeats the agent ("Codex")."""
+    i["tool"], i["account"], i["color"] = tool, acct.get("name"), acct.get("color")
+    account = i["account"]
     if account and account.lower() != (tool or "").lower():
-        return f"{tool} · {account}" if tool else account
-    return tool or "unknown"
+        i["who"] = f"{tool} · {account}" if tool else account
+    else:
+        i["who"] = tool or "unknown"
 
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
@@ -146,7 +152,7 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     for i in listed:  # a pane id from before a tmux restart names some other pane now
         if (pane := panes.get(i["pane"])) and not _since(pane, i["created"]):
             i["pane"] = None
-    account = {p: a.get("name") for a in profiles for p in a.get("panes", [])}
+    account = {p: a for a in profiles for p in a.get("panes", [])}
     todo = [i for i in listed if i["pane"] not in panes]
     _writers(todo)
     ids = sorted({i["session"]["session_id"] for i in todo if i["session"]})
@@ -155,14 +161,13 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         s = i.pop("session", None) or {}
         i["pane"] = pane_of(running.get(s.get("session_id")) or {}) or i["pane"]  # still open
         if (pane := panes.get(i["pane"])) is not None:
-            i["who"] = _who(pane.get("tool"), account.get(i["pane"]))
+            _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
             continue
         source = s.get("source") or ""
-        acct = next((a.get("name") for a in profiles
-                     if source.startswith(a.get("dir", "") + "/")), None)
+        acct = next((a for a in profiles if source.startswith(a.get("dir", "") + "/")), {})
         i["pane"] = None
-        i["who"] = _who(s.get("harness"), acct)
+        _author(i, s.get("harness"), acct)
         i["where"] = s.get("title") or ""
 
 
@@ -185,10 +190,23 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     return out.replace("<!--cards-->", "".join(_card(i) for i in listed))
 
 
+def _chip(i: dict, e: dict) -> str:
+    """The agent, then its account as the app's own chip (accounts.js badge); a tap on
+    either filters the cards to it."""
+    tool = (f'<button type="button" class="who tool">{e["tool"]}</button>' if "tool" in e
+            else '<span class="tool">unknown</span>')
+    if not i.get("account") or i["account"].lower() == (i.get("tool") or "").lower():
+        return tool
+    return (f'{tool}<button type="button" class="who acct-badge" '
+            f'style="--a:var(--acct-{e.get("color", "")})"><i class="acct-dot"></i>'
+            f'<span>{e["account"]}</span></button>')
+
+
 def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
     thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">' if i["thumb"]
-             else "Making a preview…" if i.get("shot") == "pending" else "No preview")
+             else f'<span data-pending="{quote(i["name"])}/thumb.webp">Making a preview…</span>'
+             if i.get("shot") == "pending" else "No preview")
     where = (f'<a href="/m/#pane={quote(i["pane"], safe="")}">{e["where"]}</a>' if i["pane"]
              else e["where"])
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
@@ -196,7 +214,7 @@ def _card(i: dict) -> str:
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}">{e["title"]}</a></h2>'
             + (f'<p class="desc">{e["description"]}</p>' if i["description"] else "")
-            + f'<p class="by"><button type="button" class="who">{e["who"]}</button>'
+            + f'<p class="by">{_chip(i, e)}'
             f'<span class="where">{where}</span></p>'
             f'<p class="muted"><time data-t="{i["created"]:.0f}"></time>'
             + (f' · updated <time data-t="{i["updated"]:.0f}"></time>'

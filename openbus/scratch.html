@@ -19,8 +19,10 @@ article { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding
 .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
 /* The list: the same cards as rows, a small thumbnail beside the text (a phone's default). */
 #cards.list { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-#cards.list article { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 12px; align-content: start; }
-#cards.list .thumb { grid-row: 1 / span 4; margin: 2px 0 0; border: 1px solid var(--line); border-radius: 6px; }
+#cards.list article { display: grid; grid-template-columns: clamp(96px, 24vw, 260px) minmax(0, 1fr); column-gap: 16px; align-content: start; }
+/* The thumbnail fills the row's height beside the text, as wide as the screen affords. */
+#cards.list .thumb { grid-row: 1 / span 6; align-self: stretch; aspect-ratio: auto; min-height: 72px; margin: 0; border: 1px solid var(--line); border-radius: 6px; }
+#cards.list .thumb img { object-position: left top; }
 #cards.list article > :not(.thumb) { grid-column: 2; max-width: 80ch; }
 /* The view toggle: a tinted track, the current view raised out of it; words only when wide. */
 .seg { display: inline-flex; gap: 4px; padding: 3px; background: var(--raised); border-radius: 8px; }
@@ -28,12 +30,18 @@ article { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding
 .seg button:hover { color: var(--fg); }
 .seg button[aria-pressed="true"] { color: var(--fg); background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / .15); }
 @media (max-width: 1023px) { .seg span { display: none; } }
+/* Inside the app (its Scratch page), the app's header names the page and its edges pad it:
+   its Grid/List too (the app keeps that choice and posts it here); leave room under the last
+   card for a phone's tab bar. */
+.framed main { padding: 0 0 96px; }
+.framed header { display: none; }
 h2 { margin: 0; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
 h2 a { color: var(--fg); text-decoration: none; }
 p { margin: 0; overflow-wrap: anywhere; }
 .desc { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .by { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
-.who { padding: 2px 8px; font: inherit; color: var(--accent); background: var(--accent-bg); border: 0; border-radius: 999px; cursor: pointer; }
+.who { font-family: inherit; cursor: pointer; }
+.tool { padding: 0; font: inherit; color: var(--muted); background: none; border: 0; }
 .where { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
 .muted { color: var(--muted); font-size: 13px; }
 a { color: var(--accent); }
@@ -51,6 +59,7 @@ a { color: var(--accent); }
 <script>
 // Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
 document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
+document.documentElement.classList.toggle("framed", window.top !== window);
 const ago = (s) => { const d = Date.now() / 1000 - s;
   return d < 3600 ? `${Math.max(1, Math.round(d / 60))}m ago` : d < 86400 ? `${Math.round(d / 3600)}h ago`
     : d < 7 * 86400 ? `${Math.round(d / 86400)}d ago` : new Date(s * 1000).toLocaleDateString(); };
@@ -59,13 +68,34 @@ const box = document.querySelector("input");
 const filter = () => { const q = box.value.trim().toLowerCase();
   for (const a of document.querySelectorAll("article")) a.hidden = !a.dataset.q.includes(q); };
 box.addEventListener("input", filter);
+// A preview still being made appears when it lands: the sandbox allows no fetch, but an
+// image may be retried, so the page itself (and a filter being typed) is left alone.
+for (const wait of document.querySelectorAll("[data-pending]")) {
+  let tries = 0;
+  const poll = () => { const img = Object.assign(new Image(), { alt: "" });
+    img.onload = () => wait.replaceWith(img);
+    img.onerror = () => ++tries < 100 && setTimeout(poll, 3000);
+    img.src = `${wait.dataset.pending}?${Date.now()}`; };
+  poll();
+}
 for (const b of document.querySelectorAll(".who")) b.onclick = () => { box.value = b.textContent; filter(); };
-// Grid or list. Remembered where the browser allows it; the sandbox usually doesn't, so a
-// phone starts on the list, a wider screen on the grid.
+// Grid or list. Remembered where the browser allows it; the sandbox usually doesn't, and
+// inside the app the app keeps the choice and posts it here.
 const views = document.querySelectorAll("[data-view]");
 const show = (view) => { document.getElementById("cards").classList.toggle("list", view === "list");
   for (const b of views) b.setAttribute("aria-pressed", String(b.dataset.view === view)); };
 let saved; try { saved = localStorage.getItem("tmuxrc-scratch-view"); } catch { /* sandboxed */ }
-show(saved || (matchMedia("(max-width: 600px)").matches ? "list" : "grid"));
+show(saved || "grid"); // big thumbnails first; List is the compact choice
+addEventListener("message", (e) => { if (e.source !== parent) return; // the app: its view and theme
+  if (["grid", "list"].includes(e.data?.view)) show(e.data.view);
+  if (typeof e.data?.light === "boolean") document.documentElement.classList.toggle("light", e.data.light); });
+// Inside the app, the pane that made a page opens there, not as a second app in this frame.
+// Every other link opens a tab of its own, so this frame only ever holds the gallery: the app
+// trusts what it posts, and its Grid/List keeps a page to steer.
+if (window.top !== window) {
+  document.head.append(Object.assign(document.createElement("base"), { target: "_blank" }));
+  for (const a of document.querySelectorAll('.where a[href^="/m/#pane="]'))
+    a.onclick = (e) => { e.preventDefault(); parent.postMessage({ pane: decodeURIComponent(a.getAttribute("href").slice(9)) }, "*"); };
+}
 for (const b of views) b.onclick = () => { show(b.dataset.view); try { localStorage.setItem("tmuxrc-scratch-view", b.dataset.view); } catch { /* sandboxed */ } };
 </script></body></html>

@@ -13,7 +13,7 @@
 
 const FILTERS = ["attention", "working", "finished", "idle"]; // the list's sections, in its order
 const OLD = { running: "working", recent: "finished", waiting: "attention" }; // earlier links' names
-export const PAGES = ["heat", "usage", "loops", "restore"]; // the dashboard's cards that open their own view
+export const PAGES = ["heat", "usage", "loops", "restore", "scratch"]; // the dashboard's cards that open their own view
 
 // `tab` is the view a pane opens on when the hash names none: the wide Layout picker's choice.
 export function parseHash(hash, tab = "summary") {

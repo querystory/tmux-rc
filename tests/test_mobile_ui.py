@@ -268,7 +268,8 @@ def test_opening_a_pane_focuses_its_title_not_the_back_button():
     app = (web / "app.js").read_text()
     assert 'if (changed && active) $("pane-title").focus({ preventScroll: true });' in app
     assert '$("back").focus(' not in app
-    assert "#pane-title:focus { outline: none; }" in (web / "style.css").read_text()
+    css = (web / "style.css").read_text()
+    assert ":is(#pane-title, .landing-head h2):focus { outline: none; }" in css
 
 
 def test_atlas_offers_no_chip_for_unknown_or_toolless_panes():
