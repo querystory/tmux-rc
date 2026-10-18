@@ -368,11 +368,20 @@ it is interpreted as shell syntax, the promise `resume_argv` makes.
 
 - **Agent panes** run the bound session's resume argv, fetched fresh from agent-history at
   restore time and gated by the daemon's known-resumable list, so nothing from the
-  snapshot beyond a session id reaches a command line. It runs under the account Live
-  Mode's resume derives from the entry's `source`, through the same `accounts.command`
-  wrapper: a bare `claude --resume` under the session's default account cannot find a
-  transcript another `~/.claude-*` profile owns. The account is derived at restore time,
-  never stored. The argv comes paired with the
+  snapshot beyond a session id and an account dir reaches a command line. It runs on the
+  account the agent ran on, through the same `accounts.command` wrapper Move uses
+  (`env CLAUDE_CONFIG_DIR=<dir>`, or `env -u` for the default dir). That account is
+  recorded, not derived: a Move copies the transcript, so the id lives in two dirs, and
+  agent-history's `source` may name the older copy. Deriving it once resumed a moved
+  session on the wrong account, from its stale transcript, without a word. So the recorder
+  reads each agent's `CLAUDE_CONFIG_DIR` / `CODEX_HOME` from its own `/proc` environment
+  (the variable alone, as plan usage does), and restore checks the conversation is still in
+  that dir. If it is gone there but exactly one other account holds it, the card offers the
+  pane unticked with a note naming that account, so resuming elsewhere is a choice the user
+  makes; with none or several, the pane is blocked. Nothing falls back to the default dir
+  unasked. Each session's own account default (`tmux set-environment`) is recorded too and
+  set again on the rebuilt session, so its new windows open where they did. Snapshots from
+  before this carry no account and keep deriving it from `source`. The argv comes paired with the
   index entry's `cwd`, which is where it must run, and restore validates that directory
   as Live Mode's resume does. When it differs from the snapshot's pane directory (the
   agent changed directory mid-session), the index wins, because only there can the
@@ -493,7 +502,9 @@ had just read.
 
 **No command line or environment is persisted.** The snapshot stores directories, titles,
 tool names and session ids: never a pane's command line, `/proc` cmdline or environment,
-any of which can carry a token typed inline. The resume command is rebuilt from the index
+any of which can carry a token typed inline. The one exception is the account dir above,
+read as two named variables with every other one dropped unread: a path, which the
+accounts list already shows. The resume command is rebuilt from the index
 at restore time. The user-controlled text it does keep cannot be ruled out: titles are
 agent-chosen, and session and window names and directory paths are whatever the user
 typed, so any of them could hold a secret. They are kept because the card needs them to be

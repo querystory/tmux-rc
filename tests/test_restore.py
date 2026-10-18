@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import time
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -165,12 +166,13 @@ def test_binding_follows_the_foreground_agent(server, tmp_path, monkeypatch):
     live = {"sessions": sessions, "unknown": []}
     monkeypatch.setattr(R.agent_history, "live", lambda: live)
     recorder = R.Recorder(History(tmp_path / "h.db"))
+    front = {"harness": "codex", "session_id": "front", "account": str(Path.home() / ".codex")}
     assert recorder._bindings({pane: tmux("display-message", "-p", "-t", pane, "#{pane_pid}")}) \
-        == {pane: {"harness": "codex", "session_id": "front"}}
+        == {pane: front}
     # agent-history can't tell now: the same foreground keeps its binding.
     live = {"sessions": {}, "unknown": ["codex"]}
     assert recorder._bindings({pane: tmux("display-message", "-p", "-t", pane, "#{pane_pid}")}) \
-        == {pane: {"harness": "codex", "session_id": "front"}}
+        == {pane: front}
     tmux("send-keys", "-t", pane, "C-c", "")
 
 
@@ -359,3 +361,140 @@ def test_build_gives_each_session_its_recorded_size(server, tmp_path, monkeypatc
     R.build(found, {(first["id"], 0), (first["id"], 1), (second["id"], 0)})
     sizes = tmux("list-windows", "-t", "work", "-F", "#{window_width}x#{window_height}")
     assert sizes.split() == ["178x41", "178x41"]
+
+
+def _transcript(config, sid):
+    """A one-record Claude transcript for `sid` under account dir `config`."""
+    log = config / "projects" / "-src-garden" / f"{sid}.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_text('{"type":"user"}\n')
+
+
+def test_recorder_keeps_each_agents_account_and_each_sessions_default(server, tmp_path,
+                                                                       monkeypatch):
+    server()
+    personal = tmp_path / ".claude-personal"
+    tmux("new-session", "-d", "-s", "work")
+    tmux("set-environment", "-t", "work", "CODEX_HOME", str(tmp_path / ".codex-side"))
+    tmux("set-environment", "-t", "work", "-r", "CLAUDE_CONFIG_DIR")
+    pane = tmux("display-message", "-p", "-t", "work:0", "#{pane_id}")
+    tmux("send-keys", "-t", pane, f"env CLAUDE_CONFIG_DIR={personal}/ API_TOKEN=hunter2 "
+         "sleep 304", "Enter")
+    agent = _until("^sleep 304")
+    monkeypatch.setattr(R.agent_history, "live", lambda: {
+        "sessions": {"s1": {"pid": agent, "harness": "claude"}}, "unknown": []})
+    recorder = R.Recorder(History(tmp_path / "h.db"))
+    recorder.tick([])
+    (_, _, payload), = rows(recorder.history)
+    snap = json.loads(payload)
+    assert snap["sessions"][0]["accounts"] == {"claude": None,
+                                               "codex": str(tmp_path / ".codex-side")}
+    (window,) = snap["windows"].values()
+    assert window["panes"][0]["binding"] == {"harness": "claude", "session_id": "s1",
+                                             "account": str(personal)}
+    assert "hunter2" not in payload and "API_TOKEN" not in payload  # just the account dir
+    tmux("send-keys", "-t", pane, "C-c", "")
+
+
+def test_resume_is_pinned_to_the_recorded_account():
+    entry = {"resume_argv": ["claude", "--resume", "s1"],
+             "source": f"{Path.home()}/.claude/projects/-src/s1.jsonl"}  # the older copy
+    personal = f"{Path.home()}/.claude-personal"
+    assert R.accounts.resume_command(entry, personal) == [
+        "env", f"CLAUDE_CONFIG_DIR={personal}", "claude", "--resume", "s1"]
+    assert R.accounts.resume_command(entry, f"{Path.home()}/.claude") == [
+        "env", "-u", "CLAUDE_CONFIG_DIR", "claude", "--resume", "s1"]
+    assert R.accounts.resume_command({"resume_argv": ["codex", "resume", "s2"]},
+                                     "/x/.codex-b")[:2] == ["env", "CODEX_HOME=/x/.codex-b"]
+    assert R.accounts.resume_command({"resume_argv": ["omp", "--resume", "s3"]}, "/x") == [
+        "omp", "--resume", "s3"]
+
+
+def test_a_conversation_gone_from_its_account_is_never_resumed_elsewhere_unasked(
+        tmp_path, monkeypatch):
+    personal, work, side = (tmp_path / d for d in (".claude-personal", ".claude", ".claude-b"))
+    _transcript(work, "s1")
+    listed = [{"dir": str(d), "provider": "claude", "name": n, "tilde": str(d)}
+              for d, n in ((personal, "Personal"), (work, "Work"), (side, "Side"))]
+    monkeypatch.setattr(R.accounts, "profiles", lambda: listed)
+    entries = {"s1": {"last_active": "1970-01-12T13:40:00+00:00", "cwd": str(tmp_path)}}
+    pane = {"cwd": str(tmp_path), "activity": "waiting",
+            "binding": {"harness": "claude", "session_id": "s1", "account": str(personal)}}
+    # Only the work account has it: offered, unticked, naming where it would resume.
+    assert R._judge(pane, 1_000_000.0, entries) == (False, None)
+    assert pane["resume_from"] == str(work)
+    assert pane["note"].startswith(f"its account dir {personal} no longer has this conversation")
+    assert "resume from Work" in pane["note"]
+    # Two others have it: no guess.
+    _transcript(side, "s1")
+    pane = {**pane, "binding": dict(pane["binding"])}
+    pane.pop("resume_from"), pane.pop("note")
+    assert R._judge(pane, 1_000_000.0, entries)[1].endswith("several other accounts do")
+    # Its own account still has it: resumed there, as recorded.
+    _transcript(personal, "s1")
+    assert R._judge({**pane}, 1_000_000.0, entries) == (True, None)
+
+
+def _until(pid_of: str):
+    deadline = time.time() + 5
+    while not (found := subprocess.run(["pgrep", "-f", pid_of], capture_output=True, text=True,
+                                       check=False).stdout.split()):
+        assert time.time() < deadline
+        time.sleep(0.05)
+    return int(found[0])
+
+
+def test_e2e_restored_agent_starts_on_its_recorded_account(server, tmp_path, monkeypatch):
+    """Record, lose the server, rebuild, resume: on a private socket, with a stub `claude`
+    that prints the config dir it was started with. The id also sits in the default dir
+    (an older copy, which agent-history names), as after a Move."""
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    monkeypatch.setattr(R, "READY", 1)
+    bin_dir, personal = tmp_path / "bin", tmp_path / ".claude-personal"
+    bin_dir.mkdir()
+    stub = bin_dir / "claude"
+    stub.write_text('#!/bin/sh\n'
+                    'echo "resumed $2 on CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR-unset}"\n')
+    stub.chmod(0o755)
+    _transcript(personal, "s1")
+    # argv, not a shell string: a shell's startup files could put the real claude first.
+    shell = f"env PATH={bin_dir}:/usr/bin:/bin bash --norc --noprofile"
+    history = History(tmp_path / "h.db")
+    server()
+    tmux("new-session", "-d", "-s", "work", *shell.split())
+    tmux("set-environment", "-t", "work", "CLAUDE_CONFIG_DIR", str(personal))
+    tmux("set-environment", "-t", "work", "-r", "CODEX_HOME")
+    pane = tmux("display-message", "-p", "-t", "work:0", "#{pane_id}")
+    tmux("send-keys", "-t", pane, f"env CLAUDE_CONFIG_DIR={personal} sleep 305", "Enter")
+    agent = _until("^sleep 305")
+    monkeypatch.setattr(R.agent_history, "live", lambda: {
+        "sessions": {"s1": {"pid": agent, "harness": "claude"}}, "unknown": []})
+    R.Recorder(history).tick([], now=1000)
+    stop()
+    server()
+    tmux("new-session", "-d", "-s", "keep", *shell.split())  # holds default-command
+    tmux("set-option", "-g", "default-command", shell)
+    found = R.candidate(history)
+    built = R.build(found, {(w, p["index"]) for w, win in found["windows"].items()
+                            for p in win["panes"]})
+    assert {f"CLAUDE_CONFIG_DIR={personal}", "-CODEX_HOME"} <= set(
+        tmux("show-environment", "-t", "work").split())  # the session's default, re-applied
+    monkeypatch.setattr(R.agent_history, "get", {"s1": {
+        "resume_argv": ["claude", "--resume", "s1"],
+        "source": str(Path.home() / ".claude/projects/-src/s1.jsonl")}}.get)
+    watcher = type("W", (), {"states": [], "request_reparse": lambda self, pane: None})()
+    audits = []
+    asyncio.run(R.launch(built, watcher, lambda *a: audits.append(a)))
+    ((restored, _),) = built
+    assert audits == [("restore_resume", restored, "s1", "ok")]
+    deadline = time.time() + 5
+    while f"resumed s1 on CLAUDE_CONFIG_DIR={personal}\n" not in tmux(
+            "capture-pane", "-pJ", "-t", restored) + "\n":
+        assert time.time() < deadline, tmux("capture-pane", "-pJ", "-t", restored)
+        time.sleep(0.05)
+    print(tmux("capture-pane", "-pJ", "-t", restored))  # evidence with -s
+    # Gone from that account since: skipped, never resumed on whatever holds the id.
+    (personal / "projects" / "-src-garden" / "s1.jsonl").unlink()
+    audits.clear()
+    asyncio.run(R.launch(built, watcher, lambda *a: audits.append(a)))
+    assert audits == [("restore_resume", restored, "s1", "skipped: its account dir lacks it")]
