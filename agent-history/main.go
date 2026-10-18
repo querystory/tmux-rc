@@ -235,7 +235,9 @@ func reconcileAll(force bool) (ok bool) {
 	for _, h := range harnesses {
 		sessions, err := h.sessions()
 		check(err)
-		for _, files := range latestCopies(h, sessions) {
+		copies, err := latestCopies(h, sessions)
+		check(err)
+		for _, files := range copies {
 			check(indexFile(h, files, force))
 		}
 	}

@@ -90,10 +90,12 @@ func newestMtime(files []string) (mtime time.Time, err error) {
 // latestCopies keeps one copy of each session, the most recently written. A session
 // resumed under another account leaves the same ID in two config dirs, and indexing
 // both made each copy undo the other's entry, re-reading both transcripts on every
-// reconcile.
-func latestCopies(h harness, sessions [][]string) [][]string {
+// reconcile. A copy whose mtime can't be read is reported, so the reconcile isn't
+// recorded complete without knowing which copy is newest.
+func latestCopies(h harness, sessions [][]string) ([][]string, error) {
 	at := map[[2]string]int{}
 	var out [][]string
+	var errs []error
 	for _, files := range sessions {
 		id, parent := h.identity(files[0])
 		i, seen := at[[2]string{id, parent}]
@@ -102,13 +104,14 @@ func latestCopies(h harness, sessions [][]string) [][]string {
 			out = append(out, files)
 			continue
 		}
-		mine, _ := newestMtime(files)
-		theirs, _ := newestMtime(out[i])
+		mine, err := newestMtime(files)
+		theirs, err2 := newestMtime(out[i])
+		errs = append(errs, err, err2)
 		if mine.After(theirs) {
 			out[i] = files
 		}
 	}
-	return out
+	return out, errors.Join(errs...)
 }
 
 // claudeSessions lists every transcript, subagents included, so a subagent whose
