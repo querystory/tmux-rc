@@ -203,21 +203,30 @@ func TestRunningCodex(t *testing.T) {
 		t.Errorf("a non-codex process holding the rollout counted: %+v", r)
 	}
 
-	// A process named codex (a shell under that name) holding it open does, unless it
-	// is a sandbox helper: those run under the name codex too.
-	codex := filepath.Join(t.TempDir(), "codex")
+	// A process named codex (a shell under that name) does. Its command line is read
+	// too, so each shape Codex runs under is a script of that name in the shell's
+	// directory: `codex resume <id>`, `codex app-server <rollout>`, and a bare client
+	// holding its rollout, here `codex hold <rollout>`.
+	bin := t.TempDir()
+	codex := filepath.Join(bin, "codex")
 	must(t, os.Symlink("/bin/sh", codex))
-	hold := func(argv0 string) *exec.Cmd {
+	for _, name := range []string{"resume", "app-server", "hold"} {
 		// read is a builtin: the shell itself waits, holding the file (a trailing
 		// external command would be exec'd in its place).
-		cmd := exec.Command(codex, "-c", `exec 3<"$1"; read -r _`, "sh", path)
-		cmd.Args[0] = argv0
+		must(t, os.WriteFile(filepath.Join(bin, name), []byte(`[ -f "$1" ] && exec 3<"$1"; read -r _`), 0o600))
+	}
+	start := func(argv0 string, args ...string) *exec.Cmd {
+		cmd := exec.Command(codex, args...)
+		cmd.Args[0], cmd.Dir = argv0, bin
 		stdin, err := cmd.StdinPipe()
 		must(t, err)
 		t.Cleanup(func() { stdin.Close() })
 		cmd.Env = append(os.Environ(), "TMUX_PANE=%99")
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		must(t, cmd.Start())
+		if _, err := os.Stat(args[1]); err != nil {
+			return cmd // holds nothing, and its command line is readable at once
+		}
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/3", cmd.Process.Pid)); err == nil {
 				break
@@ -229,24 +238,69 @@ func TestRunningCodex(t *testing.T) {
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		cmd.Wait()
 	}
-	helper := hold("/tmp/arg0/codex-linux-sandbox")
-	if r, ok := running(); ok {
-		t.Errorf("a sandbox helper holding the rollout counted: %+v", r)
-	}
-	stop(helper)
-	cmd := hold(codex)
-	// A process with no terminal (like the app-server daemon, or tests under CI) is in
-	// no pane, whatever its environment says.
+	// A process with no terminal (tests under CI) is in no pane, whatever its
+	// environment says.
 	pane := "%99"
 	if tty, _ := procStat(os.Getpid(), 7); tty == "0" {
 		pane = ""
 	}
+	cmd := start(codex, "hold", path)
 	if r, ok := running(); !ok || r.PID != cmd.Process.Pid || r.TmuxPane != pane {
 		t.Errorf("codex holding the rollout = %+v, %v", r, ok)
 	}
 	stop(cmd)
 	if r, ok := running(); ok {
 		t.Errorf("exited codex counted as running: %+v", r)
+	}
+
+	// The app-server daemon and the sandbox helper hold rollouts for others: the thread
+	// is live, but neither is its process or its pane.
+	for _, foreign := range [][]string{{codex, "app-server", path}, {"/tmp/arg0/codex-linux-sandbox", "hold", path}} {
+		cmd := start(foreign[0], foreign[1:]...)
+		if r, ok := running(); !ok || r.PID != 0 || r.TmuxPane != "" {
+			t.Errorf("%s holding the rollout = %+v, %v", foreign[1], r, ok)
+		}
+		stop(cmd)
+	}
+	// The client that resumed the thread names it on its command line, holds nothing,
+	// and outranks the daemon's hold; gone, the thread is the daemon's again.
+	daemon := start(codex, "app-server", path)
+	client := start(codex, "resume", id)
+	if r, ok := running(); !ok || r.PID != client.Process.Pid || r.TmuxPane != pane {
+		t.Errorf("resuming client = %+v, %v", r, ok)
+	}
+	stop(client)
+	if r, ok := running(); !ok || r.PID != 0 {
+		t.Errorf("daemon-held thread after its client left = %+v, %v", r, ok)
+	}
+	stop(daemon)
+	if r, ok := running(); ok {
+		t.Errorf("thread counted as running with nothing holding it: %+v", r)
+	}
+}
+
+func TestCodexProcess(t *testing.T) {
+	bin := "/home/u/.codex/packages/app-server-daemon/releases/0.1/bin/codex"
+	for _, c := range []struct {
+		argv    []string
+		session string
+		foreign bool
+	}{
+		{[]string{"codex", "resume", codexID}, codexID, false},
+		{[]string{"codex", "--model", "m", "resume", codexID}, codexID, false},
+		{[]string{"codex", "exec", "resume", codexID}, codexID, false},
+		{[]string{"codex", "resume", "--last"}, "", false},
+		{[]string{"codex", "resume"}, "", false},
+		{[]string{"codex", "fork", codexID}, "", false},
+		{[]string{"codex"}, "", false},
+		{[]string{""}, "", false}, // a process with no command line
+		{[]string{bin, "app-server", "--listen", "unix://", "--managed-daemon"}, "", true},
+		{[]string{bin, "app-server", "daemon", "pid-update-loop"}, "", true},
+		{[]string{"/tmp/x/codex-linux-sandbox", "-s", "bash", "-c", "systemctl resume " + codexID}, "", true},
+	} {
+		if session, foreign := codexProcess(c.argv); session != c.session || foreign != c.foreign {
+			t.Errorf("codexProcess(%q) = %q, %v; want %q, %v", c.argv, session, foreign, c.session, c.foreign)
+		}
 	}
 }
 

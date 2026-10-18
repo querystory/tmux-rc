@@ -11,9 +11,11 @@ import (
 	"strings"
 )
 
-// Running is a live harness process attached to a session.
+// Running is a live harness process attached to a session. No PID means the session
+// is live but its own process can't be named: a shared server holds its transcript
+// (see openTranscripts), so a caller must neither resume a second copy nor point at it.
 type Running struct {
-	PID      int    `json:"pid"`
+	PID      int    `json:"pid,omitempty"`
 	TmuxPane string `json:"tmux_pane,omitempty"` // e.g. "%48"; empty when not in tmux
 	Status   string `json:"status,omitempty"`    // the harness's own word: idle, busy, ...
 	Harness  string `json:"harness,omitempty"`   // set by LiveSessions
@@ -112,10 +114,14 @@ func procStat(pid, field int) (string, error) {
 // openTranscripts lists the live sessions of a harness that keeps no registry but
 // holds its session's transcript open: the open files of the user's processes named
 // comm say which sessions are live, and where (see pane). Only those processes count:
-// an editor or `tail -f` on a transcript is not the session, and neither is a helper
-// skip rejects by argv[0]. id names the session a transcript under dir belongs to ("" for
-// none). A candidate whose files can't be read makes the harness's liveness unknown.
-func openTranscripts(comm, dir string, skip func(argv0 string) bool, id func(path string) string) (map[string]Running, error) {
+// an editor or `tail -f` on a transcript is not the session. id names the session a
+// transcript under dir belongs to ("" for none). role reads a process's command line:
+// the session it names outright (live in that process without any open file), and
+// whether it is foreign, holding transcripts on other sessions' behalf (a shared
+// server, a tool helper): a session only a foreign process holds is live with no PID,
+// and any process of its own outranks that. A candidate whose files can't be read
+// makes the harness's liveness unknown.
+func openTranscripts(comm, dir string, role func(argv []string) (session string, foreign bool), id func(path string) string) (map[string]Running, error) {
 	out := map[string]Running{}
 	// Open files show resolved paths, so compare against the resolved directory.
 	resolved, err := filepath.EvalSymlinks(dir)
@@ -155,9 +161,25 @@ func openTranscripts(comm, dir string, skip func(argv0 string) bool, id func(pat
 		}
 		_, uid, _ := strings.Cut(status, "\nUid:\t") // real, effective, saved, fs
 		mine := strings.HasPrefix(uid, strconv.Itoa(os.Getuid())+"\t")
-		argv0, _, _ := strings.Cut(cmdline, "\x00")
+		var named string
+		var foreign bool
+		if role != nil {
+			named, foreign = role(strings.Split(strings.TrimSuffix(cmdline, "\x00"), "\x00"))
+		}
+		found := func(session string) {
+			r := Running{}
+			if !foreign {
+				r = Running{PID: pid, TmuxPane: pane(pid)}
+			}
+			if cur, ok := out[session]; !ok || cur.PID == 0 {
+				out[session] = r
+			}
+		}
 		var fds []os.DirEntry
-		if err == nil && mine && (skip == nil || !skip(argv0)) {
+		if err == nil && mine {
+			if named != "" {
+				found(named)
+			}
 			fds, err = os.ReadDir(filepath.Join("/proc", p.Name(), "fd"))
 		}
 		if errors.Is(err, fs.ErrNotExist) {
@@ -177,7 +199,7 @@ func openTranscripts(comm, dir string, skip func(argv0 string) bool, id func(pat
 			// Named under dir as configured, so id can tell where in it the file is.
 			if rel, ok := strings.CutPrefix(target, resolved); ok && strings.HasSuffix(rel, ".jsonl") {
 				if session := id(filepath.Join(dir, rel)); session != "" {
-					out[session] = Running{PID: pid, TmuxPane: pane(pid)}
+					found(session)
 				}
 			}
 		}
