@@ -91,6 +91,11 @@ def get_many(session_ids: list[str]) -> dict[str, dict] | None:
     return {e["session_id"]: e for e in found if isinstance(e, dict) and "session_id" in e}
 
 
+def indexed(session_ids: list[str]) -> dict[str, dict]:
+    """get_many from the index on disk, when the binary is unavailable: no liveness."""
+    return {e["session_id"]: e for e in _entries() if e.get("session_id") in session_ids}
+
+
 def reconcile() -> None:
     """Bring the index up to date with every transcript: about a second cold, a fraction
     warm. Without Claude Code's hook installed, nothing else refreshes it for hours, and a

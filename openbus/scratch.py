@@ -29,7 +29,9 @@ _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
 _LOCK = threading.Lock()
+_META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
 _missed: dict[tuple[str, int], float] = {}  # when each (name, inode) was last not found
+_unsaved: dict[tuple[str, int], str] = {}  # authors found whose meta.json refused them
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gallery.md"
@@ -146,6 +148,8 @@ def _writers(todo: list[dict]) -> None:
     """Fill in each item's missing `session_id` from the transcripts, saving what is found."""
     now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}
     with _LOCK:  # a second request waits for the first's search instead of repeating it
+        for i in todo:
+            i["session_id"] = i["session_id"] or _unsaved.get(keys[i["name"]])
         due = {i["name"]: i["created"] for i in todo if not i["session_id"]
                and now - _missed.get(keys[i["name"]], 0) > _RETRY}
         if due and now - _reconciled[0] > _RETRY:  # a running session's entry can be days old
@@ -155,7 +159,9 @@ def _writers(todo: list[dict]) -> None:
         for i in todo:
             if hit := hits.get(i["name"]):
                 i["session_id"] = hit["session_id"]
-                annotate(i["folder"] / "meta.json", i["folder"].parent, "session", i["session_id"])
+                if not annotate(i["folder"] / "meta.json", i["folder"].parent, "session",
+                                i["session_id"]):
+                    _unsaved[keys[i["name"]]] = i["session_id"]
             elif i["name"] in due:
                 _missed[keys[i["name"]]] = now
 
@@ -177,13 +183,14 @@ def annotate(meta: Path, root: Path, field: str, value: str) -> bool:
     one already there, nor into a meta.json that is unreadable or a symlink: those are the
     agent's to fix."""
     try:
-        current = {} if not meta.exists() else None if meta.is_symlink() else json.loads(
-            meta.read_text())
-        if not isinstance(current, dict) or str(current.get(field) or "").strip():
-            return False
-        made = current.get("generated") if isinstance(current.get("generated"), list) else []
-        data = {**current, field: value, "generated": [*made, field]}
-        replace(meta, root, lambda tmp: tmp.write_text(json.dumps(data, indent=1) + "\n"))
+        with _META:
+            current = None if meta.is_symlink() else {} if not meta.exists() else json.loads(
+                meta.read_text())
+            if not isinstance(current, dict) or str(current.get(field) or "").strip():
+                return False
+            made = current.get("generated") if isinstance(current.get("generated"), list) else []
+            data = {**current, field: value, "generated": [*made, field]}
+            replace(meta, root, lambda tmp: tmp.write_text(json.dumps(data, indent=1) + "\n"))
     except (OSError, ValueError):
         return False
     return True
@@ -218,8 +225,10 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     todo = [i for i in listed if i["pane"] not in panes]
     _writers(todo)
     ids = sorted({i["session_id"] for i in todo if i["session_id"]})
-    running = agent_history.get_many(ids) or {} if ids else {}
-    open_in = {sid: pane_of(e) for sid, e in running.items()}  # asks tmux: once a session
+    running = agent_history.get_many(ids) if ids else {}
+    open_in = {sid: pane_of(e) for sid, e in (running or {}).items()}  # asks tmux: once a session
+    if running is None:  # agent-history unavailable: its index on disk still says who
+        running = agent_history.indexed(ids)
     for i in listed:
         s = running.get(i["session_id"]) or {} if i["pane"] not in panes else {}
         i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
