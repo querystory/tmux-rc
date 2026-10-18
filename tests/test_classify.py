@@ -1496,6 +1496,7 @@ def test_a_draft_with_a_hyperlink_is_copyable_as_shown():
     for text in (draft, captured):  # as shown, or with its real targets
         assert copies(text) == [{"label": "", "text": text}]
     assert copies(captured.replace("example.com/42", "example.com/99")) is None
+    assert copies(f"{captured}\n{draft}") is None  # each form must be on screen alone
 
 
 def test_claude_mode_is_read_off_the_status_line_and_given_to_the_model():

@@ -1462,7 +1462,7 @@ def classify(
     copy_source = _FRAME_BARS_RE.sub("", visible).replace("\\\n", "")
     # A hyperlink shows only its label, so a copy may quote the screen as captured (each
     # target intact) or as shown.
-    copy_source += "\n" + _LINK_TARGET_RE.sub(r"\1", copy_source)
+    copy_sources = {copy_source, _LINK_TARGET_RE.sub(r"\1", copy_source)}
 
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
@@ -1470,9 +1470,8 @@ def classify(
         # line continuations kept as shown or joined (both sides drop them alike).
         text = text.replace("\\\n", "")
         words = r"\s+".join(re.escape(word) for word in text.split())
-        return f"`{text}`" in copy_source or re.search(
-            r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
-        )
+        row = re.compile(r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$")
+        return any(f"`{text}`" in src or row.search(src) for src in copy_sources)
 
     def _valid(cps, *, transcript=False):
         """Validated entries, lazily — islice below stops us at 3 without validating the
