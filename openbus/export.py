@@ -96,10 +96,11 @@ def _entries(parts=PARTS):
     """(part, archive name, path) of every file, dir and link an archive of `parts` can
     hold: an agent dir without its caches, its sign-in as a credential, and scratch only
     as scratch/. A part not chosen is not walked."""
-    pages = places()["scratch"].resolve()
+    pages, db = places()["scratch"].resolve(), _db()
+    hidden = {db, db.with_name(f"{db.name}-wal"), db.with_name(f"{db.name}-shm")}  # snapshotted
     for part, name, where in _roots():
         root = where.resolve()  # a linked root: what it links to
-        if part not in parts or not os.path.lexists(where) or (
+        if part not in parts or not os.path.lexists(where) or root in hidden or (
                 part != "scratch" and root == pages):
             continue
         yield _part(part, name), name, root
@@ -107,7 +108,7 @@ def _entries(parts=PARTS):
             top, kept = here == str(root), []
             for child in sorted(dirs + files):
                 path = Path(here, child)
-                if (part == "agents" and top and child in CACHES) or (
+                if (part == "agents" and top and child in CACHES) or path in hidden or (
                         part != "scratch" and path == pages):
                     continue
                 kept.append(child)
@@ -116,11 +117,22 @@ def _entries(parts=PARTS):
             dirs[:] = [d for d in dirs if d in kept]
 
 
+def _db() -> Path:
+    return history.default_path().resolve()  # as_uri needs it absolute
+
+
+def _read(db: Path):
+    """A read-only connection: the backup API copies from it while the daemon writes."""
+    return contextlib.closing(sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True))
+
+
 def sizes() -> dict[str, int]:
-    """Each part's size on disk, uncompressed: the walk export makes, without reading."""
+    """Each part's size on disk, uncompressed: the walk export makes, without reading, and
+    the DB's pages, its WAL's included, as the snapshot holds them."""
     out = dict.fromkeys(PARTS, 0)
-    with contextlib.suppress(OSError):
-        out["state"] = history.default_path().stat().st_size
+    with contextlib.suppress(sqlite3.Error), _read(_db()) as db:
+        out["state"] = db.execute("SELECT page_count * page_size FROM pragma_page_count, "
+                                  "pragma_page_size").fetchone()[0]
     for part, _, path in _entries():
         with contextlib.suppress(OSError):
             out[part] += path.lstat().st_size if not path.is_dir() or path.is_symlink() else 0
@@ -132,12 +144,11 @@ def export(out, parts) -> list[str]:
     Returns what a person moves by hand: agent dirs deeper than HOME's top level."""
     parts = {"state", *parts}
     deeper = [str(d) for d in _agent_dirs() if d.parent != Path.home()] * ("agents" in parts)
-    db = history.default_path().resolve()  # as_uri needs it absolute
+    db = _db()
     with tempfile.TemporaryDirectory() as tmp, tarfile.open(fileobj=out, mode="w|gz") as tar:
         snapshot, schema = Path(tmp, "history.sqlite3"), None
         if db.exists():  # the backup API: a consistent copy while the daemon keeps writing
-            with contextlib.closing(sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True)) as src, \
-                    contextlib.closing(sqlite3.connect(snapshot)) as copy:
+            with _read(db) as src, contextlib.closing(sqlite3.connect(snapshot)) as copy:
                 src.backup(copy)
                 schema = copy.execute("PRAGMA user_version").fetchone()[0]
         manifest = json.dumps({"format": FORMAT, "schema": schema, "host": socket.gethostname(),
@@ -185,8 +196,9 @@ def _swap(src: Path, dst: Path, stamp: str, sidecars=("",)) -> None:
             here.rename(old.with_name(old.name + suffix))
     if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
         for name in IDENTITY:
-            if (old / name).is_file():
-                shutil.copy2(old / name, src / name)  # admit() let no link stand here
+            if (old / name).is_file():  # a fresh file: no hard link from the archive shares it
+                (src / name).unlink(missing_ok=True)
+                shutil.copy2(old / name, src / name)
     dst.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     shutil.move(src, dst)
 
@@ -237,6 +249,8 @@ def restore(src) -> list[str]:
         env = dotenv_values(stage / ".env") if (stage / ".env").is_file() else {}
         paths = [k for k in ("TMUXRC_HISTORY_DB", "TMUXRC_SCRATCH_DIR") if env.get(k)]
         stamp, done = time.strftime("%Y%m%d-%H%M%S"), []
+        if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
+            (stage / "agents/.claude.json").unlink(missing_ok=True)  # stays with that login
         for item in sorted(stage.iterdir()):
             parent = {"data": _data(), "agents": Path(home)}.get(item.name)
             for child in sorted(item.iterdir()) if parent else [item] * (item.name in where):
