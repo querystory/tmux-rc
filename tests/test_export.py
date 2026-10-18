@@ -37,6 +37,8 @@ def source(home):
     with sqlite3.connect(history.default_path()) as db:
         db.execute("INSERT INTO layout_snapshots VALUES ('boot:1:2', 0, ?, NULL)",
                    (json.dumps({"cwd": f"{old}/src/demo"}),))
+        db.execute("INSERT INTO plan_usage VALUES ('codex', ?, '5h', 18000, 0, 1, NULL)",
+                   (f"{old}/.codex",))
     write(old / ".local/state/tmux-rc/accounts.json", json.dumps({f"{old}/.claude": {}}))
     write(old / ".local/state/tmux-rc/push.json", "{}")
     write(old / ".local/share/tmux-rc/mocks/a/index.html")
@@ -72,6 +74,7 @@ def test_round_trip(home, monkeypatch):
     with sqlite3.connect(history.default_path()) as db:
         assert db.execute("SELECT payload FROM layout_snapshots").fetchone()[0] == (
             json.dumps({"cwd": f"{new}/src/demo"}))
+        assert db.execute("SELECT account FROM plan_usage").fetchone()[0] == f"{new}/.codex"
     assert json.loads((new / ".local/state/tmux-rc/accounts.json").read_text()) == {
         f"{new}/.claude": {}}
     assert (new / ".claude/projects/-demo/s1.jsonl").exists()

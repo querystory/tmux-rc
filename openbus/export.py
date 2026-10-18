@@ -26,6 +26,7 @@ from . import accounts, history, push
 FORMAT = 1
 SECRETS = ("push.json", "config", ".env")  # the VAPID key and push endpoints; credentials
 LOGINS = (".credentials.json", "auth.json")  # an agent dir's sign-in: Claude's, Codex's
+IDENTITY = (*LOGINS, ".claude.json")  # the sign-in and who it is: they stay together
 # What an agent rebuilds in its dir, left out: caches, debug logs, shell snapshots.
 CACHES = ("cache", "debug", "statsig", "shell-snapshots", "log", "tmp", ".tmp")
 
@@ -105,16 +106,17 @@ def _rehome(text: str, old: str, new: str) -> str:
 
 
 def _swap(src: Path, dst: Path, stamp: str) -> None:
-    """Move what is at dst aside (with a DB's WAL), then src into place. A dir keeps this
-    host's agent sign-in when the archive brought none."""
-    for suffix in ("", "-wal", "-shm"):
-        here = dst.with_name(dst.name + suffix)
-        if here.exists() or here.is_symlink():
-            here.rename(here.with_name(f"{here.name}.pre-import-{stamp}"))
+    """Move what is at dst aside (a DB with its WAL, named as SQLite looks for it), then src
+    into place. An agent dir keeps this host's sign-in, and who it is, when the archive
+    brought no sign-in."""
     old = dst.with_name(f"{dst.name}.pre-import-{stamp}")
-    for login in LOGINS:
-        if (old / login).is_file() and src.is_dir() and not (src / login).exists():
-            shutil.copy2(old / login, src / login)
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.lexists(here := dst.with_name(dst.name + suffix)):
+            here.rename(old.with_name(old.name + suffix))
+    if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
+        for name in IDENTITY:
+            if (old / name).is_file():
+                shutil.copy2(old / name, src / name)  # admit() let no link stand here
     dst.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     shutil.move(src, dst)
 
@@ -134,18 +136,27 @@ def restore(src) -> list[str]:
             raise SystemExit("This archive is from a newer tmux-rc, or isn't an export.")
         old = manifest["home"]
 
-        def admit(m, path):  # nothing outside staging; a top-level name is a file or a dir
+        def admit(m, path):  # nothing outside staging; links only where nothing writes
             if m.issym() and m.linkname.startswith(old + "/"):  # an account's shared files
                 m = m.replace(linkname=home + m.linkname[len(old):], deep=False)
-            m = tarfile.tar_filter(m, path)  # strips a leading /, so judge the name after it
-            return m if "/" in os.path.normpath(m.name) or m.isfile() or m.isdir() else None
+            # tar's filter strips a leading /, so judge the name after it; data's keeps a
+            # hard link's target in staging too.
+            m = (tarfile.data_filter if m.islnk() else tarfile.tar_filter)(m, path)
+            parts = os.path.normpath(m.name).split("/")
+            root = len(parts) < (3 if parts[0] in ("data", "agents") else 2)  # what is swapped
+            linked = not (m.isfile() or m.isdir())
+            return None if linked and (root or parts[-1] in IDENTITY) else m
         tar.extractall(tmp, (m for m in tar if m is not first), filter=admit)
         stage = Path(tmp)
         if (stage / "history.sqlite3").exists():  # an import is consent to adopt the DB
             with contextlib.closing(sqlite3.connect(stage / "history.sqlite3")) as db, db:
                 db.execute("INSERT OR REPLACE INTO metadata VALUES ('host', ?)", (host,))
-                layout = "SELECT 1 FROM sqlite_master WHERE name='layout_snapshots'"  # schema 10+
-                if db.execute(layout).fetchone():
+                tables = {t for (t,) in db.execute("SELECT name FROM sqlite_master")}
+                if "plan_usage" in tables:  # Codex's accounts are its config dirs' paths
+                    db.execute("UPDATE OR IGNORE plan_usage SET account=?||substr(account, ?) "
+                               "WHERE substr(account, 1, ?)=?",
+                               (home, len(old) + 1, len(old) + 1, old + "/"))
+                if "layout_snapshots" in tables:  # schema 10+
                     db.executemany("UPDATE layout_snapshots SET payload=? WHERE server=?", [
                         (_rehome(p, old, home), s) for s, p in db.execute(
                             "SELECT server, payload FROM layout_snapshots")])
