@@ -99,7 +99,8 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
     index = next((i for i in (folder / "index.html", folder / "index.md") if str(i) in names),
                  None)
     page = index or Path(max(files)[1])
-    title = meta.get("title")
+    # The page is read: checked again, as it may have become a link out since find listed it.
+    title = meta.get("title") or (None if inside(page, folder) else folder.name)
     if not title and page.suffix == ".md":
         title = scratch_markdown.render(page)[2]
     elif not title and page.suffix in (".html", ".htm"):
