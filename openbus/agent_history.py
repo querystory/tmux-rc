@@ -20,9 +20,6 @@ from urllib.parse import unquote
 # resolve reads a few MB of index and answers in tens of ms; a slow disk shouldn't
 # stall a voice turn for long.
 _TIMEOUT = 5
-# Built from this checkout on every daemon start (the unit's ExecStartPre), so the
-# daemon never drives a binary older than the flags it passes.
-_BUILT = Path(__file__).resolve().parent.parent / "agent-history" / "bin" / "agent-history"
 logger = logging.getLogger(__name__)
 
 # Harnesses whose resume command the daemon will start. resume_argv comes from the
@@ -31,13 +28,11 @@ RESUMABLE = frozenset({"claude", "codex", "omp"})
 
 
 def binary() -> str | None:
-    """The agent-history executable: $TMUXRC_AGENT_HISTORY, else this checkout's build,
-    else PATH, else ~/.local/bin (the daemon's unit PATH is minimal)."""
+    """The agent-history executable: $TMUXRC_AGENT_HISTORY, else PATH, else
+    ~/.local/bin (the daemon's unit PATH is minimal)."""
     override = os.environ.get("TMUXRC_AGENT_HISTORY")
     if override:
         return override if os.access(override, os.X_OK) else None
-    if os.access(_BUILT, os.X_OK):
-        return str(_BUILT)
     return shutil.which("agent-history") or shutil.which(
         "agent-history", path=str(Path.home() / ".local" / "bin")
     )
@@ -77,7 +72,7 @@ def get(session_id: str) -> dict | None:
 
 def get_many(session_ids: list[str]) -> dict[str, dict] | None:
     """get for several sessions, sharing one liveness scan: {session_id: entry}, an
-    unknown id left out; None if agent-history is unavailable or failed."""
+    unknown id left out; None if agent-history is unavailable."""
     exe = binary()
     if not exe:
         return None
@@ -89,9 +84,9 @@ def get_many(session_ids: list[str]) -> dict[str, dict] | None:
         found = [json.loads(line) for line in out.stdout.splitlines() if line]
     except (subprocess.SubprocessError, OSError, ValueError):
         return None
-    if out.returncode > 1:  # a usage error (an older binary) is not "every id is unknown"
+    if out.returncode > 1:  # an older binary takes one id per get: ask it that way
         logger.warning("agent-history get exited %d: %s", out.returncode, out.stderr.strip())
-        return None
+        return {sid: e for sid in session_ids if (e := get(sid))}
     return {e["session_id"]: e for e in found if isinstance(e, dict) and "session_id" in e}
 
 

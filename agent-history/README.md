@@ -49,8 +49,6 @@ what the human said is not lost. Retention is otherwise the harness's setting.
 
 ## Running it
 
-The daemon's unit builds its own copy into `bin/` on every start, so the daemon always
-runs the binary from its own checkout. For the hooks and command-line use,
 `go build -o ~/.local/bin/agent-history .` then register `agent-history hook` for Claude
 Code's `Stop`, `SessionEnd` and `SubagentStop` hooks. The hook hands the transcript to a
 detached child and returns in milliseconds. `agent-history reconcile` repairs whatever

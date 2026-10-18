@@ -191,9 +191,8 @@ def _judge(pane: dict, died: float, entries: dict | None) -> tuple[bool, str | N
         activity == "waiting" and pane.get("waiting_on") != "external")
     last = pane.get("last_activity") or 0
     if binding:
-        if entries is None:
-            return False, "agent-history can't be asked about its conversation"
-        entry = entries.get(binding["session_id"])
+        # No agent-history: judged by the screen, as a resume of a lost one fails visibly.
+        entry = {} if entries is None else entries.get(binding["session_id"])
         if entry is None or entry.get("source_missing"):
             return False, "its conversation is gone"
         if entry.get("running_unknown"):
