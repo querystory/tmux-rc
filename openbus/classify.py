@@ -1458,17 +1458,16 @@ def classify(
                 ).split()))
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
-    # A hyperlink's target is invisible on screen: only its label is shown and copied.
-    def _as_shown(text):
-        return _LINK_TARGET_RE.sub(r"\1", text).replace("\\\n", "")
-
-    copy_source = _as_shown(_FRAME_BARS_RE.sub("", visible))
+    copy_source = _FRAME_BARS_RE.sub("", visible).replace("\\\n", "")
+    # A hyperlink shows only its label, so a copy may quote the screen as captured (each
+    # target intact) or as shown.
+    copy_source += "\n" + _LINK_TARGET_RE.sub(r"\1", copy_source)
 
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
         # fragments cut out of a longer prose paragraph. Permit terminal wraps, and
         # line continuations kept as shown or joined (both sides drop them alike).
-        text = _as_shown(text)
+        text = text.replace("\\\n", "")
         words = r"\s+".join(re.escape(word) for word in text.split())
         return f"`{text}`" in copy_source or re.search(
             r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,

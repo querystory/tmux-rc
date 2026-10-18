@@ -1488,8 +1488,13 @@ def test_a_draft_with_a_hyperlink_is_copyable_as_shown():
         "docs", "[docs](https://example.com/Widget_(tool))")
     quoted = "\n".join(f"  ▎ {row}" for row in captured.split("\n"))
     screen = _auto_screen(f"Here's a message for Ana:\n\n{quoted}\n\n✻ Waiting for 1 agent")
-    result = classify(_pane("claude"), screen, _llm({"copyables": [{"label": "", "text": draft}]}))
-    assert result["copyables"] == [{"label": "", "text": draft}]
+    def copies(text):
+        read = {"copyables": [{"label": "", "text": text}]}
+        return classify(_pane("claude"), screen, _llm(read)).get("copyables")
+
+    for text in (draft, captured):  # as shown, or with its real targets
+        assert copies(text) == [{"label": "", "text": text}]
+    assert copies(captured.replace("example.com/42", "example.com/99")) is None
 
 
 def test_claude_mode_is_read_off_the_status_line_and_given_to_the_model():
