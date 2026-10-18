@@ -103,7 +103,7 @@ def profiles(pane_dirs=()) -> list[dict]:
 def in_home() -> dict[str, str]:
     """Each provider's config dirs in HOME, the default and its siblings: dir -> provider."""
     return {str(d): t for t in ENV for d in [default_dir(t), *sorted(Path.home().glob(MORE[t]))]
-            if d.is_dir()}
+            if d.is_dir() and ".pre-import-" not in d.name}  # not an import's backup
 
 
 def _profiles(pane_dirs) -> list[dict]:

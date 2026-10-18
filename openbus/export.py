@@ -55,11 +55,13 @@ def _members(scratch: bool, secrets: bool, agents: bool) -> list[tuple[str, Path
             if c.name != "docs" and c != where["scratch"] and ".pre-import-" not in c.name]
     dirs = {Path(d) for d in [*accounts.in_home(), *accounts.load()]} if agents else ()
     out += [(f"agents/{d.name}", d) for d in sorted(dirs) if d.parent == home and d.is_dir()]
-    return [(n, p) for n, p in out if p.exists()]
+    return [(n, p) for n, p in out if p.exists()], [
+        str(d) for d in sorted(dirs) if d.parent != home and d.is_dir()]
 
 
 def export(out, *, scratch=True, secrets=False, agents=True) -> list[str]:
-    """Stream the archive into `out`, which need not seek. Returns the secrets left out."""
+    """Stream the archive into `out`, which need not seek. Returns what was left out that a
+    person moves by hand: secrets, and agent dirs deeper than HOME's top level."""
     db = history.default_path()
     with tempfile.TemporaryDirectory() as tmp, tarfile.open(fileobj=out, mode="w|gz") as tar:
         snapshot, schema = Path(tmp, "history.sqlite3"), None
@@ -76,14 +78,15 @@ def export(out, *, scratch=True, secrets=False, agents=True) -> list[str]:
         tar.addfile(info, io.BytesIO(manifest))
         if schema is not None:
             tar.add(snapshot, snapshot.name)
-        for name, path in _members(scratch, secrets, agents):
+        members, deeper = _members(scratch, secrets, agents)
+        for name, path in members:
             def keep(m, name=name):  # an agent dir without its caches, nor its login unless asked
                 rest = m.name[len(name) + 1:] if name.startswith("agents/") else ""
                 skip = rest.split("/")[0] in CACHES or (not secrets and rest in LOGINS)
                 return None if skip else m
             tar.add(path, name, filter=keep)
-    return [] if secrets else [n for n in SECRETS if places()[n].exists()] + (
-        ["the agents' sign-ins (" + ", ".join(LOGINS) + ")"] if agents else [])
+    return deeper + ([] if secrets else [n for n in SECRETS if places()[n].exists()] + (
+        ["the agents' sign-ins (" + ", ".join(LOGINS) + ")"] if agents else []))
 
 
 def _running() -> bool:
@@ -126,14 +129,23 @@ def restore(src) -> list[str]:
         manifest = json.load(tar.extractfile(first)) if ok else {}
         if manifest.get("format") != FORMAT or (manifest["schema"] or 0) > len(history.MIGRATIONS):
             raise SystemExit("This archive is from a newer tmux-rc, or isn't an export.")
-        tar.extractall(tmp, (m for m in tar if m is not first), filter="tar")
-        stage, old = Path(tmp), manifest["home"]
+        old = manifest["home"]
+
+        def admit(m, path):  # nothing outside staging; a top-level name is a file or a dir
+            if m.issym() and m.linkname.startswith(old + "/"):  # an account's shared files
+                m = m.replace(linkname=home + m.linkname[len(old):], deep=False)
+            keep = "/" in m.name or m.isfile() or m.isdir()
+            return tarfile.tar_filter(m, path) if keep else None
+        tar.extractall(tmp, (m for m in tar if m is not first), filter=admit)
+        stage = Path(tmp)
         if (stage / "history.sqlite3").exists():  # an import is consent to adopt the DB
             with contextlib.closing(sqlite3.connect(stage / "history.sqlite3")) as db, db:
                 db.execute("INSERT OR REPLACE INTO metadata VALUES ('host', ?)", (host,))
-                db.executemany("UPDATE layout_snapshots SET payload=? WHERE server=?", [
-                    (_rehome(p, old, home), s) for s, p in db.execute(
-                        "SELECT server, payload FROM layout_snapshots")])
+                layout = "SELECT 1 FROM sqlite_master WHERE name='layout_snapshots'"  # schema 10+
+                if db.execute(layout).fetchone():
+                    db.executemany("UPDATE layout_snapshots SET payload=? WHERE server=?", [
+                        (_rehome(p, old, home), s) for s, p in db.execute(
+                            "SELECT server, payload FROM layout_snapshots")])
         if (store := stage / "accounts.json").exists():
             store.write_text(_rehome(store.read_text(), old, home))
         stamp, done = time.strftime("%Y%m%d-%H%M%S"), []
@@ -144,7 +156,8 @@ def restore(src) -> list[str]:
                 done.append(f"{item.name}/{child.name}" if parent else item.name)
     return [f"Restored: {', '.join(done)}.",
             *[f"Adopted the DB from {manifest['host']}."] * (manifest["host"] != host),
-            *[f"Rewrote paths under {old} to {home}."] * (old != home),
+            *[(f"Rewrote paths under {old} to {home}. Agents' transcripts still name {old}: "
+               "they resume in place only under that same path.")] * (old != home),
             f"What was replaced is kept as *.pre-import-{stamp}.",
             *[f"No secrets came: copy {', '.join(SECRETS)} by hand, or sign in again."
               ] * (not manifest["secrets"]),
@@ -156,7 +169,10 @@ def restore(src) -> list[str]:
 def _open(name: str, mode: str):
     if name == "-":
         return contextlib.nullcontext((sys.stdin if "r" in mode else sys.stdout).buffer)
-    return open(name, mode, opener=lambda p, f: os.open(p, f, 0o600))  # private data inside
+    f = open(name, mode)  # noqa: SIM115 - the caller's with closes it
+    if "w" in mode:
+        os.fchmod(f.fileno(), 0o600)  # private data inside, even over an existing file
+    return f
 
 
 def cli(argv: list[str]) -> None:
@@ -177,6 +193,6 @@ def cli(argv: list[str]) -> None:
     with _open(args.output, "wb") as f:
         left = export(f, scratch=not args.no_scratch, secrets=args.with_secrets,
                       agents=not args.no_agents)
-    secrets = f" Secrets: {', '.join(left)}." if left else ""
+    withheld = f" Move by hand: {', '.join(left)}." if left else ""
     sys.stderr.write(f"Wrote {args.output}. Left out, rebuilt: docs, agent caches "
-                     f"({', '.join(CACHES)}).{secrets}\n")
+                     f"({', '.join(CACHES)}).{withheld}\n")

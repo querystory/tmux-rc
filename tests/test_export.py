@@ -45,6 +45,8 @@ def source(home):
     write(old / ".claude/projects/-demo/s1.jsonl")
     write(old / ".claude/.credentials.json")
     write(old / ".claude/statsig/cache")
+    write(old / ".claude-work/CLAUDE.md")
+    (old / ".claude-work/settings.json").symlink_to(old / ".claude/projects")  # a shared file
     return old
 
 
@@ -73,6 +75,7 @@ def test_round_trip(home, monkeypatch):
     assert json.loads((new / ".local/state/tmux-rc/accounts.json").read_text()) == {
         f"{new}/.claude": {}}
     assert (new / ".claude/projects/-demo/s1.jsonl").exists()
+    assert (new / ".claude-work/settings.json").readlink() == new / ".claude/projects"
     assert (new / ".claude/.credentials.json").read_text() == "this host's"  # kept, not imported
     assert [p.name for p in new.glob(".claude.pre-import-*")]
     assert (new / ".local/share/tmux-rc/scratch/demo/index.html").exists()
