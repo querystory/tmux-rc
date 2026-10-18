@@ -21,6 +21,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 from . import accounts, history, push
 
 FORMAT = 2
@@ -186,7 +188,9 @@ def restore(src) -> list[str]:
             # tar's filter strips a leading /, so judge the name after it; data's keeps a
             # hard link's target in staging too.
             m = (tarfile.data_filter if m.islnk() else tarfile.tar_filter)(m, path)
-            parts = os.path.normpath(m.name).split("/")
+            # Where it lands, through any link extracted before it: an alias of a root is one.
+            parent = os.path.realpath(os.path.join(path, os.path.dirname(m.name)))
+            parts = Path(parent, os.path.basename(m.name)).relative_to(os.path.realpath(path)).parts
             root = len(parts) < (3 if parts[0] in ("data", "agents") else 2)  # what is swapped
             linked = not (m.isfile() or m.isdir())
             return None if linked and (root or parts[-1] in IDENTITY) else m
@@ -206,6 +210,8 @@ def restore(src) -> list[str]:
                             "SELECT server, payload FROM layout_snapshots")])
         if (store := stage / "accounts.json").exists():
             store.write_text(_rehome(store.read_text(), old, home))
+        env = dotenv_values(stage / ".env") if (stage / ".env").is_file() else {}
+        paths = [k for k in ("TMUXRC_HISTORY_DB", "TMUXRC_SCRATCH_DIR") if env.get(k)]
         stamp, done = time.strftime("%Y%m%d-%H%M%S"), []
         for item in sorted(stage.iterdir()):
             parent = {"data": _data(), "agents": Path(home)}.get(item.name)
@@ -217,6 +223,8 @@ def restore(src) -> list[str]:
             *[(f"Rewrote paths under {old} to {home}. Agents' transcripts still name {old}: "
                "they resume in place only under that same path.")] * (old != home),
             f"What was replaced is kept as *.pre-import-{stamp}.",
+            *[(f"The imported .env sets {', '.join(paths)}: check it names where this import "
+               f"put {where['history.sqlite3']} and {where['scratch']}.")] * bool(paths),
             *[f"No credentials came: sign in again, or copy {', '.join(SECRETS)} by hand."
               ] * ("secrets" not in manifest["parts"]),
             *["No agent dirs came: copy ~/.claude* and ~/.codex* to resume their sessions."
