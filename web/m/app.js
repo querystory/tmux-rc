@@ -1575,14 +1575,25 @@ function badgeOf(pane) {
   const pending = isAnswered(pane);
   return pending ? { label: pending.sent ? "Sent" : "Sending", cls: "running" } : { label: activityLabel(pane), cls: activityClass(pane) };
 }
+// Holds pane `id`'s card under `pending` at once, "Sending…" and not Needs you. The returned
+// settle(sent) ends the send: delivered, "Sent, waiting for the agent" until the pane's next
+// state or ANSWER_PENDING_MS; not sent, the options are live again (the notice says why).
+function hold(id, pending) {
+  pending.note = "Sending…"; pendingAnswers.set(id, pending); render();
+  return (sent) => {
+    if (pendingAnswers.get(id) !== pending || sent && pending.sent) return; // moved on, or said already
+    if (!sent) { pendingAnswers.delete(id); render(); return; }
+    pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
+    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
+  };
+}
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
 // stops reading as Needs you, through the send and on until the pane's next state. An
 // offer (index -1) is sent as typed text plus Enter, as a text answer is.
 async function answer(id, option, index, offer = false) {
   const current = panes.find((p) => p.pane_id === id);
   if (!(offer ? offersOf(current).includes(option) : current?.question && needsYou(current)) || isAnswered(current) || sending) return;
-  const pending = { key: questionKey(current.question), option, index, note: "Sending…", ...offer && { since: current.state_since } };
-  pendingAnswers.set(id, pending); render();
+  const settle = hold(id, { key: questionKey(current.question), option, index, ...offer && { since: current.state_since } });
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
@@ -1590,16 +1601,8 @@ async function answer(id, option, index, offer = false) {
   // Open the pane first, as the cursor walk does, so the keyboard reaches the right one.
   if ((cursor || !body) && active !== id) navigate(id);
   // Delivered: a walk says so as its select lands, before it waits on the picker to close.
-  const delivered = () => {
-    if (pendingAnswers.get(id) !== pending || pending.sent) return; // moved on, or said already
-    pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
-    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
-  };
-  const sent = cursor ? await pickCursorRow(cursorIO(id, delivered), option, index)
-    : body ? await sendKeys(body, id) : notice("Use the keyboard for this option.");
-  if (sent) delivered();
-  // Not sent: the notice says why, and the options are live again.
-  else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
+  settle(!!(cursor ? await pickCursorRow(cursorIO(id, () => settle(true)), option, index)
+    : body ? await sendKeys(body, id) : notice("Use the keyboard for this option.")));
 }
 
 // What the agent hands the user to send back (classify.screen_offers), whatever the pane's
@@ -1639,7 +1642,10 @@ function cursorIO(id, committed) {
 // The draft is cleared as it goes, not when the reply lands: typing straight after Enter
 // is the next message, and clearing on the reply erased it. A failed send puts the sent
 // draft back in front of whatever was typed since (a password only into an empty field).
+// A reply to a pane that needs you holds its card as a tapped answer does.
 async function compose(id, value) {
+  const pane = panes.find((p) => p.pane_id === id);
+  const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
   const secret = value === $("secret"), sent = secret ? value.value : value.segments();
   const form = new FormData();
   if (secret) form.append("secret", sent);
@@ -1654,9 +1660,10 @@ async function compose(id, value) {
     await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
     // Not over a next draft typed while this one went: that one is unsent.
     if (active === id && !(secret ? value.value : draft(id).segments().length)) text($("draft-status"), "Sent");
-    startState();
+    settle(true); startState();
     return true;
   } catch {
+    settle(false);
     if (secret) { if (active === id && !value.value) value.value = sent; } // the one field is the open pane's
     else {
       // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
