@@ -31,9 +31,14 @@ def test_opened_skips_folders_gone_and_takes_titles_as_the_gallery_does(tmp_path
         (tmp_path / name / "index.html").write_text(f"<title>{title}</title>")
     (tmp_path / "loose.html").write_text("a file, not a folder")
     os.symlink(tmp_path / "one", tmp_path / "link")
-    visits = [("gone", 9), ("loose.html", 8), ("link", 7), ("..", 6), ("two", 5), ("one", 4)]
+    (tmp_path / "wip").mkdir()  # its page still being made: the drawer spins for it
+    (tmp_path / "wip" / "meta.json").write_text('{"title": "Soon"}')
+    visits = [("gone", 9), ("loose.html", 8), ("link", 7), ("..", 6), ("two", 5), ("one", 4),
+              ("wip", 3)]
     assert scratch.opened(tmp_path, visits, 5) == [
-        {"title": "Second", "href": "two/", "at": 5}, {"title": "First", "href": "one/", "at": 4}]
+        {"title": "Second", "href": "two/", "pending": False, "at": 5},
+        {"title": "First", "href": "one/", "pending": False, "at": 4},
+        {"title": "Soon", "href": "wip/", "pending": True, "at": 3}]
     assert len(scratch.opened(tmp_path, visits, 1)) == 1
 
 
@@ -61,7 +66,7 @@ def test_opening_a_pane_is_a_visit_and_recent_lists_only_live_ones(tmp_path, mon
     body = client.get("/api/recent").json()
     assert [p["pane_id"] for p in body["panes"]] == ["%1", "%2"]
     at = h.visits("scratch")[0][1]
-    assert body["scratch"] == [{"title": "A mock", "href": "mock/", "at": at}]
+    assert body["scratch"] == [{"title": "A mock", "href": "mock/", "pending": False, "at": at}]
     assert client.get("/api/recent?n=1").json()["panes"] == body["panes"][:1]
     assert client.get("/api/recent?n=0").status_code == 422
     monkeypatch.setattr(server.app.state, "history", None)  # no database: nothing opened yet

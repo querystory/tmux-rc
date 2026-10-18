@@ -43,8 +43,11 @@ about it.
     $TMUXRC_SCRATCH_LOCAL_URL/<folder>/ instead; a 200 means it is served. Everything in
     that directory is visible to everyone who can reach tmux-rc: never put secrets or
     private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or
-    WebSockets, or submit forms, so inline any data a page needs. Beside the page, write
-    meta.json: {"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}.
+    WebSockets, or submit forms, so inline any data a page needs. Write the folder's
+    meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time})
+    first, before the page: until index.html or index.md lands, the link shows that the
+    page is being made, so it is safe to hand out early, and the user is notified when it
+    is ready.
 
 ## Markdown pages
 
@@ -65,6 +68,42 @@ or a doc, and Source (`?raw`) shows the file itself. The page is sandboxed like 
 scratch page. Nothing needs setting up: the renderer ships with the daemon, and
 mermaid.js is served from the app's own files. The
 [design note](../design/scratch-markdown.md) explains the choices.
+
+## A link handed out before its page
+
+Agents often hand out a link before the page behind it exists ("a subagent is building it,
+it will be at `/scratch/x/`"). A folder whose `meta.json` came first counts as **in
+progress**, and it is done once its `index.html` or `index.md` lands. A site may write
+its assets ahead of its index: while files keep landing (within the last minute) it is
+still in progress, and a folder of loose files older than that is a finished publish,
+whose bare URL 404s as before. There
+is no status field: "page present means done" can't be forgotten by an agent that
+crashes, and it survives a daemon restart, since the state is read from the folder itself.
+
+- **The link** answers **202** with a placeholder: the title and description, who is making
+  it (linked to the pane), that pane's current headline, a spinner and how long ago it
+  started. It reloads itself, every 5 seconds and every 30 after ten minutes, so it turns
+  into the page once that lands. 202 rather than 200 keeps an agent's "a 200 means it is
+  served" check honest.
+- **Its state** comes from the pane named in `meta.json`. While that pane runs, waits on a
+  tool or has subagents out, the page is being made. While it idles, the placeholder says
+  so but keeps waiting, since a background subagent can build the page while its
+  session's prompt looks idle. Once the pane is closed, or idle for 30 minutes, it says
+  the agent stopped without publishing (without a pane, 30 minutes after `created`).
+- **The gallery** and the drawer's Recent show the folder with a spinner. Once the page
+  lands, its thumbnail is queued and the spinner turns into it; while one spins, the
+  gallery also reloads every 30 seconds (not while a filter is being typed), since the
+  thumbnail never comes without a browser to shoot it.
+- **When the page lands**, every subscribed device gets one push, "Ready: <title>", whose
+  tap opens the page in the app's scratch viewer. It shares its tag with the pane's
+  Needs-you notification, and for two minutes after it that pane's Needs-you is skipped
+  unless it carries answer buttons, so one finish buzzes once: a Needs-you already shown
+  is replaced silently, and a question with buttons keeps its notification, the Ready
+  arriving beside it. A page published in one go was never promised and does not notify.
+
+An orchestrator that hands a subagent's link out writes `meta.json` itself, with its own
+`$TMUX_PANE`: in Claude Code and Codex the subagent runs in that pane. A worker in another
+pane rewrites it with its own pane when it starts.
 
 ## What a card shows
 

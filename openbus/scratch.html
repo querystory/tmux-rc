@@ -16,6 +16,9 @@ input { width: 100%; height: 44px; margin-bottom: 16px; padding: 0 12px; font: i
 #cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
 article { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
 .thumb { display: grid; place-items: center; aspect-ratio: 8 / 5; color: var(--muted); font-size: 12px; text-align: center; text-decoration: none; margin: -12px -14px 4px; overflow: hidden; background: var(--raised); border-radius: 7px 7px 0 0; border-bottom: 1px solid var(--line); }
+/* A page still being made (scratch.progress): a spinner over what it says, until it stops. */
+.thumb :is(.working, .quiet)::before { content: ""; display: block; width: 24px; height: 24px; margin: 0 auto 8px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(1turn); } }
 .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
 /* The list: the same cards as rows, a small thumbnail beside the text (a phone's default). */
 #cards.list { grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -57,7 +60,7 @@ a { color: var(--accent); }
 <h2>Nothing here yet</h2>
 <p>Scratch is where coding agents publish previews for you: HTML pages, Markdown documents, mocks, reports, charts and images. Each lands in a folder of its own and shows up here as a card, with who made it.</p>
 <p>The daemon serves the folder named by <code>TMUXRC_SCRATCH_DIR</code> in its <code>.env</code>. With <code>TMUXRC_SCRATCH_ADVERTISE=1</code> and <code>TMUXRC_SCRATCH_URL</code> (this page's address), new panes learn where it is. Then add this to your agents' instructions, such as <code>AGENTS.md</code> or <code>CLAUDE.md</code>:</p>
-<pre>If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a Markdown document, a built static site, a report, images, a PDF). Write it into a new subfolder as index.md (Markdown, with Mermaid diagrams, admonitions, task lists and tables) or index.html, for example $TMUXRC_SCRATCH_DIR/&lt;folder&gt;/index.md, and give the user $TMUXRC_SCRATCH_URL/&lt;folder&gt;/ (or the folder's path if that variable is unset). The public URL sits behind the user's login, so to check the page yourself request $TMUXRC_SCRATCH_LOCAL_URL/&lt;folder&gt;/ instead; a 200 means it is served. Everything in that directory is visible to everyone who can reach tmux-rc: never put secrets or private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or WebSockets, or submit forms, so inline any data a page needs. Beside the page, write meta.json: {"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}.</pre>
+<pre>If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a Markdown document, a built static site, a report, images, a PDF). Write it into a new subfolder as index.md (Markdown, with Mermaid diagrams, admonitions, task lists and tables) or index.html, for example $TMUXRC_SCRATCH_DIR/&lt;folder&gt;/index.md, and give the user $TMUXRC_SCRATCH_URL/&lt;folder&gt;/ (or the folder's path if that variable is unset). The public URL sits behind the user's login, so to check the page yourself request $TMUXRC_SCRATCH_LOCAL_URL/&lt;folder&gt;/ instead; a 200 means it is served. Everything in that directory is visible to everyone who can reach tmux-rc: never put secrets or private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or WebSockets, or submit forms, so inline any data a page needs. Write the folder's meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}) first, before the page: until index.html or index.md lands, the link shows that the page is being made, so it is safe to hand out early, and the user is notified when it is ready.</pre>
 <p><a href="DOCS_URL">How the scratch gallery works</a></p>
 </section></main>
 <script>
@@ -83,6 +86,10 @@ for (const wait of document.querySelectorAll("[data-pending]")) {
     img.src = `${wait.dataset.pending}?${Date.now()}`; };
   poll();
 }
+// The thumbnail comes only once shot, and not without a browser: while a page is being made,
+// the gallery reloads to see it land, unless a filter is being typed.
+if (document.querySelector(".thumb :is(.working, .quiet)"))
+  setInterval(() => box.value || document.activeElement === box || location.reload(), 30000);
 for (const b of document.querySelectorAll(".who")) b.onclick = () => { box.value = b.textContent; filter(); };
 // Grid or list. Remembered where the browser allows it; the sandbox usually doesn't, and
 // inside the app the app keeps the choice: each side posts it to the other.

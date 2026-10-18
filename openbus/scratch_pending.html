@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{title}</title>
+<style>{tokens}
+body { display: grid; place-items: center; min-height: 100vh; margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+main { display: grid; gap: 12px; box-sizing: border-box; width: 100%; max-width: 600px; padding: 24px 16px; }
+h1 { margin: 0; font-size: 24px; line-height: 1.3; }
+p { margin: 0; overflow-wrap: anywhere; }
+a { color: var(--accent); }
+.muted { color: var(--muted); font-size: 14px; }
+.now { padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.spin { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .9s linear infinite; }
+.stopped .spin { display: none; }
+@keyframes spin { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 4s; } }
+</style></head><body class="{state}"><main>
+<div class="spin" role="img" aria-label="Being made"></div>
+<h1>{title}</h1>{desc}
+<p class="muted">{say}</p>{now}
+<p class="muted">{who}{where} · started {ago} ago</p>
+</main><script>
+// Sandboxed like every /scratch/ page: the system theme, and no fetch, so a reload asks again.
+document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
+setInterval(() => document.querySelector("a:hover") || location.reload(), {every});
+// In the app's viewer, the pane opens in the app rather than a second app in this frame.
+if (window.top !== window) for (const a of document.querySelectorAll('a[href^="/m/#pane="]'))
+  a.onclick = (e) => { e.preventDefault(); parent.postMessage({ pane: decodeURIComponent(a.getAttribute("href").slice(9)) }, "*"); };
+</script></body></html>

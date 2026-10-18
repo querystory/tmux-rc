@@ -1,4 +1,5 @@
 import json
+import os
 import queue
 import subprocess
 import threading
@@ -923,3 +924,69 @@ def test_a_pane_gone_at_the_claim_refuses_it_as_changed(tmp_path, monkeypatch):
     monkeypatch.setattr(push.tmux, "capture_pane", gone)
     with pytest.raises(ValueError, match="pane has changed"):
         service.answer(sender.payloads[0]["nonce"], 0)
+
+
+def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
+    clock, watcher, root = [100.0], Watcher(), tmp_path / "scratch"
+    (root / "wip").mkdir(parents=True)
+    (root / "wip" / "meta.json").write_text('{"title": "Mock", "pane": "%1"}')
+    (root / "once").mkdir()  # published in one go: never promised, never notified
+    service, sender = manager(tmp_path, watcher, clock)
+    service.scratch, shot = root, []
+    service.shoot = shot.append  # its thumbnail, for the gallery's spinner to turn into
+    service.store.upsert(subscription())
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    monkeypatch.setattr(push.scratch, "made_in", lambda _pane, _created: True)
+    watcher.states = [{**waiting(), "activity": "running", "tool": "claude", "session": "dev",
+                       "window_name": "ui"}]
+
+    def scan(write, mtime):
+        for name, file in write:
+            (root / name / file).write_text("page")
+            os.utime(root / name, (mtime, mtime))
+        clock[0] += 1
+        service.landed()
+
+    service.landed()
+    scan([("wip", "app.css")], 150)  # an asset ahead of its index: not the page yet
+    sender.available = False  # a full queue: tried again at the next scan
+    scan([("wip", "index.html"), ("once", "index.html")], 200)
+    assert sender.payloads == []
+    sender.available = True
+    scan([], 0)
+    scan([], 0)
+    assert [(p["title"], p["body"], p["tag"], p["url"], p["renotify"])
+            for p in sender.payloads] == [(
+        "Ready: Mock", "claude finished it in dev:ui", "block:%1",
+        "/m#view=scratch&open=%2Fscratch%2Fwip%2F", True)]
+    assert [i["name"] for i in shot] == ["wip"]
+    # The turn ends and the pane waits on the user: its plain Needs-you is the same news...
+    watcher.states = [waiting()]
+    for _ in range(2):
+        service.evaluate()
+        clock[0] += push.SETTLE_SECONDS
+    assert len(sender.payloads) == 1
+    # ...but a question with answers still gets through, and replaces it under the same tag.
+    watcher.states = [waiting(held())]
+    for _ in range(2):
+        service.evaluate()
+        clock[0] += push.SETTLE_SECONDS
+    assert len(sender.payloads) == 2 and sender.payloads[1]["tag"] == "block:%1"
+    # A page landing while that question's buttons are out keeps out of their way.
+    # Its assets were already landing as the scan first saw it (a restart mid-build).
+    (root / "two").mkdir()
+    (root / "two" / "meta.json").write_text('{"title": "Two", "pane": "%1"}')
+    (root / "two" / "app.css").write_text("")
+    service._mtimes = {}
+    scan([], 0)
+    scan([("two", "index.html")], 300)
+    assert sender.payloads[-1]["tag"] == "scratch:two"
+    # Another pane given the same id after a tmux restart keeps its own Needs-you.
+    service._ready = {("%1", "an earlier pane"): clock[0]}
+    watcher.states = []
+    service.evaluate()
+    watcher.states = [waiting()]
+    for _ in range(2):
+        service.evaluate()
+        clock[0] += push.SETTLE_SECONDS
+    assert sender.payloads[-1]["tag"] == "block:%1" and sender.payloads[-1]["actions"] == []

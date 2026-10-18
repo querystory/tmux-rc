@@ -29,7 +29,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from pywebpush import WebPushException, webpush
 
-from . import tmux
+from . import scratch, tmux
 from .classify import arrow_driven, is_approval
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,7 @@ RATE_MAX = 3
 NONCE_SECONDS = 10 * 60.0
 MAX_PRESENCE_LEASES = 128
 MAX_SUBSCRIPTIONS = 16
+READY_QUIET_SECONDS = 120.0  # after "Ready", a pane's Needs-you without answers says nothing new
 DEFAULT_PUSH_HOSTS = (
     "web.push.apple.com",
     "fcm.googleapis.com",
@@ -434,7 +435,7 @@ def _push_text(value, limit: int) -> str:
 
 class PushManager:
     def __init__(self, watcher, store: PushStore | None = None, *, clock=time.monotonic,
-                 sender=None):
+                 sender=None, scratch: Path | None = None, shoot=lambda _item: None):
         self.watcher = watcher
         self.store = store or PushStore()
         self.sender = sender or PushSender(self.store)
@@ -447,6 +448,11 @@ class PushManager:
         self._lock = threading.Lock()
         self._stopping = threading.Event()
         self._task: asyncio.Task | None = None
+        self.scratch = scratch  # the scratch dir whose pending pages notify as they land
+        self.shoot = shoot  # what queues a landed page's thumbnail (scratch_sidecars.queue)
+        self._mtimes: dict[str, float] = {}
+        self._waiting: set[tuple[str, int]] = set()  # pending folders, (name, inode)
+        self._ready: dict[tuple, float] = {}  # (pane, birth) -> when its "Ready" went out
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
@@ -516,11 +522,57 @@ class PushManager:
     async def _loop(self) -> None:
         while True:
             await asyncio.sleep(1)
-            try:
-                # Keep notification evaluation off the server event loop.
-                await asyncio.to_thread(self.evaluate)
-            except Exception:
-                logger.warning("push evaluation failed", exc_info=True)
+            for step in (self.evaluate, self.landed):
+                try:
+                    # Keep notification evaluation off the server event loop.
+                    await asyncio.to_thread(step)
+                except Exception:
+                    logger.warning("push %s failed", step.__name__, exc_info=True)
+
+    def landed(self) -> None:
+        """Each tick, read again the scratch folders whose entries changed
+        (all of them at startup); one that was pending (only its meta.json, its page being
+        made) and has its page now sends "Ready" to every device, tagged as its pane's
+        Needs-you so the two never stack. A page published in one go was never promised,
+        and does not notify."""
+        now = self.clock()
+        if not self.scratch:
+            return
+        seen, self._mtimes = self._mtimes, {
+            e.name: e.stat(follow_symlinks=False).st_mtime for e in os.scandir(self.scratch)}
+        for name in [n for n, at in self._mtimes.items() if seen.get(n) != at]:
+            item = scratch.read(self.scratch, self.scratch / name)
+            key = item and (name, item["inode"])
+            if item and item["pending"]:
+                self._waiting.add(key)
+            elif key in self._waiting and item["href"].endswith("/"):  # its index, no asset
+                if self._ready_push(item, now) or not self.store.subscriptions():
+                    self.shoot(item)  # the gallery's spinner polls for it
+                    self._waiting.discard(key)
+                else:  # a full queue: the next scan tries again
+                    self._mtimes.pop(name)
+
+    def _ready_push(self, item: dict, now: float) -> bool:
+        """Tell every device a pending page has landed. Its pane's Needs-you tag, so a plain
+        Needs-you already shown for that finish is replaced without a second buzz, and one
+        after it is skipped (evaluate); while that pane holds a question with answer buttons,
+        a tag of its own, so they stay."""
+        pane = next((s for s in self.watcher.states if s.get("pane_id") == item["pane"]
+                     and scratch.made_in(s, item["created"])), None)
+        with self._lock:
+            asking = any(n["pane_id"] == item["pane"] for n in self._nonces.values())
+        body = item["description"] or (pane and f"{pane.get('tool')} finished it in "
+                                       f"{pane.get('session')}:{pane.get('window_name')}")
+        sent = self.sender.send({
+            "title": _push_text(f"Ready: {item['title']}", 100),
+            "body": _push_text(body or "Its page is ready.", PUSH_BODY_MAX),
+            "tag": f"block:{item['pane']}" if pane and not asking else f"scratch:{item['name']}",
+            "renotify": not any(p == item["pane"] for p, _ in self._notified),
+            "url": "/m#" + urlencode({"view": "scratch", "open": f"/scratch/{item['href']}"}),
+            "actions": []})
+        if sent and pane:
+            self._ready[(item["pane"], pane.get("birth"))] = now
+        return sent
 
     def evaluate(self) -> None:
         if self._stopping.is_set() or self.watcher.is_stale():
@@ -548,6 +600,7 @@ class PushManager:
             if now - previous[1] >= SETTLE_SECONDS:
                 candidates.append((pane, fp, question))
 
+        self._ready = {k: at for k, at in self._ready.items() if now - at < READY_QUIET_SECONDS}
         cleared = set(self._notified) - active
         self._notified.intersection_update(active)
         self._stable = {pid: value for pid, value in self._stable.items()
@@ -599,6 +652,9 @@ class PushManager:
                     or (items and len(body) > PUSH_BODY_MAX)
                     or not self.watcher.pane_birth(pane_id)):
                 offered = []
+            if not offered and (pane_id, pane.get("birth")) in self._ready:
+                self._notified.add(marker)  # its "Ready" was the news
+                continue
             nonce = secrets.token_urlsafe(24) if offered else None
             if nonce:
                 with self._lock:
