@@ -78,8 +78,7 @@ def _files(root: Path, folders: list[Path]) -> dict[str, list[tuple[float, str]]
         ["find", *map(str, folders), "-mindepth", "1", "-name", ".*", "-prune", "-o", "(",
          "-type", "f", "-o", "-type", "l", ")", "-printf", r"%y %T@ %p\0"],
         capture_output=True, check=False).stdout
-    start = len(str(root / "_")) - 1  # a root "." prints no "./"
-    # strings, not Paths: thousands of them, under the GIL too
+    start = len(str(root)) + 1  # strings, not Paths: thousands of them, under the GIL too
     for row in (listed or b"").split(b"\0")[:-1]:
         kind, at, path = os.fsdecode(row).split(" ", 2)
         name = path[start:].split("/", 1)[0]
