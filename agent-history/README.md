@@ -114,8 +114,11 @@ every thread its clients show, while the terminal clients hold none; the daemon 
 left every terminal, and it is nobody's session, so it is never reported as the
 thread's process. Nor is the sandbox helper that runs tool commands under the name
 `codex` with its client's files. The client is found from its command line instead:
-`codex resume <id>` names the thread it shows, and that process, in its pane, is the
-thread's — which is what every pane a reboot restore brings back runs. A thread started
+`codex resume <id>` names the thread it started on, and while the daemon holds that
+thread open, that process, in its pane, is the thread's — which is what every pane a
+reboot restore brings back runs. The name alone is not enough: a client can switch
+threads in-app (`/new`), and its command line still says where it began, so a named
+thread nothing holds open is not running. A thread started
 fresh (`codex` with no ID) has no such name anywhere the client leaves it: not in its
 environment, its open files, or the rollout; and the daemon doesn't say which
 connection owns which thread. So it is reported live with no `pid` and no pane until

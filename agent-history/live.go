@@ -116,11 +116,12 @@ func procStat(pid, field int) (string, error) {
 // comm say which sessions are live, and where (see pane). Only those processes count:
 // an editor or `tail -f` on a transcript is not the session. id names the session a
 // transcript under dir belongs to ("" for none). role reads a process's command line:
-// the session it names outright (live in that process without any open file), and
 // whether it is foreign, holding transcripts on other sessions' behalf (a shared
-// server, a tool helper): a session only a foreign process holds is live with no PID,
-// and any process of its own outranks that. A candidate whose files can't be read
-// makes the harness's liveness unknown.
+// server, a tool helper), and the session it names, which that process is attributed
+// if some process holds the session's transcript open. A session only a foreign
+// process holds is live with no PID; a process of its own outranks that. A name alone
+// proves nothing: the process may have moved on to another session since it started.
+// A candidate whose files can't be read makes the harness's liveness unknown.
 func openTranscripts(comm, dir string, role func(argv []string) (session string, foreign bool), id func(path string) string) (map[string]Running, error) {
 	out := map[string]Running{}
 	// Open files show resolved paths, so compare against the resolved directory.
@@ -136,6 +137,7 @@ func openTranscripts(comm, dir string, role func(argv []string) (session string,
 	if err != nil {
 		return nil, err
 	}
+	named := map[string]Running{}
 	for _, p := range procs {
 		pid, err := strconv.Atoi(p.Name())
 		if err != nil {
@@ -161,24 +163,15 @@ func openTranscripts(comm, dir string, role func(argv []string) (session string,
 		}
 		_, uid, _ := strings.Cut(status, "\nUid:\t") // real, effective, saved, fs
 		mine := strings.HasPrefix(uid, strconv.Itoa(os.Getuid())+"\t")
-		var named string
+		var session string
 		var foreign bool
 		if role != nil {
-			named, foreign = role(strings.Split(strings.TrimSuffix(cmdline, "\x00"), "\x00"))
-		}
-		found := func(session string) {
-			r := Running{}
-			if !foreign {
-				r = Running{PID: pid, TmuxPane: pane(pid)}
-			}
-			if cur, ok := out[session]; !ok || cur.PID == 0 {
-				out[session] = r
-			}
+			session, foreign = role(strings.Split(strings.TrimSuffix(cmdline, "\x00"), "\x00"))
 		}
 		var fds []os.DirEntry
 		if err == nil && mine {
-			if named != "" {
-				found(named)
+			if session != "" && !foreign {
+				named[session] = Running{PID: pid, TmuxPane: pane(pid)}
 			}
 			fds, err = os.ReadDir(filepath.Join("/proc", p.Name(), "fd"))
 		}
@@ -199,9 +192,18 @@ func openTranscripts(comm, dir string, role func(argv []string) (session string,
 			// Named under dir as configured, so id can tell where in it the file is.
 			if rel, ok := strings.CutPrefix(target, resolved); ok && strings.HasSuffix(rel, ".jsonl") {
 				if session := id(filepath.Join(dir, rel)); session != "" {
-					found(session)
+					if cur, ok := out[session]; foreign && !ok {
+						out[session] = Running{}
+					} else if !foreign && (!ok || cur.PID == 0) {
+						out[session] = Running{PID: pid, TmuxPane: pane(pid)}
+					}
 				}
 			}
+		}
+	}
+	for session, r := range named {
+		if cur, ok := out[session]; ok && cur.PID == 0 {
+			out[session] = r
 		}
 	}
 	return out, nil

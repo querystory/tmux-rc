@@ -262,10 +262,15 @@ func TestRunningCodex(t *testing.T) {
 		}
 		stop(cmd)
 	}
-	// The client that resumed the thread names it on its command line, holds nothing,
-	// and outranks the daemon's hold; gone, the thread is the daemon's again.
-	daemon := start(codex, "app-server", path)
+	// The client that resumed the thread names it on its command line and holds
+	// nothing. Alone, that proves nothing: it may have switched to another thread since
+	// (`/new`), and this one is then nobody's. While the daemon holds the thread, the
+	// client is its process and outranks the daemon; gone, the thread is the daemon's.
 	client := start(codex, "resume", id)
+	if r, ok := running(); ok {
+		t.Errorf("a client naming a thread nothing holds counted: %+v", r)
+	}
+	daemon := start(codex, "app-server", path)
 	if r, ok := running(); !ok || r.PID != client.Process.Pid || r.TmuxPane != pane {
 		t.Errorf("resuming client = %+v, %v", r, ok)
 	}
@@ -288,6 +293,7 @@ func TestCodexProcess(t *testing.T) {
 	}{
 		{[]string{"codex", "resume", codexID}, codexID, false},
 		{[]string{"codex", "--model", "m", "resume", codexID}, codexID, false},
+		{[]string{"codex", "resume", "--model", "m", codexID}, codexID, false},
 		{[]string{"codex", "exec", "resume", codexID}, codexID, false},
 		{[]string{"codex", "resume", "--last"}, "", false},
 		{[]string{"codex", "resume"}, "", false},
@@ -296,7 +302,8 @@ func TestCodexProcess(t *testing.T) {
 		{[]string{""}, "", false}, // a process with no command line
 		{[]string{bin, "app-server", "--listen", "unix://", "--managed-daemon"}, "", true},
 		{[]string{bin, "app-server", "daemon", "pid-update-loop"}, "", true},
-		{[]string{"/tmp/x/codex-linux-sandbox", "-s", "bash", "-c", "systemctl resume " + codexID}, "", true},
+		{[]string{bin, "--config", `model="m"`, "app-server"}, "", true},
+		{[]string{"/tmp/x/codex-linux-sandbox", "-s", "bash", "-c", "systemctl", "resume", codexID}, "", true},
 	} {
 		if session, foreign := codexProcess(c.argv); session != c.session || foreign != c.foreign {
 			t.Errorf("codexProcess(%q) = %q, %v; want %q, %v", c.argv, session, foreign, c.session, c.foreign)

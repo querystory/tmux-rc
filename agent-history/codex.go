@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -210,18 +211,24 @@ func RunningCodex() (map[string]Running, error) {
 	return openTranscripts("codex", codexSessionsDir(), codexProcess, codexThreadID)
 }
 
-// codexProcess is the thread a codex command line resumes (`codex resume <id>`, with
-// any flags around it), and whether the process holds rollouts for others: the
-// app-server daemon (`codex app-server ...`) for every client's thread, and the
-// codex-linux-sandbox helper, which runs tool commands with its client's files.
+// codexProcess is the thread a codex command line resumes (`codex resume <id>`: the
+// first thread ID after the subcommand, whatever options sit around it), and whether
+// the process holds rollouts for others: the app-server daemon (`codex app-server`,
+// after any global options) for every client's thread, and the codex-linux-sandbox
+// helper, which runs tool commands with its client's files. The ID is only where the
+// client started: it may have switched threads since (openTranscripts).
 func codexProcess(argv []string) (session string, foreign bool) {
-	foreign = filepath.Base(argv[0]) == "codex-linux-sandbox" || len(argv) > 1 && argv[1] == "app-server"
-	if i := slices.Index(argv, "resume"); !foreign && i > 0 && i+1 < len(argv) &&
-		validID.MatchString(argv[i+1]) && !strings.HasPrefix(argv[i+1], "-") {
-		session = argv[i+1]
+	foreign = filepath.Base(argv[0]) == "codex-linux-sandbox" || slices.Contains(argv[1:], "app-server")
+	if i := slices.Index(argv, "resume"); !foreign && i > 0 {
+		if j := slices.IndexFunc(argv[i+1:], codexUUID.MatchString); j >= 0 {
+			session = argv[i+1+j]
+		}
 	}
 	return session, foreign
 }
+
+// codexUUID is the shape of a Codex thread ID; no option value looks like one.
+var codexUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // pane is the tmux pane a process was started in, or "" if it has no terminal, in
 // which case the pane in its environment is just where it was first spawned.
