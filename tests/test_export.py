@@ -69,6 +69,11 @@ def test_round_trip(home, monkeypatch):
     assert not [n for n in names if n.endswith(("push.json", "credentials.json", "statsig"))
                 or n.startswith(("data/docs", "data/scratch"))]
 
+    alone = io.BytesIO()  # credentials without conversations: no agent dir to replace
+    export.export(alone, ["secrets"])
+    with tarfile.open(fileobj=io.BytesIO(alone.getvalue())) as tar:
+        assert "push.json" in tar.getnames() and not [n for n in tar.getnames() if "agents" in n]
+
     new = home("new")
     write(new / ".claude/.credentials.json", "this host's")
     monkeypatch.setattr(socket, "gethostname", lambda: "newhost")

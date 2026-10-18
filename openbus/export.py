@@ -32,8 +32,9 @@ PARTS = {
               "Pane history, plan usage, the tmux layout, accounts and mocks", None),
     "scratch": ("Scratch pages", "The preview gallery", True),
     "agents": ("Agent conversations", "~/.claude*, ~/.codex*, so agents can resume", True),
-    "secrets": ("Credentials", ("Sign-ins, ~/.claude.json, ~/.config/tmux-rc, .env, push keys. "
-                                "The file then holds every sign-in and key: keep it private."),
+    "secrets": ("Credentials", ("Agents' sign-ins (with their conversations), "
+                                "~/.config/tmux-rc, .env, push keys. The file then holds "
+                                "every sign-in and key: keep it private."),
                 False),
 }
 SECRETS = ("push.json", "config", ".env")  # the VAPID key and push endpoints; credentials
@@ -75,19 +76,34 @@ def _roots():
     yield from (("state", f"data/{c.name}", c) for c in sorted(_data().glob("*"))
                 if c.name != "docs" and ".pre-import-" not in c.name)
     yield from (("agents", f"agents/{d.name}", d) for d in _agent_dirs() if d.parent == home)
-    yield "secrets", "agents/.claude.json", home / ".claude.json"  # the default ~/.claude's
+    yield "agents", "agents/.claude.json", home / ".claude.json"  # the default ~/.claude's
 
 
-def _entries():
-    """(part, archive name, path) of every file, dir and link an archive can hold: an agent
-    dir without its caches, its sign-in as a credential, and scratch only as scratch/."""
+def _part(part: str, name: str) -> str:
+    """An agent's sign-in, and who it is, is a credential: it goes only with its agent."""
+    bits = name.split("/")
+    return "secrets" if part == "agents" and len(bits) <= 3 and bits[-1] in IDENTITY else part
+
+
+def _missing(error: OSError) -> None:
+    """os.walk's error: a dir gone since its listing is skipped; any other ends the export,
+    which would otherwise end whole but short."""
+    if not isinstance(error, FileNotFoundError):
+        raise error
+
+
+def _entries(parts=PARTS):
+    """(part, archive name, path) of every file, dir and link an archive of `parts` can
+    hold: an agent dir without its caches, its sign-in as a credential, and scratch only
+    as scratch/. A part not chosen is not walked."""
     pages = places()["scratch"].resolve()
     for part, name, where in _roots():
         root = where.resolve()  # a linked root: what it links to
-        if not os.path.lexists(where) or (part != "scratch" and root == pages):
+        if part not in parts or not os.path.lexists(where) or (
+                part != "scratch" and root == pages):
             continue
-        yield part, name, root
-        for here, dirs, files in os.walk(root):
+        yield _part(part, name), name, root
+        for here, dirs, files in os.walk(root, onerror=_missing) if root.is_dir() else ():
             top, kept = here == str(root), []
             for child in sorted(dirs + files):
                 path = Path(here, child)
@@ -95,8 +111,8 @@ def _entries():
                         part != "scratch" and path == pages):
                     continue
                 kept.append(child)
-                own = "secrets" if part == "agents" and top and child in IDENTITY else part
-                yield own, f"{name}/{path.relative_to(root)}", path
+                arc = f"{name}/{path.relative_to(root)}"
+                yield _part(part, arc), arc, path
             dirs[:] = [d for d in dirs if d in kept]
 
 
@@ -131,8 +147,9 @@ def export(out, parts) -> list[str]:
         info.size, info.mtime, info.mode = len(manifest), time.time(), 0o600
         tar.addfile(info, io.BytesIO(manifest))
         if schema is not None:
+            snapshot.chmod(0o600)  # as private as the DB it copies, whatever the umask
             tar.add(snapshot, snapshot.name)
-        for part, name, path in _entries():
+        for part, name, path in _entries(parts):
             if part in parts:
                 with contextlib.suppress(FileNotFoundError):  # gone since the walk
                     tar.add(path, name, recursive=False)
