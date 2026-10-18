@@ -11,6 +11,7 @@ agent-history indexes a session only some time after it starts."""
 import json
 import os
 import re
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -64,32 +65,30 @@ def _when(stamp: str | None) -> float | None:
         return None
 
 
-def _files(folder: Path):
-    """(mtime, path) of every file under `folder`, never descending into a hidden directory
-    (.git) nor following a directory link, and a file link only to a file still inside.
-    One stat per file, from scandir's types: in the daemon each stat waits on the GIL."""
-    todo = [folder]
-    while todo:
-        try:
-            with os.scandir(todo.pop()) as found:
-                entries = list(found)
-        except OSError:  # unreadable or gone: skipped, as os.walk would
-            continue
-        for e in entries:
-            if e.name.startswith("."):
-                continue
-            if e.is_dir(follow_symlinks=False):
-                todo.append(e.path)
-            elif e.is_file(follow_symlinks=False) or (
-                    e.is_symlink() and inside(Path(e.path), folder) and e.is_file()):
-                yield e.stat(follow_symlinks=False).st_mtime, Path(e.path)
+def _files(root: Path, folders: list[Path]) -> dict[str, list[tuple[float, Path]]]:
+    """{name: [(mtime, path)]} of every file under these folders of scratch, never
+    descending into a hidden directory (.git) nor following a directory link, and a file
+    link only to a file still in its folder. One `find` for them all: walked in Python,
+    each stat waited on the GIL behind the daemon's threads, ten times slower."""
+    out: dict[str, list[tuple[float, Path]]] = {f.name: [] for f in folders}
+    listed = folders and subprocess.run(
+        ["find", *map(str, folders), "-mindepth", "1", "-name", ".*", "-prune", "-o", "(",
+         "-type", "f", "-o", "-type", "l", ")", "-printf", r"%y %T@ %p\0"],
+        capture_output=True, check=False).stdout
+    for row in (listed or b"").split(b"\0")[:-1]:
+        kind, at, path = os.fsdecode(row).split(" ", 2)
+        path = Path(path)
+        folder = root / path.relative_to(root).parts[0]
+        if kind == "f" or (inside(path, folder) and path.is_file()):
+            out[folder.name].append((float(at), path))
+    return out
 
 
-def _item(root: Path, folder: Path) -> dict | None:
+def _item(root: Path, folder: Path, files: list[tuple[float, Path]]) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
     hidden (a sidecar half-written, a .git) are not the page and do not date it."""
     sidecars = {(folder, name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
-    files = [(at, f) for at, f in _files(folder) if (f.parent, f.name) not in sidecars]
+    files = [(at, f) for at, f in files if (f.parent, f.name) not in sidecars]
     if not files:
         return None
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
@@ -114,12 +113,13 @@ def _item(root: Path, folder: Path) -> dict | None:
             and thumb.stat().st_mtime}
 
 
-def _listed(root: Path, folder: Path) -> dict | None:
+def _listed(root: Path, folder: Path, files: list | None = None) -> dict | None:
     """A folder's card, None for one hidden, a symlink, or gone (deleted or rebuilt mid-scan,
     which leaves it out, not the whole gallery)."""
     try:
         if not (folder.name.startswith(".") or folder.is_symlink()) and folder.is_dir():
-            return _item(root, folder)
+            return _item(root, folder, _files(root, [folder])[folder.name]
+                         if files is None else files)
     except OSError:
         pass
     return None
@@ -127,7 +127,9 @@ def _listed(root: Path, folder: Path) -> dict | None:
 
 def items(root: Path) -> list[dict]:
     """Every folder of scratch, most recently updated first."""
-    return sorted(filter(None, (_listed(root, f) for f in root.iterdir())),
+    folders = [f for f in root.iterdir() if not f.name.startswith(".")]
+    files = _files(root, folders)
+    return sorted(filter(None, (_listed(root, f, files[f.name]) for f in folders)),
                   key=lambda i: -i["updated"])
 
 
