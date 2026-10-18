@@ -169,7 +169,7 @@ const pendingAnswers = new Map();
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
-let latestFrame = "", paintedFrame = "", shownBelow = []; // shownBelow: each painted line's capture row, counted up from the last
+let latestFrame = "", paintedFrame = "", shown = Object.assign([], { kept: [], count: 0 }); // the painted lines (frameLines)
 // Earlier history (docs/design/live-view.md): tmux rows above the live frame, fetched as you
 // near the top and kept, since a history row never changes. Rows are counted from the
 // oldest one tmux keeps, so new output (which only adds rows below) never renumbers a row
@@ -1202,11 +1202,10 @@ function paintLines(lines) {
   });
   captureLines.splice(lines.length).forEach((node) => node.remove());
 }
-// Blank runs squeezed (keptRows), each line carries how far above the capture's last row it
-// sits, which is what a click counts in.
+// Blank runs squeezed: `kept` says which of the capture's `count` rows each line is.
 function frameLines() {
   const all = renderCaptureLines(latestCapture, { color: true }), kept = keptRows(all);
-  return Object.assign(lineMarkup(kept.map((i) => all[i])), { below: kept.map((i) => all.length - 1 - i) });
+  return Object.assign(lineMarkup(kept.map((i) => all[i])), { kept, count: all.length });
 }
 const selectionHolds = (lines) => { const s = getSelection(); return !!s && !s.isCollapsed && selectionDirty(s, lines); };
 function paintCapture(force = false) {
@@ -1229,7 +1228,7 @@ function paintCapture(force = false) {
   if (earlier.top === earlier.end && !earlier.busy && follow) earlier.top = earlier.end = top;
   if (!follow && !force && earlier.end < top && !backingOff()) { loadEarlier(); return; }
   paintLines(lines);
-  paintedFrame = latestFrame; shownTop = top; shownBelow = lines.below;
+  paintedFrame = latestFrame; shownTop = top; shown = lines;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
   loadEarlier();
 }
@@ -1242,19 +1241,25 @@ function paintEarlierCue() {
   const cue = earlier.loading ? "Loading earlier…" : earlier.top === 0 && earlier.end > 0 ? "Start of history" : "";
   text($("earlier-cue"), cue); show("earlier-cue", !!cue);
 }
-// Rows added above what you are reading must not move it: measure the frame's first line,
-// make the change, and scroll by however far that line moved. Measured rather than
-// computed, so it is right whether or not the browser anchors scrolling itself. `ifAbove`:
-// only when you are reading the frame, not rows above it: that line is above the view, or
-// there are no rows above it at all.
+// Rows added above what you are reading must not move it: measure the frame's line showing
+// `row` (its first, or past a squeezed blank run the next one shown; the frame itself while
+// empty), make the change, and scroll by however far that row's line moved. A row the frame
+// no longer shows holds nothing. Measured rather than computed, so it is right whether or not
+// the browser anchors scrolling itself. `ifAbove`: only when you are reading the frame, not
+// rows above it: that line is above the view, or there are no rows above it at all.
 // Back at the tail, the view stays there instead.
-function holdView(change, ifAbove = false) {
-  const box = $("terminal-scroll"), mark = $("capture").firstChild || $("capture"), tail = following();
-  const y = mark.getBoundingClientRect().top;
-  const hold = !ifAbove || !$("earlier").firstChild || y < box.getBoundingClientRect().top; // nothing above: the frame it is
+function holdView(change, ifAbove = false, row = shownTop) {
+  const box = $("terminal-scroll"), tail = following();
+  const line = () => {
+    const i = shown.kept.findIndex((k) => shownTop + k >= row);
+    if (i >= 0) row = shownTop + shown.kept[i];
+    return captureLines.length ? captureLines[i] : $("capture");
+  };
+  const mark = line(), y = mark?.getBoundingClientRect().top;
+  const hold = mark && (!ifAbove || !$("earlier").firstChild || y < box.getBoundingClientRect().top); // nothing above: the frame it is
   change();
   if (tail) box.scrollTop = box.scrollHeight;
-  else if (hold) box.scrollTop += mark.getBoundingClientRect().top - y;
+  else if (hold) box.scrollTop += (line() || $("capture")).getBoundingClientRect().top - y;
 }
 const backingOff = () => performance.now() - (earlier.failed ?? -Infinity) < 3000; // after a failed request
 const selected = (node) => { const s = getSelection(); return !!s?.rangeCount && !s.isCollapsed && s.getRangeAt(0).intersectsNode(node); };
@@ -1287,11 +1292,13 @@ async function loadEarlier() {
   const land = (force) => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
     if (redraws.some(([node]) => selected(node))) return; // selected since: fetched again, left as shown meanwhile
-    const tail = following();
-    for (const [node, markup] of redraws) draw(node, markup);
-    pre.append(...held); Object.assign(h, { end: heldEnd, tail: heldTail, wraps: heldWraps }); if (whole(heldTail)) h.head = heldTail;
-    if (tail) box.scrollTop = box.scrollHeight;
-    if (paintedFrame !== latestFrame) paintCapture(force); // the frame that waited
+    // The rows land as they are, so a blank run the frame squeezed grows: hold the frame's
+    // first row still shown in the frame that waited.
+    holdView(() => {
+      for (const [node, markup] of redraws) draw(node, markup);
+      pre.append(...held); Object.assign(h, { end: heldEnd, tail: heldTail, wraps: heldWraps }); if (whole(heldTail)) h.head = heldTail;
+      if (paintedFrame !== latestFrame) paintCapture(force); // the frame that waited
+    }, false, latestGeometry[0]);
   };
   try {
     for (;;) {
@@ -2136,7 +2143,7 @@ $("capture").onclick = (event) => {
   const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
   const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
   if (row < 0 || row >= captureLines.length || col < 1) return;
-  const body = { from_bottom: shownBelow[row], col, frame: paintedFrame }, id = active;
+  const body = { from_bottom: shown.count - 1 - shown.kept[row], col, frame: paintedFrame }, id = active;
   // A tap that lands on nothing answers sent:false, not an error; a failure is a gone or
   // replaced pane, and it drops any keys queued behind it, so it has to say so.
   paneInput.run(id, () => post(paneUrl(id, "click"), body)).catch(() => notice("The click could not be delivered. Check the terminal before typing on."));

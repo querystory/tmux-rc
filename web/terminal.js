@@ -147,8 +147,9 @@ export function besideHeld(rows, held, below, wraps) {
 
 // A tall window (500 rows, for scrollback) is mostly blank until the app fills it, so the live
 // view shows any run of blank rows as its first one: the frame is what was drawn, not the gaps
-// in it. The indices of the rendered lines it keeps.
-const blankRow = (markup) => !markup.replace(/<[^>]*>|&nbsp;|\s/g, "");
+// in it. A row of spaces is drawn (a colored bar, an underline), so only an empty one is blank.
+// The indices of the rendered lines it keeps.
+const blankRow = (markup) => /^(?:<[^>]*>)*$/.test(markup);
 export const keptRows = (lines) => lines.flatMap((line, i) => blankRow(line) && i && blankRow(lines[i - 1]) ? [] : [i]);
 
 // Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the
