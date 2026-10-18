@@ -65,20 +65,23 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
     const button = e.target.closest("[data-act]"), act = button?.dataset.act;
     if (!act) return;
     const body = { server: offer.server, panes: restorable().map(([wid, p]) => [wid, p.index]) };
-    card.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    card.querySelectorAll("button, input").forEach(b => { b.disabled = true; }); // a tick would redraw the card mid-request
     // The tapped button spins as a tapped answer does: the build takes as long as the layout.
     const label = act === "restore" ? "Restore" : button.textContent;
     button.classList.add("picked");
     button.textContent = `${act === "restore" ? "Restoring" : "Dismissing"}…`;
+    let failed;
     try {
       await request(act === "restore" ? "/api/restore" : "/api/restore/dismiss",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
         act === "restore" ? slow : undefined); // the build answers when the layout is up, however long
       if (act === "restore") notice("Restoring: the layout is back, agents resume a few at a time.", 6000);
     } catch (err) {
-      notice(`${err.detail || err.message} — tap ${label} again.`, 6000);
+      failed = err.detail || err.message;
     }
-    refresh();
+    await refresh();
+    // A failure that kept the offer is retried from the same button; one that spent it (a partial build, 409) has no button to retry.
+    if (failed) notice(offer?.server === body.server ? `${failed} — tap ${label} again.` : failed, 6000);
   });
   card.addEventListener("change", (e) => {
     const box = e.target, session = offer.sessions.find(s => s.name === box.dataset.session);
