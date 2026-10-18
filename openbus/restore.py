@@ -407,8 +407,8 @@ async def launch(built: list[tuple[str, dict]], watcher, audit) -> None:
                     argv[0] not in agent_history.RESUMABLE:
                 audit("restore_resume", pane, sid, "skipped: running, unknown or not resumable")
                 return
-            if "account" in binding and not (
-                    account and accounts.holds(binding["harness"], sid, account)):
+            if "account" in binding and not (account and await asyncio.to_thread(
+                    accounts.holds, binding["harness"], sid, account)):
                 audit("restore_resume", pane, sid, "skipped: its account dir lacks it")
                 return
             line = shlex.join(accounts.resume_command({**found, "resume_argv": argv}, account))
