@@ -55,6 +55,7 @@ def _members(scratch: bool, secrets: bool, agents: bool) -> list[tuple[str, Path
             if c.name != "docs" and c != where["scratch"] and ".pre-import-" not in c.name]
     dirs = {Path(d) for d in [*accounts.in_home(), *accounts.load()]} if agents else ()
     out += [(f"agents/{d.name}", d) for d in sorted(dirs) if d.parent == home and d.is_dir()]
+    out += [("agents/.claude.json", home / ".claude.json")] * (agents and secrets)  # ~/.claude's
     return [(n, p) for n, p in out if p.exists()], [
         str(d) for d in sorted(dirs) if d.parent != home and d.is_dir()]
 
@@ -62,7 +63,7 @@ def _members(scratch: bool, secrets: bool, agents: bool) -> list[tuple[str, Path
 def export(out, *, scratch=True, secrets=False, agents=True) -> list[str]:
     """Stream the archive into `out`, which need not seek. Returns what was left out that a
     person moves by hand: secrets, and agent dirs deeper than HOME's top level."""
-    db = history.default_path()
+    db = history.default_path().resolve()  # as_uri needs it absolute
     with tempfile.TemporaryDirectory() as tmp, tarfile.open(fileobj=out, mode="w|gz") as tar:
         snapshot, schema = Path(tmp, "history.sqlite3"), None
         if db.exists():  # the backup API: a consistent copy while the daemon keeps writing
@@ -86,7 +87,7 @@ def export(out, *, scratch=True, secrets=False, agents=True) -> list[str]:
                 return None if skip else m
             tar.add(path, name, filter=keep)
     return deeper + ([] if secrets else [n for n in SECRETS if places()[n].exists()] + (
-        ["the agents' sign-ins (" + ", ".join(LOGINS) + ")"] if agents else []))
+        ["the agents' sign-ins (" + ", ".join(LOGINS) + ", ~/.claude.json)"] if agents else []))
 
 
 def _running() -> bool:
@@ -134,7 +135,7 @@ def restore(src) -> list[str]:
         def admit(m, path):  # nothing outside staging; a top-level name is a file or a dir
             if m.issym() and m.linkname.startswith(old + "/"):  # an account's shared files
                 m = m.replace(linkname=home + m.linkname[len(old):], deep=False)
-            keep = "/" in m.name or m.isfile() or m.isdir()
+            keep = "/" in os.path.normpath(m.name) or m.isfile() or m.isdir()
             return tarfile.tar_filter(m, path) if keep else None
         tar.extractall(tmp, (m for m in tar if m is not first), filter=admit)
         stage = Path(tmp)

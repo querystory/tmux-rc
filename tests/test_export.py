@@ -54,7 +54,7 @@ def test_round_trip(home, monkeypatch):
     source(home)
     out = io.BytesIO()
     left = export.export(out)
-    assert "push.json" in left and "the agents' sign-ins (.credentials.json, auth.json)" in left
+    assert "push.json" in left and any(n.startswith("the agents' sign-ins") for n in left)
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         names = tar.getnames()
     assert names[:2] == ["manifest.json", "history.sqlite3"]
