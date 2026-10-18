@@ -529,6 +529,17 @@ def test_e2e_restored_agent_starts_on_its_recorded_account(server, tmp_path, mon
         assert time.time() < deadline, tmux("capture-pane", "-pJ", "-t", restored)
         time.sleep(0.05)
     print(tmux("capture-pane", "-pJ", "-t", restored))  # evidence with -s
+    # The index names a deleted copy, so agent-history gives no argv: the recorded
+    # account's copy still resumes, the harness's own way.
+    monkeypatch.setattr(R.agent_history, "get", {"s1": {"source_missing": True}}.get)
+    audits.clear()
+    asyncio.run(R.launch(built, watcher, lambda *a: audits.append(a)))
+    assert audits == [("restore_resume", restored, "s1", "ok")]
+    deadline = time.time() + 5
+    while tmux("capture-pane", "-pJ", "-t", restored).count(
+            f"resumed s1 on CLAUDE_CONFIG_DIR={personal}\n") < 2:
+        assert time.time() < deadline, tmux("capture-pane", "-pJ", "-t", restored)
+        time.sleep(0.05)
     # Gone from that account since: skipped, never resumed on whatever holds the id.
     (personal / "projects" / "-src-garden" / "s1.jsonl").unlink()
     audits.clear()

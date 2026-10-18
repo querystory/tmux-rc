@@ -395,20 +395,23 @@ async def launch(built: list[tuple[str, dict]], watcher, audit) -> None:
     slots = asyncio.Semaphore(PACE)
 
     async def one(pane: str, entry: dict) -> None:
-        sid = entry["binding"]["session_id"]
+        binding = entry["binding"]
+        sid, account = binding["session_id"], entry.get("resume_from") or binding.get("account")
         async with slots:
             found = await asyncio.to_thread(agent_history.get, sid) or {}
-            argv = found.get("resume_argv") or []
+            # agent-history drops the argv when its indexed copy is gone (source_missing);
+            # the recorded account's copy then resumes the harness's own way.
+            argv = found.get("resume_argv") or (
+                [*accounts.RESUME[binding["harness"]], sid] if found and account else [])
             if found.get("running") or found.get("running_unknown") or not argv or \
                     argv[0] not in agent_history.RESUMABLE:
                 audit("restore_resume", pane, sid, "skipped: running, unknown or not resumable")
                 return
-            account = entry.get("resume_from") or entry["binding"].get("account")
-            if "account" in entry["binding"] and not (
-                    account and accounts.holds(entry["binding"]["harness"], sid, account)):
+            if "account" in binding and not (
+                    account and accounts.holds(binding["harness"], sid, account)):
                 audit("restore_resume", pane, sid, "skipped: its account dir lacks it")
                 return
-            line = shlex.join(accounts.resume_command(found, account))
+            line = shlex.join(accounts.resume_command({**found, "resume_argv": argv}, account))
             await asyncio.to_thread(tmux.run, "send-keys", "-t", pane, "-l", line)
             await asyncio.to_thread(tmux.run, "send-keys", "-t", pane, "Enter")
             audit("restore_resume", pane, sid, "ok")
