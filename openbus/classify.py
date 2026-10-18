@@ -806,7 +806,7 @@ _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
 # Code draws down the right of its transcript.
 _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
 # A terminal hyperlink as the capture spells it (tmux._materialize_links): "[label](url)".
-_LINK_TARGET_RE = re.compile(r"\[([^\]\n]*)\]\([^)\s]*\)")
+_LINK_TARGET_RE = re.compile(r"\[([^\]\n]*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
 
 
 def _final_paragraph(message: str) -> str:

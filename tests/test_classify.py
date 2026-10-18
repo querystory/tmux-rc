@@ -1483,8 +1483,9 @@ def test_a_block_quoted_draft_is_copyable_without_its_bars():
 
 def test_a_draft_with_a_hyperlink_is_copyable_as_shown():
     # The capture keeps a terminal hyperlink's hidden target; the screen shows its label.
-    draft = "Hi Ana, could you look at acme/widgets#42 today?\nThanks!"
-    captured = draft.replace("acme/widgets#42", "[acme/widgets#42](https://example.com/42)")
+    draft = "Hi Ana, could you look at acme/widgets#42 today?\nThe docs say why.\nThanks!"
+    captured = draft.replace("acme/widgets#42", "[acme/widgets#42](https://example.com/42)").replace(
+        "docs", "[docs](https://example.com/Widget_(tool))")
     quoted = "\n".join(f"  ▎ {row}" for row in captured.split("\n"))
     screen = _auto_screen(f"Here's a message for Ana:\n\n{quoted}\n\n✻ Waiting for 1 agent")
     result = classify(_pane("claude"), screen, _llm({"copyables": [{"label": "", "text": draft}]}))
