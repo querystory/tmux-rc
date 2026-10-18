@@ -64,7 +64,9 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
   card.addEventListener("click", async (e) => {
     const act = e.target.closest("[data-act]")?.dataset.act;
     if (!act) return;
-    const body = { server: offer.server, panes: restorable().map(([wid, p]) => [wid, p.index]) };
+    const body = { server: offer.server, panes: restorable().map(([wid, p]) => [wid, p.index]),
+      // The other account each such pane's note named: picking it was consent to that one only.
+      resume_from: restorable().filter(([, p]) => p.resume_from).map(([wid, p]) => [wid, p.index, p.resume_from]) };
     card.querySelectorAll("button").forEach(b => { b.disabled = true; });
     try {
       await request(act === "restore" ? "/api/restore" : "/api/restore/dismiss",

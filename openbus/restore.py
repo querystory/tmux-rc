@@ -137,8 +137,9 @@ class Recorder:
             stat = tmux.proc_stat(run.get("pid", 0))
             pane = next((p for p, g in foreground.items() if stat[2:3] == [g]), None)
             if pane:
-                found.setdefault(pane, []).append({"harness": run.get("harness"),
-                                                   "session_id": sid, "account": _account(run)})
+                harness = run.get("harness")  # an account per agent that has them
+                found.setdefault(pane, []).append({"harness": harness, "session_id": sid, **(
+                    {"account": _account(run)} if harness in ENV else {})})
         out = {}
         for pane, group in foreground.items():
             if len(found.get(pane, ())) == 1:
@@ -153,10 +154,9 @@ class Recorder:
 def _account(run: dict) -> str | None:
     """The config dir the agent runs on, from its own environment: a session copied to
     another account (Move) keeps its id in both, and only this says which one it is. None
-    when unreadable, or a harness without accounts."""
-    harness = run.get("harness")
-    env = plan_usage.pane_env(str(run.get("pid", 0)), harness) if harness in ENV else {}
-    return str(plan_usage.home(harness, env)) if env else None
+    when unreadable: restore then refuses it rather than guess."""
+    env = plan_usage.pane_env(str(run.get("pid", 0)), run["harness"])
+    return str(plan_usage.home(run["harness"], env)) if env else None
 
 
 def _session_accounts(session: str) -> dict[str, str | None]:
@@ -245,8 +245,12 @@ def _elsewhere(pane: dict, binding: dict) -> str | None:
     the conversation: resuming the id elsewhere would silently pick up another account's
     copy, likely older. When exactly one other account has it, the pane is offered
     unticked, resuming there only if picked (`resume_from`); never the default dir unasked."""
-    account, harness, sid = binding.get("account"), binding.get("harness"), binding["session_id"]
-    if not account or accounts.holds(harness, sid, account):
+    if "account" not in binding:  # recorded before accounts were, or a harness without them
+        return None
+    account, harness, sid = binding["account"], binding["harness"], binding["session_id"]
+    if account is None:
+        return "can't tell which account it ran on"
+    if accounts.holds(harness, sid, account):
         return None
     where = f"its account dir {accounts.tilde(account)} no longer has this conversation"
     others = [p for p in accounts.holders(harness, sid) if p["dir"] != account]
@@ -380,7 +384,8 @@ async def launch(built: list[tuple[str, dict]], watcher, audit) -> None:
                 audit("restore_resume", pane, sid, "skipped: running, unknown or not resumable")
                 return
             account = entry.get("resume_from") or entry["binding"].get("account")
-            if account and not accounts.holds(entry["binding"]["harness"], sid, account):
+            if "account" in entry["binding"] and not (
+                    account and accounts.holds(entry["binding"]["harness"], sid, account)):
                 audit("restore_resume", pane, sid, "skipped: its account dir lacks it")
                 return
             line = shlex.join(accounts.resume_command(found, account))

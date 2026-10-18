@@ -378,8 +378,10 @@ it is interpreted as shell syntax, the promise `resume_argv` makes.
   (the variable alone, as plan usage does), and restore checks the conversation is still in
   that dir. If it is gone there but exactly one other account holds it, the card offers the
   pane unticked with a note naming that account, so resuming elsewhere is a choice the user
-  makes; with none or several, the pane is blocked. Nothing falls back to the default dir
-  unasked. Each session's own account default (`tmux set-environment`) is recorded too and
+  makes. The request names that account, and a pane whose target changed after the card
+  was drawn is refused, so the tick consents to one account only. With none or several,
+  or an account the recorder could not read, the pane is blocked. Nothing falls back to
+  the default dir unasked. Each session's own account default (`tmux set-environment`) is recorded too and
   set again on the rebuilt session, so its new windows open where they did. Snapshots from
   before this carry no account and keep deriving it from `source`. The argv comes paired with the
   index entry's `cwd`, which is where it must run, and restore validates that directory

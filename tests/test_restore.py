@@ -292,19 +292,21 @@ def test_launch_types_each_resume_and_skips_one_running_meanwhile(server, monkey
     assert "codex resume two" not in tmux("capture-pane", "-p", "-t", b)
 
 
-def _post(monkeypatch, tmp_path, build):
-    """The restore endpoint over a one-pane offer, `build` standing in for the layout."""
+def _post(monkeypatch, tmp_path, build, pane=(), **sent):
+    """The restore endpoint over a one-pane offer (`pane`: more of its fields), `build`
+    standing in for the layout; `sent`: more of the request."""
     from fastapi.testclient import TestClient
 
     import openbus.server as S
-    found = {"server": "dead", "windows": {"@1": {"panes": [{"index": 0, "blocked": None}]}}}
+    found = {"server": "dead", "windows": {"@1": {"panes": [{"index": 0, "blocked": None,
+                                                             **dict(pane)}]}}}
     spent = []
     monkeypatch.setattr(S.app.state, "history", History(tmp_path / "h.db"), raising=False)
     monkeypatch.setattr(R, "offer", lambda _h: found)
     monkeypatch.setattr(R, "consume", lambda _h, _s, how: spent.append(how) or True)
     monkeypatch.setattr(R, "build", build)
     reply = TestClient(S.app).post("/api/restore", json={"server": "dead",
-                                                          "panes": [["@1", 0], ["@9", 3]]})
+                                                          "panes": [["@1", 0], ["@9", 3]], **sent})
     return reply, spent
 
 
@@ -342,6 +344,23 @@ def test_restore_offers_again_only_when_tmux_built_nothing(server, tmp_path, mon
     reply, spent = _post(monkeypatch, tmp_path, refuse)
     assert reply.status_code == 500
     assert spent == ["restored"]  # what it built can't be told: kept spent, not built twice
+
+
+def test_another_account_resumes_only_the_one_the_card_named(server, tmp_path, monkeypatch):
+    """The card was drawn while the pane's own account still had its conversation; by the
+    tap it had moved on, so the pick named no account: refused, the snapshot unspent."""
+    server()
+    elsewhere = {"resume_from": "/x/.claude"}
+    reply, spent = _post(monkeypatch, tmp_path, None, elsewhere)
+    assert (reply.status_code, spent) == (409, [])
+    reply, spent = _post(monkeypatch, tmp_path, None, elsewhere,
+                         resume_from=[["@1", 0, "/x/.claude-b"]])
+    assert (reply.status_code, spent) == (409, [])
+    import openbus.server as S
+    monkeypatch.setattr(S.app.state, "watcher", None, raising=False)  # nothing to resume
+    reply, spent = _post(monkeypatch, tmp_path, lambda *_: [], elsewhere,
+                         resume_from=[["@1", 0, "/x/.claude"]])
+    assert (reply.status_code, spent) == (200, ["restored"])
 
 
 def test_build_gives_each_session_its_recorded_size(server, tmp_path, monkeypatch):
@@ -430,6 +449,9 @@ def test_a_conversation_gone_from_its_account_is_never_resumed_elsewhere_unasked
     pane = {**pane, "binding": dict(pane["binding"])}
     pane.pop("resume_from"), pane.pop("note")
     assert R._judge(pane, 1_000_000.0, entries)[1].endswith("several other accounts do")
+    # Its account couldn't be read when recorded: blocked, never guessed.
+    unknown = {**pane, "binding": {**pane["binding"], "account": None}}
+    assert R._judge(unknown, 1_000_000.0, entries) == (False, "can't tell which account it ran on")
     # Its own account still has it: resumed there, as recorded.
     _transcript(personal, "s1")
     assert R._judge({**pane}, 1_000_000.0, entries) == (True, None)
