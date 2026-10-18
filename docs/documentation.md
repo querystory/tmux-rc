@@ -4,8 +4,8 @@ toc: false
 ---
 
 <p align="center" style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center">
-  <img src="../img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both, Just #413 and Later buttons right on its row" width="200">
-  <img src="../img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, the three answers as buttons, and both PRs under Links with their titles" width="200">
+  <img src="../img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both and Just #413 buttons right on its row" width="200">
+  <img src="../img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, both answers as buttons, and both PRs under Links with their titles" width="200">
   <img src="../img/mobile-offers.png" alt="An agent hands you a command to run: make test, and a reply, each with Send it and Copy buttons" width="200">
 </p>
 

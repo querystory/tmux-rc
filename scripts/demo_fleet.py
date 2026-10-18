@@ -77,7 +77,7 @@ ROWS = """\
 7|shell|idle|dotfiles sync|3d||Synced with origin.
 7|claude|idle|disk cleanup|6m||Pruned images older than 14 days. Freed 38 GB.
 7|claude|run|webhook timeouts|now||Moving stock reservation into a background job.
-0|claude|need|refunds|1m|PRs #413 and #414 are green and reviewed. Merge?|Merge both,Just #413,Later
+0|claude|need|refunds|1m|PRs #413 and #414 are green and reviewed. Merge?|Merge both,Just #413
 5|claude|idle|prod deploy|2m||Production is on v0.15.2. Health checks green.
 """
 
