@@ -805,6 +805,8 @@ _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
 # A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
 # Code draws down the right of its transcript.
 _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
+# A terminal hyperlink as the capture spells it (tmux._materialize_links): "[label](url)".
+_LINK_TARGET_RE = re.compile(r"\[([^\]\n]*)\]\([^)\s]*\)")
 
 
 def _final_paragraph(message: str) -> str:
@@ -1456,13 +1458,17 @@ def classify(
                 ).split()))
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
-    copy_source = _FRAME_BARS_RE.sub("", visible).replace("\\\n", "")
+    # A hyperlink's target is invisible on screen: only its label is shown and copied.
+    def _as_shown(text):
+        return _LINK_TARGET_RE.sub(r"\1", text).replace("\\\n", "")
+
+    copy_source = _as_shown(_FRAME_BARS_RE.sub("", visible))
 
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
         # fragments cut out of a longer prose paragraph. Permit terminal wraps, and
         # line continuations kept as shown or joined (both sides drop them alike).
-        text = text.replace("\\\n", "")
+        text = _as_shown(text)
         words = r"\s+".join(re.escape(word) for word in text.split())
         return f"`{text}`" in copy_source or re.search(
             r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
