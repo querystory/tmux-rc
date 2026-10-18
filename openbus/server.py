@@ -659,14 +659,21 @@ def export_all(request: Request, part: Annotated[list[str] | None, Query()] = No
     _audit(request, "export", "-", f"parts={','.join(parts)}")
     read, write = os.pipe()
 
+    failed = []
+
     def produce():
         with suppress(BrokenPipeError), open(write, "wb") as out:  # the download was dropped
-            export.export(out, parts)
+            try:
+                export.export(out, parts)
+            except Exception as e:  # noqa: BLE001 - raised below, so the download fails
+                failed.append(e)
 
     def chunks():
         with open(read, "rb") as f:
             while chunk := f.read(1 << 16):
                 yield chunk
+        if failed:  # never a short archive that looks whole
+            raise failed[0]
 
     threading.Thread(target=produce, daemon=True).start()
     return StreamingResponse(chunks(), media_type="application/gzip", headers={

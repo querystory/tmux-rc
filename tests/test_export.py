@@ -34,7 +34,7 @@ def write(path, text="x"):
 
 
 def source(home):
-    old = home("old")
+    old = home("oldé")  # JSON escapes the é
     History(history.default_path())
     with sqlite3.connect(history.default_path()) as db:
         db.execute("INSERT INTO layout_snapshots VALUES ('boot:1:2', 0, ?, NULL)",
@@ -60,7 +60,7 @@ def test_round_trip(home, monkeypatch):
     assert export.export(out, ["scratch", "agents"]) == []
     sizes = export.sizes()  # what the walk counts is what export holds: no cache, no login
     assert sizes["secrets"] == len("{}x") and sizes["scratch"] == 1
-    assert sizes["agents"] == len("xx") + len(f"{old}/.claude/projects")  # files, and a link
+    assert sizes["agents"] == len("xx") + len(f"{old}/.claude/projects".encode())  # 2 files, a link
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         names = tar.getnames()
     assert names[:2] == ["manifest.json", "history.sqlite3"]
@@ -76,8 +76,8 @@ def test_round_trip(home, monkeypatch):
     assert "Adopted the DB from" in "".join(report)
     History(history.default_path())  # the daemon starts: the DB is this host's now
     with sqlite3.connect(history.default_path()) as db:
-        assert db.execute("SELECT payload FROM layout_snapshots").fetchone()[0] == (
-            json.dumps({"cwd": f"{new}/src/demo"}))
+        assert json.loads(db.execute("SELECT payload FROM layout_snapshots").fetchone()[0]) == (
+            {"cwd": f"{new}/src/demo"})
         assert db.execute("SELECT account FROM plan_usage").fetchone()[0] == f"{new}/.codex"
     assert json.loads((new / ".local/state/tmux-rc/accounts.json").read_text()) == {
         f"{new}/.claude": {}}

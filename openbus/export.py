@@ -115,6 +115,7 @@ def export(out, parts) -> list[str]:
     """Stream the archive of `parts` (state always) into `out`, which need not seek.
     Returns what a person moves by hand: agent dirs deeper than HOME's top level."""
     parts = {"state", *parts}
+    deeper = [str(d) for d in _agent_dirs() if d.parent != Path.home()] * ("agents" in parts)
     db = history.default_path().resolve()  # as_uri needs it absolute
     with tempfile.TemporaryDirectory() as tmp, tarfile.open(fileobj=out, mode="w|gz") as tar:
         snapshot, schema = Path(tmp, "history.sqlite3"), None
@@ -125,7 +126,7 @@ def export(out, parts) -> list[str]:
                 schema = copy.execute("PRAGMA user_version").fetchone()[0]
         manifest = json.dumps({"format": FORMAT, "schema": schema, "host": socket.gethostname(),
                                "home": str(Path.home()), "created": time.time(),
-                               "parts": sorted(parts)}).encode()
+                               "parts": sorted(parts), "left": deeper}).encode()
         info = tarfile.TarInfo("manifest.json")
         info.size, info.mtime, info.mode = len(manifest), time.time(), 0o600
         tar.addfile(info, io.BytesIO(manifest))
@@ -135,8 +136,7 @@ def export(out, parts) -> list[str]:
             if part in parts:
                 with contextlib.suppress(FileNotFoundError):  # gone since the walk
                     tar.add(path, name, recursive=False)
-    deeper = [str(d) for d in _agent_dirs() if d.parent != Path.home()]
-    return deeper if "agents" in parts else []
+    return deeper
 
 
 def _running() -> bool:
@@ -147,16 +147,23 @@ def _running() -> bool:
 
 
 def _rehome(text: str, old: str, new: str) -> str:
-    """A literal swap of the home prefix in JSON text: nothing cleverer."""
-    return text.replace(f'"{old}/', f'"{new}/').replace(f'"{old}"', f'"{new}"')
+    """JSON text with each string (a key too) under the old home moved to the new one: a
+    literal prefix swap, nothing cleverer."""
+    def swap(v):
+        if isinstance(v, dict):
+            return {swap(k): swap(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [swap(x) for x in v]
+        return new + v[len(old):] if isinstance(v, str) and f"{v}/".startswith(f"{old}/") else v
+    return json.dumps(swap(json.loads(text)), sort_keys=True, separators=(",", ":"))
 
 
-def _swap(src: Path, dst: Path, stamp: str) -> None:
+def _swap(src: Path, dst: Path, stamp: str, sidecars=("",)) -> None:
     """Move what is at dst aside (a DB with its WAL, named as SQLite looks for it), then src
     into place. An agent dir keeps this host's sign-in, and who it is, when the archive
     brought no sign-in."""
     old = dst.with_name(f"{dst.name}.pre-import-{stamp}")
-    for suffix in ("", "-wal", "-shm"):
+    for suffix in sidecars:
         if os.path.lexists(here := dst.with_name(dst.name + suffix)):
             here.rename(old.with_name(old.name + suffix))
     if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
@@ -216,7 +223,8 @@ def restore(src) -> list[str]:
         for item in sorted(stage.iterdir()):
             parent = {"data": _data(), "agents": Path(home)}.get(item.name)
             for child in sorted(item.iterdir()) if parent else [item] * (item.name in where):
-                _swap(child, parent / child.name if parent else where[item.name], stamp)
+                _swap(child, parent / child.name if parent else where[item.name], stamp,
+                      ("", "-wal", "-shm") if item.name == "history.sqlite3" else ("",))
                 done.append(f"{item.name}/{child.name}" if parent else item.name)
     return [f"Restored: {', '.join(done)}.",
             *[f"Adopted the DB from {manifest['host']}."] * (manifest["host"] != host),
@@ -229,6 +237,8 @@ def restore(src) -> list[str]:
               ] * ("secrets" not in manifest["parts"]),
             *["No agent dirs came: copy ~/.claude* and ~/.codex* to resume their sessions."
               ] * ("agents" not in manifest["parts"]),
+            *[f"Not in the archive, copy by hand: {', '.join(manifest['left'])}."
+              ] * bool(manifest["left"]),
             "Next: `make install-units` (and `make docs`) in the checkout."]
 
 
