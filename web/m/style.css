@@ -360,6 +360,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .set-row small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .set-row code { font: 11.5px var(--mono); }
 .set-link { color: var(--accent); font-weight: 600; }
+.set-link small { font-weight: 400; }
 .seg { display: inline-flex; flex: none; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
 .seg button { min-height: 28px; padding: 0 10px; border-radius: 6px; font-size: 13px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; }
