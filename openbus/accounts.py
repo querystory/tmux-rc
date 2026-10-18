@@ -313,9 +313,13 @@ def _tree(paths: list[Path]):
 
 
 def _has_record(log: Path) -> bool:
-    """Whether the log holds one whole line yet, read a chunk at a time until it does."""
-    with log.open("rb") as f:
-        return any(b"\n" in chunk for chunk in iter(lambda: f.read(1 << 16), b""))
+    """Whether the log holds one whole line yet, read a chunk at a time until it does. One
+    that can't be read (gone meanwhile, say) has none."""
+    try:
+        with log.open("rb") as f:
+            return any(b"\n" in chunk for chunk in iter(lambda: f.read(1 << 16), b""))
+    except OSError:
+        return False
 
 
 def resumable(paths: list[Path]) -> bool:

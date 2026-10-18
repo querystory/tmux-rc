@@ -400,8 +400,9 @@ def test_recorder_keeps_each_agents_account_and_each_sessions_default(server, tm
     tmux("set-environment", "-t", "work", "CODEX_HOME", str(tmp_path / ".codex-side"))
     tmux("set-environment", "-t", "work", "-r", "CLAUDE_CONFIG_DIR")
     pane = tmux("display-message", "-p", "-t", "work:0", "#{pane_id}")
-    tmux("send-keys", "-t", pane, f"env CLAUDE_CONFIG_DIR={personal}/ API_TOKEN=hunter2 "
-         "sleep 304", "Enter")
+    # Relative, as typed in its directory: the agent's cwd resolves it, not the daemon's.
+    tmux("send-keys", "-t", pane, f"cd {tmp_path} && env CLAUDE_CONFIG_DIR=.claude-personal/ "
+         "API_TOKEN=hunter2 sleep 304", "Enter")
     agent = _until("^sleep 304")
     monkeypatch.setattr(R.agent_history, "live", lambda: {
         "sessions": {"s1": {"pid": agent, "harness": "claude"}}, "unknown": []})
@@ -452,11 +453,17 @@ def test_a_conversation_gone_from_its_account_is_never_resumed_elsewhere_unasked
     pane = {**pane, "binding": dict(pane["binding"])}
     pane.pop("resume_from"), pane.pop("note")
     assert R._judge(pane, 1_000_000.0, entries)[1].endswith("several other accounts do")
+    # The index names a deleted copy, but the recorded account's is there: still offered.
+    _transcript(personal, "s1")
+    stale = {"s1": {**entries["s1"], "source_missing": True}}
+    assert R._judge({**pane, "binding": dict(pane["binding"])}, 1_000_000.0, stale) == (True, None)
+    (personal / "projects" / "-src-garden" / "s1.jsonl").unlink()
+    assert not R.accounts._has_record(personal / "gone.jsonl")  # unreadable: no record, no raise
     # Its account couldn't be read when recorded: blocked, never guessed.
     unknown = {**pane, "binding": {**pane["binding"], "account": None}}
     assert R._judge(unknown, 1_000_000.0, entries) == (False, "can't tell which account it ran on")
     # Its own account still has it: resumed there, as recorded.
-    _transcript(personal, "s1")
+    (personal / "projects" / "-src-garden" / "s1.jsonl").write_text('{"type":"user"}\n')
     assert R._judge({**pane}, 1_000_000.0, entries) == (True, None)
 
 
@@ -504,6 +511,10 @@ def test_e2e_restored_agent_starts_on_its_recorded_account(server, tmp_path, mon
                             for p in win["panes"]})
     assert {f"CLAUDE_CONFIG_DIR={personal}", "-CODEX_HOME"} <= set(
         tmux("show-environment", "-t", "work").split())  # the session's default, re-applied
+    shell = tmux("display-message", "-p", "-t", built[0][0], "#{pane_pid}")
+    environ = Path(f"/proc/{shell}/environ").read_text().split("\0")
+    assert f"CLAUDE_CONFIG_DIR={personal}" in environ  # the seed's shell too, started after it
+    assert not any(v.startswith("CODEX_HOME=") for v in environ)
     monkeypatch.setattr(R.agent_history, "get", {"s1": {
         "resume_argv": ["claude", "--resume", "s1"],
         "source": str(Path.home() / ".claude/projects/-src/s1.jsonl")}}.get)

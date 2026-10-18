@@ -382,7 +382,8 @@ it is interpreted as shell syntax, the promise `resume_argv` makes.
   was drawn is refused, so the tick consents to one account only. With none or several,
   or an account the recorder could not read, the pane is blocked. Nothing falls back to
   the default dir unasked. Each session's own account default (`tmux set-environment`) is recorded too and
-  set again on the rebuilt session, so its new windows open where they did. Snapshots from
+  set again on the rebuilt session before its shells start, so they and its new windows
+  open where they did. Snapshots from
   before this carry no account and keep deriving it from `source`. The argv comes paired with the
   index entry's `cwd`, which is where it must run, and restore validates that directory
   as Live Mode's resume does. When it differs from the snapshot's pane directory (the

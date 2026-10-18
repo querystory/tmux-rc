@@ -19,6 +19,7 @@ import sqlite3
 import subprocess
 import time
 from datetime import datetime
+from pathlib import Path
 
 from . import accounts, agent_history, plan_usage, tmux
 from .history import AGENT_TOOLS
@@ -154,9 +155,17 @@ class Recorder:
 def _account(run: dict) -> str | None:
     """The config dir the agent runs on, from its own environment: a session copied to
     another account (Move) keeps its id in both, and only this says which one it is. None
-    when unreadable: restore then refuses it rather than guess."""
-    env = plan_usage.pane_env(str(run.get("pid", 0)), run["harness"])
-    return str(plan_usage.home(run["harness"], env)) if env else None
+    when unreadable: restore then refuses it rather than guess. A relative dir is the
+    agent's, so it is resolved against the agent's cwd, never the daemon's."""
+    pid = str(run.get("pid", 0))
+    if not (env := plan_usage.pane_env(pid, run["harness"])):
+        return None
+    config = plan_usage.home(run["harness"], env)
+    try:
+        return str(config if config.is_absolute() else Path(plan_usage.canonical(
+            os.path.join(os.readlink(f"/proc/{pid}/cwd"), config))))
+    except OSError:
+        return None
 
 
 def _session_accounts(session: str) -> dict[str, str | None]:
@@ -217,7 +226,9 @@ def _judge(pane: dict, died: float, entries: dict | None) -> tuple[bool, str | N
         if entries is None:
             return False, "agent-history isn't answering; rebuild it with make install-units"
         entry = entries.get(binding["session_id"])
-        if entry is None or entry.get("source_missing"):
+        # An index naming a deleted copy is no loss when the recorded account holds one:
+        # _elsewhere judges that.
+        if entry is None or (entry.get("source_missing") and "account" not in binding):
             return False, "its conversation is gone"
         if entry.get("running_unknown"):
             return False, "can't tell whether it's already running"
@@ -287,10 +298,13 @@ def build(snapshot: dict, chosen: set[tuple[str, int]]) -> list[tuple[str, dict]
         name = _free(session["name"], taken)
         if session["group"] in groups:  # a group member shares the windows already built
             tmux.run("new-session", "-d", "-s", name, "-t", groups[session["group"]])
+            _defaults(session, name)
         else:
             fresh = next((w for w in links if w["id"] not in built), None)
             first = fresh and _picked(windows[fresh["id"]], fresh["id"], chosen)[0]["cwd"]
             seed = tmux.new_session(name, first or session["path"], size=_size(windows, session))
+            if _defaults(session, name):  # the seed's shell started before them: again, after
+                tmux.run("respawn-pane", "-k", "-t", seed, "-c", first or session["path"])
             for link in links:
                 target = f"{name}:{link['index']}"
                 if link["id"] in built:
@@ -309,13 +323,19 @@ def build(snapshot: dict, chosen: set[tuple[str, int]]) -> list[tuple[str, dict]
                 built[link["id"]] = target
             if not fresh:  # only shared windows here: the seed window was a placeholder
                 tmux.run("kill-pane", "-t", seed)
-        for tool, config in session.get("accounts", {}).items():  # its new windows' default
-            tmux.set_env(ENV[tool], config, session=name)
         groups.setdefault(session["group"] or None, name)
         taken.add(name)
         current = next((w for w in links if w["current"]), links[0])
         tmux.run("select-window", "-t", f"{name}:{current['index']}")
     return out
+
+
+def _defaults(session: dict, name: str) -> bool:
+    """Set the session's recorded account defaults on its rebuilt namesake, before its
+    other shells start, so they and its new windows open where they did. Whether any."""
+    for tool, config in session.get("accounts", {}).items():
+        tmux.set_env(ENV[tool], config, session=name)
+    return bool(session.get("accounts"))
 
 
 def _size(windows: dict, session: dict) -> tuple[int, int] | None:
