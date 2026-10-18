@@ -1,6 +1,6 @@
 import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
-import { renderCaptureLines, linkifyText, besideHeld } from "/terminal.js";
+import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
@@ -169,7 +169,7 @@ const pendingAnswers = new Map();
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
-let latestFrame = "", paintedFrame = "";
+let latestFrame = "", paintedFrame = "", shownBelow = []; // shownBelow: each painted line's capture row, counted up from the last
 // Earlier history (docs/design/live-view.md): tmux rows above the live frame, fetched as you
 // near the top and kept, since a history row never changes. Rows are counted from the
 // oldest one tmux keeps, so new output (which only adds rows below) never renumbers a row
@@ -1202,7 +1202,12 @@ function paintLines(lines) {
   });
   captureLines.splice(lines.length).forEach((node) => node.remove());
 }
-const frameLines = () => lineMarkup(renderCaptureLines(latestCapture, { color: true }));
+// Blank runs squeezed (keptRows), each line carries how far above the capture's last row it
+// sits, which is what a click counts in.
+function frameLines() {
+  const all = renderCaptureLines(latestCapture, { color: true }), kept = keptRows(all);
+  return Object.assign(lineMarkup(kept.map((i) => all[i])), { below: kept.map((i) => all.length - 1 - i) });
+}
 const selectionHolds = (lines) => { const s = getSelection(); return !!s && !s.isCollapsed && selectionDirty(s, lines); };
 function paintCapture(force = false) {
   // A reflow (new width) or a switch of screen renumbers every row, and trimmed or cleared
@@ -1224,7 +1229,7 @@ function paintCapture(force = false) {
   if (earlier.top === earlier.end && !earlier.busy && follow) earlier.top = earlier.end = top;
   if (!follow && !force && earlier.end < top && !backingOff()) { loadEarlier(); return; }
   paintLines(lines);
-  paintedFrame = latestFrame; shownTop = top;
+  paintedFrame = latestFrame; shownTop = top; shownBelow = lines.below;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
   loadEarlier();
 }
@@ -2131,7 +2136,7 @@ $("capture").onclick = (event) => {
   const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
   const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
   if (row < 0 || row >= captureLines.length || col < 1) return;
-  const body = { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }, id = active;
+  const body = { from_bottom: shownBelow[row], col, frame: paintedFrame }, id = active;
   // A tap that lands on nothing answers sent:false, not an error; a failure is a gone or
   // replaced pane, and it drops any keys queued behind it, so it has to say so.
   paneInput.run(id, () => post(paneUrl(id, "click"), body)).catch(() => notice("The click could not be delivered. Check the terminal before typing on."));

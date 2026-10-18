@@ -145,6 +145,12 @@ export function besideHeld(rows, held, below, wraps) {
   return { lines: lines.slice(alone.length), again, raw: sgrOf(raw.slice(0, cut)) + tail };
 }
 
+// A tall window (500 rows, for scrollback) is mostly blank until the app fills it, so the live
+// view shows any run of blank rows as its first one: the frame is what was drawn, not the gaps
+// in it. The indices of the rendered lines it keeps.
+const blankRow = (markup) => !markup.replace(/<[^>]*>|&nbsp;|\s/g, "");
+export const keptRows = (lines) => lines.flatMap((line, i) => blankRow(line) && i && blankRow(lines[i - 1]) ? [] : [i]);
+
 // Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the
 // terminal gets — markdown [label](url) and bare URLs — but with wrap-joining OFF, because
 // that heuristic reads equal line lengths as evidence of a fixed-width grid. In prose the
