@@ -618,9 +618,10 @@ def _ground_visible_fields(
         )
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"
+    # With no status chrome, an identity re-read has nothing to read a title from.
     retry = llm_fn(
         prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}",
-    ) if llm_fn else None
+    ) if llm_fn and (bad_action or identity_chrome) else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if retry:
         _fold_sends(retry)

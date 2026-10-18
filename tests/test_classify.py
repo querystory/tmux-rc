@@ -810,6 +810,16 @@ def test_null_session_does_not_trigger_retry():
     assert len(calls) == 1
 
 
+def test_session_without_status_chrome_skips_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        return {"tool": "claude", "session": "Unrelated title", "activity": "idle"}
+    result = classify(_pane("claude"), "\x1e[visible screen]\x1f\n> Ready", read)
+    assert "session" not in result and result["activity"] == "idle"
+    assert len(calls) == 1
+
+
 def test_failed_identity_retry_preserves_valid_current_state():
     for retry in (None, {}, {"session": "Still another title"}):
         replies = iter([{"tool": "codex", "session": "Other title", "activity": "idle",
