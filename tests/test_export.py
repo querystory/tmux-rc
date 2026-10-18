@@ -18,6 +18,8 @@ def home(monkeypatch, tmp_path):
     for var in ("XDG_STATE_HOME", "XDG_DATA_HOME", "TMUXRC_HISTORY_DB", "TMUXRC_SCRATCH_DIR"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(export, "_running", lambda: False)
+    places = export.places  # the checkout's own .env stays out of it
+    monkeypatch.setattr(export, "places", lambda: {**places(), ".env": tmp_path / "none"})
 
     def at(name):
         (tmp_path / name).mkdir()
@@ -53,17 +55,19 @@ def source(home):
 
 
 def test_round_trip(home, monkeypatch):
-    source(home)
+    old = source(home)
     out = io.BytesIO()
-    left = export.export(out)
-    assert "push.json" in left and any(n.startswith("the agents' sign-ins") for n in left)
+    assert export.export(out, ["scratch", "agents"]) == []
+    sizes = export.sizes()  # what the walk counts is what export holds: no cache, no login
+    assert sizes["secrets"] == len("{}x") and sizes["scratch"] == 1
+    assert sizes["agents"] == len("xx") + len(f"{old}/.claude/projects")  # files, and a link
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         names = tar.getnames()
     assert names[:2] == ["manifest.json", "history.sqlite3"]
     assert {"accounts.json", "data/mocks/a/index.html", "scratch/demo/index.html",
             "agents/.claude/projects/-demo/s1.jsonl"} <= set(names)
     assert not [n for n in names if n.endswith(("push.json", "credentials.json", "statsig"))
-                or n.startswith("data/docs")]
+                or n.startswith(("data/docs", "data/scratch"))]
 
     new = home("new")
     write(new / ".claude/.credentials.json", "this host's")
@@ -88,7 +92,7 @@ def test_round_trip(home, monkeypatch):
 def test_refusals(home, monkeypatch):
     source(home)
     out = io.BytesIO()
-    export.export(out, scratch=False, agents=False)
+    export.export(out, [])
     home("new")
     monkeypatch.setattr(history, "MIGRATIONS", history.MIGRATIONS[:1])
     with pytest.raises(SystemExit, match="newer"):
@@ -103,7 +107,7 @@ def test_a_linked_state_file_is_refused(home, tmp_path):
     source(home)
     out, outside = io.BytesIO(), tmp_path / "outside.json"
     outside.write_text("{}")
-    export.export(out, scratch=False, agents=False)
+    export.export(out, [])
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         manifest = tar.extractfile("manifest.json").read()
     crafted = io.BytesIO()

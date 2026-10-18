@@ -62,13 +62,15 @@ does. On the new machine, clone the checkout, then:
    beside it as `*.pre-import-<time>`, and paths under the old `$HOME` are rewritten.
 3. `make install-units`, and `make docs` if you serve the docs.
 
-Credentials stay out of the archive: the agents' logins, the push keys, `~/.config/tmux-rc`
-and the checkout's `.env`. Sign in again, or move them in one pipe that never leaves a file
-behind: `uv run tmux-rc export --with-secrets -o - | ssh newhost 'cd tmux-rc && uv run
-tmux-rc import -'`. `--no-scratch` and `--no-agents` make the archive smaller.
+Credentials stay out unless asked for: the agents' logins, `~/.claude.json`, the push keys,
+`~/.config/tmux-rc` and the checkout's `.env`. Without them, sign in again on the new
+machine. `--with-secrets` adds them, and the file then holds every sign-in and key, so keep
+it private, or move it in one pipe that never leaves a file behind: `uv run tmux-rc export
+--with-secrets -o - | ssh newhost 'cd tmux-rc && uv run tmux-rc import -'`. `--no-scratch`
+and `--no-agents` make the archive smaller.
 
-Settings' **Export all** downloads tmux-rc's own state only, without the agents' dirs
-(often many gigabytes, more than a tunnel carries). For a full move, use the CLI.
+Settings › **Export all…** makes the same archive from the app: tick the parts to include,
+each shown with its size before compression, and download.
 
 ## What this website serves
 

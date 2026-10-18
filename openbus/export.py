@@ -1,10 +1,10 @@
 """Export all: one .tgz holding what another machine needs to take this instance over, and
-its import. `tmux-rc export` / `tmux-rc import`, and Settings' Export all (tmux-rc's own
-state only: the agents' dirs are ~10 GB, more than a tunnel carries).
+its import. `tmux-rc export` / `tmux-rc import`, and Settings' Export all.
 
-Secrets travel only with --with-secrets, meant for `tmux-rc export --with-secrets | ssh
-host tmux-rc import -`, so the bundle is never a file at rest. Import replaces rather than
-merges: what it replaces is moved aside as <name>.pre-import-<time>."""
+PARTS is the one list of what an archive can hold: it names the CLI's flags, the web's
+choices and the sizes shown beside them. Credentials are off unless asked for: the file
+then holds every sign-in and key. Import replaces rather than merges: what it replaces is
+moved aside as <name>.pre-import-<time>."""
 from __future__ import annotations
 
 import argparse
@@ -23,7 +23,17 @@ from pathlib import Path
 
 from . import accounts, history, push
 
-FORMAT = 1
+FORMAT = 2
+# Part -> (label, note, in by default; None: always in).
+PARTS = {
+    "state": ("tmux-rc history & settings",
+              "Pane history, plan usage, the tmux layout, accounts and mocks", None),
+    "scratch": ("Scratch pages", "The preview gallery", True),
+    "agents": ("Agent conversations", "~/.claude*, ~/.codex*, so agents can resume", True),
+    "secrets": ("Credentials", ("Sign-ins, ~/.claude.json, ~/.config/tmux-rc, .env, push keys. "
+                                "The file then holds every sign-in and key: keep it private."),
+                False),
+}
 SECRETS = ("push.json", "config", ".env")  # the VAPID key and push endpoints; credentials
 LOGINS = (".credentials.json", "auth.json")  # an agent dir's sign-in: Claude's, Codex's
 IDENTITY = (*LOGINS, ".claude.json")  # the sign-in and who it is: they stay together
@@ -48,22 +58,61 @@ def filename() -> str:
     return f"tmux-rc-export-{socket.gethostname()}-{time.strftime('%Y-%m-%d')}.tgz"
 
 
-def _members(scratch: bool, secrets: bool, agents: bool) -> list[tuple[str, Path]]:
-    """Everything but the DB, which is snapshotted. docs/ is left out: `make docs` builds it."""
+def _agent_dirs() -> list[Path]:
+    return sorted({Path(d) for d in [*accounts.in_home(), *accounts.load()]
+                   if Path(d).is_dir()})
+
+
+def _roots():
+    """(part, archive name, path) of each root an archive can hold, but the DB, which is
+    snapshotted. docs/ is left out: `make docs` builds it."""
     where, home = places(), Path.home()
-    out = [(n, where[n]) for n in ["accounts.json", *["scratch"] * scratch, *SECRETS * secrets]]
-    out += [(f"data/{c.name}", c) for c in sorted(_data().glob("*"))
-            if c.name != "docs" and ".pre-import-" not in c.name]
-    dirs = {Path(d) for d in [*accounts.in_home(), *accounts.load()]} if agents else ()
-    out += [(f"agents/{d.name}", d) for d in sorted(dirs) if d.parent == home and d.is_dir()]
-    out += [("agents/.claude.json", home / ".claude.json")] * (agents and secrets)  # ~/.claude's
-    return [(n, p) for n, p in out if p.exists()], [
-        str(d) for d in sorted(dirs) if d.parent != home and d.is_dir()]
+    yield "state", "accounts.json", where["accounts.json"]
+    yield "scratch", "scratch", where["scratch"]
+    yield from (("secrets", n, where[n]) for n in SECRETS)
+    yield from (("state", f"data/{c.name}", c) for c in sorted(_data().glob("*"))
+                if c.name != "docs" and ".pre-import-" not in c.name)
+    yield from (("agents", f"agents/{d.name}", d) for d in _agent_dirs() if d.parent == home)
+    yield "secrets", "agents/.claude.json", home / ".claude.json"  # the default ~/.claude's
 
 
-def export(out, *, scratch=True, secrets=False, agents=True) -> list[str]:
-    """Stream the archive into `out`, which need not seek. Returns what was left out that a
-    person moves by hand: secrets, and agent dirs deeper than HOME's top level."""
+def _entries():
+    """(part, archive name, path) of every file, dir and link an archive can hold: an agent
+    dir without its caches, its sign-in as a credential, and scratch only as scratch/."""
+    pages = places()["scratch"].resolve()
+    for part, name, where in _roots():
+        root = where.resolve()  # a linked root: what it links to
+        if not os.path.lexists(where) or (part != "scratch" and root == pages):
+            continue
+        yield part, name, root
+        for here, dirs, files in os.walk(root):
+            top, kept = here == str(root), []
+            for child in sorted(dirs + files):
+                path = Path(here, child)
+                if (part == "agents" and top and child in CACHES) or (
+                        part != "scratch" and path == pages):
+                    continue
+                kept.append(child)
+                own = "secrets" if part == "agents" and top and child in IDENTITY else part
+                yield own, f"{name}/{path.relative_to(root)}", path
+            dirs[:] = [d for d in dirs if d in kept]
+
+
+def sizes() -> dict[str, int]:
+    """Each part's size on disk, uncompressed: the walk export makes, without reading."""
+    out = dict.fromkeys(PARTS, 0)
+    with contextlib.suppress(OSError):
+        out["state"] = history.default_path().stat().st_size
+    for part, _, path in _entries():
+        with contextlib.suppress(OSError):
+            out[part] += path.lstat().st_size if not path.is_dir() or path.is_symlink() else 0
+    return out
+
+
+def export(out, parts) -> list[str]:
+    """Stream the archive of `parts` (state always) into `out`, which need not seek.
+    Returns what a person moves by hand: agent dirs deeper than HOME's top level."""
+    parts = {"state", *parts}
     db = history.default_path().resolve()  # as_uri needs it absolute
     with tempfile.TemporaryDirectory() as tmp, tarfile.open(fileobj=out, mode="w|gz") as tar:
         snapshot, schema = Path(tmp, "history.sqlite3"), None
@@ -74,23 +123,18 @@ def export(out, *, scratch=True, secrets=False, agents=True) -> list[str]:
                 schema = copy.execute("PRAGMA user_version").fetchone()[0]
         manifest = json.dumps({"format": FORMAT, "schema": schema, "host": socket.gethostname(),
                                "home": str(Path.home()), "created": time.time(),
-                               "scratch": scratch, "secrets": secrets, "agents": agents}).encode()
+                               "parts": sorted(parts)}).encode()
         info = tarfile.TarInfo("manifest.json")
         info.size, info.mtime, info.mode = len(manifest), time.time(), 0o600
         tar.addfile(info, io.BytesIO(manifest))
         if schema is not None:
             tar.add(snapshot, snapshot.name)
-        members, deeper = _members(scratch, secrets, agents)
-        pages = places()["scratch"]  # in data/ it goes in as scratch/ only, when asked
-        pages = f"data/{pages.relative_to(_data())}" if pages.is_relative_to(_data()) else ""
-        for name, path in members:
-            def keep(m, name=name):  # an agent dir without its caches, nor its login unless asked
-                rest = m.name[len(name) + 1:] if name.startswith("agents/") else ""
-                skip = rest.split("/")[0] in CACHES or (not secrets and rest in LOGINS)
-                return None if skip or (pages and (m.name + "/").startswith(pages + "/")) else m
-            tar.add(path.resolve(), name, filter=keep)  # a linked root: what it links to
-    return deeper + ([] if secrets else [n for n in SECRETS if places()[n].exists()] + (
-        ["the agents' sign-ins (" + ", ".join(LOGINS) + ", ~/.claude.json)"] if agents else []))
+        for part, name, path in _entries():
+            if part in parts:
+                with contextlib.suppress(FileNotFoundError):  # gone since the walk
+                    tar.add(path, name, recursive=False)
+    deeper = [str(d) for d in _agent_dirs() if d.parent != Path.home()]
+    return deeper if "agents" in parts else []
 
 
 def _running() -> bool:
@@ -173,10 +217,10 @@ def restore(src) -> list[str]:
             *[(f"Rewrote paths under {old} to {home}. Agents' transcripts still name {old}: "
                "they resume in place only under that same path.")] * (old != home),
             f"What was replaced is kept as *.pre-import-{stamp}.",
-            *[f"No secrets came: copy {', '.join(SECRETS)} by hand, or sign in again."
-              ] * (not manifest["secrets"]),
+            *[f"No credentials came: sign in again, or copy {', '.join(SECRETS)} by hand."
+              ] * ("secrets" not in manifest["parts"]),
             *["No agent dirs came: copy ~/.claude* and ~/.codex* to resume their sessions."
-              ] * (not manifest["agents"]),
+              ] * ("agents" not in manifest["parts"]),
             "Next: `make install-units` (and `make docs`) in the checkout."]
 
 
@@ -193,10 +237,12 @@ def cli(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(prog="tmux-rc")
     sub = parser.add_subparsers(dest="cmd", required=True)
     out = sub.add_parser("export", help="write this instance to a .tgz")
-    out.add_argument("--no-scratch", action="store_true", help="leave out the scratch pages")
-    out.add_argument("--no-agents", action="store_true", help="leave out ~/.claude*, ~/.codex*")
-    out.add_argument("--with-secrets", action="store_true",
-                     help="add credentials: pipe it over ssh, never keep it as a file")
+    flag = {part: f"{'no' if on else 'with'}_{part}" for part, (*_, on) in PARTS.items()
+            if on is not None}  # an optional part: on by default is --no-<part>, else --with-
+    for part, dest in flag.items():
+        label, note, on = PARTS[part]
+        out.add_argument(f"--{dest.replace('_', '-')}", action="store_true",
+                         help=f"{'leave out' if on else 'add'} {label.lower()}: {note}")
     out.add_argument("-o", "--output", default=filename(), help="file, or - for stdout")
     sub.add_parser("import", help="restore an export here").add_argument("file", help="file, or -")
     args = parser.parse_args(argv)
@@ -205,8 +251,7 @@ def cli(argv: list[str]) -> None:
             sys.stdout.write("\n".join(restore(f)) + "\n")
         return
     with _open(args.output, "wb") as f:
-        left = export(f, scratch=not args.no_scratch, secrets=args.with_secrets,
-                      agents=not args.no_agents)
+        left = export(f, [p for p, dest in flag.items() if PARTS[p][2] != getattr(args, dest)])
     withheld = f" Move by hand: {', '.join(left)}." if left else ""
     sys.stderr.write(f"Wrote {args.output}. Left out, rebuilt: docs, agent caches "
                      f"({', '.join(CACHES)}).{withheld}\n")

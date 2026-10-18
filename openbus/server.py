@@ -637,16 +637,31 @@ def get_version():
             "scratch": bool(_scratch_dir)}
 
 
+_export_sizes: dict = {"at": float("-inf")}
+
+
+@app.get("/api/export/parts")
+def export_parts(sizes: bool = True):
+    """Export all's choices (export.PARTS) and, with sizes, each one's size on disk,
+    uncompressed. The walk takes seconds over agents' dirs, so a minute's answer is reused."""
+    if sizes and time.monotonic() - _export_sizes["at"] > 60:
+        _export_sizes.update(at=time.monotonic(), bytes=export.sizes())
+    return [{"part": p, "label": label, "note": note, "default": on,
+             "bytes": _export_sizes["bytes"][p] if sizes else None}
+            for p, (label, note, on) in export.PARTS.items()]
+
+
 @app.get("/api/export")
-def export_all(request: Request, scratch: bool = False):
-    """Settings' Export all: tmux-rc's own state as a .tgz (openbus/export.py), streamed as
-    it is written. Never secrets nor the agents' dirs: a full move is `tmux-rc export`."""
-    _audit(request, "export", "-", f"scratch={scratch}")
+def export_all(request: Request, part: Annotated[list[str] | None, Query()] = None):
+    """Export all: the parts chosen, as the CLI's flags choose them (openbus/export.py),
+    streamed as the .tgz is written."""
+    parts = [p for p in part or [] if p in export.PARTS]
+    _audit(request, "export", "-", f"parts={','.join(parts)}")
     read, write = os.pipe()
 
     def produce():
         with suppress(BrokenPipeError), open(write, "wb") as out:  # the download was dropped
-            export.export(out, scratch=scratch, agents=False)
+            export.export(out, parts)
 
     def chunks():
         with open(read, "rb") as f:
