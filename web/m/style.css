@@ -355,6 +355,11 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .set-row[hidden] { display: none; }
 :is(.set-card, #settings-accounts) > :not([hidden], :empty) ~ .set-row:not([hidden]) { border-top: 1px solid var(--line); }
 .set-row > span:not(.seg) { flex: 1; min-width: 0; display: grid; gap: 2px; }
+/* A described row with a control: the title and the control on one line, the description under both. */
+.set-row:has(> span + *) { display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; }
+.set-row:has(> span + *) > span:not(.seg) { display: contents; }
+.set-row:has(> span + *) > :last-child { grid-area: 1 / 2; }
+.set-row:has(> span + *) small { grid-column: 1 / -1; }
 .set-row > b { margin-right: auto; }
 .set-row b { font-weight: 600; }
 .set-row small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
