@@ -40,8 +40,9 @@ SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src '
 
 def inside(path: Path, root: Path) -> bool:
     """The file is really in this folder of scratch, not a symlink out of it."""
-    try:
-        return path.resolve().is_relative_to(root.resolve())
+    try:  # a plain entry of the folder needs no resolving (most calls: hot in the gallery)
+        return ((path.parent == root and not path.is_symlink())
+                or path.resolve().is_relative_to(root.resolve()))
     except (OSError, RuntimeError):  # 3.12 raises RuntimeError for a symlink loop
         return False
 
@@ -65,36 +66,37 @@ def _when(stamp: str | None) -> float | None:
         return None
 
 
-def _files(root: Path, folders: list[Path]) -> dict[str, list[tuple[float, Path]]]:
+def _files(root: Path, folders: list[Path]) -> dict[str, list[tuple[float, str]]]:
     """{name: [(mtime, path)]} of every file under these folders of scratch, never
     descending into a hidden directory (.git) nor following a directory link, and a file
     link only to a file still in its folder. One `find` for them all: walked in Python,
     each stat waited on the GIL behind the daemon's threads, ten times slower."""
-    out: dict[str, list[tuple[float, Path]]] = {f.name: [] for f in folders}
+    out: dict[str, list[tuple[float, str]]] = {f.name: [] for f in folders}
     listed = folders and subprocess.run(
         ["find", *map(str, folders), "-mindepth", "1", "-name", ".*", "-prune", "-o", "(",
          "-type", "f", "-o", "-type", "l", ")", "-printf", r"%y %T@ %p\0"],
         capture_output=True, check=False).stdout
+    start = len(str(root)) + 1  # strings, not Paths: thousands of them, under the GIL too
     for row in (listed or b"").split(b"\0")[:-1]:
         kind, at, path = os.fsdecode(row).split(" ", 2)
-        path = Path(path)
-        folder = root / path.relative_to(root).parts[0]
-        if kind == "f" or (inside(path, folder) and path.is_file()):
-            out[folder.name].append((float(at), path))
+        name = path[start:].split("/", 1)[0]
+        if kind == "f" or (inside(Path(path), root / name) and os.path.isfile(path)):
+            out[name].append((float(at), path))
     return out
 
 
-def _item(root: Path, folder: Path, files: list[tuple[float, Path]]) -> dict | None:
+def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
     hidden (a sidecar half-written, a .git) are not the page and do not date it."""
-    sidecars = {(folder, name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
-    files = [(at, f) for at, f in files if (f.parent, f.name) not in sidecars]
+    sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
+    files = [(at, f) for at, f in files if f not in sidecars]
     if not files:
         return None
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
     # The folder's own page, served at folder/: index.html, or an index.md (rendered).
-    index = next((i for i in (folder / "index.html", folder / "index.md") if i in names), None)
-    page = index or max(files)[1]
+    index = next((i for i in (folder / "index.html", folder / "index.md") if str(i) in names),
+                 None)
+    page = index or Path(max(files)[1])
     title = meta.get("title")
     if not title and page.suffix == ".md":
         title = scratch_markdown.render(page)[2]
