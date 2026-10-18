@@ -358,6 +358,9 @@ def test_another_account_resumes_only_the_one_the_card_named(server, tmp_path, m
     assert (reply.status_code, spent) == (409, [])
     import openbus.server as S
     monkeypatch.setattr(S.app.state, "watcher", None, raising=False)  # nothing to resume
+    # Picked for the other account, but its own has it again: refused too.
+    reply, spent = _post(monkeypatch, tmp_path, None, resume_from=[["@1", 0, "/x/.claude"]])
+    assert (reply.status_code, spent) == (409, [])
     reply, spent = _post(monkeypatch, tmp_path, lambda *_: [], elsewhere,
                          resume_from=[["@1", 0, "/x/.claude"]])
     assert (reply.status_code, spent) == (200, ["restored"])

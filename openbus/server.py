@@ -686,11 +686,11 @@ async def post_restore(body: RestoreBody, request: Request):
     chosen = set(body.panes) & restorable
     if not chosen:
         raise HTTPException(422, "nothing restorable was chosen")
-    # A pane whose resume moved to another account since the card was drawn was picked
-    # without that account named: refused before the snapshot is spent.
+    # A pane whose resume account changed since the card was drawn, either way, was picked
+    # for another account than it would resume on: refused before the snapshot is spent.
     elsewhere = {(wid, p["index"], p["resume_from"]) for wid, w in found["windows"].items()
                  for p in w["panes"] if (wid, p["index"]) in chosen and p.get("resume_from")}
-    if elsewhere - set(body.resume_from):
+    if elsewhere != {r for r in body.resume_from if r[:2] in chosen}:
         raise HTTPException(409, "a pane's account changed since this was shown; reload it")
     before = await asyncio.to_thread(_session_names)  # what a failed build is told apart from
     if not await asyncio.to_thread(restore.consume, history, body.server, "restored"):

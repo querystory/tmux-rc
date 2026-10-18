@@ -87,6 +87,7 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
   });
 
   let asked = 0, asks = 0;
+  const targets = (o) => new Map(o ? Object.entries(o.windows).flatMap(([wid, w]) => w.panes.map(p => [key(wid, p), p.resume_from || ""])) : []);
   async function refresh() {
     asked = Date.now();
     const mine = ++asks, was = offer?.server;
@@ -97,9 +98,12 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
       if (mine === asks && err.status !== 503) return render(); // a dropped request: keep the offer, its buttons live again
     }
     if (mine !== asks) return; // a later ask answers instead: an older one would bring a spent offer back
+    const before = targets(offer);
     offer = next;
     const changed = offer?.server !== was;
     if (changed) picked = new Map(offer ? Object.entries(offer.windows).flatMap(([wid, w]) => w.panes.map(p => [key(wid, p), p.default])) : []);
+    // A pick was for the account its note named: one whose account changed is picked again or not at all.
+    else for (const [k, to] of targets(offer)) if (before.has(k) && before.get(k) !== to) picked.delete(k);
     render();
     if (!offer) closed(); // a spent offer, or a link to one, shows the dashboard
     else if (changed && !running()) opened();
