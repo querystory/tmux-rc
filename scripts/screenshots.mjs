@@ -21,7 +21,7 @@ const SHOTS = [
   ["website-desktop", WIDE, "light", "#pane=%259"],
   ["website-chat", WIDE, "light", "#pane=%259", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["website-chat-phone", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
-  ["website-ask-phone", PHONE, "light", "", chat("What are my agents doing?")],
+  ["mobile-ask", PHONE, "light", "", chat("What are my agents doing?")],
   ["website-voice", WIDE, "light", "#pane=%259", voice],
   ["website-voice-phone", PHONE, "light", "", voice],
   ["website-usage", PHONE, "light", "#view=dashboard", reach("#usage-panel"), "#usage-panel"],

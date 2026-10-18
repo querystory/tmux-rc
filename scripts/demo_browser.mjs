@@ -54,7 +54,7 @@ function stubChat(socket) {
     } else socket.send(JSON.stringify({ type: "transcript", role: "model", text:
       "Two panes need you:\n\n- **refunds** asks whether to merge PRs #413 and #414\n" +
       "- **preview deploy** hands you `make test` to run before it merges\n\n" +
-      "The rest are running, including the traced checkout.spec rerun in **e2e triage**." }));
+      "Others are running, including the traced checkout.spec rerun in **e2e triage**." }));
     socket.send(JSON.stringify({ type: "turn_complete" }));
   });
 }
