@@ -65,19 +65,31 @@ def _when(stamp: str | None) -> float | None:
 
 
 def _files(folder: Path):
-    """Every file under `folder`, never descending into a hidden directory (.git)."""
-    for top, dirs, names in os.walk(folder):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        yield from (Path(top, n) for n in names if not n.startswith("."))
+    """(mtime, path) of every file under `folder`, never descending into a hidden directory
+    (.git) nor following a directory link, and a file link only to a file still inside.
+    One stat per file, from scandir's types: in the daemon each stat waits on the GIL."""
+    todo = [folder]
+    while todo:
+        try:
+            with os.scandir(todo.pop()) as found:
+                entries = list(found)
+        except OSError:  # unreadable or gone: skipped, as os.walk would
+            continue
+        for e in entries:
+            if e.name.startswith("."):
+                continue
+            if e.is_dir(follow_symlinks=False):
+                todo.append(e.path)
+            elif e.is_file(follow_symlinks=False) or (
+                    e.is_symlink() and inside(Path(e.path), folder) and e.is_file()):
+                yield e.stat(follow_symlinks=False).st_mtime, Path(e.path)
 
 
 def _item(root: Path, folder: Path) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
     hidden (a sidecar half-written, a .git) are not the page and do not date it."""
     sidecars = {(folder, name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
-    # os.walk never follows a directory link, so only a file that is itself a link can lead out
-    files = [(f.lstat().st_mtime, f) for f in _files(folder) if (f.parent, f.name) not in
-             sidecars and f.is_file() and (not f.is_symlink() or inside(f, folder))]
+    files = [(at, f) for at, f in _files(folder) if (f.parent, f.name) not in sidecars]
     if not files:
         return None
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
