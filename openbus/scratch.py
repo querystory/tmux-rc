@@ -219,9 +219,10 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     _writers(todo)
     ids = sorted({i["session_id"] for i in todo if i["session_id"]})
     running = agent_history.get_many(ids) or {} if ids else {}
+    open_in = {sid: pane_of(e) for sid, e in running.items()}  # asks tmux: once a session
     for i in listed:
-        s = running.get(i["session_id"]) or {} if i in todo else {}
-        i["pane"] = pane_of(s) or i["pane"]  # still open
+        s = running.get(i["session_id"]) or {} if i["pane"] not in panes else {}
+        i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
         if (pane := panes.get(i["pane"])) is not None:
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
