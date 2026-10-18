@@ -191,8 +191,11 @@ def _judge(pane: dict, died: float, entries: dict | None) -> tuple[bool, str | N
         activity == "waiting" and pane.get("waiting_on") != "external")
     last = pane.get("last_activity") or 0
     if binding:
-        # No agent-history: judged by the screen, as a resume of a lost one fails visibly.
-        entry = {} if entries is None else entries.get(binding["session_id"])
+        # launch() resumes from agent-history too: without it the pane would come back a
+        # shell and the snapshot be spent, so say what to fix rather than promise a resume.
+        if entries is None:
+            return False, "agent-history isn't answering; rebuild it with make install-units"
+        entry = entries.get(binding["session_id"])
         if entry is None or entry.get("source_missing"):
             return False, "its conversation is gone"
         if entry.get("running_unknown"):
