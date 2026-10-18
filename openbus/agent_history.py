@@ -72,7 +72,7 @@ def get(session_id: str) -> dict | None:
 
 def get_many(session_ids: list[str]) -> dict[str, dict] | None:
     """get for several sessions, sharing one liveness scan: {session_id: entry}, an
-    unknown id left out; None if agent-history is unavailable."""
+    unknown id left out; None if agent-history is unavailable or failed."""
     exe = binary()
     if not exe:
         return None
@@ -84,9 +84,9 @@ def get_many(session_ids: list[str]) -> dict[str, dict] | None:
         found = [json.loads(line) for line in out.stdout.splitlines() if line]
     except (subprocess.SubprocessError, OSError, ValueError):
         return None
-    if out.returncode not in (0, 1):  # an older binary takes one id per get: ask it that way
+    if out.returncode not in (0, 1):  # a failure (an outdated binary), not "every id unknown"
         logger.warning("agent-history get exited %d: %s", out.returncode, out.stderr.strip())
-        return {sid: e for sid in session_ids if (e := get(sid))}
+        return None
     return {e["session_id"]: e for e in found if isinstance(e, dict) and "session_id" in e}
 
 
