@@ -84,7 +84,7 @@ def get_many(session_ids: list[str]) -> dict[str, dict] | None:
         found = [json.loads(line) for line in out.stdout.splitlines() if line]
     except (subprocess.SubprocessError, OSError, ValueError):
         return None
-    if out.returncode > 1:  # an older binary takes one id per get: ask it that way
+    if out.returncode not in (0, 1):  # an older binary takes one id per get: ask it that way
         logger.warning("agent-history get exited %d: %s", out.returncode, out.stderr.strip())
         return {sid: e for sid in session_ids if (e := get(sid))}
     return {e["session_id"]: e for e in found if isinstance(e, dict) and "session_id" in e}
