@@ -92,7 +92,8 @@ def get_many(session_ids: list[str]) -> dict[str, dict] | None:
 
 
 def indexed(session_ids: list[str]) -> dict[str, dict]:
-    """get_many from the index on disk, when the binary is unavailable: no liveness."""
+    """get_many from the index on disk, for what the binary cannot give (it is missing, or
+    the id is a subagent's): no liveness."""
     return {e["session_id"]: e for e in _entries() if e.get("session_id") in session_ids}
 
 
