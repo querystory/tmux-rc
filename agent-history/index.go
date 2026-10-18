@@ -69,6 +69,48 @@ func IndexTranscript(path string, force bool) error {
 	return errors.Join(errs...)
 }
 
+// newestMtime is the mtime of the newest of a session's files, zero when none exists
+// (sessions run without persistence never write a transcript).
+func newestMtime(files []string) (mtime time.Time, err error) {
+	for _, f := range files {
+		src, err := os.Stat(f)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return mtime, err
+		}
+		if src.ModTime().After(mtime) {
+			mtime = src.ModTime()
+		}
+	}
+	return mtime, nil
+}
+
+// latestCopies keeps one copy of each session, the most recently written. A session
+// resumed under another account leaves the same ID in two config dirs, and indexing
+// both made each copy undo the other's entry, re-reading both transcripts on every
+// reconcile.
+func latestCopies(h harness, sessions [][]string) [][]string {
+	at := map[[2]string]int{}
+	var out [][]string
+	for _, files := range sessions {
+		id, parent := h.identity(files[0])
+		i, seen := at[[2]string{id, parent}]
+		if !seen {
+			at[[2]string{id, parent}] = len(out)
+			out = append(out, files)
+			continue
+		}
+		mine, _ := newestMtime(files)
+		theirs, _ := newestMtime(out[i])
+		if mine.After(theirs) {
+			out[i] = files
+		}
+	}
+	return out
+}
+
 // claudeSessions lists every transcript, subagents included, so a subagent whose
 // parent transcript is gone is still indexed.
 func claudeSessions() ([][]string, error) {
@@ -91,18 +133,9 @@ func indexFile(h harness, files []string, force bool) error {
 	// An entry carries the mtime of the newest file it was built from (or of a later
 	// rename), so it is fresh exactly when the two match (and a transcript rewritten to
 	// an older mtime still gets rebuilt).
-	var mtime time.Time
-	for _, f := range files {
-		src, err := os.Stat(f)
-		if errors.Is(err, os.ErrNotExist) {
-			continue // sessions run without persistence never write a transcript
-		}
-		if err != nil {
-			return err
-		}
-		if src.ModTime().After(mtime) {
-			mtime = src.ModTime()
-		}
+	mtime, err := newestMtime(files)
+	if err != nil {
+		return err
 	}
 	if mtime.IsZero() {
 		return nil
