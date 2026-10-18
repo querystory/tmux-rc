@@ -160,7 +160,8 @@ def _writers(todo: list[dict]) -> None:
             if hit := hits.get(i["name"]):
                 i["session_id"] = hit["session_id"]
                 _found[keys[i["name"]]] = i["session_id"]
-                annotate(i["folder"] / "meta.json", i["folder"].parent, "session", i["session_id"])
+                annotate(i["folder"] / "meta.json", i["folder"].parent, "session", i["session_id"],
+                         i["inode"])  # not into a folder rebuilt during the search
             elif i["name"] in due:
                 _missed[keys[i["name"]]] = now
 
@@ -177,12 +178,14 @@ def replace(path: Path, root: Path, write) -> None:
     tmp.replace(path)
 
 
-def annotate(meta: Path, root: Path, field: str, value: str) -> bool:
+def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> bool:
     """Add a field tmux-rc worked out to meta.json, listed in its "generated". Never over
     one already there, nor into a meta.json that is unreadable or a symlink: those are the
-    agent's to fix."""
+    agent's to fix. With `inode`, only while its folder is still that one."""
     try:
         with _META:
+            if inode and meta.parent.stat().st_ino != inode:
+                return False
             current = None if meta.is_symlink() else {} if not meta.exists() else json.loads(
                 meta.read_text())
             if not isinstance(current, dict) or str(current.get(field) or "").strip():
