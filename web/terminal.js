@@ -145,9 +145,9 @@ export function besideHeld(rows, held, below, wraps) {
   return { lines: lines.slice(alone.length), again, raw: sgrOf(raw.slice(0, cut)) + tail };
 }
 
-// A tall window (500 rows, for scrollback) is mostly blank until the app fills it, so the live
-// view shows any run of blank rows as its first one: the frame is what was drawn, not the gaps
-// in it. A row of spaces is drawn (a colored bar, an underline), so only an empty one is blank.
+// A full-screen app in a tall window (500 rows, for scrollback) leaves most of it blank, so the
+// live view shows any run of blank rows as its first one: the frame is what was drawn, not the
+// gaps in it. A row of spaces is drawn (a colored bar, an underline), so only an empty one is blank.
 // The indices of the rendered lines it keeps.
 const blankRow = (markup) => /^(?:<[^>]*>)*$/.test(markup);
 export const keptRows = (lines) => lines.flatMap((line, i) => blankRow(line) && i && blankRow(lines[i - 1]) ? [] : [i]);
