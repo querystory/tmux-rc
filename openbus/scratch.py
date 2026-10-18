@@ -31,7 +31,7 @@ _RETRY = 600
 _LOCK = threading.Lock()
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
 _missed: dict[tuple[str, int], float] = {}  # when each (name, inode) was last not found
-_unsaved: dict[tuple[str, int], str] = {}  # authors found whose meta.json refused them
+_found: dict[tuple[str, int], str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gallery.md"
@@ -78,7 +78,8 @@ def _files(root: Path, folders: list[Path]) -> dict[str, list[tuple[float, str]]
         ["find", *map(str, folders), "-mindepth", "1", "-name", ".*", "-prune", "-o", "(",
          "-type", "f", "-o", "-type", "l", ")", "-printf", r"%y %T@ %p\0"],
         capture_output=True, check=False).stdout
-    start = len(str(root)) + 1  # strings, not Paths: thousands of them, under the GIL too
+    start = len(str(root / "_")) - 1  # a root "." prints no "./"
+    # strings, not Paths: thousands of them, under the GIL too
     for row in (listed or b"").split(b"\0")[:-1]:
         kind, at, path = os.fsdecode(row).split(" ", 2)
         name = path[start:].split("/", 1)[0]
@@ -149,7 +150,7 @@ def _writers(todo: list[dict]) -> None:
     now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}
     with _LOCK:  # a second request waits for the first's search instead of repeating it
         for i in todo:
-            i["session_id"] = i["session_id"] or _unsaved.get(keys[i["name"]])
+            i["session_id"] = i["session_id"] or _found.get(keys[i["name"]])
         due = {i["name"]: i["created"] for i in todo if not i["session_id"]
                and now - _missed.get(keys[i["name"]], 0) > _RETRY}
         if due and now - _reconciled[0] > _RETRY:  # a running session's entry can be days old
@@ -159,9 +160,8 @@ def _writers(todo: list[dict]) -> None:
         for i in todo:
             if hit := hits.get(i["name"]):
                 i["session_id"] = hit["session_id"]
-                if not annotate(i["folder"] / "meta.json", i["folder"].parent, "session",
-                                i["session_id"]):
-                    _unsaved[keys[i["name"]]] = i["session_id"]
+                _found[keys[i["name"]]] = i["session_id"]
+                annotate(i["folder"] / "meta.json", i["folder"].parent, "session", i["session_id"])
             elif i["name"] in due:
                 _missed[keys[i["name"]]] = now
 
