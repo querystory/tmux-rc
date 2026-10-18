@@ -46,7 +46,7 @@ def store_path() -> Path:
     return state / "tmux-rc" / "accounts.json"
 
 
-def _load() -> dict:
+def load() -> dict:
     try:
         data = json.loads(store_path().read_text())
     except (OSError, ValueError):
@@ -100,10 +100,14 @@ def profiles(pane_dirs=()) -> list[dict]:
         return _profiles(pane_dirs)
 
 
+def in_home() -> dict[str, str]:
+    """Each provider's config dirs in HOME, the default and its siblings: dir -> provider."""
+    return {str(d): t for t in ENV for d in [default_dir(t), *sorted(Path.home().glob(MORE[t]))]
+            if d.is_dir()}
+
+
 def _profiles(pane_dirs) -> list[dict]:
-    store, home = _load(), Path.home()
-    found = {str(d): t for t in ENV for d in [default_dir(t), *sorted(home.glob(MORE[t]))]
-             if d.is_dir()}
+    store, found = load(), in_home()
     for tool, config in pane_dirs:  # what runs there says the provider, not the dir's name
         found[_canonical(str(config))] = tool
     for config, entry in store.items():  # an added dir's provider was chosen, not guessed
@@ -234,7 +238,7 @@ def _add(provider: str, config: str, label: str, link: list[str]) -> dict:
         if src.exists() and not (dst.exists() or dst.is_symlink()):
             dst.symlink_to(src)
             linked.append(name)
-    store = _load()
+    store = load()
     entry = {k: v for k, v in store.get(str(path), {}).items() if k != "hidden"}
     store[str(path)] = {**entry, "provider": provider, "label": label.strip() or None}
     _save(store)
@@ -255,7 +259,7 @@ def _edit(config: str, label: str | None, *, forget: bool) -> None:
         raise LookupError("unknown account")
     if forget and profile["default"]:
         raise ValueError("the default account can't be removed")
-    store = _load()
+    store = load()
     entry = store.setdefault(profile["dir"], {"provider": profile["provider"]})
     if forget:
         entry["hidden"] = True

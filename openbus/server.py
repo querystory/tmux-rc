@@ -24,6 +24,7 @@ import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -73,6 +74,7 @@ from fastapi.responses import (  # noqa: E402
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
+    StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
@@ -81,6 +83,7 @@ from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 from . import (  # noqa: E402
     accounts,
     agent_history,
+    export,
     expunge,
     fit,
     restore,
@@ -538,7 +541,7 @@ from starlette.middleware import gzip  # noqa: E402
 app.add_middleware(gzip.GZipMiddleware, minimum_size=512)
 # Video and audio come compressed already, and gzip over a 206 garbles its Content-Range.
 # The responder reads this tuple on every response, so extending it is the hook.
-gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/")
+gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/", "application/gzip")
 
 # Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
@@ -632,6 +635,27 @@ def get_version():
     return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
             "live_models": offered + keyless, "docs": DOCS_MOUNTED,
             "scratch": bool(_scratch_dir)}
+
+
+@app.get("/api/export")
+def export_all(request: Request, scratch: bool = False):
+    """Settings' Export all: tmux-rc's own state as a .tgz (openbus/export.py), streamed as
+    it is written. Never secrets nor the agents' dirs: a full move is `tmux-rc export`."""
+    _audit(request, "export", "-", f"scratch={scratch}")
+    read, write = os.pipe()
+
+    def produce():
+        with suppress(BrokenPipeError), open(write, "wb") as out:  # the download was dropped
+            export.export(out, scratch=scratch, agents=False)
+
+    def chunks():
+        with open(read, "rb") as f:
+            while chunk := f.read(1 << 16):
+                yield chunk
+
+    threading.Thread(target=produce, daemon=True).start()
+    return StreamingResponse(chunks(), media_type="application/gzip", headers={
+        "Content-Disposition": f'attachment; filename="{export.filename()}"'})
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -2210,6 +2234,9 @@ if WEB_DIR.is_dir():
 
 
 def main() -> None:
+    if sys.argv[1:2] in (["export"], ["import"]):
+        export.cli(sys.argv[1:])
+        return
     import uvicorn  # noqa: PLC0415 - entrypoint-only; keeps `import openbus.server` cheap
 
     # Reload watches the package source and restarts the process on edits (resetting
