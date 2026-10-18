@@ -52,11 +52,9 @@ function stubChat(socket) {
       socket.send(JSON.stringify({ type: "open_pane", pane_id: "%9", label: "e2e triage · claude in ci" })); // before the text, as live
       socket.send(JSON.stringify({ type: "transcript", role: "model", text: "**e2e triage** is rerunning checkout.spec with tracing on." }));
     } else socket.send(JSON.stringify({ type: "transcript", role: "model", text:
-      "Four panes need you:\n\n- **api contract diff** asks whether to bump the public API to v3\n" +
-      "- **flaky test hunter** wants you to pick a suite to quarantine\n" +
-      "- **alert tuning** asks to silence the disk alert on build-02\n" +
-      "- **dependency audit** wants approval for three breaking upgrades\n\n" +
-      "Seven others are running, including the traced checkout.spec rerun in **e2e triage**." }));
+      "Two panes need you:\n\n- **refunds** asks whether to merge PRs #413 and #414\n" +
+      "- **preview deploy** hands you `make test` to run before it merges\n\n" +
+      "Ten others are running, including the traced checkout.spec rerun in **e2e triage**." }));
     socket.send(JSON.stringify({ type: "turn_complete" }));
   });
 }

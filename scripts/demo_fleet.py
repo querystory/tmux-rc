@@ -33,11 +33,11 @@ ROWS = """\
 0|claude|idle|release notes agent|2m||Waiting for the preview build after updating review docs.
 0|codex|run|migration planner|now||Mapping table dependencies before proposing an order.
 0|opencode|run|schema reviewer|now||Checking the new column constraints against live data.
-0|claude|need|api contract diff|3m|Two endpoints changed. Bump the API version?|Bump to v3,Keep v2
+0|claude|run|api contract diff|now||Drafting the v3 migration note for the two changed endpoints.
 0|claude|need|preview deploy|6m|Preview is up. Run the checks yourself before I merge: ! make test|
 0|shell|idle|zsh ~/src/shop-api|41m||git status: clean, on main.
 0|codex|idle|seed data refresh|5h||Refreshed 12 fixtures. Tests green.
-1|claude|need|flaky test hunter|4m|Two reruns disagree. Which suite to quarantine?|e2e,integration
+1|claude|idle|flaky test hunter|4m|u|Quarantined 2 flaky e2e specs. Issue filed for each.
 1|claude|run|e2e triage|now||Re-running checkout.spec with tracing on.
 1|codex|idle|lint autofix|12m|u|Fixed 38 warnings across 9 files. Ready to commit.
 1|shell|idle|build cache warmer|1h||Cache warm: 214 layers, 3.1 GB.
@@ -53,7 +53,7 @@ ROWS = """\
 3|omp|idle|changelog bot|1h||Opened a draft entry for 0.15.
 3|opencode|idle|api reference regen|3h||Reference rebuilt, no broken links.
 3|shell|idle|zsh ~/src/docs|1d||Idle at the prompt.
-4|claude|need|alert tuning|11m|Silence the disk alert on build-02 for 24 hours?|Silence 24h,Keep
+4|claude|idle|alert tuning|11m||Raised the build-02 disk alert to 90%. Paging is quiet.
 4|codex|run|cost report|now||Pulling last month's billing export.
 4|opencode|idle|log triage|3h||No new errors since the last check.
 4|claude|idle|pager rota sync|4h||Rota synced through next Friday.
@@ -69,16 +69,16 @@ ROWS = """\
 6|claude|idle|launch email|3h||Final copy sent for review.
 6|gemini|idle|competitor scan|1d||Compared five pricing pages.
 6|shell|idle|zsh ~/marketing|2d||Idle at the prompt.
-7|codex|need|dependency audit|9m|Approve upgrading 3 packages with breaking changes?|Approve,Hold
+7|codex|run|dependency audit|now||Checking 3 major upgrades against the changelogs.
 7|claude|run|sidebar toggle|now||Wiring the group-by toggle into the sidebar.
 7|shell|idle|zsh ~/src|41m||Idle at the prompt.
 7|claude|idle|rss digest|5h||Summarised 12 new posts.
 7|opencode|idle|invoice parser|2d||Parsed 31 invoices, 2 flagged.
 7|shell|idle|dotfiles sync|3d||Synced with origin.
-7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1
-7|claude|need|webhook timeouts|4m|Go with A or B?|Go with A,Go with B
+7|claude|idle|disk cleanup|6m||Pruned images older than 14 days. Freed 38 GB.
+7|claude|run|webhook timeouts|now||Moving stock reservation into a background job.
 0|claude|need|refunds|1m|PRs #413 and #414 are green and reviewed. Merge?|Merge both,Just #413,Later
-5|claude|need|prod deploy|2m|Production waits on an approval. Approve it at the link?|Done,Skip
+5|claude|idle|prod deploy|2m||Production is on v0.15.2. Health checks green.
 """
 
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
@@ -201,19 +201,6 @@ CAPTURES = {
         f"{dim('session:')} {grn('+64')}/{red('-12')} lines · {yel('41% ctx')} · {yel('$3.12')}",
         f"{dim('-- INSERT --')} {mag('⏵⏵ accept edits on')} {dim('(shift+tab to cycle)')}",
     ]),
-    "api contract diff": "\n".join([
-        f"{b('●')} Compared the generated OpenAPI spec against the published v2 contract.",
-        "",
-        f"  {red('-')} GET /orders/{{id}}       {dim('total: number')}",
-        f"  {grn('+')} GET /orders/{{id}}       {dim('total: {amount: string, currency: string}')}",
-        f"  {red('-')} POST /carts/{{id}}/items {dim('returns 200 with the cart')}",
-        f"  {grn('+')} POST /carts/{{id}}/items {dim('returns 201 with the line item')}",
-        "",
-        f"{b('●')} Both are breaking for existing clients. Two endpoints changed shape.",
-        "  Bump the public API version?",
-        "", RULE, "❯ ", RULE,
-        f"{cyn('~/src/shop-api')} on {mag('feat/money-type')} | {blu('Sonnet 5')}",
-    ]),
     "preview deploy": "\n".join([
         f"{b('●')} Preview is up. Run the checks yourself before I merge:",
         "", f"  {blu('! make test')}", "",
@@ -257,7 +244,7 @@ DETAIL = {
                    {"label": "Draft the v3 migration note", "state": "running", "elapsed": "40s",
                     "tokens": "3.1k"}],
         "session_summary": "Moving money fields to a structured type changed two public "
-                        "endpoints. Both break existing clients, so versioning needs a call.",
+                        "endpoints. Both break existing clients, so they move to a v3 API.",
         "prs": [{"repo": "example-org/shop-api", "number": 409,
               "title": "Structured money type for order totals"}]},
     "refunds": {
@@ -269,9 +256,6 @@ DETAIL = {
                  "title": "Partial refunds in the payments service"},
                 {"repo": "example-org/shop-api", "number": 414,
                  "title": "Refund button on the order page"}]},
-    # A question that sends you to a link: it leads the card as Open link.
-    "prod deploy": {"links": [{"href": f"https://{ORG}/shop-api/actions/runs/1029384799",
-                               "text": "Review the production deployment"}]},
     # A finished turn in auto mode that hands the user a command: classify()'s offers, and
     # the question its _final_ask leaves (no reply options, since the command is the answer).
     "preview deploy": {"offers": ["! make test", "ship it"],
@@ -291,21 +275,6 @@ DETAIL = {
         "tables": [{"title": "Plan summary", "headers": ["Action", "Count"],
                  "rows": [["add", "6"], ["change", "33"], ["replace", "2"], ["destroy", "0"]]}]},
 }
-# Questions answered with one keystroke rather than typed text, with the widget fields
-# classify() adds to one: its raw rows and their plain restatement.
-MENU = {"dependency audit": {
-    "context": "Bash command\nUpgrade three packages with breaking changes\n\n"
-               "npm install react@20 vite@8 eslint@10",
-    "ask": "The agent wants to upgrade React, Vite and ESLint to new major versions. "
-           "Continue?",
-}}
-# A typed question that names list rows by number or letter: the rows classify() reads off
-# the screen, and the line leading into them, which says what is being decided.
-ITEMS = {"disk cleanup": {"items": ["1. Prune container images older than 14 days.",
-                                    "2. Archive the nightly log bundles."]},
-         "webhook timeouts": {"subject": "Two ways to fix the webhook timeouts:",
-                              "items": ["A. Answer first, then reserve stock in a background job.",
-                                        "B. Cache stock levels and reserve against the cache."]}}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).
 EVENTS = {
@@ -316,7 +285,7 @@ EVENTS = {
                    (4, "Started a traced 20x rerun")],
     "api contract diff": [(30, "Generated the OpenAPI spec for the money type"),
                           (9, "Diffed it against the published v2 contract"),
-                          (3, "Asked whether to bump the public API version")],
+                          (3, "Started on the v3 migration note")],
 }
 
 _UNITS = {"m": 60, "h": 3600, "d": 86400}
@@ -348,8 +317,7 @@ def _pane(i: int, line: str, window: int) -> dict:
         pane |= {"headline": extra, "status_line": extra, "session_summary": "",
                  "waiting_on": "user",
                  "question": {"prompt": extra, "options": text.split(",") if text else [],
-                              "answer_style": "menu" if title in MENU else "text",
-                              **MENU.get(title, {}), **ITEMS.get(title, {})}}
+                              "answer_style": "text"}}
     return pane | DETAIL.get(title, {})
 
 
@@ -393,7 +361,7 @@ def _counts(i: int, n: int, rng: random.Random, walk: float) -> tuple[int, int, 
     day = math.exp(-((hour - 14) ** 2) / 22)
     walk = walk * 0.96 + (rng.random() - 0.5) * 1.1
     run = max(0, round(3.4 + trend * 4 + (8 if t.weekday() < 5 else 3) * day + walk))
-    need = max(0, round(day * 2.4 + (rng.random() - 0.55) * 2.2))
+    need = max(0, round(day * 1.2 + (rng.random() - 0.55) * 2.2))  # 0 to 2
     return 37 + round(trend * 8), run, need, walk
 
 

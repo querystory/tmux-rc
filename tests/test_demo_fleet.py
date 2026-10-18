@@ -50,8 +50,7 @@ def test_fleet_covers_every_state_the_ui_draws():
     acts = {(p["activity"], p.get("waiting_on")) for p in fleet}
     assert {("running", None), ("idle", None), ("compacting", None),
             ("waiting", "user"), ("waiting", "external")} <= acts
-    styles = {p["question"]["answer_style"] for p in fleet if p.get("question")}
-    assert {"text", "menu"} <= styles
+    assert 1 <= sum(p.get("waiting_on") == "user" for p in fleet) <= 2  # a calm fleet
     assert {p["tool"] for p in fleet} >= {"claude", "codex", "opencode", "omp", "gemini", "shell"}
 
 
