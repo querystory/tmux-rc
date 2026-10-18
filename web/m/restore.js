@@ -62,17 +62,21 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
   }
 
   card.addEventListener("click", async (e) => {
-    const act = e.target.closest("[data-act]")?.dataset.act;
+    const button = e.target.closest("[data-act]"), act = button?.dataset.act;
     if (!act) return;
     const body = { server: offer.server, panes: restorable().map(([wid, p]) => [wid, p.index]) };
     card.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    // The tapped button spins as a tapped answer does: the build takes as long as the layout.
+    const label = act === "restore" ? "Restore" : button.textContent;
+    button.classList.add("picked");
+    button.textContent = `${act === "restore" ? "Restoring" : "Dismissing"}…`;
     try {
       await request(act === "restore" ? "/api/restore" : "/api/restore/dismiss",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
         act === "restore" ? slow : undefined); // the build answers when the layout is up, however long
       if (act === "restore") notice("Restoring: the layout is back, agents resume a few at a time.", 6000);
     } catch (err) {
-      notice(err.detail || err.message, 6000);
+      notice(`${err.detail || err.message} — tap ${label} again.`, 6000);
     }
     refresh();
   });
