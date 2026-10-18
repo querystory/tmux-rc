@@ -200,6 +200,9 @@ def test_defaults_follow_the_transcript_and_say_why_not(tmp_path, monkeypatch):
     assert judge(binding={"session_id": "stale"}, activity="waiting") == (True, None)
     assert judge(binding={"session_id": "live"}) == (False, "it's already running")
     assert judge(binding={"session_id": "gone"}) == (False, "its conversation is gone")
+    # A failed lookup says so rather than calling every conversation gone.
+    assert R._judge({"cwd": str(tmp_path), "binding": {"session_id": "recent"}}, died, None) \
+        == (False, "agent-history can't be asked about its conversation")
     assert judge(cwd="/no/such/dir") == (False, "its directory is gone")
     # The transcript's directory, where the harness will look, is the one that must exist.
     entries["moved"] = {"cwd": "/no/such/dir"}

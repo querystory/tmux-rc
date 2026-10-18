@@ -177,13 +177,13 @@ def offer(history) -> dict | None:
     panes = [p for w in found["windows"].values() for p in w["panes"]]
     # One lookup for them all: each runs agent-history's liveness scan.
     entries = agent_history.get_many([p["binding"]["session_id"] for p in panes
-                                      if p.get("binding")]) or {}
+                                      if p.get("binding")])
     for pane in panes:
         pane["default"], pane["blocked"] = _judge(pane, found["died_at"], entries)
     return found
 
 
-def _judge(pane: dict, died: float, entries: dict) -> tuple[bool, str | None]:
+def _judge(pane: dict, died: float, entries: dict | None) -> tuple[bool, str | None]:
     if not os.path.isdir(pane["cwd"]):
         return False, "its directory is gone"
     activity, binding = pane.get("activity"), pane.get("binding")
@@ -191,6 +191,8 @@ def _judge(pane: dict, died: float, entries: dict) -> tuple[bool, str | None]:
         activity == "waiting" and pane.get("waiting_on") != "external")
     last = pane.get("last_activity") or 0
     if binding:
+        if entries is None:
+            return False, "agent-history can't be asked about its conversation"
         entry = entries.get(binding["session_id"])
         if entry is None or entry.get("source_missing"):
             return False, "its conversation is gone"

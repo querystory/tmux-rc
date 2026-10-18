@@ -20,8 +20,13 @@ After=network-online.target
 # copy always points at the real clone. The value here is only a placeholder for anyone
 # installing the unit by hand.
 WorkingDirectory=%h/src/tmux-rc
+# agent-history is built from the same checkout on every start, so a deploy can never
+# pair the daemon with an older binary that rejects its flags (restore once read that as
+# every conversation gone). "-": without Go the daemon still starts, on whatever
+# agent-history is on PATH, or none.
+ExecStartPre=-/bin/sh -c 'cd agent-history && go build -o bin/agent-history .'
 ExecStart=%h/.local/bin/uv run python -m openbus.server
-Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
 # Reload is a dev-loop convenience; under a unit it would restart the daemon (dropping
 # live websockets) whenever a branch checkout touched the tree.
 Environment=TMUXRC_RELOAD=0
