@@ -93,3 +93,24 @@ def test_refusals(home, monkeypatch):
     monkeypatch.setattr(export, "_running", lambda: True)
     with pytest.raises(SystemExit, match="running"):
         export.restore(io.BytesIO(out.getvalue()))
+
+
+def test_a_linked_state_file_is_refused(home, tmp_path):
+    """An archive whose accounts.json links outside staging never writes through it."""
+    source(home)
+    out, outside = io.BytesIO(), tmp_path / "outside.json"
+    outside.write_text("{}")
+    export.export(out, scratch=False, agents=False)
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        manifest = tar.extractfile("manifest.json").read()
+    crafted = io.BytesIO()
+    with tarfile.open(fileobj=crafted, mode="w:gz") as tar:
+        info = tarfile.TarInfo("manifest.json")
+        info.size = len(manifest)
+        tar.addfile(info, io.BytesIO(manifest))
+        link = tarfile.TarInfo("/accounts.json")
+        link.type, link.linkname = tarfile.SYMTYPE, str(outside)
+        tar.addfile(link)
+    home("new")
+    export.restore(io.BytesIO(crafted.getvalue()))
+    assert outside.read_text() == "{}"

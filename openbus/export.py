@@ -52,7 +52,7 @@ def _members(scratch: bool, secrets: bool, agents: bool) -> list[tuple[str, Path
     where, home = places(), Path.home()
     out = [(n, where[n]) for n in ["accounts.json", *["scratch"] * scratch, *SECRETS * secrets]]
     out += [(f"data/{c.name}", c) for c in sorted(_data().glob("*"))
-            if c.name != "docs" and c != where["scratch"] and ".pre-import-" not in c.name]
+            if c.name != "docs" and ".pre-import-" not in c.name]
     dirs = {Path(d) for d in [*accounts.in_home(), *accounts.load()]} if agents else ()
     out += [(f"agents/{d.name}", d) for d in sorted(dirs) if d.parent == home and d.is_dir()]
     out += [("agents/.claude.json", home / ".claude.json")] * (agents and secrets)  # ~/.claude's
@@ -80,12 +80,14 @@ def export(out, *, scratch=True, secrets=False, agents=True) -> list[str]:
         if schema is not None:
             tar.add(snapshot, snapshot.name)
         members, deeper = _members(scratch, secrets, agents)
+        pages = places()["scratch"]  # in data/ it goes in as scratch/ only, when asked
+        pages = f"data/{pages.relative_to(_data())}" if pages.is_relative_to(_data()) else ""
         for name, path in members:
             def keep(m, name=name):  # an agent dir without its caches, nor its login unless asked
                 rest = m.name[len(name) + 1:] if name.startswith("agents/") else ""
                 skip = rest.split("/")[0] in CACHES or (not secrets and rest in LOGINS)
-                return None if skip else m
-            tar.add(path, name, filter=keep)
+                return None if skip or (pages and (m.name + "/").startswith(pages + "/")) else m
+            tar.add(path.resolve(), name, filter=keep)  # a linked root: what it links to
     return deeper + ([] if secrets else [n for n in SECRETS if places()[n].exists()] + (
         ["the agents' sign-ins (" + ", ".join(LOGINS) + ", ~/.claude.json)"] if agents else []))
 
@@ -135,8 +137,8 @@ def restore(src) -> list[str]:
         def admit(m, path):  # nothing outside staging; a top-level name is a file or a dir
             if m.issym() and m.linkname.startswith(old + "/"):  # an account's shared files
                 m = m.replace(linkname=home + m.linkname[len(old):], deep=False)
-            keep = "/" in os.path.normpath(m.name) or m.isfile() or m.isdir()
-            return tarfile.tar_filter(m, path) if keep else None
+            m = tarfile.tar_filter(m, path)  # strips a leading /, so judge the name after it
+            return m if "/" in os.path.normpath(m.name) or m.isfile() or m.isdir() else None
         tar.extractall(tmp, (m for m in tar if m is not first), filter=admit)
         stage = Path(tmp)
         if (stage / "history.sqlite3").exists():  # an import is consent to adopt the DB
