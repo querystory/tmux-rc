@@ -16,7 +16,7 @@ STYLE = WEB_DIR / "m" / "style.css"
 
 @pytest.fixture(autouse=True)
 def _fresh_cache(monkeypatch):
-    monkeypatch.setattr(scratch, "_found", {})
+    monkeypatch.setattr(scratch, "_missed", {})
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: {})
     monkeypatch.setattr(agent_history, "reconcile", lambda: None)  # never this machine's index
 
@@ -82,11 +82,11 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
 
     def writers(pattern, due):
         calls.append(due)
-        return {"gone": {"session_id": "s1", "harness": "codex", "title": "Billing",
-                         "source": "/c/projects/x/s1.jsonl"}}
+        return {"gone": {"session_id": "s1"}}
 
     monkeypatch.setattr(agent_history, "writers", writers)
-    running = {"s1": {"running": {"tmux_pane": "%9", "pid": 5}}}
+    running = {"s1": {"session_id": "s1", "harness": "codex", "title": "Billing",
+                      "source": "/c/projects/x/s1.jsonl", "running": {"tmux_pane": "%9"}}}
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
     _folder(tmp_path, "gone", 1000, {"pane": "%3"})
     _folder(tmp_path, "nobody", 2000)
@@ -98,10 +98,13 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
                                      "window_name": "w"}],
                          pane_of=lambda e: e.get("running", {}).get("tmux_pane"))
     assert items["gone"]["pane"] == "%9"
-    for name in ("index.html", "meta.json"):  # rewritten: created moves, the author stays
-        (tmp_path / "gone" / name).write_text('{"pane": "%3"}')
-    _resolved(tmp_path)
-    assert calls == [{"gone": 1000, "nobody": 2000}]  # found and missed both cached
+    # The author is kept in its meta.json, so a restarted daemon never searches again.
+    meta = json.loads((tmp_path / "gone" / "meta.json").read_text())
+    assert meta == {"pane": "%3", "session": "s1", "generated": ["session"]}
+    (tmp_path / "gone" / "index.html").write_text("rewritten")
+    items, _ = _resolved(tmp_path)
+    assert items["gone"]["where"] == "Billing"
+    assert calls == [{"gone": 1000, "nobody": 2000}]  # found is stored, a miss waits to retry
 
 
 def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):
