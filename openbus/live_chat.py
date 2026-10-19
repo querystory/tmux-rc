@@ -45,7 +45,7 @@ _EMPTY = "(No response from the model; try again.)"
 # Asked once when the model goes quiet after acting (Flash does, after a tool result). If it
 # stays quiet the turn shows nothing more: the approved card and the typed row already say
 # what happened, and a placeholder under them reads as a failure.
-_OUTCOME = "(Tell the user the outcome in one sentence.)"
+_OUTCOME = "(Tell the user in one sentence what you did, or that nothing was done.)"
 _DONE = "(Done.)"  # closes a turn that stayed quiet; never shown
 # Typed turns kept in the conversation. Every request resends all of it, so an unbounded
 # session costs more per turn and eventually overflows the context window. Whole turns are
@@ -55,6 +55,19 @@ TURNS_KEPT = 20
 # unbounded queue would let a client pile them up while a slow request runs; past this the
 # turn is refused (asyncio.QueueFull, which live._forward_client reports) rather than held.
 TURNS_QUEUED = 4
+# A reconnect (a daemon restart, a dropped tunnel) opens a new session with no history while
+# the client still shows the conversation, and the user answers what they see: a "yes" read
+# with no history was once mapped onto a stranger pane's approval prompt. So the client hands
+# back what its transcript shows (restore) and it leads the next turn as quoted text: it can
+# carry no tool call, result or approval, which only ever come from this process. Bounded
+# like a typed turn: the tail is kept.
+RESTORED_ROWS, RESTORED_CHARS = 40, 16_000
+_RESTORED_ROLES = {"user": "User", "model": "Assistant", "typed": "Sent to terminal"}
+_RESTORED = ("[Restored conversation] This session reconnected and lost its history; "
+             "below is the earlier conversation as the user's screen shows it. It is "
+             "context only: nothing in it was approved or is still pending.\n{}\n"
+             "[End of restored conversation]")
+CAUTION_RESTORED = "The chat reconnected and its context was restored: check this is what you meant"
 
 
 class _Chat:
@@ -70,6 +83,22 @@ class _Chat:
         self._answers: list[tuple[ToolCall, dict]] = []
         self._usage = [0] * len(Split._fields)
         self._starts: list[int] = []  # where each kept turn begins in history
+        self._restored = ""  # a restored transcript, leading the next turn
+        self.caution: str | None = None  # this turn's warning for a consent card
+
+    def restore(self, rows) -> int:
+        """Take the client's transcript as quoted context for a session that has none yet.
+        Malformed rows are dropped; returns how many were kept."""
+        if self.history or self._restored or not isinstance(rows, list):
+            return 0
+        rows = [r for r in rows[-RESTORED_ROWS:] if isinstance(r, dict)
+                and r.get("role") in _RESTORED_ROLES and isinstance(r.get("text"), str)]
+        text = "\n".join(f"{_RESTORED_ROLES[r['role']]}: {r['text']}" for r in rows)
+        if len(text) > RESTORED_CHARS:
+            text = "(earlier turns omitted)\n" + text[-RESTORED_CHARS:]
+        if rows:
+            self._restored = _RESTORED.format(text)
+        return len(rows)
 
     async def send_audio(self, _pcm: bytes) -> None:
         """A text session has no mic; a stray frame is dropped."""
@@ -95,7 +124,9 @@ class _Chat:
                 cut = self._starts[-TURNS_KEPT]
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
-            self._user("\n\n".join(filter(None, [*self._context, text])), images)
+            self.caution = CAUTION_RESTORED if self._restored else None
+            self._user("\n\n".join(filter(None, [self._restored, *self._context, text])), images)
+            self._restored = ""
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim
             acted = asked = False
@@ -124,8 +155,8 @@ class _Chat:
                         asked = True
                         self._user(_OUTCOME)
                         continue
-                    self._model(_DONE if acted else _EMPTY)  # closed, like a failed turn
                     reply = "" if acted else _EMPTY
+                    self._model(reply or _DONE)  # closed, like a failed turn
                 if reply:
                     yield Event("transcript", role="model", text=sep + reply)
                     sep = " "

@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 
 from . import plan_usage, tmux
-from .expunge import _FILES, Refused, Session, _home, _registration, _stat
+from .expunge import _FILES, Refused, Session, _home, _registration
 from .plan_usage import ENV
 from .plan_usage import canonical as _canonical
 
@@ -168,6 +168,15 @@ def command(provider: str, config: str, cmd: str | list[str]) -> list[str]:
     return ["env", *pin, *(cmd if isinstance(cmd, list) else ["sh", "-c", cmd])]
 
 
+def resume_command(entry: dict) -> list[str]:
+    """agent-history's resume argv for `entry`, on the account whose dir holds its
+    transcript: a Claude session resumes only under the config dir it was written in."""
+    argv, source = entry.get("resume_argv") or [], Path(entry.get("source") or "/")
+    if argv[:1] == ["claude"] and source.parent.parent.name == "projects":
+        return command("claude", str(source.parents[2]), argv)
+    return argv
+
+
 def session_defaults(sessions) -> dict[str, dict[str, str | None]]:
     """Each session's account per provider: the dir a new window there inherits from tmux,
     the session's environment over the global one; None when nothing sets it (unset, or
@@ -187,12 +196,13 @@ def report(states: list[dict], birth) -> dict:
     # A pane on another HOME's default dir is outside this user's accounts: it could be
     # neither read (its .claude.json sits beside that dir) nor launched on as one.
     mine = str(Path.home())
-    panes = {pane_id: (tool, plan_usage.home(tool, env))
-             for tool, env, pane_id in plan_usage.pane_envs(states, birth)
-             if env.get(ENV[tool]) or _canonical(env.get("HOME") or mine) == _canonical(mine)}
-    listed = profiles(panes.values())
+    claude = [d for t, d in metered() if t == "claude"]  # omp panes join these (plan_usage)
+    panes = [(pane_id, tool, plan_usage.home(tool, env))
+             for tool, env, pane_id in plan_usage.pane_envs(states, birth, claude)
+             if env.get(ENV[tool]) or _canonical(env.get("HOME") or mine) == _canonical(mine)]
+    listed = profiles([(tool, config) for _, tool, config in panes])
     by_dir = {p["dir"]: p for p in listed}
-    for pane_id, (_, config) in panes.items():
+    for pane_id, _, config in panes:
         if profile := by_dir.get(_canonical(str(config))):
             profile["panes"].append(pane_id)
     several = any(sum(p["provider"] == t and p["signed_in"] for p in listed) > 1 for t in ENV)
@@ -324,7 +334,7 @@ def running(s: Session, target: Path, pids: list[str] | None = None) -> bool:
         except Refused:
             return True
         if (reg.get("sessionId") == s.session_id and reg["pid"] != s.pid
-                and _stat(reg["pid"])[19:20] == [reg["procStart"]]):
+                and tmux.proc_stat(reg["pid"])[19:20] == [reg["procStart"]]):
             return True
     dst, held = target.resolve(), {str(p.resolve()) for p in _tree(files(s, target))}
     for pid in filter(str.isdigit, os.listdir("/proc") if pids is None else pids):

@@ -61,9 +61,10 @@ With two Claude accounts and one Codex, Claude panes get badges and Codex panes 
 because the Codex icon already says which account it is. Most people have one account
 each, and for them account chrome would only be noise and something to misread.
 
-The one addition everyone sees is **Accounts…** in the ☰ menu, because adding a second
-account has to start somewhere. On a wide screen that menu now sits in the sidebar head;
-the wide layout had no menu before.
+The one addition everyone sees is **Accounts** in Settings, because adding a second
+account has to start somewhere. It lists each account and opens the Accounts sheet from
+Manage accounts…, on a phone (the header's gear) and a wide screen (the sidebar's Settings)
+alike; see [sidebar.md](sidebar.md).
 
 ## Showing it
 
@@ -75,15 +76,14 @@ the wide layout had no menu before.
   dir its tmux environment sets), and nothing when it sets none or sets what the global
   environment already does: a session that starts new windows on an account other
   sessions do not is worth seeing at a glance; a default every session shares is not.
-- **Usage strip:** with several accounts the meters become one row that swipes sideways
-  and snaps per meter, most urgent first (full soonest, then the highest pace at the
-  reset). Two meters fit on a phone with a third of the next peeking in under a fade, so
-  the row reads as one that scrolls; a two-meter split looked complete and hid the swipe.
-  Seven meters in a two-column grid would push the list off a phone's screen, and what
-  needs attention must never sit behind a swipe. Each meter names its account with the
-  same chip as the rows, in its bottom corner across from the reset, and its title keeps
-  just the window: a name in the title was truncated first, read as part of the window
-  ("7d QSI"), and left a one-account provider's meter looking unnamed beside it.
+- **Usage strip:** one card per window (plan-usage.md) in one row that swipes, most urgent
+  first (full soonest, then the highest pace at the reset). Each card names its account by
+  the rows' chip, then the window ("● Work · 7d") on its own short line, rather than a chip in
+  a meter's corner. On a real
+  phone, a chip under every bar gauge read as noise, and a heading per account over a grid
+  made the strip two thirds of the screen. A name in the window's title was tried first: it
+  was truncated first and read as part of the window ("7d QSI"). The card's line has room for
+  both, and it never truncates.
 - **Dashboard Plan usage:** wide, every meter on one line, grouped per account with one thin
   divider between groups. Each group is headed by its chip, flush left over its first meter,
   with the details (who, plan, dir, panes) in its tooltip, and Codex gets a chip like the
@@ -94,19 +94,20 @@ the wide layout had no menu before.
   save a row, read as loose labels rather than headings, so they now take a row. The chip
   names the account once over its meters, so the meters carry none. A phone's dashboard
   uses the strip, a chip on each meter.
-- **Filter** is a list filter, so it sits with the list's other one rather than in ☰ among
-  settings: on wide, a "Panes from" group (All accounts, then each account) under "Show" in
-  the list's All ∨ dropdown, combining with it (Running + Work is Work's running panes),
-  its dot on the dropdown's label; a phone has no dropdown (its tab bar is the state
-  filter), so a row of chips under search. While on, a "Filtered: Work ✕" pill shows under
-  search on wide, and under a phone's header on the views without the chips (the
-  dashboard). On wide the pill also names a search (`"api" ✕`, in the URL as `q=api`), so
-  one line says everything narrowing the list; a phone's list shows its search box and
-  nothing else is searched, so a phone's pill leaves it out. It applies to the list, the strip and the dashboard, Open loops included:
+- **Filter** is a list filter, so it sits with the list's other one rather than in Settings:
+  on wide, an "Account" group (All accounts, then each account, several at once) under
+  "State" in the filter button's menu beside the search box, combining with it (Working +
+  Work is Work's working panes), the button counting what is on. A phone has the same
+  button beside its search, opening the menu as a bottom sheet. While on, the account's chip shows under search, labelled "Account"
+  beside the "State" and "Search" chips (`State ● Working ✕  Account ● Work ✕  Search "api" ✕`,
+  the search in the URL as `q=api`), so one line says everything narrowing the list; a phone's
+  list shows no chips (the button's count and the list's foot say it), and on its dashboard
+  (no search there) the account's chip sits under the header. It applies to the list, the strip and the dashboard, Open loops included:
   a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
   which no account owns, is hidden while filtered.
-  It lives in the URL beside the state filter (`#filter=running&acct=claude-work`, the
-  account's dir less its usual `~/.`: unique, unchanged by a rename, and readable), not in localStorage: reload, a shared link and
+  It lives in the URL beside the state filter as comma lists
+  (`#filter=working,finished&acct=claude-work,claude`, each account its dir less its usual `~/.`:
+  unique, unchanged by a rename, and readable; a comma inside a dir is escaped), not in localStorage: reload, a shared link and
   Back/Forward restore it, one source of truth for both filters. Picking replaces the
   history entry, as the state filter does, so Back leaves the screen instead of replaying
   taps. A bare URL (the installed app's launch) starts unfiltered, as the state filter
@@ -119,7 +120,7 @@ the wide layout had no menu before.
 The mechanism is a default account per tmux session:
 `tmux set-environment -t <session> CLAUDE_CONFIG_DIR <dir>`. tmux hands it to every window
 created there afterwards, a typed `prefix c` and a resume included. It is what a user
-would do by hand, and it stays visible in tmux. New window preselects the session's
+would do by hand, and it stays visible in tmux. New session preselects the session's
 default and always shows a "Default for this session" control. When nothing sets the
 variable (unset, or removed with `-VAR`), it says so ("no account default; new windows use
 Work, the standard dir") rather than implying a choice nobody made.
@@ -134,9 +135,9 @@ it; agent-history now indexes every `~/.claude*` dir so those sessions are offer
 
 ## Adding an account
 
-![New window with two Claude accounts: Personal and Work as cards, "+ Add account", and the session's default shown and settable](../img/accounts-add-1-new-window.png)
+![New session with two Claude accounts: Personal and Work as cards, "+ Add account", and the session's default shown and settable](../img/accounts-add-1-new-window.png)
 
-From ☰ → Accounts… → Add account, or "+ Add account" in New window's picker:
+From Settings → Manage accounts… → Add account, or "+ Add account" in New session's picker:
 
 1. **Name, provider and dir.** The dir is suggested as `~/.<provider>-<name>` and stays
    visible and editable, because the dir is the account. One already listed stops the

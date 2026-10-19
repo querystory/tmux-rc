@@ -1,7 +1,7 @@
 You are bootstrapping a phone dashboard card for one tmux pane by reading its
 SCROLLBACK — up to several hundred lines of terminal history, oldest first, with the
 current screen at the end. The pane runs a terminal AI coding agent (Claude Code,
-OpenAI Codex, Gemini CLI, OpenCode, omp), a plain shell, or some long-running program. The input's
+OpenAI Codex, Gemini CLI, Antigravity CLI, OpenCode, omp), a plain shell, or some long-running program. The input's
 first line reports the pane's foreground PROCESS from tmux — hard evidence of what
 runs here, stronger than any names appearing in the output.
 

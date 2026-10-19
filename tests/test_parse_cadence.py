@@ -20,6 +20,11 @@ class _Pane:
         self.window_index = "0"
         self.window_name = label
         self.session_active = True
+        self.fit = ""  # never fitted (openbus/fit.py)
+
+
+def needs_you(state):  # the phone's needsYou (web/m/pane-model.js)
+    return state.get("activity") == "waiting" and state.get("waiting_on") != "external"
 
 
 def _harness(monkeypatch, frame_holder):
@@ -68,13 +73,13 @@ def test_refined_label_survives_idle_ticks(monkeypatch):
 
 
 def test_explicit_title_wins_over_inferred_name_on_parse_cache_and_rename(monkeypatch):
-    w, _ = _harness(monkeypatch, ["Posthog Airbyte Connector · GPT-6-Astra medium"])
+    w, _ = _harness(monkeypatch, ["Webhook Retry Queue · GPT-6-Astra medium"])
     monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
         "activity": "idle", "events": [], "tool": "codex",
-        "session": "Posthog Airbyte Connector",
-        "label": "Posthog Airbyte Connector", "tmux_label": pane.label})
-    pane = _Pane(label="qs-app-0:17")
-    pane.display_title = "Working | qs-app | docs/query-result-metadata"
+        "session": "Webhook Retry Queue",
+        "label": "Webhook Retry Queue", "tmux_label": pane.label})
+    pane = _Pane(label="shop-api-0:17")
+    pane.display_title = "Working | shop-api | docs/order-sync"
     for _ in range(2):
         w._forced_this_tick = set()
         state = w._tick_pane(pane)
@@ -336,6 +341,33 @@ def test_forced_reparse_ignores_unchanged(monkeypatch):
     assert calls["n"] == 2
 
 
+def test_a_pane_never_read_stays_pending(monkeypatch):
+    """parsed_at is the phone's "Summarizing…" switch: a first read that failed must not
+    set it, or a still-unread card claims "No recent activity"."""
+    frame = ["agent finished · done 10:28 PM"]
+    w, _ = _harness(monkeypatch, frame)
+    oks = [False, False, True, False]  # two failures: the second falls back on the first
+    monkeypatch.setattr(W, "classify", lambda pane, text, **_kw: {
+        "activity": "idle", "tool": "claude", "events": [], "parse_ok": oks.pop(0)})
+    stamps = []
+    for _ in range(4):
+        w._forced_this_tick = {"%1"}
+        stamps.append(w._tick_pane(_Pane()).get("parsed_at"))
+    assert stamps[:2] == [None, None], "failed first reads leave the card pending"
+    assert stamps[2] and stamps[3], "once read, a later failure keeps it read"
+
+
+
+def test_a_first_read_given_up_on_stops_pending(monkeypatch):
+    """Copilot: a screen that exhausts its retries is retired unread and never re-parsed
+    while it stays the same, so leaving parsed_at unset would spin "Summarizing…" forever."""
+    w, _ = _harness(monkeypatch, ["agent finished · done 10:28 PM"])
+    monkeypatch.setattr(W, "classify", lambda pane, text, **_kw: {
+        "activity": "idle", "tool": "claude", "events": [], "parse_ok": False})
+    stamps = [w._tick_pane(_Pane()).get("parsed_at") for _ in range(W.PARSE_RETRIES + 1)]
+    assert stamps[:W.PARSE_RETRIES - 1] == [None] * (W.PARSE_RETRIES - 1), "still retrying: pending"
+    assert stamps[-2] and stamps[-1], "retired: the card stops spinning and stays so"
+
 def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch):
     """The permanent-"Running"-badge bug. A parse failure (a 429 returning None) used to
     advance the pane's fingerprint anyway, which marks the screen read — and since an
@@ -524,6 +556,40 @@ def test_failed_parse_still_publishes_the_links_it_read(monkeypatch):
         state = w._tick_pane(pane)
         assert state["headline"] == "Working", "the rest of the card is kept whole"
         assert state.get("links") == (None if text == "Working" else [link])
+
+
+def test_failed_parse_never_restores_the_last_cards_offers(monkeypatch):
+    """Offers are buttons that send: a failed parse keeps the card, but not offers this
+    parse did not read (the user may have typed since)."""
+    frame = ["Done merge 415"]
+    w, _calls = _harness(monkeypatch, frame)
+    seq = [{"activity": "idle", "tool": "claude", "events": [],
+            "headline": "Done", "offers": ["merge 415"]},
+           {"activity": "unknown", "tool": "claude", "events": [], "parse_ok": False}]
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0)))
+    pane = _Pane(current_command="node")
+    for text, offers in (("Done merge 415", ["merge 415"]), ("Done\n> merge 415", None)):
+        frame[0] = text
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+        assert state["headline"] == "Done" and state.get("offers") == offers
+
+
+def test_an_unreparsed_screen_still_holds_offers_to_itself(monkeypatch):
+    """The fingerprint ignores durations, so "10s" -> "20s" reuses the card, but its offer
+    must still be what the screen shows: the 10s command no longer is."""
+    screen = "● Run:\n\n  ! timeout {} make deploy\n\n✻ Worked for 3s\n\n❯\n"
+    frame = [screen.format("10s")]
+    w, calls = _harness(monkeypatch, frame)
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: calls.__setitem__("n", calls["n"] + 1)
+                        or {"activity": "waiting", "waiting_on": "user", "tool": "claude",
+                            "events": [], "offers": ["! timeout 10s make deploy"]})
+    pane = _Pane(current_command="node")
+    for duration, offers in (("10s", ["! timeout 10s make deploy"]), ("20s", None)):
+        frame[0] = screen.format(duration)
+        w._forced_this_tick = set()
+        assert w._tick_pane(pane).get("offers") == offers
+    assert calls["n"] == 1, "the second screen was not reparsed"
 
 
 def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):

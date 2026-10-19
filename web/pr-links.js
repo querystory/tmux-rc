@@ -28,3 +28,11 @@ export function paneLinks(pane) {
     .filter(accept).slice(0, 3).map(({ href, text }) => ({ href, text }));
   return [...prs, ...transient];
 }
+
+// The link a question asks the user to open (a sign-in or device-login URL): the screen
+// link the parser names as the question's own (question.link), else the first link the
+// screen offers, since an asking pane's links are what it asks you to open.
+export function askLink(pane) {
+  const href = pane?.question?.link, links = paneLinks({ links: pane?.links });
+  return (href ? links.find((link) => link.href === href) : links[0]) || null;
+}

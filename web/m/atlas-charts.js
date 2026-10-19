@@ -10,7 +10,7 @@ function loadScript(src) {
 }
 // One cached load per library, so the split never waits on the word cloud's script.
 const loads = {};
-const load = (name, src) => loads[name] ||= (window[name] ? Promise.resolve() : loadScript(src))
+export const load = (name, src) => loads[name] ||= (window[name] ? Promise.resolve() : loadScript(src))
   .then(() => window[name], error => { delete loads[name]; throw error; });
 // The latest average on record. Indexed, not at()/findLast(): older iOS Safari has neither.
 export const latestAverage = rows => { for (let i = rows.length - 1; i >= 0; i--) if (rows[i].ma != null) return rows[i].ma; };
@@ -73,6 +73,11 @@ export function atlasCharts() {
 export const shownStates = { Idle: false };
 const ORDER = [1, 4, 0, 5, 2, 3]; // Running at the bottom, idle at the top.
 
+// ECharts puts the tooltip on <body>, and a touch has no mouseleave to close it: a tap outside
+// its chart or any scroll does, and so does the chart leaving the screen (see paint).
+const charts = new Set();
+const hideTips = event => charts.forEach(chart => chart.getDom().contains(event.target) || chart.dispatchAction({ type: 'hideTip' }));
+
 // THE fleet chart: every surface (the split's strip and body, the dashboard, its small
 // multiples) is one of these. Stacked state bars, the trailing average of Running as a
 // purple line, the goal as a dashed one. `withAxis` adds axes, tooltip labels and zoom; without
@@ -91,13 +96,17 @@ export function fleetChart(withAxis) {
     api.onZoom?.();
   };
   const paint = async () => {
-    if (!latest || !el.clientWidth) return;
+    if (!el.clientWidth) return chart?.dispatchAction({ type: 'hideTip' }); // a view change hid it
+    if (!latest) return;
     let echarts;
     try { echarts = await load('echarts', '/m/vendor/echarts.min.js'); } catch { el.textContent = 'Chart unavailable. Reload to retry.'; return; }
     if (!el.clientWidth) return;
     if (!chart) {
       el.replaceChildren();
-      chart = echarts.init(el);
+      // Listening from the first chart, not on import (the node tests have no window); a repeat is a no-op.
+      addEventListener('pointerdown', hideTips, true);
+      addEventListener('scroll', hideTips, { capture: true, passive: true });
+      charts.add(chart = echarts.init(el));
       chart.on('datazoom', event => {
         const selection = event.batch?.[0] || event;
         zoom = { start: selection.start, end: selection.end };
@@ -192,6 +201,6 @@ export function fleetChart(withAxis) {
   }
   // `onZoom`, set by the surface, hears every zoom change (to show or hide its Reset).
   const api = { el, onZoom: null, zoomed: () => zoom.start > 0 || zoom.end < 100, resetZoom: () => setZoom(0, 100),
-    update(data) { latest = data; paint(); }, dispose() { resize.disconnect(); theme.disconnect(); chart?.dispose(); } };
+    update(data) { latest = data; paint(); }, dispose() { resize.disconnect(); theme.disconnect(); charts.delete(chart); chart?.dispose(); } };
   return api;
 }

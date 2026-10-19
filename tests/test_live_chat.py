@@ -122,7 +122,7 @@ def test_a_pane_change_waits_for_send_or_cancel(monkeypatch, ok):
     kinds = [f["type"] for f in frames]
     assert kinds.index("propose") < kinds.index("decided")
     assert typed == ([("%1", "rebase", True, True)] if ok else [])
-    assert s.history[2] == ("results", [("type_in_pane", "done" if ok else "declined")])
+    assert s.history[2] == ("results", [("type_in_pane", "sent" if ok else "declined")])
     assert audits == ["live_type_in_pane"]
 
 
@@ -375,3 +375,42 @@ def test_a_turn_past_the_queue_is_refused_not_held():
     assert s._inbox.qsize() == C.TURNS_QUEUED
     assert ws.sent[-1] == {"type": "error", "refused": True,
                            "message": "Still answering earlier turns; not sent"}
+
+
+_TYPE = ("", [("type_in_pane", {"pane_id": "%1", "text": "yes"})])
+
+
+def test_a_reconnect_restores_the_screen_transcript_as_quoted_context(monkeypatch):
+    """A restart loses the history while the client still shows it, and the user answers what
+    they see: "yes" must reach the model with the question it answers, as text that carries
+    no call, result or approval, and the card says the context was restored."""
+    s = _Fake([_TYPE, ("Sent yes to work.", [])])
+    kept = s.restore([{"role": "user", "text": "which session had the oom?"},
+                      {"role": "model", "text": "The rate-limit one. Want me to reopen it?"},
+                      {"role": "approve", "text": "ok"}, "junk"])
+    assert kept == 2  # a role the client never sends, or no row at all, is dropped
+    frames, _, typed = _turn(s, "yes", monkeypatch, ok=True)
+    first = s.history[0][1]
+    assert first.startswith("[Restored conversation]") and first.endswith("\n\nyes")
+    assert "Assistant: The rate-limit one. Want me to reopen it?" in first
+    card = next(f for f in frames if f["type"] == "propose")
+    assert card["warn"] == C.CAUTION_RESTORED
+    assert typed == [("%1", "yes", True, True)]
+    assert s.restore([{"role": "user", "text": "late"}]) == 0  # never over live history
+
+
+def test_restored_text_is_bounded_to_its_tail():
+    s = _Fake([])
+    s.restore([{"role": "user", "text": "x" * C.RESTORED_CHARS}, {"role": "model", "text": "end?"}])
+    assert "(earlier turns omitted)" in s._restored and s._restored.count("x") < C.RESTORED_CHARS
+
+
+def test_a_bare_yes_is_the_chat_models_call_and_still_carded(monkeypatch):
+    """No word list judges a reply: whether "yes" asks for an action is the chat model's
+    call, and the consent card still puts what it would send before the user."""
+    s = _Fake([_TYPE, ("Sent yes to work.", [])])
+    frames, _, typed = _turn(s, "yes", monkeypatch, ok=True)
+    assert next(f for f in frames if f["type"] == "propose")["warn"] is None
+    assert typed == [("%1", "yes", True, True)]
+
+

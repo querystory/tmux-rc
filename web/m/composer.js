@@ -1,4 +1,9 @@
 // Ordered text/image model: what is sent is the draft in the order it was typed.
+// A U+200B spacer follows every image to hold the caret after it (see insert()). Every
+// U+200B is dropped from what is sent: it is invisible, so a draft that kept the user's own
+// could not show it, and the spacer survives typing, copy and paste where no marker could.
+const ZW = /\u200B/g;
+const spacer = () => document.createTextNode("\u200B");
 export class Composer {
   // The Live chat (/live-chat.js) reuses this editor under its own id and label.
   constructor(changed, error, { id = "reply", label = "Message this pane", max = Infinity } = {}) {
@@ -22,12 +27,49 @@ export class Composer {
       else this.insert(document.createTextNode(event.clipboardData?.getData("text/plain") || ""));
     };
     this.editor.ondrop = this.editor.ondragover = (event) => event.preventDefault();
+    // Backspace or Delete next to an image removes it and its spacer in one press: iOS spends
+    // a press on the invisible spacer and does not delete a non-editable image at all.
+    this.editor.addEventListener("beforeinput", (event) => {
+      const chip = this.adjacentChip(event.inputType);
+      if (!chip) return;
+      event.preventDefault();
+      const caret = document.createRange(); caret.setStartBefore(chip); // where the image was
+      this.drop(chip);
+      window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(caret);
+    });
+  }
+  // The image a collapsed caret would delete with `type`, with only spacers in between.
+  adjacentChip(type) {
+    const back = type === "deleteContentBackward";
+    const selection = window.getSelection();
+    if (!back && type !== "deleteContentForward") return null;
+    if (!selection?.isCollapsed || !this.editor.contains(selection.anchorNode)) return null;
+    const { anchorNode: node, anchorOffset: offset } = selection;
+    let near = node.childNodes[back ? offset - 1 : offset];
+    if (node.nodeType === Node.TEXT_NODE) {
+      if ((back ? node.nodeValue.slice(0, offset) : node.nodeValue.slice(offset)).replace(ZW, "")) return null;
+      near = back ? node.previousSibling : node.nextSibling;
+    }
+    const blank = (n) => n?.nodeType === Node.TEXT_NODE && !n.nodeValue.replace(ZW, "");
+    while (blank(near)) near = back ? near.previousSibling : near.nextSibling;
+    return this.files.has(near) ? near : null;
+  }
+  // Remove an image and the spacer after it.
+  drop(chip) {
+    const after = chip.nextSibling;
+    if (after?.nodeType === Node.TEXT_NODE && after.nodeValue.startsWith("\u200B")) after.deleteData(0, 1);
+    chip.remove(); this.edited();
   }
   edited() {
     for (const [chip] of this.files) {
       if (!this.editor.contains(chip)) { URL.revokeObjectURL(chip.src); this.files.delete(chip); }
+      // WebKit has no caret position after a non-editable chip that ends its block (iOS drew
+      // the caret outside the box), so give it a filler <br> to sit before.
+      else if (this.block(chip.parentNode) && !chip.nextElementSibling && !chip.nextSibling?.nodeValue) {
+        chip.parentNode.append(document.createElement("br"));
+      }
     }
-    if (!this.editor.textContent && !this.files.size) this.editor.replaceChildren();
+    if (!this.segments().length) this.editor.replaceChildren();
     this.changed();
   }
   saveCaret() {
@@ -44,9 +86,16 @@ export class Composer {
     }
     if (!range) { range = document.createRange(); range.selectNodeContents(this.editor); range.collapse(false); }
     this.caret = null;
-    range.deleteContents(); range.insertNode(node); range.setStartAfter(node); range.collapse(true);
+    range.deleteContents(); range.insertNode(node);
+    // iOS moves a caret at the boundary after a non-editable chip to before it, so the caret
+    // goes inside a zero-width text node that follows the chip.
+    const holder = this.files.has(node) ? spacer() : null;
+    holder && node.after(holder);
+    this.edited(); // before the caret is placed, so a chip's filler <br> is already there
+    if (!node.isConnected) return; // an empty paste into an empty box, which edited() cleared
+    if (holder) range.setStart(holder, 1); else range.setStartAfter(node);
+    range.collapse(true);
     selection?.removeAllRanges(); selection?.addRange(range);
-    this.edited();
   }
   // A multi-select or multi-paste: attach in order what fits under `max`, and say so
   // for the rest, rather than dropping them silently.
@@ -72,7 +121,7 @@ export class Composer {
     chip.setAttribute("aria-label", `Remove ${chip.alt}`); chip.title = `Remove ${chip.alt}`;
     const remove = () => {
       if (this.editor.contentEditable !== "true") return;
-      chip.remove(); this.editor.focus({ preventScroll: true }); this.edited();
+      this.editor.focus({ preventScroll: true }); this.drop(chip);
     };
     chip.onclick = remove;
     chip.onkeydown = (event) => {
@@ -91,18 +140,20 @@ export class Composer {
   // Segments taken from elsewhere (another draft, or this one's own unsent ones after it
   // was cleared) with fresh chips of this composer's own, ready for replace().
   adopt(segments) { return segments.map((s) => s.file ? { chip: this.chip(s.file) } : s); }
+  // The containers whose last <br> is filler: it draws no line.
+  block(node) { return node === this.editor || node.nodeName === "DIV"; }
   segments() {
     const segments = [];
     let text = "", started = false, pending = 0;
     const flush = () => { if (text) { segments.push({ text }); text = ""; } };
     const content = () => { text += "\n".repeat(pending); pending = 0; started = true; };
-    // Trailing DIV filler BRs differ from explicit newlines, so they are not counted.
     const walk = (node) => {
       [...node.childNodes].forEach((child, index, children) => {
-        if (child.nodeType === Node.TEXT_NODE && child.nodeValue) { content(); text += child.nodeValue; }
+        const value = child.nodeType === Node.TEXT_NODE && child.nodeValue.replace(ZW, "");
+        if (value) { content(); text += value; }
         else if (this.files.has(child)) { content(); flush(); segments.push({ file: this.files.get(child), chip: child }); }
         else if (child.nodeName === "BR") {
-          const filler = node !== this.editor && node.nodeName === "DIV" && index === children.length - 1;
+          const filler = this.block(node) && index === children.length - 1;
           if (started && !filler) pending++;
         } else { if (child.nodeName === "DIV" && started) pending++; walk(child); }
       });
@@ -111,7 +162,7 @@ export class Composer {
     return segments;
   }
   replace(segments) {
-    this.editor.replaceChildren(...segments.map((segment) => segment.chip || document.createTextNode(segment.text)));
+    this.editor.replaceChildren(...segments.flatMap((s) => s.chip ? [s.chip, spacer()] : [document.createTextNode(s.text)]));
     this.edited();
   }
 }

@@ -14,6 +14,7 @@ const bundles = {
   echarts: ['dist/echarts.min.js', 'echarts.min.js'],
   wordcloud: ['src/wordcloud2.js', 'wordcloud.js'],
   'markdown-it': ['dist/browser/markdown-it.esm.min.mjs', 'markdown-it.mjs'],
+  mermaid: ['dist/mermaid.min.js', 'mermaid.min.js'],
 };
 for (const [name, [bundle, filename]] of Object.entries(bundles)) {
   const dir = path.join(root, 'node_modules', name);
@@ -55,6 +56,25 @@ const runtimeVersion = files.get('markdown-it.mjs').toString().match(/@oxc-proje
 if (runtimeVersion !== versions['@oxc-project/runtime'].version) throw new Error('Update the bundled OXC runtime notice version');
 notices += `--- Rolldown generated runtime ---\n${await readFile(path.join(root, 'scripts/licenses/rolldown-runtime.LICENSE'), 'utf8')}`;
 files.set('markdown-it.THIRD-PARTY-LICENSE', Buffer.from(notices));
+files.set('mermaid.LICENSE', await readFile(path.join(root, 'node_modules/mermaid/LICENSE')));
+// Mermaid bundles some fifty packages. Each one its source map names gets its own license
+// text and notices. Where npm supplies none (fastdom ships its license only in its README;
+// js-yaml is a build-time dependency of mermaid's, never installed here), the upstream text
+// is kept in scripts/licenses/; a package with neither fails the build.
+const mermaidMap = JSON.parse(await readFile(path.join(root, 'node_modules/mermaid/dist/mermaid.min.js.map'), 'utf8'));
+let mermaidNotices = '';
+for (const name of [...new Set(mermaidMap.sources.map(s => s.match(/.*node_modules\/((?:@[^/]+\/)?[^/]+)/)?.[1]).filter(Boolean))].sort()) {
+  const dir = path.join(root, 'node_modules', name);
+  const names = await readdir(dir).catch(() => []);
+  let text = '';
+  for (const f of names.filter(f => /^(licen[cs]e|notice)(-\w+)?(\.(md|txt))?$/i.test(f)).sort()) {
+    text += await readFile(path.join(dir, f), 'utf8');
+  }
+  text ||= await readFile(path.join(root, 'scripts/licenses', `${name}.LICENSE`), 'utf8')
+    .catch(() => { throw new Error(`Missing bundled license: ${name}`); });
+  mermaidNotices += `--- ${name} ---\n${text}\n`;
+}
+files.set('mermaid.THIRD-PARTY-LICENSE', Buffer.from(mermaidNotices));
 files.set('versions.json', Buffer.from(`${JSON.stringify(versions, null, 2)}\n`));
 
 const unexpected = (await readdir(vendor)).filter(name => name !== 'README.md' && !files.has(name));

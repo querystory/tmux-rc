@@ -15,7 +15,7 @@ Install the app from your daemon's address, rather than from this documentation 
 1. Open your authenticated HTTPS tmux-rc address in Safari or Chrome.
 2. Choose **Share → Add to Home Screen → Add**. Keep **Open as Web App** enabled if offered.
 3. Launch tmux-rc from its Home Screen icon and sign in if prompted.
-4. Tap the bell and allow notifications.
+4. In **Settings** (the gear), turn on **Push notifications** and allow them.
 
 Follow [iPhone setup](iphone-setup.md) for voice, notification testing, and screen-lock
 behavior. Use iOS 16.4 or newer for Web Push.
@@ -27,7 +27,7 @@ behavior. Use iOS 16.4 or newer for Web Push.
    Depending on your browser version, the entry may be called **Install app** or
    **Add to Home screen**.
 3. Launch tmux-rc from the installed icon.
-4. Tap the bell and allow notifications. For voice, allow microphone access separately.
+4. In **Settings** (the gear), turn on **Push notifications** and allow them. For voice, allow microphone access separately.
 
 The client updates from your daemon; you do not need to download an APK.
 See [Chrome's web app installation instructions](https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DAndroid&hl=en).

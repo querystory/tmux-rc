@@ -127,6 +127,47 @@ own rhetorical question — the distinction [#85](https://github.com/querystory/
 was about), `tables`, and the headline itself. `copyables` is the first that creates an
 *action* rather than describing state, which is why it feels different in the hand.
 
+### The counter-example: replies the agent hands back
+
+A copyable's destination is *somewhere else*. The sibling case is text whose destination
+is the same pane: Claude Code ending a turn with "run it yourself: `! gh pr merge …`" or
+"say "merge 415" and I'll queue it". Copying that, opening the composer, pasting and
+sending is four steps for what should be one tap, so a finished turn's offers are answers
+on the pane's question card, where a question's options already are: each offer's exact
+text, as it will be sent (a `! ` included), on a row that unfolds when it is longer than
+the row, then Send it and Copy. Commands and replies look the same, since what matters is
+seeing what goes; special-casing them (hiding the `! `, a Send "…" button for replies) was
+tried and hid exactly that. The list card carries the first offer only, so a row stays a
+row. A tap sends the text plus Enter by the path a tapped option takes, with its "Sending…"
+hold. Two earlier versions were dropped. A native confirm dialog blocked the
+page and looked foreign on a phone. Filling the composer instead put a block of monospace
+above it and the command in the input box, which took half a phone's screen and read as
+something new rather than one more answer to tap; the card is where a user already looks
+for what the agent wants, so the offer belongs there, styled the same. Run was renamed Send
+it: the button sends text to the agent's prompt (a `! ` there runs it in Claude Code's
+shell), and the same word fits a quoted reply.
+An offer is the next step being the user's, so a pane showing one needs the user, as a
+question does.
+
+Which text the agent hands over is the model's call. A first version decided it in code: a
+grammar of `! ` rows, inline spans, fences, quotes after "say", a "do not" anywhere vetoing
+everything, read from the transcript and only for Claude Code. It grew a rule per
+counter-example, read no other agent's phrasing ("could you run…", "paste this in your
+terminal"), and its own "offers make a wait" rule overrode the model's read of the pane.
+The judgement it encoded — is the agent asking the user to send this, or just mentioning
+it — is exactly the easy-for-a-reader, hard-for-a-rule kind this doc is about. What code
+still does is keep the model's answers consistent with each other: an offer it returns
+(and the screen shows) makes the pane wait on the user, the same rule a question follows.
+
+What stays in code is the evidence, because the output is an action with side effects: an
+offer must be on the screen exactly as the model wrote it (the terminal's wraps allowed, a
+quote or frame bar ignored), and a `! ` command must be one bash reads whole (`bash -n`,
+which runs nothing), so a tap never sends text the screen does not show or a command a
+blank row cut short. The gate deliberately stops there: rules about where an offer may
+start or end are judgement again, and an edge case goes to the prompt or an eval sample.
+A missed offer costs the old copy-paste; a false one costs a tap the user reads first,
+since the card shows the text before Send it and nothing is sent without that tap.
+
 The broader bet: **any interface over content it doesn't control** has a backlog of
 affordances it never shipped because they couldn't be done generically. A thin semantic
 pass is how those become cheap.

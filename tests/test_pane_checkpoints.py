@@ -16,7 +16,7 @@ SCREEN = f"old scrollback\n{W.tmux.VISIBLE_SCREEN}\n› done, tests pass"
 
 
 def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity="9000",
-           history=None, listed=True, server=lambda **_kwargs: "boot:1"):
+           history=None, listed=True, server=lambda **_kwargs: "boot:1", prs=()):
     pane = W.tmux.Pane("work", "0", "agent", "0", "%1", "node", "Task", pid=pid,
                        window_activity=activity)
     monkeypatch.setattr(W.tmux, "server_running", lambda: True)
@@ -31,7 +31,7 @@ def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity=
     def parse(pane, text, llm_fn=None, **_kwargs):
         calls.append("parse")
         return {"pane_id": pane.id, "activity": "idle", "tool": "codex",
-                "headline": "Fixed the flaky test",
+                "headline": "Fixed the flaky test", "working_prs": list(prs),
                 "events": [{"text": "ran the suite"}]}
 
     def boot(*_args, **_kwargs):
@@ -89,6 +89,16 @@ def test_changed_screen_or_recycled_pid_falls_back(monkeypatch, tmp_path, change
     assert uids == {f"boot:1:%1:{change.get('pid', '101')}"}
 
 
+@pytest.mark.parametrize("bump", [0, 1])
+def test_a_card_version_bump_drops_prs_an_older_parser_saved(monkeypatch, tmp_path, bump):
+    db = tmp_path / "h.db"
+    daemon(monkeypatch, db, prs=[{"repo": "acme/demo", "number": 212}])  # a guessed repo
+    monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + bump)
+    w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
+    assert calls == (["parse", "bootstrap"] if bump else [])
+    assert w._prs.get("%1", []) == ([] if bump else [{"repo": "acme/demo", "number": 212}])
+
+
 def test_database_failure_falls_back(monkeypatch, tmp_path):
     db = tmp_path / "h.db"
     daemon(monkeypatch, db)
@@ -103,19 +113,26 @@ def test_database_failure_falls_back(monkeypatch, tmp_path):
     assert card(w)["last_activity_at"] == 19000.0
 
 
-def test_prunes_gone_panes_and_dead_servers(monkeypatch, tmp_path):
+def test_prunes_gone_panes_and_expired_dead_servers(monkeypatch, tmp_path):
     db = tmp_path / "h.db"
     history = History(db)
-    row = {"fp": "x", "last_activity_at": 1.0, "idle_since": None, "card": None}
+    now = W.DEAD_SERVER_RETENTION + 10_000.0
     live = f"boot:{os.getpid()}"
-    history.save_checkpoints([{**row, "uid": f"{server}:%1:5", "server": server} for server in (
-        "boot:1",           # this server: its %1:5 pane is gone
-        "oldboot:77",       # previous boot
-        "boot:999999999",   # this boot, pid not running
-        live,               # this boot, still running: kept however long it sits still
+    history.save_checkpoints([{
+        "uid": f"{server}:{pane}:5", "server": server, "fp": "x", "idle_since": None,
+        "card": None, "last_activity_at": at,
+    } for server, pane, at in (
+        ("boot:1", "%1", now),             # this server: its %1:5 pane is gone
+        ("oldboot:77", "%1", 1.0),         # previous boot, idle past retention
+        ("boot:999999999", "%1", 1.0),     # this boot, pid not running, idle past retention
+        ("oldboot:78", "%1", now - 3600),  # previous boot, recent: kept for a restore
+        ("oldboot:78", "%2", 1.0),         # ...with its long-idle sibling
+        (live, "%1", 1.0),                 # this boot, still running: kept however long
     )])
-    daemon(monkeypatch, db, history=history)
-    assert set(History(db).load_checkpoints()) == {f"{live}:%1:5", "boot:1:%1:101"}
+    w, _ = daemon(monkeypatch, db, history=history, now=now, activity=str(int(now)))
+    assert set(History(db).load_checkpoints()) == {
+        f"{live}:%1:5", "oldboot:78:%1:5", "oldboot:78:%2:5", "boot:1:%1:101"}
+    assert all(r["server"] == "boot:1" for r in w._checkpoints.values())
 
 
 def test_migrates_old_schema_and_refuses_newer(tmp_path):

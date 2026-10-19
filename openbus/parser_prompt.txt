@@ -7,7 +7,9 @@ output trickles in — don't re-decide from scratch) and to describe what just h
 in "events". A pane is a fixed-width character grid; treat alignment/columns as
 meaningful.
 Below the control-delimited [visible screen] marker, derive current state and questions
-from it; text above the marker is history.
+from it; text above the marker is history. A control-delimited [side panel] block just
+above it is a panel the agent draws beside the conversation (a file or changes list):
+context only, never part of the agent's message or a question.
 
 Describe what is happening in a way that lets the phone UI light up usefully. Reason
 about GENERAL terminal patterns by how they look/behave, NOT by exact wording (which
@@ -134,15 +136,21 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "tables": [{"title": "optional caption", "headers": ["col", ...], "rows": [["cell", ...], ...]}],
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"|"cursor",
                "selected": <int|null>,   // cursor style: index of the ❯-highlighted option
+               "free_text": <int>,   // index of an option that only opens the agent's own free-text field
+               "items": ["1. ..."],   // when it names rows of a list above it ("do 1 and 2?", "A or B?"): exactly the rows it names
+               "subject": "...",   // with "items": the heading or lead-in line just above that list
+               "link": "https://...",   // the URL in "links" this question asks the user to open, if any
                "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": true|false}},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
   "subagents": [{"label": "...", "state": "running"|"waiting"|"idle"|"compacting"|"unknown"|"done", "elapsed": "...", "tokens": "..."}],
   "working_prs": [{"repo": "owner/name", "number": <positive int>}],
   "links": [{"href": "https://...", "text": "short meaningful label"}],
+  "offers": ["..."],
   "copyables": [{"label": "one-line summary of WHAT this text is, e.g. 'Commit message' "
                  "or 'The 3 failing test names'",
-                 "text": "the EXACT text to put on the clipboard, verbatim"}],
+                 "text": "the EXACT text to put on the clipboard, verbatim",
+                 "send": "..."   // only when the agent's latest message waits on the user to type this into this pane: the text exactly as typed there (e.g. Claude Code's "! command", its "!" kept)}],
   "events": [
     {"text": "WHAT happened, human phrase — e.g. 'Reworked the file list into an activity view'",
      "file": {"path": "...", "added": <int>, "removed": <int>},   // OPTIONAL: if this event was a file edit
@@ -182,6 +190,13 @@ telemetry/config/docs links, often markdown [label](url)) — chrome, not conten
 user is being asked to open. Terminal wrapping splits long URLs across lines —
 REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a short
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
+
+"offers": when the agent is blocked on the user or hands them the next step, and that action is text to
+send into this pane (a command it could not run itself, a reply it asks for), put that
+text in "offers", whole and exactly as the agent gives it, so the phone's Send button can
+type it. A command the screen wraps onto further rows is one offer: its rows joined into one
+line. For example, Claude Code hands over a command to run here as "! command". A command
+or phrase merely mentioned is no offer.
 
 "copyables": text the user will plausibly want to PASTE SOMEWHERE ELSE, lifted off the
 screen for one-tap copying. Selecting text out of a terminal on a phone is genuinely
@@ -250,12 +265,13 @@ have their own dedicated field (mode, model, cost, context %, tool, tasks, quest
 rewind, links) into events.
 "tables": extract visible tabular data (ASCII/box-drawn tables, aligned columns)
 as structured {headers, rows}; do NOT flatten it into prose or events. Include a
-visible caption in "title". Also carry a visible supporting list when the current
-genuine question refers to its items (e.g. "make edits 1–4?"): one row per referenced
-item, retaining its number/label and a concise faithful description. This is decision
-context, NOT the question's answer choices or queued outgoing user messages. Include
-only the referenced visible items; never invent missing items or add skipped ones.
-Omit "tables" when neither tabular data nor such supporting context is visible.
+visible caption in "title". Omit "tables" when no tabular data is visible.
+"question.items": when a typed question names rows of a list above it by number or letter
+("Want me to do 1 now and prepare 2?", "Go with A or B?"), exactly those rows, each quoted
+as shown: its label and its first sentence ("1. Prune container images older than 14
+days."), never as "options" (options are replies the user types); "question.subject" is
+the heading or lead-in line just above that list, quoted as shown, which says what is
+being decided.
 
 ANSWERED QUESTIONS can remain visible in the transcript after the agent moves on.
 A submitted answer (including an omp Ask result showing the chosen option) followed
@@ -265,8 +281,9 @@ earlier frame just for continuity. Position alone, selected checkboxes in an ACT
 picker, or unrelated background completion notices do not prove an answer. A current
 input dialog/approval prompt still needs input even when other work is visible.
 
-"question.prompt" quotes the current visible question verbatim. Put the supporting
-command, list, or decision context in "tables" so the question stands alone on a phone.
+"question.prompt" quotes the current visible question verbatim. Put the list rows it names
+in "question.items" and other supporting context in "tables", so the question stands alone
+on a phone.
 Include "question" only when genuinely blocked awaiting input; "rewind" only when the
 restore picker is shown.
 "rewind" vs a "cursor" question — both are ❯-marked scrollable lists of past items, so

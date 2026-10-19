@@ -34,6 +34,22 @@ CASES = [
         {"sent": ["Down", "Down", "Enter"], "selected": 2, "notes": []},
     ),
     (
+        # Codex's trust dialog ignored its digit; a select /send reads back on the very
+        # screen it went to was ignored too. Said once, with nothing typed after it.
+        "a select that leaves the screen as it was says so instead of searching",
+        {"options": ROWS, "selected": 0, "keymap": FULL_KM, "dead_select": True},
+        "beta", 1,
+        {"sent": ["Down", "Enter"], "selected": 1, "notes": 1},
+    ),
+    (
+        # The same through the search fallback: its select read back unchanged is no commit.
+        "a far row's select that leaves the filtered screen as it was says so",
+        {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM,
+         "reads": True, "filters": True, "dead_select": True},
+        "r13", 13,
+        {"sent": ["r13", "Enter"], "selected": 0, "notes": 1},
+    ),
+    (
         "walks UP when the row is above the highlight",
         {"options": ROWS, "selected": 3, "keymap": FULL_KM},
         "beta", 1,
@@ -402,13 +418,14 @@ function fake(spec) {{
       return p.open
       ? {{
         answer_style: p.style, selected: p.selected, keymap: p.keymap,
+        picker: spec.dead_select && "same",
         prompt: spec.reask_after !== undefined && p.sends >= spec.reask_after ? "B?" : "A?",
         options: spec.no_options ? undefined : p.options,
       }}
       : null;
     }},
     parsedAt: () => p.parsed_at,
-    sendKey: async (k) => {{
+    sendKey: async (k, q) => {{
       if (spec.refuse_first && !p.refused) {{ p.refused = true; p.parsed_at += 1; return STALE; }}
       const moved = deliver(k);
       if (!moved) return false;
@@ -424,6 +441,8 @@ function fake(spec) {{
       // A committed picker goes away, which is what lets the post-commit hold end. The
       // exception models the real lag the hold exists for: the pane is still publishing
       // the old frame for a beat after Enter lands.
+      // A select the widget ignores: the picker reads back exactly as it was sent to.
+      if (k === km.select && spec.dead_select) return {{ picker: q.picker, row: "" }};
       if (k === km.select && !spec.hold_open) p.open = false;
       return spec.reads ? {{ picker: `f${{p.sends}}`, row: p.options[p.selected] }} : true;
     }},

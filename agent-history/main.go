@@ -26,7 +26,7 @@ const reconcileEvery = 6 * time.Hour
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query> | get <session-id>")
+		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query> | get <session-id>... | live")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -50,6 +50,8 @@ func main() {
 		}
 	case "get":
 		getCmd(os.Args[2:])
+	case "live":
+		liveCmd()
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command:", os.Args[1])
 		os.Exit(2)
@@ -112,35 +114,54 @@ func resolveCmd(args []string) error {
 	return nil
 }
 
-// getCmd prints one top-level session as JSON, with whether it is running, for a
-// caller that already chose it (e.g. from resolve). IDs are checked to be plain
-// names so a caller-supplied ID can't reach outside the index.
+// getCmd prints each top-level session as a line of JSON, with whether it is running,
+// for a caller that already chose it (e.g. from resolve). Several IDs share one
+// liveness scan, the expensive part. One that can't be read is skipped with exit 1.
+// IDs are checked to be plain names so a caller-supplied ID can't reach outside the index.
 func getCmd(args []string) {
-	if len(args) != 1 || !validID.MatchString(args[0]) {
-		fmt.Fprintln(os.Stderr, "usage: agent-history get <session-id>")
+	if len(args) == 0 || slices.ContainsFunc(args, func(id string) bool { return !validID.MatchString(id) }) {
+		fmt.Fprintln(os.Stderr, "usage: agent-history get <session-id>...")
 		os.Exit(2)
 	}
-	id := args[0]
-	var e Entry
-	var err error
-	for _, h := range harnesses {
-		if e, err = ReadEntry(indexPath(h.name, "", id)); !errors.Is(err, os.ErrNotExist) {
-			break
-		}
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "get:", err)
-		os.Exit(1)
-	}
-	out := Scored{Entry: e}
 	running, errs := LiveSessions()
-	out.RunningUnknown = errs[e.Harness] != nil
-	if r, ok := running[id]; ok {
-		out.Running = &r
-	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
-	enc.Encode(out)
+	failed := false
+	for _, id := range args {
+		var e Entry
+		var err error
+		for _, h := range harnesses {
+			if e, err = ReadEntry(indexPath(h.name, "", id)); !errors.Is(err, os.ErrNotExist) {
+				break
+			}
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "get:", err)
+			failed = true
+			continue
+		}
+		out := Scored{Entry: e}
+		out.RunningUnknown = errs[e.Harness] != nil
+		if r, ok := running[id]; ok {
+			out.Running = &r
+		}
+		enc.Encode(out)
+	}
+	if failed {
+		os.Exit(1)
+	}
+}
+
+// liveCmd prints every live session with its process and harness, and the harnesses
+// whose liveness is unknown, whose sessions a caller must not read as stopped. It is
+// the inverse of get, for a caller binding processes to places (reboot restore).
+func liveCmd() {
+	running, errs := LiveSessions()
+	unknown := []string{}
+	for name := range errs {
+		unknown = append(unknown, name)
+	}
+	json.NewEncoder(os.Stdout).Encode(map[string]any{"sessions": running, "unknown": unknown})
 }
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)

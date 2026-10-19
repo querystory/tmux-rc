@@ -163,7 +163,7 @@ Two subtleties that everything downstream depends on:
 One front end, served at `/m/` (`/` redirects there), over the JSON API. It is laid
 out for a thumb first and widens into three columns — sessions, Overview, terminal — when
 the window has room, so a desktop browser gets the same app rather than a second one.
-A **New window** dialog starts a fresh agent in a session — the entries come from
+A **New session** dialog starts a fresh agent in a session — the entries come from
 `TMUXRC_LAUNCHERS`.
 
 On a phone the layout splits the

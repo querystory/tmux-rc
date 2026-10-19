@@ -12,7 +12,7 @@ Activity = Literal["running", "idle", "waiting", "compacting", "unknown"]
 # actionable) vs "external" (a background subagent / Copilot / CI / poll it spawned —
 # just busy). Absent ⇒ treat as "user" (the safe default; never hide a real user-wait).
 WaitingOn = Literal["user", "external"]
-Tool = Literal["claude", "codex", "gemini", "opencode", "omp", "shell", "unknown"]
+Tool = Literal["claude", "codex", "gemini", "antigravity", "opencode", "omp", "shell", "unknown"]
 # Permission/interaction mode, mirroring Claude Code's shift-tab cycle.
 Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
 
@@ -150,6 +150,7 @@ class PaneState(BaseModel):
     subagents: list[SubAgent] = []
     agents: int = 0  # count of RUNNING subagents (derived from subagents[])
     copyables: list[Copyable] = []  # paste-me-elsewhere text, one-tap copy in the card
+    offers: list[str] = []  # replies a finished turn hands over to type: tap to send
 
     snapshot_id: str | None = None  # latest snapshot for the timeline
     updated_at: float = 0.0

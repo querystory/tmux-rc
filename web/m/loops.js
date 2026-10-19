@@ -3,9 +3,8 @@
 // and the full lanes on its own page. Panes blocked on you are the sidebar's and the Needs
 // you tab's, so they are not repeated here. A row's pane buttons open the window that owns
 // it. See docs/design/open-loops.md.
-import { since } from "/m/pane-model.js";
+import { since, paneName, esc } from "/m/pane-model.js";
 
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const LANES = { waiting: "Waiting on you", moving: "Moving", dropped: "Dropped" };
 export const REASONS = {
   review_requested: "your review is requested", approved: "approved and green, not merged",
@@ -19,7 +18,7 @@ const ago = (t, now) => t ? `${since({ state_since: t }, now)} ago` : ""; // the
 
 function panes(list, licon, key) {
   return list.length ? list.map(p => `<button type="button" class="loop-pane" data-pane="${esc(p.pane_id)}" data-key="${esc(`${key} ${p.pane_id}`)}">`
-    + `${licon("terminal", 14)}${esc(p.label || `${p.session}:${p.window_index}`)}</button>`).join("")
+    + `${licon("terminal", 14)}${esc(paneName(p))}</button>`).join("")
     : '<span class="loop-orphan">no pane</span>';
 }
 
@@ -79,7 +78,7 @@ export function renderLoopsCard(card, report, openLane, licon, now = Date.now())
   card.hidden = !lanes;
   if (!lanes) return;
   const top = groups(lanes, "waiting").flatMap(g => g.items).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 3);
-  paint(card.querySelector(".loop-card-body"), `<div class="loop-counts">${Object.entries(LANES).map(([lane, title]) => `<button type="button" class="loop-count ${lane}" data-lane="${lane}" data-key="count ${lane}">`
+  paint(card.querySelector(".loop-card-body"), `<div class="kpis">${Object.entries(LANES).map(([lane, title]) => `<button type="button" class="kpi ${lane}" data-lane="${lane}" data-key="count ${lane}">`
       + `<b>${count(groups(lanes, lane))}</b><span>${title}</span></button>`).join("")}</div>`
     + (top.length ? `<h4>Waiting on you</h4>${top.map(i => row(i, licon, now, "top")).join("")}` : "")
     + `<p class="m loop-notes">${esc(notes(report, now))}</p>`, // stale, failed or cut short shows here

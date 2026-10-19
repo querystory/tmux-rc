@@ -1,0 +1,16 @@
+{
+  "description": "Finished auto-mode turn handing over a long `! command` that the terminal wrapped onto a second row, followed by a sentence. The command is offered whole: both rows, joined into one line. Synthetic.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ go ahead and apply it\n\n● The apply is blocked by my permission check, so it needs your shell. Run it with:                     \n                                                                                                        \n  ! cd ~/src/acme/infra/terraform/staging && eval \"$(demo-cli export-credentials --format env)\" &&      \n  terraform apply /tmp/demo-plans/staging-users.tfplan                                                  \n                                                                                                        \n  The plan creates 4 IAM users and changes nothing else. Tell me when it finishes and I'll check them.  \n\n✻ Worked for 6s · done 2:41 PM\n────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯\n────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/infra on main | Opus 5.5 | user@example.com\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "offers": [
+      "! cd ~/src/acme/infra/terraform/staging && eval \"$(demo-cli export-credentials --format env)\" && terraform apply /tmp/demo-plans/staging-users.tfplan"
+    ]
+  }
+}

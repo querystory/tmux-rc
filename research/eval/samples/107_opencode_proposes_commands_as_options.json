@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: OpenCode lists two commands that would also work, as background, after finishing the task. Commands proposed as examples are no offer: idle.",
+  "current_command": "opencode",
+  "capture": "\u001e[visible screen]\u001f\nDone: the importer now skips rows without an id.\n\nFor a one-off cleanup you could also use jq 'select(.id)' rows.json or\npython -m atlas.tools.prune rows.json; the importer change makes neither necessary.\n\n▣  Build · Claude Opus 5.5 · 12.1s\n\n┃  Build · Claude Opus 5.5 · Amazon Bedrock                 ~/src/atlas:main\n╹━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n ~/src/atlas                 20.1K (2%) · $0.05   ctrl+p commands   • OpenCode 1.18.32",
+  "expected": {
+    "tool": "opencode",
+    "activity": "idle",
+    "offers": null,
+    "headline": "Importer now skips rows that have no id"
+  }
+}

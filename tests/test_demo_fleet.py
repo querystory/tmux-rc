@@ -12,11 +12,10 @@ from openbus.history import History
 from openbus.open_loops import OpenLoops
 from openbus.plan_usage import PlanUsage
 from scripts import demo_fleet as demo
+from tests.test_public_data import IDENTITY
 
-PRIVATE = re.compile(r"/home/|/Users/|querystory|qs-app|tmux-rc|shapor"
-                     r"|[\w.+-]+@[\w-]+\.[\w.-]+|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
-                     r"|AKIA[0-9A-Z]{8}|AIza[0-9A-Za-z_-]{10}"
-                     r"|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY", re.IGNORECASE)
+# A stranger's fleet: not even this project's own names or a home path.
+PRIVATE = re.compile(rf"/home/|querystory|qs-app|tmux-rc|{IDENTITY}", re.IGNORECASE)
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +30,8 @@ def _loops() -> dict:
 
 def _everything() -> str:
     fleet = demo.fleet()
-    return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet], _loops()])
+    return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet], _loops(),
+                       demo.restore_snapshot(), demo.SCRATCH, demo.SCRATCH_WRITERS])
 
 
 def test_fleet_contains_nothing_private():
@@ -50,8 +50,7 @@ def test_fleet_covers_every_state_the_ui_draws():
     acts = {(p["activity"], p.get("waiting_on")) for p in fleet}
     assert {("running", None), ("idle", None), ("compacting", None),
             ("waiting", "user"), ("waiting", "external")} <= acts
-    styles = {p["question"]["answer_style"] for p in fleet if p.get("question")}
-    assert {"text", "menu"} <= styles
+    assert 1 <= sum(p.get("waiting_on") == "user" for p in fleet) <= 2  # a calm fleet
     assert {p["tool"] for p in fleet} >= {"claude", "codex", "opencode", "omp", "gemini", "shell"}
 
 
@@ -102,3 +101,18 @@ def test_open_loops_fill_every_lane_and_grouping_signal():
     assert {(g["workstream"] or {}).get("id") for g in lanes["waiting"]} >= {
         "example-org/shop-api#409", "workstream:build-cache"}  # a stack and a label
     assert any(i["panes"] for g in lanes["waiting"] for i in g["items"] if i["kind"] == "pr")
+
+
+def test_restore_offer_shows_every_default_and_a_refusal(tmp_path, monkeypatch):
+    """Through the real offer, as the demo server serves it: agents ticked, a long-idle one
+    and a shell not, one already running refused."""
+    from openbus import restore
+    for name, seam in demo.restore_seams().items():
+        monkeypatch.setattr(restore, name, seam)
+    offer = restore.offer(demo.seed_restore(History(tmp_path / "h.sqlite3")))
+    panes = {p["title"]: (p["default"], p["blocked"])
+             for w in offer["windows"].values() for p in w["panes"]}
+    assert panes.pop("Tokenizer v2 benchmarks") == (False, None)
+    assert panes.pop(None) == (False, None)
+    assert panes.pop("Eval harness flakes") == (False, "it's already running")
+    assert set(panes.values()) == {(True, None)}

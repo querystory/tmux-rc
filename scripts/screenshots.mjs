@@ -14,46 +14,54 @@ const HD = { width: 1920, height: 1080 };
 
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
+  // One-tap answers from the Needs you list, and the question's pane.
+  ["one-tap-list", PHONE, "light", "", (page) => page.click("#attention-tab")],
+  ["one-tap-pane", PHONE, "light", "#pane=%2548"],
   ["hero", WIDE, "light", "#pane=%259"],
   ["website-desktop", WIDE, "light", "#pane=%259"],
   ["website-chat", WIDE, "light", "#pane=%259", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["website-chat-phone", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["mobile-ask", PHONE, "light", "", chat("What are my agents doing?")],
   ["website-voice", WIDE, "light", "#pane=%259", voice],
   ["website-voice-phone", PHONE, "light", "", voice],
-  ["website-usage", WIDE, "light", "#pane=%259", undefined, "#usage"],
+  ["website-usage", PHONE, "light", "#view=dashboard", reach("#usage-panel"), "#usage-panel"],
   ["website-dashboard", WIDE, "light", "#view=dashboard"],
-  ["website-atlas", WIDE, "light", "#view=dashboard", (page) => page.locator(".atlas-map").scrollIntoViewIfNeeded()],
+  ["website-atlas", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
+  ["website-restore", WIDE, "light", "#view=restore", afterReboot],
+  ["website-restore-phone", PHONE, "light", "#view=restore", afterReboot],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
-  ["wide-needs-you", WIDE, "light", "#pane=%254"],
+  ["wide-overview-folded", WIDE, "light", "#pane=%259", (page) => page.click("#overview-toggle")],
+  ["wide-overview-folded-dark", WIDE, "dark", "#pane=%259", (page) => page.click("#overview-toggle")],
+  ["wide-needs-you", WIDE, "light", "#pane=%2548"],
+  ["wide-layout-menu", WIDE, "light", "#pane=%259", (page) => page.click("#review-layout-picker summary")],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
   ["wide-heatmap", WIDE, "light", "#view=dashboard", heatCard],
   ["wide-heatmap-view", WIDE, "dark", "#view=heat", heatCell],
   ["wide-usage-detail", WIDE, "dark", "#view=usage"],
-  ["wide-usage-past", WIDE, "light", "#view=usage", stepBack],
+  ["wide-usage-7d", WIDE, "light", "#view=usage", pickRange("7d")],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
   ["wide-sessions", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
   ["mobile-open-loops", PHONE, "light", "#view=loops", showLoops],
-  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card .loop-count")],
+  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card [data-lane]")],
   ["mobile-sessions", PHONE, "dark", "#view=dashboard", reach(".atlas-multiples")],
   ["wide-activity", WIDE, "light", "#view=dashboard", reach(".atlas-pulse", true)],
   ["mobile-activity", PHONE, "dark", "#view=dashboard", reach(".atlas-pulse", true)],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
-  ["mobile-more-menu", PHONE, "light", "", (page) => page.click("#more-button")],
+  ["mobile-settings", PHONE, "light", "", phoneSettings],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
-  ["mobile-usage-past", PHONE, "light", "#view=usage", stepBack],
+  ["mobile-usage-30d", PHONE, "light", "#view=usage", pickRange("30d")],
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
-  ["mobile-needs-you", PHONE, "light", "#pane=%254"],
-  ["mobile-question-items", PHONE, "light", "#pane=%2546"],
-  ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
   ["mobile-pane-menu", PHONE, "dark", "#pane=%259", (page) => page.click("#pane-menu-button")],
+  ["mobile-offers", PHONE, "light", "#pane=%255"],
+  ["mobile-offers-terminal", PHONE, "dark", "#pane=%255&view=terminal"],
   ["mobile-expunge", PHONE, "light", "#pane=%259", confirmExpunge],
   ["mobile-shell-menu", PHONE, "dark", "#pane=%256", (page) => page.click("#pane-menu-button")],
   ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .voice-open button")],
@@ -61,8 +69,19 @@ const SHOTS = [
   ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
   ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-close"); }],
   ["mobile-no-tmux", PHONE, "light", "", noTmux],
+  // The sidebar (docs/design/sidebar.md): Chat open from the head, Settings beside it, and the rail.
+  ["wide-places", WIDE, "light", "#pane=%259", (page) => page.click("#chat")],
+  ["wide-settings", WIDE, "dark", "#view=dashboard", (page) => page.click("#settings-open")],
+  ["wide-rail", WIDE, "light", "#pane=%259", async (page) => { await page.click("#collapse"); await page.hover("#side-list .sb-rail >> nth=2"); await page.locator("#side-hover").waitFor(); }],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
+  // The scratch gallery (openbus/scratch.py), the daemon's page rather than the app's.
+  ["mobile-scratch", PHONE, "dark", "", scratch],
+  ["wide-scratch", WIDE, "light", "", scratch],
 ];
+
+function scratch(page) {
+  return page.goto(new URL("/scratch/", page.url()).href);
+}
 
 // The same fleet with a second Claude account (TMUXRC_DEMO_ACCOUNTS=2, demo_fleet.PERSONAL):
 // badges, the strip by urgency, grouped Plan usage, the picker, the filter and Accounts….
@@ -81,10 +100,11 @@ const TWO_ACCOUNTS = [
   })],
   ["accounts-mobile-list", PHONE, "light", "", two()],
   ["accounts-mobile-list-dark", PHONE, "dark", "", two()],
-  ["accounts-mobile-menu", PHONE, "light", "", two((page) => page.click("#more-button"))],
-  ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { await page.click('#list-nav [data-filter="running"]'); await page.click('#acct-filter [data-acct="claude-personal"]'); })],
+  ["accounts-mobile-settings", PHONE, "light", "", two(phoneSettings)],
+  ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { const tab = page.locator('#list-nav [data-filter="working"]'), base = await tab.count(); if (base) await tab.click(); await page.click("#side-filter-picker summary"); if (!base) await page.click('#side-filter-picker [data-v="working"]'); await page.click('#acct-filter [data-acct="claude-personal"]'); await page.click("#side-filter-picker summary"); })],
   ["accounts-wide-filter", WIDE, "light", "", two((page) => page.click("#side-filter-picker summary"))],
-  ["accounts-wide-filtered", WIDE, "dark", "", two(async (page) => { await page.click("#side-filter-picker summary"); await page.click('#side-filter-picker label:has([value="running"])'); await page.click("#side-filter-picker summary"); await page.click('#acct-filter [data-acct="claude"]'); })],
+  ["accounts-wide-rail", WIDE, "dark", "#pane=%2513", two((page) => page.click("#collapse"))],
+  ["accounts-wide-filtered", WIDE, "dark", "", two(async (page) => { await page.click("#side-filter-picker summary"); await page.click('#side-filter-picker [data-v="working"]'); await page.click('#acct-filter [data-acct="claude"]'); await page.click("#side-filter-picker summary"); })],
   ["accounts-mobile-dashboard", PHONE, "light", "#view=dashboard", two((page) => page.locator("#usage-panel").scrollIntoViewIfNeeded())],
   ["accounts-mobile-pane", PHONE, "light", "#pane=%2513", two()],
   ["accounts-mobile-pane-menu", PHONE, "dark", "#pane=%2513", moveMenu()],
@@ -92,8 +112,8 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-moved", PHONE, "light", "#pane=%2513", moveMenu("#move-pane", "Exit the old pane"), "#move-dialog"],
   ["accounts-mobile-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); })],
   ["accounts-mobile-consent", PHONE, "light", "", two(chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge"))],
-  ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await page.click("#more-button"); await page.click("#accounts-open"); })],
-  ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await page.click("#more-button"); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
+  ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); })],
+  ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
   // Adding "Demo", step by step, each cropped to its sheet (docs/design/agent-accounts.md).
   // Last, and in this order: opening the sign-in window changes the demo server's state.
   ["accounts-add-1-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }), "#launch-dialog"],
@@ -105,11 +125,16 @@ const TWO_ACCOUNTS = [
   ["accounts-add-6-done", PHONE, "light", "", two(addFlow("done")), "#acct-dialog"],
   ["accounts-add-7-list", PHONE, "light", "", two((page) => page.fill("#search", "sign in"))],
 ];
+// A phone opens Settings from the ☰ drawer, its own button being a wide screen's.
+async function phoneSettings(page) {
+  await page.click("#menu-open"); await page.click('#drawer-nav [data-via="settings-open"]');
+  await page.waitForSelector("#settings[open]");
+}
 // The add flow up to `until`: name, share, login (its step before the window opens), wait
 // (the window open, signing in) or done.
 function addFlow(until) {
   return async (page) => {
-    await page.click("#more-button"); await page.click("#accounts-open");
+    await phoneSettings(page); await page.click("#accounts-open");
     const added = page.locator('#acct-dialog [data-remove="~/.claude-demo"]'); // by an earlier shot
     if (await added.count()) { // remove it, and wait for the list to come back without it
       await added.click(); await page.click("#acct-dialog [data-remove-ok]");
@@ -132,7 +157,7 @@ function addFlow(until) {
 // from before accounts, or before the item, is shot as it is.
 function moveMenu(item, done) {
   return async (page) => {
-    if (!await page.locator('link[href="/m/accounts.js"]').count() || (item && !await page.locator(item).count())) return;
+    if (!await page.locator('link[href$="/m/accounts.js"]').count() || (item && !await page.locator(item).count())) return;
     await page.locator("#pane-location .acct-badge").waitFor();
     await page.click("#pane-menu-button");
     if (item) { await page.click(item); await page.waitForSelector("#move-dialog[open]"); }
@@ -144,7 +169,7 @@ function moveMenu(item, done) {
 // (no accounts.js preload) is shot as it is; on any other, a missing badge fails the shot.
 function two(step) {
   return async (page) => {
-    if (!await page.locator('link[href="/m/accounts.js"]').count()) return;
+    if (!await page.locator('link[href$="/m/accounts.js"]').count()) return;
     // Attached, not visible: a phone's dashboard has its badged rows hidden.
     await page.locator(".acct-badge").first().waitFor({ state: "attached" })
       .catch((e) => { throw Object.assign(new Error(`no account badge: ${e.message}`), { loud: true }); });
@@ -154,7 +179,7 @@ function two(step) {
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
 // its state is emptied on the way to the page.
-async function noTmux(page) {
+async function noTmux(page, ready = ".start-session:not([hidden])") {
   // No timeout: the fetch may be a 25s long poll. A failure (the context closing under a
   // held poll) is dropped, not thrown — an unhandled one would end the whole run.
   await page.route(/\/api\/state/, async (route) => {
@@ -164,15 +189,17 @@ async function noTmux(page) {
     } catch { /* page gone */ }
   });
   await page.reload();
-  await page.waitForSelector(".start-session:not([hidden])");
+  await page.waitForSelector(ready);
 }
+// Just after a reboot: no tmux, and the demo fleet's dead server on offer.
+function afterReboot(page) { return noTmux(page, ".restore-pane"); }
 
 // Bring a dashboard node to the top once it, and the Open loops card above it (which arrives
 // after the page), have drawn; a base that predates either shoots the page as it is. `end`
 // scrolls to the page's foot instead (Activity, which grows from its strip there).
 function reach(selector, end = false) {
   return async (page) => {
-    for (const node of ["#loops-card .loop-count", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
+    for (const node of ["#loops-card [data-lane]", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(500); // the panels above settle their height first
     await page.locator(selector).first().evaluate((el, end) => {
       const pane = document.getElementById("landing"); // scroll the dashboard, never the page
@@ -193,7 +220,7 @@ async function showLoops(page) {
   await page.locator("#landing-loops summary").first().waitFor({ timeout: 5000 }).catch(() => {});
 }
 
-// The Sub-agents toggle is on by default; show its lines under activity cards too.
+// The sub-agents count's switch is on by default; show their lines under activity cards too.
 async function showSubagents(page) {
   await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
@@ -230,9 +257,9 @@ async function confirmExpunge(page) {
   await page.waitForSelector("#expunge-dialog[open]");
 }
 
-// The usage view's history: the 5h meter two windows back (it hit the limit), the 7d one.
-async function stepBack(page) {
-  for (const n of [0, 0, 1]) await page.locator('.usage-nav [data-step="1"]').nth(n).click();
+// The usage view at another range.
+function pickRange(label) {
+  return (page) => page.locator(".usage-view .fleet-seg button", { hasText: label }).first().click();
 }
 
 async function voice(page) {
@@ -276,13 +303,16 @@ try {
         data.live_models.push({ label: "Demo voice", hint: "Fictional conversation", text: false });
         await route.fulfill({ response, json: data });
       });
+      // The fleet's dead server is on offer in its own shots only: elsewhere its row would
+      // head every list, and a shot without tmux would open the offer instead.
+      if (!name.startsWith("website-restore")) await page.route("**/api/restore", (route) => route.fulfill({ json: { candidate: null } }));
       // The landing page shows a quieter fictional fleet so the compact session and
       // sub-agent rows fit below one actionable card. Other shots keep all states. As in
       // noTmux: no timeout on what may be a long poll, and a page gone under it is dropped.
       if (name.startsWith("website-")) await page.route("**/api/state*", async (route) => {
         try {
           const response = await route.fetch({ timeout: 0 }), data = await response.json();
-          data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "api contract diff");
+          data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "refunds");
           await route.fulfill({ response, json: data });
         } catch { /* page gone */ }
       });

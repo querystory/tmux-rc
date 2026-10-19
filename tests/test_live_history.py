@@ -101,7 +101,7 @@ def test_resume_jumps_to_the_window_only_when_the_user_tapped_send(history, monk
     assert r.get("shown", False) == bool(consent)  # steers the model off a second button
     opens = [m for m in ws.sent if m["type"] == "open_pane"]
     assert opens == ([{"type": "open_pane", "pane_id": "%40", "auto": True,
-                       "label": 'window 7 "tmuxrc live mode"'}] if consent else [])
+                       "label": "tmuxrc live mode · claude in work"}] if consent else [])
 
 
 def test_resume_is_idempotent_until_the_session_registers(history):
@@ -269,9 +269,9 @@ def test_registry_pane_counts_only_if_its_process_runs_there(history, monkeypatc
     assert opened == []
     monkeypatch.setattr(tmux, "ancestors", _REAL_ANCESTORS)
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: str(os.getppid()))
-    assert L._pane_of({"pid": os.getpid(), "tmux_pane": "%1"}) == "%1"  # real /proc walk
+    assert tmux.running_pane({"pid": os.getpid(), "tmux_pane": "%1"}) == "%1"  # real /proc walk
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "999999999")
-    assert L._pane_of({"pid": os.getpid(), "tmux_pane": "%1"}) is None
+    assert tmux.running_pane({"pid": os.getpid(), "tmux_pane": "%1"}) is None
 
 
 @pytest.mark.parametrize(("entry", "args"), [
@@ -355,6 +355,9 @@ def test_client_runs_the_binary_with_a_literal_query(monkeypatch, tmp_path):
 
     fake.write_text("#!/bin/sh\nexit 1\n")
     assert agent_history.get("x") is None
+    assert agent_history.get_many(["x"]) == {}  # 1: only an unknown id
+    fake.write_text("#!/bin/sh\necho usage >&2\nexit 2\n")
+    assert agent_history.get_many(["x", "y"]) is None  # an outdated binary's usage error
     monkeypatch.setenv("TMUXRC_AGENT_HISTORY", str(tmp_path / "missing"))
     assert agent_history.binary() is None and agent_history.resolve("q") is None
 

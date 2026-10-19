@@ -24,6 +24,9 @@ install-units:
 	# hand-edit it (and rather than guessing a layout that's wrong on most hosts).
 	sed 's|^WorkingDirectory=.*|WorkingDirectory=$(CURDIR)|' deploy/systemd/tmux-rc.service \
 		> $(HOME)/.config/systemd/user/tmux-rc.service
+	# The one agent-history the hooks and the daemon share, refreshed to this checkout's
+	# flags ("-": a host without Go keeps the one it has).
+	-cd agent-history && go build -o $(HOME)/.local/bin/agent-history .
 	systemctl --user daemon-reload
 	systemctl --user enable --now tmux-rc.target tmux-rc.service tmux-rc-tunnel.service
 	[ "$(LINGER)" = "1" ] && loginctl enable-linger $(USER) || \
@@ -79,7 +82,7 @@ docs-clean:
 # Playwright lives in a cache dir rather than package.json: only these targets need a
 # browser, and the pinned version is what keeps renders comparable between machines.
 PLAYWRIGHT_DIR ?= $(HOME)/.cache/tmux-rc/playwright
-README_SHOTS = hero mobile-list mobile-pane mobile-terminal accounts-add-1-new-window accounts-add-6-done
+README_SHOTS = one-tap-list one-tap-pane mobile-offers hero mobile-list mobile-ask mobile-pane mobile-terminal accounts-add-1-new-window accounts-add-6-done
 BASE ?= origin/main
 export PLAYWRIGHT_DIR
 

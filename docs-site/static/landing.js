@@ -63,3 +63,16 @@ for (const button of document.querySelectorAll('[data-copy]')) {
     setTimeout(() => { button.textContent = 'Copy'; button.setAttribute('aria-label', label); }, 2000);
   });
 }
+
+// Any screenshot opens full size; a click anywhere, Esc or the close button shuts it. `src`,
+// not `currentSrc`: the hero's phone placeholder must never be what opens.
+const zoom = document.getElementById('zoom'), zoomed = zoom.querySelector('img');
+for (const img of document.querySelectorAll('.screen img, .phones img, .preview-pair img, .feature-detail img')) {
+  img.tabIndex = 0;
+  img.setAttribute('role', 'button');
+  img.setAttribute('aria-haspopup', 'dialog');
+  const open = () => { Object.assign(zoomed, { src: img.src, alt: img.alt }); zoom.showModal(); };
+  img.addEventListener('click', open);
+  img.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
+}
+zoom.addEventListener('click', () => zoom.close());

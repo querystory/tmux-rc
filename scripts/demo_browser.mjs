@@ -47,16 +47,14 @@ function stubChat(socket) {
       text: "Resume checkout flake hunt", session: { tool: "codex", cwd: "~/src/example-org/storefront",
         last_active: "2026-06-10T09:12:00Z", id: "5f3a9c1e" } }));
     if (/^Tell/.test(message.text)) socket.send(JSON.stringify({ type: "propose", id: "p1", pane_id: "%9",
-      text: 'Send to window 1 "e2e triage": From the user (via text): rerun it headed' }));
+      text: "Send to e2e triage · claude in ci: From the user (via text): rerun it headed" }));
     else if (/window/.test(message.text)) {
-      socket.send(JSON.stringify({ type: "open_pane", pane_id: "%9", label: 'window 1 "e2e triage"' })); // before the text, as live
-      socket.send(JSON.stringify({ type: "transcript", role: "model", text: "Window 1 is **e2e triage**, rerunning checkout.spec with tracing on." }));
+      socket.send(JSON.stringify({ type: "open_pane", pane_id: "%9", label: "e2e triage · claude in ci" })); // before the text, as live
+      socket.send(JSON.stringify({ type: "transcript", role: "model", text: "**e2e triage** is rerunning checkout.spec with tracing on." }));
     } else socket.send(JSON.stringify({ type: "transcript", role: "model", text:
-      "Four panes need you:\n\n- **api contract diff** asks whether to bump the public API to v3\n" +
-      "- **flaky test hunter** wants you to pick a suite to quarantine\n" +
-      "- **alert tuning** asks to silence the disk alert on build-02\n" +
-      "- **dependency audit** wants approval for three breaking upgrades\n\n" +
-      "Seven others are running, including the traced checkout.spec rerun in **e2e triage**." }));
+      "Two panes need you:\n\n- **refunds** asks whether to merge PRs #413 and #414\n" +
+      "- **preview deploy** hands you `make test` to run before it merges\n\n" +
+      "Others are running, including the traced checkout.spec rerun in **e2e triage**." }));
     socket.send(JSON.stringify({ type: "turn_complete" }));
   });
 }

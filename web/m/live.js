@@ -1,8 +1,11 @@
 import { liveClose } from "/live-close.js";
 import { chatBubble, chatComposer, chatThumb } from "/live-chat.js";
-import { appendChatMarkdown } from "/chat-markdown.js";
+import { appendChatMarkdown, renderChatText } from "/chat-markdown.js";
+const esc = (text) => renderChatText(text); // no names: plain escaping
+const KEYCAPS = { Up: "↑", Down: "↓", Left: "←", Right: "→", Escape: "Esc", Enter: "⏎ Enter", PageUp: "Page Up", PageDown: "Page Down", "C-c": "Ctrl C", "C-d": "Ctrl D" };
+const keycap = (key) => `<kbd>${esc(KEYCAPS[key] || key)}</kbd>`;
 import { chatStarters } from "/chat-starters.js";
-import { since } from "/m/pane-model.js";
+import { since, paneName, sessionOf } from "/m/pane-model.js";
 // Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
 // what the server expects (see docs/design/live-mode.md).
 const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
@@ -19,7 +22,7 @@ const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the
 const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
-export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "" }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "", panes = () => [], logos = {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -36,7 +39,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const text = run ? run.text : mode === "text", title = name({ text });
     $("live-mode").classList.toggle("active", !!run && !run.text);
     $("chat").classList.toggle("active", !!run?.text);
-    $("live-mode").title = $("live-mode").ariaLabel = run && !run.text ? "Live Mode active" : "Live Mode";
+    $("live-mode").title = $("live-mode").ariaLabel = run && !run.text ? "Voice active" : "Voice";
     $("voice-title").textContent = title;
     $("voice-start").textContent = `End ${title}`;
     $("voice-start").hidden = !run;
@@ -132,6 +135,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
       $("chat").hidden = !(data.live_enabled && chatModels().length) && !run;
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
+      $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
   }
@@ -157,24 +161,38 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       return button;
     }));
   }
+  // A reconnect opens a daemon session with no history (a restart loses it): hand back the
+  // conversation this log shows, so a "yes" still answers the question above it. Text
+  // only: approvals and tool results never come from here (live_chat.restore).
+  function restore(current) {
+    const transcript = [...log.children].filter((row) => ["user", "model", "typed"].includes(row.dataset.role))
+      .map((row) => ({ role: row.dataset.role, text: row.said })).filter((row) => row.text.trim()); // an Open-only row says nothing
+    if (!transcript.length) return;
+    current.ws.send(JSON.stringify({ action: "resume", transcript }));
+    // A quiet status line, not an error: nothing failed. One per run of reconnects.
+    if (lastRow()?.dataset.role !== "note") add("note", "Reconnected: the assistant has the conversation above");
+  }
+  const lastRow = () => typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
   function add(role, message, newSegment = false, images = []) {
-    const previous = typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
+    const previous = lastRow();
     const follow = following();
     const grow = !newSegment && (role === "user" || role === "model") && previous?.dataset.role === role && !previous.dataset.done;
     let row = previous;
     if (!grow) {
       row = document.createElement("div"); row.className = "voice-entry";
       row.dataset.role = role;
-      row.classList.add(["user", "model", "typed", "error", "propose"].includes(role) ? role : "model");
+      row.classList.add(["user", "model", "typed", "error", "propose", "note"].includes(role) ? role : "model");
       const heading = document.createElement("strong");
       heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
     const body = row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
-    if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
+    row.said = (row.said || "") + (message || ""); // the source, for restore: rendered Markdown loses it
+    if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; }, names());
+    else if (role === "propose") body.innerHTML = renderChatText(message || "", names()); // one line, never grown
     else body.textContent += message || "";
     body.before(...images.map(chatThumb));
-    if (!dialog.open && role !== "user") unread = true; // not the user's own echo
+    if (!dialog.open && !["user", "note"].includes(role)) unread = true; // not the user's own echo, nor a status line
     // Oldest first, but never a proposal still waiting on the user: the daemon would wait
     // forever for a Send/Cancel that is no longer on screen.
     for (let old; log.children.length - typing.isConnected > TRANSCRIPT_ROWS && (old = [...log.children].find((r) => r !== typing && !r.querySelector(".voice-actions")));) old.remove();
@@ -189,9 +207,14 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // the daemon keeps it for this chat a while, so a tap waits out the reconnect, hurried
   // along, and goes again on each new connection until answered (a socket can die with it
   // in flight); only a card the daemon no longer has comes back "expired".
-  function propose(current, { id, text, image, pane_id, session }) {
+  function propose(current, card) {
+    heard.add(card.label);
+    const { id, text, image, pane_id, session, warn } = card;
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
+    if (drawn(card)) row.lastChild.innerHTML = action(card);
     if (session) row.lastChild.append(sessionMeta(session));
+    // A reply that only agreed, or context restored after a reconnect: look twice.
+    if (warn) row.lastChild.append(Object.assign(document.createElement("small"), { className: "voice-meta voice-warn", textContent: warn }));
     if (pane_id) row.lastChild.insertAdjacentHTML("beforeend", account(pane_id)); // which account it lands on, with several
     actions.className = "voice-actions";
     for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
@@ -207,7 +230,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     }
     // Look before approving: opening leaves the card pending, and the bubble brings it back.
     if (pane_id) actions.append(openButton(pane_id, "Open"));
-    row.append(actions); current.proposals.set(id, { row, actions }); badge();
+    row.append(actions); current.proposals.set(id, { row, actions, card }); badge();
     actions.scrollIntoView?.({ block: "nearest" }); // a card waiting on the user is never left clipped
   }
   // A button to a pane, going exactly where its row in the list goes (the caller's
@@ -227,6 +250,33 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     (row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }))).append(button);
     if (auto) button.click();
   }
+  // A pane as its sidebar row shows it, never by tmux id: its tool's logo, its name, its
+  // session dimmed. A pane the page has not seen yet (one just opened) shows the daemon's label.
+  // The names to bold: the page's pane list, and every name the daemon has used for a pane,
+  // since a pane just opened (a resume) can be in the reply before it is in the list; this
+  // chat's only, as a later one may name an old pane's words in passing.
+  const heard = new Set(), names = () => [...panes().map(paneName), ...heard];
+  // `window`: the daemon's " · window N" for a pane another one reads the same as (live._pane_name).
+  function paneTag(id, label, window = "") {
+    const pane = panes().find((p) => p.pane_id === id);
+    if (!pane) return `<strong>${esc(label || id)}</strong>${esc(window)}`;
+    const logo = Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
+    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}${window && `<span>${esc(window)}</span>`}</span>`;
+  }
+  // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
+  // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The
+  // model's relay label ("From the user (via text):") is dimmed: how it came, not what goes in.
+  // Only a well-formed call is drawn: a malformed one keeps its sentence, as the daemon refuses it.
+  const drawn = ({ pane_id, key, payload }) => !!pane_id && (typeof key === "string" ? !!key : typeof payload === "string");
+  function action({ pane_id, label, window, key, payload, enter }, done) {
+    const [press, type] = done ? ["Pressed", "Typed into"] : ["Press", "Type into"];
+    const tag = paneTag(pane_id, label, window);
+    if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${tag}</div>`;
+    const via = /^From the user \(via \w+\):\s*/.exec(payload)?.[0] || "";
+    // Enter goes where it is pressed: at the end of the text, as it would be typed.
+    return `<div class="voice-act">${type} ${tag}` +
+      `<blockquote>${via && `<span>${esc(via)}</span>`}${esc(payload.slice(via.length))}${enter ? ` ${keycap("Enter")}` : ""}</blockquote></div>`;
+  }
   // Which session a resume card means, past a title several can share (live._approved).
   function sessionMeta({ tool, cwd, last_active, id }) {
     const at = Date.parse(last_active), meta = document.createElement("small");
@@ -239,7 +289,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const card = current.proposals.get(id);
     if (!card) return;
     current.sending.delete(id);
-    card.row.firstChild.textContent = label; card.actions.remove(); current.proposals.delete(id); badge();
+    card.row.firstChild.textContent = label; card.actions.remove();
+    if (label === "Approved" && drawn(card.card)) card.row.querySelector(".voice-act").outerHTML = action(card.card, true); current.proposals.delete(id); badge();
   }
   function deliver(current, frames) {
     if (current.listening && current.ws?.readyState === WebSocket.OPEN) frames.forEach((frame) => current.ws.send(JSON.stringify(frame)));
@@ -433,7 +484,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
         current.held = message.status === "reconnecting"; current.dirty = false; // see viewing()
-        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); resync(current); }
+        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); if (current.text) restore(current); resync(current); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
@@ -441,7 +492,11 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         [...log.children].forEach((row) => { row.dataset.done = "true"; });
         current.turns = Math.max(0, current.turns - 1); badge(); // a queued turn may follow
       }
-      else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
+      else if (message.type === "typed") {
+        heard.add(message.label);
+        add("typed", `${message.label}: ${message.text}`).lastChild.innerHTML = drawn(message)
+          ? action({ ...message, enter: message.submitted }, true) : `${paneTag(message.pane_id, message.label)}: ${esc(message.text)}`;
+      }
       else if (message.type === "error") {
         // A refused turn gets no answer; any other error ends the session's turns.
         if (message.refused) current.thumbs.shift();
@@ -476,7 +531,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   async function start() {
     const token = ++sequence;
     const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
-    run = current; log.replaceChildren(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
+    run = current; log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
       try { localStorage.setItem(CHAT_MODEL_KEY, current.model); } catch {}

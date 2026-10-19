@@ -1,19 +1,21 @@
 // Agent accounts (openbus/accounts.py): one per provider config dir. Account UI draws only
 // for a provider with two or more signed-in accounts; with one each, everything here is a
-// no-op and the app looks as it always did. The one exception is Accounts… in the menu,
+// no-op and the app looks as it always did. The one exception is Settings' Accounts,
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+import { esc } from "./pane-model.js"; // relative, so node's tests can load this module
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login" };
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new";
 // A dir in one spelling, as the server folds it (os.path.normpath): no "//", ".", ".." or trailing "/".
 const norm = (d) => (d.startsWith("/") ? "/" : "") + d.split("/").reduce((o, s) => (s === ".." ? o.pop() : s && s !== "." && o.push(s), o), []).join("/");
+// Markup's text, for a tooltip that says what the markup does.
 const title = (provider) => provider === "codex" ? "Codex" : "Claude";
 
-export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery }) {
+export function setupAccounts({ request, post, licon, notice, repaint, navigate, sessions, paneAlive, openPane, query, clearQuery, chips, clearChip, clearAll }) {
   const $ = (id) => document.getElementById(id);
-  // The filter is the URL's `acct` (url-state.js): app.js routes it here through follow().
-  let profiles = [], defaults = {}, shared = {}, filter = null;
+  // The filter is the URL's `acct` (url-state.js), a list of keys (none is every account):
+  // app.js routes it here through follow().
+  let profiles = [], defaults = {}, shared = {}, filter = [];
   const signedIn = () => profiles.filter((p) => p.signed_in);
   const several = (provider) => signedIn().filter((p) => p.provider === provider).length > 1;
   const any = () => Object.keys(ENV).some(several);
@@ -24,7 +26,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   // usual "~/." dropped so it reads (acct=claude-work). Every other dir keeps its leading
   // "~" or "/", so no two dirs share a name.
   const key = (p) => p.tilde.replace(/^~\/\./, "");
-  const active = () => any() && signedIn().find((p) => key(p) === filter) || null;
+  const active = () => any() ? signedIn().filter((p) => filter.includes(key(p))) : [];
   // The login's email, where the name and organisation leave it unsaid.
   const login = (p) => [p.who, p.name].some((s) => s?.includes(p.login)) ? "" : p.login;
   // The line under a name in a pick list: what the name leaves unsaid, then the dir.
@@ -53,58 +55,60 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     if (dlg.open && F.step === "list" && !F.renaming) render();
     return true;
   }
+  // Toggles one account in or out of the filter; none (All) clears it. The menu stays open.
   function setFilter(k) {
-    const menu = filterGroup.closest("details"), focused = [filterGroup, pill].some((el) => el.contains(document.activeElement));
-    if (menu) menu.open = false;
-    navigate(k || null); // writes the URL, which routes back to follow()
-    // The button pressed was just redrawn or hidden: keep keyboard focus on the menu's trigger,
-    // else the chip, else (clearing the pill on a phone) the dashboard's tab or a pane's Back.
-    if (focused) [menu?.querySelector("summary"), filterGroup.querySelector('[aria-pressed="true"]'), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")]
+    const on = active().map(key), was = document.activeElement, focused = [filterGroup, pill].some((el) => el.contains(was));
+    navigate(!k ? [] : on.includes(k) ? on.filter((x) => x !== k) : [...on, k]); // writes the URL, which routes back to follow()
+    // The button pressed was just redrawn or hidden: keep keyboard focus on it, else the menu's
+    // trigger, else the chip, else (clearing the pill on a phone) the dashboard's tab or a pane's Back.
+    if (focused) [filterGroup.querySelector(`[data-acct="${CSS.escape(was.dataset?.acct ?? "-")}"]`), filterGroup.closest("details")?.querySelector("summary"),
+      filterGroup.querySelector('[aria-pressed="true"]'), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")]
       .find((el) => el?.getClientRects().length)?.focus();
   }
 
-  // ---- the filter: "Panes from" in the wide list's filter dropdown, chips under a phone's
-  // search (app.js places it); its pick's dot on the dropdown's label, and the "Filtered: X" pill,
-  // which also names the search box's text (query: app.js, a wide list's only).
+  // ---- the filter: "Account" in the filter menu (both layouts; app.js places it), and the
+  // active filters' chips, which also name the wide list's state filters (chips) and the
+  // search box's text (query), app.js's; app.js places them too.
   const filterGroup = document.createElement("div");
-  filterGroup.id = "acct-filter"; filterGroup.setAttribute("role", "group"); filterGroup.ariaLabel = "Panes from";
-  const tag = document.createElement("i");
-  tag.className = "acct-dot";
+  filterGroup.id = "acct-filter"; filterGroup.setAttribute("role", "group"); filterGroup.ariaLabel = "Account";
   const pill = document.createElement("div");
   pill.className = "acct-pill"; // no live region: it would read the whole line out on every keystroke in search
-  filterGroup.hidden = tag.hidden = pill.hidden = true; // until the accounts arrive
+  pill.setAttribute("role", "group"); pill.ariaLabel = "Active filters"; // the chips need no visible label
+  filterGroup.hidden = pill.hidden = true; // until the accounts arrive
   // Redrawn only when changed: the refresh every 20s would otherwise drop a focused button's focus.
   const draw = (el, markup) => { if (el._markup !== markup) el.innerHTML = el._markup = markup; };
   function paintFilter() {
     const on = active(), opts = [[null], ...signedIn().map((p) => [p, p.name])];
     filterGroup.hidden = !any();
-    draw(filterGroup, any() ? '<hr><div class="menu-sec">Panes from</div>' + opts.map(([p, name]) =>
-      `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${(on || null) === p}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
-    filterGroup.onscroll?.(); // a phone's chips: their edge fades (strip)
-    const q = query(), clear = (what) => `<button type="button" aria-label="Clear the ${what}" title="Clear">${licon("x", 14)}</button>`;
-    tag.hidden = !on; pill.hidden = !on && !q;
-    tag.title = on ? `Panes from ${on.name}` : "";
-    tag.style.setProperty("--a", on ? `var(--acct-${on.color})` : "");
-    draw(pill, on || q ? `Filtered: ${on ? badge(on, clear("account filter")) : ""}${q ? `<span class="acct-badge" data-q><span>${esc(`"${q}"`)}</span>${clear("search")}</span>` : ""}` : "");
+    draw(filterGroup, any() ? '<hr><div class="menu-sec">Account</div>' + opts.map(([p, name]) =>
+      `<button type="button" class="acct-opt" data-acct="${esc(p ? key(p) : "")}" aria-pressed="${p ? on.includes(p) : !on.length}">${p ? dot(p) : '<i class="acct-dot none"></i>'}<span>${p ? esc(name) : 'All<span class="acct-all"> accounts</span>'}</span></button>`).join("") : "");
+    const q = query(), more = chips(), clear = (what, attr = "") => `<button type="button" ${attr} aria-label="Clear the ${esc(what)}" title="Clear">${licon("x", 11)}</button>`;
+    const chip = (attr, label, what, dot = "") => `<span class="acct-badge" ${attr}>${dot}<span>${esc(label)}</span>${clear(what)}</span>`;
+    // Each kind's chips after its dim label, named as the menu names them; the label holds on
+    // to its first chip, so a wrap never strands it at a line's end.
+    const kind = (label, chips) => chips.length ? `<span class="pill-lead"><span class="pill-kind">${label}</span>${chips[0]}</span>${chips.slice(1).join("")}` : "";
+    const n = on.length + !!q + more.length;
+    pill.hidden = !n;
+    const of = (name, dot) => more.filter(([k]) => k === name).map(([, k, label]) => chip(`data-chip="${esc(k)}"${dot ? ` data-s="${esc(k)}"` : ""}`, label, label, dot));
+    draw(pill, pill.hidden ? "" : kind("State", of("State", '<i class="acct-dot"></i>')) + kind("Agent", of("Agent", ""))
+      + kind("Account", on.map((p) => badge(p, clear(`${p.name} filter`, `data-acct="${esc(key(p))}"`))))
+      + kind("Search", q ? [chip("data-q", `"${q}"`, "search")] : [])
+      + (n > 1 ? '<button type="button" class="pill-clear" data-all>Clear all</button>' : ""));
   }
   filterGroup.onclick = (e) => { const b = e.target.closest("[data-acct]"); if (b) setFilter(b.dataset.acct); };
-  pill.onclick = (e) => { const b = e.target.closest("button"); if (b) b.closest("[data-q]") ? clearQuery() : setFilter(null); };
+  pill.onclick = (e) => { const b = e.target.closest("button"); if (b) "all" in b.dataset ? clearAll() : b.closest("[data-q]") ? clearQuery() : b.closest("[data-chip]") ? clearChip(b.closest("[data-chip]").dataset.chip) : setFilter(b.dataset.acct); };
 
-  // ---- usage: named by profile, filtered, and with several, one strip by urgency ----
+  // ---- usage: named by profile, filtered, and with several, one strip (usage.js byUrgency) ----
   // A meter's account is the profile of its first listed dir; one no longer listed (removed)
   // drops out. Before the first answer the meters stand as they come.
   function usage(list) {
     if (!profiles.length) return list;
     const on = active();
     // A row's dirs can be several profiles of one login: the filtered one, if it is among them.
-    return list.map((a) => { const mine = (a.dirs || []).map(byDir).filter((p) => p?.signed_in); return { ...a, acct: mine.includes(on) ? on : mine[0] }; })
-      .filter((a) => a.acct && (!on || a.acct === on))
+    return list.map((a) => { const mine = (a.dirs || []).map(byDir).filter((p) => p?.signed_in); return { ...a, acct: mine.find((p) => on.includes(p)) || mine[0] }; })
+      .filter((a) => a.acct && (!on.length || on.includes(a.acct)))
       .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null });
   }
-  // Already full first, then full soonest, then the highest pace at the reset; unreadable last.
-  const urgency = (w) => !w ? -1 : w.pct >= 100 ? Infinity : w.limit_at ? 1e15 - w.limit_at : w.projected ?? w.pct;
-  const byUrgency = (list) => list.flatMap((a) => a.windows?.length ? a.windows.map((w) => ({ ...a, windows: [w] })) : [a])
-    .sort((a, b) => urgency(b.windows?.[0]) - urgency(a.windows?.[0]));
   // One swipeable row: the edge fades only while there is more that way, rechecked on a
   // resize too (a wider strip fits more meters: style.css).
   function strip(el, on) {
@@ -117,7 +121,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     el.onscroll();
     (el._resize ||= new ResizeObserver(() => el.onscroll())).observe(el);
   }
-  // The wide dashboard and usage view: each account's meters as a group under its chip,
+  // The wide dashboard: each account's meters as a group under its chip,
   // details in its tooltip. The chip names the account once over its meters, so they drop it.
   function groups(el, list, render) {
     el.className = "usage-groups"; el.hidden = !list.length; // a board drawn before the accounts came may have hidden it
@@ -131,12 +135,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
 
   // ---- New window: an account per provider with several, preset to the session's default ----
   const set = (session, provider) => !!defaults[session]?.[provider]; // its tmux env names a dir
-  function hint(session, provider, def) {
-    const name = def ? `<b style="color:var(--acct-${def.color})">${esc(def.name)}</b>` : "";
-    if (!session) return def ? `A new session starts on ${name}.` : "A new session starts on none of these accounts.";
-    if (!set(session, provider)) return `${esc(session)} has no account default; new windows use ${name || "the standard dir"}${def ? ` (${esc(def.tilde)}, the standard dir)` : ""}.`;
-    return def ? `New windows in ${esc(session)} start on ${name} (set in its tmux session environment).` : `${esc(session)}'s default is none of these accounts.`;
-  }
+  // New session mode: what it starts on (its default is set once it exists).
+  const startsOn = (def) => def ? `A new session starts on <b style="color:var(--acct-${def.color})">${esc(def.name)}</b>.` : "A new session starts on none of these accounts.";
   function picker(choices, select) {
     const box = document.createElement("div");
     box.className = "acct-picker";
@@ -147,20 +147,19 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         const def = defaultOf(session, provider), mine = signedIn().filter((p) => p.provider === provider);
         const pick = byDir(picks[provider]) || def || mine[0];
         picks[provider] = pick.dir;
-        return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"}</label><div class="acct-pick">`
-          + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})">${dot(p)}<span><strong>${esc(p.name)}</strong><small>${esc(sub(p))}</small></span></button>`).join("")
+        // Which rows it applies to, said where it is chosen: rows of other tools carry no chip.
+        return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"} <small class="acct-why">${title(provider)} starts signed in as this account</small></label><div class="acct-pick">`
+          + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})" title="${esc(sub(p))}">${dot(p)}<strong>${esc(p.name)}</strong></button>`).join("")
           + `<button type="button" class="add" data-add>+ Add account</button></div>`
-          + `<p class="acct-hint">${hint(session, provider, def)}</p>`
-          // Always in view: the session's default, set with tmux set-environment on change.
-          + (session ? `<label class="acct-default">Default for this session <select data-default-for="${provider}">`
-            + `<option value="" ${set(session, provider) ? "" : "selected"}>Not set</option>`
-            // Set to a dir that is none of these: shown as it is, not as "Not set".
-            + (set(session, provider) && !def ? `<option selected disabled>${esc(defaults[session][provider])}</option>` : "")
-            + mine.map((p) => `<option value="${esc(p.dir)}" ${set(session, provider) && p === def ? "selected" : ""}>${esc(p.name)}</option>`).join("") + "</select></label>" : "");
+          // The session's default, as a sentence: make the picked account every new window's
+          // here (tmux set-environment on change), and what happens otherwise.
+          + (!session ? `<p class="acct-default">${startsOn(def)}</p>`
+            : `<label class="acct-default"><input type="checkbox" data-default-for="${provider}" ${set(session, provider) && pick === def ? "checked" : ""}> Use <b>${esc(pick.name)}</b> for every new window in <b>${esc(session)}</b></label>`
+            + `<small class="acct-else">${set(session, provider) && pick !== def ? `Now new windows use ${def ? `<b>${esc(def.name)}</b>` : esc(defaults[session][provider])}` : `Otherwise new windows use the standard ~/.${provider} login`}</small>`);
       }).join("");
       for (const b of choices.querySelectorAll("button[data-provider]")) {
-        const p = several(b.dataset.provider) && byDir(picks[b.dataset.provider]), small = b.querySelector(".acct-on") || b.querySelector("span").appendChild(Object.assign(document.createElement("small"), { className: "acct-on" }));
-        small.hidden = !p; small.innerHTML = p ? `on ${badge(p)} ${esc(p.tilde)}` : "";
+        const p = several(b.dataset.provider) && byDir(picks[b.dataset.provider]), small = b.querySelector(".acct-on");
+        small.hidden = !p; small.innerHTML = p ? `on ${badge(p)}` : ""; // before the row's description
       }
     };
     box.onclick = (e) => {
@@ -171,7 +170,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     box.onchange = async (e) => {
       const provider = e.target.dataset.defaultFor;
       if (!provider) return;
-      try { await post("/api/accounts/default", { session: select.value, dir: e.target.value, provider }); } catch { notice("The session default could not be set.", 6000); }
+      try { await post("/api/accounts/default", { session: select.value, dir: e.target.checked ? picks[provider] : "", provider }); } catch { notice("The session default could not be set.", 6000); }
       delete picks[provider]; await refresh(); paint();
     };
     select.addEventListener("change", () => { for (const k of Object.keys(picks)) delete picks[k]; paint(); }, { signal: done.signal });
@@ -233,7 +232,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       dlg.innerHTML = head(`${F.name} is ready`, 4)
         + `<div class="acct-row">${dot(p)}<div class="who"><b>${esc(p.name)}</b> <span class="muted">${F.provider}</span><small>${esc([p.who && `signed in as ${p.who}`, p.plan].filter(Boolean).join(" · "))} · <code>${esc(p.tilde)}</code></small></div></div>`
         + `<p class="acct-note">Read from the dir's non-secret account info.${F.pane ? ` The sign-in window stays open as a normal ${title(F.provider)} pane on ${esc(F.name)}.` : " It was signed in already."}</p>`
-        + (F.session ? `<label class="acct-check"><input type="checkbox" id="acct-make-default" checked><span>Make ${esc(F.name)} the default for session <b>${esc(F.session)}</b><small>New windows there start on ${esc(F.name)}; running panes keep their account.</small></span></label>` : "")
+        + (F.session ? `<label class="acct-check"><input type="checkbox" id="acct-make-default" checked><span>Make ${esc(F.name)} the default for session <b>${esc(F.session)}</b><small>Agents started there run on ${esc(F.name)}; running panes keep their account.</small></span></label>` : "")
         + btns('<button class="primary" data-done>Done</button>');
     }
     // Above the buttons, or under the rename row, which has none.
@@ -290,7 +289,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
         await post("/api/accounts/login/close", { pane_id: F.pane, pid: F.pid }); // a failed close stops the removal
         F.pane = null;
       }
-      if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); if (byDir(F.removing || F.dir) === active()) setFilter(null); await refresh(); return go("list"); }
+      if ("removeOk" in d) { await request("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: F.removing || F.dir, forget: true }) }); const gone = byDir(F.removing || F.dir); if (active().includes(gone)) setFilter(key(gone)); await refresh(); return go("list"); }
       if ("create" in d) {
         const link = d.create ? [...dlg.querySelectorAll("[data-link]:checked")].map((i) => i.dataset.link) : [];
         const added = await post("/api/accounts", { provider: F.provider, dir: F.dir, label: F.name, link });
@@ -309,24 +308,27 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       }
     } catch (error) { fail(error); } finally { t.disabled = false; }
   });
-  $("accounts-open").onclick = () => { $("more-menu").open = false; open("list"); };
+  $("accounts-open").onclick = () => open("list");
 
-  function matches(pane) { const on = active(); return !on || profiles.find((p) => p.panes.includes(pane.pane_id)) === on; }
+  // An omp pane can be on several (plan_usage.py): it matches any of them.
+  function matches(pane) { const on = active(); return !on.length || on.some((p) => p.panes.includes(pane.pane_id)); }
   return {
-    refresh, usage, byUrgency, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, tag,
-    // The URL's account (or null) in, and out for the next URL; follow says whether it changed.
-    key: () => filter, follow: (k) => { if (k === filter) return false; filter = k; paintFilter(); return true; },
+    refresh, usage, strip, groups, picker, pill, paintFilter, any, filter: filterGroup, on: () => active().map((p) => p.name), // the accounts filtered on, by name
+    // Settings' list: each account, who it is and where, its sheet a click away.
+    rows: () => profiles.map((p) => `<div class="set-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></div>`).join(""),
+    // The URL's accounts in, and out for the next URL; follow says whether they changed.
+    key: () => filter, follow: (k) => { if (JSON.stringify(k) === JSON.stringify(filter)) return false; filter = k; paintFilter(); return true; },
     matches,
     // Open loops under a filter: only what a pane on the account holds (a PR's or worktree's
     // with no pane belongs to no account, so it is hidden with the rest).
-    loops: (report) => !active() || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
+    loops: (report) => !active().length || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
       [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
     // A session's own default, per provider with several: where its dir differs from the
     // global environment's (under "", which the server folds into every session).
     sessionBadge: (session) => Object.keys(ENV).filter((pr) => several(pr) && set(session, pr) && defaults[session][pr] !== defaults[""]?.[pr]).map((pr) => defaultOf(session, pr)).filter(Boolean).map((p) => badge(p)).join(""),
     // The consent card: which account a chat action lands on.
-    consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)} ${esc(p.tilde)}. Sending never changes a pane's account.</small>` : ""; },
+    consent: (paneId) => { const p = ofPane(paneId); return p ? `<small class="voice-meta acct-on">on ${badge(p)}</small>` : ""; },
     profile: byDir, list: () => profiles, chip: (p) => badge(p),
     // Where "Move to another account" can take a pane: its provider's other signed-in
     // accounts, once it has several, each with its line under the name: one on the pane's

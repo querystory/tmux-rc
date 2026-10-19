@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchesSearch, matchesFilter } from "../web/m/pane-model.js";
-import { paneLinks } from "../web/pr-links.js";
+import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName, paneActivity } from "../web/m/pane-model.js";
+import { paneLinks, askLink } from "../web/pr-links.js";
 
 test("PR titles are primary, with the repository and number beneath", () => {
   const [link] = paneLinks({ prs: [{ repo: "querystory/tmux-rc", number: 245,
@@ -66,7 +66,7 @@ test("sidebar finds accumulated PRs after the number disappears from visible tex
 
 test("all sessions for a PR remain searchable, including idle panes in All", () => {
   const other = { ...pane, pane_id: "%8", prs: [...pane.prs, { repo: "org/other", number: 42 }] };
-  assert.deepEqual([pane, other].filter((p) => matchesFilter(p, "all") && matchesSearch(p, "4955")), [pane, other]);
+  assert.deepEqual([pane, other].filter((p) => matchesFilter(p, []) && matchesSearch(p, "4955")), [pane, other]);
   assert.equal(matchesSearch(other, "other#42"), true);
   assert.equal(matchesSearch(pane, "other#42"), false);
 });
@@ -87,4 +87,34 @@ test("a question's widget context is searchable, as the rows show it", () => {
   assert.ok(matchesSearch(rows, "ss -ltnp | grep"));
   const named = { ...pane, question: { prompt: "Do 1 now?", items: ["1. Prune container images."] } };
   assert.ok(matchesSearch(named, "prune container images"));
+});
+
+test("one tmux session drops its name; two keep it", () => {
+  const shell = { pane_id: "%4", session: "misc-0", label: "misc-0:4", window_index: "4" };
+  const named = { ...shell, pane_id: "%2", label: "Resolve PR 38", window_index: "2" };
+  noteSessions([shell, named]);
+  assert.equal(sessionOf(shell), "");
+  assert.equal(paneName(shell), "Window 4");
+  assert.equal(paneName(named), "Resolve PR 38");
+  noteSessions([shell, { ...named, session: "work" }]);
+  assert.equal(sessionOf(shell), "misc-0");
+  assert.equal(paneName(shell), "misc-0:4");
+  noteSessions([]);
+});
+
+test("a question leads with the screen link the parser names as its own, else the first offered", () => {
+  const login = { href: "https://accounts.example/device", text: "Sign-in approval" };
+  const other = { href: "https://docs.example/setup", text: "Setup notes" };
+  const ask = (link) => ({ ...pane, question: { prompt: "Open the link, then paste the code here", link }, links: [other, login] });
+  assert.deepEqual(askLink(ask(login.href)), login);
+  assert.deepEqual(askLink(ask(undefined)), other);  // names none: the first link the screen offers
+  assert.deepEqual(askLink({ ...ask(undefined), links: [{ href: "javascript:alert(1)" }, login] }), login);
+  assert.equal(askLink(ask("https://elsewhere.example/")), null);  // not among the screen's links
+  assert.equal(askLink({ ...ask(undefined), links: [] }), null);
+});
+
+test("a row falls back to the headline until a summary exists", () => {
+  assert.equal(paneActivity({ headline: "Fixing the parser" }), "Fixing the parser");
+  assert.equal(paneActivity({ headline: "h", session_summary: "s" }), "s");
+  assert.equal(paneActivity({}), "");
 });

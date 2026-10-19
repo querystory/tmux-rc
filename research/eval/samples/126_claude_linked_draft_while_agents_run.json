@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a report ends with a chat message drafted for the user to paste elsewhere, in a ▎ block quote whose PR reference is a terminal hyperlink (the capture spells it [label](url); the screen shows the label), then a waiting-for-background-agent line and the agents panel. The draft is a copyable with its text as shown.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ write ana a short message asking her to review the export PR\n\n● Checked the PR: CI is green and the review threads are resolved.\n\n  Here's a message for Ana:\n\n  ▎ Hi Ana, could you review [acme/widgets#42](https://example.com/acme/widgets/issues/42)? https://example.com/acme/widgets/pull/42\n  ▎ It splits the export into 1 MB pages so large reports no longer time out. Tests pass and CI is green.\n  ▎ The part worth a careful look is the retry on a dropped page.\n\n✻ Waiting for 1 background agent to finish\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/widgets on main | Opus 5.5 | 21% ctx\n  ⏵⏵ auto mode on · 1 background agent\n  ◯ general-purpose  Watching the export PR checks                         4m 12s · ↓ 38.2k tokens",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "copyables": true,
+    "copyables_include": [
+      "Hi Ana, could you review acme/widgets#42? https://example.com/acme/widgets/pull/42\nIt splits the export into 1 MB pages so large reports no longer time out. Tests pass and CI is green.\nThe part worth a careful look is the retry on a dropped page."
+    ]
+  }
+}

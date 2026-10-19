@@ -15,21 +15,23 @@ minimal dict (idle vs running) so the pipe never breaks.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
+import subprocess
 import textwrap
+from functools import lru_cache
 from itertools import islice
 from pathlib import Path
 
 from .tmux import (
+    INTERPRETERS,
     OMP_TITLE_RE,
     PLACEHOLDER_CLOSE,
     PLACEHOLDER_OPEN,
     PROMPT_GLYPHS,
     VISIBLE_SCREEN,
     Pane,
-    proc_read,
     processes,
+    program,
     strip_dim,
 )
 
@@ -46,6 +48,10 @@ _OUTPUT_LABELS = frozenset({
     "status", "title", "warn", "warning",
 })
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# A PR named with its repository on screen: a GitHub pull/issue URL, or a standalone
+# "owner/name#N" that is not the tail of a path or of another host's URL.
+_QUALIFIED_PR_RE = re.compile(r"(?<![\w./:-])((?i:(?:https?://)?(?:www\.)?github\.com/))?"
+                              r"([\w.-]+/[\w.-]+)(?(1)/(?:pull|issues)/|#)(\d{1,16})")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
     # ~[ ] todo~ is deliberately unmatched, since it is neither open nor finished work.
@@ -62,11 +68,20 @@ _OPENCODE_RUNNING_RE = re.compile(
 _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
     # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
-    # A stamp's trailing shell/monitor count is background work, not the agent's turn.
+    # A stamp's trailing shell/monitor count is background work, not the agent's turn, and
+    # a bar after it is the frame Claude Code draws down the right of its transcript.
     r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
-    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:·|$))",
+    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
+# Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
+# own reviewer weighs an approval: "Reviewing approval request (17m 00s • esc to interrupt)".
+# Unindented, its elapsed time, and nothing under it but its own detail rows (└ the command,
+# ↳ a queued message) above the input row. Codex hides it while a menu waits on the user,
+# so under it nothing is asking.
+_CODEX_LIVE_RE = re.compile(
+    r"^(?:• )?\w[^\n(]*\(\d+[hms](?: \d+[hms])* • esc to interrupt\).*"
+    r"(?=(?:\n(?:[ \t]+[└↳⌥].*|[ \t]*))*\n[ \t]*›)", re.MULTILINE)
 # A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
 # capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
 _TURN_ERROR_RE = {
@@ -75,10 +90,36 @@ _TURN_ERROR_RE = {
 }
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
+# Codex's live composer: a prompt row with no transcript cell ("• …") under it. An earlier
+# turn's row is always followed by Codex's reply to it.
+_CODEX_COMPOSER_RE = re.compile(_PROMPT_ROW + "(?![\\s\\S]*^• )", re.MULTILINE)
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
+# A tabbed panel the user opened and is browsing (/config, /plugin): a strip of 3+ short
+# tab labels under a dialog's top rule ("Settings  Status  Config  Usage  Stats"), a search
+# box or a ❯ cursor on a "name  value" row below it, and the panel's own key-hint footer
+# as the screen's last row. The agent is not asking: a row toggles a setting or opens a
+# page and the panel stays. The footer closes, clears, goes back or exits on Esc, where a
+# question's cancels; any other wording fails safe as a question, as does a later dialog
+# below a lookalike strip. Read by structure, not one panel's exact tabs or hints, which
+# Claude Code keeps rewording.
+_TAB_LABEL = r"\w\S*(?: \S+)?"
+_TAB_STRIP_RE = re.compile(
+    rf"▔{{3,}}.*\n[ \t]*{_TAB_LABEL}(?:[ \t]{{2,}}{_TAB_LABEL}){{2,}}[ \t]*$", re.MULTILINE)
+_PANEL_BODY_RE = re.compile(r"⌕|^[ \t]*❯[ \t]*\S.*?\S[ \t]{2,}\S", re.MULTILINE)
+_PANEL_FOOTER_RE = re.compile(r"\bEsc to (?:close|clear|(?:go )?back|exit)\b", re.IGNORECASE)
+
+
+def _tabbed_panel_open(visible: str) -> bool:
+    """Whether the screen ends in an open tabbed panel (see _TAB_STRIP_RE)."""
+    *_, strip = (None, *_TAB_STRIP_RE.finditer(visible))
+    body = visible[strip.end():].rstrip() if strip else ""
+    return bool(_PANEL_BODY_RE.search(body)
+                and _PANEL_FOOTER_RE.search(body.rsplit("\n", 1)[-1]))
+
+
 # A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
 # the frame, a radio and a digit. The model reads the highlight too but can misplace it
 # (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
@@ -90,13 +131,26 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 # ahead of a value column ("Auto-compact      true"). Only a row that opens with a frame
 # loses one closing bar: a label's own bar is content.
 _HIGHLIGHT_RE = re.compile(
-    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
+    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}>][ \t]*(?:[○●◉◯✔✓✘][ \t]*)?(?:\d+[.)][ \t]+)?"
     r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
 # A picker heading's live count ("Resume session (1 of 47)"): it redraws with every move
 # and filter while the picker stays the same, so it is never part of the prompt.
 _LIVE_COUNT = r"\(\d+ of \d+\)"
 _LIVE_COUNT_RE = re.compile(rf"\s*{_LIVE_COUNT}\s*$")
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
+# Codex's compact key-hint footer, led by its commit key: "enter continue · esc back".
+_ENTER_FOOTER_RE = re.compile(r"\s*(?:enter \w+ · |↑/↓ Navigate · enter (?:Select|Confirm))")
+
+
+def arrow_driven(question: dict, text: str) -> bool:
+    """Whether numbered `question` is a picker to walk, not answer with a digit: the
+    screen ends in Codex's compact key-hint footer, where a digit need not commit (its
+    trust dialog takes "1" as a move to row 1), and shows the highlighted row a walk
+    needs. Its approval box ("Press enter to confirm …") takes digits."""
+    visible, rows = _visible(text), question.get("options")
+    return (any(map(_ENTER_FOOTER_RE.match, visible.rstrip().splitlines()[-3:]))
+            and isinstance(rows, list)
+            and highlighted_row(visible, _question_prompt(question) or "", rows) is not None)
 
 
 def _widget_end(visible: str, start: int) -> int:
@@ -194,6 +248,8 @@ _PROCESS_TOOLS = {
     "claude": "claude",
     "codex": "codex",
     "gemini": "gemini",
+    "agy": "antigravity",
+    "antigravity": "antigravity",
     "opencode": "opencode",
     "omp": "omp",
 }
@@ -204,16 +260,9 @@ _PROCESS_TOOLS = {
 # trusted there because it outlives omp, but the title plus a live omp process under the
 # pane can. Other agents get no such shell walk: without a title to corroborate it, a
 # suspended or backgrounded agent under an idle shell would claim the pane.
-_INTERPRETERS = ("bun", "node")
-
-
 def _programs(pid: str) -> set[str]:
-    """Programs among `pid` and its descendants: argv[0], or the script bun/node runs."""
-    names = set()
-    for p in processes(pid):
-        argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
-        names.add(argv[-1] if argv[0] in _INTERPRETERS else argv[0])
-    return names
+    """Programs among `pid` and its descendants."""
+    return {program(p) for p in processes(pid)}
 
 
 def _host_tool(pane: Pane) -> str | None:
@@ -221,7 +270,7 @@ def _host_tool(pane: Pane) -> str | None:
     if tool := _PROCESS_TOOLS.get(pane.current_command):
         return tool
     omp_title = OMP_TITLE_RE.match(pane.title)
-    hosted = pane.current_command in _INTERPRETERS
+    hosted = pane.current_command in INTERPRETERS
     if hosted and omp_title:
         return "omp"
     if not pane.pid or not (hosted or omp_title):
@@ -507,12 +556,14 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     # agent asking; a live spinner below the text means the agent is working again; and a
     # finished turn's question followed by typed input has been answered.
     idle_box = _EMPTY_INPUT_RE.search(visible)
+    row = found and visible.rfind("\n", 0, found.start()) + 1
     return found is not None and not (
         (idle_box and found.start() > idle_box.start())
-        or _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
+        or _NOT_ASKING_ROW_RE.match(visible[row:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
+        or (tool == "codex" and _CODEX_LIVE_RE.search(visible, row))  # the prompt's own row too
     )
 
 
@@ -571,9 +622,11 @@ def _ground_visible_fields(
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"
     retry = llm_fn(
-        prompt, f"{_parser_context(pane, None, host_tool)}\n\n{evidence}",
+        prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}",
     ) if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
+    if retry:
+        _fold_sends(retry)
     if retry and receipt and kind == "prompt":
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
@@ -583,7 +636,7 @@ def _ground_visible_fields(
         result.pop("links", None)
         if retry and isinstance(retry.get("links"), list) and retry["links"]:
             result["links"] = retry["links"]
-        state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
+        state_fields = ("activity", "waiting_on", "headline", "question", "rewind", "offers")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
         for key in state_fields:
@@ -750,7 +803,14 @@ def _restate(question: dict, replies_fn) -> str | None:
     return _asks.get(key)
 
 
+_CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
 _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
+# A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
+# Code draws down the right of its transcript.
+_FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
+# A terminal hyperlink as the capture spells it (tmux._materialize_links): "[label](url)".
+_LINK_TARGET_RE = re.compile(
+    r"\[((?:[^][\n]|\[[^][\n]*\])*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
 
 
 def _final_paragraph(message: str) -> str:
@@ -773,145 +833,88 @@ def _final_paragraph(message: str) -> str:
     return " ".join(r.strip() for r in reversed(rows))
 
 
-# A numbered list row (inside any frame), and a number a prompt names: "do 1 please",
-# "edits 1–4?", "1 and 3", but not "#195", "v2.1", "8080" or "2:30". A reference is preceded
-# by what takes one (_REF_BEFORE_RE, so "Set timeout 2?" and "it returned 2." are not) and
-# followed by punctuation, the end, or a word that cannot be counted: "now", "please", "and", a
-# preposition opening a modifier ("1 and 2 on staging"), an -ly adverb ("separately"). Any
-# other word is what a count counts ("1 failing test", "2 PRs", "2 pm", "Python 3
-# support"). A determiner, copula, verb of having, time preposition, assignment ("to",
-# "="), name or "version" before it marks a count, value, time or version too ("there are
-# 2", "the 7", "do we have 2?", "at 2", "set retries to 2?", "upgrade to Python 3?").
-# Precision beats recall: a missed reference leaves the bare question the card showed
-# before, while a count read as a reference would show an unrelated row as what the
-# question means.
-_NUMBERED_ROW_RE = re.compile(r"[ \t│┃╎]*(\d{1,2})[.)][ \t]+(\S.*)")
-_ITEM_REF_RE = re.compile(
-    # The range is possessive: "2-3 tests" must not fall back to a bare "2" before "-".
-    r"(?<![\w#$.:/])(\d{1,2})(?:[ \t]*[–-][ \t]*(\d{1,2}))?+(?![\w%:/]|\.\d)(?=\s*(?:[^\w\s]|$|"
-    r"(?i:and|or|now|first|then|next|too|also|only|but|before|after|later|today|tomorrow|"
-    r"tonight|instead|together|please|right|again|as|asap|soon|yet|on|in|for|with|without|"
-    r"into|onto|via|using|across|against|under|over|here|there|(?!(?:family|supply|reply|"
-    r"ally|rally|assembly|anomaly|daily|weekly|monthly|yearly)\b)[a-z]+ly)\b))")
-# The nouns an agent numbers what it proposes by ("edit 2", "Recommendation 2").
-_ITEM_LABEL = (
-    r"(?i:items?|edits?|steps?|options?|choices?|points?|rows?|tasks?|fix(?:es)?|"
-    r"recommendations?|suggestions?|changes?|ideas?|approach(?:es)?|plans?|proposals?|"
-    r"actions?|issues?|findings?|comments?|bullets?|entry|entries|parts?|phases?|stages?|"
-    r"number|no\.?)")
-_COUNT_BEFORE_RE = re.compile(
-    r"\b(?i:the|these|those|all|are|is|were|was|of|about|at|by|until|in|version|have|has|"
-    r"had|got|need|needs|want|wants|own|owns|keep|keeps|to|from|equals?)\s+$|=\s*$"
-    rf"|(?<=\s)(?!{_ITEM_LABEL}(?!\w))[A-Z][\w.+-]*\s+$")
-# What a reference takes before it, positively: an item noun or a preposition ("edits 1",
-# "for 2"), a verb in command position ("Do 1", "want me to do 1", "could you handle 2"),
-# or a conjunction after another reference ("1 and 2", "2, then 3").
-_REF_BEFORE_RE = re.compile(
-    rf"\b(?:{_ITEM_LABEL}|(?i:for|with|after|before))\s+$"
-    r"|(?:^|[.?!;:]\s+|\b(?i:to|I|you|we|me|let's|please)\s+)[A-Za-z']+\s+$")
-_REF_CHAIN_RE = re.compile(r"\s*(?:,\s*)?(?:(?i:and|or|then)\s+|&\s*)?|\s*,\s*")
-_WORD_RE = re.compile(r"[^\W\d_]{4,}")
-# Four-letter-plus words too common to tell a copy of a row from a reply to it.
-_FUNCTION_WORDS = frozenset((
-    "with", "before", "after", "from", "that", "this", "then", "them", "they", "their",
-    "there", "into", "onto", "about", "also", "just", "only", "will", "would", "could",
-    "should", "have", "been", "were", "what", "when", "which", "while", "your", "yours",
-    "first", "next", "please"))
-# A reply, whatever row number it carries: "1. Yes, but check with me before sending".
-_REPLY_RE = re.compile(r"(?i)\s*(?:\d{1,2}[.)]\s*)?(?:yes|no|ok|okay|sure|go|skip|hold)\b")
-
-
-def _copies(text: object, row: str) -> bool:
-    """Whether text restates a row: quotes it ("2. Merge it" from "Merge it.") or has two
-    substantive words in common, so one shared verb ("1. Yes, move it now" beside "1. Move
-    the build cache") is not a copy, and neither is anything phrased as a reply."""
-    if _REPLY_RE.match(str(text)):
-        return False
-
-    def words(value: object) -> set[str]:
-        return set(_WORD_RE.findall(str(value).lower())) - _FUNCTION_WORDS
-    quoted = re.sub(r"^\s*\d{1,2}[.)]\s*", "", str(text)).strip(" .").lower()
-    return (bool(quoted) and quoted in row.lower()) or len(words(text) & words(row)) >= 2
-
-
-def _referenced_rows(prompt: str, visible: str) -> dict[str, str]:
-    """The numbered rows above a typed-answer question that its prompt names by number
-    ("Want me to do 1 now and prepare 2?"), whole and in the prompt's order, so the card
-    can say what 1 and 2 are. Read off the screen: the parser, told to carry them, did not
-    reliably. The nearest row wins a number, so an older list above loses to the one the
-    question closes; numbers with no row (a count, a time) name nothing here."""
-    found = _last_occurrence(prompt, visible)
-    rows: dict[str, list[str]] = {}
-    item, indent = None, 0
-    for row in visible[:found.start() if found else 0].splitlines():
-        if m := _NUMBERED_ROW_RE.match(row):
-            item, indent = rows.setdefault(m[1], []), _indent(row)
-            item[:] = [m[2]]
-        elif item is not None and row.strip() and _indent(row) > indent:
-            item.append(row.strip())  # the item's wrapped continuation
-        else:
-            item = None
-    refs, last = [], None
-    for m in _ITEM_REF_RE.finditer(prompt):
-        chained = last is not None and _REF_CHAIN_RE.fullmatch(prompt, last, m.start())
-        if (chained or _REF_BEFORE_RE.search(prompt, 0, m.start())) and not (
-                _COUNT_BEFORE_RE.search(prompt, 0, m.start())):
-            refs += map(str, range(int(m[1]), int(m[2] or m[1]) + 1))
-            last = m.end()
-    return {n: " ".join(rows[n]) for n in dict.fromkeys(refs) if n in rows}
-
-
-def _item(number: str, text: str) -> str:
-    """A referenced row on the card: its number and first sentence, at most 120 characters."""
-    first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0]
-    return textwrap.shorten(f"{number}. {first}", 120, placeholder="…")
-
-
-def _restates(table: object, rows: dict[str, str]) -> bool:
-    """Whether a parser table is its own copy of the referenced rows: every row keyed by a
-    bare referenced number, and most of them copying that row (the parser paraphrases, so
-    not all). A table that is merely numbered 1, 2 (a ranking, an
-    index) or shares one generic verb ("Update ...") with the rows stays."""
-    body = table.get("rows") if isinstance(table, dict) else None
-    keys = [str(r[0]).strip().rstrip(".)") if isinstance(r, list) and r else None
-            for r in body] if isinstance(body, list) else []
-    if not keys or not all(k in rows for k in keys):
-        return False
-    copied = [_copies(" ".join(map(str, r[1:])), rows[k]) for r, k in zip(body, keys, strict=True)]
-    return 2 * sum(copied) > len(copied)
-
-
-def _final_ask(visible: str, tool: str) -> dict | None:
-    """What a finished turn leaves blocked on the user: a provider error to retry, or in
-    auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run. Anything typed after it means the user already acted."""
+def _final_message(visible: str, tool: str) -> str | None:
+    """A finished turn's final assistant message, up to its stamp or through the provider
+    error that stopped it, or None while it runs. Anything typed after: the user acted."""
     error_re = _TURN_ERROR_RE[tool]
     turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
     stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
     if stop is None or stop.groupdict().get("live") or _USER_ROW_RE.search(visible, stop.end()):
         return None
     end = stop.end() if stop.re is error_re else stop.start()
-    message = visible[:end].rsplit("\n● ", 1)[-1]  # the turn's final assistant message
+    # The turn's final assistant message, without the bars framing its rows: a bar left on
+    # a blank row joins paragraphs, and one after a "?" hides that the row asks.
+    return _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
+
+
+@lru_cache(maxsize=256)
+def _parses(command: str) -> bool:
+    """Whether bash reads `command` whole (`bash -n` runs nothing): the first part of a script
+    split by a blank row ("for ... in", "&&", an open quote, "f()") does not parse. Quoting
+    checks alone pass grammar the shell rejects, so the shell is asked. Any diagnostic
+    counts: an unterminated heredoc only warns, and exits 0."""
+    try:
+        checked = subprocess.run(["bash", "-n"], input=command, capture_output=True,
+                                 text=True, timeout=2, check=False)
+        return checked.returncode == 0 and not checked.stderr
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _quoted(text, visible: str) -> bool:
+    """Whether the model's quote of the screen is on it: its exact text, the terminal's
+    wraps allowed for (a wrap may fall at a space or inside a word) and the bars framing a
+    transcript row ignored."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    # One row break at most between two characters, never a blank row: a word may wrap
+    # between any two of its letters, a single space is a space or a wrap, and a run of
+    # spaces shows as is (a wrap there would hide its width).
+    wrap = r"[ \t]*\n[ \t]*"
+    exact = "".join(
+        (f"(?: |{wrap})" if part == " " else re.escape(part)) if part.isspace()
+        else f"(?:{wrap})?".join(map(re.escape, part))
+        for part in re.split(r"( +)", text.strip()))
+    return bool(re.search(exact, _FRAME_BARS_RE.sub("", visible)))
+
+
+def screen_offers(offers: object, text: str) -> list[str]:
+    """The model's offers that hold up on `text`, three at most: each is on the screen
+    (_quoted), and a `! command` is one bash reads whole and that does not end in a line
+    continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
+    does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
+    a row break the model copied from a wrap is a space."""
+    listed = offers if isinstance(offers, list) else ()
+    return list(islice((o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
+                                                  for o in listed if isinstance(o, str))
+                        if _quoted(o, _visible(text)) and not (o.startswith("! ") and (
+                            o.endswith("\\") or not _parses(o[2:])))), 3))
+
+
+def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
+    """What a finished turn leaves blocked on the user: a provider error to retry, or in
+    auto mode (where the agent stops only when it needs the user) a closing question or a
+    `! command` handed over to run: on a row of its own, or an offer ending the message."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
-    if error := error_re.match(lines[-1]):
+    if error := _TURN_ERROR_RE[tool].match(lines[-1]):
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
-    if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
+    if "auto mode" not in (m[1] for m in _CLAUDE_MODE_RE.finditer(visible)):
         return None
-    paragraph = _final_paragraph(message)
-    handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
-    if paragraph.rstrip("*_\"'`)").endswith("?"):
-        return {"prompt": paragraph, "answer_style": "text"}
-    if handoff is None:
-        return None
-    return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
-
-
-def _row_number(option: object) -> str | None:
-    """The number of an option written as a list row ("1. Fix the cache"), else None."""
-    m = isinstance(option, str) and re.match(r"\s*(\d{1,2})[.)]\s", option)
-    return m[1] if m else None
+    # An offered command ending the message hands it over, its own "?" or wrapped rows and
+    # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
+    paragraph = " ".join(re.split(r"\n\s*\n", message.strip())[-1].split())
+    if not any(o.startswith("! ") and paragraph.endswith(" ".join(o.split())) for o in offers):
+        paragraph = _final_paragraph(message)
+        if paragraph.rstrip("*_\"'`)").endswith("?"):
+            return {"prompt": paragraph, "answer_style": "text"}
+        handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
+        if handoff is None:
+            return None
+        paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
+    # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
+    return {"prompt": paragraph, "answer_style": "text", "options": []}
 
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
@@ -926,14 +929,15 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
     return list(picks.values())
 
 
-def _model_options(model_q: object, ask: dict) -> list[str]:
-    """The parser's own suggested replies, kept when the deterministic ask replaces its
-    question. Only for the same question (one prompt contains the other)."""
+def _same_question(model_q: object, ask: dict) -> dict:
+    """The parser's own question when the deterministic ask that replaces it is the same
+    question (one prompt contains the other), else {}: its suggested replies and the rows
+    it cites are kept."""
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
-        return []
+        return {}
     old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
-    return _clean_options(model_q.get("options"), old, new)[:4] if old and (
-        old.casefold() in new.casefold() or new.casefold() in old.casefold()) else []
+    return model_q if old and (
+        old.casefold() in new.casefold() or new.casefold() in old.casefold()) else {}
 
 
 # What kind of question it is, and so what the buttons are, is the model's call: one small
@@ -1004,10 +1008,28 @@ def _with_recent_events(text: str, recent: list[str]) -> str:
     )
 
 
-def _parser_context(pane: Pane, repository: str | None, host_tool: str | None) -> str:
+# Claude Code's permission mode, as its status line spells it out: fixed chrome, read here
+# so the model gets it as a fact.
+_CLAUDE_MODE_RE = re.compile(r"^[ \t]*(?:-- INSERT --[ \t]*)?(?:⏵⏵|⏸)[ \t]*"
+                             r"(auto mode|accept edits|plan mode|bypass permissions) on\b",
+                             re.MULTILINE)
+
+
+def claude_mode(visible: str) -> str | None:
+    """The mode Claude Code's status line shows in the screen's last rows, or None."""
+    *_, m = [None, *_CLAUDE_MODE_RE.finditer("\n".join(visible.rstrip().splitlines()[-4:]))]
+    return m and m[1]
+
+
+def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
+                    visible: str = "") -> str:
     context = f"[tmux: this pane's foreground process is '{pane.current_command}'"
     if repository:
         context += f"; GitHub repository is '{repository}'"
+    if mode := claude_mode(visible):
+        context += f"; Claude Code's status line shows its mode: '{mode}'" + (
+            " (it ends a turn only when it is done or needs the user, so a finished turn"
+            " that ends asking the user something waits on them)" * (mode == "auto mode"))
     # The title's live state must reach the model before an old Ask card can override it.
     if host_tool == "omp" and (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"]:
         state = omp["state"]
@@ -1016,12 +1038,18 @@ def _parser_context(pane: Pane, repository: str | None, host_tool: str | None) -
     return context + "]"
 
 
-def _working_prs(value) -> list[dict]:
-    """Validate the model's semantic PR associations before they become sticky state."""
+def _working_prs(value, repository: str | None, text: str) -> list[dict]:
+    """Validate the model's semantic PR associations before they become sticky state.
+
+    A PR's repository must be grounded: the pane's own origin, or that exact repo and
+    number written together on screen. Left to itself the model names a repo after the
+    cwd folder ("qs") or pairs a bare #N with every repo the screen mentions."""
     if not isinstance(value, list):
         return []
     out = []
     seen = set()
+    cited = {(m[2].lower(), int(m[3])) for m in _QUALIFIED_PR_RE.finditer(strip_dim(text))}
+    own = (repository or "").lower()
     for item in value:
         if not isinstance(item, dict) or not isinstance(item.get("repo"), str):
             continue
@@ -1041,7 +1069,7 @@ def _working_prs(value) -> list[dict]:
         ):
             continue
         key = (repo.lower(), number)
-        if key in seen:
+        if key in seen or (key[0] != own and key not in cited):
             continue
         seen.add(key)
         out.append({"repo": repo, "number": number})
@@ -1072,7 +1100,7 @@ def bootstrap(
         "summary": result["summary"].strip(),
         "name": name,
         "events": events,
-        "working_prs": _working_prs(result.get("working_prs")),
+        "working_prs": _working_prs(result.get("working_prs"), repository, text),
     }
 
 
@@ -1094,6 +1122,29 @@ def _code_blocks(reply: str | None) -> list[dict]:
         blocks.append({"label": label or m.group(3) or "Code", "text": text})
         end = m.end()
     return blocks[::-1]
+
+
+def _from_reply(offer: str, reply: str | None) -> str:
+    """The model picks what to send; the agent's reply has its exact text. An offer that a
+    one-line code block of the reply begins with, word for word, is that block, whatever
+    the screen cut."""
+    key = " ".join(offer.split())
+    lines = [(" ".join(t.split()), t) for block in _code_blocks(reply)
+             if "\n" not in (t := block["text"].strip())]
+    for hits in ({t for k, t in lines if k == key},  # exact, else a prefix; only one block
+                 {t for k, t in lines if f"{k} ".startswith(f"{key} ")}):
+        if hits:
+            return hits.pop() if len(hits) == 1 else offer
+    return offer
+
+
+def _fold_sends(result: dict) -> None:
+    """What to send is the model's call: the text it gives copyables to send here leads
+    its offers, so a corrective re-read replaces both together."""
+    cps, offers = result.get("copyables"), result.get("offers")
+    result["offers"] = [*(c["send"] for c in (cps if isinstance(cps, list) else ())
+                          if isinstance(c, dict) and isinstance(c.get("send"), str)),
+                        *(offers if isinstance(offers, list) else ())]
 
 
 def classify(
@@ -1120,11 +1171,16 @@ def classify(
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
-    payload = f"{_parser_context(pane, repository, process_tool)}\n\n{payload}"
+    payload = f"{_parser_context(pane, repository, process_tool, visible)}\n\n{payload}"
     result = None
     prompt = ""
     if llm_fn:
         prompt = parser_prompt()
+        # Keep other agents' prompts stable: adding a new tool must not change their reads.
+        if _host_tool(pane) == "antigravity":
+            prompt += ("\nThis pane runs Antigravity CLI (agy). Include antigravity among the "
+                       "allowed tool values and report tool=antigravity. The selected model "
+                       "(Gemini, Argon, Claude, etc.) is its backend, not the host agent.\n")
         if re.search(
             r"(?im)^\s*(?:Background terminals\s*:|\d+ background terminals? running\b)", text,
         ):
@@ -1175,6 +1231,7 @@ def classify(
         result.update(tool="shell", activity="idle")
         result.pop("question", None)
         result.pop("rewind", None)
+    _fold_sends(result)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
@@ -1234,32 +1291,57 @@ def classify(
               and not _USER_ROW_RE.search(visible, turn.end())):  # no newer turn began
             result["activity"] = "idle"  # The turn is over; background shells don't count.
             result.pop("parse_ok", None)
+    # Codex's live row is a read too: a user wait with no question under it, or an ask the
+    # re-read could not place, is its turn running. A finished turn's "idle" stands.
+    if (result.get("tool") == "codex" and result.get("activity") in ("waiting", "unknown", None)
+            and not result.get("question") and result.get("waiting_on") != "external"
+            and _CODEX_LIVE_RE.search(visible)):
+        result["activity"] = "running"
+        result.pop("parse_ok", None)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
-    if result.get("tool") in _TURN_ERROR_RE and (
-        ask := _final_ask(visible, result["tool"])
-    ):
+    tool = result.get("tool")
+    final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
+    if offers := screen_offers(result.pop("offers", None), text):
+        result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
+    if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
-        if not ask.get("options") and (
-            options := _model_options(result.get("question"), ask)
+        own = _same_question(result.get("question"), ask)
+        if "options" not in ask and (
+            options := _clean_options(own.get("options"), str(own.get("prompt", "")).strip(),
+                                      ask["prompt"])[:4]
             or _reply_options(ask["prompt"], replies_fn)
         ):
             ask["options"] = options
+        ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     # Codex reads typed text only in its › composer. A text question with no composer on
     # screen has nowhere to be typed: `codex login --device-auth`'s "Enter code …" means
     # in the browser, so the pane waits on something outside it.
     if (result.get("tool") == "codex" and isinstance(result.get("question"), dict)
-            and result["question"].get("answer_style") == "text"
-            and not re.search(_PROMPT_ROW, visible, re.MULTILINE)):
+            and result["question"].get("answer_style", "text") == "text"
+            and not _CODEX_COMPOSER_RE.search(visible)):
         del result["question"]
         result.update(activity="waiting", waiting_on="external")
-    # A cursor picker's advertised search binding is evidence, not a model guess.
+    if result.get("tool") == "claude" and _tabbed_panel_open(visible):
+        # Authoritative over the model, a failed parse included: the screen is a settings
+        # panel, so nothing is asked. Only a turn the model saw still running stays running
+        # (not one a failed parse carried over).
+        result.pop("question", None)
+        if result.pop("parse_ok", True) is False or result.get("activity") != "running":
+            result["activity"] = "idle"
     question = result.get("question")
+    # A numbered picker driven by arrows is walked, not answered with a digit, where the
+    # screen shows its highlighted row, which a walk needs.
+    if (isinstance(question, dict) and question.get("answer_style") == "menu"
+            and arrow_driven(question, text)):
+        question.update(answer_style="cursor", keymap={
+            "next": "Down", "prev": "Up", "select": "Enter", "search": False})
+    # A cursor picker's advertised search binding is evidence, not a model guess.
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
         keymap = question.get("keymap")
         footer = visible.splitlines()[-3:]
@@ -1277,10 +1359,17 @@ def classify(
         if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
             question["selected"] = rows.index(row)
             question["picker"] = picker_digest(text, asked)
-    if isinstance(question, dict):  # read off the screen, never passed through from the model
-        for key in ("context", "ask", "items"):
+    if isinstance(question, dict):
+        # The widget's rows and their restatement are read here, never passed through.
+        for key in ("context", "ask"):
             question.pop(key, None)
-        # A question with no style is answered as text (models.py), so it may name rows.
+        # The rows the model cites for the question, and what they decide, must be on screen.
+        items = question.pop("items", None)
+        if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, visible)]):
+            question["items"] = quoted
+        if not _quoted(question.get("subject"), visible):
+            question.pop("subject", None)
+        # A question with no style is answered as text (models.py).
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
         # A menu answer is its row's digit, so a menu shows its prompt above its last option
         # row. A prompt only on that row ("1. Continue? [y/N]"), below it (a bare [y/N]
@@ -1303,19 +1392,6 @@ def classify(
             # without buttons the user types exactly what the screen asks for.
             style = question["answer_style"] = "text"
             question.pop("options", None)
-        # A menu's own numbers are its options, so only a typed answer names list items.
-        if rows := style == "text" and asked and _referenced_rows(asked, visible):
-            question["items"] = [_item(n, text) for n, text in rows.items()]
-            # The parser's own copy of those rows would show them twice: as answer buttons
-            # (a row's number and its words: "1. Resolve the merge conflict", not "1. Yes,
-            # move it now"; the reply call fills in when nothing else is left), or as a table.
-            options = question.get("options")
-            kept = [o for o in options if (n := _row_number(o)) not in rows
-                    or not _copies(o, rows[n])] if isinstance(options, list) else options
-            if kept != options:
-                question["options"] = kept or _reply_options(asked, replies_fn)
-            if isinstance(result.get("tables"), list):
-                result["tables"] = [t for t in result["tables"] if not _restates(t, rows)] or None
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         if context := style == "menu" and asked and _widget_text(asked, visible):
             question["context"] = context
@@ -1323,11 +1399,10 @@ def classify(
             # keeps its own question.
             if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
-    # A detected question/rewind means the pane is waiting, regardless of what the
-    # model put in "activity" — this is the one bit of logic we keep out of the model.
-    # A question/rewind is a user-facing affordance, so it's a USER wait (overrides any
-    # stray "external" the model emitted).
-    if result.get("question") or result.get("rewind"):
+    # The model's own answers must agree: a question, rewind or offer it returned (and the
+    # screen showed) is something for the user to answer or send, so the pane waits on the
+    # user, whatever it put in "activity" (a stray "external" included).
+    if result.get("question") or result.get("rewind") or result.get("offers"):
         result["activity"] = "waiting"
         result["waiting_on"] = "user"
     # waiting_on says WHOM a WAITING pane is blocked on and is meaningful only then:
@@ -1395,8 +1470,10 @@ def classify(
                 ).split()))
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
-    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", visible)
-    copy_source = copy_source.replace("\\\n", "")
+    copy_source = _FRAME_BARS_RE.sub("", visible).replace("\\\n", "")
+    # A hyperlink shows only its label, so a copy may quote the screen as captured (each
+    # target intact) or as shown.
+    copy_sources = {copy_source, _LINK_TARGET_RE.sub(r"\1", copy_source)}
 
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
@@ -1404,9 +1481,8 @@ def classify(
         # line continuations kept as shown or joined (both sides drop them alike).
         text = text.replace("\\\n", "")
         words = r"\s+".join(re.escape(word) for word in text.split())
-        return f"`{text}`" in copy_source or re.search(
-            r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
-        )
+        row = re.compile(r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$")
+        return any(f"`{text}`" in src or row.search(src) for src in copy_sources)
 
     def _valid(cps, *, transcript=False):
         """Validated entries, lazily — islice below stops us at 3 without validating the
@@ -1447,7 +1523,16 @@ def classify(
         result["copyables"] = good
     else:
         result.pop("copyables", None)
-    working_prs = _working_prs(result.get("working_prs"))
+    # The status line's model, context and cost have chips of their own; the parser copies
+    # them into status_entries too ("16% ctx" beside 16% context, "$4.96" twice).
+    entries = result.get("status_entries")
+    if isinstance(entries, list):
+        result["status_entries"] = [e for e in entries if not (
+            e in (result.get("model"), result.get("cost")) or (
+                result.get("context_pct") is not None and isinstance(e, str)
+                and _CONTEXT_ENTRY_RE.fullmatch(e.strip())))]
+    working_prs = _working_prs(
+        result.get("working_prs"), repository, "\n".join([*(prior or []), text]))
     if working_prs:
         result["working_prs"] = working_prs
     else:

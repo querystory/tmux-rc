@@ -508,10 +508,42 @@ A consent card that targets a pane carries the same button, because the card is 
 wrong target gets caught: asked for "the QS linux OMP session", the model picked an omp
 pane idle for two days over the window titled "qslinux codex installation", and the card
 named it only by its tmux address, so nothing on it said which window that was. The card
-now names the pane as the prompt and list do (window number and title, plus the label when
-it adds something), and Open lets the user look before answering. Opening does not answer
+now names the pane as the list row does (title, tool and session chip, "qs-app · codex in
+qs-app"), and Open lets the user look before answering. It used to lead with the window
+number and append the tmux address, but the phone shows the number only in a row's small
+print and the address nowhere, so leading with them read as jargon on the one surface
+where the user must recognise the target; the address now goes only to the audit record. The window number comes back only to tell two otherwise
+identical panes apart, since nothing else on their rows differs. Opening does not answer
 the card: it stays pending on the chat bubble until Send or Cancel, since looking is the
 point and a card that resolved on navigation would force a choice before the look.
+
+**A reconnect hands the conversation back.** The conversation lives in the daemon, so a
+restart (a deploy) dropped it while the client still showed every turn. The user had been
+asked "want me to reopen it?" and answered "yes" across the restart; the new session, with no
+history, matched that "yes" to a different window waiting on a yes/no prompt, the user
+approved a card they read as the reopen, and the model then described work the pane was
+"now" doing that it had never seen. Fixes, one per failure:
+
+- The client resends what its log shows on every connect that has one, and the daemon puts
+  it in front of the next turn as quoted text, framed as restored and unverified. The
+  alternative, persisting each session's history server-side keyed by actor and session,
+  would write conversation text (which the daemon treats as speech, journaled only under
+  QSDEBUG) to disk and add storage, expiry and cleanup, all to rebuild what the client
+  already holds. The client's copy is also exactly what the user is answering. It cannot
+  skip consent: it is text in a user turn, never a tool call, result or approval (those
+  exist only as futures in the live process), and anything in it the user could just as
+  well have typed. It is bounded like a turn, keeping the tail. The log row saying it was
+  handed back is the visible marker.
+- What a bare "yes" agrees to is the chat model's reading, not a word list's. A list of
+  agreement words and a question-mark test once refused such turns in code; they judged
+  meaning with rules (every new phrasing was a new pattern) and were removed. The consent
+  card is the safeguard that stays: nothing reaches a pane before the user reads what
+  would be sent and taps Send.
+- A delivered send answers `sent` with a note that the pane's reaction is unseen, instead
+  of `done`, which the model took as the work being done; the nudge after a quiet tool
+  turn asks what it did, not the "outcome".
+- A card carries a warning line when its turn followed a restore, where the user's intent
+  and the model's reading most easily part.
 
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
@@ -616,7 +648,7 @@ turn gets exactly one answer, its echo or a refusal flagged as such, so a refuse
 cannot shift the next turn's thumbnails onto the wrong echo.
 
 **Forwarding images to agents.** `send_image_to_pane` is how a pasted image reaches a pane
-("send this to window 3"). The daemon numbers each pasted image across the conversation and
+("send this to the auth fix"). The daemon numbers each pasted image across the conversation and
 tells the model the number in the turn text, since the model cannot otherwise name an image
 from an earlier turn. The numbered copies are kept only for as many turns as the chat model
 keeps, so the memory the numbering holds is the history's own bound. The tool goes through

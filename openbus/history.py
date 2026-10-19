@@ -20,9 +20,10 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 HEARTBEAT = 60
 COVERAGE = 120
+VISITS = 200  # the drawer shows a handful; this many outlast the panes and folders now gone
 BACKFILL_TTL = 4 * 3600
 STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
-AGENT_TOOLS = {"claude", "codex", "gemini", "opencode", "omp"}
+AGENT_TOOLS = {"claude", "codex", "gemini", "antigravity", "opencode", "omp"}
 MAX_SPAN = 90 * 86400  # bounds a request; the database itself is never pruned
 GOAL_KEY = "running_goal"
 USAGE_KEEP = 8 * 86400  # plan_usage keeps raw samples this long, then one an hour: see record_usage
@@ -195,13 +196,32 @@ def _index_plan_usage(db) -> None:
 
 
 def _index_plan_usage_resets(db) -> None:
-    # A meter's past windows are found newest reset first, by the hour (History.reset_back).
+    # Once used to step a meter back through its past windows; dropped below since the
+    # usage view reads a time range instead.
     db.execute("CREATE INDEX plan_usage_by_reset ON plan_usage(provider, account, window, "
                "CAST(resets_at / 3600 AS INT))")
 
 
+def _drop_plan_usage_resets(db) -> None:
+    db.execute("DROP INDEX plan_usage_by_reset")
+
+
+def _add_layout_snapshots(db) -> None:
+    # One workspace snapshot per tmux server, for reboot restore (openbus/restore.py).
+    db.execute("CREATE TABLE layout_snapshots (server TEXT PRIMARY KEY, last_seen REAL NOT NULL, "
+               "payload TEXT NOT NULL, consumed TEXT)")
+
+
+def _add_visits(db) -> None:
+    # What the user opened, a pane or a scratch folder: one row each, for the ☰ drawer's Recent.
+    db.execute("CREATE TABLE visits (kind TEXT NOT NULL, key TEXT NOT NULL, at REAL NOT NULL, "
+               "PRIMARY KEY(kind, key))")
+    db.execute("CREATE INDEX visits_by_time ON visits(at)")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
-              _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets)
+              _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets,
+              _drop_plan_usage_resets, _add_layout_snapshots, _add_visits)
 
 
 class History:
@@ -284,6 +304,24 @@ class History:
             return
         self._last, self._written, self._failed = payload, now, 0.0
 
+    def visit(self, kind: str, key: str, now: float | None = None) -> None:
+        """Note that the user opened this pane or scratch folder. A revisit (a reload, a
+        reconnect) only moves its time up, and just the newest VISITS are kept."""
+        try:
+            with self.connect() as db:
+                db.execute("INSERT INTO visits VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET "
+                           "at=excluded.at", (kind, key, time.time() if now is None else now))
+                db.execute("DELETE FROM visits WHERE rowid NOT IN (SELECT rowid FROM visits "
+                           "ORDER BY at DESC, rowid DESC LIMIT ?)", (VISITS,))
+        except (OSError, sqlite3.Error):
+            logger.warning("Could not record a visit", exc_info=True)
+
+    def visits(self, kind: str) -> list[tuple[str, float]]:
+        """Visits of this kind, (key, when), most recent first."""
+        with self.connect() as db:
+            return db.execute("SELECT key, at FROM visits WHERE kind=? "
+                              "ORDER BY at DESC, rowid DESC", (kind,)).fetchall()
+
     def load_checkpoints(self) -> dict[str, dict]:
         """Every pane checkpoint, read once at startup; memory is authoritative after."""
         with self.connect() as db:
@@ -359,17 +397,6 @@ class History:
             return db.execute("SELECT t, pct, resets_at FROM plan_usage WHERE provider=? "
                               "AND account=? AND window=? AND t BETWEEN ? AND ? ORDER BY t",
                               (provider, account, window, since, until)).fetchall()
-
-    def reset_back(self, provider: str, account: str, window: str, until: float,
-                   n: int) -> float | None:
-        """The hour of the earliest of this meter's last n resets by `until`, counted by the
-        hour: an index walk from the newest, however long the history."""
-        with self.connect() as db:
-            h = db.execute("SELECT min(h) FROM (SELECT CAST(resets_at / 3600 AS INT) AS h "
-                           "FROM plan_usage WHERE provider=? AND account=? AND window=? "
-                           "AND CAST(resets_at / 3600 AS INT) <= ? GROUP BY h ORDER BY h DESC "
-                           "LIMIT ?)", (provider, account, window, until // 3600, n)).fetchone()[0]
-        return h and h * 3600
 
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""

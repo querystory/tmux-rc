@@ -6,6 +6,25 @@ that it watches what a pane *renders* and integrates with no agent in particular
 unconfigured agent works. These settings make it work *better*, and two of them make it
 work considerably cheaper.
 
+## Antigravity CLI
+
+Install Google's [Antigravity CLI](https://antigravity.google/docs/getting-started?tab=cli)
+(`agy`), then choose **Antigravity** in the **+** launcher. It is a separate program
+from Gemini CLI (`gemini`); both launchers remain available. Complete sign-in and
+workspace setup in the terminal on first use.
+
+The launcher respects Antigravity's configured model. Use `/model` or `agy models`
+to see models available to your account before pinning one in `TMUXRC_LAUNCHERS`.
+An unavailable model can fall back to another model in interactive mode.
+
+For fewer approval prompts, set `enableTerminalSandbox: true` and
+`toolPermission: "proceed-in-sandbox"` in
+`~/.gemini/antigravity-cli/settings.json` (or launch `agy --sandbox` with that
+permission mode). Both settings are required: the mode only auto-approves commands
+that actually run inside the sandbox. Antigravity's settings persist separately
+from tmux-rc; the launcher does not bypass permissions. Agent identification, model badges, activity history, and arrow-driven
+menu selection recognize Antigravity independently of the model it runs.
+
 ## Why your agent's settings are tmux-rc's business at all
 
 tmux-rc never asks an agent what it is doing — it looks at the pane, the same pixels you
@@ -26,7 +45,7 @@ would. Two consequences follow, and every recommendation below is one of them:
 You do not have to name anything — *provided the agent says who it is on screen*. The
 classifier reads the agent's own session title out of the captured text (that is what the
 `session` field in the parser prompt is for) and it becomes the pane's **label**, so the
-pane reads as *Review 4745* or *airbyte-value-population* rather than as its command.
+pane reads as *Review 4745* or *csv-export-retry* rather than as its command.
 
 That is the one setting worth changing for Codex: **include `"thread-title"` in
 `status_line`.** The parser will also take the title from a `Thread renamed to <name>`
@@ -69,10 +88,11 @@ rather than for where it sits, so segments you add or drop do not shift the mean
 the rest. The one exception is `thread-title`: it is identified as the leftover segment
 *before* the model, so keep it ahead of `model-with-reasoning` or the pane loses the
 only per-window identity Codex has. Put `session-id` *after* the model for the same
-reason: it lets Live find which window shows a Codex thread that its shared
-app-server daemon runs (the daemon, not the window, holds the thread open, so nothing
-else ties the two together). Without it, Live reports such a thread as running
-elsewhere and won't point you at it. Claude Code prints its model by default; if you
+reason: it lets Live find which window shows a Codex thread started fresh in it. The
+shared app-server daemon, not the window, holds such a thread open, and a window
+running `codex resume <id>` names its thread on its command line, but a window that
+started a new one carries no trace of it; the status bar is what ties the two together.
+Without it, Live reports such a thread as running elsewhere and won't point you at it. Claude Code prints its model by default; if you
 have replaced its status line with a custom command, keep the model in what you emit.
 
 This also feeds the card's subtitle, so you can see at a glance which model a pane is

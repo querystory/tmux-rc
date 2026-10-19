@@ -10,9 +10,14 @@ History is generated from a seed, not stored, so it costs a few lines instead of
 """
 from __future__ import annotations
 
+import json
 import math
+import os
 import random
 from datetime import UTC, datetime
+from types import SimpleNamespace
+
+from PIL import Image, ImageDraw
 
 from openbus.history import COVERAGE, History
 
@@ -25,14 +30,14 @@ SESSIONS = ["shop-api", "ci", "research", "docs", "ops", "infra", "marketing", "
 # session index | tool | run / need / idle | title | age | u = finished recently, or the
 # question when need | the activity line, or the reply options when need.
 ROWS = """\
-0|claude|idle|fact checker agent|2m||Waiting for the preview build after updating review docs.
+0|claude|idle|release notes agent|2m||Waiting for the preview build after updating review docs.
 0|codex|run|migration planner|now||Mapping table dependencies before proposing an order.
 0|opencode|run|schema reviewer|now||Checking the new column constraints against live data.
-0|claude|need|api contract diff|3m|Two endpoints changed. Bump the API version?|Bump to v3,Keep v2
-0|claude|idle|preview deploy|2h||Deployed. Link posted in the PR thread.
+0|claude|run|api contract diff|now||Drafting the v3 migration note for the two changed endpoints.
+0|claude|need|preview deploy|6m|Preview is up. Run the checks yourself before I merge: ! make test|
 0|shell|idle|zsh ~/src/shop-api|41m||git status: clean, on main.
 0|codex|idle|seed data refresh|5h||Refreshed 12 fixtures. Tests green.
-1|claude|need|flaky test hunter|4m|Two reruns disagree. Which suite to quarantine?|e2e,integration
+1|claude|idle|flaky test hunter|4m|u|Quarantined 2 flaky e2e specs. Issue filed for each.
 1|claude|run|e2e triage|now||Re-running checkout.spec with tracing on.
 1|codex|idle|lint autofix|12m|u|Fixed 38 warnings across 9 files. Ready to commit.
 1|shell|idle|build cache warmer|1h||Cache warm: 214 layers, 3.1 GB.
@@ -48,7 +53,7 @@ ROWS = """\
 3|omp|idle|changelog bot|1h||Opened a draft entry for 0.15.
 3|opencode|idle|api reference regen|3h||Reference rebuilt, no broken links.
 3|shell|idle|zsh ~/src/docs|1d||Idle at the prompt.
-4|claude|need|alert tuning|11m|Silence the disk alert on build-02 for 24 hours?|Silence 24h,Keep
+4|claude|idle|alert tuning|11m||Raised the build-02 disk alert to 90%. Paging is quiet.
 4|codex|run|cost report|now||Pulling last month's billing export.
 4|opencode|idle|log triage|3h||No new errors since the last check.
 4|claude|idle|pager rota sync|4h||Rota synced through next Friday.
@@ -64,13 +69,17 @@ ROWS = """\
 6|claude|idle|launch email|3h||Final copy sent for review.
 6|gemini|idle|competitor scan|1d||Compared five pricing pages.
 6|shell|idle|zsh ~/marketing|2d||Idle at the prompt.
-7|codex|need|dependency audit|9m|Approve upgrading 3 packages with breaking changes?|Approve,Hold
+7|codex|run|dependency audit|now||Checking 3 major upgrades against the changelogs.
 7|claude|run|sidebar toggle|now||Wiring the group-by toggle into the sidebar.
 7|shell|idle|zsh ~/src|41m||Idle at the prompt.
 7|claude|idle|rss digest|5h||Summarised 12 new posts.
 7|opencode|idle|invoice parser|2d||Parsed 31 invoices, 2 flagged.
 7|shell|idle|dotfiles sync|3d||Synced with origin.
-7|claude|need|disk cleanup|6m|Want me to do 1 now and prepare the list for 2?|Do both,Just 1"""
+7|claude|idle|disk cleanup|6m||Pruned images older than 14 days. Freed 38 GB.
+7|claude|run|webhook timeouts|now||Moving stock reservation into a background job.
+0|claude|need|refunds|1m|PRs #413 and #414 are green and reviewed. Merge?|Merge both,Just #413
+5|claude|idle|prod deploy|2m||Production is on v0.15.2. Health checks green.
+"""
 
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
@@ -92,9 +101,13 @@ PLANS = [
 PERSONAL = ("claude", "~/.claude-personal", ["research", "docs"],
             [("5h", 5 * 3600, 1 - 185 / 300, 34), ("7d", 7 * 86400, 1 - 74 / 168, 22),
              ("7d Fable", 7 * 86400, 1 - 74 / 168, 9)])
-# Where each past window ended, the latest first; past 100 is a window that hit its limit
-# before the reset (the curve stops at 100%).
-PAST_PEAKS = (74, 118, 61, 92, 38, 104)
+# Where past windows ended, cycled per meter; past 100 is a window that hit its limit before
+# the reset (the curve stops at 100%). USAGE_DAYS of them, so the usage view's 30d range is
+# full: weekly windows back to back, 5h ones through the working day (a 5h window opens at
+# the first prompt after a reset), one a weekend day, and lighter.
+PAST_PEAKS = (74, 118, 61, 92, 38, 104, 55, 83, 27, 66, 47)
+USAGE_DAYS = 45
+FIVE_HOUR_STARTS = (7.5, 13, 18.5)  # o'clock, UTC
 PROFILES = {"~/.claude": ("Work", "Example Org", "Team", 0),
             "~/.claude-personal": ("Personal", "Sam Rivera", "Max", 1),
             "~/.codex": ("Codex", "", "", 2)}
@@ -188,18 +201,13 @@ CAPTURES = {
         f"{dim('session:')} {grn('+64')}/{red('-12')} lines · {yel('41% ctx')} · {yel('$3.12')}",
         f"{dim('-- INSERT --')} {mag('⏵⏵ accept edits on')} {dim('(shift+tab to cycle)')}",
     ]),
-    "api contract diff": "\n".join([
-        f"{b('●')} Compared the generated OpenAPI spec against the published v2 contract.",
-        "",
-        f"  {red('-')} GET /orders/{{id}}       {dim('total: number')}",
-        f"  {grn('+')} GET /orders/{{id}}       {dim('total: {amount: string, currency: string}')}",
-        f"  {red('-')} POST /carts/{{id}}/items {dim('returns 200 with the cart')}",
-        f"  {grn('+')} POST /carts/{{id}}/items {dim('returns 201 with the line item')}",
-        "",
-        f"{b('●')} Both are breaking for existing clients. Two endpoints changed shape.",
-        "  Bump the public API version?",
-        "", RULE, "❯ ", RULE,
-        f"{cyn('~/src/shop-api')} on {mag('feat/money-type')} | {blu('Sonnet 5')}",
+    "preview deploy": "\n".join([
+        f"{b('●')} Preview is up. Run the checks yourself before I merge:",
+        "", f"  {blu('! make test')}", "",
+        '  Or say "ship it" and I\'ll merge it behind CI.', "",
+        f"{dim('✻ Worked for 41s · done 2:14 PM')}", "", RULE, "❯ ", RULE,
+        f"{cyn('~/src/shop-api')} on {mag('feat/preview')} | {blu('Opus 5')}",
+        f"{mag('⏵⏵ auto mode on')} {dim('(shift+tab to cycle)')}",
     ]),
     "backup verify": "\n".join([
         f"{grn('dev@ops')}$ sudo ./verify-snapshots.sh", "[sudo] password for dev: "]),
@@ -236,9 +244,22 @@ DETAIL = {
                    {"label": "Draft the v3 migration note", "state": "running", "elapsed": "40s",
                     "tokens": "3.1k"}],
         "session_summary": "Moving money fields to a structured type changed two public "
-                        "endpoints. Both break existing clients, so versioning needs a call.",
+                        "endpoints. Both break existing clients, so they move to a v3 API.",
         "prs": [{"repo": "example-org/shop-api", "number": 409,
               "title": "Structured money type for order totals"}]},
+    "refunds": {
+        "headline": "Refund PRs ready to merge", "status_line": "Refund PRs ready to merge",
+        "model": "Opus 5", "context_pct": 47, "cost": "$1.96",
+        "session_summary": "Both PRs passed CI and have an approving review. #414 builds on "
+                           "#413, so merging both ships partial refunds end to end.",
+        "prs": [{"repo": "example-org/shop-api", "number": 413,
+                 "title": "Partial refunds in the payments service"},
+                {"repo": "example-org/shop-api", "number": 414,
+                 "title": "Refund button on the order page"}]},
+    # A finished turn in auto mode that hands the user a command: classify()'s offers, and
+    # the question its _final_ask leaves (no reply options, since the command is the answer).
+    "preview deploy": {"offers": ["! make test", "ship it"],
+                       "headline": "Preview deployed; the checks are yours to run."},
     "cost report": {"activity": "compacting", "headline": "Compacting the conversation",
                         "status_line": "Compacting the conversation", "context_pct": 94},
     "terraform plan review": {
@@ -254,17 +275,6 @@ DETAIL = {
         "tables": [{"title": "Plan summary", "headers": ["Action", "Count"],
                  "rows": [["add", "6"], ["change", "33"], ["replace", "2"], ["destroy", "0"]]}]},
 }
-# Questions answered with one keystroke rather than typed text, with the widget fields
-# classify() adds to one: its raw rows and their plain restatement.
-MENU = {"dependency audit": {
-    "context": "Bash command\nUpgrade three packages with breaking changes\n\n"
-               "npm install react@20 vite@8 eslint@10",
-    "ask": "The agent wants to upgrade React, Vite and ESLint to new major versions. "
-           "Continue?",
-}}
-# A typed question that names list rows by number: the rows classify() reads off the screen.
-ITEMS = {"disk cleanup": {"items": ["1. Prune container images older than 14 days.",
-                                    "2. Archive the nightly log bundles."]}}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).
 EVENTS = {
@@ -275,7 +285,7 @@ EVENTS = {
                    (4, "Started a traced 20x rerun")],
     "api contract diff": [(30, "Generated the OpenAPI spec for the money type"),
                           (9, "Diffed it against the published v2 contract"),
-                          (3, "Asked whether to bump the public API version")],
+                          (3, "Started on the v3 migration note")],
 }
 
 _UNITS = {"m": 60, "h": 3600, "d": 86400}
@@ -306,9 +316,8 @@ def _pane(i: int, line: str, window: int) -> dict:
     if st == "need":
         pane |= {"headline": extra, "status_line": extra, "session_summary": "",
                  "waiting_on": "user",
-                 "question": {"prompt": extra, "options": text.split(","),
-                              "answer_style": "menu" if title in MENU else "text",
-                              **MENU.get(title, {}), **ITEMS.get(title, {})}}
+                 "question": {"prompt": extra, "options": text.split(",") if text else [],
+                              "answer_style": "text"}}
     return pane | DETAIL.get(title, {})
 
 
@@ -352,7 +361,7 @@ def _counts(i: int, n: int, rng: random.Random, walk: float) -> tuple[int, int, 
     day = math.exp(-((hour - 14) ** 2) / 22)
     walk = walk * 0.96 + (rng.random() - 0.5) * 1.1
     run = max(0, round(3.4 + trend * 4 + (8 if t.weekday() < 5 else 3) * day + walk))
-    need = max(0, round(day * 2.4 + (rng.random() - 0.55) * 2.2))
+    need = max(0, round(day * 1.2 + (rng.random() - 0.55) * 2.2))  # 0 to 2
     return 37 + round(trend * 8), run, need, walk
 
 
@@ -384,23 +393,46 @@ def seed_history(history: History) -> History:
     return history
 
 
+def past_windows(seconds: int, start: float) -> list[tuple[float, float, float]]:
+    """(start, end, peak scale) of the windows ended before one that opened at `start`."""
+    if seconds > 86400:
+        return [(start - k * seconds, start - (k - 1) * seconds, 1)
+                for k in range(1, USAGE_DAYS * 86400 // seconds + 2)]
+    out, today = [], start - start % 86400
+    for day in range(int(today), int(today) - USAGE_DAYS * 86400, -86400):
+        weekend = datetime.fromtimestamp(day, UTC).weekday() >= 5
+        out += [(day + h * 3600, day + h * 3600 + seconds, 0.4 if weekend else 1)
+                for h in (FIVE_HOUR_STARTS[1:2] if weekend else FIVE_HOUR_STARTS)]
+    return [w for w in out if w[1] <= start]
+
+
 def seed_usage(usage, two: bool = False):
-    """Five-minute samples of each PLANS window, rising a little faster late in it, ending
-    at its share at NOW, after one ended window per PAST_PEAKS, back to back; and the
-    accounts the panes draw on, as discovery would find them. Claude's last read failed,
-    so its samples stop STALE seconds short of NOW."""
+    """Samples of each PLANS window, ending at its share at NOW, after USAGE_DAYS of ended
+    windows (past_windows): five-minute ones for the last eight days, hourly before, as
+    plan_usage keeps them. A weekly window climbs a step a day, and one of Work's quotas
+    resets early, falling to zero before its scheduled reset. And the accounts the panes
+    draw on, as discovery would find them. Claude's last read failed, so its samples stop
+    STALE seconds short of NOW."""
     rows, panes = [], fleet()
-    for tool, name, sessions, windows in plans(two):
+    for i, (tool, name, sessions, windows) in enumerate(plans(two)):
         last = NOW - STALE.get(tool, 0)
         for j, (window, seconds, share, pct) in enumerate(windows):
-            # The current window, then the ended ones, each meter's peaks in its own order.
-            for k, peak in enumerate((pct, *PAST_PEAKS[j:], *PAST_PEAKS[:j])):
-                start = NOW - (share + k) * seconds
-                end = NOW if k == 0 else start + seconds - 1  # its last read, before the reset
-                rows += [(tool, name, window, seconds, t,
-                          min(100, round(peak * ((t - start) / (end - start)) ** 1.2)),
-                          start + seconds)
-                         for t in range(int(last if k == 0 else end), int(start), -300)]
+            start = NOW - share * seconds
+            rows += [(tool, name, window, seconds, t,
+                      min(100, round(pct * ((t - start) / (NOW - start)) ** 1.2)), start + seconds)
+                     for t in range(int(last), int(start), -300)]
+            days = seconds / 86400
+            for k, (s, e, scale) in enumerate(past_windows(seconds, start)):
+                peak = PAST_PEAKS[(k + 2 * j + 5 * i) % len(PAST_PEAKS)] * scale
+                t = e - 1
+                while t > s:
+                    x = (t - s) / seconds
+                    x -= math.sin(2 * math.pi * days * x) / (2 * math.pi * days) if days > 1 else 0
+                    if (i, j, k) == (len(plans(two)) - 2, 1, 1) and x > 0.6:  # Work: early reset
+                        x = (x - 0.6) / 2
+                    rows.append((tool, name, window, seconds, t,
+                                 min(100, round(peak * x ** 1.2)), e))
+                    t -= 300 if t > NOW - 8 * 86400 else 3600
         # "short": what a base tree from before accounts.py labels a meter by.
         usage.accounts[(tool, name)] = {"homes": [name], "short": PROFILES[name][0], "panes": [
             p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions],
@@ -454,3 +486,121 @@ def seed_loops(loops):
          "unpushed": unpushed, "active_at": NOW - 2 * 86400}
         for path, repo, branch, dirty, unpushed in LOOP_TREES], NOW - 7 * 60
     return loops
+
+
+# Reboot restore: the workspace of a tmux server that died this morning, as the recorder
+# would have saved it (openbus/restore.py), and agent-history's word on each conversation.
+# session | window id, index, name | pane: tool | title | cwd | activity | cost | minutes idle
+# at shutdown, or "-" for a plain shell | its conversation's state (running, or blank).
+DIED = NOW - 3 * 3600
+RESTORE = """\
+shop-api|@1 0 api|claude|Rate-limit the public API|/work/shop-api|waiting|$3.10|4|
+shop-api|@1 0 api|shell||/work/shop-api|||-|
+shop-api|@2 1 checkout|codex|Fix the checkout retry loop|/work/shop-api|running|$1.45|0|
+shop-api|@3 2 webhooks|claude|Answer webhooks before reserving stock|/work/shop-api|idle|$0.80|95|
+research|@4 0 tokenizer|claude|Tokenizer v2 benchmarks|/work/research|idle|$6.20|5760|
+research|@4 0 tokenizer|codex|Eval harness flakes|/work/research|idle|$0.35|40|running
+research|@5 1 papers|claude|Survey of retrieval papers|/work/research|waiting|$2.05|12|"""
+
+
+def restore_snapshot() -> tuple[dict, dict]:
+    """(the snapshot's payload, agent-history's entries by session id)."""
+    sessions, windows, entries = {}, {}, {}
+    for n, line in enumerate(RESTORE.splitlines()):
+        session, window, tool, title, cwd, activity, cost, idle, state = line.split("|")
+        wid, index, name = window.split()
+        s = sessions.setdefault(session, {"name": session, "path": cwd, "group": "",
+                                          "windows": []})
+        if not any(w["id"] == wid for w in s["windows"]):
+            s["windows"].append({"id": wid, "index": int(index), "current": not s["windows"]})
+        w = windows.setdefault(wid, {"name": name, "manual": True, "zoomed": False,
+                                     "layout": "", "panes": []})
+        shell = tool == "shell"
+        at = 0 if shell else int(DIED - int(idle) * 60) // 60 * 60
+        sid = None if shell else f"demo-{n}"
+        w["panes"].append({"index": len(w["panes"]), "active": not w["panes"], "cwd": cwd,
+                           "command": "zsh" if shell else tool,
+                           "binding": sid and {"harness": tool, "session_id": sid},
+                           "title": title or None, "tool": None if shell else tool,
+                           "activity": activity or None, "waiting_on": None,
+                           "cost": cost or None, "context_pct": None, "last_activity": at})
+        if sid:
+            entries[sid] = {"cwd": cwd, "resume_argv": [tool, "resume", sid],
+                            "last_active": datetime.fromtimestamp(at, UTC).isoformat(),
+                            "running": {"pid": 1} if state == "running" else None}
+    for w in windows.values():  # 178x41, the panes side by side
+        width = (178 - len(w["panes"]) + 1) // len(w["panes"])
+        cells = ",".join(f"{width}x41,{i * (width + 1)},0,{i}" for i in range(len(w["panes"])))
+        w["layout"] = f"0000,178x41,0,0{{{cells}}}" if len(w["panes"]) > 1 else "0000,178x41,0,0,0"
+    return {"sessions": list(sessions.values()), "windows": windows}, entries
+
+
+def restore_seams() -> dict:
+    """What restore.offer reads besides the database, over the fleet: agent-history answers
+    from it, and its invented directories pass for present. The demo server swaps these in;
+    Restore and Start fresh are mutations there, answered without running."""
+    entries = restore_snapshot()[1]
+    return {"agent_history": SimpleNamespace(reconcile=lambda: None, get_many=lambda ids: {
+                i: entries[i] for i in ids if i in entries}),
+            "os": SimpleNamespace(path=SimpleNamespace(
+                isdir=lambda d: d.startswith("/work/"), basename=os.path.basename))}
+
+
+def seed_restore(history: History) -> History:
+    """The dead server's row; its id's boot never matches this machine's, so it reads dead."""
+    payload, _ = restore_snapshot()
+    with history.connect() as db:
+        db.execute("INSERT INTO layout_snapshots VALUES (?, ?, ?, NULL)",
+                   ("demo-boot:4242:1", DIED, json.dumps(payload)))
+    return history
+
+
+# The scratch gallery (/scratch/): folder | minutes since created, last changed | pane, or
+# "-" for none | title, or "-" to fall back on the page's own | description. A pane the
+# fleet lacks has closed; its folder is found in the transcript in SCRATCH_WRITERS.
+SCRATCH = """\
+checkout-variants|40,25|%5|Checkout flow, two variants|Single page against stepped, at \
+phone width.
+ab-sweep-interim|130,70|%14|Prompt A/B sweep: interim|Variant C leads after 60 of 200 runs.
+release-notes-draft|190,190|%19|-|Merged PRs since v0.14, grouped by area.
+cost-breakdown|1500,1380|%77|Monthly cost breakdown|Compute, storage and egress by team.
+latency-heatmap|4400,4300|-|-|-"""
+SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
+                                      "source": "~/.claude/projects/ops/demo-cost.jsonl",
+                                      "title": "Billing export analysis"}}
+
+
+def _thumb(path, hue: int) -> None:
+    """A stand-in thumbnail: a page's header, a heading and blocks of content, in one hue."""
+    im = Image.new("RGB", (480, 300), "#f5f7f6")
+    d, ink = ImageDraw.Draw(im), f"hsl({hue}, 45%, 45%)"
+    d.rectangle((0, 0, 480, 36), fill=f"hsl({hue}, 35%, 88%)")
+    d.rectangle((24, 60, 260, 78), fill=ink)
+    for n, width in enumerate((420, 380, 300)):
+        d.rectangle((24, 98 + n * 18, 24 + width, 106 + n * 18), fill="#c8d1cc")
+    for n in range(3):
+        d.rounded_rectangle((24 + n * 148, 170, 156 + n * 148, 276), 8,
+                            fill=f"hsl({hue + n * 25}, 40%, 70%)")
+    im.save(path, "WEBP", quality=70)
+
+
+def seed_scratch(root) -> None:
+    """Write SCRATCH's folders: each an index.html, a thumbnail but for the oldest (its
+    placeholder shows), and, when it names a pane, meta.json."""
+    lines = SCRATCH.splitlines()
+    for n, line in enumerate(lines):
+        name, ages, pane, title, description = line.split("|")
+        created, changed = (NOW - int(m) * 60 for m in ages.split(","))
+        folder = root / name
+        folder.mkdir()
+        page = name.replace("-", " ").capitalize()
+        (folder / "index.html").write_text(f"<title>{page}</title><h1>{page}</h1>")
+        meta = folder / "meta.json"
+        if pane != "-":
+            meta.write_text(json.dumps({
+                "title": "" if title == "-" else title, "description": description,
+                "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat()}))
+        if n < len(lines) - 1:
+            _thumb(folder / "thumb.webp", 150 + n * 47)
+        for path in folder.iterdir():
+            os.utime(path, (created, changed if path.suffix != ".json" else created))

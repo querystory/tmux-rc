@@ -5,6 +5,7 @@ must be pinned in tests is everything that decides WHAT the model sees and WHETH
 tool call may touch a real terminal — the context builder and the reject paths."""
 
 import asyncio
+import dataclasses
 import logging
 import time
 from types import SimpleNamespace
@@ -29,8 +30,8 @@ class _Watcher:
 
     def digest(self):
         return [
-            {"pane_id": "%1", "label": "work", "window_index": "3", "tool": "claude",
-             "activity": "waiting", "tmux_active": True,
+            {"pane_id": "%1", "label": "work", "session": "dev", "window_index": "3",
+             "pane_index": "0", "tool": "claude", "activity": "waiting", "tmux_active": True,
              "headline": "asking about tests", "summary": "ran the suite",
              "prs": [{"repo": "querystory/qs-app", "number": 4955}],
              "cwd": "/repo/worktree",
@@ -100,9 +101,9 @@ def test_receiver_preserves_transcripts_and_debug_logging(monkeypatch, caplog, d
 def test_pane_context_carries_state_and_screens():
     w = _Watcher()
     ctx = L._pane_context(w, screens="all")
-    # User-facing identity (window number + name) leads; the %id is the tool-call handle.
-    # Name falls back to label here (stub has no self-published title).
-    assert 'window 3 "work" (id=%1) — claude — waiting' in ctx
+    # User-facing identity (name · tool, as the list row shows it) leads; the %id is the
+    # tool-call handle. Name falls back to label here (stub has no self-published title).
+    assert '"work · claude in dev" (id=%1) — waiting' in ctx
     assert "ACTIVE" in ctx  # the focused pane is flagged for "here"/"this" resolution
     assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
     assert "PRs this pane has worked on: querystory/qs-app#4955" in ctx
@@ -118,17 +119,27 @@ def test_pane_context_carries_state_and_screens():
 
 
 def test_pane_block_names_window_prefers_title_hides_id_role():
-    # Heading leads with window number + best-first name (title over label), and the %id
-    # is present only as the tool-call handle — never as the spoken identity.
+    # Heading leads with the best-first name (title over label), tool and session, never
+    # the window number the phone doesn't show, and the %id only as the tool-call handle.
     titled = L._pane_block(
-        {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78",
+        {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78", "session": "qs",
          "label": "work", "tool": "claude", "activity": "idle"}, None)
-    assert 'window 9 "Resolve PR 78" (id=%16)' in titled
+    assert '## "Resolve PR 78 · claude in qs" (id=%16)' in titled
     # No self-published title ⇒ fall back to the window label.
     untitled = L._pane_block(
         {"pane_id": "%2", "window_index": "2", "title": None, "label": "shell",
          "tool": "shell", "activity": "running"}, None)
-    assert 'window 2 "shell" (id=%2)' in untitled
+    assert '## "shell · shell" (id=%2)' in untitled
+
+
+def test_pane_name_adds_the_window_only_to_tell_twins_apart():
+    twins = [{"pane_id": f"%{i}", "title": "tests", "tool": "claude", "session": "qs",
+              "window_index": str(i)} for i in (3, 4)]
+    other = {"pane_id": "%5", "title": "docs", "tool": "claude", "session": "qs",
+             "window_index": "5"}
+    digest = [*twins, other]
+    assert L._pane_name(twins[0], digest) == "tests · claude in qs · window 3"
+    assert L._pane_name(other, digest) == "docs · claude in qs"
 
 
 def test_pane_block_idle_age_suffix():
@@ -152,19 +163,19 @@ def test_pane_block_idle_age_suffix():
     assert L._fmt_age(3 * 3600 + 5) == "3h" and L._fmt_age(86400 * 2 + 30) == "2d"
 
 
-def test_pane_block_sanitizes_name_quotes_and_newlines():
-    # A title with quotes/newlines must not unbalance the heading's quoting or split it.
+def test_pane_block_quotes_the_name_and_collapses_newlines():
+    # A terminal-set title must not split the heading or close its quotes to forge an id.
     b = L._pane_block(
         {"pane_id": "%1", "window_index": "0", "title": 'fix "the" bug\nnow',
          "tool": "claude", "activity": "idle"}, None)
     head = b.splitlines()[0]
-    assert head == '## window 0 "fix the bug now" (id=%1) — claude — idle'
+    assert head == '## "fix \\"the\\" bug now · claude" (id=%1) — idle'
 
 
 def test_system_prompt_has_rules_and_panes():
     p = L._system_prompt(_Watcher())
     assert "type_in_pane" in p  # the tool contract is in the instructions
-    assert "# Panes (live state)" in p and 'window 3 "work" (id=%1)' in p
+    assert "# Panes (live state)" in p and '"work · claude in dev" (id=%1)' in p
 
 
 def test_cwd_cannot_introduce_fake_pane_prompt_lines():
@@ -200,10 +211,11 @@ def test_typing_dispatches_and_logs(monkeypatch):
     w, ws, session, typed = _dispatch(fc, monkeypatch)
     assert typed == [("%1", "1", True, True)]  # literal send_keys, with Enter
     assert w.reparsed == ["%1"]  # the keystrokes trigger a fresh parse
-    assert any(m["type"] == "typed" and m["label"] == "work" for m in ws.sent)
+    assert any(m["type"] == "typed" and m["label"] == "work" and m["payload"] == "1"
+               for m in ws.sent)
     call, payload = session.responses[0]
     assert call.id == "call-1"  # the call (with its id) rides back to the provider
-    assert payload == {"status": "done", "pane": "work"}
+    assert payload == L._sent("work")
     # the tool result never carries screen content (echo-loop guard)
     assert "screen" not in str(payload)
 
@@ -216,21 +228,24 @@ def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text)
         _FC(name="open_pane", args={"pane_id": "%1"}), monkeypatch,
         meter=L._Meter("s1", "tester", P._DEFAULT[0], text=text))
     assert ws.sent == [
-        {"type": "open_pane", "pane_id": "%1", "label": 'window 3 "work"', "auto": False}]
+        {"type": "open_pane", "pane_id": "%1", "label": "work · claude in dev", "auto": False}]
     assert session.responses[0][1] == {  # "done" read as "opened" to the model
-        "status": "button_shown", "pane": 'window 3 "work"',
+        "status": "button_shown", "pane": "work · claude in dev",
         "reason": "the user taps it to open; nothing is open yet"}
     assert typed == [] and w.reparsed == []
 
 
 def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
     """resume_session returns a pane id the digest may not hold yet; tmux vouches for it,
-    and it is named as the watcher would: the agent's own title over tmux's "claude"."""
+    and it is named as the watcher would: the agent's own title over tmux's "claude", and
+    the attached member of a session group rather than whichever copy tmux lists first."""
     fresh = L.tmux.Pane("work", "7", "claude", "0", "%40", "claude", "auth fix")
+    twin = dataclasses.replace(fresh, session="work-2")  # grouped, unattached
     _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
-                            panes=[fresh])
+                            panes=[twin, dataclasses.replace(fresh, session_attached="1")])
     assert ws.sent == [
-        {"type": "open_pane", "pane_id": "%40", "label": 'window 7 "auth fix"', "auto": False}]
+        {"type": "open_pane", "pane_id": "%40", "label": "auth fix · claude in work",
+         "auto": False}]
 
 
 @pytest.mark.parametrize(
@@ -261,6 +276,8 @@ class _Fleet(_Watcher):
             *({**pane(p, w, "x", t, "codex"), "cwd": "~/src/sales-kit/"} for p, w, t in (
                 ("%19", "19", "pipeline fix"), ("%20", "20", "event | sales-kit"),
                 ("%28", "28", "copy tweaks"))),  # one repo: the title alone must not win
+            *({**pane(p, "2", "x", "tests", "claude"), "session": sess}  # twins but for session
+              for p, sess in (("%30", "storefront"), ("%31", "ledger"))),
         ]
 
 
@@ -271,6 +288,7 @@ class _Fleet(_Watcher):
     ("window 25 auth", "%16"),
     ("café 認証", "%15"),             # names are not only ASCII
     ("cafe\u0301 認証", "%15"),       # nor in one Unicode form
+    ("tests in ledger", "%31"),        # the session chip tells same-titled panes apart
 ])
 def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, name, pane_id):
     _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
@@ -319,18 +337,57 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
 
     assert ws.sent[0]["type"] == "propose"
     # Named as the list names it, with the id the card's Open button navigates to.
-    assert ws.sent[0]["text"] == 'Send to window 3 "work": rebase onto main'
+    assert ws.sent[0]["text"] == "Send to work · claude in dev: rebase onto main"
     assert ws.sent[0]["pane_id"] == "%1"
+    assert (ws.sent[0]["payload"], ws.sent[0]["enter"]) == ("rebase onto main", True)  # drawn
+    assert ws.sent[0]["label"] == "work"  # its name until the page's pane list has it
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
     assert session.responses[0][1] == (
-        {"status": "done", "pane": "work"} if ok
+        L._sent("work") if ok
         else {"status": "declined", "reason": "the user declined"})
     assert audits[-1]["consent"] == ("approved" if ok else "declined")
     assert audits[-1]["pane"] == "%1"  # recorded even when declined
     # Bound to the pane incarnation the card showed, so a recycled %1 is refused.
     assert bound == ([{"expected_pid": "4242"}] if ok else [])
     assert meter.approvals == {}
+
+
+@pytest.mark.parametrize(("name", "args", "drawn"), [
+    ("press_key", {"key": "Escape"}, {"key": "Escape"}),
+    ("press_key", {"key": "C-x"}, {}),  # not a key _dispatch presses
+    ("type_in_pane", {"text": "ls", "press_enter": False}, {"payload": "ls", "enter": False}),
+    ("type_in_pane", {"text": "ls", "press_enter": "no"}, {}),  # _dispatch refuses it
+    ("type_in_pane", {"text": "  "}, {}),
+])
+def test_a_card_draws_only_a_call_that_would_run(monkeypatch, name, args, drawn):
+    """A card draws an action's parts (keycap, quoted text) only for a call _dispatch would
+    run; one it refuses keeps the sentence, so it never looks like a real keystroke."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Tap(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                client = _ScriptedWS([{"action": "approve", "id": obj["id"], "ok": False},
+                                      {"action": "stop"}])
+                await L._forward_client(client, None, meter)
+
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    ws, session = Tap(), _Session()
+    session.request = "press escape"  # asked, where unasked keys are refused before a card
+    fc = _FC(name=name, args={"pane_id": "%1", **args})
+
+    class Twins(_Watcher):  # a same-named pane elsewhere: the drawn card says which window
+        def digest(self):
+            d = super().digest()
+            return [*d, {**d[0], "pane_id": "%9", "window_index": "7"}]
+
+    _run(L._handle_tool_call(ws, session, fc, Twins(), meter))
+    for card in [m for m in ws.sent if m["type"] == "propose"] or [{}]:  # or refused first
+        assert {k: card[k] for k in ("key", "payload", "enter") if k in card} == drawn
+        assert not card or card["window"] == " · window 3"
 
 
 @pytest.mark.parametrize("viewing", [True, False])
@@ -364,7 +421,7 @@ def test_card_waiting_unseen_pushes_once(monkeypatch, viewing):
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
     _run(L._handle_tool_call(Answer(), _Session(), _FC(args={"pane_id": "%1", "text": "ls"}),
                              _Watcher(), meter))
-    assert pushed == ([] if viewing else ['Send to window 3 "work": ls'] * 2)
+    assert pushed == ([] if viewing else ["Send to work · claude in dev: ls"] * 2)
 
 
 def test_client_reports_whether_the_chat_is_in_view():
@@ -546,7 +603,7 @@ def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
     _run(go())
     quiet = back in {"shown", "shown, dropped", "expired", "tapped", "undelivered",
                      "shown, taken over", "tapped, parked"}
-    assert pushed == ([] if quiet else ['Send to window 3 "work": ls'])
+    assert pushed == ([] if quiet else ["Send to work · claude in dev: ls"])
     assert L._parked == {} if back == "expired" else len(L._parked) == 1
     L._parked.clear()
 
@@ -688,7 +745,8 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
             if obj["type"] == "propose":
                 meter.approvals[obj["id"]].set_result(False)
 
-    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    audits = []
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
     class Titled(_Watcher):  # an unnamed window, whose list label is a bare tmux address
         def digest(self):
@@ -697,7 +755,8 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
     ws = Cancel()
     fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
     _run(L._handle_tool_call(ws, _Session(), fc, Titled(), meter))
-    assert ws.sent[0]["text"] == 'Type (no Enter) into window 3 "Prevent leaks" (misc-1:3): draft'
+    assert ws.sent[0]["text"] == "Type (no Enter) into Prevent leaks · claude in dev: draft"
+    assert audits[-1]["target"] == "dev:3.0"  # the tmux address: the audit's alone
 
 
 def test_text_session_prompt_labels_relays_as_typed():
@@ -713,8 +772,9 @@ def test_press_key_dispatches_named_key(monkeypatch):
     w, ws, session, typed = _dispatch(fc, monkeypatch)
     assert typed == [("%1", "Escape", False, False)]  # not literal, no trailing Enter
     assert w.reparsed == ["%1"]
-    assert any(m["type"] == "typed" and m["text"] == "[Escape]" for m in ws.sent)
-    assert session.responses[0][1] == {"status": "done", "pane": "work"}
+    assert any(m["type"] == "typed" and m["text"] == "[Escape]" and m["key"] == "Escape"
+               for m in ws.sent)
+    assert session.responses[0][1] == L._sent("work")
     # The model sees readable names; tmux gets its canonical ones.
     fc = _FC(name="press_key", args={"pane_id": "%1", "key": "PageUp"})
     assert _dispatch(fc, monkeypatch)[3] == [("%1", "PPage", False, False)]
@@ -979,15 +1039,19 @@ def test_run_session_reconnects_when_the_provider_stream_ends(monkeypatch):
     assert _statuses(ws).count("reconnecting") == 1
 
 
-def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
+@pytest.mark.parametrize(("code", "level"), [(1005, logging.INFO), (1012, logging.INFO),
+                                             (1006, logging.WARNING)])
+def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch, caplog, code, level):
     # A gone client (WebSocketDisconnect from receive_json) propagates out — there is
-    # nothing to reconnect to, so no second connect attempt is made.
+    # nothing to reconnect to, so no second connect attempt is made. A tab closing or
+    # sleeping (1005) or a restart (1012) is logged at INFO; an abnormal close still warns.
+    caplog.set_level(logging.INFO, logger=L.logger.name)
     monkeypatch.setattr(L, "_receiver", _park)
     monkeypatch.setattr(L, "_context_updater", _park)
     client = _FakeClient([_Connect(_Session())])
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
-    ws = _ScriptedWS([L.WebSocketDisconnect(code=1006)])
+    ws = _ScriptedWS([L.WebSocketDisconnect(code=code)])
     try:
         _run(L._run_session(ws, _Watcher(), L._Meter("s", "a", P._DEFAULT[0])))
         raised = False
@@ -996,6 +1060,7 @@ def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
 
     assert raised  # the disconnect surfaces, not swallowed as a reconnectable drop
     assert client.attempts == 1
+    assert [r.levelno for r in caplog.records if "ended in error" in r.message] == [level]
 
 
 class _Detail:
@@ -1112,9 +1177,9 @@ def test_connect_snapshot_screen_budget():
     assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400 + MARKER_SLACK
     # Priority: the ACTIVE pane always keeps its screen, however it sorts in digest
     # order; the longest-idle pane is the first to lose its own.
-    active_block = ctx.split("## window 29")[1]
+    active_block = ctx.split('## "p29 ')[1]
     assert "screen:" in active_block.split("##")[0]
-    idlest_block = ctx.split("## window 28")[1]  # idle_seconds=2800, the stalest
+    idlest_block = ctx.split('## "p28 ')[1]  # idle_seconds=2800, the stalest
     assert "screen:" not in idlest_block.split("##")[0]
 
 
@@ -1221,10 +1286,9 @@ def _forward(meter, ws, **args):
 
 def test_forwarding_an_image_waits_for_send_and_binds_to_the_pane(monkeypatch):
     meter, ws, events, audits = _forwarding(monkeypatch, ok=True)
-    assert _forward(meter, ws, image_number=1, caption="what is this?") == {
-        "status": "done", "pane": "work"}
+    assert _forward(meter, ws, image_number=1, caption="what is this?") == L._sent("work")
     card = ws.sent[0]
-    assert card["text"] == 'Send image 1 to window 3 "work": what is this?'
+    assert card["text"] == "Send image 1 to work · claude in dev: what is this?"
     assert card["image"] == "data:image/png;base64,UE5H"  # the thumbnail the user approves
     assert events == [  # delivered once, bound to the pid the card showed, caption in the draft
         ("attach", "%1", "4242", b"PNG", "image/png", "what is this?")]
@@ -1256,7 +1320,7 @@ def test_forwarding_works_from_a_voice_session_too(monkeypatch):
     """A voice model that takes images can hand one on, without a card like its other
     actions, and audited like them."""
     meter, ws, events, audits = _forwarding(monkeypatch, ok=True, text=False)
-    assert _forward(meter, ws)["status"] == "done"
+    assert _forward(meter, ws)["status"] == "sent"
     assert len(events) == 1 and len(audits) == 1 and "consent" not in audits[0]
 
 

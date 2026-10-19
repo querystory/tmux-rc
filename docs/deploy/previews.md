@@ -19,7 +19,7 @@ systemd unit runs), and restart:
     echo "TMUXRC_SCRATCH_DIR=$HOME/.local/share/tmux-rc/scratch" >> .env
     systemctl --user restart tmux-rc
 
-Drop a folder in, say `report/` with an `index.html`, and open
+Drop a folder in, say `report/` with an `index.html` or an `index.md`, and open
 `<your tmux-rc URL>/scratch/report/`. **Your scratch URL is simply the base URL you
 already open tmux-rc at, plus `/scratch/`**: nothing about it depends on how you reach the
 daemon. Files added later appear without a restart; deleting a folder unpublishes it.
@@ -28,11 +28,18 @@ Keep the directory outside every checkout, so no commit can pick up a preview an
 worktree cleanup can delete one. It must exist when the daemon starts, because that is the
 one time it is checked.
 
+## The gallery
+
+`<your tmux-rc URL>/scratch/` lists every folder as a card with a thumbnail, a description
+and who made it. See [Scratch gallery](scratch-gallery.md).
+
 ## What `/scratch/` is for
 
 Anything that is a pile of static files, not just tmux-rc work:
 
 - an HTML mock or design study an agent just wrote;
+- a Markdown document, such as a plan or a design note with Mermaid diagrams, which opens
+  rendered ([Markdown pages](scratch-gallery.md#markdown-pages));
 - the build output of a static site (a docs site, a landing page, a single-page app's
   `dist/`) for another project;
 - a generated report, a chart, a screenshot set, a PDF.
@@ -91,18 +98,8 @@ stops the writes but leaves the last values in place until tmux restarts or you 
 
 It is off by default because it writes to your tmux server's environment, which you may
 manage yourself. The variables only say where scratch is; agents also need to be told what
-to do with it. Paste this into your agent instructions. It is written to be all an agent
-needs, so none has to read tmux-rc's source to work out how scratch behaves:
-
-    If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a built
-    static site, a report, images, a PDF). Write it into a new subfolder, for example
-    $TMUXRC_SCRATCH_DIR/<folder>/index.html, and give the user
-    $TMUXRC_SCRATCH_URL/<folder>/ (or the folder's path if that variable is unset). The
-    public URL sits behind the user's login, so to check the page yourself request
-    $TMUXRC_SCRATCH_LOCAL_URL/<folder>/ instead; a 200 means it is served. Everything in
-    that directory is visible to everyone who can reach tmux-rc: never put secrets or
-    private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or
-    WebSockets, or submit forms, so inline any data a page needs.
+to do with it. Paste [the agent snippet](scratch-gallery.md#the-agent-snippet) into your
+agent instructions.
 
 ### One instruction file for every agent
 
@@ -138,13 +135,13 @@ global `AGENTS.md`, which the symlink makes moot.
 ## What it exposes, and what it won't run
 
 **Everything in the directory is published to everyone who can reach tmux-rc.** That is the
-whole access model: there is no per-file permission and no listing to hide behind a
-guessable name. Never put secrets, credentials or private data there. For the same reason
+whole access model: there is no per-file permission, and `/scratch/` itself lists every
+folder, so not even an unguessable name hides one. Never put secrets, credentials or private data there. For the same reason
 there is no default directory: an unset variable means nothing is served, so nothing gets
 published because someone saved a file in the wrong place.
 
-The mount does not list directories, and requests cannot climb out of it through `..` or
-symlinks.
+Inside a folder the mount lists nothing, and requests cannot climb out of scratch through
+`..` or symlinks; the gallery skips anything that would.
 
 **Pages are sandboxed.** A preview lives on the daemon's own hostname, where a script
 could otherwise call the daemon's API, which types into your terminals, using your
@@ -171,8 +168,9 @@ baked in, or give them their own hostname (below).
 ## Troubleshooting
 
 - **404 at `/scratch/...`**: `TMUXRC_SCRATCH_DIR` is unset, names a directory that did not
-  exist at startup, or was set without restarting the daemon. A folder with no
-  `index.html` also 404s at its bare URL, since there are no listings; link the file.
+  exist at startup, or was set without restarting the daemon. A folder with neither
+  `index.html` nor `index.md` also 404s at its bare URL, since a folder has no listing; link the file (the
+  gallery links such a folder's newest file).
 - **The page loads but its data doesn't**: a `fetch` or XHR failing (look for a CSP error
   in the browser console) is the sandbox doing its job. Inline the data into the page or
   bundle it as a classic script.
@@ -218,7 +216,7 @@ source is a folder outside every checkout, by default
   `label` and `options` as value/label pairs, plus an optional `default` value (else the
   first option). The harness shows each as a menu under its label and hands the current
   values to the script as `MOCK.state`.
-- `fragments`: single elements to capture once, such as a populated New window sheet,
+- `fragments`: single elements to capture once, such as a populated New session sheet,
   given as the same steps as a view plus a `selector`. The script can drop them into any
   frame (`MOCK.fragments`).
 - `note`: the working design note, in Markdown, shown in the harness's Note panel.
