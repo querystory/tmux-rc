@@ -129,27 +129,33 @@ def test_a_linked_state_file_is_refused(home, tmp_path):
 
 
 def test_nested_places_stay_their_parts(home, monkeypatch):
-    """State and scratch inside the data dir: credentials go only as credentials, and an
-    import without scratch leaves this host's pages where they are."""
+    """State and scratch inside the data dir: credentials and the account store go only as
+    themselves, a backup not at all, and an import without scratch leaves this host's pages
+    (and its DB with its WAL) where they are."""
     old = home("old")
     monkeypatch.setenv("XDG_STATE_HOME", str(old / "share"))
     monkeypatch.setenv("XDG_DATA_HOME", str(old / "share"))
     monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / "share/tmux-rc/previews/pages"))
     write(old / "share/tmux-rc/push.json", "{}")
+    write(old / "share/tmux-rc/accounts.json", "{}")
+    write(old / "share/tmux-rc/previews/push.json.pre-import-1", "{}")
     write(old / "share/tmux-rc/previews/pages/demo/index.html")
     write(old / "share/tmux-rc/previews/other.txt")
     out = io.BytesIO()
     export.export(out, [])
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         names = tar.getnames()
-    assert "data/previews/other.txt" in names
-    assert not [n for n in names if "push.json" in n or "pages" in n]
+    assert {"data/previews/other.txt", "accounts.json"} <= set(names)
+    assert not [n for n in names if "push.json" in n or "pages" in n or "data/acc" in n]
 
     new = home("new")
     for var, path in (("XDG_STATE_HOME", "share"), ("XDG_DATA_HOME", "share"),
-                      ("TMUXRC_SCRATCH_DIR", "share/tmux-rc/previews/pages")):
+                      ("TMUXRC_SCRATCH_DIR", "share/tmux-rc/previews/pages"),
+                      ("TMUXRC_HISTORY_DB", "share/tmux-rc/previews/h.sqlite3")):
         monkeypatch.setenv(var, str(new / path))
     write(new / "share/tmux-rc/previews/pages/mine/index.html")
+    write(new / "share/tmux-rc/previews/h.sqlite3-wal")
     export.restore(io.BytesIO(out.getvalue()))
     assert (new / "share/tmux-rc/previews/other.txt").exists()
     assert (new / "share/tmux-rc/previews/pages/mine/index.html").exists()
+    assert (new / "share/tmux-rc/previews/h.sqlite3-wal").exists()

@@ -74,7 +74,7 @@ def _roots():
     yield "scratch", "scratch", where["scratch"]
     yield from (("secrets", n, where[n]) for n in SECRETS)
     yield from (("state", f"data/{c.name}", c) for c in sorted(_data().glob("*"))
-                if c.name != "docs" and ".pre-import-" not in c.name)
+                if c.name != "docs")
     yield from (("agents", f"agents/{d.name}", d) for d in _agent_dirs() if d.parent == home)
     yield "agents", "agents/.claude.json", home / ".claude.json"  # the default ~/.claude's
 
@@ -94,24 +94,25 @@ def _missing(error: OSError) -> None:
 
 def _entries(parts=PARTS):
     """(part, archive name, path) of every file, dir and link an archive of `parts` can
-    hold: an agent dir without its caches, its sign-in as a credential, and scratch and
-    credentials only as their own parts, wherever they nest. A part not chosen is not
-    walked."""
+    hold: an agent dir without its caches, its sign-in as a credential, and each place
+    (scratch, the account store, credentials) only as its own root, wherever it nests. No
+    import's backup, and a part not chosen is not walked."""
     where, db = places(), _db()
     owner = {db: None, db.with_name(f"{db.name}-wal"): None,  # snapshotted
-             db.with_name(f"{db.name}-shm"): None, where["scratch"].resolve(): "scratch",
-             **{where[n].resolve(): "secrets" for n in SECRETS}}
+             db.with_name(f"{db.name}-shm"): None,
+             **{where[n].resolve(): n for n in ("scratch", "accounts.json", *SECRETS)}}
     for part, name, at in _roots():
         root = at.resolve()  # a linked root: what it links to
-        if part not in parts or not os.path.lexists(at) or owner.get(root, part) != part:
+        if part not in parts or not os.path.lexists(at) or ".pre-import-" in at.name or (
+                owner.get(root, name) != name):
             continue
         yield _part(part, name), name, root
         for here, dirs, files in os.walk(root, onerror=_missing) if root.is_dir() else ():
             top, kept = here == str(root), []
             for child in sorted(dirs + files):
                 path = Path(here, child)
-                if (part == "agents" and top and child in CACHES) or owner.get(
-                        path, part) != part:
+                if (part == "agents" and top and child in CACHES) or ".pre-import-" in child \
+                        or owner.get(path, name) != name:
                     continue
                 kept.append(child)
                 arc = f"{name}/{path.relative_to(root)}"
@@ -198,7 +199,8 @@ def _swap(src: Path, dst: Path, stamp: str, sidecars=("",), keep=()) -> None:
         if os.path.lexists(here := dst.with_name(dst.name + suffix)):
             here.rename(old.with_name(old.name + suffix))
     for rel in (p.relative_to(dst) for p in keep if dst in p.parents):
-        if src.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(src / rel):
+        if src.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(src / rel) \
+                and (src / rel).parent.resolve().is_relative_to(src.resolve()):  # no link out
             (src / rel).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             (old / rel).rename(src / rel)
     if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
@@ -256,6 +258,9 @@ def restore(src) -> list[str]:
         env = dotenv_values(stage / ".env") if (stage / ".env").is_file() else {}
         paths = [k for k in ("TMUXRC_HISTORY_DB", "TMUXRC_SCRATCH_DIR") if env.get(k)]
         stamp, done = time.strftime("%Y%m%d-%H%M%S"), []
+        db = where["history.sqlite3"]
+        keep = [Path(os.path.abspath(p)) for p in (*where.values(), *(
+            db.with_name(db.name + s) for s in ("-wal", "-shm")))]
         if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
             (stage / "agents/.claude.json").unlink(missing_ok=True)  # stays with that login
         for item in sorted(stage.iterdir()):
@@ -263,7 +268,7 @@ def restore(src) -> list[str]:
             for child in sorted(item.iterdir()) if parent else [item] * (item.name in where):
                 _swap(child, parent / child.name if parent else where[item.name], stamp,
                       ("", "-wal", "-shm") if item.name == "history.sqlite3" else ("",),
-                      [Path(os.path.abspath(p)) for p in where.values()])
+                      keep)
                 done.append(f"{item.name}/{child.name}" if parent else item.name)
     return [f"Restored: {', '.join(done)}.",
             *[f"Adopted the DB from {manifest['host']}."] * (manifest["host"] != host),
