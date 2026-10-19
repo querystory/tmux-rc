@@ -9,7 +9,17 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
+from dotenv import find_dotenv
+
 logger = logging.getLogger(__name__)
+
+
+def dotenv_path() -> Path:
+    """The .env the daemon loads: the checkout's, beside the package; installed as a wheel,
+    the nearest one up from the working directory, else a new one there (export's import
+    writes it)."""
+    repo = Path(__file__).resolve().parent.parent / ".env"
+    return repo if repo.exists() else Path(find_dotenv(usecwd=True) or Path.cwd() / ".env")
 
 
 def json_list(var: str, default: list, coerce: Callable[[dict], object]) -> list:

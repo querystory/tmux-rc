@@ -24,7 +24,7 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-from . import accounts, history, push
+from . import accounts, config, history, push
 
 FORMAT = 2
 # Part -> (label, note, in by default; None: always in).
@@ -55,7 +55,7 @@ def places() -> dict[str, Path]:
     scratch = os.environ.get("TMUXRC_SCRATCH_DIR")
     return {"history.sqlite3": history.default_path(), "accounts.json": accounts.store_path(),
             "push.json": push.default_path(), "config": Path.home() / ".config/tmux-rc",
-            ".env": Path(__file__).resolve().parent.parent / ".env",
+            ".env": config.dotenv_path(),
             "scratch": Path(scratch) if scratch else _data() / "scratch"}
 
 
@@ -98,18 +98,21 @@ def _entries(parts=PARTS):
     """(part, archive name, path) of every file, dir and link an archive of `parts` can
     hold: an agent dir without its caches, its sign-in as a credential, and each place
     (scratch, the account store, credentials, an agent dir) only as its own root, wherever
-    it nests. No import's backup, and a part not chosen is not walked."""
+    it nests, nor the data dir's contents inside one. No import's backup, and a part not
+    chosen is not walked."""
     where, db, home = places(), _db(), Path.home()
-    named = {where[n]: n for n in ("scratch", "accounts.json", *SECRETS)} | {
-        d: f"agents/{d.name}" if d.parent == home else None for d in _agent_dirs()}
-    owner = {db: None, db.with_name(f"{db.name}-wal"): None,  # snapshotted
-             db.with_name(f"{db.name}-shm"): None,
-             **{p: n for at, n in named.items()  # a link, and its target
-                for p in (Path(os.path.abspath(at)), at.resolve())}}
+    named = [(where[n], n) for n in ("scratch", "accounts.json", *SECRETS)] + [
+        (d, f"agents/{d.name}" if d.parent == home else None) for d in _agent_dirs()]
+    owner = {p: {None} for p in (db, db.with_name(f"{db.name}-wal"),  # snapshotted
+                                 db.with_name(f"{db.name}-shm"))}
+    for at, n in named:  # a link, and its target: two names may share it (~/.claude linked)
+        for p in (Path(os.path.abspath(at)), at.resolve()):
+            owner.setdefault(p, set()).add(n)
     for part, name, at in _roots():
         root = at.resolve()  # a linked root: what it links to
         if part not in parts or not os.path.lexists(at) or ".pre-import-" in at.name or (
-                owner.get(root, name) != name):
+                name not in owner.get(root, {name})) or (name.startswith("data/") and any(
+                    p in owner for p in Path(os.path.abspath(at)).parents)):
             continue
         yield _part(part, name), name, root
         for here, dirs, files in os.walk(root, onerror=_missing) if root.is_dir() else ():
@@ -117,7 +120,7 @@ def _entries(parts=PARTS):
             for child in sorted(dirs + files):
                 path = Path(here, child)
                 if (part == "agents" and top and child in CACHES) or ".pre-import-" in child \
-                        or owner.get(path, name) != name:
+                        or name not in owner.get(path, {name}):
                     continue
                 kept.append(child)
                 arc = f"{name}/{path.relative_to(root)}"

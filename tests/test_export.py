@@ -9,7 +9,7 @@ import tarfile
 
 import pytest
 
-from openbus import export, history
+from openbus import config, export, history
 from openbus.history import History
 
 
@@ -196,3 +196,29 @@ def test_nested_places_stay_their_parts(home, monkeypatch):
     assert (new / "share/tmux-rc/previews/other.txt").exists()
     assert (new / "share/tmux-rc/previews/pages/mine/index.html").exists()
     assert (new / "share/tmux-rc/previews/pages/h.sqlite3-wal").exists()
+
+
+def test_a_linked_agent_dir_and_a_data_dir_inside_config(home, monkeypatch):
+    """~/.claude linking to ~/.claude-work goes as both; a data dir that is tmux-rc's config
+    dir holds credentials, so its contents go only as those."""
+    old = home("old")
+    write(old / ".claude-work/projects/-demo/s1.jsonl")
+    (old / ".claude").symlink_to(old / ".claude-work")
+    monkeypatch.setenv("XDG_DATA_HOME", str(old / ".config"))
+    write(old / ".config/tmux-rc/openai.env", "KEY=x")
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        names = tar.getnames()
+    assert {"agents/.claude/projects/-demo/s1.jsonl",
+            "agents/.claude-work/projects/-demo/s1.jsonl"} <= set(names)
+    assert not [n for n in names if "openai" in n]
+
+
+def test_the_dotenv_is_the_one_the_daemon_loads(monkeypatch, tmp_path):
+    """Installed as a wheel (no checkout .env): the nearest up from cwd, as the daemon's."""
+    monkeypatch.setattr(config, "__file__", str(tmp_path / "site/openbus/config.py"))
+    (tmp_path / "run").mkdir()
+    monkeypatch.chdir(tmp_path / "run")
+    (tmp_path / ".env").write_text("")
+    assert config.dotenv_path() == tmp_path / ".env"

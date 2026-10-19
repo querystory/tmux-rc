@@ -37,7 +37,9 @@ from typing import Annotated, Literal
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
 # launch that didn't inherit the env (e.g. a stray `make dev`) silently loses Vertex creds
 # and every parse fails. Real environment vars still win over .env (override=False).
-from dotenv import find_dotenv, load_dotenv
+from dotenv import load_dotenv
+
+from .config import dotenv_path, json_list
 
 # One spelling of the package dir and the dir above it, reused for .env / web/ / docs
 # resolution below. In a source checkout the parent is the repo root; in an installed
@@ -46,11 +48,9 @@ from dotenv import find_dotenv, load_dotenv
 _PKG_DIR = Path(__file__).resolve().parent  # .../openbus (checkout or site-packages)
 _REPO_ROOT = _PKG_DIR.parent
 
-# Prefer the repo-root .env next to the package (the dev/run-from-checkout case); if that
-# doesn't exist (e.g. installed as a wheel and launched elsewhere), fall back to the
-# usual upward search from cwd. Either way, real env vars still win (override=False).
-_repo_env = _REPO_ROOT / ".env"
-load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
+# The checkout's .env, else the nearest up from cwd (config.dotenv_path). Real env vars
+# still win (override=False).
+load_dotenv(dotenv_path())
 # Live Mode provider keys (OpenAI, Azure, AI Studio) live in ONE mode-600 file outside
 # every checkout, so a worktree's .env or a commit can never carry them. Same
 # override=False rule; silently a no-op when the file is absent.
@@ -92,7 +92,6 @@ from . import (  # noqa: E402
     tmux,
 )
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
-from .config import json_list  # noqa: E402
 from .history import History, default_path, pane_key  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
