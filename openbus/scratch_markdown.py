@@ -109,13 +109,16 @@ def page(path: Path, web: Path) -> str:
 
 class Files(StaticFiles):
     """scratch's files, with a .md served as its page (`?raw` for the file itself) and a
-    folder's index.md as its index when it has no index.html."""
+    folder's index.md as its index when it has no index.html. Anything hidden (a .git, an
+    .env) is not part of the page, as in the gallery, and is not served."""
 
     def __init__(self, *, web: Path, **kwargs):
         super().__init__(**kwargs)
         self.web = web
 
     def lookup_path(self, path):
+        if any(part.startswith(".") for part in Path(path).parts):
+            return "", None
         full, st = super().lookup_path(path)
         if st is None and Path(path).name == "index.html":
             return super().lookup_path(path.removesuffix("html") + "md")

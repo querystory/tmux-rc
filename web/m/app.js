@@ -1,6 +1,6 @@
 import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
-import { renderCaptureLines, linkifyText, besideHeld } from "/terminal.js";
+import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
@@ -169,7 +169,7 @@ const pendingAnswers = new Map();
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
-let latestFrame = "", paintedFrame = "";
+let latestFrame = "", paintedFrame = "", shown = { kept: [], count: 0 }; // the painted frame's rows (frameLines)
 // Earlier history (docs/design/live-view.md): tmux rows above the live frame, fetched as you
 // near the top and kept, since a history row never changes. Rows are counted from the
 // oldest one tmux keeps, so new output (which only adds rows below) never renumbers a row
@@ -1202,7 +1202,13 @@ function paintLines(lines) {
   });
   captureLines.splice(lines.length).forEach((node) => node.remove());
 }
-const frameLines = () => lineMarkup(renderCaptureLines(latestCapture, { color: true }));
+// A full-screen app's blank runs squeezed (keptRows): `kept` says which of the capture's
+// `count` rows each line is, which a click counts in. Only there: its frame is the whole
+// screen (capture_live), so no row of it ever lands in #earlier, which shows rows as they are.
+function frameLines() {
+  const all = renderCaptureLines(latestCapture, { color: true }), kept = fitAlt ? keptRows(all) : [...all.keys()];
+  return Object.assign(lineMarkup(kept.map((i) => all[i])), { kept, count: all.length });
+}
 const selectionHolds = (lines) => { const s = getSelection(); return !!s && !s.isCollapsed && selectionDirty(s, lines); };
 function paintCapture(force = false) {
   // A reflow (new width) or a switch of screen renumbers every row, and trimmed or cleared
@@ -1224,7 +1230,7 @@ function paintCapture(force = false) {
   if (earlier.top === earlier.end && !earlier.busy && follow) earlier.top = earlier.end = top;
   if (!follow && !force && earlier.end < top && !backingOff()) { loadEarlier(); return; }
   paintLines(lines);
-  paintedFrame = latestFrame; shownTop = top;
+  paintedFrame = latestFrame; shownTop = top; shown = lines;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
   loadEarlier();
 }
@@ -1364,11 +1370,12 @@ async function streamTerminal(id, signal) {
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; latestGeometry = [data.top, data.screen]; paintCapture(); }
       // A full-screen app came or went: Auto picks again between tall and width only.
       // The first word too: a fit sent before it may have judged a shell the app has since
       // left. Queued, not left to fitDue: a reply already in flight would mark it done.
+      // Before the frame: a full-screen app's is drawn squeezed (frameLines).
       if ("alt" in data && data.alt !== fitAlt) { if (fitMode(id) === "auto") refitNow(); fitAlt = data.alt; }
+      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; latestGeometry = [data.top, data.screen]; paintCapture(); }
       fitDue();
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
@@ -1575,14 +1582,25 @@ function badgeOf(pane) {
   const pending = isAnswered(pane);
   return pending ? { label: pending.sent ? "Sent" : "Sending", cls: "running" } : { label: activityLabel(pane), cls: activityClass(pane) };
 }
+// Holds pane `id`'s card under `pending` at once, "Sending…" and not Needs you. The returned
+// settle(sent) ends the send: delivered, "Sent, waiting for the agent" until the pane's next
+// state or ANSWER_PENDING_MS; not sent, the options are live again (the notice says why).
+function hold(id, pending) {
+  pending.note = "Sending…"; pendingAnswers.set(id, pending); render();
+  return (sent) => {
+    if (pendingAnswers.get(id) !== pending || sent && pending.sent) return; // moved on, or said already
+    if (!sent) { pendingAnswers.delete(id); render(); return; }
+    pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
+    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
+  };
+}
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
 // stops reading as Needs you, through the send and on until the pane's next state. An
 // offer (index -1) is sent as typed text plus Enter, as a text answer is.
 async function answer(id, option, index, offer = false) {
   const current = panes.find((p) => p.pane_id === id);
   if (!(offer ? offersOf(current).includes(option) : current?.question && needsYou(current)) || isAnswered(current) || sending) return;
-  const pending = { key: questionKey(current.question), option, index, note: "Sending…", ...offer && { since: current.state_since } };
-  pendingAnswers.set(id, pending); render();
+  const settle = hold(id, { key: questionKey(current.question), option, index, ...offer && { since: current.state_since } });
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
@@ -1590,16 +1608,8 @@ async function answer(id, option, index, offer = false) {
   // Open the pane first, as the cursor walk does, so the keyboard reaches the right one.
   if ((cursor || !body) && active !== id) navigate(id);
   // Delivered: a walk says so as its select lands, before it waits on the picker to close.
-  const delivered = () => {
-    if (pendingAnswers.get(id) !== pending || pending.sent) return; // moved on, or said already
-    pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
-    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
-  };
-  const sent = cursor ? await pickCursorRow(cursorIO(id, delivered), option, index)
-    : body ? await sendKeys(body, id) : notice("Use the keyboard for this option.");
-  if (sent) delivered();
-  // Not sent: the notice says why, and the options are live again.
-  else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
+  settle(!!(cursor ? await pickCursorRow(cursorIO(id, () => settle(true)), option, index)
+    : body ? await sendKeys(body, id) : notice("Use the keyboard for this option.")));
 }
 
 // What the agent hands the user to send back (classify.screen_offers), whatever the pane's
@@ -1639,7 +1649,10 @@ function cursorIO(id, committed) {
 // The draft is cleared as it goes, not when the reply lands: typing straight after Enter
 // is the next message, and clearing on the reply erased it. A failed send puts the sent
 // draft back in front of whatever was typed since (a password only into an empty field).
+// A reply to a pane that needs you holds its card as a tapped answer does.
 async function compose(id, value) {
+  const pane = panes.find((p) => p.pane_id === id);
+  const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
   const secret = value === $("secret"), sent = secret ? value.value : value.segments();
   const form = new FormData();
   if (secret) form.append("secret", sent);
@@ -1654,9 +1667,10 @@ async function compose(id, value) {
     await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
     // Not over a next draft typed while this one went: that one is unsent.
     if (active === id && !(secret ? value.value : draft(id).segments().length)) text($("draft-status"), "Sent");
-    startState();
+    settle(true); startState();
     return true;
   } catch {
+    settle(false);
     if (secret) { if (active === id && !value.value) value.value = sent; } // the one field is the open pane's
     else {
       // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
@@ -2131,7 +2145,7 @@ $("capture").onclick = (event) => {
   const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
   const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
   if (row < 0 || row >= captureLines.length || col < 1) return;
-  const body = { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }, id = active;
+  const body = { from_bottom: shown.count - 1 - shown.kept[row], col, frame: paintedFrame }, id = active;
   // A tap that lands on nothing answers sent:false, not an error; a failure is a gone or
   // replaced pane, and it drops any keys queued behind it, so it has to say so.
   paneInput.run(id, () => post(paneUrl(id, "click"), body)).catch(() => notice("The click could not be delivered. Check the terminal before typing on."));

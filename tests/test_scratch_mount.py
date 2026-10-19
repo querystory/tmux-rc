@@ -17,7 +17,8 @@ server.agent_history.reconcile = lambda: None  # nor its agent-history index
 server.app.state.history = server.History(server.Path(sys.argv[1]))
 c = TestClient(server.app, follow_redirects=False)
 for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/link.txt",
-             "/scratch/sub/", "/scratch", "/scratch/notes.md"):
+             "/scratch/sub/", "/scratch", "/scratch/notes.md", "/scratch/sub/.env",
+             "/scratch/.git/config", "/scratch/.git/"):
     print(c.get(path).status_code)
 csp = c.get("/scratch/mock.html").headers.get("content-security-policy", "")
 print(int(csp.startswith("sandbox") and "allow-same-origin" not in csp
@@ -56,6 +57,10 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     (scratch / "viewed").mkdir()
     (scratch / "viewed" / "index.html").write_text("site")
     (scratch / "notes.md").write_text("# Notes")
+    (scratch / "sub" / ".env").write_text("TOKEN=x")
+    (scratch / ".git").mkdir()
+    (scratch / ".git" / "config").write_text("[core]")
+    (scratch / ".git" / "index.html").write_text("hidden")
     (tmp_path / "secret.txt").write_text("outside")
     (scratch / "link.txt").symlink_to(tmp_path / "secret.txt")
     # file, traversal and a symlink out both refused, directory index, bare prefix
@@ -63,9 +68,10 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # and a committed mock) sandboxed so its
     # scripts can't drive /api/* (nor frame it, or /m), and a nested directory's slash
     # redirect path-only (an absolute one would be http:// behind the tunnel), the
-    # bare-prefix one keeping its query; and only the folder's page counted as a visit
-    assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [200, 404, 404, 200, 307,
-                                                                       200, 1, 1, 1, 1, 1, 1, 1]
+    # bare-prefix one keeping its query; and only the folder's page counted as a visit.
+    # Hidden files and directories (an .env, a .git) are refused, as the gallery skips them.
+    assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
+        200, 404, 404, 200, 307, 200, 404, 404, 404, 1, 1, 1, 1, 1, 1, 1]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

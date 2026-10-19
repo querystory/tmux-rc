@@ -7,8 +7,10 @@ an agent. It is optional: without the binary, the Live tools that need it are no
 offered at all. The scratch gallery reads the same index to say which session made a
 folder (openbus/scratch.py)."""
 
+import functools
 import glob
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -19,6 +21,7 @@ from urllib.parse import unquote
 # resolve reads a few MB of index and answers in tens of ms; a slow disk shouldn't
 # stall a voice turn for long.
 _TIMEOUT = 5
+logger = logging.getLogger(__name__)
 
 # Harnesses whose resume command the daemon will start. resume_argv comes from the
 # index, but it is still data from disk, so argv[0] must be a known agent.
@@ -70,7 +73,7 @@ def get(session_id: str) -> dict | None:
 
 def get_many(session_ids: list[str]) -> dict[str, dict] | None:
     """get for several sessions, sharing one liveness scan: {session_id: entry}, an
-    unknown id left out; None if agent-history is unavailable."""
+    unknown id left out; None if agent-history is unavailable or failed."""
     exe = binary()
     if not exe:
         return None
@@ -81,6 +84,9 @@ def get_many(session_ids: list[str]) -> dict[str, dict] | None:
                              timeout=_TIMEOUT, check=False)
         found = [json.loads(line) for line in out.stdout.splitlines() if line]
     except (subprocess.SubprocessError, OSError, ValueError):
+        return None
+    if out.returncode not in (0, 1):  # a failure (an outdated binary), not "every id unknown"
+        logger.warning("agent-history get exited %d: %s", out.returncode, out.stderr.strip())
         return None
     return {e["session_id"]: e for e in found if isinstance(e, dict) and "session_id" in e}
 
@@ -97,10 +103,23 @@ def reconcile() -> None:
             pass
 
 
+@functools.cache  # once per path, not every snapshot: the fix is a rebuild, not a retry
+def _warn_unavailable(exe: str | None) -> None:
+    logger.warning("agent-history (%s) can't report live sessions, so restore snapshots "
+                   "bind no pane to its conversation: the binary is missing or older than "
+                   "the daemon; rebuild it from agent-history/ (see its README)",
+                   exe or "not installed")
+
+
 def live() -> dict | None:
     """{"sessions": {id: {pid, harness, ...}}, "unknown": [harness]}: every live session,
-    and the harnesses that couldn't tell. None if agent-history is unavailable."""
-    return _run("live")
+    and the harnesses that couldn't tell. None if agent-history is unavailable, which is
+    logged once: a binary built before this subcommand existed answered "unknown command"
+    with exit 0, and for weeks every restore snapshot silently bound nothing."""
+    result = _run("live")
+    if result is None:
+        _warn_unavailable(binary())
+    return result
 
 
 def _entries():
