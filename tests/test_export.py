@@ -126,3 +126,30 @@ def test_a_linked_state_file_is_refused(home, tmp_path):
     home("new")
     export.restore(io.BytesIO(crafted.getvalue()))
     assert outside.read_text() == "{}"
+
+
+def test_nested_places_stay_their_parts(home, monkeypatch):
+    """State and scratch inside the data dir: credentials go only as credentials, and an
+    import without scratch leaves this host's pages where they are."""
+    old = home("old")
+    monkeypatch.setenv("XDG_STATE_HOME", str(old / "share"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(old / "share"))
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / "share/tmux-rc/previews/pages"))
+    write(old / "share/tmux-rc/push.json", "{}")
+    write(old / "share/tmux-rc/previews/pages/demo/index.html")
+    write(old / "share/tmux-rc/previews/other.txt")
+    out = io.BytesIO()
+    export.export(out, [])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        names = tar.getnames()
+    assert "data/previews/other.txt" in names
+    assert not [n for n in names if "push.json" in n or "pages" in n]
+
+    new = home("new")
+    for var, path in (("XDG_STATE_HOME", "share"), ("XDG_DATA_HOME", "share"),
+                      ("TMUXRC_SCRATCH_DIR", "share/tmux-rc/previews/pages")):
+        monkeypatch.setenv(var, str(new / path))
+    write(new / "share/tmux-rc/previews/pages/mine/index.html")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / "share/tmux-rc/previews/other.txt").exists()
+    assert (new / "share/tmux-rc/previews/pages/mine/index.html").exists()

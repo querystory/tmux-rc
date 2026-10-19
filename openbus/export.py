@@ -94,22 +94,24 @@ def _missing(error: OSError) -> None:
 
 def _entries(parts=PARTS):
     """(part, archive name, path) of every file, dir and link an archive of `parts` can
-    hold: an agent dir without its caches, its sign-in as a credential, and scratch only
-    as scratch/. A part not chosen is not walked."""
-    pages, db = places()["scratch"].resolve(), _db()
-    hidden = {db, db.with_name(f"{db.name}-wal"), db.with_name(f"{db.name}-shm")}  # snapshotted
-    for part, name, where in _roots():
-        root = where.resolve()  # a linked root: what it links to
-        if part not in parts or not os.path.lexists(where) or root in hidden or (
-                part != "scratch" and root == pages):
+    hold: an agent dir without its caches, its sign-in as a credential, and scratch and
+    credentials only as their own parts, wherever they nest. A part not chosen is not
+    walked."""
+    where, db = places(), _db()
+    owner = {db: None, db.with_name(f"{db.name}-wal"): None,  # snapshotted
+             db.with_name(f"{db.name}-shm"): None, where["scratch"].resolve(): "scratch",
+             **{where[n].resolve(): "secrets" for n in SECRETS}}
+    for part, name, at in _roots():
+        root = at.resolve()  # a linked root: what it links to
+        if part not in parts or not os.path.lexists(at) or owner.get(root, part) != part:
             continue
         yield _part(part, name), name, root
         for here, dirs, files in os.walk(root, onerror=_missing) if root.is_dir() else ():
             top, kept = here == str(root), []
             for child in sorted(dirs + files):
                 path = Path(here, child)
-                if (part == "agents" and top and child in CACHES) or path in hidden or (
-                        part != "scratch" and path == pages):
+                if (part == "agents" and top and child in CACHES) or owner.get(
+                        path, part) != part:
                     continue
                 kept.append(child)
                 arc = f"{name}/{path.relative_to(root)}"
@@ -186,14 +188,19 @@ def _rehome(text: str, old: str, new: str) -> str:
     return json.dumps(swap(json.loads(text)), sort_keys=True, separators=(",", ":"))
 
 
-def _swap(src: Path, dst: Path, stamp: str, sidecars=("",)) -> None:
+def _swap(src: Path, dst: Path, stamp: str, sidecars=("",), keep=()) -> None:
     """Move what is at dst aside (a DB with its WAL, named as SQLite looks for it), then src
     into place. An agent dir keeps this host's sign-in, and who it is, when the archive
-    brought no sign-in."""
+    brought no sign-in; a dir keeps each place of `keep` nested in it that the archive
+    doesn't hold there: another part's, which its own swap replaces if it came."""
     old = dst.with_name(f"{dst.name}.pre-import-{stamp}")
     for suffix in sidecars:
         if os.path.lexists(here := dst.with_name(dst.name + suffix)):
             here.rename(old.with_name(old.name + suffix))
+    for rel in (p.relative_to(dst) for p in keep if dst in p.parents):
+        if src.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(src / rel):
+            (src / rel).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            (old / rel).rename(src / rel)
     if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
         for name in IDENTITY:
             if (old / name).is_file():  # a fresh file: no hard link from the archive shares it
@@ -255,7 +262,8 @@ def restore(src) -> list[str]:
             parent = {"data": _data(), "agents": Path(home)}.get(item.name)
             for child in sorted(item.iterdir()) if parent else [item] * (item.name in where):
                 _swap(child, parent / child.name if parent else where[item.name], stamp,
-                      ("", "-wal", "-shm") if item.name == "history.sqlite3" else ("",))
+                      ("", "-wal", "-shm") if item.name == "history.sqlite3" else ("",),
+                      [Path(os.path.abspath(p)) for p in where.values()])
                 done.append(f"{item.name}/{child.name}" if parent else item.name)
     return [f"Restored: {', '.join(done)}.",
             *[f"Adopted the DB from {manifest['host']}."] * (manifest["host"] != host),
