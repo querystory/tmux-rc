@@ -302,3 +302,13 @@ def test_an_export_cut_short_is_not_imported(home, monkeypatch):
     with pytest.raises(SystemExit, match="ends early"):
         export.restore(io.BytesIO(out.getvalue()))
     assert not list(Path.home().iterdir())
+
+
+def test_a_link_on_the_way_to_a_place_not_made_yet_is_refused(home, monkeypatch, tmp_path):
+    """A fresh host: nothing at scratch's path yet, and the archive's data/p/r links out."""
+    link = tarfile.TarInfo("data/p/r")
+    link.type, link.linkname = tarfile.SYMTYPE, str(tmp_path)
+    archive = crafted(home, (link, b""), (tarfile.TarInfo("scratch/a.html"), b"x"))
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(tmp_path / "new/.local/share/tmux-rc/p/r/pages"))
+    with pytest.raises(SystemExit, match="not its own"):
+        export.restore(archive)

@@ -307,7 +307,7 @@ def restore(src) -> list[str]:
                 raise SystemExit(f"This archive's {name} would land in {inside.pop()}.")
             for at in keep:  # and one nested in another's swap must have a dir path to stay in
                 if at.is_relative_to(dst) and not (at == dst and not name.startswith("data/")) \
-                        and os.path.lexists(at) and _displaces(child, child / at.relative_to(dst)):
+                        and _displaces(child, child / at.relative_to(dst)):  # here yet or not
                     raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
         for child, dst, name in moves:
             _swap(child, dst, stamp,
