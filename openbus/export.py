@@ -27,6 +27,7 @@ from dotenv import dotenv_values
 from . import accounts, config, history, push
 
 FORMAT = 2
+DONE = "complete"  # the archive's last member
 # Part -> (label, note, in by default; None: always in).
 PARTS = {
     "state": ("tmux-rc history & settings",
@@ -175,6 +176,7 @@ def export(out, parts) -> list[str]:
             if part in parts:
                 with contextlib.suppress(FileNotFoundError):  # gone since the walk
                     tar.add(path, name, recursive=False)
+        tar.addfile(tarfile.TarInfo(DONE))  # last: an export that failed part way has none
     return deeper
 
 
@@ -255,6 +257,8 @@ def restore(src) -> list[str]:
             return None if linked and (root or parts[-1] in IDENTITY) else m
         tar.extractall(tmp, (m for m in tar if m is not first), filter=admit)
         stage = Path(tmp)
+        if not (stage / DONE).is_file():
+            raise SystemExit("This archive ends early, its export cut short: nothing imported.")
         if (stage / "history.sqlite3").exists():  # an import is consent to adopt the DB
             with contextlib.closing(sqlite3.connect(stage / "history.sqlite3")) as db, db:
                 history.MIGRATIONS[0](db)  # one from before versioning may lack the metadata
@@ -294,10 +298,13 @@ def restore(src) -> list[str]:
             moves += [(child, Path(os.path.abspath(parent / child.name)),
                        f"{item.name}/{child.name}") for child in sorted(item.iterdir())
                       ] if parent else [(item, Path(os.path.abspath(where[item.name])),
-                                         item.name)] * (item.name in where)
+                                         item.name)] if item.name in where else []
         if len({dst for _, dst, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
             raise SystemExit("Two of this archive's parts would land at one place here.")
         for child, dst, name in moves:  # before any swap: only a place's own part replaces it,
+            if name.startswith("data/") and (inside := {*dst.parents, *dst.resolve().parents}
+                                             & {*keep}):  # nor lands inside one
+                raise SystemExit(f"This archive's {name} would land in {inside.pop()}.")
             for at in keep:  # and one nested in another's swap must have a dir path to stay in
                 if at.is_relative_to(dst) and not (at == dst and not name.startswith("data/")) \
                         and os.path.lexists(at) and _displaces(child, child / at.relative_to(dst)):

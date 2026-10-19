@@ -7,6 +7,7 @@ import json
 import socket
 import sqlite3
 import tarfile
+from pathlib import Path
 
 import pytest
 
@@ -123,6 +124,7 @@ def crafted(home, *members: tuple[tarfile.TarInfo, bytes]) -> io.BytesIO:
         for member, data in members:
             member.size = len(data)
             tar.addfile(member, io.BytesIO(data))
+        tar.addfile(tarfile.TarInfo(export.DONE))
     home("new")
     return io.BytesIO(made.getvalue())
 
@@ -274,3 +276,29 @@ def test_a_file_in_the_way_of_a_kept_place_is_refused(home, monkeypatch, tmp_pat
     write(tmp_path / "new/.local/share/tmux-rc/previews/p/mine/index.html")
     with pytest.raises(SystemExit, match="not its own"):
         export.restore(archive)
+
+
+def test_a_data_part_never_lands_inside_another_place(home, monkeypatch, tmp_path):
+    """Here the data dir is tmux-rc's config dir: a state-only archive can't write its keys."""
+    archive = crafted(home, (tarfile.TarInfo("data/openai.env"), b"KEY=theirs"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "new/.config"))
+    write(tmp_path / "new/.config/tmux-rc/openai.env", "KEY=mine")
+    with pytest.raises(SystemExit, match="would land in"):
+        export.restore(archive)
+    assert (tmp_path / "new/.config/tmux-rc/openai.env").read_text() == "KEY=mine"
+
+
+def test_an_export_cut_short_is_not_imported(home, monkeypatch):
+    source(home)
+    real, out = export._entries, io.BytesIO()
+
+    def failing(parts):
+        yield next(real(parts))
+        raise OSError("disk gone")
+    monkeypatch.setattr(export, "_entries", failing)
+    with pytest.raises(OSError, match="disk gone"):
+        export.export(out, [])
+    home("new")
+    with pytest.raises(SystemExit, match="ends early"):
+        export.restore(io.BytesIO(out.getvalue()))
+    assert not list(Path.home().iterdir())
