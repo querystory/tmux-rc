@@ -89,8 +89,12 @@ All perception already exists; the operator adds none.
   empty-composer field, and the hop and rate limits are still a proposal. Free-text nudges
   wait for the first, autonomous actions of any kind for the second; without them a nudge
   could join an unsent draft and be submitted with it.
-- **Pushes** through the existing subscriptions, settle time and dedupe, so the operator
-  can never be noisier than Needs you already is.
+- **Pushes** through the existing subscriptions, but never on top of a Needs you push. That
+  machinery dedupes per pane and question and rate-limits per pane; it knows nothing of a
+  digest. So an item a Needs you push already covers raises no digest push, and the digest
+  pushes only for items no pane alert carries (a mergeable PR, a stalled pane), coalesced
+  into one notification per settle window and at most one an hour. A new item inside that
+  hour waits for the next window or shows on the next open.
 - **The digest:** a short, ranked list of what needs the user and why, at the top of Needs
   you and the dashboard, and as the answer to "what needs me?" in Chat.
 
@@ -122,8 +126,8 @@ All perception already exists; the operator adds none.
 1. **Digest only.** A daemon-side pass, triggered by state changes, that joins Needs you,
    open loops, idle and finished panes and the usage projection into a ranked list: one
    line per item saying what it is waiting for, why it matters, and the one action that
-   unsticks it. Shown atop Needs you and the dashboard, pushed when the set gains something
-   new, answerable in Chat. No actions, so no new risk; it is also the cheapest test of
+   unsticks it. Shown atop Needs you and the dashboard, pushed (coalesced, as above) when it
+   gains something no pane alert covers, answerable in Chat. No actions, so no new risk; it is also the cheapest test of
    whether a human-side summary fixes the "short overview" complaint where the per-pane
    headline does not.
 2. **Suggested actions with one-tap approve.** Each digest line that maps to an action
