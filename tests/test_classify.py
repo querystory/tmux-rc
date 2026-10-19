@@ -1006,7 +1006,7 @@ def test_visible_question_is_preserved_without_retry():
         calls.append(text)
         return {"tool": "codex", "question": {"prompt": "Allow this command?"}}
     capture = ("history\n\x1e[visible screen]\x1f\nAllow this command?\n"
-               "1. Yes\n2. No\n[visible screen]")
+               "› 1. Yes\n  2. No\n[visible screen]")
     result = classify(_pane("node"), capture, read)
     assert len(calls) == 1
     assert result["question"]["prompt"] == "Allow this command?"
@@ -1273,7 +1273,8 @@ def test_users_own_turn_under_a_live_spinner_is_not_a_question():
     # Either signal alone rejects it: the ❯ row, or a live spinner below agent text.
     agent_text = "\x1e[visible screen]\x1f\n● Push now?\n\n✶ Pushing… (3s · esc to interrupt)"
     # Claude chrome quoted in another tool's pane says nothing about that tool's question.
-    codex = classify(_pane("codex"), agent_text, _llm({"question": {"prompt": "Push now?"}}))
+    push = _llm({"question": {"prompt": "Push now?"}})
+    codex = classify(_pane("codex"), f"{agent_text}\n\n› ", push)
     assert codex["question"]["prompt"] == "Push now?"
     for screen, prompt in ((capture.split("· Befuddling")[0], user_turn),
                            (agent_text, "Push now?")):
@@ -1400,7 +1401,7 @@ def test_codex_text_question_without_a_composer_is_not_typed(monkeypatch):
         return {"activity": "waiting", "waiting_on": "user", "copyables": code,
                 "question": {"prompt": "Enter code ABCD-12345", "answer_style": "text"}}
     # An earlier turn's › row, answered by a "• …" reply, is not a composer.
-    earlier = screen.replace("Welcome to Codex", "› log me in\n\n• Starting login.\n\nWelcome to Codex")
+    earlier = screen.replace("Welcome", "› log me in\n\n• Starting login.\n\nWelcome", 1)
     for shown in (screen, earlier):
         result = classify(_pane("node"), shown, asked)
         assert "question" not in result and result["copyables"] == code
