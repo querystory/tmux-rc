@@ -112,7 +112,7 @@ def _entries(parts=PARTS):
         root = at.resolve()  # a linked root: what it links to
         if part not in parts or not os.path.lexists(at) or ".pre-import-" in at.name or (
                 name not in owner.get(root, {name})) or (name.startswith("data/") and any(
-                    p in owner for p in Path(os.path.abspath(at)).parents)):
+                    p in owner for p in (*Path(os.path.abspath(at)).parents, *root.parents))):
             continue
         yield _part(part, name), name, root
         for here, dirs, files in os.walk(root, onerror=_missing) if root.is_dir() else ():
@@ -276,9 +276,10 @@ def restore(src) -> list[str]:
                 raise SystemExit(f"This archive would replace {home}/{d.name}, no agent's dir "
                                  "here: add it as an account first.")
         db = where["history.sqlite3"]
-        keep = sorted({Path(os.path.abspath(p)) for p in (*where.values(), *_agent_dirs(), *(
-            db.with_name(db.name + s) for s in ("-wal", "-shm")))}, key=lambda p: len(p.parts))
-        # outermost first: a dir kept carries what is kept inside it
+        keep = sorted({q for p in (*where.values(), *_agent_dirs(), *(
+            db.with_name(db.name + s) for s in ("-wal", "-shm")))
+            for q in (Path(os.path.abspath(p)), Path(p).resolve())}, key=lambda p: len(p.parts))
+        # a link and its target; outermost first: a dir kept carries what is kept inside it
         if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
             (stage / "agents/.claude.json").unlink(missing_ok=True)  # stays with that login
         moves = []  # (staged, destination, archive name)

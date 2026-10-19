@@ -243,3 +243,26 @@ def test_the_dotenv_is_the_one_the_daemon_loads(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path / "run")
     (tmp_path / ".env").write_text("")
     assert config.dotenv_path() == tmp_path / ".env"
+
+
+def test_a_linked_place_is_kept_by_its_target(home, monkeypatch):
+    """A scratch dir linked into the data dir here stays through an import without scratch,
+    and a data dir linked into tmux-rc's config dir sends no provider keys as state."""
+    old = home("old")
+    write(old / "previews/other.txt")
+    (old / ".local/share").mkdir(parents=True)
+    (old / ".local/share/tmux-rc").symlink_to(old / ".config/tmux-rc")
+    write(old / ".config/tmux-rc/openai.env", "KEY=x")
+    (old / ".config/tmux-rc/previews").symlink_to(old / "previews")
+    out = io.BytesIO()
+    export.export(out, [])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        names = tar.getnames()
+    assert "data/previews/other.txt" in names and not [n for n in names if "openai" in n]
+    new = home("new")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(new / "pages"))
+    write(new / ".local/share/tmux-rc/previews/pages/mine/index.html")
+    (new / "pages").symlink_to(new / ".local/share/tmux-rc/previews/pages")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / "pages/mine/index.html").exists()
+    assert (new / ".local/share/tmux-rc/previews/other.txt").exists()
