@@ -266,3 +266,11 @@ def test_a_linked_place_is_kept_by_its_target(home, monkeypatch):
     export.restore(io.BytesIO(out.getvalue()))
     assert (new / "pages/mine/index.html").exists()
     assert (new / ".local/share/tmux-rc/previews/other.txt").exists()
+
+
+def test_a_file_in_the_way_of_a_kept_place_is_refused(home, monkeypatch, tmp_path):
+    archive = crafted(home, (tarfile.TarInfo("data/previews"), b"a file"))
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(tmp_path / "new/.local/share/tmux-rc/previews/p"))
+    write(tmp_path / "new/.local/share/tmux-rc/previews/p/mine/index.html")
+    with pytest.raises(SystemExit, match="not its own"):
+        export.restore(archive)

@@ -207,8 +207,7 @@ def _swap(src: Path, dst: Path, stamp: str, sidecars=("",), keep=()) -> None:
         if os.path.lexists(here := dst.with_name(dst.name + suffix)):
             here.rename(old.with_name(old.name + suffix))
     for rel in (p.relative_to(dst) for p in keep if dst in p.parents):
-        if src.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(src / rel) \
-                and (src / rel).parent.resolve().is_relative_to(src.resolve()):  # no link out
+        if src.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(src / rel):
             (src / rel).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             shutil.move(old / rel, src / rel)  # staging may be on another disk
     if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
@@ -218,6 +217,13 @@ def _swap(src: Path, dst: Path, stamp: str, sidecars=("",), keep=()) -> None:
                 shutil.copy2(old / name, src / name)
     dst.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     shutil.move(src, dst)
+
+
+def _displaces(child: Path, spot: Path) -> bool:
+    """Whether staged `child` holds something at `spot`, or a file or link on the way to it:
+    what is kept there could not stay."""
+    return any(os.path.lexists(q) and (q == spot or q.is_symlink() or not q.is_dir())
+               for q in (spot, *spot.parents) if q.is_relative_to(child))
 
 
 def restore(src) -> list[str]:
@@ -291,10 +297,10 @@ def restore(src) -> list[str]:
                                          item.name)] * (item.name in where)
         if len({dst for _, dst, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
             raise SystemExit("Two of this archive's parts would land at one place here.")
-        for child, dst, name in moves:  # before any swap: only a place's own part replaces it
-            for at in keep:
+        for child, dst, name in moves:  # before any swap: only a place's own part replaces it,
+            for at in keep:  # and one nested in another's swap must have a dir path to stay in
                 if at.is_relative_to(dst) and not (at == dst and not name.startswith("data/")) \
-                        and os.path.lexists(at) and os.path.lexists(child / at.relative_to(dst)):
+                        and os.path.lexists(at) and _displaces(child, child / at.relative_to(dst)):
                     raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
         for child, dst, name in moves:
             _swap(child, dst, stamp,
