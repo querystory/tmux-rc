@@ -211,8 +211,9 @@ a pane is bound only to the one listed session whose process is in the pane's fo
 process group (the terminal's `tpgid` in `/proc/<pane pid>/stat`); with none or several,
 it stays unbound rather than guessing. The last good binding is cached per pane together
 with that process's pid and start time, and dropped when the foreground process changes,
-so a swap never carries the old conversation forward. Codex sessions behind the shared
-app-server have no pane (agent-history's README explains why); for them the watcher falls
+so a swap never carries the old conversation forward. A Codex thread started fresh
+behind the shared app-server has no pane, while one a pane resumed is named on that
+pane's command line (agent-history's README explains both); for the former the watcher falls
 back to the status-bar `session-id` match Live Mode already uses ([agent-setup](../agent-setup.md)).
 A pane left without a binding (a Codex pane with neither, or any agent pane whose
 foreground was ambiguous) stays *unbound*: restore still knows its tool and directory

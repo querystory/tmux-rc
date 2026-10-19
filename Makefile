@@ -24,6 +24,9 @@ install-units:
 	# hand-edit it (and rather than guessing a layout that's wrong on most hosts).
 	sed 's|^WorkingDirectory=.*|WorkingDirectory=$(CURDIR)|' deploy/systemd/tmux-rc.service \
 		> $(HOME)/.config/systemd/user/tmux-rc.service
+	# The one agent-history the hooks and the daemon share, refreshed to this checkout's
+	# flags ("-": a host without Go keeps the one it has).
+	-cd agent-history && go build -o $(HOME)/.local/bin/agent-history .
 	systemctl --user daemon-reload
 	systemctl --user enable --now tmux-rc.target tmux-rc.service tmux-rc-tunnel.service
 	[ "$(LINGER)" = "1" ] && loginctl enable-linger $(USER) || \
