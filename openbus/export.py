@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fnmatch
 import io
 import json
 import os
@@ -41,6 +42,7 @@ SECRETS = ("push.json", "config", ".env")  # the VAPID key and push endpoints; c
 LOGINS = (".credentials.json", "auth.json")  # an agent dir's sign-in: Claude's, Codex's
 IDENTITY = (*LOGINS, ".claude.json")  # the sign-in and who it is: they stay together
 # What an agent rebuilds in its dir, left out: caches, debug logs, shell snapshots.
+AGENT_DIRS = (".claude", ".codex", *accounts.MORE.values())  # what an import may replace in HOME
 CACHES = ("cache", "debug", "statsig", "shell-snapshots", "log", "tmp", ".tmp")
 
 
@@ -100,7 +102,8 @@ def _entries(parts=PARTS):
     where, db = places(), _db()
     owner = {db: None, db.with_name(f"{db.name}-wal"): None,  # snapshotted
              db.with_name(f"{db.name}-shm"): None,
-             **{where[n].resolve(): n for n in ("scratch", "accounts.json", *SECRETS)}}
+             **{p: n for n in ("scratch", "accounts.json", *SECRETS)  # a link, and its target
+                for p in (Path(os.path.abspath(where[n])), where[n].resolve())}}
     for part, name, at in _roots():
         root = at.resolve()  # a linked root: what it links to
         if part not in parts or not os.path.lexists(at) or ".pre-import-" in at.name or (
@@ -257,7 +260,14 @@ def restore(src) -> list[str]:
             store.write_text(_rehome(store.read_text(), old, home))
         env = dotenv_values(stage / ".env") if (stage / ".env").is_file() else {}
         paths = [k for k in ("TMUXRC_HISTORY_DB", "TMUXRC_SCRATCH_DIR") if env.get(k)]
-        stamp, done = time.strftime("%Y%m%d-%H%M%S"), []
+        # Unique per import: a second one within the second keeps the first's backups.
+        stamp, done = f"{time.strftime('%Y%m%d-%H%M%S')}-{Path(tmp).name[-8:]}", []
+        known = set(json.loads(store.read_text())) if store.exists() else set()
+        for d in sorted(stage.glob("agents/*")):  # before any swap: HOME's other files aren't ours
+            if not ((d.is_file() and d.name == ".claude.json") or (d.is_dir() and (
+                    str(Path(home, d.name)) in known
+                    or any(fnmatch.fnmatch(d.name, p) for p in AGENT_DIRS)))):
+                raise SystemExit(f"This archive would replace {home}/{d.name}, no agent's dir.")
         db = where["history.sqlite3"]
         keep = [Path(os.path.abspath(p)) for p in (*where.values(), *(
             db.with_name(db.name + s) for s in ("-wal", "-shm")))]

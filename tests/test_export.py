@@ -107,25 +107,37 @@ def test_refusals(home, monkeypatch):
         export.restore(io.BytesIO(out.getvalue()))
 
 
-def test_a_linked_state_file_is_refused(home, tmp_path):
-    """An archive whose accounts.json links outside staging never writes through it."""
+def crafted(home, member: tarfile.TarInfo, data=b"") -> io.BytesIO:
+    """A real export's manifest, then `member`: what a hostile archive could hold."""
     source(home)
-    out, outside = io.BytesIO(), tmp_path / "outside.json"
-    outside.write_text("{}")
+    out = io.BytesIO()
     export.export(out, [])
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         manifest = tar.extractfile("manifest.json").read()
-    crafted = io.BytesIO()
-    with tarfile.open(fileobj=crafted, mode="w:gz") as tar:
+    made = io.BytesIO()
+    with tarfile.open(fileobj=made, mode="w:gz") as tar:
         info = tarfile.TarInfo("manifest.json")
-        info.size = len(manifest)
+        info.size, member.size = len(manifest), len(data)
         tar.addfile(info, io.BytesIO(manifest))
-        link = tarfile.TarInfo("/accounts.json")
-        link.type, link.linkname = tarfile.SYMTYPE, str(outside)
-        tar.addfile(link)
+        tar.addfile(member, io.BytesIO(data))
     home("new")
-    export.restore(io.BytesIO(crafted.getvalue()))
+    return io.BytesIO(made.getvalue())
+
+
+def test_a_linked_state_file_is_refused(home, tmp_path):
+    """An archive whose accounts.json links outside staging never writes through it."""
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}")
+    link = tarfile.TarInfo("/accounts.json")
+    link.type, link.linkname = tarfile.SYMTYPE, str(outside)
+    export.restore(crafted(home, link))
     assert outside.read_text() == "{}"
+
+
+def test_only_agents_dirs_are_replaced_in_home(home):
+    archive = crafted(home, tarfile.TarInfo("agents/.bashrc"), b"echo hi")
+    with pytest.raises(SystemExit, match="no agent's dir"):
+        export.restore(archive)
 
 
 def test_nested_places_stay_their_parts(home, monkeypatch):
@@ -139,7 +151,9 @@ def test_nested_places_stay_their_parts(home, monkeypatch):
     write(old / "share/tmux-rc/push.json", "{}")
     write(old / "share/tmux-rc/accounts.json", "{}")
     write(old / "share/tmux-rc/previews/push.json.pre-import-1", "{}")
-    write(old / "share/tmux-rc/previews/pages/demo/index.html")
+    write(old / "pages/demo/index.html")  # scratch's dir, linked in from elsewhere
+    (old / "share/tmux-rc/previews").mkdir(parents=True, exist_ok=True)
+    (old / "share/tmux-rc/previews/pages").symlink_to(old / "pages")
     write(old / "share/tmux-rc/previews/other.txt")
     out = io.BytesIO()
     export.export(out, [])
