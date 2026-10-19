@@ -543,7 +543,9 @@ class PushManager:
         for name in [n for n, at in self._mtimes.items() if seen.get(n) != at]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
-            if item and item["pending"]:
+            if not item:  # nothing yet, or a meta.json half-written: read it again next scan
+                self._mtimes.pop(name)
+            elif item["pending"]:
                 self._waiting.add(key)
             elif key in self._waiting and item["href"].endswith("/"):  # its index, no asset
                 if self._ready_push(item, now) or not self.store.subscriptions():

@@ -265,7 +265,9 @@ def _card(i: dict) -> str:
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
     return (f'<article data-q="{escape(words)}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
-            f'<h2><a href="{e["href"]}">{e["title"]}</a></h2>'
+            f'<h2><a href="{e["href"]}"'
+            + (f' aria-label="{e["title"]}: {wait}"' if i["pending"] else "")  # the thumb's
+            + f'>{e["title"]}</a></h2>'
             + (f'<p class="desc">{e["description"]}</p>' if i["description"] else "")
             + f'<p class="by">{_chip(i, e)}'
             f'<span class="where">{_where(i, e)}</span></p>'

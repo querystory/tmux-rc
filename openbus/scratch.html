@@ -87,8 +87,8 @@ for (const wait of document.querySelectorAll("[data-pending]")) {
   poll();
 }
 // The thumbnail comes only once shot, and not without a browser: while a page is being made,
-// the gallery reloads to see it land, unless a filter is being typed.
-if (document.querySelector(".thumb :is(.working, .quiet)"))
+// the gallery reloads to see it land (one stopped may yet resume), unless a filter is being typed.
+if (document.querySelector(".thumb :is(.working, .quiet, .stopped)"))
   setInterval(() => box.value || document.activeElement === box || location.reload(), 30000);
 for (const b of document.querySelectorAll(".who")) b.onclick = () => { box.value = b.textContent; filter(); };
 // Grid or list. Remembered where the browser allows it; the sandbox usually doesn't, and

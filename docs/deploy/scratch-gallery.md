@@ -91,10 +91,10 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   session's prompt looks idle. Once the pane is closed, or idle for 30 minutes, it says
   the agent stopped without publishing (without a pane, 30 minutes after `created`).
 - **The gallery** and the drawer's Recent show the folder with a spinner. Once the page
-  lands, its thumbnail is queued and the spinner turns into it; while one spins, the
-  gallery also reloads every 30 seconds (not while a filter is being typed), since the
+  lands, its thumbnail is queued and the spinner turns into it; while one spins (or has
+  stopped, since its agent may resume), the gallery also reloads every 30 seconds (not while a filter is being typed), since the
   thumbnail never comes without a browser to shoot it.
-- **When the page lands**, every subscribed device gets one push, "Ready: <title>", whose
+- **When the page lands**, every subscribed device gets one push, `Ready: <title>`, whose
   tap opens the page in the app's scratch viewer. It shares its tag with the pane's
   Needs-you notification, and for two minutes after it that pane's Needs-you is skipped
   unless it carries answer buttons, so one finish buzzes once: a Needs-you already shown

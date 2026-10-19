@@ -1802,7 +1802,7 @@ function openRecent() {
   paintRecent();
   request("/api/recent").then((recent) => {
     opened = recent.panes; paintRecent();
-    html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" target="_blank">${s.pending ? '<span class="pending"></span>' : licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));
+    html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" target="_blank">${s.pending ? '<span class="pane-icon pending"></span>' : licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));
   }, () => {});
 }
 // It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left

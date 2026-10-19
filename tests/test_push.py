@@ -990,3 +990,20 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
         service.evaluate()
         clock[0] += push.SETTLE_SECONDS
     assert sender.payloads[-1]["tag"] == "block:%1" and sender.payloads[-1]["actions"] == []
+
+
+def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
+    """Finishing meta.json in place leaves its folder's mtime alone: the scan retries."""
+    root = tmp_path / "scratch"
+    (root / "wip").mkdir(parents=True)
+    (root / "wip" / "meta.json").write_text('{"title": "Mo')
+    service, sender = manager(tmp_path, Watcher(), [100.0])
+    service.scratch, service.shoot = root, lambda _item: None
+    service.store.upsert(subscription())
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.landed()
+    (root / "wip" / "meta.json").write_text('{"title": "Mock", "pane": "%1"}')
+    service.landed()
+    (root / "wip" / "index.html").write_text("page")
+    service.landed()
+    assert [p["title"] for p in sender.payloads] == ["Ready: Mock"]
