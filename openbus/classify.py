@@ -90,9 +90,9 @@ _TURN_ERROR_RE = {
 }
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
-# Codex's live composer: a prompt row with no transcript cell ("• …") under it. An earlier
-# turn's row is always followed by Codex's reply to it.
-_CODEX_COMPOSER_RE = re.compile(_PROMPT_ROW + "(?![\\s\\S]*^• )", re.MULTILINE)
+# Codex's live composer: a › row with no transcript cell ("• …") under it. An earlier
+# turn's row is always followed by Codex's reply to it, and a shell's ❯ is no composer.
+_CODEX_COMPOSER_RE = re.compile(r"^[ \t]*›(?![\s\S]*^• )", re.MULTILINE)
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
@@ -1319,14 +1319,6 @@ def classify(
         ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    # Codex reads typed text only in its › composer. A text question with no composer on
-    # screen has nowhere to be typed: `codex login --device-auth`'s "Enter code …" means
-    # in the browser, so the pane waits on something outside it.
-    if (result.get("tool") == "codex" and isinstance(result.get("question"), dict)
-            and result["question"].get("answer_style", "text") == "text"
-            and not _CODEX_COMPOSER_RE.search(visible)):
-        del result["question"]
-        result.update(activity="waiting", waiting_on="external")
     if result.get("tool") == "claude" and _tabbed_panel_open(visible):
         # Authoritative over the model, a failed parse included: the screen is a settings
         # panel, so nothing is asked. Only a turn the model saw still running stays running
@@ -1399,6 +1391,15 @@ def classify(
             # keeps its own question.
             if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
+    # Codex reads typed text only in its › composer (a menu the screen can't back is text
+    # by now). A text question with no composer on screen has nowhere to be typed: `codex
+    # login --device-auth`'s "Enter code …" means in the browser, so the pane waits on
+    # something outside it.
+    if (result.get("tool") == "codex" and isinstance(result.get("question"), dict)
+            and result["question"].get("answer_style", "text") == "text"
+            and not _CODEX_COMPOSER_RE.search(visible)):
+        del result["question"]
+        result.update(activity="waiting", waiting_on="external")
     # The model's own answers must agree: a question, rewind or offer it returned (and the
     # screen showed) is something for the user to answer or send, so the pane waits on the
     # user, whatever it put in "activity" (a stray "external" included).
