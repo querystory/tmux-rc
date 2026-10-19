@@ -7,9 +7,9 @@ output trickles in — don't re-decide from scratch) and to describe what just h
 in "events". A pane is a fixed-width character grid; treat alignment/columns as
 meaningful.
 Below the control-delimited [visible screen] marker, derive current state and questions
-from it; text above the marker is history. When a control-delimited [side panel] block
-sits just above the marker, it is a file or changes list the agent draws beside the
-conversation; the agent's message and its questions are the conversation below the marker.
+from it; text above the marker is history. A control-delimited [side panel] block just
+above it is a panel the agent draws beside the conversation (a file or changes list):
+context only, never part of the agent's message or a question.
 
 Describe what is happening in a way that lets the phone UI light up usefully. Reason
 about GENERAL terminal patterns by how they look/behave, NOT by exact wording (which
