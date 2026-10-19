@@ -107,8 +107,8 @@ def test_refusals(home, monkeypatch):
         export.restore(io.BytesIO(out.getvalue()))
 
 
-def crafted(home, member: tarfile.TarInfo, data=b"") -> io.BytesIO:
-    """A real export's manifest, then `member`: what a hostile archive could hold."""
+def crafted(home, *members: tuple[tarfile.TarInfo, bytes]) -> io.BytesIO:
+    """A real export's manifest, then `members`: what a hostile archive could hold."""
     source(home)
     out = io.BytesIO()
     export.export(out, [])
@@ -117,9 +117,11 @@ def crafted(home, member: tarfile.TarInfo, data=b"") -> io.BytesIO:
     made = io.BytesIO()
     with tarfile.open(fileobj=made, mode="w:gz") as tar:
         info = tarfile.TarInfo("manifest.json")
-        info.size, member.size = len(manifest), len(data)
+        info.size = len(manifest)
         tar.addfile(info, io.BytesIO(manifest))
-        tar.addfile(member, io.BytesIO(data))
+        for member, data in members:
+            member.size = len(data)
+            tar.addfile(member, io.BytesIO(data))
     home("new")
     return io.BytesIO(made.getvalue())
 
@@ -130,13 +132,13 @@ def test_a_linked_state_file_is_refused(home, tmp_path):
     outside.write_text("{}")
     link = tarfile.TarInfo("/accounts.json")
     link.type, link.linkname = tarfile.SYMTYPE, str(outside)
-    export.restore(crafted(home, link))
+    export.restore(crafted(home, (link, b"")))
     assert outside.read_text() == "{}"
 
 
 def test_an_import_never_replaces_a_place_it_left_out(home, monkeypatch, tmp_path):
     """The archive's data/pages is this host's scratch: refused, before anything moves."""
-    archive = crafted(home, tarfile.TarInfo("data/pages/note.txt"), b"theirs")
+    archive = crafted(home, (tarfile.TarInfo("data/pages/note.txt"), b"theirs"))
     monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(tmp_path / "new/.local/share/tmux-rc/pages"))
     write(tmp_path / "new/.local/share/tmux-rc/pages/mine/index.html", "mine")
     with pytest.raises(SystemExit, match="not in it"):
@@ -146,8 +148,15 @@ def test_an_import_never_replaces_a_place_it_left_out(home, monkeypatch, tmp_pat
 
 
 def test_only_agents_dirs_are_replaced_in_home(home):
-    archive = crafted(home, tarfile.TarInfo("agents/.bashrc"), b"echo hi")
+    archive = crafted(home, (tarfile.TarInfo("agents/.bashrc"), b"echo hi"))
     with pytest.raises(SystemExit, match="no agent's dir"):
+        export.restore(archive)
+
+
+def test_two_parts_landing_at_one_place_are_refused(home):
+    archive = crafted(home, (tarfile.TarInfo("data/scratch/a/index.html"), b"old"),
+                      (tarfile.TarInfo("scratch/b/index.html"), b"new"))
+    with pytest.raises(SystemExit, match="one place"):
         export.restore(archive)
 
 
@@ -160,27 +169,30 @@ def test_nested_places_stay_their_parts(home, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(old / "share"))
     monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / "share/tmux-rc/previews/pages"))
     write(old / "share/tmux-rc/push.json", "{}")
-    write(old / "share/tmux-rc/accounts.json", "{}")
+    blue = old / "share/tmux-rc/profiles/blue"  # an agent dir deeper than HOME: by hand
+    write(old / "share/tmux-rc/accounts.json", json.dumps({str(blue): {}}))
+    write(blue / ".credentials.json")
     write(old / "share/tmux-rc/previews/push.json.pre-import-1", "{}")
     write(old / "pages/demo/index.html")  # scratch's dir, linked in from elsewhere
     (old / "share/tmux-rc/previews").mkdir(parents=True, exist_ok=True)
     (old / "share/tmux-rc/previews/pages").symlink_to(old / "pages")
     write(old / "share/tmux-rc/previews/other.txt")
     out = io.BytesIO()
-    export.export(out, [])
+    assert export.export(out, []) == []  # its agents weren't asked for
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         names = tar.getnames()
     assert {"data/previews/other.txt", "accounts.json"} <= set(names)
-    assert not [n for n in names if "push.json" in n or "pages" in n or "data/acc" in n]
+    assert not [n for n in names if "push.json" in n or "pages" in n or "data/acc" in n
+                or "profiles/" in n]
 
     new = home("new")
     for var, path in (("XDG_STATE_HOME", "share"), ("XDG_DATA_HOME", "share"),
                       ("TMUXRC_SCRATCH_DIR", "share/tmux-rc/previews/pages"),
-                      ("TMUXRC_HISTORY_DB", "share/tmux-rc/previews/h.sqlite3")):
+                      ("TMUXRC_HISTORY_DB", "share/tmux-rc/previews/pages/h.sqlite3")):
         monkeypatch.setenv(var, str(new / path))
     write(new / "share/tmux-rc/previews/pages/mine/index.html")
-    write(new / "share/tmux-rc/previews/h.sqlite3-wal")
+    write(new / "share/tmux-rc/previews/pages/h.sqlite3-wal")
     export.restore(io.BytesIO(out.getvalue()))
     assert (new / "share/tmux-rc/previews/other.txt").exists()
     assert (new / "share/tmux-rc/previews/pages/mine/index.html").exists()
-    assert (new / "share/tmux-rc/previews/h.sqlite3-wal").exists()
+    assert (new / "share/tmux-rc/previews/pages/h.sqlite3-wal").exists()

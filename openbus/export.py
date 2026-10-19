@@ -97,13 +97,15 @@ def _missing(error: OSError) -> None:
 def _entries(parts=PARTS):
     """(part, archive name, path) of every file, dir and link an archive of `parts` can
     hold: an agent dir without its caches, its sign-in as a credential, and each place
-    (scratch, the account store, credentials) only as its own root, wherever it nests. No
-    import's backup, and a part not chosen is not walked."""
-    where, db = places(), _db()
+    (scratch, the account store, credentials, an agent dir) only as its own root, wherever
+    it nests. No import's backup, and a part not chosen is not walked."""
+    where, db, home = places(), _db(), Path.home()
+    named = {where[n]: n for n in ("scratch", "accounts.json", *SECRETS)} | {
+        d: f"agents/{d.name}" if d.parent == home else None for d in _agent_dirs()}
     owner = {db: None, db.with_name(f"{db.name}-wal"): None,  # snapshotted
              db.with_name(f"{db.name}-shm"): None,
-             **{p: n for n in ("scratch", "accounts.json", *SECRETS)  # a link, and its target
-                for p in (Path(os.path.abspath(where[n])), where[n].resolve())}}
+             **{p: n for at, n in named.items()  # a link, and its target
+                for p in (Path(os.path.abspath(at)), at.resolve())}}
     for part, name, at in _roots():
         root = at.resolve()  # a linked root: what it links to
         if part not in parts or not os.path.lexists(at) or ".pre-import-" in at.name or (
@@ -205,7 +207,7 @@ def _swap(src: Path, dst: Path, stamp: str, sidecars=("",), keep=()) -> None:
         if src.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(src / rel) \
                 and (src / rel).parent.resolve().is_relative_to(src.resolve()):  # no link out
             (src / rel).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            (old / rel).rename(src / rel)
+            shutil.move(old / rel, src / rel)  # staging may be on another disk
     if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
         for name in IDENTITY:
             if (old / name).is_file():  # a fresh file: no hard link from the archive shares it
@@ -269,16 +271,20 @@ def restore(src) -> list[str]:
                     or any(fnmatch.fnmatch(d.name, p) for p in AGENT_DIRS)))):
                 raise SystemExit(f"This archive would replace {home}/{d.name}, no agent's dir.")
         db = where["history.sqlite3"]
-        keep = [Path(os.path.abspath(p)) for p in (*where.values(), *(
-            db.with_name(db.name + s) for s in ("-wal", "-shm")))]
+        keep = sorted({Path(os.path.abspath(p)) for p in (*where.values(), *_agent_dirs(), *(
+            db.with_name(db.name + s) for s in ("-wal", "-shm")))}, key=lambda p: len(p.parts))
+        # outermost first: a dir kept carries what is kept inside it
         if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
             (stage / "agents/.claude.json").unlink(missing_ok=True)  # stays with that login
         moves = []  # (staged, destination, archive name)
         for item in sorted(stage.iterdir()):
             parent = {"data": _data(), "agents": Path(home)}.get(item.name)
-            moves += [(child, parent / child.name, f"{item.name}/{child.name}")
-                      for child in sorted(item.iterdir())] if parent else [
-                (item, where[item.name], item.name)] * (item.name in where)
+            moves += [(child, Path(os.path.abspath(parent / child.name)),
+                       f"{item.name}/{child.name}") for child in sorted(item.iterdir())
+                      ] if parent else [(item, Path(os.path.abspath(where[item.name])),
+                                         item.name)] * (item.name in where)
+        if len({dst for _, dst, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
+            raise SystemExit("Two of this archive's parts would land at one place here.")
         for child, dst, name in moves:  # before any swap: a place this archive left out stays
             for place, path in where.items():
                 at = Path(os.path.abspath(path))
