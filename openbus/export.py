@@ -251,6 +251,7 @@ def restore(src) -> list[str]:
         stage = Path(tmp)
         if (stage / "history.sqlite3").exists():  # an import is consent to adopt the DB
             with contextlib.closing(sqlite3.connect(stage / "history.sqlite3")) as db, db:
+                history.MIGRATIONS[0](db)  # one from before versioning may lack the metadata
                 db.execute("INSERT OR REPLACE INTO metadata VALUES ('host', ?)", (host,))
                 tables = {t for (t,) in db.execute("SELECT name FROM sqlite_master")}
                 if "plan_usage" in tables:  # Codex's accounts are its config dirs' paths
@@ -267,12 +268,13 @@ def restore(src) -> list[str]:
         paths = [k for k in ("TMUXRC_HISTORY_DB", "TMUXRC_SCRATCH_DIR") if env.get(k)]
         # Unique per import: a second one within the second keeps the first's backups.
         stamp, done = f"{time.strftime('%Y%m%d-%H%M%S')}-{Path(tmp).name[-8:]}", []
-        known = set(json.loads(store.read_text())) if store.exists() else set()
+        known = set(accounts.load())  # this host's accounts: never the archive's word for it
         for d in sorted(stage.glob("agents/*")):  # before any swap: HOME's other files aren't ours
             if not ((d.is_file() and d.name == ".claude.json") or (d.is_dir() and (
                     str(Path(home, d.name)) in known
                     or any(fnmatch.fnmatch(d.name, p) for p in AGENT_DIRS)))):
-                raise SystemExit(f"This archive would replace {home}/{d.name}, no agent's dir.")
+                raise SystemExit(f"This archive would replace {home}/{d.name}, no agent's dir "
+                                 "here: add it as an account first.")
         db = where["history.sqlite3"]
         keep = sorted({Path(os.path.abspath(p)) for p in (*where.values(), *_agent_dirs(), *(
             db.with_name(db.name + s) for s in ("-wal", "-shm")))}, key=lambda p: len(p.parts))
@@ -288,12 +290,11 @@ def restore(src) -> list[str]:
                                          item.name)] * (item.name in where)
         if len({dst for _, dst, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
             raise SystemExit("Two of this archive's parts would land at one place here.")
-        for child, dst, name in moves:  # before any swap: a place this archive left out stays
-            for place, path in where.items():
-                at = Path(os.path.abspath(path))
-                if at.is_relative_to(dst) and not (stage / place).exists() and os.path.lexists(
-                        at) and os.path.lexists(child / at.relative_to(dst)):
-                    raise SystemExit(f"This archive's {name} would replace {at}, not in it.")
+        for child, dst, name in moves:  # before any swap: only a place's own part replaces it
+            for at in keep:
+                if at.is_relative_to(dst) and not (at == dst and not name.startswith("data/")) \
+                        and os.path.lexists(at) and os.path.lexists(child / at.relative_to(dst)):
+                    raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
         for child, dst, name in moves:
             _swap(child, dst, stamp,
                   ("", "-wal", "-shm") if name == "history.sqlite3" else ("",), keep)

@@ -1,6 +1,7 @@
 """Export all (openbus/export.py): a round trip into another HOME, and import's refusals.
 Every file here is invented, in temp HOMEs."""
 
+import contextlib
 import io
 import json
 import socket
@@ -141,7 +142,7 @@ def test_an_import_never_replaces_a_place_it_left_out(home, monkeypatch, tmp_pat
     archive = crafted(home, (tarfile.TarInfo("data/pages/note.txt"), b"theirs"))
     monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(tmp_path / "new/.local/share/tmux-rc/pages"))
     write(tmp_path / "new/.local/share/tmux-rc/pages/mine/index.html", "mine")
-    with pytest.raises(SystemExit, match="not in it"):
+    with pytest.raises(SystemExit, match="not its own"):
         export.restore(archive)
     assert (tmp_path / "new/.local/share/tmux-rc/pages/mine/index.html").read_text() == "mine"
     assert not list((tmp_path / "new").glob("**/*.pre-import-*"))
@@ -151,6 +152,26 @@ def test_only_agents_dirs_are_replaced_in_home(home):
     archive = crafted(home, (tarfile.TarInfo("agents/.bashrc"), b"echo hi"))
     with pytest.raises(SystemExit, match="no agent's dir"):
         export.restore(archive)
+
+
+def test_an_archives_own_account_store_does_not_admit_a_dir(home, tmp_path):
+    store = json.dumps({f"{tmp_path}/oldé/.ssh": {}}).encode()  # the archive's word is not enough
+    archive = crafted(home, (tarfile.TarInfo("accounts.json"), store),
+                      (tarfile.TarInfo("agents/.ssh/authorized_keys"), b"key"))
+    with pytest.raises(SystemExit, match="no agent's dir"):
+        export.restore(archive)
+
+
+def test_a_db_from_before_versioning_is_adopted(home):
+    home("old")
+    history.default_path().parent.mkdir(parents=True)
+    with contextlib.closing(sqlite3.connect(history.default_path())) as db:
+        db.execute("CREATE TABLE snapshots (t REAL PRIMARY KEY, panes TEXT NOT NULL)")  # alone
+    out = io.BytesIO()
+    export.export(out, [])
+    home("new")
+    export.restore(io.BytesIO(out.getvalue()))
+    History(history.default_path())  # this host's now
 
 
 def test_two_parts_landing_at_one_place_are_refused(home):
