@@ -993,9 +993,11 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
 
 
 def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
-    """Finishing meta.json in place leaves its folder's mtime alone: the scan retries."""
+    """Finishing meta.json in place leaves its folder's mtime alone: the scan retries, with
+    an asset already there (a loose file then, not a page being made) or not."""
     root = tmp_path / "scratch"
     (root / "wip").mkdir(parents=True)
+    (root / "wip" / "app.css").write_text("")
     (root / "wip" / "meta.json").write_text('{"title": "Mo')
     service, sender = manager(tmp_path, Watcher(), [100.0])
     service.scratch, service.shoot = root, lambda _item: None
@@ -1003,6 +1005,7 @@ def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.landed()
     (root / "wip" / "meta.json").write_text('{"title": "Mock", "pane": "%1"}')
+    service.landed()
     service.landed()
     (root / "wip" / "index.html").write_text("page")
     service.landed()

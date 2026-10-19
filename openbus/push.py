@@ -427,6 +427,13 @@ def option_keys(question: dict, index: int) -> str:
 PUSH_BODY_MAX = 400
 
 
+def _mtime(path: Path) -> int | None:
+    try:
+        return path.stat(follow_symlinks=False).st_mtime_ns
+    except OSError:
+        return None
+
+
 def _push_text(value, limit: int) -> str:
     """Bound encrypted payload size while keeping the full question in the deep link."""
     text = str(value or "").strip()
@@ -530,7 +537,7 @@ class PushManager:
                     logger.warning("push %s failed", step.__name__, exc_info=True)
 
     def landed(self) -> None:
-        """Each tick, read again the scratch folders whose entries changed
+        """Each tick, read again the scratch folders whose entries, or meta.json, changed
         (all of them at startup); one that was pending (only its meta.json, its page being
         made) and has its page now sends "Ready" to every device, tagged as its pane's
         Needs-you so the two never stack. A page published in one go was never promised,
@@ -538,14 +545,13 @@ class PushManager:
         now = self.clock()
         if not self.scratch:
             return
-        seen, self._mtimes = self._mtimes, {
-            e.name: e.stat(follow_symlinks=False).st_mtime for e in os.scandir(self.scratch)}
+        seen, self._mtimes = self._mtimes, {  # a meta.json finished in place: the folder's alone
+            e.name: (e.stat(follow_symlinks=False).st_mtime_ns, _mtime(Path(e.path, "meta.json")))
+            for e in os.scandir(self.scratch)}
         for name in [n for n, at in self._mtimes.items() if seen.get(n) != at]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
-            if not item:  # nothing yet, or a meta.json half-written: read it again next scan
-                self._mtimes.pop(name)
-            elif item["pending"]:
+            if item and item["pending"]:
                 self._waiting.add(key)
             elif key in self._waiting and item["href"].endswith("/"):  # its index, no asset
                 if self._ready_push(item, now) or not self.store.subscriptions():
