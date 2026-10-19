@@ -1491,6 +1491,24 @@ def test_a_block_quoted_draft_is_copyable_without_its_bars():
     assert result["copyables"] == [{"label": "Post", "text": draft}]
 
 
+def test_a_draft_with_a_hyperlink_is_copyable_as_shown():
+    # The capture keeps a terminal hyperlink's hidden target; the screen shows its label.
+    draft = "Hi Ana, could you look at acme/widgets#42 today?\nThe docs say why.\nSee src/[id].ts"
+    captured = draft.replace("acme/widgets#42", "[acme/widgets#42](https://example.com/42)").replace(
+        "docs", "[docs](https://example.com/Widget_(tool))").replace(
+        "src/[id].ts", "[src/[id].ts](https://example.com/file)")
+    quoted = "\n".join(f"  ▎ {row}" for row in captured.split("\n"))
+    screen = _auto_screen(f"Here's a message for Ana:\n\n{quoted}\n\n✻ Waiting for 1 agent")
+    def copies(text):
+        read = {"copyables": [{"label": "", "text": text}]}
+        return classify(_pane("claude"), screen, _llm(read)).get("copyables")
+
+    for text in (draft, captured):  # as shown, or with its real targets
+        assert copies(text) == [{"label": "", "text": text}]
+    assert copies(captured.replace("example.com/42", "example.com/99")) is None
+    assert copies(f"{captured}\n{draft}") is None  # each form must be on screen alone
+
+
 def test_claude_mode_is_read_off_the_status_line_and_given_to_the_model():
     seen = []
     classify(_pane("claude"), _auto_screen("Done."),  # its last row: "⏵⏵ auto mode on"
