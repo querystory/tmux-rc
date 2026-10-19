@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -527,9 +528,10 @@ class PushManager:
         return issued["pane_id"], keys
 
     async def _loop(self) -> None:
-        while True:
+        for tick in itertools.count():
             await asyncio.sleep(1)
-            for step in (self.evaluate, self.landed):
+            # Needs-you each second; scratch, which stats every folder, every ten.
+            for step in (self.evaluate, self.landed)[:1 + (tick % 10 == 0)]:
                 try:
                     # Keep notification evaluation off the server event loop.
                     await asyncio.to_thread(step)

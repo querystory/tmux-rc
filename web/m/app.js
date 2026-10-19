@@ -809,10 +809,11 @@ function scratchPage() { return cardView("Scratch", scratchFrame); }
 // A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
 const viewer = $("scratch-viewer");
 function viewScratch(href, title) {
-  text($("viewer-title"), String(title || ""));
+  title = String(title || "Scratch page"); // a "Ready" push's link names no title
+  text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title: String(title || "Scratch page") }));
+  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title }));
   viewer.showModal(); viewer.focus();
 }
 $("close-viewer").onclick = () => viewer.close();

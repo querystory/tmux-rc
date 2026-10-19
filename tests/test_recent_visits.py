@@ -33,12 +33,15 @@ def test_opened_skips_folders_gone_and_takes_titles_as_the_gallery_does(tmp_path
     os.symlink(tmp_path / "one", tmp_path / "link")
     (tmp_path / "wip").mkdir()  # its page still being made: the drawer spins for it
     (tmp_path / "wip" / "meta.json").write_text('{"title": "Soon"}')
+    (tmp_path / "quit").mkdir()  # its pane gone: stopped, so no spinner
+    (tmp_path / "quit" / "meta.json").write_text('{"title": "Never", "pane": "%9"}')
     visits = [("gone", 9), ("loose.html", 8), ("link", 7), ("..", 6), ("two", 5), ("one", 4),
-              ("wip", 3)]
+              ("wip", 3), ("quit", 2)]
     assert scratch.opened(tmp_path, visits, 5) == [
         {"title": "Second", "href": "two/", "pending": False, "at": 5},
         {"title": "First", "href": "one/", "pending": False, "at": 4},
-        {"title": "Soon", "href": "wip/", "pending": True, "at": 3}]
+        {"title": "Soon", "href": "wip/", "pending": True, "at": 3},
+        {"title": "Never", "href": "quit/", "pending": False, "at": 2}]
     assert len(scratch.opened(tmp_path, visits, 1)) == 1
 
 

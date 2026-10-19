@@ -2081,7 +2081,8 @@ def recent(n: Annotated[int, Query(ge=1, le=50)] = 5) -> dict:
     watcher, server = app.state.watcher, tmux.server_uid()
     alive = {pane_key(server, s["pane_id"], watcher.pane_birth(s["pane_id"])): s["pane_id"]
              for s in watcher.states}
-    pages = scratch.opened(Path(_scratch_dir), seen("scratch"), n) if _scratch_dir else []
+    pages = scratch.opened(Path(_scratch_dir), seen("scratch"), n,
+                           watcher.states) if _scratch_dir else []
     panes = [{"pane_id": alive[k], "at": at} for k, at in seen("pane") if k in alive]
     return {"panes": panes[:n], "scratch": pages}
 

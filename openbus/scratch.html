@@ -81,8 +81,8 @@ box.addEventListener("input", filter);
 for (const wait of document.querySelectorAll("[data-pending]")) {
   let tries = 0;
   const poll = () => { const img = Object.assign(new Image(), { alt: "" });
-    img.onload = () => wait.replaceWith(img);
-    img.onerror = () => ++tries < 100 && setTimeout(poll, 3000);
+    img.onload = () => { wait.closest("article").querySelector("h2 a").removeAttribute("aria-label"); wait.replaceWith(img); };
+    img.onerror = () => setTimeout(poll, Math.min(3000 * 1.1 ** tries++, 60000)); // then once a minute
     img.src = `${wait.dataset.pending}?${Date.now()}`; };
   poll();
 }

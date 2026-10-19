@@ -128,12 +128,16 @@ def items(root: Path) -> list[dict]:
                   key=lambda i: -i["updated"])
 
 
-def opened(root: Path, visits: list[tuple[str, float]], n: int) -> list[dict]:
+def opened(root: Path, visits: list[tuple[str, float]], n: int,
+           states: list[dict] = ()) -> list[dict]:
     """The first `n` folders of these visits, (name, when), still in scratch: the title and
-    link the gallery gives each, and when it was opened."""
-    found = ((item, at) for name, at in visits if (item := read(root, root / name)))
-    return [{"title": i["title"], "href": i["href"], "pending": i["pending"], "at": at}
-            for i, at in islice(found, n)]
+    link the gallery gives each, whether its page is still being made (not stopped), and
+    when it was opened."""
+    found = list(islice(((item, at) for name, at in visits
+                         if (item := read(root, root / name))), n))
+    _progress([i for i, _ in found], states)
+    return [{"title": i["title"], "href": i["href"], "at": at,
+             "pending": i["pending"] and i["state"] != "stopped"} for i, at in found]
 
 
 def _writers(todo: list[dict]) -> None:
@@ -186,17 +190,24 @@ def progress(pane: dict | None, named: str | None, created: float) -> str:
     return "quiet" if pane else "working"
 
 
+def _progress(listed: list[dict], states: list[dict]) -> dict:
+    """Each item's `state` (progress, read while one is pending), and its `pane` while that
+    pane is still open. Returns the panes by id."""
+    panes = {s.get("pane_id"): s for s in states}
+    for i in listed:  # a pane id from before a tmux restart names some other pane now
+        if (pane := panes.get(i["pane"])) and not made_in(pane, i["created"]):
+            pane = None
+        i["state"] = progress(pane, i["pane"], i["created"])
+        i["pane"] = pane and i["pane"]
+    return panes
+
+
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             pane_of=lambda _entry: None) -> None:
     """Who made each item: `who` (agent and account), `where` (session:window, or the
     agent session's title), `pane` when that pane is still open, and `state` (progress),
     which only a pending one shows."""
-    panes = {s.get("pane_id"): s for s in states}
-    for i in listed:  # a pane id from before a tmux restart names some other pane now
-        if (pane := panes.get(i["pane"])) and not made_in(pane, i["created"]):
-            pane = None
-        i["state"] = progress(pane, i["pane"], i["created"])  # read while one is pending
-        i["pane"] = pane and i["pane"]
+    panes = _progress(listed, states)
     account = {p: a for a in profiles for p in a.get("panes", [])}
     todo = [i for i in listed if i["pane"] not in panes]
     _writers(todo)
