@@ -128,7 +128,7 @@ def _tabbed_panel_open(visible: str) -> bool:
 # ahead of a value column ("Auto-compact      true"). Only a row that opens with a frame
 # loses one closing bar: a label's own bar is content.
 _HIGHLIGHT_RE = re.compile(
-    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}>][ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?"
+    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}>][ \t]*(?:[○●◉◯✔✓✘][ \t]*)?(?:\d+[.)][ \t]+)?"
     r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
 # A picker heading's live count ("Resume session (1 of 47)"): it redraws with every move
 # and filter while the picker stays the same, so it is never part of the prompt.
@@ -622,6 +622,8 @@ def _ground_visible_fields(
         prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}",
     ) if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
+    if retry:
+        _fold_sends(retry)
     if retry and receipt and kind == "prompt":
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
@@ -803,6 +805,9 @@ _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
 # A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
 # Code draws down the right of its transcript.
 _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
+# A terminal hyperlink as the capture spells it (tmux._materialize_links): "[label](url)".
+_LINK_TARGET_RE = re.compile(
+    r"\[((?:[^][\n]|\[[^][\n]*\])*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
 
 
 def _final_paragraph(message: str) -> str:
@@ -1116,6 +1121,29 @@ def _code_blocks(reply: str | None) -> list[dict]:
     return blocks[::-1]
 
 
+def _from_reply(offer: str, reply: str | None) -> str:
+    """The model picks what to send; the agent's reply has its exact text. An offer that a
+    one-line code block of the reply begins with, word for word, is that block, whatever
+    the screen cut."""
+    key = " ".join(offer.split())
+    lines = [(" ".join(t.split()), t) for block in _code_blocks(reply)
+             if "\n" not in (t := block["text"].strip())]
+    for hits in ({t for k, t in lines if k == key},  # exact, else a prefix; only one block
+                 {t for k, t in lines if f"{k} ".startswith(f"{key} ")}):
+        if hits:
+            return hits.pop() if len(hits) == 1 else offer
+    return offer
+
+
+def _fold_sends(result: dict) -> None:
+    """What to send is the model's call: the text it gives copyables to send here leads
+    its offers, so a corrective re-read replaces both together."""
+    cps, offers = result.get("copyables"), result.get("offers")
+    result["offers"] = [*(c["send"] for c in (cps if isinstance(cps, list) else ())
+                          if isinstance(c, dict) and isinstance(c.get("send"), str)),
+                        *(offers if isinstance(offers, list) else ())]
+
+
 def classify(
     pane: Pane,
     text: str,
@@ -1200,6 +1228,7 @@ def classify(
         result.update(tool="shell", activity="idle")
         result.pop("question", None)
         result.pop("rewind", None)
+    _fold_sends(result)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
@@ -1273,7 +1302,7 @@ def classify(
     tool = result.get("tool")
     final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
     if offers := screen_offers(result.pop("offers", None), text):
-        result["offers"] = offers
+        result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
@@ -1431,6 +1460,9 @@ def classify(
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
     copy_source = _FRAME_BARS_RE.sub("", visible).replace("\\\n", "")
+    # A hyperlink shows only its label, so a copy may quote the screen as captured (each
+    # target intact) or as shown.
+    copy_sources = {copy_source, _LINK_TARGET_RE.sub(r"\1", copy_source)}
 
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
@@ -1438,9 +1470,8 @@ def classify(
         # line continuations kept as shown or joined (both sides drop them alike).
         text = text.replace("\\\n", "")
         words = r"\s+".join(re.escape(word) for word in text.split())
-        return f"`{text}`" in copy_source or re.search(
-            r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
-        )
+        row = re.compile(r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$")
+        return any(f"`{text}`" in src or row.search(src) for src in copy_sources)
 
     def _valid(cps, *, transcript=False):
         """Validated entries, lazily — islice below stops us at 3 without validating the

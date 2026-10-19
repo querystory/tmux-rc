@@ -153,6 +153,88 @@ that pane. The resistance (160px) means a fling that only reaches the top never 
 pane. Touch uses the same path, because on a phone a fullscreen agent's view is one screen
 and nothing else reaches older output.
 
+## Loading earlier history
+
+The frame carries 200 rows of scrollback because it is resent on every screen change, but
+tmux keeps far more (50,000 rows here). Scrolling up used to stop at the frame's top. Now
+the view fetches older rows in chunks of 500 as you come within a screen of the top and
+puts them above the frame, until it reaches tmux's oldest row and says "Start of history".
+It loads only on the way up: off the tail, or, when the frame is too short to scroll (a
+few long wrapped lines), one request per upward gesture at the top. Nothing loads while a
+text selection holds the frame back, because rows would be placed against a frame that
+isn't the one on screen. A short frame would
+otherwise sit "near the top" forever and pull in all of history by itself.
+
+**Rows are addressed by absolute index from the oldest row tmux keeps.** tmux's own row
+numbers count from the screen, so the same number names a different row after every line
+of output, and a cached chunk would drift. Counting from the oldest row instead, new
+output only adds rows below, so chunks already fetched stay valid with no refetching and
+no reconciling. Each frame states the absolute index of its first row, and the client asks
+for "the 500 rows before row N". That leaves two windows to get right:
+
+- *Between computing a range and capturing it, output can arrive.* The translation from
+  absolute to tmux rows happens inside tmux (`run-shell -C` expands the history size in the
+  same command that captures, and reports the size in the same queue), so no output can
+  land in between. Doing the arithmetic in Python would need a retry loop on busy panes.
+- *Some events do renumber rows*: trimming at the history limit, clear-history, a reflow
+  on a width change, and switching to or from the alternate screen. Every frame and chunk
+  carries a screen key: the width, whether the alternate screen is up, and a hash of the
+  oldest 64 rows tmux keeps. Trimming replaces those rows, and it can refill to the same
+  size between two looks, so a size alone can't show it. tmux keeps no count of trims, so
+  this is the best signal available. It misses a trim only when the rows the trim exposes
+  repeat the ones it dropped, row for row, a tenth of the limit apart. The client drops everything it
+  holds when the key changes or the frame's first row moves back, and throws away a chunk
+  numbered under another key. The key and first row are part of the frame's identity hash,
+  so a reflow that leaves the joined text unchanged still reaches the client.
+
+**The gap.** While you read above the tail, output moves the frame's first row down, past
+rows the client never fetched. The new frame waits while the client fetches that gap. Then
+the gap rows go in at the end of the held rows, exactly where the old frame showed them,
+and the new frame is painted in the same step, so even a row you were reading inside the
+frame never moves, not even for the length of a request. A gap is split at the painted
+frame's first row: rows below it are on screen in that frame and must land with the next
+one, while rows above it are on screen nowhere (left while you followed the tail, or
+skipped by a frame painted after a failed fetch), so they land at once, held above the
+frame if you are reading it. Rows waiting for a frame that a text selection holds back are
+dropped and fetched again, rather than shown twice. If output outruns the requests (more
+than a request's worth behind, or still behind after 5s), the waiting rows land and the
+newest frame paints anyway, and the rows it passed become a gap above it. Under steady
+output there is always a gap, so gap and older-row requests take turns while you are near
+the top. A failed fetch paints the frame anyway
+and pauses loading for a few seconds before retrying; frames paint normally meanwhile. A chunk asked for by a split that a
+newly painted frame has since moved is thrown away and asked for again. While you follow the tail the gap is left for later, so a streaming pane costs
+no extra requests. It is filled as soon as you scroll up. The same applies before any history has loaded: once you leave the
+tail, rows that output scrolls out of the frame come back as a gap. Only a painted frame
+moves the edge (one held back for a text selection is not on screen yet), a frame that
+arrives while the first chunk is in flight leaves the empty cache's edge alone, and a frame
+whose first row moves back drops the cache however far behind its edge is. The browser's own scroll
+anchoring is off for the terminal: Chrome would pin a frame row and undo that placement,
+and older Safari has none, so the client holds the view itself, by measuring how far the content
+moved rather than predicting it.
+
+**A line tmux wrapped across a chunk's edge** comes back in two pieces, because `-J` joins
+wrapped rows only within one capture. Each chunk says whether its last row wraps on (a
+two-row `-J` probe at the edge, in the same tmux queue), and the client renders the two
+pieces again as one line, so a long URL stays one link. A held piece inside a text
+selection is left split rather than replaced under the selection. A URL that an app broke
+with its own newline is rejoined only by linkify's grid heuristic. That heuristic reads
+the whole rendered text (every line's length), so it holds within a chunk but not across
+a chunk's edge, the same as at the live frame's own top edge. One cost is accepted:
+when such a line straddles the frame's first row, rejoining it can move the frame's rows
+by one line as its gap lands. Avoiding that would mean mapping joined lines back to
+physical rows, which the client cannot do without tmux's wrap flags. Snapping chunk edges to whole lines
+instead would need per-row wrap flags that tmux does not expose. The frame's own first row
+can still start mid-line, as it always could.
+
+**On the alternate screen the frame reports nothing earlier.** The history above a
+fullscreen app belongs to whatever ran before it; scrolling up there should reach the app's
+transcript (the wheel, above). Inline apps get tmux history first, and the wheel only once
+there is nothing earlier to load.
+
+Rejected: a bigger frame (resent on every change, and still a cutoff), tmux copy mode
+(freezes the real pane), and counting rows from the bottom with client-side bookkeeping
+of how much output arrived (it needs the same history size, read less atomically).
+
 ## Rejected alternatives
 
 - **Flat client polling at 500ms.** Simplest, but 2 req/s per viewer through the tunnel

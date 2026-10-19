@@ -24,10 +24,41 @@ needs to send scroll events to tmux.
 **Automatic only when nobody is at a real terminal.** A window belongs to every client of
 every session that contains it. If a desktop terminal is attached, shrinking the window
 shrinks it there too, which is a surprise nobody at that desk asked for. So when no client
-is attached to any of those sessions, fitting just happens; otherwise it waits for the
-viewer to opt in through "Fit to my screen", which is off by default and only appears in
-that case. The choice is remembered per browser, because it describes the viewer's habit,
-not the pane.
+is attached to any of those sessions, fitting just happens, by the browser's default
+(Settings, "Fit to my screen": Auto, Width only or Off). With a terminal attached it waits
+for a choice made for that pane in its ⋯ menu (Width, Tall or Off), which overrides the
+default. Both are remembered per browser, because they describe the viewer's habits; a
+pane's choice is keyed by the pane's incarnation, so a recycled pane id doesn't inherit it.
+
+**Tall, for apps that keep no history.** Fitting the width is enough for a shell or an
+inline agent such as Codex: they write their output into tmux's history, which the view
+scrolls (and loads earlier pages of). A full-screen app is different. Claude Code runs on
+the terminal's alternate screen, and tmux keeps no history for the alternate screen, so
+`#{history_size}` stays 0 however much it prints; all the phone can ever scroll is the
+visible rows, about 40 on a desktop window. The fix is a tall window: width from the
+phone, height a fixed number of rows (500 by default, a setting), and the app shows that
+much of its own transcript. Auto picks it mechanically: tall when the pane is on the
+alternate screen (`#{alternate_on}`), width only otherwise. We measured on an isolated
+server: Claude Code sat on the alternate screen with history 0 even after printing its
+help; Codex and a shell were not, and built history (Codex 9 rows at once, the shell as
+soon as output passed one screen). The alternate-screen flag rather than "history is 0"
+is the test because a fresh shell also has no history yet, and should not be made tall
+for it. At 500 rows Claude Code anchors its input to the bottom, so the view opens
+scrolled to the bottom; the capture already includes every visible row, however many.
+
+A tall window is also why fitting stays opt-in with a terminal attached: a desktop
+terminal attached to a forced tall window sees the top 40-odd rows of a 500-row window,
+which is the opposite of what anyone at that desk wants.
+
+**"Attached" means someone used it lately.** tmux keeps a client attached until its
+terminal closes, so a desk terminal left open counts for days after its owner walked away,
+and someone who reaches the machine only through tmux-rc can have several. Counting those
+held every window at the forgotten terminal's size: Auto gave a tall Claude Code window back
+to a 40-row desk client nobody had touched in two days. So a client counts only if its
+`client_activity` is within the last 15 minutes. That is long enough for someone reading at
+the desk without typing, and short enough that a forgotten terminal stops counting the same
+afternoon. When its owner comes back and types, the client counts again, and the watcher
+hands an unforced fit back on its next poll.
 
 **Lone panes only.** Resizing a window that is split squeezes every pane in it, including
 ones the viewer is not looking at. A single-pane window, or the zoomed pane of a window
@@ -47,7 +78,9 @@ nobody sees in the meantime.
 
 **Given back only when it matters.** Two cases, and only these. A real terminal attaches
 to a session holding a window we fitted on our own: the watcher sees it on its regular
-poll (no new timer) and hands the window back. Or the viewer unticks "Fit to my screen".
+poll (no new timer) and hands the window back. Or the viewer picks Off for the pane in its
+menu (the default being Off changes nothing: it leaves windows as they are). Going from
+tall back to width only gives the height back first.
 Handing back is `resize-window -A` and then unsetting the window's `window-size`, because
 on tmux 3.7 `-A` leaves the option at `manual`; without the unset the window would stop
 following its clients for good. A fit the viewer forced while a terminal was attached is
@@ -58,8 +91,9 @@ window option, so the mark needs no file, cannot drift from reality, and dies wi
 window. That mark is also how the watcher knows which windows are ours to give back,
 read from the pane listing it already makes every tick.
 
-**Never fight the user.** If the window's width is no longer the width we set, someone
-resized it by hand: the mark is dropped and the window is theirs, with no restore. A
+**Never fight the user.** If the window's width (or, for a tall fit, its height) is no
+longer what we set, someone resized it by hand: the mark is dropped and the window is
+theirs, with no restore. A
 window whose `window-size` the user set before we ever touched it is never fitted at all.
 
 **Our resize is not activity.** Measured on an isolated tmux server with an app that lays

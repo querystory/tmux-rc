@@ -33,5 +33,12 @@ notice source, not another browser script. The Rolldown generated-runtime notice
 copied from https://github.com/rolldown/rolldown/blob/main/LICENSE into
 `scripts/licenses/rolldown-runtime.LICENSE`.
 
+Mermaid draws the diagrams in Markdown pages under `/scratch/` (openbus/scratch_markdown.py),
+loaded as a classic script only on a page with a diagram, since those pages are sandboxed
+and a module script would need CORS. `mermaid.THIRD-PARTY-LICENSE` collects the license
+of every package its source map names; the generator fails on a bundled package it
+cannot account for.
+
 Upstream: https://github.com/apache/echarts and https://github.com/timdream/wordcloud2.js
 and https://github.com/markdown-it/markdown-it
+and https://github.com/mermaid-js/mermaid

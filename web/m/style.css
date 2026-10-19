@@ -40,35 +40,28 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #app { position: absolute; top: var(--app-top, 0px); left: 0; right: 0; height: 100dvh; height: var(--app-height, 100dvh); max-width: 760px; margin: auto; display: flex; flex-direction: column; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .app-header { display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex: none; }
 #brand { display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 18px; font-weight: 650; margin-right: auto; white-space: nowrap; }
-/* #heading used to be the header's flex:1 filler, so hiding #brand (narrow, in a pane)
-   still left something to push the status and the buttons right. With the heading moved
-   into #detail, nothing did and they all bunched left. #back is shown in exactly that
-   case (narrow, in a pane), so it takes the slack; hidden, it contributes nothing, and
-   #brand keeps the auto margin on every screen that shows the brand. */
-#back { margin-right: auto; }
+/* A phone's pane heading leads with Back (a swipe in from the left edge presses it too,
+   app.js), its actions pushed right and the title wrapped to the line below: Gmail's
+   thread view. Wide shows no Back: the sidebar it would return to is already there. */
+#back { margin: 0 auto 0 -12px; }
 /* Now inside #detail, above the tabs. Narrow reads as the header row it replaced: the
    same type, the same 16px gutter, its own rule under it. */
 #heading { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
 .pane-heading-text { min-width: 0; flex: 1; }
 #heading h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Navigation focuses the title (tabindex=-1) so focus lands in the opened pane without painting a ring on a button; Tab still reaches real controls with their :focus-visible ring. */
-#pane-title:focus { outline: none; }
+/* Navigation focuses the title (tabindex=-1) so focus lands in the opened pane or page without painting a ring on a button; Tab still reaches real controls with their :focus-visible ring. */
+:is(#pane-title, .landing-head h2):focus { outline: none; }
 #pane-location { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #connection { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 #connection::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
 #connection.online::before { background: var(--accent); }
-/* The phone header's status is a dot on the logo (the word stays in the node, still read
-   out); in a pane, where the brand is hidden, the dot stands on its own. */
-.app-header #connection { font-size: 0; gap: 0; }
-/* The wide sidebar's head does the same with its logo. */
-:is(.app-header, #sb-head) #brand { position: relative; }
-:is(.app-header, #sb-head) #brand::before, #list-title::after { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
-.app-header #brand::before { position: absolute; left: 20px; top: 19px; box-shadow: 0 0 0 2px var(--bg); }
-#sb-head #brand::before { position: absolute; }
-:is(.app-header, #sb-head):has(#connection.online) #brand::before, .app-header:has(#connection.online) #list-title::after { background: var(--accent); }
-.app-header :is(#brand, #list-title):not([hidden]) ~ #connection { position: absolute; opacity: 0; }
-/* The list screen's large title, its live dot beside it. */
-#list-title { display: flex; align-items: center; gap: 8px; margin-right: auto; font-size: 28px; font-weight: 750; white-space: nowrap; }
+/* The status is a dot (the word stays in the node, still read out): on the wide sidebar's
+   logo, on a phone's ☰, and in a pane, where there is no ☰, on its Back. */
+#app > #connection { position: absolute; opacity: 0; pointer-events: none; }
+:is(#sb-head #brand, #menu-open, #back) { position: relative; }
+:is(#sb-head #brand, #menu-open, #back)::before { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+#app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back)::before { background: var(--accent); }
+:is(#menu-open, #back)::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
@@ -180,6 +173,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   --lens: blur(8px) saturate(200%) brightness(.8); --drop: 0 12px 30px rgb(0 0 0 / .55), 0 2px 6px rgb(0 0 0 / .35);
   background: linear-gradient(180deg, var(--sheen), transparent 55%), var(--fill); -webkit-backdrop-filter: var(--lens); backdrop-filter: var(--lens);
   border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--spec), inset 0 -1px 1px rgb(0 0 0 / .06), var(--drop); }
+.editing #list-nav { display: none; } /* typing: the keyboard's rows, not the tabs, go above it */
 :root.light #list-nav { --fill: rgb(255 255 255 / .08); --sheen: rgb(255 255 255 / .38); --edge: rgb(255 255 255 / .65); --spec: #fff; --ink: #1f2e27; --halo: rgb(255 255 255 / .7);
   --lens: blur(8px) saturate(220%) brightness(1.03); --drop: 0 10px 28px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .12); }
 #list-nav button { flex: 1 1 0; min-width: 0; width: auto; height: auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 2px; border-radius: 28px; font-size: 10.5px; font-weight: 600; white-space: nowrap; color: var(--ink); text-shadow: 0 0 4px var(--halo); box-shadow: none; }
@@ -187,9 +181,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #list-nav :is([aria-pressed="true"], #chat.active) { background: var(--accent-bg); color: var(--accent); }
 #list-nav #attention-tab[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
 #list-nav #chat::after { content: attr(aria-label); }
-#list-nav #live-mode { flex: 0 0 52px; height: 52px; align-self: center; margin: 0 4px; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent); }
-#list-nav #live-mode.active { background: var(--red); }
-#list-nav #live-mode svg { width: 26px; height: 26px; }
+#list-nav #live-mode::after { content: "Voice"; }
+#list-nav #live-mode.active { color: var(--red); }
 .nav-icon { position: relative; display: grid; place-items: center; }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
 #list-nav .count { position: absolute; left: calc(50% + 5px); top: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: var(--surface); line-height: 18px; font-weight: 700; text-align: center; }
@@ -245,15 +238,24 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 /* Hover/focus helper, not a native title: a title never shows on a phone, and here the
    tap that toggles also hovers, so the new mode explains itself as it switches. */
 :is(#click-mode, #key-mode):is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
-#terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
+/* overflow-anchor: app.js holds the view itself (holdView), the same in every browser;
+   Chrome's own anchoring would also pin a frame row and undo a history gap's placement. */
+#terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; overflow-anchor: none; }
 /* Key passthrough is wide only (app.js): there the ring shows the terminal has the keys. */
 @media (min-width: 1100px) { #terminal.keys-live #terminal-scroll:focus { outline: 2px solid var(--accent); outline-offset: -2px; } }
 @media (max-width: 1099px) { #key-mode { display: none; } }
-#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 var(--mono); tab-size: 8; transition: transform .2s ease-out; }
+#capture, #earlier { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: var(--term-font, 13px)/1.45 var(--mono); tab-size: 8; }
+#capture { transition: transform .2s ease-out; }
+/* Earlier history (app.js loadEarlier) reads as one block with the live frame. */
+#earlier { padding-bottom: 0; }
+#earlier:empty { display: none; }
+#earlier:not(:empty) + #capture { padding-top: 0; }
+#earlier-cue { padding: 8px 12px 0; font-size: 12px; color: var(--term-dim); }
+#earlier-cue:not([hidden]) + #earlier { padding-top: 4px; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
-#capture > span > span { display: inline-block; vertical-align: top; }
-#capture a { color: #8ecbff; }
+:is(#capture, #earlier) > span > span { display: inline-block; vertical-align: top; }
+:is(#capture, #earlier) a { color: #8ecbff; }
 #capture.clicks { cursor: default; user-select: none; -webkit-user-select: none; }
 #session-summary { margin-top: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
 #links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
@@ -298,7 +300,25 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #reply:focus-visible, #secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
 dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; width: min(760px, 100%); max-width: 100%; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); max-height: 88dvh; }
-dialog::backdrop { background: #0008; }
+dialog::backdrop { background: #0008; opacity: var(--drag, 1); } /* fades as the sheet is dragged away (drag-dismiss.js) */
+/* A phone's ☰ drawer (Gmail's): a sheet from the left, the logo atop the rows; the current
+   one is a tinted pill. */
+#drawer { inset: 0 auto 0 0; width: min(304px, 84vw); height: 100%; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border: 0; border-radius: 0 16px 16px 0; }
+#drawer[open] { animation: none; } /* it slides in and out by script (app.js settle), as a drag does */
+#drawer::backdrop { opacity: var(--shown, 1); }
+@media (prefers-reduced-motion: no-preference) { #drawer.settling, #drawer.settling::backdrop { transition: transform .2s ease-out, opacity .2s ease-out; } }
+.drawer-brand { display: flex; align-items: center; gap: 10px; padding: 10px 16px 14px; font-size: 20px; font-weight: 650; }
+#drawer-nav button { display: flex; align-items: center; gap: 18px; width: 100%; min-height: 48px; padding: 0 16px; border-radius: 24px; font-size: 15px; font-weight: 600; text-align: left; }
+#drawer-nav [aria-current="page"] { background: var(--accent-bg); color: var(--accent); }
+#drawer-nav .count { margin-left: auto; color: var(--amber); font-weight: 700; }
+/* Recent panes and scratch pages under the places: a small muted label each, lighter rows. */
+.drawer-recent h2 { margin: 14px 16px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.drawer-recent > :is(button, a) { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 44px; padding: 0 16px; border-radius: 22px; font-size: 14px; color: var(--fg); text-decoration: none; text-align: left; }
+.drawer-recent span:not(.pane-icon) { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drawer-recent time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.drawer-recent .pane-icon { width: 28px; height: 28px; }
+.drawer-recent .pane-icon .model-badge { width: 12px; height: 12px; }
+.drawer-recent svg { flex: none; width: 28px; color: var(--muted); }
 .sheet-handle { width: 32px; height: 4px; background: var(--line); border-radius: 2px; margin: 0 auto 12px; }
 .choice-list { display: flex; flex-direction: column; margin-top: 12px; }
 .choice-list button { display: flex; align-items: center; gap: 14px; padding: 16px 4px; min-height: 64px; text-align: left; border-radius: 0; border-bottom: 1px solid var(--line); }
@@ -329,12 +349,17 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
    WebKit column flexbox does not shrink it to fit (the sheet would run off the screen). */
 @media (max-width: 1099px) { :is(#settings, #launch-dialog) .panel-body { max-height: calc(88dvh - 64px); } }
 #settings h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
-#settings section:has(#push[hidden], #docs[hidden]) { display: none; }
+#settings section:has(#push[hidden]), #settings section:has(#docs[hidden]):has(#scratch[hidden]) { display: none; }
 .set-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .set-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 8px 14px; border-radius: 0; text-align: left; text-decoration: none; font-size: 14px; color: var(--fg); }
 .set-row[hidden] { display: none; }
 :is(.set-card, #settings-accounts) > :not([hidden], :empty) ~ .set-row:not([hidden]) { border-top: 1px solid var(--line); }
 .set-row > span:not(.seg) { flex: 1; min-width: 0; display: grid; gap: 2px; }
+/* A described row with a control: the title and the control on one line, the description under both. */
+.set-row:has(> span + *) { display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; }
+.set-row:has(> span + *) > span:not(.seg) { display: contents; }
+.set-row:has(> span + *) > :last-child { grid-area: 1 / 2; }
+.set-row:has(> span + *) small { grid-column: 1 / -1; }
 .set-row > b { margin-right: auto; }
 .set-row b { font-weight: 600; }
 .set-row small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
@@ -343,6 +368,9 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .seg { display: inline-flex; flex: none; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
 .seg button { min-height: 28px; padding: 0 10px; border-radius: 6px; font-size: 13px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; }
+#fit-row { display: grid; gap: 6px; padding: 6px 10px; font-size: 14px; }
+#fit-row .seg button { min-height: 32px; display: inline; }
+#tall-rows { width: 6em; }
 #push { position: relative; width: 38px; height: 22px; min-height: 22px; padding: 0; flex: none; border-radius: 11px; background: var(--line); }
 #push svg { display: none; }
 #push::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: left 120ms; }
@@ -374,7 +402,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); padding-inline: 16px; }
 /* The sheet itself takes initial focus (tabindex=-1, focused in show()), so no button opens with a ring painted on it; Tab still lands on real controls, which keep their :focus-visible ring. */
 #voice-dialog:focus { outline: none; }
-:is(#settings, #launch-dialog):focus { outline: none; } /* focused as a whole on open (openBeside); its controls show the ring */
+:is(#settings, #launch-dialog, #drawer):focus { outline: none; } /* focused as a whole on open (openBeside); its controls show the ring */
 #voice-dialog .sheet-handle, #voice-dialog .dialog-heading, #voice-status, .voice-controls { flex: none; }
 #voice-models { min-height: 0; overflow-y: auto; }
 #voice-models button:disabled { opacity: .5; }
@@ -536,8 +564,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #sb-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 #sb-sticky { position: sticky; top: 0; z-index: 3; flex: none; background: var(--surface); transition: box-shadow 120ms; }
 #sb-sticky.stuck { box-shadow: 0 1px 0 var(--line), 0 6px 12px -8px rgb(0 0 0 / .25); }
-#dash-nav[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
-#dash-nav[aria-pressed="true"] svg { color: var(--fg); }
+:is(#dash-nav, #scratch-nav)[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
+:is(#dash-nav, #scratch-nav)[aria-pressed="true"] svg { color: var(--fg); }
 /* Sessions: the section's title and its green +; search and the filter on one row under it. */
 #sb-sess { display: flex; align-items: center; min-height: 34px; padding: 6px 14px 0 17px; flex: none; }
 #sb-sess b { padding-right: 8px; font-size: 14px; font-weight: 700; }
@@ -624,7 +652,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
 #app.rail #collapse { margin: 12px 0 6px; }
 #app.rail :is(#new-window, #find > *) { order: 1; }
-#app.rail #dash-nav { order: 2; }
+#app.rail :is(#dash-nav, #scratch-nav) { order: 2; }
 #app.rail :is(#chat, #live-mode) { order: 3; }
 #app.rail #side-list { order: 4; }
 #app.rail #settings-open { order: 5; margin: 6px 0 10px; }
@@ -836,6 +864,14 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
   #detail[data-layout="stack"] > #review-divider::after { inset: 5px 0; }
   #review-divider:hover::after, #review-divider:focus-visible::after, #review-divider.dragging::after { background: var(--accent); }
   #review-divider.dragging ~ #overview, #review-divider.dragging ~ #terminal { user-select: none; }
+  /* The side overview folds to a strip that is itself the button back, so the way out stays
+     where the overview was. Unfolded, the button sits in the overview's top corner. */
+  #detail[data-layout="side"] > #overview-toggle { grid-column: 2; grid-row: 3; justify-self: end; align-self: start; z-index: 6; width: 32px; height: 32px; margin: 7px 8px; color: var(--muted); }
+  #detail[data-layout="side"] .pane-summary .section-heading { margin-right: 28px; } /* clear of the button */
+  #detail[data-layout="side"][data-folded] { grid-template-columns: minmax(0, 1fr) 40px; }
+  #detail[data-layout="side"][data-folded] > :is(#overview, #review-divider) { display: none; }
+  #detail[data-layout="side"][data-folded] > #overview-toggle { grid-row: 3 / 5; justify-self: stretch; align-self: stretch; align-items: start; width: auto; height: auto; margin: 0; padding-top: 7px; border-left: 1px solid var(--line); border-radius: 0; background: var(--surface); }
+  #overview-toggle:hover { color: var(--fg); }
 }
 
 .header-picker { position: relative; min-width: 0; }
@@ -918,7 +954,16 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   /* The list and the dashboard end clear of the tab bar. */
   #sessions { display: flex; flex-direction: column; }
   #sessions, #landing { padding-bottom: var(--bar-room); }
-  .app-header #new-window { color: var(--accent); background: none; }
+  /* New session: Gmail's Compose, floating bottom right just over the tab bar; the list's
+     scroll folds it to its + (app.js). The list's alone: the dashboard's sticky chart sits
+     where it would, and the keyboard (.editing) hides it. */
+  .app-header #new-window { position: absolute; z-index: 5; right: calc(16px + env(safe-area-inset-right)); bottom: var(--bar-room); width: auto; height: 56px; padding: 0 16px; gap: 12px; border-radius: 16px; font-size: 15px; font-weight: 600; transition: gap .2s; box-shadow: 0 4px 12px rgb(0 0 0 / .25), 0 1px 3px rgb(0 0 0 / .15); }
+  .app-header #new-window svg { width: 24px; height: 24px; }
+  .app-header #new-window::after { content: attr(aria-label); max-width: 9em; overflow: hidden; white-space: nowrap; transition: max-width .2s, margin .2s; }
+  .app-header #new-window.folded { gap: 0; }
+  .app-header #new-window.folded::after { max-width: 0; }
+  :is(.editing, .app-header:has(> #find[hidden])) #new-window { display: none; }
+  #sessions { padding-bottom: calc(var(--bar-room) + 68px); } /* the last row scrolls clear of it */
 }
 
 
@@ -1186,15 +1231,24 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker summary:not([data-n=""]) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-bg); color: var(--accent); }
 #side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
 #side-filter-picker summary[data-n=""]::after { display: none; }
-/* A phone: the list opens on plan usage, which scrolls away under search and the filter
-   button, pinned. The button opens the menu as a bottom sheet (its grouping is the wide
-   list's), and it and the list's foot say what is filtered: no chips under search. */
+/* A phone's list screen opens on Gmail's search pill: the header itself, ☰ on its left, search
+   filling it, the filter button on its right (New session floats, below); plan usage and the list scroll
+   under it. The filter button opens the menu as a bottom sheet (its grouping is the wide
+   list's), and it and the list's foot say what is filtered: no chips under search. In a pane
+   the header goes: #heading leads with Back, its actions on that row and the title under. */
 @media (max-width: 1099px) {
-  #find { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; padding-right: 16px; background: var(--bg); }
-  #sessions .acct-pill { display: none; }
-  #find .search { flex: 1; min-width: 0; margin-right: 8px; }
+  .app-header:has(> #find:not([hidden])) { min-height: 48px; margin: 8px 16px; padding: 0 2px; gap: 0; border: 0; border-radius: 24px; background: var(--raised); --ring: var(--raised); }
+  .app-header:has(.search:focus-within) { box-shadow: 0 0 0 2px var(--accent); }
+  .app-header #settings-open, #app:has(> #detail:not([hidden])) > .app-header, #search-icon { display: none; }
+  #find { flex: 1; min-width: 0; display: flex; align-items: center; }
+  #find .search { flex: 1; min-width: 0; margin: 0; padding: 0 0 0 4px; background: none; box-shadow: none; }
+  #find + .acct-pill { display: none; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
+  .app-header #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
+  #heading { flex-wrap: wrap; gap: 0; padding: 4px 4px 8px 16px; }
+  #heading .pane-heading-text { order: 1; flex-basis: 100%; }
   #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
+  #side-filter-picker .header-picker-menu::before { content: ""; display: block; width: 32px; height: 4px; margin: 4px auto 8px; border-radius: 2px; background: var(--line); } /* the grab handle: drag it down to close */
   #side-filter-picker [aria-label="Group by"] { display: none; }
   #side-filter-picker .acct-opt { min-height: 44px; font-size: 15px; }
 }
@@ -1351,3 +1405,23 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .restore-pane.blocked { opacity: .55; }
 .restore-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .restore-actions button { min-height: 40px; padding: 0 14px; border-radius: 6px; }
+@media (max-width: 1099.98px) { .app-header > #settings-open { display: none; } }
+/* Scratch's gallery fills its page from under the header to the screen's foot, a phone's tab bar
+   floating over it (scratch.html leaves room under the last card): the page keeps the side
+   gutters (a phone's edge swipe starts in the left one), the gallery its top and foot. A phone
+   drops the page head; Back is that swipe, or ☰. */
+#dash-page:has(> .scratch-frame) { display: flex; flex-direction: column; height: 100%; padding-block: 0; }
+#dash-page:has(> .scratch-frame) .landing-head { padding-top: 24px; }
+@media (max-width: 1099px) { #dash-page:has(> .scratch-frame) .landing-head { display: none; } #landing:has(> #dash-page > .scratch-frame) { padding-bottom: 0; } }
+/* A spinner behind the frame until the gallery paints over it (a frame reloads on every visit). */
+.scratch-frame { display: block; flex: 1; min-height: 0; width: 100%; border: 0;
+  background: center 96px / 28px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%238a948f' stroke-width='2.5' stroke-dasharray='42 15'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.8s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E"); }
+/* Scratch's viewer: a gallery page over the whole app, a slim bar atop it clear of the notch.
+   A phone keeps the page's left edge for the swipe back (app.js), as the gallery's gutter does. */
+#scratch-viewer { inset: 0; width: 100%; height: 100%; max-height: none; padding: 0; border: 0; border-radius: 0; }
+#scratch-viewer[open] { display: flex; flex-direction: column; }
+#scratch-viewer .dialog-heading { flex: none; gap: 4px; height: calc(48px + env(safe-area-inset-top)); margin: 0; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
+#viewer-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#viewer-out { flex: none; font-size: 14px; color: var(--accent); }
+#scratch-viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; } /* a page with no background of its own reads as in a tab */
+@media (max-width: 1099px) { #scratch-viewer::after { content: ""; position: absolute; inset: calc(48px + env(safe-area-inset-top)) auto 0 0; width: 16px; } }

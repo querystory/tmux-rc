@@ -101,6 +101,7 @@
   <link rel="modulepreload" href="/v/0/m/pane-model.js">
   <link rel="modulepreload" href="/v/0/m/url-state.js">
   <link rel="modulepreload" href="/v/0/m/overscroll.js">
+  <link rel="modulepreload" href="/v/0/m/drag-dismiss.js">
   <link rel="modulepreload" href="/v/0/m/keys.js">
   <link rel="modulepreload" href="/v/0/m/sidebar.js">
   <link rel="modulepreload" href="/v/0/m/usage.js">
@@ -111,18 +112,19 @@
 <body>
   <div id="app">
     <header class="app-header">
-      <button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button>
-      <!-- A phone's list screen is one iOS-style large-title row: this title, its live dot
-           and the actions. It names the app, not "Sessions": the list holds panes and
-           agents, which belong to sessions. The brand stands in on the dashboard. -->
-      <h1 id="list-title">tmux-rc</h1>
+      <!-- A phone's list screen is Gmail's: one pill, ☰ (the drawer, its dot the live status),
+           search and the filter button; New session floats over the list (style.css). The
+           dashboard shows the brand instead of search; a pane has no header (its Back heads #heading). -->
+      <button id="menu-open" class="icon-button" aria-label="Menu" title="Menu" aria-haspopup="dialog" aria-controls="drawer"></button>
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
-      <span id="connection" role="status">Connecting</span>
-      <!-- A phone's Chat and mic sit in its tab bar, in thumb's reach; the header keeps New
-           window and the gear, which opens Settings as the sidebar's row does. -->
-      <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
+      <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
+      <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div>
+      <button id="new-window" class="icon-button" aria-label="New session" title="New session" disabled></button>
+      <!-- Settings: the wide sidebar's row; a phone opens it from the drawer. -->
       <button id="settings-open" class="icon-button" aria-label="Settings" title="Settings"></button>
     </header>
+    <!-- Outside the header, which a phone's pane hides, so the status is still read out there. -->
+    <span id="connection" role="status">Connecting</span>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
     <!-- Wide screens: #sessions is the sidebar. app.js moves the header's brand and buttons
@@ -133,12 +135,10 @@
            #sessions is the scroller (style.css). -->
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
       <div id="sb-scroll">
-      <!-- The places you go, as rows: Dashboard and Settings (app.js moves Settings in). Chat and
+      <!-- The places you go, as rows: Dashboard, Scratch (agents' previews, in the content area) and Settings (app.js moves Settings in). Chat and
            Voice are toggles, icons in the head. -->
-      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button></div>
-      <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div>
-      <!-- Search and the list's filter button (sidebar.js adds it, in both layouts) share a row. -->
-      <div id="find"><div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div></div></div>
+      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><a id="scratch-nav" class="icon-button" href="#view=scratch" aria-label="Scratch" title="Scratch" hidden></a></div>
+      <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div></div>
       <button type="button" id="restore" hidden></button>
       <div id="pane-list"></div>
       <div id="side-list" class="sb-only"></div>
@@ -167,12 +167,13 @@
            screen the header spans both columns, so a title there floats above the sidebar
            it does not describe. Kept as ONE node for both layouts — narrow stacks it above
            the tabs exactly as the old header row read, wide sits it on the tab line. -->
-      <div id="heading" hidden><div class="pane-heading-text"><h1 id="pane-title" tabindex="-1"></h1><p id="pane-location"></p></div>
+      <div id="heading" hidden><button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button><div class="pane-heading-text"><h1 id="pane-title" tabindex="-1"></h1><p id="pane-location"></p></div>
         <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" data-view="summary" aria-pressed="true">Overview</button><button type="button" data-view="terminal" aria-pressed="false">Terminal</button></div><select id="review-layout" aria-label="Pane layout" aria-description="Applies to all panes · remembered in this browser"></select></div>
-        <details id="pane-menu" class="header-picker"><summary id="pane-menu-button" class="icon-button" aria-label="More actions" title="More actions"></summary><div class="header-picker-menu"><label id="fit-pane" hidden><input type="checkbox" id="fit-toggle">Fit to my screen</label><button id="kill-pane" type="button"></button><button id="move-pane" hidden type="button"></button><hr id="expunge-rule" hidden><button id="expunge-pane" hidden type="button"></button></div></details>
+        <details id="pane-menu" class="header-picker"><summary id="pane-menu-button" class="icon-button" aria-label="More actions" title="More actions"></summary><div class="header-picker-menu"><div id="fit-row" hidden><span>Fit this pane</span><span id="fit-pane" class="seg" role="group" aria-label="Fit this pane"></span></div><button id="kill-pane" type="button"></button><button id="move-pane" hidden type="button"></button><hr id="expunge-rule" hidden><button id="expunge-pane" hidden type="button"></button></div></details>
         <button id="close-pane" class="icon-button" aria-label="Close" title="Close"></button>
       </div>
       <div id="review-divider" role="separator" tabindex="0" aria-label="Resize overview" hidden></div>
+      <button id="overview-toggle" class="icon-button" aria-controls="overview" hidden></button>
       <div id="overview" class="scroller">
         <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="session-summary" hidden></p><p id="metadata"></p></section>
         <section id="question" hidden><h2 id="prompt"></h2><p id="question-items" class="q-items"></p><div id="ask-link"></div><details id="question-command" class="q-command" hidden><summary>Details</summary><pre class="q-cmd"></pre></details><div id="offers" role="group" aria-label="Replies the agent offered"></div><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
@@ -185,7 +186,7 @@
       </div>
       <div id="terminal" hidden>
         <div class="terminal-toolbar"><span id="terminal-status" role="status">Connecting</span><span id="scroll-cue" role="status" hidden></span><button id="zoom-out" class="icon-button" aria-label="Smaller terminal text" title="Smaller terminal text"></button><output id="font-size">13</output><button id="zoom-in" class="icon-button" aria-label="Larger terminal text" title="Larger terminal text"></button><button id="click-mode" class="icon-button"></button><button id="key-mode" class="icon-button"></button><button id="tail" class="icon-button" aria-label="Latest output" title="Latest output"></button></div>
-        <div id="terminal-scroll" tabindex="0" aria-label="Terminal output"><pre id="capture"></pre></div>
+        <div id="terminal-scroll" tabindex="0" aria-label="Terminal output"><div id="earlier-cue" role="status" hidden></div><pre id="earlier"></pre><pre id="capture"></pre></div>
         <div id="session-chips" aria-label="Session status"></div>
       </div>
       <footer id="composer">
@@ -200,15 +201,21 @@
       <div id="fleet-handle" role="separator" aria-orientation="horizontal" aria-label="Resize the fleet chart" title="Drag to resize. Double-click to fold or unfold." tabindex="0" hidden></div>
       <section id="fleet" aria-label="Fleet chart" hidden></section>
     </section>
-    <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button><button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
-    <dialog id="launch-dialog" aria-labelledby="launch-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><div class="panel-body"><p class="panel-sub">Start an agent or shell in a new tmux window.</p><div class="launch-row"><label for="launch-session">Session</label><select id="launch-session" required></select></div><div id="launch-new" hidden><label for="launch-dir">Directory</label><input id="launch-dir" list="launch-dirs" value="~" autocomplete="off" autocapitalize="off" spellcheck="false"><datalist id="launch-dirs"></datalist><label for="launch-name">Session name</label><input id="launch-name" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9_\-]{1,64}"></div><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></div></dialog>
+    <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="live-mode" class="icon-button" aria-label="Voice" title="Voice" hidden></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
+    <!-- A phone's ☰: a drawer from the left, the places you go as rows, then the panes and
+         scratch pages you were last at (app.js fills them). -->
+    <dialog id="drawer" aria-label="Menu" tabindex="-1"><div class="drawer-brand"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></div><nav id="drawer-nav"></nav><div id="drawer-panes" class="drawer-recent"></div><div id="drawer-scratch" class="drawer-recent"></div></dialog>
+    <!-- Scratch's viewer: a gallery page over the whole app, under a slim bar (app.js adds its frame). -->
+    <dialog id="scratch-viewer" aria-labelledby="viewer-title" tabindex="-1"><div class="dialog-heading"><button type="button" id="close-viewer" class="icon-button" aria-label="Back to Scratch" title="Back to Scratch"></button><h2 id="viewer-title"></h2><a id="viewer-out" target="_blank" rel="noopener">Open in browser ↗</a></div></dialog>
+    <dialog id="launch-dialog" aria-labelledby="launch-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New session</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><div class="panel-body"><p class="panel-sub">Start an agent or shell in a new tmux window.</p><div class="launch-row"><label for="launch-session">Session</label><select id="launch-session" required></select></div><div id="launch-new" hidden><label for="launch-dir">Directory</label><input id="launch-dir" list="launch-dirs" value="~" autocomplete="off" autocapitalize="off" spellcheck="false"><datalist id="launch-dirs"></datalist><label for="launch-name">Session name</label><input id="launch-name" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9_\-]{1,64}"></div><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></div></dialog>
     <!-- Settings: what you set once, not a place you go (docs/design/sidebar.md). Wide, a panel
          beside the sidebar; a phone, a sheet. -->
     <dialog id="settings" aria-labelledby="settings-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="settings-title">Settings</h2><button type="button" id="close-settings" class="icon-button" aria-label="Close" title="Close"></button></div><div class="panel-body">
       <h3>Accounts</h3><div class="set-card"><div id="settings-accounts"></div><button type="button" id="accounts-open" class="set-row set-link">Manage accounts…</button></div>
       <section><h3>Notifications</h3><div class="set-card"><div class="set-row"><span><b>Push notifications</b><small>Alert this device when a pane needs you.</small></span><button type="button" id="push" class="switch" aria-pressed="false" hidden></button></div></div></section>
       <h3>Appearance</h3><div class="set-card"><div class="set-row"><b>Theme</b><span id="theme" class="seg" role="group" aria-label="Theme"></span></div><div class="set-row"><b>Plan usage</b><span id="usage-mode" class="seg" role="group" aria-label="Plan usage"></span></div><div class="set-row"><span><b>Always show panes that need you</b><small>Even when a filter leaves them out (they are marked so).</small></span><span id="pin-needs" class="seg" role="group" aria-label="Always show panes that need you"></span></div><div id="sort-row" class="set-row"><b>Sort by</b><span id="sort" class="seg" role="group" aria-label="Sort by"></span></div></div>
-      <section><h3>Help</h3><div class="set-card"><a id="docs" class="set-row set-link" href="/docs/" hidden>Documentation</a></div></section>
+      <h3>Terminal</h3><div class="set-card"><div class="set-row"><span><b>Fit to my screen</b><small>Size the pane you view to this screen. Auto makes full-screen apps tall too, so their output scrolls. With a terminal attached, only the pane menu's choice applies.</small></span><span id="fit-default" class="seg" role="group" aria-label="Fit to my screen"></span></div><label class="set-row"><b>Tall height</b><input id="tall-rows" type="number" min="100" max="2000" step="50" inputmode="numeric"></label></div>
+      <section><h3>More</h3><div class="set-card"><a id="scratch" class="set-row set-link" href="/scratch/" hidden>Scratch pages</a><a id="docs" class="set-row set-link" href="/docs/" hidden>Documentation</a></div></section>
     </div></dialog>
     <dialog id="expunge-dialog" aria-labelledby="expunge-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="expunge-title">Expunge session</h2><button type="button" id="close-expunge" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="expunge-what"></p><p id="expunge-caveat">Copies already sent via OpenTelemetry, or kept by Anthropic or OpenAI, are not affected.</p><button type="button" id="expunge-confirm"></button><button type="button" id="expunge-cancel">Cancel</button></dialog>
     <dialog id="move-dialog" aria-labelledby="move-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="move-title">Move to another account</h2><button type="button" id="close-move" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="move-what" role="status"></p><div id="move-choices" class="choice-list" aria-label="Account"></div></dialog>

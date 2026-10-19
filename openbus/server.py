@@ -28,8 +28,9 @@ import threading
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
+from functools import partial
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
@@ -65,7 +66,7 @@ if os.environ.get("TMUXRC_PREFER_IPV4", "1") != "0":
         _getaddrinfo(*a, **kw), key=lambda info: info[0] != socket.AF_INET
     )
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
+from fastapi import FastAPI, HTTPException, Query, Request, UploadFile  # noqa: E402
 from fastapi.responses import (  # noqa: E402
     HTMLResponse,
     PlainTextResponse,
@@ -75,10 +76,21 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import accounts, agent_history, expunge, fit, restore, telemetry, tmux  # noqa: E402
+from . import (  # noqa: E402
+    accounts,
+    agent_history,
+    expunge,
+    fit,
+    restore,
+    scratch,
+    scratch_markdown,
+    scratch_sidecars,
+    telemetry,
+    tmux,
+)
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .config import json_list  # noqa: E402
-from .history import History, default_path  # noqa: E402
+from .history import History, default_path, pane_key  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import PlanUsage  # noqa: E402
@@ -441,23 +453,6 @@ class ClientErrorBody(BaseModel):
     message: str | None = None  # free-text — to OTel only under TMUXRC_QSDEBUG
 
 
-def _trusted_user(request: Request | None) -> str | None:
-    """The tunnel owner's email, honored ONLY from a loopback peer (the same trust
-    model as _audit): the tunnel-client connects from localhost having validated the
-    identity via IAP and stripped spoofed inbound copies. A LAN client's claim is
-    unverified, so we return None rather than record it — live telemetry's `actor` is a
-    billing-grade attribution key, not a forensic breadcrumb, so an unverifiable claim
-    must simply be absent (the anonymous `session` still carries the usage).
-
-    `request` is Optional: live_frame defaults it to None for unit tests, and no actor
-    can be attributed without one — return None rather than raise."""
-    if request is None:
-        return None
-    peer = request.client.host if request.client else "?"
-    claimed = request.headers.get("x-tunnel-user")
-    return claimed if (claimed and peer in ("127.0.0.1", "::1")) else None
-
-
 def _ua_class(ua: str | None) -> str | None:
     """Coarse platform bucket for a client-error report — the ANSWER to "on what
     platforms does the mic fail" without storing the full (fingerprintable, free-text)
@@ -536,9 +531,12 @@ app = FastAPI(
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
 # The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
 # busy pane's ~100KB/s into ~22KB/s. minimum_size skips tiny replies (no-change frames).
-from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+from starlette.middleware import gzip  # noqa: E402
 
-app.add_middleware(GZipMiddleware, minimum_size=512)
+app.add_middleware(gzip.GZipMiddleware, minimum_size=512)
+# Video and audio come compressed already, and gzip over a 206 garbles its Content-Range.
+# The responder reads this tuple on every response, so extending it is the hook.
+gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/")
 
 # Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
@@ -571,8 +569,17 @@ async def no_cache(request, call_next):
     # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
     if path.startswith(("/scratch/", "/docs/mocks/")):
-        resp.headers["Content-Security-Policy"] = (
-            "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")
+        resp.headers["Content-Security-Policy"] = scratch.SANDBOX
+        # A browser opening a page from a folder of scratch, in a tab or the app's viewer (not
+        # the gallery, a loose file, a thumbnail or an asset, nor an agent's curl checking its
+        # page is served) is a visit, for the ☰ drawer's Recent.
+        inner = path.startswith("/scratch/") and request.url.path.count("/") > 2
+        folder = path.split("/")[2] if inner else ""
+        if folder and request.headers.get("sec-fetch-dest") in ("document", "iframe") and (
+                resp.status_code == 200):
+            await asyncio.to_thread(_visited, "scratch", folder)
+    else:  # nor may such a page frame the app or the API, whose answers it would then show
+        resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
     # StaticFiles redirects a directory without its slash to an absolute URL built from
     # the request's own scheme — http:// behind the TLS-terminating tunnel, which the
     # phone can't reach (#174). Make same-host redirects path-only.
@@ -621,7 +628,8 @@ def get_version():
     keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
                for m in live_providers.models() if not m.available()]
     return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
-            "live_models": offered + keyless, "docs": DOCS_MOUNTED}
+            "live_models": offered + keyless, "docs": DOCS_MOUNTED,
+            "scratch": bool(_scratch_dir)}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -939,7 +947,7 @@ async def live_frame(
     stamped = False
     while True:
         try:
-            text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
+            text, top, screen = await asyncio.to_thread(tmux.capture_live, pane_id)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
         # Presence ONCE per round, on the FIRST successful capture: a viewer of a live
@@ -950,8 +958,7 @@ async def live_frame(
         if not stamped:
             _note_live_poll(pane_id)
             stamped = True
-        data = text.encode()  # encode once — reused for the hash and the byte count
-        h = hashlib.md5(data).hexdigest()  # full digest: a truncated hash could collide
+        h = tmux.frame_id(text, top, screen)  # full digest: a truncated hash could collide
         # a changed frame onto the client's hash and stall the stream
         changed = h != frame
         if changed or time.monotonic() >= deadline:
@@ -961,11 +968,35 @@ async def live_frame(
                 session,
                 time.monotonic() - started,
                 changed,
-                len(data) if changed else None,
+                len(text.encode()) if changed else None,
             )
-            # changed ⇒ send the new colored frame; else unchanged, client re-holds.
-            return {"frame": h, "text": text} if changed else {"frame": h}
+            # changed ⇒ send the new colored frame; else unchanged, client re-holds. Every
+            # answer says whether the app is full screen, so the view's Auto fit follows one
+            # coming and going (openbus/fit.py), even when that leaves the text unchanged.
+            alt = await asyncio.to_thread(fit.alternate, pane_id)
+            new = {"text": text, "top": top, "screen": screen} if changed else {}
+            return {"frame": h, "alt": alt, **new}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
+
+
+# Older history, on demand (docs/design/live-view.md "Loading earlier history"). A request
+# is capped so a scroll to the top can't ask tmux for a 50,000-row capture in one go.
+HISTORY_MAX_LINES = 1000
+
+
+@app.get("/api/panes/{pane_id}/history")
+async def pane_history(pane_id: str, before: Annotated[int, Query(ge=0, le=2**31)],
+                       lines: Annotated[int, Query(ge=1, le=HISTORY_MAX_LINES)] = 500):
+    """Colored rows [before - lines, before) by absolute row (0 = the oldest kept), for the
+    live view to prepend above its frame: `before` is the frame's `top`, then each chunk's
+    `start`. `wraps`: the last row's line continues in row `before`. `screen`: the numbering
+    they come from, as the live frame reports it. Read-only: captures only, never copy mode."""
+    try:
+        text, start, wraps, screen = await asyncio.to_thread(
+            tmux.capture_history, pane_id, before, lines)
+    except subprocess.CalledProcessError as e:
+        raise _pane_err(e) from None
+    return {"text": text, "start": start, "wraps": wraps, "screen": screen}
 
 
 def _note_live_poll(pane_id: str) -> None:
@@ -1002,7 +1033,7 @@ def _emit_live_round(
             hold_s=hold_s,
             changed=changed,
             raw_bytes=raw_bytes,
-            actor=_trusted_user(request),
+            actor=telemetry.tunnel_user(request) if request else None,
         )
     except Exception:  # live telemetry must never break the stream
         logger.debug("live emit failed", exc_info=True)
@@ -1166,7 +1197,9 @@ def click(pane_id: str, body: ClickBody, request: Request):
 
 class FitBody(BaseModel):
     cols: int = Field(ge=1)
-    force: bool = False  # "Fit to my screen": fit even with a terminal attached
+    force: bool = False  # a choice made for this pane: fit even with a terminal attached
+    mode: Literal["width", "tall", "auto", "off"] = "width"
+    rows: int = Field(default=0, ge=0, le=2000)  # the tall height
 
 
 @app.post("/api/panes/{pane_id}/fit")
@@ -1175,9 +1208,9 @@ def fit_width(pane_id: str, body: FitBody, request: Request):
     opens, on zoom or resize, and on the toggle. A POST, never part of the live GET: it
     resizes a real terminal, and the preview sandbox relies on GETs changing nothing.
     `attached` says a terminal is attached, the one case the toggle matters."""
-    detail = f"cols={body.cols} force={body.force}"
+    detail = f"cols={body.cols} force={body.force} mode={body.mode} rows={body.rows}"
     try:
-        attached = fit.view(pane_id, body.cols, body.force)
+        attached = fit.view(pane_id, body.cols, body.force, body.mode, body.rows)
     except subprocess.CalledProcessError as e:
         _audit(request, "fit", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
         raise _pane_err(e) from None
@@ -1462,7 +1495,7 @@ def new_session(body: NewSessionBody, request: Request):
 @app.post("/api/panes/{pane_id}/select")
 def select(pane_id: str, request: Request):
     """Focus this pane in tmux itself — tapping a card on the phone follows on host."""
-    if tmux.find_pane(pane_id) is None:
+    if (pane := tmux.find_pane(pane_id)) is None:
         _audit(request, "select_pane", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
     try:
@@ -1471,6 +1504,10 @@ def select(pane_id: str, request: Request):
         _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "select_pane", pane_id)
+    # The app selects the pane it opens: a visit, keyed as History keys a pane, so a recycled
+    # id (or one after a reboot) is some other pane; by its own pid, which the watcher may not
+    # know yet (a pane just launched).
+    _visited("pane", pane_key(tmux.server_uid(), pane.id, pane.pid))
     return {"ok": True}
 
 
@@ -1726,7 +1763,7 @@ async def client_error(request: Request):
             # client-supplied class. Same loopback trust model as the audit actor.
             ua_class=_ua_class(request.headers.get("user-agent")),
             session=body.session,
-            actor=_trusted_user(request),
+            actor=telemetry.tunnel_user(request),
             message=body.message,
         )
     except Exception:  # the report telemetry must never break the request
@@ -1965,7 +2002,7 @@ def _to_png(data: bytes) -> bytes:
     return buf.getvalue()
 
 
-def _mount_static(prefix: str, directory: str) -> None:
+def _mount_static(prefix: str, directory: str, files=StaticFiles) -> None:
     """Serve a directory read-only at prefix/, before the "/" mount so it wins. StaticFiles
     confines lookups to the directory (no ../ or symlink escape) and lists nothing.
     Bare prefix (no trailing slash) 404s under the real ASGI server — the mount only
@@ -1979,7 +2016,7 @@ def _mount_static(prefix: str, directory: str) -> None:
         return RedirectResponse(prefix + "/" + (f"?{query}" if query else ""))
 
     app.add_api_route(prefix, slash, include_in_schema=False)
-    app.mount(prefix, StaticFiles(directory=directory, html=True), name=prefix.strip("/"))
+    app.mount(prefix, files(directory=directory, html=True), name=prefix.strip("/"))
 
 
 # Docs site (Hugo build) at /docs. The site is built with --baseURL /docs/ (see
@@ -2005,7 +2042,39 @@ if DOCS_MOUNTED:
 _scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
 _scratch_dir = _scratch_dir if _scratch_dir and Path(_scratch_dir).is_dir() else None
 if _scratch_dir:
-    _mount_static("/scratch", _scratch_dir)
+    @app.get("/scratch/", include_in_schema=False)
+    async def scratch_listing() -> HTMLResponse:
+        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount."""
+        watcher = app.state.watcher
+        states = list(watcher.states)
+        return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
+            Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"],
+            WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher),
+            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed,
+                                                  getattr(watcher, "use_llm", False)),
+            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
+
+    _mount_static("/scratch", _scratch_dir, partial(scratch_markdown.Files, web=WEB_DIR))
+
+
+def _visited(kind: str, key: str) -> None:
+    """Note what the user opened, for the ☰ drawer's Recent (History.visit)."""
+    if history := getattr(app.state, "history", None):
+        history.visit(kind, key)
+
+
+@app.get("/api/recent")
+def recent(n: Annotated[int, Query(ge=1, le=50)] = 5) -> dict:
+    """The ☰ drawer's Recent: the panes and scratch pages last opened, newest first, those
+    still there. Read only as the drawer opens."""
+    history = getattr(app.state, "history", None)
+    seen = history.visits if history else lambda _kind: []
+    watcher, server = app.state.watcher, tmux.server_uid()
+    alive = {pane_key(server, s["pane_id"], watcher.pane_birth(s["pane_id"])): s["pane_id"]
+             for s in watcher.states}
+    pages = scratch.opened(Path(_scratch_dir), seen("scratch"), n) if _scratch_dir else []
+    panes = [{"pane_id": alive[k], "at": at} for k, at in seen("pane") if k in alive]
+    return {"panes": panes[:n], "scratch": pages}
 
 
 def _bind() -> tuple[str, int]:

@@ -104,6 +104,24 @@ def test_attached_terminal_needs_the_toggle(pane, session):
         assert restored(pane)
 
 
+def test_a_terminal_nobody_has_used_lately_does_not_count(pane, monkeypatch):
+    """A desk terminal left attached for days must not hold the window at its size."""
+    fit.view(pane, 60, mode="tall", rows=300)
+    with attached("s"):
+        monkeypatch.setattr(fit, "ACTIVE_CLIENT_SECONDS", -60)  # its last use is now "old"
+        fit.release_attached(T.list_panes())
+        assert size(pane) == "60x300 60x300"  # not given back
+        assert fit.view(pane, 70, mode="tall", rows=300) is False  # and it still fits
+        assert size(pane) == "70x300 70x300"
+
+
+def test_in_use_counts_only_recent_clients(monkeypatch):
+    monkeypatch.setattr(fit.time, "time", lambda: 10_000.0)
+    recent, stale = 10_000 - 60, 10_000 - fit.ACTIVE_CLIENT_SECONDS - 1
+    assert fit._in_use(f"{recent} desk,{stale} old desk,") == {"desk"}
+    assert fit._in_use("") == set()
+
+
 def test_a_terminal_attaching_gets_the_window_back(pane):
     fit.view(pane, 60)
     fit.release_attached(T.list_panes())  # nobody attached: kept
@@ -135,6 +153,39 @@ def test_a_window_size_the_user_chose_is_never_overwritten(pane):
         assert size(pane).endswith(" ")  # and the window is no longer ours
 
 
+def test_tall_sets_the_height_and_width_only_gives_it_back(pane):
+    fit.view(pane, 60, mode="tall", rows=300)
+    assert size(pane) == "60x300 60x300"
+    fit.view(pane, 60, mode="width")  # back to width only: the height goes back first
+    assert size(pane) == "60x50 60"
+
+
+def test_auto_is_tall_only_on_the_alternate_screen(pane):
+    fit.view(pane, 60, mode="auto", rows=300)  # `sleep`: no alternate screen
+    assert size(pane) == "60x50 60"
+    full = T._run(["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "s:",
+                   "tput smcup; sleep 60"]).strip()  # a full-screen app, as Claude Code is
+    while T._run(["display-message", "-p", "-t", full, "#{alternate_on}"]).strip() != "1":
+        pass
+    fit.view(full, 60, mode="auto", rows=300)
+    assert size(full) == "60x300 60x300"
+
+
+def test_a_height_the_user_changed_is_theirs(pane):
+    fit.view(pane, 60, mode="tall", rows=300)
+    T._run(["resize-window", "-y", "100", "-t", pane])
+    fit.view(pane, 60, mode="tall", rows=300)
+    assert size(pane) == "60x100 "
+
+
+def test_off_for_the_pane_gives_it_back(pane):
+    fit.view(pane, 60, mode="tall", rows=300)
+    fit.view(pane, 60, mode="off")  # the default being Off changes nothing...
+    assert size(pane) == "60x300 60x300"
+    fit.view(pane, 60, force=True, mode="off")  # ...Off picked for this pane gives it back
+    assert restored(pane) and size(pane).startswith("200x50")
+
+
 def test_endpoint_audits(pane, monkeypatch):
     audits = []
     monkeypatch.setattr(S, "_audit", lambda _r, action, pane_id, detail="", outcome="ok":
@@ -143,8 +194,8 @@ def test_endpoint_audits(pane, monkeypatch):
     assert client.post(f"/api/panes/{pane}/fit", json={"cols": 70}).json() == {"attached": False}
     assert size(pane) == "70x50 70"
     assert client.post("/api/panes/%25999/fit", json={"cols": 70}).status_code == 404
-    assert audits == [("fit", "cols=70 force=False", "ok"),
-                      ("fit", "cols=70 force=False", "error: tmux rc 1")]
+    detail = "cols=70 force=False mode=width rows=0"
+    assert audits == [("fit", detail, "ok"), ("fit", detail, "error: tmux rc 1")]
 
 
 @pytest.fixture

@@ -20,14 +20,17 @@ import time
 from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 
 # Before openbus.server loads .env: an existing variable wins over the file, so an empty
 # one keeps a checkout's real telemetry endpoint from receiving demo traffic and its own
 # launcher menu (labels, icons) and keyword map out of the shots — empty means the shipped
 # defaults. The agent-history root points nowhere so New session's directory suggestions
-# never carry real paths.
+# never carry real paths. Scratch's mount is decided at import, so its dir must exist now
+# (install() fills it).
 os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="", TMUXRC_WORKSTREAMS="",
-                  AGENT_HISTORY_DIR="/nonexistent-demo-agent-history")
+                  AGENT_HISTORY_DIR="/nonexistent-demo-agent-history",
+                  TMUXRC_SCRATCH_DIR=tempfile.mkdtemp(prefix="tmux-rc-demo-scratch-"))
 
 import uvicorn
 from fastapi.responses import JSONResponse
@@ -156,12 +159,20 @@ def install() -> None:
         accounts.report = lambda *_: {**demo.accounts(TWO_ACCOUNTS, _since_sign_in()),
                                       "shared": accounts.SHARED}
     tmux.capture_pane = _capture
+    tmux.capture_live = lambda pane_id: (_capture(pane_id), 0, "120")  # no history to page back
     if restore and hasattr(demo, "restore_seams"):
         for name, seam in demo.restore_seams().items():
             setattr(restore, name, seam)
     # A fixed model menu, so the chat button shows on every machine whatever keys it holds;
     # the socket itself is dropped (the screenshot browser stubs it), so no provider is called.
     server.DOCS_MOUNTED = True  # the Docs link shows as on a real deploy, built or not
+    if hasattr(demo, "seed_scratch") and hasattr(server, "scratch"):  # the fleet's previews
+        demo.seed_scratch(Path(os.environ["TMUXRC_SCRATCH_DIR"]))
+        server.scratch.agent_history = SimpleNamespace(
+            writers=lambda _pattern, due: {n: demo.SCRATCH_WRITERS[n] for n in due
+                                           if n in demo.SCRATCH_WRITERS},
+            get_many=lambda _ids: {}, reconcile=lambda: None)
+        server.scratch_sidecars.browser = lambda: None  # thumbnails are seeded, never shot
     live.enabled = lambda: True
     live.offered = lambda: [live_providers.LiveModel("Demo chat", "demo", "anthropic")]
     live_providers.models = list

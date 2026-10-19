@@ -1,0 +1,21 @@
+{
+  "description": "Claude Code's /mcp list (Manage MCP servers): an arrow picker whose rows carry a ✔/✘ state mark before the server name. Read as a cursor question with its arrow keymap. Synthetic.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● I'll check the connectors next.                                                                   \n                                                                                                    \n✻ Worked for 4s · done 9:12 AM                                                                      \n                                                                                                    \n────────────────────────────────────────────────────────────────────────────────────────────────────\n Manage MCP servers                                                                                 \n 5 servers                                                                                          \n                                                                                                    \n   demo.ai                                                                                          \n   ✔ demo.ai Docs                      8 tools                                                      \n ❯ ✔ demo.ai Mail                      30 tools                                                     \n   ✘ demo.ai Calendar                  failed                                                       \n   ✔ demo.ai Chat                      27 tools                                                     \n   → Show unused connectors           3 hidden                                                      \n                                                                                                    \n   Built-in MCPs (always available)                                                                 \n   ✔ demo-browser                      22 tools                                                     \n                                                                                                    \n https://example.com/docs/mcp for help                                                              \n ↑↓ to navigate · Enter to confirm · Esc to cancel                                                  ",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "cursor",
+      "keymap": {
+        "next": "Down",
+        "prev": "Up",
+        "select": "Enter"
+      },
+      "prompt": "Manage MCP servers"
+    },
+    "headline": "Showing the MCP server manager to pick a server"
+  }
+}

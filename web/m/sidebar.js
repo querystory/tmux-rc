@@ -10,6 +10,7 @@
 // Phones never draw this list (theirs is renderPhoneList in app.js), but their Needs-you rows
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
+import { dragToDismiss } from "/m/drag-dismiss.js";
 import { Composer, enterSubmits } from "/m/composer.js";
 import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
 import { paneLinks, askLink } from "/pr-links.js";
@@ -85,7 +86,7 @@ export function setupSidebar(ctx) {
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
   // The rail's search is the box's own icon: focusing the box (a click, or Tab) expands the sidebar.
-  const search = document.querySelector("#sessions .search"), input = search.querySelector("input");
+  const search = document.querySelector("#find .search"), input = search.querySelector("input");
   search.addEventListener("click", () => input.focus());
   input.addEventListener("focus", () => { if (prefs.rail) { prefs.rail = false; rerender(); } });
 
@@ -105,6 +106,7 @@ export function setupSidebar(ctx) {
   picker.innerHTML = `<summary title="Filter" aria-label="Filter panes" data-n="">${licon("filter", 16)}</summary>`;
   menu.className = "header-picker-menu"; picker.append(menu);
   dismissable(picker);
+  dragToDismiss(menu, { onClose: () => { picker.open = false; } }); // a phone's bottom sheet
   // A group of the menu: options are buttons whose aria-pressed draws the check (and, for the
   // states, a dot in the state's colour, as their chips have). Options that come and go (the
   // agents and sessions present) are redrawn only when they change, so a focused one keeps focus.
@@ -250,8 +252,8 @@ export function setupSidebar(ctx) {
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
       if (o.part === "text") return text(el, o.offer);
-      const label = o.link ? "Open link" : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
-      text(el, label); el.title = o.link ? o.link.text : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
+      const label = o.link ? `${o.link.text || "Open link"} ↗` : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
+      text(el, label); el.title = o.link ? o.link.href : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
       el.classList.toggle("picked", !o.reply && !o.link && o.part !== "copy" && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
@@ -260,10 +262,19 @@ export function setupSidebar(ctx) {
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
     form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
   }
-  // At a password prompt Reply opens the pane, whose own composer is the password field.
+  // On a phone, or at a password prompt, Reply opens the pane: its composer sits above the
+  // keyboard (and at a password prompt is the password field), scrolled to the question.
   function openReply(id, secret) {
-    if (secret && id !== ctx.active()) ctx.navigate(id);
-    if (id === ctx.active()) { document.getElementById(secret ? "secret" : "reply").focus(); return; } // its own composer is on screen
+    if ((secret || !ctx.wide()) && id !== ctx.active()) ctx.navigate(id);
+    if (id === ctx.active()) { // its own composer is on screen
+      const box = document.getElementById(secret ? "secret" : "reply");
+      box.focus({ preventScroll: true });
+      // Until the keyboard shrinks the pane there may be too little below the question to
+      // lift it to the top, so land again once it is up (if still replying to this pane).
+      const land = (behavior) => document.getElementById("question").scrollIntoView({ block: "start", behavior });
+      window.visualViewport?.addEventListener("resize", () => id === ctx.active() && document.activeElement === box && land("smooth"), { once: true });
+      return land("instant");
+    }
     replyTo = id;
     if (!drafts.has(id)) drafts.set(id, new Composer(repaint, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
     repaint();

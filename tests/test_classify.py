@@ -1481,6 +1481,24 @@ def test_a_block_quoted_draft_is_copyable_without_its_bars():
     assert result["copyables"] == [{"label": "Post", "text": draft}]
 
 
+def test_a_draft_with_a_hyperlink_is_copyable_as_shown():
+    # The capture keeps a terminal hyperlink's hidden target; the screen shows its label.
+    draft = "Hi Ana, could you look at acme/widgets#42 today?\nThe docs say why.\nSee src/[id].ts"
+    captured = draft.replace("acme/widgets#42", "[acme/widgets#42](https://example.com/42)").replace(
+        "docs", "[docs](https://example.com/Widget_(tool))").replace(
+        "src/[id].ts", "[src/[id].ts](https://example.com/file)")
+    quoted = "\n".join(f"  ▎ {row}" for row in captured.split("\n"))
+    screen = _auto_screen(f"Here's a message for Ana:\n\n{quoted}\n\n✻ Waiting for 1 agent")
+    def copies(text):
+        read = {"copyables": [{"label": "", "text": text}]}
+        return classify(_pane("claude"), screen, _llm(read)).get("copyables")
+
+    for text in (draft, captured):  # as shown, or with its real targets
+        assert copies(text) == [{"label": "", "text": text}]
+    assert copies(captured.replace("example.com/42", "example.com/99")) is None
+    assert copies(f"{captured}\n{draft}") is None  # each form must be on screen alone
+
+
 def test_claude_mode_is_read_off_the_status_line_and_given_to_the_model():
     seen = []
     classify(_pane("claude"), _auto_screen("Done."),  # its last row: "⏵⏵ auto mode on"
@@ -1821,3 +1839,59 @@ def test_antigravity_process_wins_over_backend_model(command):
         _llm({"tool": "gemini", "activity": "idle"}),
     )
     assert result["tool"] == "antigravity"
+
+
+def test_a_checked_row_is_still_the_highlighted_row():
+    # Claude Code's /mcp list marks each server's state (✔ connected, ✘ failed) before its
+    # name: that mark is drawing, like a radio's, not part of the row.
+    screen = ("\x1e[visible screen]\x1f\n Manage MCP servers\n\n ❯ ✔ demo Docs      8 tools\n"
+              "   ✘ demo Mail      0 tools\n")
+    rows = ["demo Docs", "demo Mail"]
+    visible = classify_mod._visible(screen)
+    assert classify_mod.highlighted_row(visible, "Manage MCP servers", rows) == "demo Docs"
+
+
+def test_an_offer_the_screen_cut_is_the_replys_whole_command():
+    """The model picks the offer; the reply's one-line code block it begins (word for word)
+    is its exact text, the part the screen wrapped onto later rows included."""
+    shown = _auto_screen("Run it:\n\n  ! terraform apply\n  /tmp/demo/p.tfplan\n\n  Then tell me.")
+    reply = "Run it:\n\n```\n! terraform apply /tmp/demo/p.tfplan\n```\n\nThen tell me."
+    for offer, sent in (("! terraform apply", "! terraform apply /tmp/demo/p.tfplan"),
+                        ("! terraform", "! terraform apply /tmp/demo/p.tfplan"),
+                        ("! terra", "! terra")):  # not a word boundary: kept as the model gave it
+        assert classify(_pane("claude"), shown, _llm({"offers": [offer]}), reply=reply)[
+            "offers"] == [sent]
+
+
+def test_copyables_the_model_marks_to_send_here_are_offers_in_its_order():
+    shown = _auto_screen("Run them in order:\n\n  ! make migrate\n\n  ! make deploy\n\n"
+                         "  Then tell me.")
+    model = {"copyables": [{"label": "First", "text": "make migrate", "send": "! make migrate"},
+                           {"label": "Second", "text": "make deploy", "send": "! make deploy"},
+                           {"label": "Log", "text": "make: done"}]}
+    assert classify(_pane("claude"), shown, _llm(model))["offers"] == ["! make migrate",
+                                                                       "! make deploy"]
+
+
+def test_an_offer_the_reply_has_whole_is_kept_over_a_longer_block():
+    shown = _auto_screen("Run:\n\n  ! make migrate\n\n  ! make migrate --check")
+    reply = "Run:\n\n```\n! make migrate\n```\n\n```\n! make migrate --check\n```"
+    spaced = reply + "\n\n```\n!  make migrate\n```"  # the same words twice: ambiguous too
+    for offers, said in ((["! make migrate", "! make migrate --check"], reply),
+                         (["! make"], reply), (["! make migrate"], spaced)):
+        assert classify(_pane("claude"), shown, _llm({"offers": offers}), reply=said)[
+            "offers"] == offers
+    assert classify(_pane("claude"), shown, _llm(  # not a list: no sends, the offers stand
+        {"copyables": True, "offers": ["! make migrate"]}))["offers"] == ["! make migrate"]
+
+
+def test_a_corrective_read_replaces_the_sends_with_the_offers():
+    screen = "Old approval?\n\x1e[visible screen]\x1f\n! make deploy\n› Ready"
+    send = {"copyables": [{"label": "Deploy", "text": "make deploy", "send": "! make deploy"}]}
+    for retry, want in (({"activity": "idle"}, None), ({"activity": "idle", **send},
+                                                       ["! make deploy"])):
+        replies = iter([{"tool": "codex", "question": {"prompt": "Old approval?"}, **send},
+                        {"tool": "codex", **retry}])
+        result = classify(_pane("codex"), screen,
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert "question" not in result and result.get("offers") == want

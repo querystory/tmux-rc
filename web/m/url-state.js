@@ -13,7 +13,7 @@
 
 const FILTERS = ["attention", "working", "finished", "idle"]; // the list's sections, in its order
 const OLD = { running: "working", recent: "finished", waiting: "attention" }; // earlier links' names
-export const PAGES = ["heat", "usage", "loops", "restore"]; // the dashboard's cards that open their own view
+export const PAGES = ["heat", "usage", "loops", "restore", "scratch"]; // the dashboard's cards that open their own view
 
 // `tab` is the view a pane opens on when the hash names none: the wide Layout picker's choice.
 export function parseHash(hash, tab = "summary") {
@@ -61,4 +61,15 @@ const list = (raw, name) => [...new Set((new RegExp(`(?:^|&)${name}=([^&]*)`).ex
 export function historyMode(fromHash, toHash) {
   const from = parseHash(fromHash), to = parseHash(toHash);
   return from.pane !== to.pane || from.dashboard !== to.dashboard || from.page !== to.page ? "push" : "replace";
+}
+
+// The Scratch page the gallery asks the app to show (app.js), as a URL, or null: only a path
+// under /scratch/ on the app's own origin. The parser resolves dot segments (%2e too) and
+// backslashes; an encoded slash, which the daemon decodes into a real one, is refused.
+export function scratchUrl(href, base) {
+  if (typeof href !== "string") return null;
+  try {
+    const url = new URL(href, base);
+    return url.origin === new URL(base).origin && url.pathname.startsWith("/scratch/") && !/%(2f|5c)/i.test(url.pathname) ? url.href : null;
+  } catch { return null; }
 }
