@@ -1,0 +1,17 @@
+{
+  "description": "Synthetic: a finished Claude Code turn with no side panel that hands the user a signed `! git tag` step, ending in a plain sentence rather than a question mark, above Claude's labeled rule and ASCII-pipe status rows. The hand-over is the agent blocked on the user, so a text Needs-you offering the command; the side-panel wording in the prompt must not talk the model out of it when no panel is shown.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ cut the 2.4 release\n\n● The changelog and version bump are merged (#88). Tagging needs your signing key, which this\n  session can't reach, so the tag is yours to push:\n\n  ! git tag -s v2.4.0 -m 'Release 2.4.0' && git push origin v2.4.0\n\n  Once it lands, the release workflow builds the archives and drafts the notes on its own.\n\n✻ Worked for 22s · done 4:05 PM · 1 monitor still running\n──────────────────────────────────────────────────────────────────────── release ─\n❯\n──────────────────────────────────────────────────────────────────────────────────\n  ~/src/fernway/lantern on main | Opus 5.5 | dev@example.com | telemetry: •stats\n  session: +64/-12 lines · 21% ctx · 52m · $3.10   |  history: 40 prompts | limit: 31%/12% 5h/7d\n  ⏵⏵ auto mode on · 1 monitor · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "User must push the signed release tag",
+    "offers": [
+      "! git tag -s v2.4.0 -m 'Release 2.4.0' && git push origin v2.4.0"
+    ]
+  }
+}

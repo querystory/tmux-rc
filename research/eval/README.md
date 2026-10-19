@@ -211,6 +211,7 @@ actually hit:
 | `111_claude_handoff_command_alone_offered` | synthetic: a `! command` alone on its row, then a sentence → text user-wait offering that command |
 | `112_claude_handoff_command_wrapped_across_rows` | synthetic: a long `! command` the screen wraps onto a second row, then a sentence → the whole command offered, its rows joined |
 | `114_claude_mcp_picker_checked_rows` | synthetic: `/mcp` arrow picker whose rows carry ✔/✘ marks → cursor question with its arrow keymap |
+| `128_claude_handoff_no_side_panel_no_question_mark` | synthetic: a signed `! git tag` handed over in a sentence, no `?`, no `[side panel]`, ASCII-pipe status rows → text user-wait offering the command |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
