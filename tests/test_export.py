@@ -134,6 +134,17 @@ def test_a_linked_state_file_is_refused(home, tmp_path):
     assert outside.read_text() == "{}"
 
 
+def test_an_import_never_replaces_a_place_it_left_out(home, monkeypatch, tmp_path):
+    """The archive's data/pages is this host's scratch: refused, before anything moves."""
+    archive = crafted(home, tarfile.TarInfo("data/pages/note.txt"), b"theirs")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(tmp_path / "new/.local/share/tmux-rc/pages"))
+    write(tmp_path / "new/.local/share/tmux-rc/pages/mine/index.html", "mine")
+    with pytest.raises(SystemExit, match="not in it"):
+        export.restore(archive)
+    assert (tmp_path / "new/.local/share/tmux-rc/pages/mine/index.html").read_text() == "mine"
+    assert not list((tmp_path / "new").glob("**/*.pre-import-*"))
+
+
 def test_only_agents_dirs_are_replaced_in_home(home):
     archive = crafted(home, tarfile.TarInfo("agents/.bashrc"), b"echo hi")
     with pytest.raises(SystemExit, match="no agent's dir"):

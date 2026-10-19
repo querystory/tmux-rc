@@ -273,13 +273,22 @@ def restore(src) -> list[str]:
             db.with_name(db.name + s) for s in ("-wal", "-shm")))]
         if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
             (stage / "agents/.claude.json").unlink(missing_ok=True)  # stays with that login
+        moves = []  # (staged, destination, archive name)
         for item in sorted(stage.iterdir()):
             parent = {"data": _data(), "agents": Path(home)}.get(item.name)
-            for child in sorted(item.iterdir()) if parent else [item] * (item.name in where):
-                _swap(child, parent / child.name if parent else where[item.name], stamp,
-                      ("", "-wal", "-shm") if item.name == "history.sqlite3" else ("",),
-                      keep)
-                done.append(f"{item.name}/{child.name}" if parent else item.name)
+            moves += [(child, parent / child.name, f"{item.name}/{child.name}")
+                      for child in sorted(item.iterdir())] if parent else [
+                (item, where[item.name], item.name)] * (item.name in where)
+        for child, dst, name in moves:  # before any swap: a place this archive left out stays
+            for place, path in where.items():
+                at = Path(os.path.abspath(path))
+                if at.is_relative_to(dst) and not (stage / place).exists() and os.path.lexists(
+                        at) and os.path.lexists(child / at.relative_to(dst)):
+                    raise SystemExit(f"This archive's {name} would replace {at}, not in it.")
+        for child, dst, name in moves:
+            _swap(child, dst, stamp,
+                  ("", "-wal", "-shm") if name == "history.sqlite3" else ("",), keep)
+            done.append(name)
     return [f"Restored: {', '.join(done)}.",
             *[f"Adopted the DB from {manifest['host']}."] * (manifest["host"] != host),
             *[(f"Rewrote paths under {old} to {home}. Agents' transcripts still name {old}: "
