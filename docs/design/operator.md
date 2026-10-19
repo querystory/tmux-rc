@@ -85,7 +85,10 @@ All perception already exists; the operator adds none.
   fingerprint, a cursor walk carries the picker digest of the frame it was computed from,
   and free text goes in only to an idle pane with an empty composer, checked again under
   the send lock as cross-agent delivery does ([cross-agent-connect](cross-agent-connect.md)).
-  No new keystroke path.
+  No new keystroke path. Two of those guards do not exist yet: the parser has no
+  empty-composer field, and the hop and rate limits are still a proposal. Free-text nudges
+  wait for the first, autonomous actions of any kind for the second; without them a nudge
+  could join an unsent draft and be submitted with it.
 - **Pushes** through the existing subscriptions, settle time and dedupe, so the operator
   can never be noisier than Needs you already is.
 - **The digest:** a short, ranked list of what needs the user and why, at the top of Needs
@@ -98,15 +101,21 @@ All perception already exists; the operator adds none.
   than retrying. A refused action is a digest line, not a silent drop.
 - **Agents talking in circles.** An operator nudge that an agent answers with a question
   the operator then answers is a loop. Cross-agent connect's hop limit and per-pane rate
-  limits apply with the operator as sender; past a few autonomous actions on one pane in an
+  limits (a prerequisite for phase 3, above) apply with the operator as sender; past a few autonomous actions on one pane in an
   hour it falls back to Suggest for that pane and says so.
-- **Cost.** It runs on the watcher's change signal, never on a timer, debounced so a busy
-  minute is one pass. Triage is a deterministic join; a model is called only to word the
+- **Cost.** A pass runs when one of its inputs changes (the watcher's version, an open
+  loops refresh, a plan usage poll) or when an age threshold it reported falls due
+  ("idle for an hour"), debounced so a busy minute is one pass. Those caches refresh on
+  their own cadence without touching the watcher, so the watcher alone would leave a newly
+  mergeable PR or a usage reset out of the digest. The model is called only when the
+  ranked list actually changed. Triage is a deterministic join; a model is called only to word the
   digest or draft a reply, and has a daily budget metered like Live's. Its own spend shows
   in the digest.
 - **Wrong judgment.** Only reversible, low-blast actions are delegable at all, and every
-  one is visible afterwards. Revoking a delegation, or one "operator off" switch, stops it
-  on the next pass.
+  one is visible afterwards. Revoking a delegation, or one "operator off" switch, takes
+  effect at once, not on the next pass: the grant is rechecked under the pane's send lock
+  just before typing, and revocation takes the same lock, so once revocation returns no
+  action under that grant can land, even one that was waiting on a model reply.
 
 ## Phased plan
 
