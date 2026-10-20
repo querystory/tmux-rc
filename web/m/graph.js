@@ -371,7 +371,7 @@ export function renderGraphView(root, panes, ctx) {
   if (!root._g) {
     const lenses = el('div', 'fg-lenses', '<span>Group by</span>'), box = el('div', 'fg-box'), tools = el('div', 'fg-tools');
     root._stats = el('div', 'fg-stats'); root._legend = el('div', 'fg-legend');
-    for (const [name, label] of LENSES) { const b = el('button', '', label); b.dataset.lens = name; b.onclick = () => g.setLens(name); lenses.append(b); }
+    for (const [name, label] of LENSES) { const b = el('button', '', label); b.dataset.lens = name; b.onclick = () => { root._lens = null; g.setLens(name); }; lenses.append(b); } // a pick ends any pending restore
     const g = root._g = fleetGraph(box, false, { ...ctx, onChange: () => { try { localStorage.setItem('tmuxrc-graph-lens', g.lens()); } catch {} paint(); } });
     for (const [name, label, fn] of [['plus', 'Zoom in', () => g.zoom(1.35)], ['minus', 'Zoom out', () => g.zoom(1 / 1.35)], ['fit', 'Fit to view', () => g.fit()]]) {
       const b = el('button', '', ctx.icon(name, 18)); b.title = b.ariaLabel = label; b.onclick = fn; tools.append(b);
