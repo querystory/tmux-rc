@@ -57,17 +57,26 @@ back as a workspace to restore), accounts, mocks, scratch pages, and every `~/.c
 and `~/.codex*` dir, so agents can resume their conversations. It runs while the daemon
 does. On the new machine, clone the checkout, then:
 
-1. Copy the archive over, and stop tmux-rc there if it runs: `systemctl --user stop tmux-rc`.
+1. Copy the archive over, stop tmux-rc there if it runs (`systemctl --user stop tmux-rc`),
+   and quit every Claude and Codex session there: a running agent rewrites `~/.claude.json`
+   and its settings from memory, over what the import put there. The import warns if it
+   sees one.
 2. `uv run tmux-rc import tmux-rc-export-<host>-<date>.tgz`. Whatever it replaces is kept
-   beside it as `*.pre-import-<time>`, and paths under the old `$HOME` are rewritten.
+   beside it as `*.pre-import-<time>`, and paths under the old `$HOME` are rewritten. If it
+   fails part way, it puts back everything it had replaced.
 3. `make install-units`, and `make docs` if you serve the docs.
 
-Credentials stay out unless asked for: the agents' logins, `~/.claude.json`, the push keys,
+Import only an archive you made yourself: it holds agents' hooks and settings, which run
+code on the machine that imports them.
+
+Logins stay out unless asked for: the agents' logins, `~/.claude.json`, the push keys,
 `~/.config/tmux-rc` and the checkout's `.env`. Without them, sign in again on the new
-machine. `--with-secrets` adds them, and the file then holds every sign-in and key, so keep
-it private, or move it in one pipe that never leaves a file behind: `uv run tmux-rc export
---with-secrets -o - | ssh newhost 'cd tmux-rc && uv run tmux-rc import -'`. `--no-scratch`
-and `--no-agents` make the archive smaller.
+machine. Only those are kept out: agents' settings (an `env` block, an `apiKeyHelper`,
+Codex's MCP servers' tokens), their conversations and the history database go in by default
+and may still hold keys, so treat every archive as private. `--with-secrets` adds the
+logins, and the file then holds every sign-in and key: move it in one pipe that never
+leaves a file behind, `uv run tmux-rc export --with-secrets -o - | ssh newhost 'cd tmux-rc
+&& uv run tmux-rc import -'`. `--no-scratch` and `--no-agents` make the archive smaller.
 
 Settings › **Export all…** makes the same archive from the app: tick the parts to include,
 each shown with its size before compression, and download.

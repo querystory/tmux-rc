@@ -49,7 +49,7 @@ from .config import dotenv_path, json_list
 _PKG_DIR = Path(__file__).resolve().parent  # .../openbus (checkout or site-packages)
 _REPO_ROOT = _PKG_DIR.parent
 
-# The checkout's .env, else the nearest up from cwd (config.dotenv_path). Real env vars
+# The checkout's .env, else ~/.config/tmux-rc's (config.dotenv_path). Real env vars
 # still win (override=False).
 load_dotenv(dotenv_path())
 # Live Mode provider keys (OpenAI, Azure, AI Studio) live in ONE mode-600 file outside

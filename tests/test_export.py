@@ -2,11 +2,15 @@
 Every file here is invented, in temp HOMEs."""
 
 import contextlib
+import errno
 import io
 import json
+import os
+import shutil
 import socket
 import sqlite3
 import tarfile
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -20,6 +24,7 @@ def home(monkeypatch, tmp_path):
     for var in ("XDG_STATE_HOME", "XDG_DATA_HOME", "TMUXRC_HISTORY_DB", "TMUXRC_SCRATCH_DIR"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(export, "_running", lambda: False)
+    monkeypatch.setattr(export, "_agents_running", list)
     places = export.places  # the checkout's own .env stays out of it
     monkeypatch.setattr(export, "places", lambda: {**places(), ".env": tmp_path / "none"})
 
@@ -56,9 +61,10 @@ def source(home):
     return old
 
 
-def test_round_trip(home, monkeypatch):
+def test_round_trip(home, monkeypatch, tmp_path):
     old = source(home)
     out = io.BytesIO()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "none"))  # the snapshot: not /tmp
     assert export.export(out, ["scratch", "agents"]) == []
     sizes = export.sizes()  # what the walk counts is what export holds: no cache, no login
     assert sizes["secrets"] == len("{}x") and sizes["scratch"] == 1
@@ -239,12 +245,12 @@ def test_a_linked_agent_dir_and_a_data_dir_inside_config(home, monkeypatch):
 
 
 def test_the_dotenv_is_the_one_the_daemon_loads(monkeypatch, tmp_path):
-    """Installed as a wheel (no checkout .env): the nearest up from cwd, as the daemon's."""
+    """No checkout .env: tmux-rc's config dir's, never one up from the working directory."""
     monkeypatch.setattr(config, "__file__", str(tmp_path / "site/openbus/config.py"))
-    (tmp_path / "run").mkdir()
-    monkeypatch.chdir(tmp_path / "run")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("")
-    assert config.dotenv_path() == tmp_path / ".env"
+    assert config.dotenv_path() == tmp_path / "home/.config/tmux-rc/.env"
 
 
 def test_a_linked_place_is_kept_by_its_target(home, monkeypatch):
@@ -312,3 +318,454 @@ def test_a_link_on_the_way_to_a_place_not_made_yet_is_refused(home, monkeypatch,
     monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(tmp_path / "new/.local/share/tmux-rc/p/r/pages"))
     with pytest.raises(SystemExit, match="not its own"):
         export.restore(archive)
+
+
+def tree(root: Path) -> dict:
+    return {str(p.relative_to(root)): str(p.readlink()) if p.is_symlink() else p.read_bytes()
+            for p in root.rglob("*") if p.is_symlink() or p.is_file()}
+
+
+def test_an_import_failing_part_way_puts_everything_back(home, monkeypatch, capsys):
+    """A failure at any move, a kept nested place's included, and a copy from staging cut
+    short part way, leaves this host as it was."""
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["scratch", "agents"])
+    new = home("new")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(new / ".local/share/tmux-rc/mocks/pages"))
+    write(new / ".local/share/tmux-rc/mocks/pages/mine/index.html", "this host's")
+    write(new / ".local/share/tmux-rc/mocks/b/index.html", "this host's")
+    write(new / ".local/state/tmux-rc/accounts.json", "{}")
+    (new / ".local/state/tmux-rc").chmod(0o700)  # the DB's dir, as History makes it
+    write(new / ".claude/projects/-mine/s.jsonl", "this host's")
+    before, move = tree(new), export._move
+    for n in range(1, 100):
+        calls = []
+
+        def flaky(*args, n=n, calls=calls, **kw):
+            calls.append(args)
+            if len(calls) == n:
+                if ".tmux-rc-import-" in str(args[0]) and Path(args[0]).is_dir():
+                    shutil.copytree(args[0], Path(args[1], "half"))  # another disk's copy
+                raise OSError("disk full")
+            return move(*args, **kw)
+        monkeypatch.setattr(export, "_move", flaky)
+        try:
+            export.restore(io.BytesIO(out.getvalue()))
+        except OSError:
+            assert tree(new) == before, n
+            assert "pre-import-" in capsys.readouterr().err
+        else:
+            break
+    assert n > 5 and tree(new) != before  # it failed at every move, then went through
+
+
+def test_running_agents_are_warned_about(home, monkeypatch, capsys):
+    source(home)
+    out = io.BytesIO()
+    export.export(out, [])
+    home("new")
+    monkeypatch.setattr(export, "_agents_running", lambda: ["claude"])
+    export.restore(io.BytesIO(out.getvalue()))
+    assert "claude running here" in capsys.readouterr().err
+
+
+def test_a_linked_data_dir_keeps_its_scratch(home, monkeypatch):
+    """Here the data dir links elsewhere and scratch sits inside it: an import of data
+    without scratch keeps this host's pages."""
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    (new / ".local/share").mkdir(parents=True)
+    (new / ".local/share/tmux-rc").symlink_to(new / "store")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(new / "store/previews/pages"))
+    write(new / "store/previews/pages/mine/index.html")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / "store/previews/other.txt").exists()
+    assert (new / "store/previews/pages/mine/index.html").exists()
+
+
+def test_a_linked_sign_in_goes_as_its_contents(home):
+    old = home("old")
+    write(old / ".claude/.credentials.json", "shared login")
+    (old / ".claude/.credentials.json").chmod(0o644)
+    write(old / ".claude-work/CLAUDE.md")
+    (old / ".claude-work/.credentials.json").symlink_to(old / ".claude/.credentials.json")
+    write(old / ".claude-hard/CLAUDE.md")
+    (old / ".claude-hard/.credentials.json").hardlink_to(old / ".claude/.credentials.json")
+    out = io.BytesIO()
+    export.export(out, ["agents", "secrets"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        for name in ("agents/.claude-work/.credentials.json",
+                     "agents/.claude-hard/.credentials.json"):
+            member = tar.getmember(name)
+            assert member.isfile() and tar.extractfile(member).read() == b"shared login"
+            assert not member.mode & 0o077
+
+
+def test_a_dotenv_in_a_linked_config_dir_stays_the_daemons(home, monkeypatch):
+    """No checkout .env: it is the config dir's, and that dir links elsewhere here."""
+    places = export.places
+    monkeypatch.setattr(export, "places", lambda: {
+        **places(), ".env": Path.home() / ".config/tmux-rc/.env"})
+    old = home("old")
+    write(old / ".config/tmux-rc/a.txt")
+    write(old / ".config/tmux-rc/.env", "K=1")
+    out = io.BytesIO()
+    export.export(out, ["secrets"])
+    new = home("new")
+    write(new / "cfg/.env", "mine")
+    (new / ".config").mkdir()
+    (new / ".config/tmux-rc").symlink_to(new / "cfg")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".config/tmux-rc/.env").read_text() == "K=1"
+    assert (new / ".config/tmux-rc/a.txt").exists()
+
+
+def test_a_place_that_cannot_be_renamed_aside_is_not_copied(home, monkeypatch):
+    """A mount point: the import stops, the place whole where it was."""
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["scratch"])
+    new = home("new")
+    pages = new / ".local/share/tmux-rc/scratch"
+    write(pages / "mine/index.html", "this host's")
+    rename = os.rename
+
+    def busy(src, dst):
+        if Path(src) == pages:
+            raise OSError(errno.EBUSY, "busy")
+        rename(src, dst)
+    monkeypatch.setattr(os, "rename", busy)
+    with pytest.raises(OSError, match="busy"):
+        export.restore(io.BytesIO(out.getvalue()))
+    assert (pages / "mine/index.html").read_text() == "this host's"
+
+
+def test_a_linked_login_here_is_kept(home, monkeypatch):
+    """A login here linking to a file inside its own agent dir: it stays the login."""
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    new = home("new")
+    write(new / ".claude-work/login-store.json", "this host's")
+    (new / ".claude-work/.credentials.json").symlink_to(new / ".claude-work/login-store.json")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".claude-work/.credentials.json").read_text() == "this host's"
+
+
+def test_a_linked_history_db_goes_only_as_its_snapshot(home, monkeypatch):
+    old = home("old")
+    History(old / "elsewhere/real.sqlite3")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    link = old / ".local/share/tmux-rc/previews/history.sqlite3"
+    link.symlink_to(old / "elsewhere/real.sqlite3")
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(link))
+    out = io.BytesIO()
+    export.export(out, [])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        names = tar.getnames()
+    assert "history.sqlite3" in names and "data/previews/other.txt" in names
+    assert not [n for n in names if n.startswith("data/") and "sqlite3" in n]
+
+
+def test_a_swap_lands_where_an_earlier_one_left_its_path(home, monkeypatch):
+    """Scratch inside a linked dir that data's swap replaces: it lands in the new dir."""
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / "pages"))
+    write(old / "pages/demo/index.html")
+    out = io.BytesIO()
+    export.export(out, ["scratch"])
+    new = home("new")
+    (new / ".local/share/tmux-rc").mkdir(parents=True)
+    (new / ".local/share/tmux-rc/previews").symlink_to(new / "store")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(new / ".local/share/tmux-rc/previews/pages"))
+    write(new / "store/pages/mine/index.html")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".local/share/tmux-rc/previews/pages/demo/index.html").exists()
+    assert (new / ".local/share/tmux-rc/previews/other.txt").exists()
+
+
+def test_hard_links_go_as_their_bytes_and_a_kept_login_is_private(home, monkeypatch):
+    places = export.places
+    monkeypatch.setattr(export, "places", lambda: {
+        **places(), ".env": Path.home() / ".config/tmux-rc/.env"})
+    source(home)
+    old = Path.home()
+    write(old / ".config/tmux-rc/shared.env", "K=1")
+    (old / ".config/tmux-rc/.env").hardlink_to(old / ".config/tmux-rc/shared.env")
+    out = io.BytesIO()
+    export.export(out, ["agents", "secrets"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert tar.getmember(".env").isfile() and tar.getmember("config/shared.env").isfile()
+    agents = io.BytesIO()
+    export.export(agents, ["agents"])
+    new = home("new")
+    write(new / ".claude/.credentials.json", "this host's")
+    (new / ".claude/.credentials.json").chmod(0o644)
+    export.restore(io.BytesIO(agents.getvalue()))
+    assert (new / ".claude/.credentials.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_a_linked_scratch_in_a_linked_data_dir_is_scratch(home, monkeypatch):
+    old = home("old")
+    (old / ".local/share").mkdir(parents=True)
+    (old / ".local/share/tmux-rc").symlink_to(old / "store")
+    write(old / "store/previews/other.txt")
+    write(old / "pages/demo/index.html")
+    (old / "store/previews/pages").symlink_to(old / "pages")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / ".local/share/tmux-rc/previews/pages"))
+    out = io.BytesIO()
+    export.export(out, [])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        names = tar.getnames()
+    assert "data/previews/other.txt" in names and not [n for n in names if "pages" in n]
+
+
+def test_a_login_linked_into_another_swapped_dir_is_kept(home):
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    new = home("new")
+    write(new / ".claude/login-store.json", "this host's")
+    write(new / ".claude-work/CLAUDE.md")
+    (new / ".claude-work/.credentials.json").symlink_to(new / ".claude/login-store.json")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".claude-work/.credentials.json").read_text() == "this host's"
+
+
+def test_a_linked_dbs_wal_stays_with_it(home, monkeypatch):
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    real = new / ".local/share/tmux-rc/previews/real.sqlite3"
+    write(real, "db")
+    write(real.with_name("real.sqlite3-wal"), "wal")
+    (new / "db.sqlite3").symlink_to(real)
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / "db.sqlite3"))
+    export.restore(io.BytesIO(out.getvalue()))
+    assert real.with_name("real.sqlite3-wal").read_text() == "wal"
+
+
+def test_an_agents_db_goes_as_a_snapshot(home):
+    old = home("old")
+    (old / ".codex").mkdir()
+    db = sqlite3.connect(old / ".codex/state.sqlite")  # left open: its WAL not checkpointed
+    db.execute("PRAGMA journal_mode=wal")
+    db.execute("PRAGMA wal_autocheckpoint=0")
+    db.execute("CREATE TABLE t (v)")
+    db.execute("INSERT INTO t VALUES (1)")
+    db.commit()
+    write(old / ".codex/state.sqlite-notes", "kept")
+    write(old / ".codex/shell_snapshots/s.sh")
+    sock = socket.socket(socket.AF_UNIX)
+    sock.bind(str(old / ".codex/s"))  # a socket: skipped, not the export's end
+    pages = db.execute("SELECT page_count * page_size FROM pragma_page_count, "
+                       "pragma_page_size").fetchone()[0]
+    assert export.sizes()["agents"] == pages + len("kept")  # as the snapshot holds it
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    db.close()
+    sock.close()
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        names = tar.getnames()
+        assert "agents/.codex/state.sqlite-notes" in names
+        assert not [n for n in names if n.endswith(("-wal", "-shm", "s.sh", "/s"))]
+        tar.extract("agents/.codex/state.sqlite", old / "out", filter="data")
+    with contextlib.closing(sqlite3.connect(old / "out/agents/.codex/state.sqlite")) as copy:
+        assert copy.execute("SELECT v FROM t").fetchall() == [(1,)]
+
+
+def test_a_kept_dbs_private_dir_stays_private(home, monkeypatch):
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    (old / ".local/share/tmux-rc/previews").chmod(0o755)
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / ".local/share/tmux-rc/previews/h.sqlite3"))
+    write(new / ".local/share/tmux-rc/previews/h.sqlite3", "db")
+    (new / ".local/share/tmux-rc/previews").chmod(0o700)
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".local/share/tmux-rc/previews").stat().st_mode & 0o777 == 0o700
+
+
+def test_an_imported_dbs_dir_is_private(home, monkeypatch):
+    """Here the DB sits in a data dir the archive brings, open there: History still opens."""
+    old = source(home)
+    (old / ".local/share/tmux-rc/mocks").chmod(0o755)
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / ".local/share/tmux-rc/mocks/h.sqlite3"))
+    export.restore(io.BytesIO(out.getvalue()))
+    History(new / ".local/share/tmux-rc/mocks/h.sqlite3")
+
+
+def test_an_imported_dbs_dir_is_private_through_a_link_it_replaces(home, monkeypatch):
+    old = source(home)
+    (old / ".local/share/tmux-rc/mocks").chmod(0o755)
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    (new / "store").mkdir(mode=0o700)
+    (new / ".local/share/tmux-rc").mkdir(parents=True)
+    (new / ".local/share/tmux-rc/mocks").symlink_to(new / "store")
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / ".local/share/tmux-rc/mocks/h.sqlite3"))
+    export.restore(io.BytesIO(out.getvalue()))
+    History(new / ".local/share/tmux-rc/mocks/h.sqlite3")
+
+
+def test_only_a_file_that_is_no_db_goes_unsnapshotted(home, monkeypatch):
+    old = home("old")
+    write(old / ".codex/notes.db", "no database")
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert tar.extractfile("agents/.codex/notes.db").read() == b"no database"
+    full = sqlite3.DatabaseError("database or disk is full")
+    full.sqlite_errorcode = sqlite3.SQLITE_FULL
+    monkeypatch.setattr(export, "_snapshot", lambda *_: (_ for _ in ()).throw(full))
+    with pytest.raises(sqlite3.DatabaseError, match="full"):
+        export.export(io.BytesIO(), ["agents"])
+
+
+def test_an_imported_dotenv_is_private(home, tmp_path):
+    source(home)
+    write(tmp_path / "none", "K=1")  # the fixture's .env
+    (tmp_path / "none").chmod(0o644)
+    out = io.BytesIO()
+    export.export(out, ["secrets"])
+    (tmp_path / "none").unlink()
+    home("new")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (tmp_path / "none").stat().st_mode & 0o777 == 0o600
+
+
+def test_an_open_db_dir_here_is_refused(home, monkeypatch):
+    source(home)
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    (new / "shared").mkdir(mode=0o755)
+    (new / "shared").chmod(0o755)
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / "shared/h.sqlite3"))
+    with pytest.raises(SystemExit, match="chmod 700"):
+        export.restore(io.BytesIO(out.getvalue()))
+    assert not (new / "shared/h.sqlite3").exists()
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_a_link_on_the_way_to_a_kept_place_is_refused(home, monkeypatch, staged):
+    """A link, staged or here, between a swapped dir reached through a linked data dir and
+    the DB inside it: nothing changes."""
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    (old / "unrelated").mkdir()
+    if staged:
+        (old / ".local/share/tmux-rc/previews/sub").symlink_to(old / "unrelated")
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    (new / "unrelated").mkdir(mode=0o755)
+    (new / "unrelated").chmod(0o755)
+    write(new / "current/h.sqlite3", "db")
+    (new / "store/previews").mkdir(parents=True)
+    (new / "store/previews/sub").symlink_to(new / "current")
+    (new / ".local/share").mkdir(parents=True)
+    (new / ".local/share/tmux-rc").symlink_to(new / "store")
+    db = new / ".local/share/tmux-rc/previews/sub/h.sqlite3"
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(db))
+    with pytest.raises(SystemExit, match="would replace"):
+        export.restore(io.BytesIO(out.getvalue()))
+    assert (new / "unrelated").stat().st_mode & 0o777 == 0o755
+    assert db.read_text() == "db"
+
+
+def test_scratch_linked_to_the_config_dir_sends_no_keys(home, monkeypatch):
+    old = home("old")
+    write(old / ".config/tmux-rc/openai.env", "KEY=x")
+    (old / "pages").symlink_to(old / ".config/tmux-rc")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / "pages"))
+    out = io.BytesIO()
+    export.export(out, ["scratch", "agents"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert not [n for n in tar.getnames() if "openai" in n]
+    assert export.sizes()["scratch"] == 0
+
+
+@pytest.mark.parametrize("linked", [True, False])
+def test_scratch_sharing_an_agent_dir_sends_no_login(home, monkeypatch, linked):
+    old = home("old")
+    write(old / ".claude/.credentials.json")
+    write(old / ".claude/projects/-demo/s1.jsonl")
+    if linked:
+        (old / "pages").symlink_to(old / ".claude")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / ("pages" if linked else ".claude")))
+    out = io.BytesIO()
+    export.export(out, ["scratch"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert not [n for n in tar.getnames() if "credentials" in n or n.startswith("scratch")]
+
+
+def test_a_login_reached_another_way_stays_a_login(home, monkeypatch):
+    """~/.claude.json linked from the data dir or under a scratch at HOME, and the file a
+    login links to: only the logins part carries them, as the login."""
+    old = home("old")
+    write(old / ".claude.json", "who")
+    write(old / ".claude/login-store.json", "login")
+    write(old / ".claude/projects/-demo/s1.jsonl")
+    (old / ".claude/.credentials.json").symlink_to(old / ".claude/login-store.json")
+    (old / ".local/share/tmux-rc").mkdir(parents=True)
+    (old / ".local/share/tmux-rc/identity.json").symlink_to(old / ".claude.json")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old))
+    for parts in (["scratch", "agents"], ["scratch", "agents", "secrets"]):
+        out = io.BytesIO()
+        export.export(out, parts)
+        with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+            held = {m.name for m in tar if m.isfile()
+                    and tar.extractfile(m).read() in (b"who", b"login")}
+        assert held == ({"agents/.claude.json", "agents/.claude/.credentials.json"}
+                        if "secrets" in parts else set())
+
+
+def test_a_login_hard_linked_under_another_name_stays_out(home):
+    old = home("old")
+    write(old / ".claude/login-store.json", "login")
+    (old / ".claude/.credentials.json").hardlink_to(old / ".claude/login-store.json")
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert not [m for m in tar if m.isfile() and tar.extractfile(m).read() == b"login"]
+
+
+@pytest.mark.parametrize("place", [".config/tmux-rc", ".claude"])
+def test_scratch_here_at_a_more_private_place_is_refused(home, monkeypatch, place):
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["scratch"])
+    new = home("new")
+    write(new / place / "keep.txt")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(new / place))
+    with pytest.raises(SystemExit, match="not its own"):
+        export.restore(io.BytesIO(out.getvalue()))
+    assert (new / place / "keep.txt").exists()
+
+
+def test_the_checkout_dotenv_wins_over_the_config_dirs(home, monkeypatch, tmp_path):
+    source(home)
+    write(tmp_path / "none", "FROM=checkout")  # the fixture's .env: a checkout's
+    write(Path.home() / ".config/tmux-rc/.env", "FROM=config")
+    out = io.BytesIO()
+    export.export(out, ["secrets"])
+    new = home("new")
+    places = export.places
+    monkeypatch.setattr(export, "places", lambda: {
+        **places(), ".env": Path.home() / ".config/tmux-rc/.env"})  # no checkout .env here
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".config/tmux-rc/.env").read_text() == "FROM=checkout"

@@ -2,9 +2,11 @@
 its import. `tmux-rc export` / `tmux-rc import`, and Settings' Export all.
 
 PARTS is the one list of what an archive can hold: it names the CLI's flags, the web's
-choices and the sizes shown beside them. Credentials are off unless asked for: the file
-then holds every sign-in and key. Import replaces rather than merges: what it replaces is
-moved aside as <name>.pre-import-<time>."""
+choices and the sizes shown beside them. Logins are off unless asked for: the file then
+holds every sign-in and key. Agents' settings and conversations may hold keys either way.
+Import replaces rather than merges: what it replaces is moved aside as
+<name>.pre-import-<time>, and put back if the import fails part way. An archive can hold
+hooks and settings that run code: import only one you made."""
 from __future__ import annotations
 
 import argparse
@@ -16,6 +18,7 @@ import os
 import shutil
 import socket
 import sqlite3
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -33,8 +36,9 @@ PARTS = {
     "state": ("tmux-rc history & settings",
               "Pane history, plan usage, the tmux layout, accounts and mocks", None),
     "scratch": ("Scratch pages", "The preview gallery", True),
-    "agents": ("Agent conversations", "~/.claude*, ~/.codex*, so agents can resume", True),
-    "secrets": ("Credentials", ("Agents' sign-ins (with their conversations), "
+    "agents": ("Agent conversations", ("~/.claude*, ~/.codex*, so agents can resume. Their "
+                                       "settings and conversations may still hold keys"), True),
+    "secrets": ("Logins", ("Agents' sign-ins (with their conversations), "
                                 "~/.config/tmux-rc, .env, push keys. The file then holds "
                                 "every sign-in and key: keep it private."),
                 False),
@@ -44,7 +48,8 @@ LOGINS = (".credentials.json", "auth.json")  # an agent dir's sign-in: Claude's,
 IDENTITY = (*LOGINS, ".claude.json")  # the sign-in and who it is: they stay together
 # What an agent rebuilds in its dir, left out: caches, debug logs, shell snapshots.
 AGENT_DIRS = (".claude", ".codex", *accounts.MORE.values())  # what an import may replace in HOME
-CACHES = ("cache", "debug", "statsig", "shell-snapshots", "log", "tmp", ".tmp")
+DBS = (".sqlite", ".sqlite3", ".db")  # an agent's SQLite DB: snapshotted, not copied
+CACHES = ("cache", "debug", "statsig", "shell-snapshots", "shell_snapshots", "log", "tmp", ".tmp")
 
 
 def _data() -> Path:
@@ -88,6 +93,26 @@ def _part(part: str, name: str) -> str:
     return "secrets" if part == "agents" and len(bits) <= 3 and bits[-1] in IDENTITY else part
 
 
+def _own(name: str, path: Path, owner: dict) -> bool:
+    """Whether `path` is no other place's: each place goes only as its own root, and one
+    two parts share is the more private one's: a credential's, else an agent's."""
+    def rank(n):
+        return 2 if n in SECRETS else 1 if n is None or n.startswith("agents/") else 0
+    names = owner.get(path, {name})
+    return name in names and rank(name) == max(map(rank, names))
+
+
+def _within(at: Path, places) -> set[Path]:
+    """The places that hold `at`, or what it links to."""
+    return {*Path(os.path.abspath(at)).parents, *at.resolve().parents} & {*places}
+
+
+def _spot(p: Path) -> Path:
+    """Where `p` is, through any linked dir above it, so places compare as one; but not
+    through `p` itself: a swap replaces a link rather than follow it."""
+    return p.parent.resolve() / p.name
+
+
 def _missing(error: OSError) -> None:
     """os.walk's error: a dir gone since its listing is skipped; any other ends the export,
     which would otherwise end whole but short."""
@@ -101,19 +126,20 @@ def _entries(parts=PARTS):
     (scratch, the account store, credentials, an agent dir) only as its own root, wherever
     it nests, nor the data dir's contents inside one. No import's backup, and a part not
     chosen is not walked."""
-    where, db, home = places(), _db(), Path.home()
-    named = [(where[n], n) for n in ("scratch", "accounts.json", *SECRETS)] + [
-        (d, f"agents/{d.name}" if d.parent == home else None) for d in _agent_dirs()]
-    owner = {p: {None} for p in (db, db.with_name(f"{db.name}-wal"),  # snapshotted
-                                 db.with_name(f"{db.name}-shm"))}
-    for at, n in named:  # a link, and its target: two names may share it (~/.claude linked)
-        for p in (Path(os.path.abspath(at)), at.resolve()):
-            owner.setdefault(p, set()).add(n)
+    where, home, db = places(), Path.home(), history.default_path()
+    logins = [home / ".claude.json", *(d / n for d in _agent_dirs() for n in IDENTITY)]
+    owner = _owners([(where[n], n) for n in ("scratch", "accounts.json", *SECRETS)] + [
+        (d, f"agents/{d.name}" if d.parent == home else None) for d in _agent_dirs()] + [
+        (logins[0], "agents/.claude.json")] + [  # a login, and a file one links to
+        (p.resolve(), str(p)) for p in logins[1:] if p.is_symlink()] + [
+        (b.with_name(b.name + s), None) for b in (db, db.resolve())  # snapshotted
+        for s in ("", "-wal", "-shm")])
+    inodes = {_inode(p) for p in logins} - {None}  # a login's other names: the login's too
     for part, name, at in _roots():
         root = at.resolve()  # a linked root: what it links to
-        if part not in parts or not os.path.lexists(at) or ".pre-import-" in at.name or (
-                name not in owner.get(root, {name})) or (name.startswith("data/") and any(
-                    p in owner for p in (*Path(os.path.abspath(at)).parents, *root.parents))):
+        if part not in parts or not os.path.lexists(at) or ".pre-import-" in at.name \
+                or not _own(name, root, owner) or _aliases(name, root, inodes) \
+                or (name.startswith("data/") and _within(at, owner)):
             continue
         yield _part(part, name), name, root
         for here, dirs, files in os.walk(root, onerror=_missing) if root.is_dir() else ():
@@ -121,12 +147,34 @@ def _entries(parts=PARTS):
             for child in sorted(dirs + files):
                 path = Path(here, child)
                 if (part == "agents" and top and child in CACHES) or ".pre-import-" in child \
-                        or name not in owner.get(path, {name}):
+                        or not _own(name, path, owner) or _aliases(child, path, inodes):
                     continue
                 kept.append(child)
                 arc = f"{name}/{path.relative_to(root)}"
-                yield _part(part, arc), arc, path
+                kind = _part(part, arc)  # a linked sign-in goes as what it links to
+                yield kind, arc, path.resolve() if kind != part else path
             dirs[:] = [d for d in dirs if d in kept]
+
+
+def _owners(named) -> dict[Path, set]:
+    """Each path a place is reached by (as named, through linked dirs, itself resolved) ->
+    the names that hold it: a link, and its target, may share one (~/.claude linked)."""
+    owner = {}
+    for at, n in named:
+        for p in (Path(os.path.abspath(at)), _spot(Path(at)), Path(at).resolve()):
+            owner.setdefault(p, set()).add(n)
+    return owner
+
+
+def _inode(path: Path):
+    with contextlib.suppress(OSError):
+        return (s := path.stat()).st_dev, s.st_ino
+    return None
+
+
+def _aliases(name: str, path: Path, inodes: set) -> bool:
+    """Whether `path` is a login's file under another name: a hard link to it."""
+    return Path(name).name not in IDENTITY and path.is_file() and _inode(path) in inodes
 
 
 def _db() -> Path:
@@ -138,17 +186,48 @@ def _read(db: Path):
     return contextlib.closing(sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True))
 
 
+def _snapshot(db: Path, tar, name: str) -> None:
+    """Add a consistent copy of the SQLite DB `db` as `name`: the backup API, while what
+    owns it keeps writing. Staged beside it, not in a /tmp that may be RAM."""
+    with tempfile.TemporaryDirectory(dir=db.parent) as tmp:
+        with _read(db) as src, contextlib.closing(sqlite3.connect(Path(tmp, "db"))) as copy:
+            src.backup(copy)
+        Path(tmp, "db").chmod(0o600)  # as private as the DB it copies, whatever the umask
+        tar.add(Path(tmp, "db"), name)
+
+
 def sizes() -> dict[str, int]:
     """Each part's size on disk, uncompressed: the walk export makes, without reading, and
-    the DB's pages, its WAL's included, as the snapshot holds them."""
+    each DB's pages, its WAL's included, as its snapshot holds them."""
     out = dict.fromkeys(PARTS, 0)
-    with contextlib.suppress(sqlite3.Error), _read(_db()) as db:
-        out["state"] = db.execute("SELECT page_count * page_size FROM pragma_page_count, "
-                                  "pragma_page_size").fetchone()[0]
-    for part, _, path in _entries():
+    with contextlib.suppress(sqlite3.Error):
+        out["state"] = _pages(_db())
+    for part, name, path in _entries():
         with contextlib.suppress(OSError):
-            out[part] += path.lstat().st_size if not path.is_dir() or path.is_symlink() else 0
+            out[part] += 0 if _sidecar(name) else _size(path)
     return out
+
+
+def _is_db(path: Path) -> bool:
+    return path.suffix in DBS and path.is_file() and not path.is_symlink()
+
+
+def _sidecar(name: str) -> bool:
+    """A DB's WAL or SHM: its snapshot holds them."""
+    return name.endswith(("-wal", "-shm")) and Path(name[:-4]).suffix in DBS
+
+
+def _pages(db: Path) -> int:
+    with _read(db) as c:
+        return c.execute("SELECT page_count * page_size FROM pragma_page_count, "
+                         "pragma_page_size").fetchone()[0]
+
+
+def _size(path: Path) -> int:
+    if _is_db(path):
+        with contextlib.suppress(sqlite3.DatabaseError):  # not one: as a file
+            return _pages(path)
+    return path.lstat().st_size if not path.is_dir() or path.is_symlink() else 0
 
 
 def export(out, parts) -> list[str]:
@@ -156,13 +235,11 @@ def export(out, parts) -> list[str]:
     Returns what a person moves by hand: agent dirs deeper than HOME's top level."""
     parts = {"state", *parts}
     deeper = [str(d) for d in _agent_dirs() if d.parent != Path.home()] * ("agents" in parts)
-    db = _db()
-    with tempfile.TemporaryDirectory() as tmp, tarfile.open(fileobj=out, mode="w|gz") as tar:
-        snapshot, schema = Path(tmp, "history.sqlite3"), None
-        if db.exists():  # the backup API: a consistent copy while the daemon keeps writing
-            with _read(db) as src, contextlib.closing(sqlite3.connect(snapshot)) as copy:
-                src.backup(copy)
-                schema = copy.execute("PRAGMA user_version").fetchone()[0]
+    db, schema = _db(), None
+    with tarfile.open(fileobj=out, mode="w|gz") as tar:
+        if db.exists():
+            with _read(db) as src:
+                schema = src.execute("PRAGMA user_version").fetchone()[0]
         manifest = json.dumps({"format": FORMAT, "schema": schema, "host": socket.gethostname(),
                                "home": str(Path.home()), "created": time.time(),
                                "parts": sorted(parts), "left": deeper}).encode()
@@ -170,12 +247,26 @@ def export(out, parts) -> list[str]:
         info.size, info.mtime, info.mode = len(manifest), time.time(), 0o600
         tar.addfile(info, io.BytesIO(manifest))
         if schema is not None:
-            snapshot.chmod(0o600)  # as private as the DB it copies, whatever the umask
-            tar.add(snapshot, snapshot.name)
+            _snapshot(db, tar, "history.sqlite3")
         for part, name, path in _entries(parts):
-            if part in parts:
-                with contextlib.suppress(FileNotFoundError):  # gone since the walk
-                    tar.add(path, name, recursive=False)
+            if part not in parts or _sidecar(name):
+                continue
+            with contextlib.suppress(FileNotFoundError):  # gone since the walk
+                if _is_db(path):
+                    try:
+                        _snapshot(path, tar, name)
+                        continue
+                    except sqlite3.DatabaseError as e:  # not one: as a file; else it fails
+                        if e.sqlite_errorcode != sqlite3.SQLITE_NOTADB:
+                            raise
+                if (info := tar.gettarinfo(path, name)) is None:  # a socket: tar can't hold it
+                    continue
+                if info.islnk():  # a name sharing an inode goes as its bytes: import
+                    info.type, info.size = tarfile.REGTYPE, path.stat().st_size  # drops links
+                if part == "secrets":  # private, wherever its source's dir kept it so
+                    info.mode &= 0o7700
+                with path.open("rb") if info.isreg() else contextlib.nullcontext() as f:
+                    tar.addfile(info, f)
         tar.addfile(tarfile.TarInfo(DONE))  # last: an export that failed part way has none
     return deeper
 
@@ -185,6 +276,13 @@ def _running() -> bool:
     with contextlib.suppress(OSError), socket.create_connection(_bind(), timeout=1):
         return True
     return False
+
+
+def _agents_running() -> list[str]:
+    """Agents running here as this user, by exact process name: they rewrite ~/.claude.json
+    and their settings from memory, over what an import put there."""
+    return [n for n in ("claude", "codex") if shutil.which("pgrep") and subprocess.run(
+        ["pgrep", "-xu", str(os.getuid()), n], capture_output=True, check=False).returncode == 0]
 
 
 def _rehome(text: str, old: str, new: str) -> str:
@@ -199,39 +297,82 @@ def _rehome(text: str, old: str, new: str) -> str:
     return json.dumps(swap(json.loads(text)), sort_keys=True, separators=(",", ":"))
 
 
-def _swap(src: Path, dst: Path, stamp: str, sidecars=("",), keep=()) -> None:
+def _move(src: Path, dst: Path, done: list, *, copy=False) -> None:
+    """A move journaled in `done`, for _undo: a rename, which fails whole (a mount point,
+    another disk) rather than copy, unless asked to."""
+    (shutil.move if copy else os.rename)(src, dst)
+    done.append((src, dst))
+
+
+def _undo(done: list) -> None:
+    """Each move journaled, back, last first."""
+    for src, dst in reversed(done):
+        shutil.move(dst, src)
+
+
+def _keep_login(src: Path, dst: Path) -> None:
+    """Staged agent dir `src` takes this host's sign-in, and who it is, from `dst` when the
+    archive brought no sign-in: before any swap, while a link to it still reads."""
+    if src.is_dir() and any((dst / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
+        for name in IDENTITY:
+            if (dst / name).is_file():  # a fresh file: no hard link from the archive shares it
+                (src / name).unlink(missing_ok=True)
+                shutil.copy2(dst / name, src / name)
+                (src / name).chmod(0o600)  # its dir here may be open where this one wasn't
+
+
+def _swap(src: Path, dst: Path, stamp: str, done: list, sidecars=("",), keep=()) -> None:
     """Move what is at dst aside (a DB with its WAL, named as SQLite looks for it), then src
-    into place. An agent dir keeps this host's sign-in, and who it is, when the archive
-    brought no sign-in; a dir keeps each place of `keep` nested in it that the archive
-    doesn't hold there: another part's, which its own swap replaces if it came."""
+    into place. A dir keeps each place of `keep` nested in it that the archive
+    doesn't hold there: another part's, which its own swap replaces if it came. Each move
+    is journaled in `done`. Only staging's may cross disks: what is kept goes after it, a
+    rename beside what it was in."""
     old = dst.with_name(f"{dst.name}.pre-import-{stamp}")
     for suffix in sidecars:
         if os.path.lexists(here := dst.with_name(dst.name + suffix)):
-            here.rename(old.with_name(old.name + suffix))
-    for rel in (p.relative_to(dst) for p in keep if dst in p.parents):
-        if src.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(src / rel):
-            (src / rel).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            shutil.move(old / rel, src / rel)  # staging may be on another disk
-    if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
-        for name in IDENTITY:
-            if (old / name).is_file():  # a fresh file: no hard link from the archive shares it
-                (src / name).unlink(missing_ok=True)
-                shutil.copy2(old / name, src / name)
+            _move(here, old.with_name(old.name + suffix), done)
     dst.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    shutil.move(src, dst)
+    try:
+        _move(src, dst, done, copy=True)
+    except BaseException:  # a copy from another disk cut short: what was here is aside
+        if os.path.lexists(dst):
+            shutil.rmtree(dst) if dst.is_dir() and not dst.is_symlink() else dst.unlink()
+        raise
+    for rel in (p.relative_to(dst) for p in keep if dst in p.parents):
+        if dst.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(dst / rel):
+            mode = (old / rel).parent.stat().st_mode  # a private dir it was in stays so
+            (dst / rel).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            _move(old / rel, dst / rel, done)
+            (dst / rel).parent.chmod((dst / rel).parent.stat().st_mode & mode & 0o7777)
 
 
-def _displaces(child: Path, spot: Path) -> bool:
-    """Whether staged `child` holds something at `spot`, or a file or link on the way to it:
-    what is kept there could not stay."""
+def _displaces(child: Path, dst: Path, name: str, at: Path, owner: dict) -> bool:
+    """Whether staged `child`, swapped in at `dst`, would replace place `at`, not its own:
+    holds something there, or a file or link on the way to it, here yet or not. A swap's
+    root is its own place if `owner` says so: a data part owns none, and a place two parts
+    share is the more private one's."""
+    if not at.is_relative_to(dst) or (at == dst and _own(name, at, owner)):
+        return False
+    spot = child / at.relative_to(dst)
     return any(os.path.lexists(q) and (q == spot or q.is_symlink() or not q.is_dir())
                for q in (spot, *spot.parents) if q.is_relative_to(child))
+
+
+def _through_link(child: Path, root: Path, at: Path) -> bool:
+    """Whether a link, staged in `child` or here, sits between swap root `root` and place
+    `at` inside it: the swap would strand the place, or send it elsewhere."""
+    return at.is_relative_to(root) and any(
+        (child / p).is_symlink() or (root / p).is_symlink()
+        for p in list(at.relative_to(root).parents)[:-1])
 
 
 def restore(src) -> list[str]:
     """Import an archive from the stream `src`. Returns the report's lines."""
     if _running():
         raise SystemExit("tmux-rc is running here: `systemctl --user stop tmux-rc`, then import.")
+    if agents := _agents_running():
+        sys.stderr.write(f"Warning: {', '.join(agents)} running here. Quit every agent session "
+                         "first: they rewrite ~/.claude.json and their settings over this.\n")
     home, host, where = str(Path.home()), socket.gethostname(), places()
     # Staged under HOME, so each swap is a rename on the same disk, not a 10 GB copy.
     with tempfile.TemporaryDirectory(dir=home, prefix=".tmux-rc-import-") as tmp, \
@@ -272,6 +413,10 @@ def restore(src) -> list[str]:
                     db.executemany("UPDATE layout_snapshots SET payload=? WHERE server=?", [
                         (_rehome(p, old, home), s) for s, p in db.execute(
                             "SELECT server, payload FROM layout_snapshots")])
+        if (stage / ".env").is_file():
+            (stage / ".env").chmod(0o600)  # keys: whatever dir here it lands in
+            if Path(where[".env"]).parent == Path(where["config"]):  # the checkout's won
+                (stage / "config/.env").unlink(missing_ok=True)  # there, and wins here
         if (store := stage / "accounts.json").exists():
             store.write_text(_rehome(store.read_text(), old, home))
         env = dotenv_values(stage / ".env") if (stage / ".env").is_file() else {}
@@ -286,33 +431,58 @@ def restore(src) -> list[str]:
                 raise SystemExit(f"This archive would replace {home}/{d.name}, no agent's dir "
                                  "here: add it as an account first.")
         db = where["history.sqlite3"]
-        keep = sorted({q for p in (*where.values(), *_agent_dirs(), *(
-            db.with_name(db.name + s) for s in ("-wal", "-shm")))
-            for q in (Path(os.path.abspath(p)), Path(p).resolve())}, key=lambda p: len(p.parts))
-        # a link and its target; outermost first: a dir kept carries what is kept inside it
+        owner = _owners([(p, n) for n, p in where.items()] + [
+            (d, f"agents/{d.name}" if d.parent == Path(home) else None) for d in _agent_dirs()]
+            + [(b.with_name(b.name + s), "history.sqlite3") for b in (db, db.resolve())
+               for s in ("-wal", "-shm")])
+        keep = sorted(owner, key=lambda p: len(p.parts))
+        # as named, through linked dirs, and itself resolved: a place nests in a swap however
+        # it is reached; outermost first: a dir kept carries what is kept inside it
         if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
             (stage / "agents/.claude.json").unlink(missing_ok=True)  # stays with that login
-        moves = []  # (staged, destination, archive name)
+        moves = []  # (staged, destination as named, archive name)
         for item in sorted(stage.iterdir()):
             parent = {"data": _data(), "agents": Path(home)}.get(item.name)
             moves += [(child, Path(os.path.abspath(parent / child.name)),
                        f"{item.name}/{child.name}") for child in sorted(item.iterdir())
                       ] if parent else [(item, Path(os.path.abspath(where[item.name])),
                                          item.name)] if item.name in where else []
-        if len({dst for _, dst, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
+        if len({_spot(path) for _, path, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
             raise SystemExit("Two of this archive's parts would land at one place here.")
-        for child, dst, name in moves:  # before any swap: only a place's own part replaces it,
-            if name.startswith("data/") and (inside := {*dst.parents, *dst.resolve().parents}
-                                             & {*keep}):  # nor lands inside one
+        db_dirs = (Path(os.path.abspath(db)).parent, _spot(Path(db)).parent)  # as named, now
+        made = False  # the DB's dir comes private in a staged part
+        for child, path, name in moves:  # before any swap: only a place's own part replaces it,
+            dst = _spot(path)
+            if name.startswith("data/") and (inside := _within(dst, keep)):  # nor lands inside one
                 raise SystemExit(f"This archive's {name} would land in {inside.pop()}.")
             for at in keep:  # and one nested in another's swap must have a dir path to stay in
-                if at.is_relative_to(dst) and not (at == dst and not name.startswith("data/")) \
-                        and _displaces(child, child / at.relative_to(dst)):  # here yet or not
+                if _displaces(child, dst, name, at, owner):
                     raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
-        for child, dst, name in moves:
-            _swap(child, dst, stamp,
-                  ("", "-wal", "-shm") if name == "history.sqlite3" else ("",), keep)
-            done.append(name)
+                if any(_through_link(child, root, at) for root in {path, dst}):
+                    raise SystemExit(f"This archive's {name} would replace a link on the way "
+                                     f"to {at}.")
+        for child, path, _ in moves:  # nothing staged links out now: tighten, and keep logins
+            _keep_login(child, dst := _spot(path))
+            for d, at in zip(db_dirs, (path, dst), strict=True):  # the DB's dir: History needs
+                if d.is_relative_to(at) and (inner := child / d.relative_to(at)).is_dir():
+                    inner.chmod(inner.stat().st_mode & 0o7700)  # it private, wherever it lands
+                    made = True
+        if (stage / "history.sqlite3").exists() and not made and db_dirs[1].is_dir() \
+                and db_dirs[1].stat().st_mode & 0o077:  # someone else's dir: not ours to chmod
+            raise SystemExit(f"{db_dirs[1]} is open to others, and the history DB needs a "
+                             "private dir: `chmod 700` it, then import.")
+        journal = []
+        try:
+            for child, path, name in moves:  # where it lands now: a swap before it may
+                _swap(child, _spot(path), stamp, journal,  # have replaced a link on its way
+                      ("", "-wal", "-shm") if name == "history.sqlite3" else ("",), keep)
+                done.append(name)
+        except BaseException:
+            sys.stderr.write(f"Import failed after {', '.join(done) or 'no part'}: putting back "
+                             f"what it moved aside as *.pre-import-{stamp}.\n")
+            _undo(journal)
+            sys.stderr.write("Put back: nothing imported.\n")
+            raise
     return [f"Restored: {', '.join(done)}.",
             *[f"Adopted the DB from {manifest['host']}."] * (manifest["host"] != host),
             *[(f"Rewrote paths under {old} to {home}. Agents' transcripts still name {old}: "
@@ -349,7 +519,9 @@ def cli(argv: list[str]) -> None:
         out.add_argument(f"--{dest.replace('_', '-')}", action="store_true",
                          help=f"{'leave out' if on else 'add'} {label.lower()}: {note}")
     out.add_argument("-o", "--output", default=filename(), help="file, or - for stdout")
-    sub.add_parser("import", help="restore an export here").add_argument("file", help="file, or -")
+    sub.add_parser("import", help=("restore an export here. Import only an archive you made: "
+                                   "its hooks and settings run code")).add_argument(
+                                       "file", help="file, or -")
     args = parser.parse_args(argv)
     if args.cmd == "import":
         with _open(args.file, "rb") as f:
