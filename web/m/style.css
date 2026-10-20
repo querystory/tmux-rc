@@ -355,6 +355,11 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .set-row[hidden] { display: none; }
 :is(.set-card, #settings-accounts) > :not([hidden], :empty) ~ .set-row:not([hidden]) { border-top: 1px solid var(--line); }
 .set-row > span:not(.seg) { flex: 1; min-width: 0; display: grid; gap: 2px; }
+/* A described row with a control: the title and the control on one line, the description under both. */
+.set-row:has(> span + *) { display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; }
+.set-row:has(> span + *) > span:not(.seg) { display: contents; }
+.set-row:has(> span + *) > :last-child { grid-area: 1 / 2; }
+.set-row:has(> span + *) small { grid-column: 1 / -1; }
 .set-row > b { margin-right: auto; }
 .set-row b { font-weight: 600; }
 .set-row small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
@@ -949,7 +954,16 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   /* The list and the dashboard end clear of the tab bar. */
   #sessions { display: flex; flex-direction: column; }
   #sessions, #landing { padding-bottom: var(--bar-room); }
-  .app-header #new-window { color: var(--accent); background: none; }
+  /* New session: Gmail's Compose, floating bottom right just over the tab bar; the list's
+     scroll folds it to its + (app.js). The list's alone: the dashboard's sticky chart sits
+     where it would, and the keyboard (.editing) hides it. */
+  .app-header #new-window { position: absolute; z-index: 5; right: calc(16px + env(safe-area-inset-right)); bottom: var(--bar-room); width: auto; height: 56px; padding: 0 16px; gap: 12px; border-radius: 16px; font-size: 15px; font-weight: 600; transition: gap .2s; box-shadow: 0 4px 12px rgb(0 0 0 / .25), 0 1px 3px rgb(0 0 0 / .15); }
+  .app-header #new-window svg { width: 24px; height: 24px; }
+  .app-header #new-window::after { content: attr(aria-label); max-width: 9em; overflow: hidden; white-space: nowrap; transition: max-width .2s, margin .2s; }
+  .app-header #new-window.folded { gap: 0; }
+  .app-header #new-window.folded::after { max-width: 0; }
+  :is(.editing, .app-header:has(> #find[hidden])) #new-window { display: none; }
+  #sessions { padding-bottom: calc(var(--bar-room) + 68px); } /* the last row scrolls clear of it */
 }
 
 
@@ -1218,7 +1232,7 @@ button.picked:disabled { opacity: 1; }
 #side-filter-picker summary::after { content: attr(data-n); position: absolute; top: -6px; right: -6px; width: auto; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; border: 0; border-radius: 8px; transform: none; background: var(--accent); color: var(--bg); font: 700 9.5px/15px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
 #side-filter-picker summary[data-n=""]::after { display: none; }
 /* A phone's list screen opens on Gmail's search pill: the header itself, ☰ on its left, search
-   filling it, the filter button and New window on its right; plan usage and the list scroll
+   filling it, the filter button on its right (New session floats, below); plan usage and the list scroll
    under it. The filter button opens the menu as a bottom sheet (its grouping is the wide
    list's), and it and the list's foot say what is filtered: no chips under search. In a pane
    the header goes: #heading leads with Back, its actions on that row and the title under. */
@@ -1392,7 +1406,22 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .restore-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .restore-actions button { min-height: 40px; padding: 0 14px; border-radius: 6px; }
 @media (max-width: 1099.98px) { .app-header > #settings-open { display: none; } }
-#scratch-view { margin-left: auto; }
+/* Scratch's gallery fills its page from under the header to the screen's foot, a phone's tab bar
+   floating over it (scratch.html leaves room under the last card): the page keeps the side
+   gutters (a phone's edge swipe starts in the left one), the gallery its top and foot. A phone
+   drops the page head; Back is that swipe, or ☰. */
+#dash-page:has(> .scratch-frame) { display: flex; flex-direction: column; height: 100%; padding-block: 0; }
+#dash-page:has(> .scratch-frame) .landing-head { padding-top: 24px; }
+@media (max-width: 1099px) { #dash-page:has(> .scratch-frame) .landing-head { display: none; } #landing:has(> #dash-page > .scratch-frame) { padding-bottom: 0; } }
 /* A spinner behind the frame until the gallery paints over it (a frame reloads on every visit). */
-.scratch-frame { display: block; width: 100%; height: calc(100dvh - 110px); border: 0;
+.scratch-frame { display: block; flex: 1; min-height: 0; width: 100%; border: 0;
   background: center 96px / 28px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%238a948f' stroke-width='2.5' stroke-dasharray='42 15'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.8s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E"); }
+/* Scratch's viewer: a gallery page over the whole app, a slim bar atop it clear of the notch.
+   A phone keeps the page's left edge for the swipe back (app.js), as the gallery's gutter does. */
+#scratch-viewer { inset: 0; width: 100%; height: 100%; max-height: none; padding: 0; border: 0; border-radius: 0; }
+#scratch-viewer[open] { display: flex; flex-direction: column; }
+#scratch-viewer .dialog-heading { flex: none; gap: 4px; height: calc(48px + env(safe-area-inset-top)); margin: 0; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
+#viewer-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#viewer-out { flex: none; font-size: 14px; color: var(--accent); }
+#scratch-viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; } /* a page with no background of its own reads as in a tab */
+@media (max-width: 1099px) { #scratch-viewer::after { content: ""; position: absolute; inset: calc(48px + env(safe-area-inset-top)) auto 0 0; width: 16px; } }

@@ -355,6 +355,9 @@ def test_client_runs_the_binary_with_a_literal_query(monkeypatch, tmp_path):
 
     fake.write_text("#!/bin/sh\nexit 1\n")
     assert agent_history.get("x") is None
+    assert agent_history.get_many(["x"]) == {}  # 1: only an unknown id
+    fake.write_text("#!/bin/sh\necho usage >&2\nexit 2\n")
+    assert agent_history.get_many(["x", "y"]) is None  # an outdated binary's usage error
     monkeypatch.setenv("TMUXRC_AGENT_HISTORY", str(tmp_path / "missing"))
     assert agent_history.binary() is None and agent_history.resolve("q") is None
 

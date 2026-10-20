@@ -1,13 +1,13 @@
 import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
-import { renderCaptureLines, linkifyText, lastLine, joinWrapped } from "/terminal.js";
+import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
-import { parseHash, formatHash, historyMode, PAGES } from "/m/url-state.js";
+import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -169,7 +169,7 @@ const pendingAnswers = new Map();
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
-let latestFrame = "", paintedFrame = "";
+let latestFrame = "", paintedFrame = "", shown = { kept: [], count: 0 }; // the painted frame's rows (frameLines)
 // Earlier history (docs/design/live-view.md): tmux rows above the live frame, fetched as you
 // near the top and kept, since a history row never changes. Rows are counted from the
 // oldest one tmux keeps, so new output (which only adds rows below) never renumbers a row
@@ -331,6 +331,7 @@ function route() {
   const wasDashboardVisible = dashboardVisible(), wasPage = page;
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
+  dropGesture();
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, page } = state);
@@ -338,6 +339,7 @@ function route() {
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
+  if (viewer.open && page !== "scratch") viewer.close(); // Back, a push or Safari's swipe left Scratch: its viewer goes too
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
@@ -464,8 +466,6 @@ function renderList() {
   // Not before boot: an empty `panes` then would open the dialog in New session mode.
   $("new-window").disabled = !booted;
   const startable = booted && !panes.length;
-  const launchLabel = startable ? "New session" : "New window"; // what openLaunch will open
-  $("new-window").setAttribute("aria-label", launchLabel); $("new-window").title = launchLabel;
   show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
   show("landing-start", startable);
 }
@@ -785,22 +785,35 @@ function openLane(lane) {
 }
 // The scratch gallery, in the content area so the app stays put (the page is sandboxed, so a frame).
 const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/scratch/", title: "Scratch", className: "scratch-frame" });
-// Its Grid/List sits in the page head, opposite the title. The sandboxed page cannot keep the
-// choice, or read the app's theme, so the app tells the page both (scratch.html listens).
+// Its Grid/List sits on its filter's line. The sandboxed page cannot keep the choice, or read
+// the app's theme, so the app keeps the one and tells the page both (scratch.html listens).
 let scratchView = "grid";
 try { scratchView = localStorage.getItem("tmuxrc-scratch-view") || "grid"; } catch {}
-const scratchSeg = Object.assign(document.createElement("span"), { id: "scratch-view", className: "seg" });
-scratchSeg.setAttribute("role", "group"); scratchSeg.setAttribute("aria-label", "View");
 const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light") }, "*"); // its origin is opaque
 scratchFrame.addEventListener("load", tellScratch);
-addEventListener("message", (e) => { if (e.source === scratchFrame.contentWindow && /^%\d+$/.test(e.data?.pane)) navigate(e.data.pane); });
-function scratchPage() {
-  const head = cardView("Scratch", scratchFrame).previousSibling;
-  if (scratchSeg.parentNode !== head) head.append(scratchSeg); // a move would drop its focus
-  choices("scratch-view", { grid: "Grid", list: "List" }, scratchView, (v) => {
-    scratchView = v; try { localStorage.setItem("tmuxrc-scratch-view", v); } catch {} scratchPage(); tellScratch(); });
-  return scratchFrame;
+// Only the gallery is heard, never a page the viewer shows: it opens a pane, keeps its view, or
+// opens one of its pages, a path under /scratch/ here and nothing else (url-state.js).
+addEventListener("message", (e) => {
+  if (e.source !== scratchFrame.contentWindow) return;
+  const { pane, view, open, title } = e.data || {}, href = scratchUrl(open, location.href);
+  if (/^%\d+$/.test(pane)) navigate(pane);
+  if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
+  if (href) viewScratch(href, title);
+});
+function scratchPage() { return cardView("Scratch", scratchFrame); }
+// A gallery page, full screen over the app in a frame of its own (sandboxed by the daemon's CSP
+// like every /scratch/ page), under a bar: Back, its title, and a real link out to a tab.
+// A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
+const viewer = $("scratch-viewer");
+function viewScratch(href, title) {
+  text($("viewer-title"), String(title || ""));
+  $("viewer-out").href = href;
+  viewer.querySelector("iframe")?.remove();
+  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title: String(title || "Scratch page") }));
+  viewer.showModal(); viewer.focus();
 }
+$("close-viewer").onclick = () => viewer.close();
+viewer.addEventListener("close", () => viewer.querySelector("iframe")?.remove());
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
   if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);
@@ -1189,7 +1202,13 @@ function paintLines(lines) {
   });
   captureLines.splice(lines.length).forEach((node) => node.remove());
 }
-const frameLines = () => lineMarkup(renderCaptureLines(latestCapture, { color: true }));
+// A full-screen app's blank runs squeezed (keptRows): `kept` says which of the capture's
+// `count` rows each line is, which a click counts in. Only there: its frame is the whole
+// screen (capture_live), so no row of it ever lands in #earlier, which shows rows as they are.
+function frameLines() {
+  const all = renderCaptureLines(latestCapture, { color: true }), kept = fitAlt ? keptRows(all) : [...all.keys()];
+  return Object.assign(lineMarkup(kept.map((i) => all[i])), { kept, count: all.length });
+}
 const selectionHolds = (lines) => { const s = getSelection(); return !!s && !s.isCollapsed && selectionDirty(s, lines); };
 function paintCapture(force = false) {
   // A reflow (new width) or a switch of screen renumbers every row, and trimmed or cleared
@@ -1211,7 +1230,7 @@ function paintCapture(force = false) {
   if (earlier.top === earlier.end && !earlier.busy && follow) earlier.top = earlier.end = top;
   if (!follow && !force && earlier.end < top && !backingOff()) { loadEarlier(); return; }
   paintLines(lines);
-  paintedFrame = latestFrame; shownTop = top;
+  paintedFrame = latestFrame; shownTop = top; shown = lines;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
   loadEarlier();
 }
@@ -1254,21 +1273,24 @@ const selected = (node) => { const s = getSelection(); return !!s?.rangeCount &&
 // the place the old frame showed them, so whatever you were reading stays put. If a
 // selection now holds that frame back, they are dropped and fetched again later.
 //
-// A line tmux wrapped across a chunk's edge arrives in two pieces (tmux.capture_history),
-// so the held piece is rendered again together with the new one and replaced: a long URL
-// stays one link, in its own colors. Each chunk's first and last lines keep their raw text
-// on their nodes (the last with the style it starts in), and the last whether it wraps on.
-// A held piece inside a selection is left alone rather than replaced under it.
+// A line wrapped across a chunk's edge, by tmux (tmux.capture_history says so) or by the
+// app's own newline, arrives in two pieces, so each chunk is rendered against the raw rows
+// already held at that end (`head` and `tail`, and whether the last row wraps on) and the
+// held lines it changes are replaced (besideHeld): a long URL stays one link, in its own
+// colors. A held line inside a selection is left alone rather than replaced under it.
 async function loadEarlier() {
   const h = earlier, id = active, box = $("terminal-scroll"), pre = $("earlier");
   if (h.busy || !id || !h.screen || captureDirty || backingOff()) return;
   h.busy = true;
-  let held = [], gone = null, heldEnd = h.end, since = 0, older = false;
+  const whole = (raw) => raw.split("\n").length >= pre.children.length; // one end's rows are all there are, so both ends'
+  const draw = (node, markup) => { node.innerHTML = `${markup}\n`; node.markup = markup; return node; };
+  let held = [], redraws = [], heldEnd = h.end, heldTail, heldWraps, since = 0, older = false; // the staged rows' own, while any are
   const land = (force) => {
     if (paintedFrame !== latestFrame && selectionHolds(frameLines())) { captureDirty = true; return; }
-    if (gone && selected(gone)) return; // selected since: fetched again, and left split this time
+    if (redraws.some(([node]) => selected(node))) return; // selected since: fetched again, left as shown meanwhile
     const tail = following();
-    gone?.remove(); pre.append(...held); h.end = heldEnd;
+    for (const [node, markup] of redraws) draw(node, markup);
+    pre.append(...held); Object.assign(h, { end: heldEnd, tail: heldTail, wraps: heldWraps }); if (whole(heldTail)) h.head = heldTail;
     if (tail) box.scrollTop = box.scrollHeight;
     if (paintedFrame !== latestFrame) paintCapture(force); // the frame that waited
   };
@@ -1283,7 +1305,7 @@ async function loadEarlier() {
       // wait to land (at most 5s): a prepend could replace the piece they are to replace,
       // or a frame painted meanwhile could strand them.
       const up = h.asked || !following(), want = latestGeometry[0];
-      older = (!older || heldEnd >= want) && !held.length && h.top > 0 && box.scrollTop < box.clientHeight && up;
+      older = (!older || heldEnd >= want) && heldEnd === h.end && h.top > 0 && box.scrollTop < box.clientHeight && up;
       const gap = heldEnd < want && up && !older;
       if (!gap && !older) return;
       const unseen = heldEnd < shownTop; // 1000: the daemon's cap
@@ -1298,28 +1320,32 @@ async function loadEarlier() {
       // frame already here keep it unknown); the frame waiting, if any, paints as it is.
       if (screen !== h.screen) { latestGeometry = [latestGeometry[0], ""]; paintCapture(true); return; }
       // A frame painted meanwhile moved the split this chunk was asked by: start the gap over.
-      if (gap && shownTop !== shown) { held = []; gone = null; heldEnd = h.end; continue; }
+      if (gap && shownTop !== shown) { held = []; redraws = []; heldEnd = h.end; continue; }
       const edge = gap ? held.at(-1) || pre.lastChild : pre.firstChild;
-      const join = edge && (gap ? edge.wraps : wraps) && !selected(edge);
-      const raw = !join ? rows : gap ? joinWrapped(edge.raw, rows) : joinWrapped(rows, edge.raw);
-      const nodes = renderCaptureLines(raw, { color: true }).map((markup) => {
-        const node = document.createElement("span"); node.innerHTML = `${markup}\n`; return node;
-      });
-      nodes[0].raw = raw.slice(0, raw.indexOf("\n") >>> 0);
-      Object.assign(nodes.at(-1), { raw: lastLine(raw), wraps: gap || !join ? wraps : edge.wraps });
+      const join = edge && !selected(edge);
+      const [endRaw, endWraps] = heldEnd !== h.end ? [heldTail, heldWraps] : [h.tail, h.wraps]; // rows staged (a wrap's may add no node)
+      const { lines, raw, again } = besideHeld(rows, join ? gap ? endRaw : h.head : null, gap, gap ? endWraps : wraps);
+      // The held rows the new ones change are redrawn in place, from the edge in, unless
+      // selected; staged rows run on into the shown rows above them.
+      const near = (n) => !gap ? n.nextSibling : !held.includes(n) ? n.previousSibling : n !== held[0] ? held[held.indexOf(n) - 1] : pre.lastChild;
+      const changes = [];
+      for (let n = join && edge, i = 0; n && i < again.length; n = near(n), i++) if (!selected(n)) changes.push([n, again[i]]);
+      const redraw = () => { for (const [node, markup] of changes) draw(node, markup); };
+      const nodes = lines.map((markup) => draw(document.createElement("span"), markup));
+      if (gap) { heldTail = raw; heldWraps = wraps; } else h.head = raw;
       if (!gap) {
-        holdView(() => { if (join) edge.remove(); pre.prepend(...nodes); h.top = start; h.loading = h.asked = false; paintEarlierCue(); });
+        holdView(() => { redraw(); pre.prepend(...nodes); if (whole(h.head)) h.tail = h.head; if (!edge) h.wraps = wraps; h.top = start; h.loading = h.asked = false; paintEarlierCue(); });
       } else if (unseen) {
-        holdView(() => { if (join) edge.remove(); pre.append(...nodes); h.end = heldEnd = before; }, true);
+        holdView(() => { redraw(); pre.append(...nodes); h.end = heldEnd = before; Object.assign(h, { tail: raw, wraps }); if (whole(raw)) h.head = raw; }, true);
       } else {
-        if (join && edge === held.at(-1)) held.pop(); else if (join) gone = edge;
+        redraws.push(...changes); // with the rows that land
         held.push(...nodes); heldEnd = before;
         // Caught up, they land with the newest frame. Output that keeps ahead (over a
         // request's worth, or for 5s) can't hold them back: they land and that frame paints
         // anyway, the rows it passed becoming a gap above it.
         const behind = latestGeometry[0] - heldEnd, now = performance.now();
         since ||= now;
-        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; gone = null; heldEnd = h.end; since = 0; }
+        if (behind <= 0 || behind > 1000 || now - since > 5000) { land(behind > 0); held = []; redraws = []; heldEnd = h.end; since = 0; }
       }
     }
   } catch { h.failed = performance.now(); setTimeout(loadEarlier, 3000); }
@@ -1344,11 +1370,12 @@ async function streamTerminal(id, signal) {
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; latestGeometry = [data.top, data.screen]; paintCapture(); }
       // A full-screen app came or went: Auto picks again between tall and width only.
       // The first word too: a fit sent before it may have judged a shell the app has since
       // left. Queued, not left to fitDue: a reply already in flight would mark it done.
+      // Before the frame: a full-screen app's is drawn squeezed (frameLines).
       if ("alt" in data && data.alt !== fitAlt) { if (fitMode(id) === "auto") refitNow(); fitAlt = data.alt; }
+      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; latestGeometry = [data.top, data.screen]; paintCapture(); }
       fitDue();
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
@@ -1555,14 +1582,25 @@ function badgeOf(pane) {
   const pending = isAnswered(pane);
   return pending ? { label: pending.sent ? "Sent" : "Sending", cls: "running" } : { label: activityLabel(pane), cls: activityClass(pane) };
 }
+// Holds pane `id`'s card under `pending` at once, "Sending…" and not Needs you. The returned
+// settle(sent) ends the send: delivered, "Sent, waiting for the agent" until the pane's next
+// state or ANSWER_PENDING_MS; not sent, the options are live again (the notice says why).
+function hold(id, pending) {
+  pending.note = "Sending…"; pendingAnswers.set(id, pending); render();
+  return (sent) => {
+    if (pendingAnswers.get(id) !== pending || sent && pending.sent) return; // moved on, or said already
+    if (!sent) { pendingAnswers.delete(id); render(); return; }
+    pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
+    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
+  };
+}
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
 // stops reading as Needs you, through the send and on until the pane's next state. An
 // offer (index -1) is sent as typed text plus Enter, as a text answer is.
 async function answer(id, option, index, offer = false) {
   const current = panes.find((p) => p.pane_id === id);
   if (!(offer ? offersOf(current).includes(option) : current?.question && needsYou(current)) || isAnswered(current) || sending) return;
-  const pending = { key: questionKey(current.question), option, index, note: "Sending…", ...offer && { since: current.state_since } };
-  pendingAnswers.set(id, pending); render();
+  const settle = hold(id, { key: questionKey(current.question), option, index, ...offer && { since: current.state_since } });
   // A cursor list answers to neither of the other two styles: the row's text and a
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
@@ -1570,16 +1608,8 @@ async function answer(id, option, index, offer = false) {
   // Open the pane first, as the cursor walk does, so the keyboard reaches the right one.
   if ((cursor || !body) && active !== id) navigate(id);
   // Delivered: a walk says so as its select lands, before it waits on the picker to close.
-  const delivered = () => {
-    if (pendingAnswers.get(id) !== pending || pending.sent) return; // moved on, or said already
-    pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
-    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
-  };
-  const sent = cursor ? await pickCursorRow(cursorIO(id, delivered), option, index)
-    : body ? await sendKeys(body, id) : notice("Use the keyboard for this option.");
-  if (sent) delivered();
-  // Not sent: the notice says why, and the options are live again.
-  else if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); }
+  settle(!!(cursor ? await pickCursorRow(cursorIO(id, () => settle(true)), option, index)
+    : body ? await sendKeys(body, id) : notice("Use the keyboard for this option.")));
 }
 
 // What the agent hands the user to send back (classify.screen_offers), whatever the pane's
@@ -1619,7 +1649,10 @@ function cursorIO(id, committed) {
 // The draft is cleared as it goes, not when the reply lands: typing straight after Enter
 // is the next message, and clearing on the reply erased it. A failed send puts the sent
 // draft back in front of whatever was typed since (a password only into an empty field).
+// A reply to a pane that needs you holds its card as a tapped answer does.
 async function compose(id, value) {
+  const pane = panes.find((p) => p.pane_id === id);
+  const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
   const secret = value === $("secret"), sent = secret ? value.value : value.segments();
   const form = new FormData();
   if (secret) form.append("secret", sent);
@@ -1634,9 +1667,10 @@ async function compose(id, value) {
     await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
     // Not over a next draft typed while this one went: that one is unsent.
     if (active === id && !(secret ? value.value : draft(id).segments().length)) text($("draft-status"), "Sent");
-    startState();
+    settle(true); startState();
     return true;
   } catch {
+    settle(false);
     if (secret) { if (active === id && !value.value) value.value = sent; } // the one field is the open pane's
     else {
       // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
@@ -1667,7 +1701,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -1786,7 +1820,9 @@ addEventListener("touchmove", (e) => {
   if (!drag.live) {
     if (dy > Math.abs(dx)) { if (dy > 10) drag = null; return; } // vertical: a scroll, not a drag
     if (Math.abs(dx) < 10 || !drag.open && dx < 0) return;
-    drag.live = true; clearTimeout(settling); drawer.classList.remove("settling"); if (!drawer.open) $("menu-open").click(); drag.base = drag.open ? 0 : -drawer.offsetWidth;
+    // From where it is, which may be partway through settling, read before .settling is dropped.
+    const x = drawer.open && new DOMMatrix(getComputedStyle(drawer).transform).m41;
+    drag.live = true; clearTimeout(settling); drawer.classList.remove("settling"); if (!drawer.open) $("menu-open").click(); drag.base = x === false ? -drawer.offsetWidth : x;
   }
   drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
@@ -1795,22 +1831,26 @@ $("scratch-nav").onclick = (e) => { e.preventDefault(); openPage("scratch"); };
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
-// A phone's Back is also a swipe in from the left edge: it presses the Back of the pane or the
-// view (on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
+// A phone's Back is also a swipe in from the left edge: it presses the Back of the pane, the
+// view or Scratch's viewer (whose left edge is kept for it; on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
+// Installed only: in a browser tab that edge is the browser's own Back, and both at once slide
+// two things in (☰ still opens the drawer there, and an open one still drags).
 let edge = null;
 addEventListener("touchstart", (e) => {
   if (drag?.live) return; // a second finger: the drag stays the first one's
   const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
-  edge = !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+  edge = standalone() && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
   drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
-addEventListener("touchcancel", () => { edge = null; if (drag?.live) settle(drag.open); drag = null; });
+// A gesture the page moved under (a touchcancel, or a route() mid-swipe) springs back to where it began.
+const dropGesture = () => { edge = null; if (drag?.live) settle(drag.open); drag = null; };
+addEventListener("touchcancel", dropGesture);
 addEventListener("touchend", (e) => {
   const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
   if (drag?.live && e.timeStamp - drag.t > 100) drag.v = 0; // held before letting go: no flick
   if (drag?.live) settle(drag.v > .5 || drag.v > -.5 && drag.pos > -drawer.offsetWidth * (drag.open ? 1 : 2) / 3);
-  else if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
+  else if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (viewer.open ? $("close-viewer") : active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
   edge = drag = null;
 });
 // Typing only rewrites the URL's q (url-state.js) in place: a whole route() per keystroke would refetch the pane.
@@ -2105,7 +2145,7 @@ $("capture").onclick = (event) => {
   const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
   const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
   if (row < 0 || row >= captureLines.length || col < 1) return;
-  const body = { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }, id = active;
+  const body = { from_bottom: shown.count - 1 - shown.kept[row], col, frame: paintedFrame }, id = active;
   // A tap that lands on nothing answers sent:false, not an error; a failure is a gone or
   // replaced pane, and it drops any keys queued behind it, so it has to say so.
   paneInput.run(id, () => post(paneUrl(id, "click"), body)).catch(() => notice("The click could not be delivered. Check the terminal before typing on."));
@@ -2115,7 +2155,7 @@ $("capture").onclick = (event) => {
 // in directory + name fields and posts /api/sessions instead of /api/windows.
 const launchMode = () => {
   const fresh = !$("launch-session").value;
-  show("launch-new", fresh); text($("launch-title"), fresh ? "New session" : "New window");
+  show("launch-new", fresh); text($("launch-title"), "New session");
 };
 $("launch-session").onchange = launchMode;
 // The name defaults to the directory's basename, shown as the placeholder so typing a
@@ -2124,6 +2164,13 @@ const sessionName = (dir) => (dir.replace(/\/+$/, "").split("/").pop() || "").re
 $("launch-dir").oninput = () => { $("launch-name").placeholder = sessionName($("launch-dir").value.trim()); };
 document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => openLaunch(true, b); }); // docked beside the sidebar too
 $("new-window").onclick = () => openLaunch(false, $("new-window"));
+// A phone's New session floats over the list like Gmail's Compose: scrolling down folds it to
+// its +, scrolling up or reaching the top opens it out again.
+let listTop = 0;
+$("sessions").addEventListener("scroll", () => {
+  const y = $("sessions").scrollTop;
+  if (Math.abs(y - listTop) > 8 || y <= 0) { $("new-window").classList.toggle("folded", y > listTop && y > 0); listTop = y; }
+}, { passive: true });
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
 const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", antigravity: "Google Antigravity CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
@@ -2215,9 +2262,9 @@ async function launchWindow(launcher, button) {
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
 
+const standalone = () => navigator.standalone || matchMedia("(display-mode: standalone)").matches; // installed, not a browser tab
 function fitViewport() {
   const viewport = window.visualViewport, root = document.documentElement;
-  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
   const focused = document.activeElement;
   const textInput = focused?.tagName === "INPUT"
     && ["text", "search", "email", "url", "tel", "number", "password"].includes(focused.type);
@@ -2225,7 +2272,7 @@ function fitViewport() {
     || ((textInput || focused?.tagName === "TEXTAREA") && !focused.readOnly && !focused.disabled);
   // Installed mode lets iOS reserve the status bar outside the app. Fill that
   // available viewport while browsing; editors still follow the keyboard.
-  root.classList.toggle("standalone-fill", !!standalone && !editing);
+  root.classList.toggle("standalone-fill", !!standalone() && !editing);
   root.classList.toggle("editing", !!editing); // the keyboard is up: the tab bar steps aside (style.css)
   // Only an editor measures: iOS resizes the visual viewport, not the layout viewport, for
   // its keyboard. At rest CSS sizes the app from dvh, so a height measured with the keyboard

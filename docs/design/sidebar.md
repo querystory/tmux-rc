@@ -108,15 +108,15 @@ dashboard, which has no search row, still names the account filter under its hea
 
 ## Panels dock beside the sidebar
 
-Settings and New window open as a panel docked to the sidebar's right edge, over the left of
+Settings and New session open as a panel docked to the sidebar's right edge, over the left of
 the main column, with a sticky title and ×. The right of the screen is usually busy (the chat
 column, the pane's overview), and the terminal in the middle matters least while you are
 choosing something; docking also keeps the panel next to the control that opened it. The
 panel is non-modal, so the list stays live beside it; Escape or a click elsewhere closes it.
 One helper does this for both, and a phone keeps its bottom sheet. A centred modal was
-rejected: New window had grown taller than the screen and scrolled its own title away.
+rejected: New session had grown taller than the screen and scrolled its own title away.
 
-New window is compact for the same reason, but not at the cost of saying how it works (a
+New session is compact for the same reason, but not at the cost of saying how it works (a
 first cut hid every explanation in tooltips, and read as cryptic): a one-line subtitle says
 what it does; the accounts are a two-column grid of small chips, "+ Add account" the next
 cell, with a hint naming the tool they apply to; the session's default is a sentence with a
@@ -131,7 +131,7 @@ the fixed title.
 Folded to a 60px rail, the sidebar used to show its head and the live panes. A rail with
 nothing but "expand" made folding a trap, so the rail now keeps everything that works as an
 icon, top down: expand, the green +, search, the filter, Dashboard, Chat, Voice, every pane
-the list shows in its order, and Settings at the foot. The + opens New window beside the
+the list shows in its order, and Settings at the foot. The + opens New session beside the
 rail without expanding it, and the filter's menu opens beside it too with its count. Search
 expands the sidebar and focuses the box, since a query needs the list. Each pane icon has the
 list's own single running ring on its logo, an amber dot when it needs you and, with several
@@ -151,7 +151,7 @@ which cost "Just finished", the widest word, a tab for the least-used view, and 
 the mic up in the header, out of thumb's reach. Now the states are in the filter menu like the
 wide list's, Needs you keeps its own tab because it is the one view you go to on purpose, and
 Sessions leaves Needs you for the list without clearing a filter the menu set. The header is
-the title, a quiet + (New window, which used to float over the list's foot and the rows'
+the title, a quiet + (New session, which used to float over the list's foot and the rows'
 right edge) and the gear for Settings. The pill floats over the page's foot, so the list and
 the dashboard leave it room at their ends. Rows keep their density: the mock's calmer,
 roomier rows cost too many panes per screen.

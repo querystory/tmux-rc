@@ -107,23 +107,50 @@ function linkify(text, join = true) {
 const SGR_SPLIT = /(\x1b\[[0-9;]*m)/;
 const SGR_ONE = /^\x1b\[([0-9;]*)m$/;
 
-// A line tmux wrapped across two captures comes back in two pieces (the live view's
-// earlier history, web/m/app.js). lastLine(text) is a capture's last line carrying every SGR
-// before it, so it renders in the style it had there; joinWrapped(head, rest) puts the
-// pieces back together. Each capture states its style from the default, so the rest's
-// leading SGR is dropped when it only restates the style the head left open (the usual
-// case, and it keeps a wrapped URL in one run, so one link); otherwise a reset goes between.
+// Earlier history arrives in chunks (the live view's, web/m/app.js), each its own capture,
+// and a line can run across the edge between two: wrapped by tmux (`wraps`: it comes back in
+// two pieces) or by the app with its own newline (a TUI's long URL). besideHeld renders a
+// new chunk, `rows`, against the chunk already shown beside it, `held` (above it when `below`),
+// as one capture, so the line keeps its colors and a URL stays one link with the whole href.
+// `held` is the raw text of the rows already shown at that end, up to KEEP of them (enough
+// for any wrapped URL), so a URL that began rows before the edge still links whole. It
+// returns the new chunk's own lines; `again`, the held rows the new ones change, as rendered
+// now, nearest the edge first: the edge row when tmux's wrap merges it with the new chunk's
+// first, and a URL running over the edge and on into the held rows. They are the run from
+// the edge of rows that render differently beside the new ones than the held rows alone do,
+// so whatever the held window lacks renders the same both ways and changes nothing shown.
+// And `raw`, the rows now at that end, to hold next time (starting in the style they had
+// there). Each capture states its style from the default, so the rest's leading SGR is
+// dropped when it only restates the style the head left open (the usual case, and it keeps
+// a wrapped URL in one run); otherwise a reset goes between.
+const KEEP = 2000;
 const SGR_ALL = /\x1b\[[0-9;]*m/g, SGR_LEAD = /^(?:\x1b\[[0-9;]*m)*/;
-const sgrOf = (text) => (text.match(SGR_ALL) || []).join("");
-const styleOf = (sgr) => renderCapture(`${sgr}x`, { color: true });
-export const lastLine = (text) => {
-  const cut = text.lastIndexOf("\n") + 1;
-  return sgrOf(text.slice(0, cut)) + text.slice(cut);
+const sgrOf = (text) => { // what is still in force: from the last reset on
+  const all = text.match(SGR_ALL) || [];
+  return all.slice(Math.max(0, all.findLastIndex((c) => c === "\x1b[0m" || c === "\x1b[m"))).join("");
 };
-export function joinWrapped(head, rest) {
+const styleOf = (sgr) => renderCapture(`${sgr}x`, { color: true });
+function joinWrapped(head, rest) {
   const lead = SGR_LEAD.exec(rest)[0];
   return styleOf(sgrOf(head)) === styleOf(lead) ? head + rest.slice(lead.length) : `${head}\x1b[0m${rest}`;
 }
+export function besideHeld(rows, held, below, wraps) {
+  const sep = wraps ? "" : "\n", raw = held == null ? rows : below ? joinWrapped(held + sep, rows) : joinWrapped(rows + sep, held);
+  const lines = renderCaptureLines(raw, { color: true }), alone = held == null ? [] : renderCaptureLines(held, { color: true });
+  const at = below ? 0 : lines.length - alone.length, now = lines.slice(at, at + alone.length);
+  const [after, before] = below ? [now.reverse(), alone.reverse()] : [now, alone];
+  const same = after.findIndex((line, i) => line === before[i]), again = same < 0 ? after : after.slice(0, same);
+  if (!below) return { lines: lines.slice(0, at), again, raw: raw.split("\n").slice(0, KEEP).join("\n") };
+  const tail = raw.split("\n").slice(-KEEP).join("\n"), cut = raw.length - tail.length;
+  return { lines: lines.slice(alone.length), again, raw: sgrOf(raw.slice(0, cut)) + tail };
+}
+
+// A full-screen app in a tall window (500 rows, for scrollback) leaves most of it blank, so the
+// live view shows any run of blank rows as its first one: the frame is what was drawn, not the
+// gaps in it. A row of spaces is drawn (a colored bar, an underline), so only an empty one is blank.
+// The indices of the rendered lines it keeps.
+const blankRow = (markup) => /^(?:<[^>]*>)*$/.test(markup);
+export const keptRows = (lines) => lines.flatMap((line, i) => blankRow(line) && i && blankRow(lines[i - 1]) ? [] : [i]);
 
 // Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the
 // terminal gets — markdown [label](url) and bare URLs — but with wrap-joining OFF, because

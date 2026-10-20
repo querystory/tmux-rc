@@ -120,7 +120,7 @@ alike; see [sidebar.md](sidebar.md).
 The mechanism is a default account per tmux session:
 `tmux set-environment -t <session> CLAUDE_CONFIG_DIR <dir>`. tmux hands it to every window
 created there afterwards, a typed `prefix c` and a resume included. It is what a user
-would do by hand, and it stays visible in tmux. New window preselects the session's
+would do by hand, and it stays visible in tmux. New session preselects the session's
 default and always shows a "Default for this session" control. When nothing sets the
 variable (unset, or removed with `-VAR`), it says so ("no account default; new windows use
 Work, the standard dir") rather than implying a choice nobody made.
@@ -135,9 +135,9 @@ it; agent-history now indexes every `~/.claude*` dir so those sessions are offer
 
 ## Adding an account
 
-![New window with two Claude accounts: Personal and Work as cards, "+ Add account", and the session's default shown and settable](../img/accounts-add-1-new-window.png)
+![New session with two Claude accounts: Personal and Work as cards, "+ Add account", and the session's default shown and settable](../img/accounts-add-1-new-window.png)
 
-From Settings → Manage accounts… → Add account, or "+ Add account" in New window's picker:
+From Settings → Manage accounts… → Add account, or "+ Add account" in New session's picker:
 
 1. **Name, provider and dir.** The dir is suggested as `~/.<provider>-<name>` and stays
    visible and editable, because the dir is the account. One already listed stops the

@@ -203,6 +203,7 @@ actually hit:
 | `90_claude_question_names_list_items` | a closing "do 1 now and prepare the list for 2?" under a numbered list → those two rows in `question.items`, not the unnamed third |
 | `92_claude_question_names_lettered_options` | a bare "Go with A or B?" under lettered options → the A and B rows in `question.items`, and the line leading into them in `question.subject` |
 | `93_claude_decision_heading_above_options` | a heading over bulleted "Option A:" / "Option B —" rows, asked "option A or B?" → the heading as `question.subject`, both rows in `question.items` |
+| `98_codex_device_code_is_not_a_question` | `codex login --device-auth`'s "Enter code …" with no › composer → an external wait, no question; the link and code stay as links/copyables |
 | `100_claude_handoff_beside_suggested_command` | a `! command` handoff in Claude's right-barred transcript, its greyed suggestion in the box → text user-wait quoting the agent, no reply buttons |
 | `101_claude_bare_command_after_colon_one_line` | a one-line message handing over a bare `! command` after a colon, no backticks → text user-wait offering that command |
 | `102_claude_bare_command_after_colon_wrapped` | a long bare `! command` after a colon, wrapped over screen rows but one row ending the transcript → offered whole, not just a copyable |
@@ -211,6 +212,7 @@ actually hit:
 | `111_claude_handoff_command_alone_offered` | synthetic: a `! command` alone on its row, then a sentence → text user-wait offering that command |
 | `112_claude_handoff_command_wrapped_across_rows` | synthetic: a long `! command` the screen wraps onto a second row, then a sentence → the whole command offered, its rows joined |
 | `114_claude_mcp_picker_checked_rows` | synthetic: `/mcp` arrow picker whose rows carry ✔/✘ marks → cursor question with its arrow keymap |
+| `128_claude_handoff_no_side_panel_no_question_mark` | synthetic: a signed `! git tag` handed over in a sentence, no `?`, no `[side panel]`, ASCII-pipe status rows → text user-wait offering the command |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

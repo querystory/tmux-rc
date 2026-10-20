@@ -18,9 +18,9 @@ a question, tappable answers, and a snapshot timeline.
   ([below](#reboot-without-losing-your-fleet)).
 
 <p align="center">
-  <img src="docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both, Just #413 and Later buttons right on its row" width="240">
-  <img src="docs/img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, the three answers as buttons, and both PRs under Links with their titles" width="240">
-  <img src="docs/img/mobile-offers.png" alt="A finished turn hands you a command: the agent's merge command and a reply, each with Send it and Copy buttons" width="240">
+  <img src="docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both and Just #413 buttons right on its row" width="240">
+  <img src="docs/img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, both answers as buttons, and both PRs under Links with their titles" width="240">
+  <img src="docs/img/mobile-offers.png" alt="An agent hands you a command to run: make test, and a reply, each with Send it and Copy buttons" width="240">
 </p>
 
 <p align="center"><em>Answer your agents in one tap, from your phone.</em></p>
@@ -82,6 +82,9 @@ Why it works this way: [docs/design/reboot-restore.md](docs/design/reboot-restor
 > waiting prompt → tap → answer round-trips into the pane. Remaining PRD milestone-2
 > items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
 > scope.
+
+[Why tmux-rc](docs/comparisons/_index.md): the existing tmux workflow we wanted to
+keep, the requirements other tools left open for us, and the alternatives we researched.
 
 ## Run
 

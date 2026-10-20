@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished Claude Code turn in auto mode with a long multi-section status report, whose last paragraph hands the user a `! command` inline because the agent's own attempt was denied, followed by a link; background agents still run below the input box. The hand-over is the agent waiting on the user, so it is an offer (Send it) and the pane needs them, even though it ends a report rather than asking a question.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ status on everything in flight?\n\n  Ran 6 shell commands\n\n● Here's where everything stands.\n\n  Merged today\n  - #412 Cart: a coupon with a past end date is rejected at entry, not at checkout\n  - #415 Search: an empty query keeps the last filters instead of clearing them\n  - #417 Daemon: the sync worker retries a dropped socket with backoff\n\n  Open, Copilot clean, CI green, waiting on you\n  - #419 Orders: the export button shows a spinner until the CSV is ready\n  - #421 Settings: the timezone picker remembers the last region\n\n  Open, still looping\n  - #423 Inventory: low-stock alerts batch per warehouse (Copilot round 3, one nit left)\n  - #424 Daemon: the health endpoint reports queue depth (CI rerunning a flaky e2e)\n\n  Integration\n  - All of the above except #423 and #424 are merged into the integration branch, and the\n    full test suite passed there (812 passed, 0 failed).\n\n  To load the daemon changes in your build, run ! systemctl --user restart tmux-rc (my\n  restart was denied). The dashboard is at https://orchard.example.dev/status.\n\n✻ Worked for 31s · done 3:41 PM · 17 shells still running\n\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/lumen/orchard on integration | Opus 5.5 | dev@example.com\n  session: +418/-96 lines · 37% ctx · 3h02m · $14.20\n  ⏵⏵ auto mode on (shift+tab to cycle) · ↓ to manage\n\n ●  main\n ◯  general-purpose  Copilot loop for #423 inventory alerts       21m 14s · ↓ 88.2k tokens\n ◯  general-purpose  Copilot loop for #424 health endpoint        18m 02s · ↓ 61.7k tokens\n ◯  general-purpose  Rerun flaky checkout e2e on #424             6m 40s · ↓ 19.3k tokens\n    ↓ 8 more",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "model": "Opus 5.5",
+    "headline": "Status report; user must restart the daemon",
+    "offers": [
+      "! systemctl --user restart tmux-rc"
+    ]
+  }
+}

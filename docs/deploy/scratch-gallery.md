@@ -12,8 +12,10 @@ first. A card shows a thumbnail, the title, one line of description, when the fo
 made and changed, and who made it. Tap the title to open the page. Tap where it was made to
 jump to that pane while it is still open. Type in the filter box, or tap an agent's chip,
 to narrow the list. Grid and List switch between cards across the full width and compact
-rows with a small thumbnail. A phone starts on the list. The wide sidebar links to the
-gallery as Scratch, and Settings links to it under More.
+rows with a small thumbnail. The app shows the gallery as Scratch, in the wide sidebar
+and in a phone's ☰ menu. There a card opens full screen over the app. Back, Escape or a
+swipe from the left edge returns to the gallery, and "Open in browser" opens the page in
+a tab of its own. Settings links to the gallery's own page under More.
 
 ## Setting it up
 

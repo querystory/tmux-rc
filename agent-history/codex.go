@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -199,18 +200,42 @@ func codexSessions() ([][]string, error) {
 	return out, err
 }
 
-// RunningCodex lists live Codex threads by ID. Codex keeps no registry, but a running
-// Codex holds its thread's rollout open (see openTranscripts). A codex-linux-sandbox
-// helper runs tool commands under the name codex, but is not the session.
+// RunningCodex lists live Codex threads by ID. Codex keeps no registry, but a thread
+// is live while a codex process holds its rollout open (see openTranscripts). Since
+// the shared app-server daemon took the rollouts over from the terminal clients, the
+// client holding one is an older Codex; a thread the daemon holds is live, but the
+// daemon is in no pane and is nobody's session, so the client's own command line
+// names its pane when it can (codexProcess). A fresh thread (`codex` with no ID) stays
+// live with no process until the daemon exits.
 func RunningCodex() (map[string]Running, error) {
-	return openTranscripts("codex", codexSessionsDir(), func(argv0 string) bool {
-		return filepath.Base(argv0) == "codex-linux-sandbox"
-	}, codexThreadID)
+	return openTranscripts("codex", codexSessionsDir(), codexProcess, codexThreadID)
 }
 
-// pane is the tmux pane a process was started in, or "" if it has since left every
-// terminal: Codex's shared app-server daemon holds the rollouts of the threads its
-// clients show, and the pane in its environment is just where it was first spawned.
+// codexProcess reads a codex command line: the app-server daemon holds every client's
+// rollout (Codex spawns it with the subcommand first, `codex app-server ...`), the
+// codex-linux-sandbox helper runs tool commands and is no session, and a client's
+// `codex resume <id>` names the thread it started on: the first thread ID after the
+// subcommand, whatever options sit around it, as a pasted ID may be upper case.
+func codexProcess(argv []string) (session string, r role) {
+	switch {
+	case filepath.Base(argv[0]) == "codex-linux-sandbox":
+		return "", helper
+	case len(argv) > 1 && argv[1] == "app-server":
+		return "", holder
+	}
+	if i := slices.Index(argv, "resume"); i > 0 {
+		if j := slices.IndexFunc(argv[i+1:], codexUUID.MatchString); j >= 0 {
+			session = strings.ToLower(argv[i+1+j])
+		}
+	}
+	return session, client
+}
+
+// codexUUID is the shape of a Codex thread ID; no option value looks like one.
+var codexUUID = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// pane is the tmux pane a process was started in, or "" if it has no terminal, in
+// which case the pane in its environment is just where it was first spawned.
 func pane(pid int) string {
 	if tty, _ := procStat(pid, 7); tty == "" || tty == "0" {
 		return ""
