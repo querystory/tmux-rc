@@ -210,6 +210,15 @@ def test_a_quoted_prompt_is_read_across_its_bars():
     state = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{TABBED}", lambda s, t: dict(read))
     assert state["question"]["prompt"] == asked and state.get("parse_ok", True)
 
+
+@pytest.mark.parametrize("lead", ["  ", "│ "])
+def test_a_long_wrapped_near_miss_fails_fast(lead):
+    rows = [f"{lead}row {i} of the wrapped question" for i in range(40)]
+    asked = " ".join(row[2:] for row in rows)
+    started = time.monotonic()
+    assert picker_digest("\n".join(rows), f"{asked} extra") is None
+    assert time.monotonic() - started < 1  # two ways across one gap: 16 rows took 23s
+
 # Codex 0.162's trust dialog: numbered rows, yet "1" only moves the highlight to row 1.
 CODEX_TRUST = """  Folder access
   /home/x/src/harbor-notes
