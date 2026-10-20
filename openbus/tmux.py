@@ -1015,24 +1015,29 @@ def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bo
     return text.removesuffix("\n"), start, edge.count("\n") == 1, screen
 
 
-# Literal text goes in through a one-shot tmux buffer, loaded over stdin and written
-# with `paste-buffer -r` (newlines stay LF, byte for byte what `send-keys -l` typed). A
-# composer's draft adds `-p`, which wraps it in bracketed-paste marks when the app asked
-# for them; keystrokes (a typed key, a menu's shortcut digit) go unmarked, since a marked
-# "1" or "j" would arrive as pasted text rather than a key.
-#
-# Typed with `send-keys -l`, a draft left the app to guess where a paste ends, and Codex
-# guesses by watching for the next key: each 1KB read of fast-arriving characters became
-# a "[Pasted Content 1024 chars]" placeholder, and the tail stayed held in its paste-burst
+# tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a
+# single send-keys with a big literal — a pasted meeting transcript — fails outright
+# (user hit it: 30KB paste, CalledProcessError, 500 to the phone). Send literals in
+# chunks comfortably under the cap; tmux delivers back-to-back send-keys in order, so
+# the pane's app sees one continuous paste. The cap is in BYTES (framing included), so
+# chunks are measured in UTF-8 bytes — 4000 characters of emoji is ~16KB — and a slice
+# must never land inside a multi-byte code point.
+_SEND_CHUNK_BYTES = 4000
+# A composer's draft goes in as a PASTE instead (send_keys(paste=True)): loaded into a
+# one-shot buffer over stdin, which has no such cap, and written with `paste-buffer -r -p`
+# (-r keeps a LF a LF), which wraps it in bracketed-paste marks when the app asked for
+# them. Typed, a draft left the app to guess where a paste ends, and Codex guesses by
+# watching for the next key: each 1KB read of fast-arriving characters became a
+# "[Pasted Content 1024 chars]" placeholder, and the tail stayed held in its paste-burst
 # buffer until the next key arrived. That next key was our Return, which flushed the tail
 # and was eaten as part of it, so a long reply (an auth code pasted from the phone) sat
 # unsent and took two more Returns by hand. No settle helps: the burst does not end on a
 # timer, only on the next key. With the marks, the paste ends where it says it ends and
-# the Return after it is a keystroke. An app that never asked for them gets the bare text.
+# the Return after it is a keystroke.
 #
-# stdin also lifts tmux's 16KB per-message cap (imsg MAX_IMSGSIZE) on argv, which had
-# 30KB pastes failing outright and then needed chunking, and keeps the text out of the
-# argv any local `ps` can read.
+# Keystrokes stay on `send-keys -l`: a typed key, a menu's shortcut digit or a Vim motion
+# must arrive as a key, which a marked paste is not, and must reach tmux's own copy mode
+# when it is up, which `paste-buffer` bypasses.
 #
 # Pause between the typed text and the Return that submits it.
 #
@@ -1065,7 +1070,7 @@ def _enter_settle_seconds() -> float:
 
 
 _ENTER_SETTLE_S = _enter_settle_seconds()
-# One logical send spans several tmux commands (the paste, the settle, the Return), and
+# One logical send now spans several tmux commands (chunks, the settle, the Return), and
 # concurrent callers (asyncio.to_thread in live.py, parallel HTTP handlers) must not
 # interleave mid-paste.
 #
@@ -1230,13 +1235,12 @@ def send_keys(
     *, expected_pid: str | None = None, guard: Callable[[], None] | None = None,
     paste: bool = False,
 ) -> None:
-    """Send `keys` to a pane. When `literal` (default), text goes in byte for byte (see
-    _paste), never read as tmux key names. `paste` marks it as a paste for an app that
-    asked for bracketed paste — for a composer's draft (see the notes above
-    _ENTER_SETTLE_S). Without it the bytes are keystrokes, as a typed key, a menu's
-    shortcut digit or a Vim motion must be: marked, they would arrive as pasted text.
-    When not literal, `keys` is a tmux key-name like "Escape", "Up", or "C-c", sent as
-    that key. `enter` appends a Return (only meaningful for literal text).
+    """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
+    isn't interpreted as tmux key names — for typed answers, chunked under tmux's
+    message-size cap (see _SEND_CHUNK_BYTES). `paste` sends it as one bracketed paste
+    instead, for a composer's draft (see the notes there). When not literal, `keys` is
+    a tmux key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
+    Return (only meaningful for literal text).
 
     `pane_id` must already be a resolved pane id — see _send_locks. When supplied,
     `expected_pid` binds the complete send transaction to that pane incarnation.
@@ -1254,22 +1258,39 @@ def send_keys(
             )
             if keys and identity is None:
                 raise PaneChangedError("Pane disappeared before delivery.")
+            b, i = keys.encode(), 0
             # An empty literal is not a paste — it is how both composers ask for a bare
-            # submit once their text has gone out in earlier requests. Pasting it would be
+            # submit once their text has gone out in earlier requests. Sending it would be
             # a tmux call that types nothing, and STAMPING it would be worse: it would
             # restart the paste clock and make the Return below wait the whole window
             # again, discarding the elapsed-time measurement at the one call that exists
-            # purely to be measured. Skipping both leaves the real paste's time in place,
-            # which is what the Return should be judged against.
-            if keys:
-                _paste(pane_id, keys, lambda: check_pane(pane_id, identity),
-                       "-r", *(["-p"] if paste else []))
+            # purely to be measured. Skipping both leaves the real last chunk's time in
+            # place, which is what the Return should be judged against.
+            while b:
+                j = min(i + _SEND_CHUNK_BYTES, len(b))
+                while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
+                    j -= 1
+                if paste:  # in one piece: stdin has no size cap (see _paste)
+                    _paste(pane_id, keys, lambda: check_pane(pane_id, identity), "-r", "-p")
+                    j = len(b)
+                else:
+                    check_pane(pane_id, identity)
+                    _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
+                # Per chunk, not once at the end: if a later chunk raises, the bytes
+                # already delivered are in the pane and a paste really did happen, so a
+                # Return arriving after that failure still has a burst to clear. Stamping
+                # only after the last chunk would leave the half-delivered draft looking
+                # as though nothing had been typed. The final chunk still sets the time
+                # the Return below is judged against.
                 with _paste_lock:
                     _last_paste[pane_id] = (identity, now := time.monotonic())
                     if len(_last_paste) > _LAST_PASTE_MAX:
                         for dead in [k for k, (_, at) in _last_paste.items()
                                      if now - at > _ENTER_SETTLE_S]:
                             del _last_paste[dead]
+                i = j
+                if i >= len(b):
+                    break
         else:
             # A Return asked for by NAME is a submit like any other, and the live tools
             # can produce exactly that: the model may return type_in_pane(press_enter=

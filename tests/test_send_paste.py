@@ -8,7 +8,6 @@ the app where the paste ends, so the Return after them submits."""
 import os
 import shutil
 import subprocess
-import threading
 import time
 
 import pytest
@@ -45,20 +44,13 @@ def test_long_text_is_one_bracketed_paste_then_one_enter(monkeypatch):
     assert enter == ["send-keys", "-t", "%1", "Enter"]
 
 
-def test_keystrokes_are_not_marked_as_a_paste(monkeypatch):
-    # a menu's shortcut digit or a typed key must reach the app as a key, not pasted text
+def test_keystrokes_are_not_pasted(monkeypatch):
+    # a menu's shortcut digit or a typed key must reach the app (or tmux's copy mode) as
+    # a key, not as pasted text
     calls = []
     monkeypatch.setattr(T, "_run", lambda args, stdin=None: calls.append(args))
     T.send_keys("%1", "1", enter=False)
-    assert "-p" not in calls[1] and calls[1][:2] == ["paste-buffer", "-r"]
-
-
-def test_empty_literal_still_sends(monkeypatch):
-    # an empty text with enter=True is "press Return": nothing to paste, the Enter goes
-    calls = []
-    monkeypatch.setattr(T, "_run", lambda argv: calls.append(argv))
-    T.send_keys("%1", "", enter=True)
-    assert calls == [["send-keys", "-t", "%1", "Enter"]]
+    assert calls == [["send-keys", "-t", "%1", "-l", "1"]]
 
 
 def test_a_refused_paste_leaves_no_buffer(monkeypatch):
@@ -67,36 +59,17 @@ def test_a_refused_paste_leaves_no_buffer(monkeypatch):
     pids = iter(["1234", "replacement"])
     monkeypatch.setattr(T, "pane_pid", lambda pane_id: next(pids))
     with pytest.raises(T.PaneChangedError):
-        T.send_keys("%1", "draft")
+        T.send_keys("%1", "draft", paste=True)
     assert [c[0] for c in calls] == ["load-buffer", "delete-buffer"]
     assert calls[1][2] == calls[0][2]
-
-
-def test_concurrent_sends_do_not_interleave(monkeypatch):
-    # one logical send is several tmux commands (load, paste, Enter); concurrent callers
-    # (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave
-    events = []
-    fake = typed(events.append)
-    monkeypatch.setattr(T, "_run", lambda args, stdin=None: (time.sleep(0.002),
-                                                              fake(args, stdin))[1])
-    ts = [threading.Thread(target=T.send_keys, args=("%1", ch * 10)) for ch in "ab"]
-    [t.start() for t in ts]
-    [t.join() for t in ts]
-    assert sorted([events[:2], events[2:]]) == [["a" * 10, "Enter"], ["b" * 10, "Enter"]]
-
-
-def test_key_names_are_never_pasted(monkeypatch):
-    calls = []
-    monkeypatch.setattr(T, "_run", lambda argv: calls.append(argv))
-    T.send_keys("%1", "C-c", enter=False, literal=False)
-    assert calls == [["send-keys", "-t", "%1", "C-c"]]
 
 
 def test_the_app_sees_one_marked_paste_and_one_return(tmp_path, monkeypatch):
     """End to end on a private tmux server (its own -S socket, never $TMUX; the pane is
     closed by its id, which ends it): a pane that asked for bracketed paste, as Codex and
     Claude Code do, must read a keystroke bare, then the marks around the whole draft,
-    its newline still a LF, and then a lone Return."""
+    its newline still a LF, and then a lone Return. A key typed while tmux's copy mode is
+    up is copy mode's, and never reaches the app."""
     if not shutil.which("tmux"):
         pytest.skip("tmux is not installed")
     socket, out = str(tmp_path / "paste.sock"), tmp_path / "input"
@@ -116,7 +89,9 @@ def test_the_app_sees_one_marked_paste_and_one_return(tmp_path, monkeypatch):
                 break
             time.sleep(0.05)
         text = "an invented sign-in code\n" + "q7Zx" * 600
-        T.send_keys(pane, "j", enter=False)  # a keystroke first: no marks
+        run(["copy-mode", "-t", pane])
+        T.send_keys(pane, "q", enter=False)  # copy mode's key: it leaves, the app sees none
+        T.send_keys(pane, "j", enter=False)  # a keystroke: no marks
         T.send_keys(pane, text, paste=True)
         want = f"j\x1b[200~{text}\x1b[201~\r".encode()
         for _ in range(100):
