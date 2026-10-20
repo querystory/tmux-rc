@@ -94,8 +94,10 @@ def _part(part: str, name: str) -> str:
 
 
 def _own(name: str, path: Path, owner: dict) -> bool:
-    """Whether `path` is no other place's: each place goes only as its own root."""
-    return name in owner.get(path, {name})
+    """Whether `path` is no other place's: each place goes only as its own root, and one a
+    credential shares is the credential's."""
+    names = owner.get(path, {name})
+    return name in names and (name in SECRETS or not names & {*SECRETS})
 
 
 def _within(at: Path, places) -> set[Path]:

@@ -685,3 +685,15 @@ def test_a_link_on_the_way_to_a_kept_place_is_refused(home, monkeypatch, staged)
         export.restore(io.BytesIO(out.getvalue()))
     assert (new / "unrelated").stat().st_mode & 0o777 == 0o755
     assert db.read_text() == "db"
+
+
+def test_scratch_linked_to_the_config_dir_sends_no_keys(home, monkeypatch):
+    old = home("old")
+    write(old / ".config/tmux-rc/openai.env", "KEY=x")
+    (old / "pages").symlink_to(old / ".config/tmux-rc")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / "pages"))
+    out = io.BytesIO()
+    export.export(out, ["scratch", "agents"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert not [n for n in tar.getnames() if "openai" in n]
+    assert export.sizes()["scratch"] == 0
