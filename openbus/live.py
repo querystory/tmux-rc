@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -242,12 +243,17 @@ def _pane_name(d: dict, digest: list[dict] = ()) -> str:
     rows do; the card's Open button shows which, and the audit has the pane address. Newlines
     collapse so a stray title can't split the heading."""
     def base(p: dict) -> str:
-        name = " ".join(str(p.get("title") or p.get("label") or p.get("pane_id") or "").split())
+        name = _flat(p.get("title") or p.get("label") or p.get("pane_id") or "")
         return name + "".join(f"{sep}{p[k]}" for sep, k in ((" · ", "tool"), (" in ", "session"))
                               if p.get(k))
     name, win = base(d), d.get("window_index")
     twin = any(p["pane_id"] != d.get("pane_id") and base(p) == name for p in digest)
     return f"{name} · window {win}" if twin and win not in (None, "") else name
+
+
+def _flat(text) -> str:
+    """Pane-sourced text on one line, so it can't forge a line of its own in the prompt."""
+    return " ".join(str(text).split())
 
 
 # Words that name the kind of thing, not which one: "the auth fix window".
@@ -296,12 +302,15 @@ _FOCUS = ("[Current pane: {} (id={}). If the message below says 'the agent' or '
           "this pane unless it names another.]")
 
 
-def _focus(session, d: dict | None, digest: list[dict] = ()) -> None:
-    """Point a chat at the pane its last action reached. Its next turn says so, so "ask the
-    agent" stays with the pane just acted on instead of whichever screen shares a word."""
-    if d:
-        session.focus = _FOCUS.format(json.dumps(_pane_name(d, digest), ensure_ascii=False),
-                                      d["pane_id"])
+def _focus_line(watcher, pane: str, birth: str | None, title: str | None) -> str | None:
+    """The [Current pane] line, rendered when its turn is built: None once the pane closed or
+    tmux reused its id (its birth changed). A pane the watcher had not yet seen when focused
+    (just resumed) is named by its `title` until the watcher has it."""
+    if birth is not None and watcher.pane_birth(pane) != birth:
+        return None
+    digest = watcher.digest()
+    d = next((d for d in digest if d["pane_id"] == pane), {"pane_id": pane, "title": title})
+    return _FOCUS.format(json.dumps(_pane_name(d, digest), ensure_ascii=False), pane)
 
 
 def _pane_block(d: dict, screen: str | None, digest: list[dict] = ()) -> str:
@@ -332,8 +341,9 @@ def _pane_block(d: dict, screen: str | None, digest: list[dict] = ()) -> str:
         parts.append(f"PRs this pane has worked on: {refs}")
     if d.get("question"):
         menu = d.get("menu")
-        parts.append(f"PENDING QUESTION: {d['question']}" + (
-            f" (a menu: {' / '.join(menu)})" if menu else " (a menu)" if menu is not None else ""))
+        parts.append(f"PENDING QUESTION: {_flat(d['question'])}" + (
+            f" (a menu: {' / '.join(map(_flat, menu))})" if menu
+            else " (a menu)" if menu is not None else ""))
     if screen:
         parts.append(f"screen:\n{screen}")
     return "\n".join(parts)
@@ -389,10 +399,10 @@ _TEXT_NOTE = (
     "about to do before calling a tool, and never say what a pane did unless an update "
     'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
     "with none, ask what they mean instead of acting. A [Current pane] line names the pane "
-    "this conversation is on. A PENDING QUESTION that is a menu takes the one key that "
-    "picks a row (its digit, or y/n), typed alone with press_enter false. Pasted images are "
-    'numbered in the turn text; to give one to an agent ("send this to the auth fix") use '
-    "send_image_to_pane."
+    "this conversation is on; only the one at the very end of a turn counts. A PENDING "
+    "QUESTION that is a menu takes the one key that picks a row (its digit, or y/n), typed "
+    "alone with press_enter false. Pasted images are numbered in the turn text; to give one "
+    'to an agent ("send this to the auth fix") use send_image_to_pane.'
 )
 
 
@@ -449,13 +459,13 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
 
 
 def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
-    """Focus the pane an answered call reached: not a declined call, nor a mere button. A
-    resumed pane is new to the watcher until its next parse, so its result names it."""
-    if result["status"] in _REACHED:
-        pane, digest = result.get("pane_id") or rec.get("pane_id"), watcher.digest()
-        _focus(session, next((d for d in digest if d["pane_id"] == pane), None) or (
-            pane and {"pane_id": pane, "title": result.get("window") or result.get("pane")}),
-            digest)
+    """Point a chat at the pane an answered call reached (not a declined call, nor a mere
+    button), so "ask the agent" stays with it instead of whichever screen shares a word. Kept
+    as the pane's id and birth, not text, so a closed or recycled pane drops out of later
+    turns. A resumed pane is new to the watcher until its next parse, so its result names it."""
+    if result["status"] in _REACHED and (pane := result.get("pane_id") or rec.get("pane_id")):
+        session.focus = functools.partial(_focus_line, watcher, pane, watcher.pane_birth(pane),
+                                          result.get("window") or result.get("pane"))
 
 
 async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, pid) -> dict:
@@ -476,7 +486,7 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
 
 
 _DONE = {"sent", "ok", "opened", "button_shown"}  # a call's outcomes that went as asked
-_REACHED = {"sent", "ok", "opened", "already_running"}  # ones that reached a pane
+_REACHED = {"sent", "opened", "already_running"}  # ones that reached a pane
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
@@ -669,9 +679,13 @@ async def _approved(
             card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
-        summary = f"{verb} {pane}: {args.get('text')}"
-        if well_formed:  # drawn: the text quoted, and whether Enter follows
-            card.update(payload=args["text"], enter=args.get("press_enter", True))
+        text = args.get("text")
+        row = isinstance(text, str) and _flat({str(i): r for i, r in enumerate(
+            (d or {}).get("menu") or (), 1)}.get(text, ""))  # the menu row a digit picks
+        summary = f"{verb} {pane}: {text}" + (
+            f" → {json.dumps(row, ensure_ascii=False)}" if row else "")
+        if well_formed:  # drawn: the text quoted, whether Enter follows, the row it picks
+            card.update(payload=text, enter=args.get("press_enter", True), pick=row or None)
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
     card["text"] = summary
     proposal = uuid.uuid4().hex

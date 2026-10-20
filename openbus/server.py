@@ -1445,7 +1445,7 @@ def account_login(body: SignInBody, request: Request):
     if [(k, canonical(v)) for k, v in (w.split("=", 1) for w in lead)] != [(var, profile["dir"])]:
         _refuse(request, "account_login", body.dir[:120], 400,
                 f"The command must keep {var}={profile['tilde']}")
-    if argv[:len(default)] != default:  # `codex login …`: a sign-in, nothing else
+    if argv[:len(default)] != default:  # `codex login …`; Claude's is just `claude`
         _refuse(request, "account_login", body.dir[:120], 400,
                 f"The sign-in command must run {' '.join(default)}")
     if why := _unavailable(argv[0], tmux.server_path()):
@@ -1556,7 +1556,7 @@ def account_login_callback(body: SignInCallbackBody, request: Request):
     if not (path := accounts.codex_callback(body.url)):
         _refuse(request, action, body.pane_id, 400,
                 f"Not the http://127.0.0.1:{accounts.CODEX_CALLBACK_PORT}/auth/callback?… address")
-    with _SIGN_IN_LOCK:  # the window checked is the one listening, through the replay
+    with _SIGN_IN_LOCK:  # the checks only: a slow replay must not stall the other sign-ins
         entry = _sign_in(body.pane_id)
         if not entry or not entry["codex"] or entry["device"]:
             _refuse(request, action, body.pane_id, 404, "not a browser sign-in window")
@@ -1565,7 +1565,7 @@ def account_login_callback(body: SignInCallbackBody, request: Request):
         shown = accounts.oauth_state(accounts.sign_in_link(_sign_in_screen(body.pane_id))["url"])
         if shown and shown != accounts.oauth_state(path):
             _refuse(request, action, body.pane_id, 409, _OLDER_LINK)
-        reply = accounts.replay_codex_callback(path)
+    reply = accounts.replay_codex_callback(path)  # the state checked above guards it
     status = reply[0] if reply else None
     _audit(request, action, body.pane_id, outcome=f"codex {status}")  # never the code or state
     if reply is None:

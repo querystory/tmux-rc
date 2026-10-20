@@ -92,7 +92,7 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   the link on started earlier. It refreshes the index first, because a session that is
   still running can have an index entry days out of date. With no answer, the
   card says "unknown". The session found is written into the folder's `meta.json` as
-  `"session"`, marked generated, so each folder is searched for only once.
+  `"agent_session"`, marked generated, so each folder is searched for only once.
 
 Pages are shot offline. Each shot uses a throwaway browser profile and a listener that
 serves scratch and nothing else, so a page can't put anything but scratch into its

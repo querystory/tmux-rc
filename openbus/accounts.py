@@ -123,7 +123,8 @@ def _codex_login(config: Path) -> bool:
 
 
 def _codex_status(config: Path) -> bool:
-    # Only what a tmux session would get: none of the daemon's secrets.
+    # Only what a tmux session would get: none of the daemon's secrets. D-Bus stays: the
+    # keyring login this probe exists to see is reached through it.
     env = {k: v for k, v in tmux.safe_env().items() if k != ENV["codex"]}
     env |= plan_usage.env_for("codex", config)
     path = tmux.server_path()  # None: tmux can't say; "" is an answer (an empty PATH)
@@ -221,11 +222,11 @@ def _profiles(pane_dirs) -> list[dict]:
         if entry.get("provider") in ENV:
             found[config] = entry["provider"]
     used, dirty, out = {e.get("color") for e in store.values()}, False, []
-    # Codex's own status checks all at once, so one pass waits one timeout at most and its
-    # answers are all still fresh for the next pass of the same report.
+    # Codex's own status checks all at once (up to 8, a bound on processes), so one pass
+    # waits one timeout at most and its answers are all still fresh for the next pass.
     ask = [Path(c) for c, t in found.items() if t == "codex" and not store.get(c, {}).get("hidden")
            and not (Path(c) / "auth.json").exists()]
-    with ThreadPoolExecutor(max_workers=max(len(ask), 1)) as pool:
+    with ThreadPoolExecutor(max_workers=min(max(len(ask), 1), 8)) as pool:
         codex_says = dict(zip(ask, pool.map(_codex_login, ask), strict=True))
     for config, provider in found.items():
         entry = store.get(config, {})

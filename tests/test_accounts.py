@@ -167,12 +167,13 @@ def test_codex_is_asked_about_that_dir_alone(tmp_path, monkeypatch):
 
 
 def test_every_codex_status_check_runs_at_once(home, monkeypatch):
-    # Batched, nine slow dirs would wait two timeouts a pass: past the sheet's deadline.
-    for i in range(9):
+    # Batched, slow dirs would wait two timeouts a pass: past the sheet's deadline. Eight
+    # at once (the cap) is more keyring-only Codex accounts than anyone keeps.
+    for i in range(8):
         (home / f".codex-{i}").mkdir()
-    gate = threading.Barrier(9, timeout=5)
+    gate = threading.Barrier(8, timeout=5)
     monkeypatch.setattr(accounts, "_codex_login", lambda config: gate.wait() >= 0)
-    assert sum(p["signed_in"] for p in accounts.profiles()) == 2 + 2 + 9
+    assert sum(p["signed_in"] for p in accounts.profiles()) == 2 + 2 + 8
 
 
 def test_two_people_of_one_organisation_are_told_apart(home):
@@ -448,6 +449,29 @@ def test_a_pasted_callback_reaches_the_waiting_login(client, home, monkeypatch):
     server.shutdown()
     server.server_close()
     assert post().status_code == 502  # nobody waiting any more
+
+
+def test_a_slow_replay_does_not_hold_the_sign_in_lock(client, home, monkeypatch):
+    monkeypatch.setattr(T, "pane_pid", lambda pane_id: "4242")
+    monkeypatch.setattr(T, "capture_pane", lambda pane_id: "")
+    free = []
+
+    def take():  # what login, close and pruning do: take the lock, then let it go
+        if S._SIGN_IN_LOCK.acquire(timeout=2):
+            free.append(True)
+            S._SIGN_IN_LOCK.release()
+
+    def replay(path):  # a stalled codex: meanwhile another request takes the lock
+        other = threading.Thread(target=take)
+        other.start()
+        other.join()
+        return 200, ""
+    monkeypatch.setattr(accounts, "replay_codex_callback", replay)
+    added = client.post("/api/accounts", json={"provider": "codex", "dir": "~/.codex-x"}).json()
+    client.post("/api/accounts/login", json={"session": "work", "dir": added["dir"]})
+    assert client.post("/api/accounts/login/callback",
+                       json={"pane_id": "%42", "url": CB}).json() == {"ok": True}
+    assert free == [True]  # taken while the replay was still waiting
 
 
 def test_the_open_sign_in_window_shows_its_link(client, home, monkeypatch):
