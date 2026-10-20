@@ -226,9 +226,12 @@ def export(out, parts) -> list[str]:
                 continue
             with contextlib.suppress(FileNotFoundError):  # gone since the walk
                 if _is_db(path):
-                    with contextlib.suppress(sqlite3.DatabaseError):  # not one: as a file
+                    try:
                         _snapshot(path, tar, name)
                         continue
+                    except sqlite3.DatabaseError as e:  # not one: as a file; else it fails
+                        if e.sqlite_errorcode != sqlite3.SQLITE_NOTADB:
+                            raise
                 if (info := tar.gettarinfo(path, name)) is None:  # a socket: tar can't hold it
                     continue
                 if info.islnk():  # a name sharing an inode goes as its bytes: import
@@ -372,6 +375,8 @@ def restore(src) -> list[str]:
                     db.executemany("UPDATE layout_snapshots SET payload=? WHERE server=?", [
                         (_rehome(p, old, home), s) for s, p in db.execute(
                             "SELECT server, payload FROM layout_snapshots")])
+        if (stage / ".env").is_file():
+            (stage / ".env").chmod(0o600)  # keys: whatever dir here it lands in
         if (store := stage / "accounts.json").exists():
             store.write_text(_rehome(store.read_text(), old, home))
         env = dotenv_values(stage / ".env") if (stage / ".env").is_file() else {}
@@ -404,6 +409,7 @@ def restore(src) -> list[str]:
         if len({_spot(path) for _, path, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
             raise SystemExit("Two of this archive's parts would land at one place here.")
         db_dirs = (Path(os.path.abspath(db)).parent, _spot(Path(db)).parent)  # as named, now
+        made = False  # the DB's dir comes private in a staged part
         for child, path, name in moves:  # before any swap: only a place's own part replaces it,
             dst = _spot(path)
             if name.startswith("data/") and (inside := _within(dst, keep)):  # nor lands inside one
@@ -414,6 +420,11 @@ def restore(src) -> list[str]:
             for d, at in zip(db_dirs, (path, dst), strict=True):  # the DB's dir: History needs
                 if d.is_relative_to(at) and (inner := child / d.relative_to(at)).is_dir():
                     inner.chmod(inner.stat().st_mode & 0o7700)  # it private, wherever it lands
+                    made = True
+        if (stage / "history.sqlite3").exists() and not made and db_dirs[1].is_dir() \
+                and db_dirs[1].stat().st_mode & 0o077:  # someone else's dir: not ours to chmod
+            raise SystemExit(f"{db_dirs[1]} is open to others, and the history DB needs a "
+                             "private dir: `chmod 700` it, then import.")
         for child, path, _ in moves:
             _keep_login(child, _spot(path))
         journal = []

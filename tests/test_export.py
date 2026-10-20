@@ -336,6 +336,7 @@ def test_an_import_failing_part_way_puts_everything_back(home, monkeypatch, caps
     write(new / ".local/share/tmux-rc/mocks/pages/mine/index.html", "this host's")
     write(new / ".local/share/tmux-rc/mocks/b/index.html", "this host's")
     write(new / ".local/state/tmux-rc/accounts.json", "{}")
+    (new / ".local/state/tmux-rc").chmod(0o700)  # the DB's dir, as History makes it
     write(new / ".claude/projects/-mine/s.jsonl", "this host's")
     before, move = tree(new), export._move
     for n in range(1, 100):
@@ -616,3 +617,42 @@ def test_an_imported_dbs_dir_is_private_through_a_link_it_replaces(home, monkeyp
     monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / ".local/share/tmux-rc/mocks/h.sqlite3"))
     export.restore(io.BytesIO(out.getvalue()))
     History(new / ".local/share/tmux-rc/mocks/h.sqlite3")
+
+
+def test_only_a_file_that_is_no_db_goes_unsnapshotted(home, monkeypatch):
+    old = home("old")
+    write(old / ".codex/notes.db", "no database")
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert tar.extractfile("agents/.codex/notes.db").read() == b"no database"
+    full = sqlite3.DatabaseError("database or disk is full")
+    full.sqlite_errorcode = sqlite3.SQLITE_FULL
+    monkeypatch.setattr(export, "_snapshot", lambda *_: (_ for _ in ()).throw(full))
+    with pytest.raises(sqlite3.DatabaseError, match="full"):
+        export.export(io.BytesIO(), ["agents"])
+
+
+def test_an_imported_dotenv_is_private(home, tmp_path):
+    source(home)
+    write(tmp_path / "none", "K=1")  # the fixture's .env
+    (tmp_path / "none").chmod(0o644)
+    out = io.BytesIO()
+    export.export(out, ["secrets"])
+    (tmp_path / "none").unlink()
+    home("new")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (tmp_path / "none").stat().st_mode & 0o777 == 0o600
+
+
+def test_an_open_db_dir_here_is_refused(home, monkeypatch):
+    source(home)
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    (new / "shared").mkdir(mode=0o755)
+    (new / "shared").chmod(0o755)
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / "shared/h.sqlite3"))
+    with pytest.raises(SystemExit, match="chmod 700"):
+        export.restore(io.BytesIO(out.getvalue()))
+    assert not (new / "shared/h.sqlite3").exists()
