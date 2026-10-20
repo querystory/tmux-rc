@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import itertools
 import logging
 import math
 import os
@@ -23,6 +24,7 @@ import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -36,7 +38,9 @@ from typing import Annotated, Literal
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
 # launch that didn't inherit the env (e.g. a stray `make dev`) silently loses Vertex creds
 # and every parse fails. Real environment vars still win over .env (override=False).
-from dotenv import find_dotenv, load_dotenv
+from dotenv import load_dotenv
+
+from .config import dotenv_path, json_list
 
 # One spelling of the package dir and the dir above it, reused for .env / web/ / docs
 # resolution below. In a source checkout the parent is the repo root; in an installed
@@ -45,11 +49,9 @@ from dotenv import find_dotenv, load_dotenv
 _PKG_DIR = Path(__file__).resolve().parent  # .../openbus (checkout or site-packages)
 _REPO_ROOT = _PKG_DIR.parent
 
-# Prefer the repo-root .env next to the package (the dev/run-from-checkout case); if that
-# doesn't exist (e.g. installed as a wheel and launched elsewhere), fall back to the
-# usual upward search from cwd. Either way, real env vars still win (override=False).
-_repo_env = _REPO_ROOT / ".env"
-load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
+# The checkout's .env, else ~/.config/tmux-rc's (config.dotenv_path). Real env vars
+# still win (override=False).
+load_dotenv(dotenv_path())
 # Live Mode provider keys (OpenAI, Azure, AI Studio) live in ONE mode-600 file outside
 # every checkout, so a worktree's .env or a commit can never carry them. Same
 # override=False rule; silently a no-op when the file is absent.
@@ -71,6 +73,7 @@ from fastapi.responses import (  # noqa: E402
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
+    StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
@@ -79,6 +82,7 @@ from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 from . import (  # noqa: E402
     accounts,
     agent_history,
+    export,
     expunge,
     fit,
     restore,
@@ -89,11 +93,10 @@ from . import (  # noqa: E402
     tmux,
 )
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
-from .config import json_list  # noqa: E402
 from .history import History, default_path, pane_key  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
-from .plan_usage import PlanUsage  # noqa: E402
+from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher, _fingerprint  # noqa: E402
 
@@ -285,6 +288,10 @@ class AccountSessionBody(BaseModel):
     dir: str
     session: str
     provider: Literal["claude", "codex"] | None = None  # with dir "": clear its default
+
+
+class SignInBody(AccountSessionBody):
+    command: str | None = None  # the sign-in line as edited in the sheet; None: the default
 
 
 class SignInWindowBody(BaseModel):
@@ -541,7 +548,7 @@ from starlette.middleware import gzip  # noqa: E402
 app.add_middleware(gzip.GZipMiddleware, minimum_size=512)
 # Video and audio come compressed already, and gzip over a 206 garbles its Content-Range.
 # The responder reads this tuple on every response, so extending it is the hook.
-gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/")
+gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/", "application/gzip")
 
 # Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
@@ -635,6 +642,49 @@ def get_version():
     return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
             "live_models": offered + keyless, "docs": DOCS_MOUNTED,
             "scratch": bool(_scratch_dir)}
+
+
+_export_sizes: dict = {"at": float("-inf")}
+
+
+@app.get("/api/export/parts")
+def export_parts(sizes: bool = True):
+    """Export all's choices (export.PARTS) and, with sizes, each one's size on disk,
+    uncompressed. The walk takes seconds over agents' dirs, so a minute's answer is reused."""
+    if sizes and time.monotonic() - _export_sizes["at"] > 60:
+        _export_sizes.update(at=time.monotonic(), bytes=export.sizes())
+    return [{"part": p, "label": label, "note": note, "default": on,
+             "bytes": _export_sizes["bytes"][p] if sizes else None}
+            for p, (label, note, on) in export.PARTS.items()]
+
+
+@app.get("/api/export")
+def export_all(request: Request, part: Annotated[list[str] | None, Query()] = None):
+    """Export all: the parts chosen, as the CLI's flags choose them (openbus/export.py),
+    streamed as the .tgz is written."""
+    parts = [p for p in part or [] if p in export.PARTS]
+    _audit(request, "export", "-", f"parts={','.join(parts)}")
+    read, write = os.pipe()
+
+    failed = []
+
+    def produce():
+        with suppress(BrokenPipeError), open(write, "wb") as out:  # the download was dropped
+            try:
+                export.export(out, parts)
+            except Exception as e:  # noqa: BLE001 - raised below, so the download fails
+                failed.append(e)
+
+    def chunks():
+        with open(read, "rb") as f:
+            while chunk := f.read(1 << 16):
+                yield chunk
+        if failed:  # never a short archive that looks whole
+            raise failed[0]
+
+    threading.Thread(target=produce, daemon=True).start()
+    return StreamingResponse(chunks(), media_type="application/gzip", headers={
+        "Content-Disposition": f'attachment; filename="{export.filename()}"'})
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -1376,34 +1426,158 @@ def _session_account(body: AccountSessionBody, request: Request, action: str) ->
 
 
 @app.post("/api/accounts/login")
-def account_login(body: AccountSessionBody, request: Request):
+def account_login(body: SignInBody, request: Request):
     """Open a window running the provider's own sign-in on this account's dir. The user
-    signs in there; the daemon never sees a password or a token."""
+    signs in there; the daemon never sees a password or a token. The sheet's line is
+    `VAR=<dir> <binary> [args]`, editable: its one assignment must be the provider's
+    variable on this very dir, its program the provider's own binary, and it runs as argv
+    with that variable set here, never through a shell."""
     profile = _session_account(body, request, "account_login")
-    argv = accounts.LOGIN[profile["provider"]]
+    default, var = accounts.LOGIN[profile["provider"]], ENV[profile["provider"]]
+    try:
+        words = (shlex.split(body.command) if body.command is not None
+                 else [f"{var}={profile['dir']}", *default])
+    except ValueError as e:
+        _refuse(request, "account_login", body.dir[:120], 400, f"Cannot read that command: {e}")
+    lead = list(itertools.takewhile(lambda w: re.match(r"[A-Za-z_]\w*=", w), words))
+    argv = words[len(lead):]
+    if [(k, canonical(v)) for k, v in (w.split("=", 1) for w in lead)] != [(var, profile["dir"])]:
+        _refuse(request, "account_login", body.dir[:120], 400,
+                f"The command must keep {var}={profile['tilde']}")
+    if argv[:len(default)] != default:  # `codex login …`; Claude's is just `claude`
+        _refuse(request, "account_login", body.dir[:120], 400,
+                f"The sign-in command must run {' '.join(default)}")
     if why := _unavailable(argv[0], tmux.server_path()):
         _refuse(request, "account_login", body.dir[:120], 400, why)
-    pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
-                              accounts.command(profile["provider"], profile["dir"], argv))
+    device = "--device-auth" in argv
+    with _SIGN_IN_LOCK:  # the check and the window it allows, as one step
+        # A browser `codex login` listens on one fixed port: a second could not take callbacks.
+        if profile["provider"] == "codex" and not device and any(
+                e["codex"] and not e["device"] for _, e in _live_sign_ins()):
+            _refuse(request, "account_login", body.dir[:120], 409, "A browser sign-in to Codex "
+                    "is already open. Finish or close it first, or use a device code.")
+        pane_id = tmux.new_window(body.session, f"sign in: {profile['name']}"[:40],
+                                  accounts.command(profile["provider"], profile["dir"], argv))
+        pid = tmux.pane_pid(pane_id) or ""
+        _SIGN_IN.pop(pane_id, None)  # a recycled id goes last, as the newest window
+        _SIGN_IN[pane_id] = {"pid": pid, "dir": profile["dir"], "device": device,
+                             "codex": profile["provider"] == "codex", "session": body.session}
     _audit(request, "account_login", pane_id, f"dir={body.dir[:120]!r}")
-    _SIGN_IN[pane_id] = pid = tmux.pane_pid(pane_id) or ""
     return {**_opened(pane_id), "pid": pid}
 
 
-# The sign-in windows this daemon opened, pane id -> pid: the only ones its close may end.
-_SIGN_IN: dict[str, str] = {}
+# The sign-in windows this daemon opened, by pane id: its pid, the account's dir, and
+# whether it runs Codex's device-code flow. The only panes its close and callback touch.
+_SIGN_IN: dict[str, dict] = {}
+# Opening, closing, pruning and replaying to sign-in windows, one at a time: the registry
+# and the one callback port then never change under a request that relies on them.
+_SIGN_IN_LOCK = threading.RLock()
+
+
+def _alive(pane_id: str, entry: dict | None) -> bool:
+    """Whether this entry's own process still runs in that pane (tmux recycles pane ids)."""
+    return bool(entry and entry["pid"] and tmux.pane_pid(pane_id) == entry["pid"]
+                and not tmux.pane_dead(pane_id))  # remain-on-exit keeps a finished one
+
+
+def _live_sign_ins() -> list[tuple[str, dict]]:
+    """The sign-in windows still running, oldest first. One whose pane is gone (signed in,
+    or closed by hand) is dropped from the registry, unless a newer window took its pane id
+    meanwhile; one exited but kept on screen (remain-on-exit) stays registered, so the
+    sheet can still close it, but is not live."""
+    live = []
+    with _SIGN_IN_LOCK:
+        for pane_id, entry in list(_SIGN_IN.items()):
+            if not entry["pid"] or tmux.pane_pid(pane_id) != entry["pid"]:
+                _SIGN_IN.pop(pane_id, None)
+            elif not tmux.pane_dead(pane_id):
+                live.append((pane_id, entry))
+    return live
+
+
+def _sign_in_screen(pane_id: str) -> str:
+    """The sign-in window's screen; 404 if it closed just now (as one does, signed in)."""
+    try:
+        return tmux.capture_pane(pane_id)
+    except subprocess.CalledProcessError:
+        raise HTTPException(404, "the sign-in window has closed") from None
+
+
+def _sign_in(pane_id: str) -> dict | None:
+    """The sign-in window this daemon opened in that pane, while it is still there."""
+    entry = _SIGN_IN.get(pane_id)
+    return entry if _alive(pane_id, entry) else None
+
+
+@app.get("/api/accounts/login/window")
+def account_login_window(pane_id: str = "", dir: str = ""):  # noqa: A002 - the API's name
+    """The open sign-in window, by pane or by account dir, with the sign-in link (and a
+    device code) as its screen shows them, so the sheet can offer them without the user
+    leaving it. 404 when there is none."""
+    want = canonical(dir) if dir else None
+    windows = _live_sign_ins()  # a snapshot: other requests open and close them
+    pane = next((p for p, e in reversed(windows) if p == pane_id or e["dir"] == want), None)
+    if pane is None:
+        raise HTTPException(404, "no sign-in window open")
+    entry = dict(windows)[pane]
+    # Older windows on the same account: their links are stale, and a paste from one fails.
+    older = windows[:[p for p, _ in windows].index(pane)]  # oldest first: those before it
+    others = [{"pane_id": p, "pid": e["pid"]} for p, e in older if e["dir"] == entry["dir"]]
+    return {"pane_id": pane, **entry, **accounts.sign_in_link(_sign_in_screen(pane)),
+            "others": others}
 
 
 @app.post("/api/accounts/login/close")
 def account_login_close(body: SignInWindowBody, request: Request):
     """Close a sign-in window that /api/accounts/login opened, by its exact pane and while
     that same process still owns it; any other pane is refused untouched."""
-    if not body.pid or _SIGN_IN.get(body.pane_id) != body.pid:
-        _refuse(request, "account_login_close", body.pane_id, 404, "not a sign-in window")
-    _kill_window(request, body.pane_id, "account_login_close", pid=body.pid)
-    _SIGN_IN.pop(body.pane_id)
+    with _SIGN_IN_LOCK:
+        if not body.pid or (_SIGN_IN.get(body.pane_id) or {}).get("pid") != body.pid:
+            _refuse(request, "account_login_close", body.pane_id, 404, "not a sign-in window")
+        _kill_window(request, body.pane_id, "account_login_close", pid=body.pid)
+        _SIGN_IN.pop(body.pane_id, None)
     _audit(request, "account_login_close", body.pane_id)
     return {"ok": True}
+
+
+class SignInCallbackBody(BaseModel):
+    pane_id: str
+    url: str
+
+
+@app.post("/api/accounts/login/callback")
+def account_login_callback(body: SignInCallbackBody, request: Request):
+    """Finish a browser `codex login` from afar: replay the localhost callback address the
+    user's browser landed on to the login waiting on this machine, for a sign-in window
+    this daemon opened and that still runs Codex. Only that callback is requested, and its
+    code and state are never logged."""
+    action = "account_login_callback"
+    if not (path := accounts.codex_callback(body.url)):
+        _refuse(request, action, body.pane_id, 400,
+                f"Not the http://127.0.0.1:{accounts.CODEX_CALLBACK_PORT}/auth/callback?… address")
+    with _SIGN_IN_LOCK:  # the checks only: a slow replay must not stall the other sign-ins
+        entry = _sign_in(body.pane_id)
+        if not entry or not entry["codex"] or entry["device"]:
+            _refuse(request, action, body.pane_id, 404, "not a browser sign-in window")
+        # The link this window printed carries its state; an address from another window's
+        # link (an older sign-in) would only be refused by codex, so say which up front.
+        shown = accounts.oauth_state(accounts.sign_in_link(_sign_in_screen(body.pane_id))["url"])
+        if shown and shown != accounts.oauth_state(path):
+            _refuse(request, action, body.pane_id, 409, _OLDER_LINK)
+    reply = accounts.replay_codex_callback(path)  # the state checked above guards it
+    status = reply[0] if reply else None
+    _audit(request, action, body.pane_id, outcome=f"codex {status}")  # never the code or state
+    if reply is None:
+        raise HTTPException(502, "Nothing is waiting for it any more. Open a new sign-in window.")
+    if status >= 400:  # codex says "State mismatch" for another link's address
+        older = "state mismatch" in reply[1].lower()
+        raise HTTPException(409 if older else 502, _OLDER_LINK if older else
+                            "That code was already used or expired. Sign in again.")
+    return {"ok": True}
+
+
+_OLDER_LINK = ("This address came from an older sign-in link. Open the link in the current "
+               "sign-in window (the button above) and try again.")
 
 
 @app.post("/api/accounts/default")
@@ -1950,7 +2124,7 @@ def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> str | 
         for segment in segments:
             tmux.check_pane(pane_id, identity)
             if isinstance(segment, str):
-                tmux.send_keys(pane_id, segment, enter=False, expected_pid=identity)
+                tmux.send_keys(pane_id, segment, enter=False, expected_pid=identity, paste=True)
             else:
                 mode = _deliver_image(pane_id, *segment, identity)
         tmux.check_pane(pane_id, identity)
@@ -2051,7 +2225,9 @@ if DOCS_MOUNTED:
 # lands in it is published to everyone the tunnel admits. Mocks worth keeping belong in
 # docs-site/static/mocks/ instead, which ships with the docs at /docs/mocks/.
 _scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
-_scratch_dir = _scratch_dir if _scratch_dir and Path(_scratch_dir).is_dir() else None
+# Absolute: panes get it as their env, and the gallery's find takes "-draft" for an option.
+_scratch_dir = os.path.realpath(_scratch_dir) if _scratch_dir and Path(_scratch_dir).is_dir() \
+    else None
 if _scratch_dir:
     def _who() -> tuple:
         """What scratch needs to say who made a folder: the panes, their accounts, the app's
@@ -2168,6 +2344,9 @@ if WEB_DIR.is_dir():
 
 
 def main() -> None:
+    if sys.argv[1:2] in (["export"], ["import"]):
+        export.cli(sys.argv[1:])
+        return
     import uvicorn  # noqa: PLC0415 - entrypoint-only; keeps `import openbus.server` cheap
 
     # Reload watches the package source and restarts the process on edits (resetting

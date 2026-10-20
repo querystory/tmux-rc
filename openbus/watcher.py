@@ -26,6 +26,7 @@ from .classify import (
     _OPENCODE_RUNNING_RE,
     bootstrap,
     classify,
+    prompt_gone,
     question_rows,
     screen_offers,
 )
@@ -493,6 +494,7 @@ class Watcher:
                     "headline": s.get("headline"),
                     "prs": list(self._prs.get(pid, [])),
                     "question": self._question_prompt(s),
+                    "menu": self._question_menu(s),
                     # LLM one-liner for the last activity burst (present once the pane
                     # has idled past the summary threshold; None while actively working).
                     "summary": (self._summary.get(pid) or {}).get("text"),
@@ -901,6 +903,19 @@ class Watcher:
         # (this runs in the worker thread, on the /api/state hot path).
         q = state.get("question")
         return q.get("prompt") if isinstance(q, dict) else None
+
+    @staticmethod
+    def _question_menu(state: dict) -> list[str] | None:
+        """The options of a pending question that is a numbered menu, where one key (a digit
+        or y/n) picks a row; None for any other question or none."""
+        q = state.get("question")
+        if not isinstance(q, dict) or q.get("answer_style") != "menu":
+            return None
+        # Unvalidated model output: any bad entry voids the list, since dropping one would
+        # renumber the rows after it.
+        options = q.get("options")
+        return options if isinstance(options, list) and all(
+            isinstance(o, str) for o in options) else []
 
     @staticmethod
     def _pending_key(state: dict) -> tuple:
@@ -1652,6 +1667,11 @@ class Watcher:
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)
+            # Its question too, once no words on a screen that held through every retry
+            # ask it (not a frame caught mid-repaint): answered and replaced (a
+            # multi-question dialog's next tab), so its buttons would answer the new ask.
+            if retired and prompt_gone(text, self._question_prompt(state) or ""):
+                state.update(question=None, activity="unknown", waiting_on=None)
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 

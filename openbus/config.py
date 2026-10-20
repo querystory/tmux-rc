@@ -12,6 +12,13 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def dotenv_path() -> Path:
+    """The .env the daemon loads: the checkout's, beside the package, else tmux-rc's config
+    dir's (installed as a wheel, or none yet: export's import writes it there)."""
+    repo = Path(__file__).resolve().parent.parent / ".env"
+    return repo if repo.exists() else Path.home() / ".config/tmux-rc/.env"
+
+
 def json_list(var: str, default: list, coerce: Callable[[dict], object]) -> list:
     """Parse `var` (inline JSON list or a path to one), passing each dict entry through
     `coerce` — which raises on anything malformed. A broken config must never brick the

@@ -188,6 +188,37 @@ def test_a_prompt_sentence_may_open_a_wrapped_paragraph():
     assert picker_digest(TRUST, "Quick safety check:") is None  # a colon introduces more
 
 
+# A multi-question dialog's second tab: Claude quotes the question, a │ on every row.
+TABBED = """──────────────────────────────────────────────────
+←  ☒ Beds  ☐ Shade  ✔ Submit  →
+
+│ The north bed gets about two hours of sun.
+│ Should I move the herbs there?
+
+❯ 1. Yes, swap them
+  2. No, keep the draft
+──────────────────────────────────────────────────
+Enter to select · Tab/Arrow keys to navigate · Esc"""
+
+
+def test_a_quoted_prompt_is_read_across_its_bars():
+    asked = "The north bed gets about two hours of sun. Should I move the herbs there?"
+    rows = ["Yes, swap them", "No, keep the draft"]
+    assert highlighted_row(TABBED, asked, rows) == rows[0]
+    read = {"tool": "claude", "activity": "waiting", "waiting_on": "user",
+            "question": {"prompt": asked, "answer_style": "menu", "options": rows}}
+    state = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{TABBED}", lambda s, t: dict(read))
+    assert state["question"]["prompt"] == asked and state.get("parse_ok", True)
+
+
+@pytest.mark.parametrize("lead", ["  ", "│ "])
+def test_a_long_wrapped_near_miss_fails_fast(lead):
+    rows = [f"{lead}row {i} of the wrapped question" for i in range(40)]
+    asked = " ".join(row[2:] for row in rows)
+    started = time.monotonic()
+    assert picker_digest("\n".join(rows), f"{asked} extra") is None
+    assert time.monotonic() - started < 1  # two ways across one gap: 16 rows took 23s
+
 # Codex 0.162's trust dialog: numbered rows, yet "1" only moves the highlight to row 1.
 CODEX_TRUST = """  Folder access
   /home/x/src/harbor-notes

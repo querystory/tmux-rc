@@ -8,7 +8,6 @@ is tried once per version of its files: a page that cannot be shot or described 
 retried until it changes, unless the model was out (llm's shared backoff)."""
 
 import io
-import json
 import logging
 import os
 import subprocess
@@ -172,18 +171,6 @@ def _description(root: Path, _url: str, item: dict) -> None:
             _tried.discard(_version(item))
 
 
-def _replace(path: Path, root: Path, write) -> None:
-    """Write `path` whole or not at all, never through a symlink planted at its name, and
-    only while its folder is still really in scratch: it may have been swapped for a
-    symlink out since it was listed."""
-    if not scratch.inside(path.parent, root):
-        raise PermissionError(f"{path.parent} is no longer in scratch")
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.unlink(missing_ok=True)
-    write(tmp)
-    tmp.replace(path)
-
-
 def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
     """Render `url` at VIEWPORT in a fresh, throwaway profile, offline but for `url`'s own
     host, and save it as a THUMB webp dated `at` (the page's version it was queued for),
@@ -210,7 +197,7 @@ def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
             return False
         with Image.open(png) as im:
             im.thumbnail(THUMB)
-            _replace(out, root, lambda tmp: im.save(tmp, "WEBP", quality=70))
+            scratch.replace(out, root, lambda tmp: im.save(tmp, "WEBP", quality=70))
     if at:
         os.utime(out, (at, at))
     return True
@@ -254,14 +241,6 @@ def describe(meta: Path, page: Path, title: str, root: Path) -> str | None:
         "Describe this web page in ONE short sentence (under 20 words) for a gallery of "
         f'previews: what it shows, starting with the subject (never "This page"). Plain '
         f"text.\nTitle: {title}\n\n{text}")
-    if not sentence or meta.is_symlink():
+    if not (sentence and scratch.annotate(meta, root, "description", sentence)):
         return None
-    try:  # read again: the agent may have written one meanwhile
-        current = json.loads(meta.read_text()) if meta.exists() else {}
-    except (OSError, ValueError):
-        return None
-    if not isinstance(current, dict) or str(current.get("description") or "").strip():
-        return None
-    data = {**current, "description": sentence, "generated": ["description"]}
-    _replace(meta, root, lambda tmp: tmp.write_text(json.dumps(data, indent=1) + "\n"))
     return sentence
