@@ -1005,20 +1005,23 @@ function linkPair(href) {
 // Copy `value` and say so in place, not in a banner: `el`'s icon turns to a check a moment.
 function copyHere(el, value, icon) {
   const swap = (name) => { el.querySelector("svg").outerHTML = licon(name, 16); };
-  copyText(value, () => { swap("check"); setTimeout(swap, 1500, icon); });
+  copyText(value, () => { swap("check"); text($("copied"), "Copied to clipboard."); setTimeout(() => { swap(icon); text($("copied"), ""); }, 1500); });
 }
 
 // One tappable link row: the Links list's, and the one leading a question's card. A tap opens
 // it; a long press copies it instead (to open in another browser), and the click after is not
-// a tap. Scrolling cancels the press.
+// a tap. The hold only arms the copy: it runs on release, where iOS grants the gesture that a
+// clipboard write needs. Scrolling, a second finger or a cancel disarms it.
 function renderLinks(el, links) {
   reconcile(el, links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     let timer, held = false;
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
-    anchor.addEventListener("touchstart", () => { held = false; timer = setTimeout(() => { held = true; copyHere(anchor, anchor.href, "chevron"); }, 500); }, { passive: true });
-    for (const type of ["touchmove", "touchend", "touchcancel"]) anchor.addEventListener(type, () => clearTimeout(timer), { passive: true });
+    const disarm = () => { clearTimeout(timer); held = false; };
+    anchor.addEventListener("touchstart", (event) => { disarm(); if (event.touches.length === 1) timer = setTimeout(() => { held = true; }, 500); }, { passive: true });
+    for (const type of ["touchmove", "touchcancel"]) anchor.addEventListener(type, disarm, { passive: true });
+    anchor.addEventListener("touchend", () => { clearTimeout(timer); if (held) copyHere(anchor, anchor.href, "chevron"); }, { passive: true });
     anchor.addEventListener("click", (event) => { if (held) event.preventDefault(); held = false; });
     anchor.addEventListener("contextmenu", (event) => { if (held || event.pointerType === "touch") event.preventDefault(); }); // Android's link menu
     return anchor;
