@@ -1454,6 +1454,13 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-st { display: inline-flex; align-items: center; gap: 6px; }
 :is(.fg-st, .fg-key) i, .fg-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 .fg-box { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; touch-action: none; }
+/* Full screen (graph.js): the view over everything, edge to edge inside the safe area, its lens
+   chips floating at the bottom and its counts left to the canvas. */
+.fg-view.full { position: fixed; inset: 0; z-index: 40; min-height: 0; background: var(--surface); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.fg-view.full .fg-stats { display: none; }
+.fg-view.full .fg-box { border: 0; border-radius: 0; }
+.fg-view.full .fg-lenses { position: absolute; z-index: 2; left: calc(10px + env(safe-area-inset-left)); right: calc(10px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); margin: 0; }
+.fg-view.full .fg-lenses > span { display: none; }
 .fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
 .fg-tools button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
 .fg-legend { position: absolute; left: 12px; top: 10px; max-width: min(520px, calc(100% - 70px)); font-size: 12px; color: var(--muted); pointer-events: none; background: color-mix(in oklab, var(--surface) 85%, transparent); border-radius: 8px; padding: 2px 4px; }
