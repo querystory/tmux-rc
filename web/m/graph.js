@@ -259,7 +259,7 @@ export function fleetGraph(box, mini, ctx) {
       const had = document.activeElement?._n?.id;
       buttons._sig = model.sig;
       buttons.replaceChildren(...model.nodes.filter(n => n.kind !== 'root').map(n => Object.assign(el('button'), { _n: n,
-        onfocus: () => { sel = n; draw(); },
+        onfocus: () => { if (sel !== n) { pop?.remove(); pop = null; } sel = n; draw(); }, // another node's popover goes
         onclick: () => { tap({ x: n.x * view.k + view.x, y: n.y * view.k + view.y }, n); pop?.querySelector('[data-open]')?.focus(); } })));
       [...buttons.children].find(b => b._n.id === had)?.focus(); // a fold rebuilt the list: stay on its hub
     }
