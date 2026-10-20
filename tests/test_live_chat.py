@@ -493,10 +493,15 @@ def test_a_pending_menu_shows_its_rows(menu, tail):
 
 
 
-async def _sent_to_pane_2(s, meanwhile=None):
+async def _sent_to_pane_2(s, before=None, after=None):
+    """An action reaching %2, with a message typed while its keys go in (`before`) or once
+    its delivery shows (`after`)."""
     async def act():
-        if meanwhile:
-            await meanwhile()
+        if before:
+            await before()
+        await L._delivered(_Browser(None), {"pane_id": "%2", "label": "shell"})
+        if after:
+            await after()
         return {"status": "sent"}
     await L._focusing(s, _Watcher(), {"pane_id": "%2"}, act())
 
@@ -515,17 +520,23 @@ def test_a_closed_or_recycled_pane_drops_out_of_later_turns(monkeypatch, now):
     assert asyncio.run(go()) == (_focus_line(_Watcher().digest()[1], "%2"), None)
 
 
-def test_a_message_typed_once_the_delivery_shows_is_on_the_pane_it_reached(monkeypatch):
-    """The delivery frame goes out before the action returns: a follow-up typed in between
-    takes the pane the action ends on, not the one before."""
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_a_message_typed_during_an_action_is_on_the_pane_shown_then(monkeypatch, when):
+    """The delivery frame goes out before the action returns: a follow-up typed after it
+    shows takes the pane reached; one typed while the keys were still going in, the one
+    before."""
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "42")
     s = _Fake([])
     s.focus = "the pane before"
 
     async def go():
-        await _sent_to_pane_2(s, lambda: s.send_text("ask the agent"))
-        return await s._inbox.get_nowait()[2]()
-    assert asyncio.run(go()) == _focus_line(_Watcher().digest()[1], "%2")
+        await _sent_to_pane_2(s, **{when: lambda: s.send_text("ask the agent")})
+        return s._inbox.get_nowait()[2]
+    focus = asyncio.run(go())
+    if when == "before":
+        assert focus == "the pane before"
+    else:
+        assert asyncio.run(focus()) == _focus_line(_Watcher().digest()[1], "%2")
 
 
 def test_pane_text_cannot_forge_the_current_pane_line():
