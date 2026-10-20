@@ -226,6 +226,7 @@ export function fleetGraph(box, mini, ctx) {
       taken.push([L, T, L + bw, T + bh]);
       let ly = (T - view.y) / k;
       for (const [t, c, z, w, tr] of lines) { label(t, x + dx / k, ly, align, c, z, w, 'top', tr); ly += (z + 3) / k; }
+      return true;
     };
     const zs = Math.min(2, Math.max(0.55, k)) / k; // a particle grows a little with zoom, and never vanishes
     let parts = 0, hn = 0, pulsing = false;
@@ -278,6 +279,8 @@ export function fleetGraph(box, mini, ctx) {
       dc.font = `500 ${9 / k}px ${C.font}`;
       if (!text || Math.hypot(c[6] - c[0], c[7] - c[1]) * 0.8 < dc.measureText(text).width + 30 / k) continue;
       bz(c, 0.55); let ang = Math.atan2(NX, -NY); if (Math.cos(ang) < 0) ang += Math.PI;
+      const ex = PX * k + view.x - R0.left, ey = PY * k + view.y - R0.top;
+      if (ex < 0 || ey < 0 || ex > R0.w || ey > R0.h) continue; // not under the HUD
       dc.save(); dc.translate(PX, PY); dc.rotate(ang); dc.globalAlpha = 0.9;
       label(text, 0, -5 / k, 'center', C.s[s === 0 ? 0 : 1], 9, 500, 'bottom', 0.3);
       dc.restore();
@@ -314,7 +317,8 @@ export function fleetGraph(box, mini, ctx) {
         if (n.depth === 1) { // its name, and what it adds up to
           const cost = n.panes.reduce((t, p) => t + costOf(p), 0);
           tag(2, A, [[String(n.label).toUpperCase(), C.fg, mini ? 9.5 : 11, 600, 2]], n.x, n.y + r + 8 / k, 'center', 'top');
-          if (!mini) tag(nd ? 2.5 : 3, A, [[[bn && `${bn} running`, nd && `${nd} need you`, cost && `$${cost.toFixed(2)}`].filter(Boolean).join(' · ') || `${tot} idle`, nd ? C.s[0] : C.muted, 9.5, 400, 0.6]], n.x, n.y + r + 22 / k, 'center', 'top');
+          const sums = [nd && `${nd} need you`, bn && `${bn} running`, cost && `$${cost.toFixed(2)}`].filter(Boolean), line = t => [[t, nd ? C.s[0] : C.muted, 9.5, 400]];
+          if (!mini) { tag(nd ? 2.5 : 3, A, line(sums.join(' · ') || `${tot} idle`), n.x, n.y + r + 25 / k, 'center', 'top'); if (sums.length > 1) tags.at(-1).push(line(sums[0])); }
         } else if (!mini) tag(n.warn ? 1 : 3, A, [[n.label + (n.warn ? ' · 2 agents busy' : ''), n.warn ? C.amber : C.muted, 10, 400, 0.5]], n.x, n.y + r + (n.warn ? 9 : 6) / k, 'center', 'top');
       } else if (n.kind === 'pane') {
         const r = rad(n), col = ring(C, s), on = busy(s) || s === 0, p = n.p;
@@ -337,7 +341,7 @@ export function fleetGraph(box, mini, ctx) {
         if ((n === hover || n === sel) && n.a?.label) { dc.globalAlpha = A; label(String(n.a.label), n.x + 8 / k, n.y, 'left', C.muted, 10); }
       }
     }
-    tags.sort((a, b) => a[0] - b[0]).forEach(([rank, A, a]) => { dc.globalAlpha = A; words(...a, rank < 2); });
+    tags.sort((a, b) => a[0] - b[0]).forEach(([rank, A, a, b]) => { dc.globalAlpha = A; if (!words(...a, rank < 2) && b) words(b, ...a.slice(1)); }); // b: a shorter say, where the long one has no room
     dc.globalAlpha = 1;
     if (spacing) dc.letterSpacing = '0px';
     flowed = moving && (hn > 0 || pulsing);
