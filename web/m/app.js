@@ -382,7 +382,7 @@ function route() {
   }
   // Land in the pane, on its name (focusing Back painted its ring on open), or on the terminal
   // when a phone shows that and the name is out of sight in the hidden overview.
-  if (changed && active) ($("pane-title").checkVisibility() ? $("pane-title") : $("terminal-scroll")).focus({ preventScroll: true, focusVisible: false });
+  if (changed && active) ($("pane-title").getClientRects().length ? $("pane-title") : $("terminal-scroll")).focus({ preventScroll: true, focusVisible: false });
 }
 
 function makeRow(pane) {
