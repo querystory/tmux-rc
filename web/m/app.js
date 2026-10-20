@@ -380,7 +380,9 @@ function route() {
       else if (stillOnPane(location.hash, id)) notice("Could not focus this pane on the host.");
     });
   }
-  if (changed && active) $("pane-title").focus({ preventScroll: true }); // land in the pane, on its name: focusing Back painted its ring on open
+  // Land in the pane, on its name (focusing Back painted its ring on open), or on the terminal
+  // when a phone shows that and the name is out of sight in the hidden overview.
+  if (changed && active) ($("pane-title").checkVisibility() ? $("pane-title") : $("terminal-scroll")).focus({ preventScroll: true, focusVisible: false });
 }
 
 function makeRow(pane) {
