@@ -394,7 +394,8 @@ def test_a_linked_sign_in_goes_as_its_contents(home):
     out = io.BytesIO()
     export.export(out, ["agents", "secrets"])
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
-        for name in ("agents/.claude-work/.credentials.json", "agents/.claude-hard/.credentials.json"):
+        for name in ("agents/.claude-work/.credentials.json",
+                     "agents/.claude-hard/.credentials.json"):
             member = tar.getmember(name)
             assert member.isfile() and tar.extractfile(member).read() == b"shared login"
 
