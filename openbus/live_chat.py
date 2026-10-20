@@ -130,7 +130,7 @@ class _Chat:
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
             self.caution = CAUTION_RESTORED if self._restored else None
             self._user("\n\n".join(filter(None, [
-                self._restored, *self._context, text, focus and focus()])), images)
+                self._restored, *self._context, text, focus and await focus()])), images)
             self._restored = ""
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim

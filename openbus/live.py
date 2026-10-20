@@ -302,11 +302,11 @@ _FOCUS = ("[Current pane: {} (id={}). If the message below says 'the agent' or '
           "this pane unless it names another.]")
 
 
-def _focus_line(watcher, pane: str, birth: str | None, title: str | None) -> str | None:
+async def _focus_line(watcher, pane: str, birth: str, title: str | None) -> str | None:
     """The [Current pane] line, rendered when its turn is built: None once the pane closed or
-    tmux reused its id (its birth changed). A pane the watcher had not yet seen when focused
-    (just resumed) is named by its `title` until the watcher has it."""
-    if birth is not None and watcher.pane_birth(pane) != birth:
+    tmux reused its id for a new process. A pane the watcher has not parsed yet (just
+    resumed) is named by its `title` until it has."""
+    if await asyncio.to_thread(tmux.pane_pid, pane) != birth:
         return None
     digest = watcher.digest()
     d = next((d for d in digest if d["pane_id"] == pane), {"pane_id": pane, "title": title})
@@ -454,17 +454,18 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
     if meter.text:
-        _focus_reached(session, watcher, result, rec)
+        await _focus_reached(session, watcher, result, rec)
     await session.send_tool_result(fc, result)
 
 
-def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
+async def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
     """Point a chat at the pane an answered call reached (not a declined call, nor a mere
     button), so "ask the agent" stays with it instead of whichever screen shares a word. Kept
-    as the pane's id and birth, not text, so a closed or recycled pane drops out of later
+    as the pane's id and process, not text, so a closed or recycled pane drops out of later
     turns. A resumed pane is new to the watcher until its next parse, so its result names it."""
-    if result["status"] in _REACHED and (pane := result.get("pane_id") or rec.get("pane_id")):
-        session.focus = functools.partial(_focus_line, watcher, pane, watcher.pane_birth(pane),
+    if result["status"] in _REACHED and (pane := result.get("pane_id") or rec.get("pane_id")) \
+            and (birth := await asyncio.to_thread(tmux.pane_pid, pane)):
+        session.focus = functools.partial(_focus_line, watcher, pane, birth,
                                           result.get("window") or result.get("pane"))
 
 
@@ -624,7 +625,7 @@ async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool,
     finally:
         _audit_call(meter, call.name, result, started, rec)
     if session is not None:
-        _focus_reached(session, watcher, result, rec)
+        await _focus_reached(session, watcher, result, rec)
 
 
 async def _approved(
@@ -679,13 +680,9 @@ async def _approved(
             card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
-        text = args.get("text")
-        row = isinstance(text, str) and _flat({str(i): r for i, r in enumerate(
-            (d or {}).get("menu") or (), 1)}.get(text, ""))  # the menu row a digit picks
-        summary = f"{verb} {pane}: {text}" + (
-            f" → {json.dumps(row, ensure_ascii=False)}" if row else "")
-        if well_formed:  # drawn: the text quoted, whether Enter follows, the row it picks
-            card.update(payload=text, enter=args.get("press_enter", True), pick=row or None)
+        summary = f"{verb} {pane}: {args.get('text')}"
+        if well_formed:  # drawn: the text quoted, and whether Enter follows
+            card.update(payload=args["text"], enter=args.get("press_enter", True))
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
     card["text"] = summary
     proposal = uuid.uuid4().hex

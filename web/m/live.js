@@ -264,18 +264,18 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}${window && `<span>${esc(window)}</span>`}</span>`;
   }
   // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
-  // a key as a keycap, typed text quoted under it, and the menu row a digit picks. `done`: it happened (past tense). The
+  // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The
   // model's relay label ("From the user (via text):") is dimmed: how it came, not what goes in.
   // Only a well-formed call is drawn: a malformed one keeps its sentence, as the daemon refuses it.
   const drawn = ({ pane_id, key, payload }) => !!pane_id && (typeof key === "string" ? !!key : typeof payload === "string");
-  function action({ pane_id, label, window, key, payload, enter, pick }, done) {
+  function action({ pane_id, label, window, key, payload, enter }, done) {
     const [press, type] = done ? ["Pressed", "Typed into"] : ["Press", "Type into"];
     const tag = paneTag(pane_id, label, window);
     if (key) return `<div class="voice-act">${press} ${keycap(key)} in ${tag}</div>`;
     const via = /^From the user \(via \w+\):\s*/.exec(payload)?.[0] || "";
     // Enter goes where it is pressed: at the end of the text, as it would be typed.
     return `<div class="voice-act">${type} ${tag}` +
-      `<blockquote>${via && `<span>${esc(via)}</span>`}${esc(payload.slice(via.length))}${enter ? ` ${keycap("Enter")}` : ""}${pick ? ` <span>→ ${esc(JSON.stringify(pick))}</span>` : ""}</blockquote></div>`;
+      `<blockquote>${via && `<span>${esc(via)}</span>`}${esc(payload.slice(via.length))}${enter ? ` ${keycap("Enter")}` : ""}</blockquote></div>`;
   }
   // Which session a resume card means, past a title several can share (live._approved).
   function sessionMeta({ tool, cwd, last_active, id }) {
