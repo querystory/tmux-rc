@@ -34,6 +34,13 @@ _missed: dict[tuple[str, int], float] = {}  # when each (name, inode) was last n
 _found: dict[tuple[str, int], str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
+_PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
+STALL = 30 * 60  # an in-progress folder's agent quiet this long has stopped
+# What a card, then the placeholder, says of a page being made, by progress().
+STATES = {"working": ("Being made…", "An agent is making this page. It opens here once it lands."),
+          "quiet": ("Being made…", "The agent's pane is idle. It may still be working."),
+          "stopped": ("Stopped without publishing",
+                      "The agent stopped without publishing this page.")}
 DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gallery.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
 # What every /scratch/ response is served under (see server.py's no_cache middleware).
@@ -89,36 +96,43 @@ def _files(root: Path, folders: list[Path]) -> dict[str, list[tuple[float, str]]
 
 def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
-    hidden (a sidecar half-written, a .git) are not the page and do not date it."""
+    hidden (a sidecar half-written, a .git) are not the page and do not date it. A folder
+    whose meta.json came first is `pending` until its index lands: its page is being made
+    (a site's assets may land ahead of its index, for a minute; loose files older than
+    that are the publish)."""
     sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
     files = [(at, f) for at, f in files if f not in sidecars]
-    if not files:
-        return None
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
+    if not (files or meta):
+        return None
+    files = files or [((folder / "meta.json").stat().st_mtime, None)]
     # The folder's own page, served at folder/: index.html, or an index.md (rendered).
     index = next((i for i in (folder / "index.html", folder / "index.md") if str(i) in names),
                  None)
-    page = index or Path(max(files)[1])
+    page = index or (max(files)[1] and Path(max(files)[1]))
+    pending = not index and bool(meta) and not any(  # a page not at its index: published
+        f.endswith((".html", ".htm", ".md")) for f in names) and (
+        not page or time.time() - max(files)[0] < 60)
     # The page is read: checked again, as it may have become a link out since find listed it.
-    title = meta.get("title") or (None if inside(page, folder) else folder.name)
-    if not title and page.suffix == ".md":
+    title = meta.get("title") or (None if not page or inside(page, folder) else folder.name)
+    if not title and page and page.suffix == ".md":
         title = scratch_markdown.render(page)[2]
-    elif not title and page.suffix in (".html", ".htm"):
+    elif not title and page and page.suffix in (".html", ".htm"):
         with page.open(errors="replace") as f:
             m = _TITLE.search(f.read(65536))
         title = m and unescape(m.group(1)).strip()
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
             "session_id": meta.get("session"), "folder": folder,
-            "href": quote(page.relative_to(root).as_posix() if page != index
+            "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
-            "page": page, "thumb": inside(thumb, folder) and thumb.is_file()
-            and thumb.stat().st_mtime}
+            "page": page, "pending": pending, "thumb": inside(thumb, folder)
+            and thumb.is_file() and thumb.stat().st_mtime}
 
 
-def _listed(root: Path, folder: Path, files: list | None = None) -> dict | None:
+def read(root: Path, folder: Path, files: list | None = None) -> dict | None:
     """A folder's card, None for one hidden, a symlink, or gone (deleted or rebuilt mid-scan,
     which leaves it out, not the whole gallery)."""
     try:
@@ -134,15 +148,20 @@ def items(root: Path) -> list[dict]:
     """Every folder of scratch, most recently updated first."""
     folders = [f for f in root.iterdir() if not f.name.startswith(".")]
     files = _files(root, folders)
-    return sorted(filter(None, (_listed(root, f, files[f.name]) for f in folders)),
+    return sorted(filter(None, (read(root, f, files[f.name]) for f in folders)),
                   key=lambda i: -i["updated"])
 
 
-def opened(root: Path, visits: list[tuple[str, float]], n: int) -> list[dict]:
+def opened(root: Path, visits: list[tuple[str, float]], n: int,
+           states: list[dict] = ()) -> list[dict]:
     """The first `n` folders of these visits, (name, when), still in scratch: the title and
-    link the gallery gives each, and when it was opened."""
-    found = ((item, at) for name, at in visits if (item := _listed(root, root / name)))
-    return [{"title": i["title"], "href": i["href"], "at": at} for i, at in islice(found, n)]
+    link the gallery gives each, whether its page is still being made (not stopped), and
+    when it was opened."""
+    found = list(islice(((item, at) for name, at in visits
+                         if (item := read(root, root / name))), n))
+    _progress([i for i, _ in found], states)
+    return [{"title": i["title"], "href": i["href"], "at": at,
+             "pending": i["pending"] and i["state"] != "stopped"} for i, at in found]
 
 
 def _writers(todo: list[dict]) -> None:
@@ -199,7 +218,7 @@ def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> 
     return True
 
 
-def _since(pane: dict, created: float) -> bool:
+def made_in(pane: dict, created: float) -> bool:
     """Whether the pane was already open when the folder appeared (unknown counts as yes)."""
     stat = tmux.proc_stat(pane["birth"]) if pane.get("birth") else []
     return len(stat) < 20 or tmux.started_at(stat[19]) <= created + 60
@@ -216,14 +235,40 @@ def _author(i: dict, tool: str | None, acct: dict) -> None:
         i["who"] = tool or "unknown"
 
 
+def progress(pane: dict | None, named: str | None, created: float) -> str:
+    """How a pending folder's page is coming along (a STATES key), from the pane `named` in
+    its meta.json, `pane` while that is still open: working while it runs or waits on its
+    tools or subagents; quiet while it idles, which in the pane of a session whose subagent
+    builds the page is not the end; stopped once it is gone or quiet for STALL. With no
+    pane named, working until STALL after `created`."""
+    if named and not pane:
+        return "stopped"
+    if pane and (pane.get("activity") in ("running", "compacting") or pane.get("agents")
+                 or pane.get("waiting_on") == "external"):
+        return "working"
+    if time.time() - max(created, (pane or {}).get("state_since") or 0) > STALL:
+        return "stopped"
+    return "quiet" if pane else "working"
+
+
+def _progress(listed: list[dict], states: list[dict]) -> dict:
+    """Each item's `state` (progress, read while one is pending), and its `pane` while that
+    pane is still open. Returns the panes by id."""
+    panes = {s.get("pane_id"): s for s in states}
+    for i in listed:  # a pane id from before a tmux restart names some other pane now
+        if (pane := panes.get(i["pane"])) and not made_in(pane, i["created"]):
+            pane = None
+        i["state"] = progress(pane, i["pane"], i["created"])
+        i["pane"] = pane and i["pane"]
+    return panes
+
+
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             pane_of=lambda _entry: None) -> None:
     """Who made each item: `who` (agent and account), `where` (session:window, or the
-    agent session's title) and `pane` when that pane is still open."""
-    panes = {s.get("pane_id"): s for s in states}
-    for i in listed:  # a pane id from before a tmux restart names some other pane now
-        if (pane := panes.get(i["pane"])) and not _since(pane, i["created"]):
-            i["pane"] = None
+    agent session's title), `pane` when that pane is still open, and `state` (progress),
+    which only a pending one shows."""
+    panes = _progress(listed, states)
     account = {p: a for a in profiles for p in a.get("panes", [])}
     todo = [i for i in listed if i["pane"] not in panes]
     _writers(todo)
@@ -252,7 +297,7 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     agent-history entry is in (live.running_pane), `sidecars` what queues the missing
     thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation."""
     listed = items(root)
-    sidecars(listed)
+    sidecars([i for i in listed if not i["pending"]])  # nothing to shoot or describe yet
     resolve(listed, states, profiles, pane_of)
     out = _PAGE.read_text().replace("/*tokens*/", scratch_markdown.tokens(style)).replace(
         "DOCS_URL", docs)
@@ -275,20 +320,57 @@ def _chip(i: dict, e: dict) -> str:
             f'<span>{e["account"]}</span></button>')
 
 
+def _where(i: dict, e: dict) -> str:
+    """Where it was made, linking that pane while it is open (`e`: i's fields escaped)."""
+    return (f'<a href="/m/#pane={quote(i["pane"], safe="")}">{e["where"]}</a>' if i["pane"]
+            else e["where"])
+
+
 def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
-    thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">' if i["thumb"]
-             else f'<span data-pending="{quote(i["name"])}/thumb.webp">Making a preview…</span>'
-             if i.get("shot") == "pending" else "No preview")
-    where = (f'<a href="/m/#pane={quote(i["pane"], safe="")}">{e["where"]}</a>' if i["pane"]
-             else e["where"])
+    wait = STATES[i["state"]][0] if i["pending"] else (
+        i.get("shot") == "pending" and "Making a preview…")
+    # A pending folder's thumbnail is an earlier page's: its state shows instead, and once
+    # the page lands and is shot, the poll swaps in the new thumbnail.
+    poll = "" if i["thumb"] or i.get("state") == "stopped" else (  # stopped: nothing coming
+        f' data-pending="{quote(i["name"])}/thumb.webp"')
+    thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">'
+             if i["thumb"] and not i["pending"]
+             else f'<span class="{i["state"] if i["pending"] else ""}"{poll}>{wait}</span>'
+             if wait else "No preview")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
     return (f'<article data-q="{escape(words)}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
-            f'<h2><a href="{e["href"]}">{e["title"]}</a></h2>'
+            f'<h2><a href="{e["href"]}"'
+            + (f' aria-label="{e["title"]}: {wait}"' if i["pending"] else "")  # the thumb's
+            + f'>{e["title"]}</a></h2>'
             + (f'<p class="desc">{e["description"]}</p>' if i["description"] else "")
             + f'<p class="by">{_chip(i, e)}'
-            f'<span class="where">{where}</span></p>'
+            f'<span class="where">{_where(i, e)}</span></p>'
             f'<p class="muted"><time data-t="{i["created"]:.0f}"></time>'
             + (f' · updated <time data-t="{i["updated"]:.0f}"></time>'
                if i["updated"] - i["created"] > 60 else "") + "</p></article>")
+
+
+def placeholder(root: Path, name: str, who) -> str | None:
+    """What a pending folder's URL shows until its page lands: what it will be, who is
+    making it and what that pane is doing now, reloading itself (the sandbox allows no
+    fetch) every 5s, every 30s after ten minutes, and every minute once stopped. None
+    for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
+    optionally, pane_of (as page's); it scans every account, so only a pending folder asks."""
+    i = read(root, root / name)
+    if not (i and i["pending"]):
+        return None
+    states, profiles, style, *pane_of = who()
+    resolve([i], states, profiles, *pane_of)
+    e = {k: escape(str(v)) for k, v in i.items() if v is not None}
+    headline = next((s.get("headline") for s in states if s.get("pane_id") == i["pane"]), "")
+    where = _where(i, e)
+    age = int(time.time() - i["created"]) // 60
+    fill = {"tokens": scratch_markdown.tokens(style), "title": e["title"], "state": i["state"],
+            "say": STATES[i["state"]][1], "who": e["who"], "where": where and f" · {where}",
+            "desc": f'<p>{e["description"]}</p>' if i["description"] else "",
+            "now": f'<p class="now">Now: {escape(str(headline))}</p>' if headline else "",
+            "ago": f"{age}m" if age < 60 else f"{age // 60}h {age % 60}m",
+            "every": 60000 if i["state"] == "stopped" else 5000 if age < 10 else 30000}
+    return re.sub(r"\{(\w+)\}", lambda m: str(fill[m[1]]), _PENDING.read_text())

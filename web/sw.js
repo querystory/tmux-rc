@@ -16,7 +16,7 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(data.title || "tmux-rc", {
     body: data.body || "A session needs your attention",
     tag: data.tag || "tmux-rc",
-    renotify: true,
+    renotify: data.renotify ?? true, // false: a Ready push folding into its finish's Needs-you
     icon: "/apple-touch-icon.png",
     badge: "/apple-touch-icon.png",
     actions,
