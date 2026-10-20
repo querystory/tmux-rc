@@ -67,7 +67,7 @@ export function fleetGraph(box, mini, ctx) {
       let up = root, key = `g:${lens}`;
       PATHS[lens](p, ctx.owner).filter(Boolean).forEach((part, d) => {
         const [id, seg] = Array.isArray(part) ? part : [part, part];
-        key += `/${id}`;
+        key += `/${encodeURIComponent(id)}`; // a key can hold slashes; segments must not merge
         let g = groups.get(key);
         if (!g) { g = Object.assign(node(key, () => ({ kind: 'group', depth: d + 1, r: d ? 11 : 16 })), { label: seg, children: [], panes: [], up }); groups.set(key, g); up.children.push(g); nodes.push(g); }
         g.panes.push(p); up = g;
@@ -81,6 +81,8 @@ export function fleetGraph(box, mini, ctx) {
     const hidden = n => { for (let u = n.up; u; u = u.up) if (collapsed.has(u.id)) return true; return false; };
     const vis = nodes.filter(n => !hidden(n));
     vis.forEach(n => { if (n.up) edges.push({ a: n.up, b: n }); });
+    const live = new Set(nodes.map(n => n.id));
+    for (const id of cache.keys()) if (!live.has(id)) cache.delete(id); // gone panes, other lenses' hubs
     return { root, nodes: vis, edges, sig: `${lens}|${vis.map(n => `${n.id}<${n.up?.id}`).join()}` }; // a move between hubs is a change
   }
   // Leaves (panes, folded hubs) share the circle by slot, with a gap between groups.
@@ -241,9 +243,11 @@ export function fleetGraph(box, mini, ctx) {
   const api = {
     update(list) {
       panes = list; relayout(false);
+      // A node gone takes its hover, selection and popover with it; an open popover follows the
+      // live data, in place, focus kept.
+      if (hover && !model.nodes.includes(hover)) { hover = null; draw(); }
+      if (sel && !model.nodes.includes(sel)) return close();
       if (!pop) return;
-      // An open popover follows the live data, in place, focus kept; its node gone, it goes.
-      if (!model.nodes.includes(sel)) return close();
       const focused = pop.contains(document.activeElement) && document.activeElement.className;
       tap(pop._at, sel);
       if (focused) pop.querySelector(`.${focused.split(' ')[0]}`)?.focus();
