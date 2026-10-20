@@ -389,11 +389,14 @@ def test_a_linked_sign_in_goes_as_its_contents(home):
     write(old / ".claude/.credentials.json", "shared login")
     write(old / ".claude-work/CLAUDE.md")
     (old / ".claude-work/.credentials.json").symlink_to(old / ".claude/.credentials.json")
+    write(old / ".claude-hard/CLAUDE.md")
+    (old / ".claude-hard/.credentials.json").hardlink_to(old / ".claude/.credentials.json")
     out = io.BytesIO()
     export.export(out, ["agents", "secrets"])
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
-        member = tar.getmember("agents/.claude-work/.credentials.json")
-        assert member.isfile() and tar.extractfile(member).read() == b"shared login"
+        for name in ("agents/.claude-work/.credentials.json", "agents/.claude-hard/.credentials.json"):
+            member = tar.getmember(name)
+            assert member.isfile() and tar.extractfile(member).read() == b"shared login"
 
 
 def test_a_dotenv_in_a_linked_config_dir_stays_the_daemons(home, monkeypatch):

@@ -198,7 +198,11 @@ def export(out, parts) -> list[str]:
         for part, name, path in _entries(parts):
             if part in parts:
                 with contextlib.suppress(FileNotFoundError):  # gone since the walk
-                    tar.add(path, name, recursive=False)
+                    info = tar.gettarinfo(path, name)
+                    if info.islnk() and path.name in IDENTITY:  # a login sharing an inode:
+                        info.type, info.size = tarfile.REGTYPE, path.stat().st_size  # bytes
+                    with path.open("rb") if info.isreg() else contextlib.nullcontext() as f:
+                        tar.addfile(info, f)
         tar.addfile(tarfile.TarInfo(DONE))  # last: an export that failed part way has none
     return deeper
 
