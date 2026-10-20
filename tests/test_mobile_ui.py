@@ -262,11 +262,13 @@ def test_voice_sheet_takes_initial_focus_not_its_first_button():
 
 def test_opening_a_pane_focuses_its_title_not_the_back_button():
     """Focusing Back on navigation painted its :focus-visible ring on open (iOS Safari); the
-    pane's title takes focus instead, so focus still lands in the pane, with no ring there."""
+    pane's title takes focus instead, so focus still lands in the pane, with no ring there. A
+    phone's terminal view hides the title (it heads the overview), so the terminal takes it."""
     web = Path(__file__).resolve().parent.parent / "web" / "m"
     assert '<h1 id="pane-title" tabindex="-1">' in (web / "index.html").read_text()
     app = (web / "app.js").read_text()
-    assert 'if (changed && active) $("pane-title").focus({ preventScroll: true });' in app
+    focus = '($("pane-title").checkVisibility() ? $("pane-title") : $("terminal-scroll")).focus('
+    assert f"if (changed && active) {focus}" in app
     assert '$("back").focus(' not in app
     css = (web / "style.css").read_text()
     assert ":is(#pane-title, .landing-head h2):focus { outline: none; }" in css
