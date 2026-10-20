@@ -464,8 +464,10 @@ def restore(src) -> list[str]:
                 if any(_through_link(child, root, at) for root in {path, dst}):
                     raise SystemExit(f"This archive's {name} would replace a link on the way "
                                      f"to {at}.")
-        for child, path, _ in moves:  # nothing staged links out now: tighten, and keep logins
-            _keep_login(child, dst := _spot(path))
+        for child, path, name in moves:  # nothing staged links out now: tighten, and keep
+            dst = _spot(path)
+            if name.startswith("agents/"):  # only an agent dir keeps this host's login
+                _keep_login(child, dst)
             for d, at in zip(db_dirs, (path, dst), strict=True):  # the DB's dir: History needs
                 if d.is_relative_to(at) and (inner := child / d.relative_to(at)).is_dir():
                     inner.chmod(inner.stat().st_mode & 0o7700)  # it private, wherever it lands
