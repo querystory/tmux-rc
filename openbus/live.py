@@ -457,26 +457,35 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         if known:
             ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
-            result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
+            act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
+            result = await (_focusing(session, watcher, rec, act) if meter.text else act)
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
-    if meter.text:
-        _focus_reached(session, watcher, result, rec)
     await session.send_tool_result(fc, result)
 
 
-def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
-    """Point a chat at the pane an answered call reached (not a declined call, nor a mere
-    button), so "ask the agent" stays with it instead of whichever screen shares a word. Kept
-    as the pane's id and process, not text, so a closed or recycled pane drops out of later
-    turns; one already gone (an `exit` sent) leaves the chat on no pane. Set with no await
-    since the delivery, so a message typed after it shows can't carry the old pane; the pid
-    lookup runs meanwhile. A resumed pane is new to the watcher until its next parse, so its
-    result names it."""
-    if result["status"] in _REACHED and (pane := result.get("pane_id") or rec.get("pane_id")):
-        birth = _PIDS.submit(tmux.pane_pid, pane)
-        session.focus = functools.partial(
-            _focus_line, watcher, pane, birth, result.get("window") or result.get("pane"))
+async def _focusing(session, watcher, rec: dict, act) -> dict:
+    """Run an action, then point the chat at the pane it reached (not a declined call, nor a
+    mere button), so "ask the agent" stays with it instead of whichever screen shares a word.
+    Kept as the pane's id and process, not text, so a closed or recycled pane drops out of
+    later turns; one already gone (an `exit` sent) leaves the chat on no pane. While it runs
+    the pane is pending: a message typed once its delivery shows takes the pane it ends on.
+    A resumed pane is new to the watcher until its next parse, so its result names it."""
+    after = [getattr(session, "focus", None)]
+
+    async def pending() -> str | None:
+        return after[0] and await after[0]()
+    session.focus, result = pending, {"status": "error", "reason": "aborted"}
+    try:
+        result = await act
+    finally:
+        if result["status"] in _REACHED and (
+                pane := result.get("pane_id") or rec.get("pane_id")):
+            after[0] = functools.partial(_focus_line, watcher, pane,
+                                         _PIDS.submit(tmux.pane_pid, pane),
+                                         result.get("window") or result.get("pane"))
+        session.focus = after[0]
+    return result
 
 
 async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, pid) -> dict:
@@ -631,11 +640,10 @@ async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool,
         except BaseException:  # this socket dropped too, before anything ran: keep the card
             _park(proposal, parked)
             raise
-        result = await _act(websocket, None, call, watcher, meter, rec, ok, pid)
+        result = await _focusing(session, watcher, rec,
+                                 _act(websocket, None, call, watcher, meter, rec, ok, pid))
     finally:
         _audit_call(meter, call.name, result, started, rec)
-    if session is not None:
-        _focus_reached(session, watcher, result, rec)
 
 
 async def _approved(
