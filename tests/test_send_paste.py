@@ -1,0 +1,119 @@
+"""Typed text reaches the pane as one bracketed paste, then one Return.
+
+Typed with `send-keys -l`, a long reply (an auth code pasted on the phone) reached Codex
+as a stream of fast keys: each 1KB read became a "[Pasted Content 1024 chars]"
+placeholder, the tail waited in its paste-burst buffer for the next key, and that key was
+our Return, eaten as part of the paste. The draft sat unsent. Bracketed-paste marks tell
+the app where the paste ends, so the Return after them submits."""
+import os
+import shutil
+import subprocess
+import threading
+import time
+
+import pytest
+
+import openbus.tmux as T
+
+
+def typed(record):
+    """A fake tmux._run that hands `record` what each call put in the pane: a paste's
+    text once paste-buffer delivers it (a refused paste delivers nothing), or a
+    send-keys' last argument."""
+    loaded = {}
+
+    def run(args, stdin=None):
+        if args[0] == "load-buffer":
+            loaded[args[2]] = stdin
+        elif args[0] == "paste-buffer":
+            record(loaded.pop(args[args.index("-b") + 1]))
+        elif args[0] != "delete-buffer":
+            record(args[-1])
+        return ""
+    return run
+
+
+def test_long_text_is_one_bracketed_paste_then_one_enter(monkeypatch):
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda args, stdin=None: calls.append((args, stdin)))
+    text = "a" + "🚀" * 9000  # past tmux's 16KB argv cap, which stdin does not have
+    T.send_keys("%1", text, enter=True)
+    (load, text_in), (paste, _), (enter, _) = calls
+    name = load[2]
+    assert (load, text_in) == (["load-buffer", "-b", name, "-"], text)
+    assert paste == ["paste-buffer", "-p", "-d", "-b", name, "-t", "%1"]
+    assert enter == ["send-keys", "-t", "%1", "Enter"]
+
+
+def test_empty_literal_still_sends(monkeypatch):
+    # an empty text with enter=True is "press Return": nothing to paste, the Enter goes
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda argv: calls.append(argv))
+    T.send_keys("%1", "", enter=True)
+    assert calls == [["send-keys", "-t", "%1", "Enter"]]
+
+
+def test_a_refused_paste_leaves_no_buffer(monkeypatch):
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda args, stdin=None: calls.append(args))
+    pids = iter(["1234", "replacement"])
+    monkeypatch.setattr(T, "pane_pid", lambda pane_id: next(pids))
+    with pytest.raises(T.PaneChangedError):
+        T.send_keys("%1", "draft")
+    assert [c[0] for c in calls] == ["load-buffer", "delete-buffer"]
+    assert calls[1][2] == calls[0][2]
+
+
+def test_concurrent_sends_do_not_interleave(monkeypatch):
+    # one logical send is several tmux commands (load, paste, Enter); concurrent callers
+    # (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave
+    events = []
+    fake = typed(events.append)
+    monkeypatch.setattr(T, "_run", lambda args, stdin=None: (time.sleep(0.002),
+                                                              fake(args, stdin))[1])
+    ts = [threading.Thread(target=T.send_keys, args=("%1", ch * 10)) for ch in "ab"]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert sorted([events[:2], events[2:]]) == [["a" * 10, "Enter"], ["b" * 10, "Enter"]]
+
+
+def test_key_names_are_never_pasted(monkeypatch):
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda argv: calls.append(argv))
+    T.send_keys("%1", "C-c", enter=False, literal=False)
+    assert calls == [["send-keys", "-t", "%1", "C-c"]]
+
+
+def test_the_app_sees_one_marked_paste_and_one_return(tmp_path, monkeypatch):
+    """End to end on a private tmux server (its own -S socket, never $TMUX; the pane is
+    closed by its id, which ends it): a pane that asked for bracketed paste, as Codex and
+    Claude Code do, must read the marks around the whole text and then a lone Return."""
+    if not shutil.which("tmux"):
+        pytest.skip("tmux is not installed")
+    socket, out = str(tmp_path / "paste.sock"), tmp_path / "input"
+    env = {k: v for k, v in os.environ.items() if k != "TMUX"}
+
+    def run(args, stdin=None):
+        return subprocess.run(["tmux", "-f", "/dev/null", "-S", socket, *args], input=stdin,
+                              env=env, text=True, capture_output=True, check=True).stdout
+
+    monkeypatch.setattr(T, "_run", run)
+    pane = run(["new-session", "-d", "-P", "-F", "#{pane_id}", "sh", "-c",
+                f"stty raw -echo; printf '\\033[?2004h'; touch {out}.ready; exec cat > {out}"]
+               ).strip()
+    try:
+        for _ in range(100):
+            if (tmp_path / "input.ready").exists():
+                break
+            time.sleep(0.05)
+        text = "an invented sign-in code " + "q7Zx" * 600
+        T.send_keys(pane, text)
+        want = f"\x1b[200~{text}\x1b[201~\r".encode()
+        for _ in range(100):
+            if len(out.read_bytes()) >= len(want):
+                break
+            time.sleep(0.05)
+        assert out.read_bytes() == want
+    finally:
+        subprocess.run(["tmux", "-S", socket, "kill-pane", "-t", pane], env=env,
+                       check=False, capture_output=True)

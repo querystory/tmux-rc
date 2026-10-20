@@ -43,9 +43,15 @@ only guarantees the Return arrives after the paste, not after the TUI has finish
 reading it — a second `send-keys` issued immediately drops the Enter about as often as
 the single call does. Two calls make the delay expressible; the delay is what makes it
 land. The daemon settles deliberately for this reason (`TMUXRC_ENTER_SETTLE_S`, 0.3s by
-default) on top of the chunking it already does under tmux's 16KB message cap, and
-re-checks the pane's identity across the wait, which is why input from the phone does
-not exhibit this.
+default), and re-checks the pane's identity across the wait, which is why input from
+the phone does not exhibit this.
+
+The pause alone is not enough for Codex. It decides what is a paste by watching for the
+next key rather than a clock: fast-typed text sits in its paste buffer, however long you
+wait, until the next key flushes it, and when that key is the Return it is eaten with the
+paste. So the daemon delivers text as a paste (`load-buffer`, then `paste-buffer -p`),
+whose bracketed-paste marks tell the app exactly where it ends; an orchestrator driving
+Codex should do the same.
 
 Retrying the Enter is safe: a bare Return on an empty input box is a no-op in every agent
 TUI worth driving, so a retry loop cannot double-submit. It can only fail to notice that

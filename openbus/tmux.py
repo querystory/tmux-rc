@@ -1015,26 +1015,34 @@ def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bo
     return text.removesuffix("\n"), start, edge.count("\n") == 1, screen
 
 
-# tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a
-# single send-keys with a big literal — a pasted meeting transcript — fails outright
-# (user hit it: 30KB paste, CalledProcessError, 500 to the phone). Send literals in
-# chunks comfortably under the cap; tmux delivers back-to-back send-keys in order, so
-# the pane's app sees one continuous paste. The cap is in BYTES (framing included), so
-# chunks are measured in UTF-8 bytes — 4000 characters of emoji is ~16KB — and a slice
-# must never land inside a multi-byte code point.
-_SEND_CHUNK_BYTES = 4000
+# Literal text goes in as a PASTE: loaded into a one-shot tmux buffer over stdin, then
+# `paste-buffer -p`, which wraps it in bracketed-paste marks when the app asked for them.
+#
+# Typing it with `send-keys -l` left the app to guess where a paste ends, and Codex
+# guesses by watching for the next key: each 1KB read of fast-arriving characters became
+# a "[Pasted Content 1024 chars]" placeholder, and the tail stayed held in its paste-burst
+# buffer until the next key arrived. That next key was our Return, which flushed the tail
+# and was eaten as part of it, so a long reply (an auth code pasted from the phone) sat
+# unsent and took two more Returns by hand. No settle helps: the burst does not end on a
+# timer, only on the next key. With the marks, the paste ends where it says it ends and
+# the Return after it is a keystroke. An app that never asked for them gets the bare text,
+# as `send-keys -l` gave it.
+#
+# stdin also lifts tmux's 16KB per-message cap (imsg MAX_IMSGSIZE) on argv, which had
+# 30KB pastes failing outright and then needed chunking, and keeps the text out of the
+# argv any local `ps` can read.
 # Pause between the typed text and the Return that submits it.
 #
 # Agent TUIs take multi-line input, so they must decide whether a Return is "submit" or
 # "newline in what I am typing". They decide it by TIMING: bytes arriving in a fast burst
-# are a paste, and a Return inside a paste is a literal newline. `send-keys -l` followed
-# immediately by `send-keys Enter` is exactly that burst, so the Return lands inside the
-# paste window and becomes a newline — the message sits composed in the input box, unsent,
-# and nothing reports an error because tmux delivered every byte it was asked to.
+# are a paste, and a Return inside a paste is a literal newline. Bracketed-paste marks
+# (above) settle that for an app that asks for them; one that doesn't sees our text and
+# our Return as one burst, and the Return becomes a newline — the message sits composed in
+# the input box, unsent, and nothing reports an error because tmux delivered every byte.
 #
-# Observed from the phone: tapping an answer to a codex approval prompt left the text in
-# the input line with the composer reporting "Sent". So the wait is the fix: it ends the
-# burst, and the Return afterwards arrives as its own keystroke.
+# Observed from the phone, before the marks: tapping an answer to a codex approval prompt
+# left the text in the input line with the composer reporting "Sent". The wait ends the
+# burst, so the Return afterwards arrives as its own keystroke.
 #
 # Paid once per send, and only for literal text that asks for a Return — key-name sends
 # (Escape, C-c, arrows) are single keystrokes with no paste to escape and skip it.
@@ -1054,7 +1062,7 @@ def _enter_settle_seconds() -> float:
 
 
 _ENTER_SETTLE_S = _enter_settle_seconds()
-# One logical send now spans several tmux commands (chunks, the settle, the Return), and
+# One logical send spans several tmux commands (the paste, the settle, the Return), and
 # concurrent callers (asyncio.to_thread in live.py, parallel HTTP handlers) must not
 # interleave mid-paste.
 #
@@ -1218,10 +1226,10 @@ def send_keys(
     pane_id: str, keys: str, enter: bool = True, literal: bool = True,
     *, expected_pid: str | None = None, guard: Callable[[], None] | None = None,
 ) -> None:
-    """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
-    isn't interpreted as tmux key names — for typed answers, chunked under tmux's
-    message-size cap (see _SEND_CHUNK_BYTES). When not literal, `keys` is a tmux
-    key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
+    """Send `keys` to a pane. When `literal` (default), text is pasted (see _paste and
+    the notes above _ENTER_SETTLE_S), never read as tmux key names — for typed answers.
+    When not literal, `keys` is a tmux key-name like "Escape", "Up", or "C-c", sent as
+    that key. `enter` appends a
     Return (only meaningful for literal text).
 
     `pane_id` must already be a resolved pane id — see _send_locks. When supplied,
@@ -1240,35 +1248,21 @@ def send_keys(
             )
             if keys and identity is None:
                 raise PaneChangedError("Pane disappeared before delivery.")
-            b, i = keys.encode(), 0
             # An empty literal is not a paste — it is how both composers ask for a bare
-            # submit once their text has gone out in earlier requests. Sending it would be
+            # submit once their text has gone out in earlier requests. Pasting it would be
             # a tmux call that types nothing, and STAMPING it would be worse: it would
             # restart the paste clock and make the Return below wait the whole window
             # again, discarding the elapsed-time measurement at the one call that exists
-            # purely to be measured. Skipping both leaves the real last chunk's time in
-            # place, which is what the Return should be judged against.
-            while b:
-                j = min(i + _SEND_CHUNK_BYTES, len(b))
-                while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
-                    j -= 1
-                check_pane(pane_id, identity)
-                _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
-                # Per chunk, not once at the end: if a later chunk raises, the bytes
-                # already delivered are in the pane and a paste really did happen, so a
-                # Return arriving after that failure still has a burst to clear. Stamping
-                # only after the last chunk would leave the half-delivered draft looking
-                # as though nothing had been typed. The final chunk still sets the time
-                # the Return below is judged against.
+            # purely to be measured. Skipping both leaves the real paste's time in place,
+            # which is what the Return should be judged against.
+            if keys:
+                _paste(pane_id, keys, lambda: check_pane(pane_id, identity), "-p")
                 with _paste_lock:
                     _last_paste[pane_id] = (identity, now := time.monotonic())
                     if len(_last_paste) > _LAST_PASTE_MAX:
                         for dead in [k for k, (_, at) in _last_paste.items()
                                      if now - at > _ENTER_SETTLE_S]:
                             del _last_paste[dead]
-                i = j
-                if i >= len(b):
-                    break
         else:
             # A Return asked for by NAME is a submit like any other, and the live tools
             # can produce exactly that: the model may return type_in_pane(press_enter=
@@ -1297,22 +1291,34 @@ def send_secret(pane: Pane, secret: str) -> None:
     and its one-shot buffer is deleted as it is pasted. Refuses unless the pane is the
     same one and still at the prompt, checked under the send lock: a stale page must not
     type a password into whatever replaced the prompt."""
-    name = f"tmuxrc-secret-{secrets.token_hex(8)}"
+    def ready() -> None:
+        # Checked after the load, right before the paste, identity last: the pane can be
+        # replaced (and its id recycled) while load-buffer or the prompt check runs.
+        if not at_password_prompt(pane.id, unknown=False):
+            raise PaneChangedError(
+                "The pane is no longer asking for a password; nothing was sent.")
+        check_pane(pane.id, pane.pid)
+
     with _pane_lock(pane.id):
-        try:
-            _run(["load-buffer", "-b", name, "-"], stdin=secret)
-            # Checked after the load, right before the paste, identity last: the pane can
-            # be replaced (and its id recycled) while load-buffer or the prompt check runs.
-            if not at_password_prompt(pane.id, unknown=False):
-                raise PaneChangedError(
-                    "The pane is no longer asking for a password; nothing was sent.")
-            check_pane(pane.id, pane.pid)
-            # No -p: bracketed-paste marks (left on by an earlier TUI) would join the password.
-            _run(["paste-buffer", "-d", "-b", name, "-t", pane.id])
-            _run(["send-keys", "-t", pane.id, "Enter"])
-        finally:  # -d already deleted it after a paste; any failure must not leave it
-            with suppress(OSError, subprocess.CalledProcessError):
-                _run(["delete-buffer", "-b", name])
+        # No -p: bracketed-paste marks (left on by an earlier TUI) would join the password.
+        _paste(pane.id, secret, ready)
+        _run(["send-keys", "-t", pane.id, "Enter"])
+
+
+def _paste(pane_id: str, text: str, ready: Callable[[], None], *flags: str) -> None:
+    """Paste `text` into the pane from a one-shot buffer: it travels on tmux's stdin
+    (`load-buffer -`), never argv, so no size cap and no `ps` sees it, and `-d` deletes
+    the buffer as it is pasted. `ready` runs between the load and the paste, the last
+    moment to refuse."""
+    name = f"tmuxrc-{secrets.token_hex(8)}"
+    _run(["load-buffer", "-b", name, "-"], stdin=text)
+    try:
+        ready()
+        _run(["paste-buffer", *flags, "-d", "-b", name, "-t", pane_id])
+    except BaseException:  # -d deletes it once pasted; a refusal must not leave it behind
+        with suppress(OSError, subprocess.CalledProcessError):
+            _run(["delete-buffer", "-b", name])
+        raise
 
 
 def click(pane_id: str, from_bottom: int, col: int, *,

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from openbus import tmux
+from tests.test_send_paste import typed
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +28,7 @@ def _record(monkeypatch, settle):
     events = []
     monkeypatch.setattr(tmux, "_ENTER_SETTLE_S", settle)
     monkeypatch.setattr(tmux, "_last_paste", {})  # no paste times carried in from another test
-    monkeypatch.setattr(tmux, "_run", lambda args: events.append(("send", args[-1])) or "")
+    monkeypatch.setattr(tmux, "_run", typed(lambda sent: events.append(("send", sent))))
     monkeypatch.setattr(tmux.time, "sleep", lambda s: events.append(("sleep", s)))
     return events
 
@@ -59,15 +60,6 @@ def test_a_key_name_is_not_a_paste(monkeypatch):
     assert events == [("send", "C-c")]
 
 
-def test_the_wait_follows_the_last_chunk_of_a_long_paste(monkeypatch):
-    """A big answer is chunked under tmux's message cap; the Return must clear the
-    LAST chunk, not the first, or the race simply moves."""
-    events = _record(monkeypatch, 0.3)
-    tmux.send_keys("%1", "x" * (tmux._SEND_CHUNK_BYTES + 10))
-    assert [kind for kind, _ in events] == ["send", "send", "sleep", "send"]
-    assert events[-1] == ("send", "Enter")
-
-
 def test_the_settle_is_inside_the_send_lock(monkeypatch):
     """The gap between text and Return is the one moment another caller must NOT get in:
     its text would land in the draft we are about to submit, and we would send theirs.
@@ -83,17 +75,13 @@ def test_the_settle_is_inside_the_send_lock(monkeypatch):
     monkeypatch.setattr(tmux, "_last_paste", {})  # this test's own clock, not the suite's
     order, in_settle = [], threading.Event()
 
-    def fake_run(args):
-        order.append(args[-1])
-        return ""
-
     real_sleep = tmux.time.sleep
 
     def fake_sleep(seconds):
         in_settle.set()  # we are in the gap; let the other caller try to barge in
         real_sleep(seconds)
 
-    monkeypatch.setattr(tmux, "_run", fake_run)
+    monkeypatch.setattr(tmux, "_run", typed(order.append))
     monkeypatch.setattr(tmux.time, "sleep", fake_sleep)
 
     first = threading.Thread(target=tmux.send_keys, args=("%1", "mine"))
@@ -131,7 +119,7 @@ def test_a_settle_on_one_pane_does_not_stall_another(monkeypatch):
                  if tmux._pane_lock(p) is not tmux._pane_lock("%1"))
     order, in_settle = [], threading.Event()
 
-    monkeypatch.setattr(tmux, "_run", lambda args: order.append(args[-1]) or "")
+    monkeypatch.setattr(tmux, "_run", typed(order.append))
     real_sleep = tmux.time.sleep
 
     def fake_sleep(seconds):
@@ -187,7 +175,7 @@ def test_every_spelling_of_a_pane_sends_to_the_same_id(monkeypatch):
     The API accepts several spellings of one pane — "%0", the numeric address, the
     derived label — and used to hand its caller's raw string straight to send_keys. Under
     the old single global lock that was invisible; with a per-pane lock two spellings
-    would take two different locks and interleave chunks into the same draft. The
+    would take two different locks and interleave two sends into the same draft. The
     endpoint already resolves the pane to validate it, so it sends to that.
     """
     from types import SimpleNamespace
@@ -237,31 +225,6 @@ def test_a_bare_submit_is_judged_by_the_text_not_by_itself(monkeypatch):
     tmux.send_keys("%2", "hello", enter=False)
     tmux.send_keys("%2", "", enter=True)
     assert events == [("send", "hello"), ("sleep", 0.3), ("send", "Enter")], events
-
-
-def test_a_paste_that_dies_half_delivered_still_counts(monkeypatch):
-    """A long answer is chunked, and a chunk can fail. The chunks already sent ARE in the
-    pane, so the burst really happened: a Return after that failure — the retry, or the
-    key bar — still has to clear the window, or it submits the partial draft as a newline.
-    """
-    events = _record(monkeypatch, 0.3)
-    sent = []
-
-    def flaky(args):
-        sent.append(args[-1])
-        if len(sent) == 2:  # second chunk fails; the first is already in the pane
-            raise RuntimeError("tmux said no")
-        events.append(("send", args[-1]))
-        return ""
-
-    monkeypatch.setattr(tmux, "_run", flaky)
-    with pytest.raises(RuntimeError):
-        tmux.send_keys("%1", "x" * (tmux._SEND_CHUNK_BYTES + 10), enter=True)
-
-    events.clear()
-    tmux.send_keys("%1", "Enter", enter=False, literal=False)  # the Return that follows
-    kinds = [(k, round(v, 1) if k == "sleep" else v) for k, v in events]
-    assert kinds == [("sleep", 0.3), ("send", "Enter")], kinds
 
 
 def test_the_paste_clock_forgets_only_what_can_no_longer_matter(monkeypatch):
@@ -400,7 +363,7 @@ def test_input_invalidation_waits_for_an_inflight_push_submit(monkeypatch):
     settling = threading.Event()
     real_sleep = tmux.time.sleep
 
-    monkeypatch.setattr(tmux, "_run", lambda args: order.append(args[-1]) or "")
+    monkeypatch.setattr(tmux, "_run", typed(order.append))
 
     def pause(seconds):
         settling.set()
@@ -444,7 +407,7 @@ def test_invalid_settle_setting_cannot_break_startup(monkeypatch, setting, expec
 
 @pytest.mark.parametrize("replacement", [None, "9999"])
 @pytest.mark.parametrize("enter", [False, True])
-def test_pane_replaced_before_first_chunk_receives_no_text(monkeypatch, replacement, enter):
+def test_pane_replaced_before_the_paste_receives_no_text(monkeypatch, replacement, enter):
     events = _record(monkeypatch, 0.3)
     pids = iter(["1234", replacement])
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: next(pids))
