@@ -547,3 +547,36 @@ def test_a_linked_dbs_wal_stays_with_it(home, monkeypatch):
     monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / "db.sqlite3"))
     export.restore(io.BytesIO(out.getvalue()))
     assert real.with_name("real.sqlite3-wal").read_text() == "wal"
+
+
+def test_an_agents_db_goes_as_a_snapshot(home):
+    old = home("old")
+    (old / ".codex").mkdir()
+    db = sqlite3.connect(old / ".codex/state.sqlite")  # left open: its WAL not checkpointed
+    db.execute("PRAGMA journal_mode=wal")
+    db.execute("PRAGMA wal_autocheckpoint=0")
+    db.execute("CREATE TABLE t (v)")
+    db.execute("INSERT INTO t VALUES (1)")
+    db.commit()
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    db.close()
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert not [n for n in tar.getnames() if n.endswith(("-wal", "-shm"))]
+        tar.extract("agents/.codex/state.sqlite", old / "out", filter="data")
+    with contextlib.closing(sqlite3.connect(old / "out/agents/.codex/state.sqlite")) as copy:
+        assert copy.execute("SELECT v FROM t").fetchall() == [(1,)]
+
+
+def test_a_kept_dbs_private_dir_stays_private(home, monkeypatch):
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    (old / ".local/share/tmux-rc/previews").chmod(0o755)
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / ".local/share/tmux-rc/previews/h.sqlite3"))
+    write(new / ".local/share/tmux-rc/previews/h.sqlite3", "db")
+    (new / ".local/share/tmux-rc/previews").chmod(0o700)
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".local/share/tmux-rc/previews").stat().st_mode & 0o777 == 0o700

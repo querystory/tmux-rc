@@ -48,6 +48,7 @@ LOGINS = (".credentials.json", "auth.json")  # an agent dir's sign-in: Claude's,
 IDENTITY = (*LOGINS, ".claude.json")  # the sign-in and who it is: they stay together
 # What an agent rebuilds in its dir, left out: caches, debug logs, shell snapshots.
 AGENT_DIRS = (".claude", ".codex", *accounts.MORE.values())  # what an import may replace in HOME
+DBS = (".sqlite", ".sqlite3", ".db")  # an agent's SQLite DB: snapshotted, not copied
 CACHES = ("cache", "debug", "statsig", "shell-snapshots", "log", "tmp", ".tmp")
 
 
@@ -158,6 +159,16 @@ def _read(db: Path):
     return contextlib.closing(sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True))
 
 
+def _snapshot(db: Path, tar, name: str) -> None:
+    """Add a consistent copy of the SQLite DB `db` as `name`: the backup API, while what
+    owns it keeps writing. Staged beside it, not in a /tmp that may be RAM."""
+    with tempfile.TemporaryDirectory(dir=db.parent) as tmp:
+        with _read(db) as src, contextlib.closing(sqlite3.connect(Path(tmp, "db"))) as copy:
+            src.backup(copy)
+        Path(tmp, "db").chmod(0o600)  # as private as the DB it copies, whatever the umask
+        tar.add(Path(tmp, "db"), name)
+
+
 def sizes() -> dict[str, int]:
     """Each part's size on disk, uncompressed: the walk export makes, without reading, and
     the DB's pages, its WAL's included, as the snapshot holds them."""
@@ -176,33 +187,33 @@ def export(out, parts) -> list[str]:
     Returns what a person moves by hand: agent dirs deeper than HOME's top level."""
     parts = {"state", *parts}
     deeper = [str(d) for d in _agent_dirs() if d.parent != Path.home()] * ("agents" in parts)
-    db = _db()
-    # Beside the DB, not a /tmp that may be RAM, and gone before the walk could find it.
+    db, schema, snapped = _db(), None, set()
     with tarfile.open(fileobj=out, mode="w|gz") as tar:
-        with tempfile.TemporaryDirectory(dir=db.parent if db.parent.is_dir() else None) as tmp:
-            snapshot, schema = Path(tmp, "history.sqlite3"), None
-            if db.exists():  # the backup API: a consistent copy while the daemon keeps writing
-                with _read(db) as src, contextlib.closing(sqlite3.connect(snapshot)) as copy:
-                    src.backup(copy)
-                    schema = copy.execute("PRAGMA user_version").fetchone()[0]
-            manifest = json.dumps({"format": FORMAT, "schema": schema,
-                                   "host": socket.gethostname(), "home": str(Path.home()),
-                                   "created": time.time(), "parts": sorted(parts),
-                                   "left": deeper}).encode()
-            info = tarfile.TarInfo("manifest.json")
-            info.size, info.mtime, info.mode = len(manifest), time.time(), 0o600
-            tar.addfile(info, io.BytesIO(manifest))
-            if schema is not None:
-                snapshot.chmod(0o600)  # as private as the DB it copies, whatever the umask
-                tar.add(snapshot, snapshot.name)
+        if db.exists():
+            with _read(db) as src:
+                schema = src.execute("PRAGMA user_version").fetchone()[0]
+        manifest = json.dumps({"format": FORMAT, "schema": schema, "host": socket.gethostname(),
+                               "home": str(Path.home()), "created": time.time(),
+                               "parts": sorted(parts), "left": deeper}).encode()
+        info = tarfile.TarInfo("manifest.json")
+        info.size, info.mtime, info.mode = len(manifest), time.time(), 0o600
+        tar.addfile(info, io.BytesIO(manifest))
+        if schema is not None:
+            _snapshot(db, tar, "history.sqlite3")
         for part, name, path in _entries(parts):
-            if part in parts:
-                with contextlib.suppress(FileNotFoundError):  # gone since the walk
-                    info = tar.gettarinfo(path, name)
-                    if info.islnk():  # a name sharing an inode goes as its bytes: import
-                        info.type, info.size = tarfile.REGTYPE, path.stat().st_size  # drops links
-                    with path.open("rb") if info.isreg() else contextlib.nullcontext() as f:
-                        tar.addfile(info, f)
+            if part not in parts or name.rpartition("-")[0] in snapped:  # its DB's WAL, SHM
+                continue
+            with contextlib.suppress(FileNotFoundError):  # gone since the walk
+                if path.suffix in DBS and path.is_file() and not path.is_symlink():
+                    with contextlib.suppress(sqlite3.DatabaseError):  # not one: as a file
+                        _snapshot(path, tar, name)
+                        snapped.add(name)
+                        continue
+                info = tar.gettarinfo(path, name)
+                if info.islnk():  # a name sharing an inode goes as its bytes: import
+                    info.type, info.size = tarfile.REGTYPE, path.stat().st_size  # drops links
+                with path.open("rb") if info.isreg() else contextlib.nullcontext() as f:
+                    tar.addfile(info, f)
         tar.addfile(tarfile.TarInfo(DONE))  # last: an export that failed part way has none
     return deeper
 
@@ -276,8 +287,10 @@ def _swap(src: Path, dst: Path, stamp: str, done: list, sidecars=("",), keep=())
         raise
     for rel in (p.relative_to(dst) for p in keep if dst in p.parents):
         if dst.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(dst / rel):
+            mode = (old / rel).parent.stat().st_mode  # a private dir it was in stays so
             (dst / rel).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             _move(old / rel, dst / rel, done)
+            (dst / rel).parent.chmod((dst / rel).parent.stat().st_mode & mode & 0o7777)
 
 
 def _displaces(child: Path, dst: Path, name: str, at: Path) -> bool:
