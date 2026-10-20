@@ -1019,7 +1019,12 @@ function renderLinks(el, links) {
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
     const disarm = () => { clearTimeout(timer); held = false; };
-    anchor.addEventListener("touchstart", (event) => { disarm(); if (event.touches.length === 1) timer = setTimeout(() => { held = true; }, 500); }, { passive: true });
+    anchor.addEventListener("touchstart", (event) => {
+      disarm();
+      if (event.touches.length > 1) return;
+      timer = setTimeout(() => { held = true; }, 500);
+      document.addEventListener("touchstart", disarm, { capture: true, once: true, passive: true }); // the next finger anywhere (this one's capture has passed)
+    }, { passive: true });
     for (const type of ["touchmove", "touchcancel"]) anchor.addEventListener(type, disarm, { passive: true });
     anchor.addEventListener("touchend", () => { clearTimeout(timer); if (held) copyHere(anchor, anchor.href, "chevron"); }, { passive: true });
     anchor.addEventListener("click", (event) => { if (held) event.preventDefault(); held = false; });
