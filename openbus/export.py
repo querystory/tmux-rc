@@ -403,7 +403,7 @@ def restore(src) -> list[str]:
                                          item.name)] if item.name in where else []
         if len({_spot(path) for _, path, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
             raise SystemExit("Two of this archive's parts would land at one place here.")
-        db_dir = _spot(Path(db)).parent
+        db_dirs = (Path(os.path.abspath(db)).parent, _spot(Path(db)).parent)  # as named, now
         for child, path, name in moves:  # before any swap: only a place's own part replaces it,
             dst = _spot(path)
             if name.startswith("data/") and (inside := _within(dst, keep)):  # nor lands inside one
@@ -411,8 +411,9 @@ def restore(src) -> list[str]:
             for at in keep:  # and one nested in another's swap must have a dir path to stay in
                 if _displaces(child, dst, name, at):
                     raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
-            if db_dir.is_relative_to(dst) and (inner := child / db_dir.relative_to(dst)).is_dir():
-                inner.chmod(inner.stat().st_mode & 0o7700)  # the DB's dir: History needs it private
+            for d, at in zip(db_dirs, (path, dst), strict=True):  # the DB's dir: History needs
+                if d.is_relative_to(at) and (inner := child / d.relative_to(at)).is_dir():
+                    inner.chmod(inner.stat().st_mode & 0o7700)  # it private, wherever it lands
         for child, path, _ in moves:
             _keep_login(child, _spot(path))
         journal = []

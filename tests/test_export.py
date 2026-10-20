@@ -602,3 +602,17 @@ def test_an_imported_dbs_dir_is_private(home, monkeypatch):
     monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / ".local/share/tmux-rc/mocks/h.sqlite3"))
     export.restore(io.BytesIO(out.getvalue()))
     History(new / ".local/share/tmux-rc/mocks/h.sqlite3")
+
+
+def test_an_imported_dbs_dir_is_private_through_a_link_it_replaces(home, monkeypatch):
+    old = source(home)
+    (old / ".local/share/tmux-rc/mocks").chmod(0o755)
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    (new / "store").mkdir(mode=0o700)
+    (new / ".local/share/tmux-rc").mkdir(parents=True)
+    (new / ".local/share/tmux-rc/mocks").symlink_to(new / "store")
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / ".local/share/tmux-rc/mocks/h.sqlite3"))
+    export.restore(io.BytesIO(out.getvalue()))
+    History(new / ".local/share/tmux-rc/mocks/h.sqlite3")
