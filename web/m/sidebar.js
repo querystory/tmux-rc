@@ -245,16 +245,18 @@ export function setupSidebar(ctx) {
     reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.link ? `link:${o.link.href}` : o.part ? `${o.part}:${o.offer}` : `${o.index}:${o.option}`, (o) => {
       if (o.note != null) return Object.assign(document.createElement("span"), { className: "sb-note", role: "status" });
       if (o.part === "text") return Object.assign(document.createElement("code"), { className: "sb-offer" });
+      if (o.link) return ctx.linkPair(o.link.href);
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.link ? window.open(o.link.href, "_blank", "noopener,noreferrer") : o.reply ? openReply(node._p.pane_id, node._p.secret) : o.part === "copy" ? ctx.copy(o.offer) : ctx.answer(node._p.pane_id, o.option, o.index, !!o.part);
+      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : o.part === "copy" ? ctx.copy(o.offer) : ctx.answer(node._p.pane_id, o.option, o.index, !!o.part);
       return button;
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);
       if (o.part === "text") return text(el, o.offer);
-      const label = o.link ? `${o.link.text || "Open link"} ↗` : o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
-      text(el, label); el.title = o.link ? o.link.href : o.reply ? "" : label; el.disabled = busy && !o.link && o.part !== "copy";
-      el.classList.toggle("picked", !o.reply && !o.link && o.part !== "copy" && ctx.picked(p, o));
+      if (o.link) { text(el.firstChild, `${o.link.text || "Open link"} ↗`); el.firstChild.title = o.link.href; return; }
+      const label = o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
+      text(el, label); el.title = o.reply ? "" : label; el.disabled = busy && o.part !== "copy";
+      el.classList.toggle("picked", !o.reply && o.part !== "copy" && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;

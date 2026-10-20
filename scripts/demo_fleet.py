@@ -298,7 +298,10 @@ DETAIL = {
     # A finished turn in auto mode that hands the user a command: classify()'s offers, and
     # the question its _final_ask leaves (no reply options, since the command is the answer).
     "preview deploy": {"offers": ["! make test", "ship it"],
-                       "headline": "Preview deployed; the checks are yours to run."},
+                       "headline": "Preview deployed; the checks are yours to run.",
+                       # A link the question points at: its card leads with it (and Copy link).
+                       "links": [{"href": f"https://{ORG}/shop-api/deployments/preview",
+                                  "text": "Preview link"}]},
     "cost report": {"activity": "compacting", "headline": "Compacting the conversation",
                         "status_line": "Compacting the conversation", "context_pct": 94},
     "terraform plan review": {

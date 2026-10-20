@@ -258,13 +258,20 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 :is(#capture, #earlier) a { color: #8ecbff; }
 #capture.clicks { cursor: default; user-select: none; -webkit-user-select: none; }
 #session-summary { margin-top: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
-#links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
-#links a:last-child { border-bottom: 0; }
+/* A link chip and its Copy link button (app.js linkPair). A long press on the link opens the
+   system's link menu rather than selecting its words. */
+.link-pair { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.link-pair a { flex: 1; min-width: 0; user-select: none; -webkit-user-select: none; }
+.link-copy { color: var(--muted); }
+#links .link-pair { border-bottom: 1px solid var(--line); }
+#links .link-pair:last-child { border-bottom: 0; }
+#links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; text-decoration: none; }
 #links a span, #links a small, #ask-link a span, #ask-link a small { overflow-wrap: anywhere; }
 #links a small, #ask-link a small { color: var(--muted); font-size: 12px; grid-column: 1; }
 #links a svg, #ask-link a svg { grid-column: 2; grid-row: 1 / 3; }
 /* The link a question asks you to open leads its card, framed like its answers. */
-#ask-link a { margin-top: 14px; padding: 8px 14px; border: 1px solid var(--amber); border-radius: 6px; }
+#ask-link .link-pair { margin-top: 14px; }
+#ask-link a { padding: 8px 14px; border: 1px solid var(--amber); border-radius: 6px; }
 .pane-table + .pane-table { margin-top: 20px; }
 .pane-table h2 { margin-bottom: 8px; }
 .table-scroll { overflow: auto; max-width: 100%; max-height: 60dvh; overscroll-behavior: contain; }
@@ -697,8 +704,10 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .sb-icon { width: 32px; height: 32px; min-height: 32px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .sb-icon[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
 .sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
-.sb-replies button { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
-.sb-replies button:not(:disabled):hover { border-color: var(--amber); }
+.sb-replies :is(button, a) { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
+.sb-replies :is(button, a):not(:disabled):hover { border-color: var(--amber); }
+.sb-replies a { display: inline-flex; align-items: center; color: var(--fg); text-decoration: none; }
+.sb-replies .link-copy { width: 28px; height: 28px; padding: 0; }
 .sb-offer { flex-basis: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 12px/1.35 var(--mono); }
 .sb-note { align-self: center; color: var(--muted); font-size: 12px; }
 .sb-compose { flex-wrap: nowrap; align-items: flex-end; gap: 2px; }
@@ -965,7 +974,8 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   .pane-card { border-bottom: 1px solid var(--line); }
   .pane-card .row-body { border-bottom-color: transparent; }
   .pane-card .sb-replies:not(:empty), .pane-card .sb-compose { gap: 8px; padding: 0 16px 12px 84px; }
-  .pane-card .sb-replies button { min-height: 40px; padding: 0 14px; border-radius: 20px; font-size: 14px; }
+  .pane-card .sb-replies :is(button, a) { min-height: 40px; padding: 0 14px; border-radius: 20px; font-size: 14px; }
+  .pane-card .sb-replies .link-copy { width: 40px; height: 40px; padding: 0; }
   .pane-card .sb-icon { width: 40px; height: 40px; min-height: 40px; }
   .pane-card #side-reply { min-height: 40px; padding: 9px 12px; border-radius: 20px; font-size: 16px; line-height: 20px; } /* 16px: iOS zooms a smaller field */
   /* The list and the dashboard end clear of the tab bar. */
