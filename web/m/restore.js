@@ -9,7 +9,7 @@ const key = (wid, p) => `${wid}:${p.index}`;
 const WORKING = new Set(["running", "compacting"]); // mid-task when tmux died: an idle time would read 0s
 
 export function setupRestore({ mount, request, slow, logos, licon, notice, running, open, opened, closed }) {
-  let offer = null, picked = new Map();
+  let offer = null, picked = new Map(), pending = false;
   const card = document.createElement("div");
   card.className = "restore-card";
   mount.onclick = open;
@@ -61,19 +61,33 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
   }
 
   card.addEventListener("click", async (e) => {
-    const act = e.target.closest("[data-act]")?.dataset.act;
+    const button = e.target.closest("[data-act]"), act = button?.dataset.act;
     if (!act) return;
-    const body = { server: offer.server, panes: restorable().map(([wid, p]) => [wid, p.index]) };
-    card.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    const body = { server: offer.server, panes: restorable().map(([wid, p]) => [wid, p.index]),
+      // The other account each such pane's note named: picking it was consent to that one only.
+      resume_from: restorable().filter(([, p]) => p.resume_from).map(([wid, p]) => [wid, p.index, p.resume_from]) };
+    card.querySelectorAll("button, input").forEach(b => { b.disabled = true; }); // a tick would redraw the card mid-request
+    // The tapped button spins as a tapped answer does: the build takes as long as the layout.
+    const label = act === "restore" ? "Restore" : button.textContent;
+    button.classList.add("picked");
+    button.textContent = `${act === "restore" ? "Restoring" : "Dismissing"}…`;
+    // While the POST runs, background refreshes neither redraw nor close the view: the server
+    // spends the offer before building, so a refresh then would drop the spinner mid-build.
+    // Bumping `asks` also discards one already in flight; the refresh after the POST reconciles.
+    pending = true; asks++;
+    let failed;
     try {
       await request(act === "restore" ? "/api/restore" : "/api/restore/dismiss",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
         act === "restore" ? slow : undefined); // the build answers when the layout is up, however long
       if (act === "restore") notice("Restoring: the layout is back, agents resume a few at a time.", 6000);
     } catch (err) {
-      notice(err.detail || err.message, 6000);
+      failed = err.detail || err.message;
     }
-    refresh();
+    pending = false;
+    await refresh();
+    // A failure that kept the offer is retried from the same button; one that spent it (a partial build, 409) has no button to retry.
+    if (failed) notice(offer?.server === body.server ? `${failed} — tap ${label} again.` : failed, 6000);
   });
   card.addEventListener("change", (e) => {
     const box = e.target, session = offer.sessions.find(s => s.name === box.dataset.session);
@@ -84,7 +98,9 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
   });
 
   let asked = 0, asks = 0;
+  const targets = (o) => new Map(o ? Object.entries(o.windows).flatMap(([wid, w]) => w.panes.map(p => [key(wid, p), p.resume_from || ""])) : []);
   async function refresh() {
+    if (pending) return;
     asked = Date.now();
     const mine = ++asks, was = offer?.server;
     let next = null; // no history database (503): no offer, and nothing to say about it
@@ -94,9 +110,12 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
       if (mine === asks && err.status !== 503) return render(); // a dropped request: keep the offer, its buttons live again
     }
     if (mine !== asks) return; // a later ask answers instead: an older one would bring a spent offer back
+    const before = targets(offer);
     offer = next;
     const changed = offer?.server !== was;
     if (changed) picked = new Map(offer ? Object.entries(offer.windows).flatMap(([wid, w]) => w.panes.map(p => [key(wid, p), p.default])) : []);
+    // A pick was for the account its note named: one whose account changed is picked again or not at all.
+    else for (const [k, to] of targets(offer)) if (before.has(k) && before.get(k) !== to) picked.delete(k);
     render();
     if (!offer) closed(); // a spent offer, or a link to one, shows the dashboard
     else if (changed && !running()) opened();

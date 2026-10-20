@@ -171,6 +171,9 @@ baked in, or give them their own hostname (below).
   exist at startup, or was set without restarting the daemon. A folder with neither
   `index.html` nor `index.md` also 404s at its bare URL, since a folder has no listing; link the file (the
   gallery links such a folder's newest file).
+- **202 at a folder's URL, with a spinner**: its `meta.json` is there but its page is not
+  yet, so the page is being made ([details](scratch-gallery.md#a-link-handed-out-before-its-page)).
+  It turns into the page once `index.html` or `index.md` lands.
 - **The page loads but its data doesn't**: a `fetch` or XHR failing (look for a CSP error
   in the browser console) is the sandbox doing its job. Inline the data into the page or
   bundle it as a classic script.

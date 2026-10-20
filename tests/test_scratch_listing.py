@@ -16,7 +16,7 @@ STYLE = WEB_DIR / "m" / "style.css"
 
 @pytest.fixture(autouse=True)
 def _fresh_cache(monkeypatch):
-    monkeypatch.setattr(scratch, "_found", {})
+    monkeypatch.setattr(scratch, "_missed", {})
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: {})
     monkeypatch.setattr(agent_history, "reconcile", lambda: None)  # never this machine's index
 
@@ -82,13 +82,13 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
 
     def writers(pattern, due):
         calls.append(due)
-        return {"gone": {"session_id": "s1", "harness": "codex", "title": "Billing",
-                         "source": "/c/projects/x/s1.jsonl"}}
+        return {"gone": {"session_id": "s1"}}
 
     monkeypatch.setattr(agent_history, "writers", writers)
-    running = {"s1": {"running": {"tmux_pane": "%9", "pid": 5}}}
+    running = {"s1": {"session_id": "s1", "harness": "codex", "title": "Billing",
+                      "source": "/c/projects/x/s1.jsonl", "running": {"tmux_pane": "%9"}}}
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
-    _folder(tmp_path, "gone", 1000, {"pane": "%3"})
+    _folder(tmp_path, "gone", 1000, {"pane": "%3", "session": "forged"})  # the agent's key
     _folder(tmp_path, "nobody", 2000)
     items, _ = _resolved(tmp_path, [], [{"name": "Lab", "dir": "/c"}])
     assert items["gone"] | {"who": "codex · Lab", "where": "Billing", "pane": None} == items["gone"]
@@ -98,10 +98,14 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
                                      "window_name": "w"}],
                          pane_of=lambda e: e.get("running", {}).get("tmux_pane"))
     assert items["gone"]["pane"] == "%9"
-    for name in ("index.html", "meta.json"):  # rewritten: created moves, the author stays
-        (tmp_path / "gone" / name).write_text('{"pane": "%3"}')
-    _resolved(tmp_path)
-    assert calls == [{"gone": 1000, "nobody": 2000}]  # found and missed both cached
+    # The author is kept in its meta.json, so a restarted daemon never searches again.
+    meta = json.loads((tmp_path / "gone" / "meta.json").read_text())
+    assert meta == {"pane": "%3", "session": "forged", "agent_session": "s1",
+                    "generated": ["agent_session"]}
+    (tmp_path / "gone" / "index.html").write_text("rewritten")
+    items, _ = _resolved(tmp_path)
+    assert items["gone"]["where"] == "Billing"
+    assert calls == [{"gone": 1000, "nobody": 2000}]  # found is stored, a miss waits to retry
 
 
 def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):
@@ -130,7 +134,7 @@ def test_nothing_outside_scratch_is_listed_or_read(tmp_path, monkeypatch):
     (linked / "index.html").unlink()
     (linked / "index.html").symlink_to(outside / "index.html")
     (linked / "report.pdf").write_text("pdf")
-    _folder(root, "meta-only", 800, {"title": "nothing to open"}).joinpath("index.html").unlink()
+    os.utime(linked / "report.pdf", (900, 900))  # published long ago, not landing now
     items, order = _resolved(root)
     assert sorted(order) == ["inner", "linked", "loop"]
     assert items["inner"]["title"] == "inner"  # its <title> has no text
@@ -203,7 +207,97 @@ def test_an_empty_gallery_says_how_agents_publish_there(tmp_path):
 def test_a_pending_preview_names_the_image_the_page_retries():
     from openbus.scratch import _card
     item = {"name": "a b", "href": "a%20b/", "title": "t", "description": "", "who": "",
-            "where": "", "pane": None, "thumb": False, "shot": "pending",
+            "where": "", "pane": None, "thumb": False, "shot": "pending", "pending": False,
             "created": 0, "updated": 0}
     assert 'data-pending="a%20b/thumb.webp"' in _card(item)
     assert "data-pending" not in _card({**item, "shot": "failed"})
+    # its author's pane since closed: a page that landed still waits for its thumbnail
+    assert 'data-pending="a%20b/thumb.webp"' in _card({**item, "state": "stopped"})
+
+
+def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    now = scratch.time.time()
+    for name, pane in (("wip", "%1"), ("idle", "%2"), ("long", "%3"), ("gone", "%9"),
+                       ("bare", None), ("old", None)):
+        meta = {"title": name, "pane": pane, "created": scratch.datetime.fromtimestamp(
+            now - (7200 if name in ("old", "long") else 60)).isoformat()}
+        _folder(tmp_path, name, now, meta).joinpath("index.html").unlink()
+    (tmp_path / "idle" / "thumb.webp").write_bytes(b"")  # a sidecar is no page either
+    _folder(tmp_path, "done", now, {"pane": "%1"})
+    (tmp_path / "empty").mkdir()  # nothing at all: not listed
+    states = [{"pane_id": "%1", "activity": "waiting", "waiting_on": "external",
+               "headline": "running the visual tests", "session": "dev", "window_name": "ui"},
+              {"pane_id": "%2", "activity": "idle", "state_since": now - 60},
+              {"pane_id": "%3", "activity": "idle", "state_since": now - scratch.STALL - 1}]
+    items, _ = _resolved(tmp_path, states)
+    assert "empty" not in items and not items["done"]["pending"]
+    assert items["wip"]["href"] == "wip/" and items["wip"]["page"] is None
+    assert {n: i["state"] for n, i in items.items() if i["pending"]} == {
+        "wip": "working", "idle": "quiet", "long": "stopped", "gone": "stopped",
+        "bare": "working", "old": "stopped"}
+    assert scratch.progress({"activity": "idle", "agents": 1}, "%1", now) == "working"
+    card = scratch._card(items["wip"])
+    assert 'class="working" data-pending="wip/thumb.webp">Being made…' in card
+    assert 'aria-label="wip: Being made…">wip</a>' in card  # the thumb's state, read aloud
+    # an earlier page's thumbnail neither hides the state nor is polled in its place
+    assert '<span class="quiet">Being made…' in scratch._card(items["idle"])
+    assert '<span class="stopped">' in scratch._card(items["long"])  # nothing left to poll for
+    shot = []
+    scratch.page(tmp_path, states, [], STYLE, sidecars=shot.extend)
+    assert sorted(i["name"] for i in shot) == ["done"]  # nothing to shoot while pending
+    def who():  # the panes, accounts and stylesheet, asked only of a pending folder
+        return states, [], STYLE
+    page = scratch.placeholder(tmp_path, "wip", who)
+    assert "<h1>wip</h1>" in page and "Now: running the visual tests" in page
+    assert 'href="/m/#pane=%251">dev:ui</a> · started 1m ago' in page
+    assert "location.reload(), 5000)" in page and 'class="working"' in page
+    assert "location.reload(), 60000)" in scratch.placeholder(tmp_path, "old", who)
+    assert scratch.placeholder(tmp_path, "done", who) is None
+    (tmp_path / "bare" / "app.css").write_text("")  # a site's asset before its index
+    assert "<h1>bare</h1>" in scratch.placeholder(tmp_path, "bare", who)
+    os.utime(tmp_path / "bare" / "app.css", (now - 120, now - 120))  # loose files, finished
+    assert scratch.placeholder(tmp_path, "bare", who) is None
+    assert scratch.placeholder(tmp_path, "nope", who) is None
+    (tmp_path / "wip" / "report.html").write_text("")  # a page not at its index: no spinner
+    assert scratch.placeholder(tmp_path, "wip", who) is None
+
+
+def test_one_find_lists_scratch_and_none_means_an_empty_gallery(tmp_path, monkeypatch):
+    _folder(tmp_path, "a", 1000)
+    _folder(tmp_path, "b", 1000).joinpath(".git").mkdir()
+    (tmp_path / "b" / ".git" / "x.html").write_text("hidden, at any depth")
+    _folder(tmp_path, ".hidden", 1000)
+    (tmp_path / "loose.html").write_text("not in a folder")
+    run, calls = scratch.subprocess.run, []
+    monkeypatch.setattr(scratch.subprocess, "run", lambda cmd, **kw: calls.append(cmd)
+                        or run(cmd, **kw))
+    listed = scratch.items(tmp_path)
+    assert sorted(i["name"] for i in listed) == ["a", "b"] and len(calls) == 1
+    assert calls[0][1] == str(tmp_path)  # scratch itself, never one argument per folder
+
+    def missing(*_a, **_kw):
+        raise FileNotFoundError("find")
+    monkeypatch.setattr(scratch.subprocess, "run", missing)
+    assert scratch.items(tmp_path) == []
+
+
+def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
+    folder = _folder(tmp_path, "f", 1000)
+    meta = folder / "meta.json"
+    assert scratch.annotate(meta, tmp_path, "description", "d")
+    assert json.loads(meta.read_text()) == {"description": "d", "generated": ["description"]}
+    meta.write_text(json.dumps({"title": "", "generated": ["title", {}, ["x"]]}))  # malformed
+    assert scratch.annotate(meta, tmp_path, "title", "t")
+    assert json.loads(meta.read_text())["generated"] == ["title"]
+    # An agent's meta.json landing after the check is kept: the create is exclusive.
+    meta.write_text('{"title": "the agent\'s"}')
+    monkeypatch.setattr(scratch.os.path, "lexists", lambda _p: False)
+    assert not scratch.annotate(meta, tmp_path, "description", "d")
+    assert json.loads(meta.read_text()) == {"title": "the agent's"}
+    assert sorted(p.name for p in folder.iterdir()) == ["index.html", "meta.json"]  # no tmp
+
+
+def test_dot_dot_is_not_inside(tmp_path):
+    assert not scratch.inside(tmp_path / "..", tmp_path)
+    assert scratch.inside(tmp_path / "x", tmp_path)

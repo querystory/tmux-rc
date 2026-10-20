@@ -57,11 +57,11 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #connection.online::before { background: var(--accent); }
 /* The status is a dot (the word stays in the node, still read out): on the wide sidebar's
    logo, on a phone's ☰, and in a pane, where there is no ☰, on its Back. */
-#app > #connection { position: absolute; opacity: 0; pointer-events: none; }
-:is(#sb-head #brand, #menu-open, #back) { position: relative; }
-:is(#sb-head #brand, #menu-open, #back)::before { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
-#app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back)::before { background: var(--accent); }
-:is(#menu-open, #back)::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
+#app > :is(#connection, #copied) { position: absolute; opacity: 0; pointer-events: none; }
+:is(#sb-head #brand, #menu-open, #back, #dash-page [data-key="page-back"]) { position: relative; }
+:is(#sb-head #brand, #menu-open, #back, #dash-page [data-key="page-back"])::before { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+#app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back, #dash-page [data-key="page-back"])::before { background: var(--accent); }
+:is(#menu-open, #back, #dash-page [data-key="page-back"])::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
@@ -258,7 +258,13 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 :is(#capture, #earlier) a { color: #8ecbff; }
 #capture.clicks { cursor: default; user-select: none; -webkit-user-select: none; }
 #session-summary { margin-top: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
-#links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
+/* A card's link chip and its Copy link button (app.js linkPair). A long press on the link
+   opens the system's link menu rather than selecting its words. */
+.link-pair { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.link-pair a { min-width: 0; user-select: none; -webkit-user-select: none; }
+.link-copy { color: var(--muted); }
+/* A pane's link rows: a long press copies (app.js renderLinks), so no callout or selection. */
+#links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 #links a:last-child { border-bottom: 0; }
 #links a span, #links a small, #ask-link a span, #ask-link a small { overflow-wrap: anywhere; }
 #links a small, #ask-link a small { color: var(--muted); font-size: 12px; grid-column: 1; }
@@ -349,7 +355,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
    WebKit column flexbox does not shrink it to fit (the sheet would run off the screen). */
 @media (max-width: 1099px) { :is(#settings, #launch-dialog) .panel-body { max-height: calc(88dvh - 64px); } }
 #settings h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
-#settings section:has(#push[hidden]), #settings section:has(#docs[hidden]):has(#scratch[hidden]) { display: none; }
+#settings section:has(#push[hidden]) { display: none; }
 .set-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .set-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 8px 14px; border-radius: 0; text-align: left; text-decoration: none; font-size: 14px; color: var(--fg); }
 .set-row[hidden] { display: none; }
@@ -365,6 +371,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .set-row small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .set-row code { font: 11.5px var(--mono); }
 .set-link { color: var(--accent); font-weight: 600; }
+.set-link small { font-weight: 400; }
 .seg { display: inline-flex; flex: none; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
 .seg button { min-height: 28px; padding: 0 10px; border-radius: 6px; font-size: 13px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; }
@@ -492,7 +499,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
     column-gap: 0;
   }
   #app.rail     { grid-template-columns: 60px minmax(0, 1fr); }
-  .app-header, #pane-list { display: none; }
+  .app-header, #pane-list, #dash-page [data-key="page-back"]::before { display: none; }
   #update-notice{ grid-column: 2; grid-row: 1; }
   #notice       { grid-column: 2; grid-row: 2; }
   #sessions     { grid-column: 1; grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); --card: var(--surface); display: flex; flex-direction: column; overflow: hidden; position: relative; z-index: 4; } /* its menus and hover card overlay the main column's sticky panels */
@@ -696,8 +703,10 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .sb-icon { width: 32px; height: 32px; min-height: 32px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .sb-icon[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
 .sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
-.sb-replies button { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
-.sb-replies button:not(:disabled):hover { border-color: var(--amber); }
+.sb-replies :is(button, a) { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
+.sb-replies :is(button, a):not(:disabled):hover { border-color: var(--amber); }
+.sb-replies a { display: inline-flex; align-items: center; color: var(--fg); text-decoration: none; }
+.sb-replies .link-copy { width: 28px; height: 28px; padding: 0; }
 .sb-offer { flex-basis: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 12px/1.35 var(--mono); }
 .sb-note { align-self: center; color: var(--muted); font-size: 12px; }
 .sb-compose { flex-wrap: nowrap; align-items: flex-end; gap: 2px; }
@@ -904,9 +913,18 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 
 
 /* Keep both single-pane views one tap away on narrow screens. */
-#mobile-view-toggle { display: flex; border: 1px solid var(--line); border-radius: 7px; padding: 2px; background: var(--surface); }
-#mobile-view-toggle button { min-height: 40px; padding: 5px 8px; font-size: 12px; border-radius: 4px; }
-#mobile-view-toggle button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
+/* Overview and terminal as an icon pair: a solid thumb under the one showing slides across on a
+   switch, and the view coming in fades up, so the change of mode can't go unnoticed. */
+#mobile-view-toggle { position: relative; display: flex; border: 1px solid var(--line); border-radius: 12px; padding: 2px; background: var(--surface); }
+#mobile-view-toggle::before { content: ""; position: absolute; inset: 2px auto 2px 2px; width: 40px; border-radius: 9px; background: var(--accent); }
+#mobile-view-toggle:has([data-view="terminal"][aria-pressed="true"])::before { transform: translateX(100%); }
+#mobile-view-toggle button { position: relative; width: 40px; min-height: 36px; padding: 0; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+#mobile-view-toggle button[aria-pressed="true"] { background: none; color: var(--bg); }
+@media (prefers-reduced-motion: no-preference) and (max-width: 1099px) {
+  #mobile-view-toggle::before { transition: transform .2s ease-out; }
+  #detail > :is(#overview, #terminal) { animation: view-in .2s ease-out; }
+  @keyframes view-in { from { opacity: 0; } }
+}
 #review-layout-picker { display: none; }
 @media (min-width: 1100px) {
   #mobile-view-toggle { display: none; }
@@ -938,6 +956,15 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 @media (max-width: 1099px) {
   #landing { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   #landing .landing-inner { padding: 20px 16px; }
+  /* A card's view (or Scratch) heads the screen, as a pane does: the app's header goes and the
+     view's head is the bar: Back (with the status dot the ☰ had), the app's icon, the view's
+     title, and the filter and its chips where the view follows them (app.js placePill). Restore
+     keeps the header: its head has no Back, and the ☰ is its way out. */
+  #app:has(#dash-page:not([hidden]) > .landing-head) > .app-header { display: none; }
+  #landing #dash-page:has(> .landing-head) { padding-top: 0; }
+  #dash-page > .landing-head { position: sticky; top: 0; z-index: 4; flex: none; flex-wrap: wrap; box-sizing: border-box; min-height: 60px; margin: 0 -16px 12px; padding: 8px 16px; gap: 0 8px; border-bottom: 1px solid var(--line); background: var(--bg); }
+  #dash-page > .landing-head h2 { flex: 1; min-width: 0; margin: 0; padding-left: 32px; background: url(/icon.svg) left center / 24px no-repeat; font-size: 18px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dash-page > .landing-head > .acct-pill { flex-basis: 100%; padding: 0 0 2px; }
   #landing .atlas-panel { padding: 16px; }
   #landing .atlas-panel > .atlas-panel-heading:first-child { margin-top: -8px; } /* less pull: a phone wraps the controls off the title's line */
   .sb-only { display: none !important; }
@@ -948,7 +975,8 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
   .pane-card { border-bottom: 1px solid var(--line); }
   .pane-card .row-body { border-bottom-color: transparent; }
   .pane-card .sb-replies:not(:empty), .pane-card .sb-compose { gap: 8px; padding: 0 16px 12px 84px; }
-  .pane-card .sb-replies button { min-height: 40px; padding: 0 14px; border-radius: 20px; font-size: 14px; }
+  .pane-card .sb-replies :is(button, a) { min-height: 40px; padding: 0 14px; border-radius: 20px; font-size: 14px; }
+  .pane-card .sb-replies .link-copy { width: 40px; height: 40px; padding: 0; }
   .pane-card .sb-icon { width: 40px; height: 40px; min-height: 40px; }
   .pane-card #side-reply { min-height: 40px; padding: 9px 12px; border-radius: 20px; font-size: 16px; line-height: 20px; } /* 16px: iOS zooms a smaller field */
   /* The list and the dashboard end clear of the tab bar. */
@@ -1244,9 +1272,15 @@ button.picked:disabled { opacity: 1; }
   #find .search { flex: 1; min-width: 0; margin: 0; padding: 0 0 0 4px; background: none; box-shadow: none; }
   #find + .acct-pill { display: none; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
-  .app-header #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
-  #heading { flex-wrap: wrap; gap: 0; padding: 4px 4px 8px 16px; }
-  #heading .pane-heading-text { order: 1; flex-basis: 100%; }
+  :is(.app-header, .landing-head) #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
+  /* The bar stays slim: Back, then the pane's name once its title has gone (app.js), then the actions. */
+  #heading { gap: 0; padding: 4px 4px 4px 16px; }
+  #back { order: -2; margin-right: 8px; }
+  #heading::after { content: attr(data-title); order: -1; flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .15s; }
+  #detail[data-title-away] > #heading::after { opacity: 1; }
+  #overview > .pane-heading-text { padding: 12px 20px 0; }
+  #pane-title { font-size: 20px; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  #pane-location { margin-top: 6px; }
   #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
   #side-filter-picker .header-picker-menu::before { content: ""; display: block; width: 32px; height: 4px; margin: 4px auto 8px; border-radius: 2px; background: var(--line); } /* the grab handle: drag it down to close */
   #side-filter-picker [aria-label="Group by"] { display: none; }
@@ -1356,6 +1390,11 @@ dialog .acct-check { display: flex; align-items: center; gap: 10px; margin: 8px 
 dialog .acct-check input { flex: none; width: 20px; height: 20px; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); }
 dialog .acct-check small { display: block; color: var(--muted); font-size: 12px; }
 dialog .acct-check.locked { opacity: .6; cursor: default; }
+#export-dialog { max-width: 480px; }
+#export-total { margin: 16px 0 12px; font-weight: 600; }
+#export-parts .acct-check > span { flex: 1; min-width: 0; }
+#export-parts [data-size] { flex: none; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted); }
+#export-go { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 8px; text-decoration: none; }
 #acct-dialog { max-width: 560px; overflow-y: auto; }
 #move-dialog { overflow-y: auto; }
 #acct-dialog button:not(.icon-button) { min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
@@ -1379,7 +1418,12 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .acct-seg { display: flex; gap: 8px; }
 #acct-dialog .acct-seg button { flex: 1; min-height: 44px; }
 #acct-dialog .acct-seg button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); font-weight: 600; }
-.acct-cmd { display: block; margin: 6px 0; padding: 8px 10px; overflow-x: auto; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+#acct-dialog input.acct-cmd { width: 100%; font: 12.5px var(--mono); }
+.acct-paste { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.acct-open { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 8px 0; padding: 12px; border-radius: 8px; background: var(--accent); color: var(--bg); font-weight: 600; text-align: center; text-decoration: none; }
+#acct-dialog code.acct-code { font-size: 16px; letter-spacing: 1px; }
+.acct-paste input, #acct-dialog .acct-paste input { flex: 1; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: 12.5px var(--mono); }
+#signin-section .acct-paste button { min-height: 40px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; }
 .acct-wait { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
 .acct-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); }
 @media (prefers-reduced-motion: no-preference) { .acct-spin { animation: acct-spin 1s linear infinite; } }
@@ -1408,11 +1452,11 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 @media (max-width: 1099.98px) { .app-header > #settings-open { display: none; } }
 /* Scratch's gallery fills its page from under the header to the screen's foot, a phone's tab bar
    floating over it (scratch.html leaves room under the last card): the page keeps the side
-   gutters (a phone's edge swipe starts in the left one), the gallery its top and foot. A phone
-   drops the page head; Back is that swipe, or ☰. */
+   gutters (a phone's edge swipe starts in the left one), the gallery its top and foot. A phone's
+   page head is its bar (above). */
 #dash-page:has(> .scratch-frame) { display: flex; flex-direction: column; height: 100%; padding-block: 0; }
-#dash-page:has(> .scratch-frame) .landing-head { padding-top: 24px; }
-@media (max-width: 1099px) { #dash-page:has(> .scratch-frame) .landing-head { display: none; } #landing:has(> #dash-page > .scratch-frame) { padding-bottom: 0; } }
+@media (min-width: 1100px) { #dash-page:has(> .scratch-frame) .landing-head { padding-top: 24px; } }
+@media (max-width: 1099px) { #landing:has(> #dash-page > .scratch-frame) { padding-bottom: 0; } }
 /* A spinner behind the frame until the gallery paints over it (a frame reloads on every visit). */
 .scratch-frame { display: block; flex: 1; min-height: 0; width: 100%; border: 0;
   background: center 96px / 28px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%238a948f' stroke-width='2.5' stroke-dasharray='42 15'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.8s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E"); }

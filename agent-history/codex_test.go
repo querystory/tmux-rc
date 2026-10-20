@@ -215,7 +215,9 @@ func TestRunningCodex(t *testing.T) {
 		// external command would be exec'd in its place).
 		must(t, os.WriteFile(filepath.Join(bin, name), []byte(`[ -f "$1" ] && exec 3<"$1"; read -r _`), 0o600))
 	}
-	start := func(argv0 string, args ...string) *exec.Cmd {
+	// start runs `argv0 args...`, waiting until it holds its file when it will; a
+	// command line is readable at once.
+	start := func(argv0 string, holds bool, args ...string) *exec.Cmd {
 		cmd := exec.Command(codex, args...)
 		cmd.Args[0], cmd.Dir = argv0, bin
 		stdin, err := cmd.StdinPipe()
@@ -224,10 +226,7 @@ func TestRunningCodex(t *testing.T) {
 		cmd.Env = append(os.Environ(), "TMUX_PANE=%99")
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		must(t, cmd.Start())
-		if _, err := os.Stat(args[1]); err != nil {
-			return cmd // holds nothing, and its command line is readable at once
-		}
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(5 * time.Second); holds && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/3", cmd.Process.Pid)); err == nil {
 				break
 			}
@@ -244,7 +243,7 @@ func TestRunningCodex(t *testing.T) {
 	if tty, _ := procStat(os.Getpid(), 7); tty == "0" {
 		pane = ""
 	}
-	cmd := start(codex, "hold", path)
+	cmd := start(codex, true, "hold", path)
 	if r, ok := running(); !ok || r.PID != cmd.Process.Pid || r.TmuxPane != pane {
 		t.Errorf("codex holding the rollout = %+v, %v", r, ok)
 	}
@@ -253,27 +252,30 @@ func TestRunningCodex(t *testing.T) {
 		t.Errorf("exited codex counted as running: %+v", r)
 	}
 
-	// The app-server daemon and the sandbox helper hold rollouts for others: the thread
-	// is live, but neither is its process or its pane.
-	for _, foreign := range [][]string{{codex, "app-server", path}, {"/tmp/arg0/codex-linux-sandbox", "hold", path}} {
-		cmd := start(foreign[0], foreign[1:]...)
-		if r, ok := running(); !ok || r.PID != 0 || r.TmuxPane != "" {
-			t.Errorf("%s holding the rollout = %+v, %v", foreign[1], r, ok)
-		}
-		stop(cmd)
+	// The sandbox helper is no session, whatever it holds. The app-server daemon holds
+	// rollouts for its clients: the thread is live, but the daemon is not its process.
+	helper := start("/tmp/arg0/codex-linux-sandbox", true, "hold", path)
+	if r, ok := running(); ok {
+		t.Errorf("a sandbox helper holding the rollout counted: %+v", r)
 	}
-	// The client that resumed the thread names it on its command line and holds
-	// nothing. Alone, that proves nothing: it may have switched to another thread since
-	// (`/new`), and this one is then nobody's. While the daemon holds the thread, the
-	// client is its process and outranks the daemon; gone, the thread is the daemon's.
-	client := start(codex, "resume", id)
+	stop(helper)
+	// A client that resumed the thread names it on its command line and holds nothing.
+	// Alone, that proves nothing: it may have switched to another thread since (`/new`),
+	// and this one is then nobody's. While the daemon holds the thread, the one client
+	// naming it is its process; two naming it, and neither is; gone, it is the daemon's.
+	client := start(codex, false, "resume", id)
 	if r, ok := running(); ok {
 		t.Errorf("a client naming a thread nothing holds counted: %+v", r)
 	}
-	daemon := start(codex, "app-server", path)
+	daemon := start(codex, true, "app-server", path)
 	if r, ok := running(); !ok || r.PID != client.Process.Pid || r.TmuxPane != pane {
 		t.Errorf("resuming client = %+v, %v", r, ok)
 	}
+	twin := start(codex, false, "resume", id)
+	if r, ok := running(); !ok || r.PID != 0 || r.TmuxPane != "" {
+		t.Errorf("thread two clients name = %+v, %v", r, ok)
+	}
+	stop(twin)
 	stop(client)
 	if r, ok := running(); !ok || r.PID != 0 {
 		t.Errorf("daemon-held thread after its client left = %+v, %v", r, ok)
@@ -289,24 +291,24 @@ func TestCodexProcess(t *testing.T) {
 	for _, c := range []struct {
 		argv    []string
 		session string
-		foreign bool
+		role    role
 	}{
-		{[]string{"codex", "resume", codexID}, codexID, false},
-		{[]string{"codex", "--model", "m", "resume", codexID}, codexID, false},
-		{[]string{"codex", "resume", "--model", "m", codexID}, codexID, false},
-		{[]string{"codex", "exec", "resume", codexID}, codexID, false},
-		{[]string{"codex", "resume", "--last"}, "", false},
-		{[]string{"codex", "resume"}, "", false},
-		{[]string{"codex", "fork", codexID}, "", false},
-		{[]string{"codex"}, "", false},
-		{[]string{""}, "", false}, // a process with no command line
-		{[]string{bin, "app-server", "--listen", "unix://", "--managed-daemon"}, "", true},
-		{[]string{bin, "app-server", "daemon", "pid-update-loop"}, "", true},
-		{[]string{bin, "--config", `model="m"`, "app-server"}, "", true},
-		{[]string{"/tmp/x/codex-linux-sandbox", "-s", "bash", "-c", "systemctl", "resume", codexID}, "", true},
+		{[]string{"codex", "resume", codexID}, codexID, client},
+		{[]string{"codex", "resume", strings.ToUpper(codexID)}, codexID, client}, // pasted
+		{[]string{"codex", "--model", "m", "resume", codexID}, codexID, client},
+		{[]string{"codex", "resume", "--model", "m", codexID}, codexID, client},
+		{[]string{"codex", "exec", "resume", codexID}, codexID, client},
+		{[]string{"codex", "resume", "--last"}, "", client},
+		{[]string{"codex", "resume"}, "", client},
+		{[]string{"codex", "fork", codexID}, "", client},
+		{[]string{"codex"}, "", client},
+		{[]string{""}, "", client}, // a process with no command line
+		{[]string{bin, "app-server", "--listen", "unix://", "--managed-daemon"}, "", holder},
+		{[]string{bin, "app-server", "daemon", "pid-update-loop"}, "", holder},
+		{[]string{"/tmp/x/codex-linux-sandbox", "-s", "bash", "-c", "systemctl", "resume", codexID}, "", helper},
 	} {
-		if session, foreign := codexProcess(c.argv); session != c.session || foreign != c.foreign {
-			t.Errorf("codexProcess(%q) = %q, %v; want %q, %v", c.argv, session, foreign, c.session, c.foreign)
+		if session, r := codexProcess(c.argv); session != c.session || r != c.role {
+			t.Errorf("codexProcess(%q) = %q, %v; want %q, %v", c.argv, session, r, c.session, c.role)
 		}
 	}
 }

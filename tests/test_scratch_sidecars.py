@@ -99,7 +99,7 @@ def test_nothing_is_read_or_written_once_a_folder_points_out_of_scratch(tmp_path
     meta = root / "p" / "meta.json"
     assert S.describe(meta, root / "p" / "index.html", "T", root) is None and not model
     with pytest.raises(PermissionError):
-        S._replace(meta, root, lambda tmp: tmp.write_text("{}"))
+        scratch.replace(meta, root, lambda tmp: tmp.write_text("{}"))
     assert not (outside / "meta.json").exists()
 
 

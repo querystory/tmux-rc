@@ -44,6 +44,7 @@ const LUCIDE = {
   layers: '<path d="m12 3 10 6-10 6L2 9l10-6ZM2 15l10 6 10-6M2 12l10 6 10-6"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
+  external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
@@ -67,6 +68,7 @@ const LUCIDE = {
   bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
@@ -95,6 +97,7 @@ const LUCIDE = {
   fullscreen: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect width="10" height="8" x="7" y="8" rx="1"/>',
   minimize: '<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/>',
   network: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/>',
+  fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
@@ -345,6 +348,8 @@ function route() {
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   if (viewer.open && page !== "scratch") viewer.close(); // Back, a push or Safari's swipe left Scratch: its viewer goes too
+  const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
+  if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
@@ -375,7 +380,9 @@ function route() {
       else if (stillOnPane(location.hash, id)) notice("Could not focus this pane on the host.");
     });
   }
-  if (changed && active) $("pane-title").focus({ preventScroll: true }); // land in the pane, on its name: focusing Back painted its ring on open
+  // Land in the pane, on its name (focusing Back painted its ring on open), or on the terminal
+  // when a phone shows that and the name is out of sight in the hidden overview.
+  if (changed && active) ($("pane-title").getClientRects().length ? $("pane-title") : $("terminal-scroll")).focus({ preventScroll: true, focusVisible: false });
 }
 
 function makeRow(pane) {
@@ -408,7 +415,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText,
+  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
@@ -502,10 +509,11 @@ function renderPhoneList(subset) {
 
 // WebKit lays the dashboard out short for a moment when a repaint swaps nodes under its
 // container query (#landing-main), and that clamps the scroll: a phone at the bottom of the
-// page lands near the top on every poll. A repaint keeps the position it found.
+// page lands near the top on every poll. A repaint keeps the position it found, and puts the
+// filter back in a view's head it may have rebuilt (placePill).
 const steady = (paint) => (...args) => {
   const landing = $("landing"), top = landing.scrollTop;
-  try { return paint(...args); } finally { if (landing.scrollTop !== top) landing.scrollTop = top; }
+  try { return paint(...args); } finally { placePill(); if (landing.scrollTop !== top) landing.scrollTop = top; }
 };
 const renderLanding = steady(() => {
   if (page === "restore") { if (!$("dash-page").contains(restore.card)) $("dash-page").replaceChildren(restore.card); return restore.card; }
@@ -649,6 +657,8 @@ const detailResize = new ResizeObserver(() => {
 detailResize.observe($("detail"));
 detailResize.observe($("composer"));
 detailResize.observe($("heading"));
+// Out of sight: scrolled off the top, or the terminal showing instead (style.css draws it in the bar).
+new IntersectionObserver(([e]) => $("detail").toggleAttribute("data-title-away", !e.isIntersecting), { root: $("overview") }).observe($("pane-title"));
 $("mobile-view-toggle").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-view]");
   if (!button) return;
@@ -792,7 +802,11 @@ detailCard($("graph-card"), "Fleet graph", "", () => openPage("graph"));
 function openLane(lane) {
   openPage("loops");
   const at = loopsView.querySelector(`[data-lane="${lane}"]`);
-  if (at) { at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true }); }
+  if (!at) return;
+  at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true });
+  // A phone's bar sticks over the page's top, however many rows of chips it has: clear it.
+  const bar = $("dash-page").querySelector(":scope > .landing-head"), under = bar ? bar.getBoundingClientRect().bottom - at.getBoundingClientRect().top : 0;
+  if (under > 0) $("landing").scrollTop -= under + 12;
 }
 // The scratch gallery, in the content area so the app stays put (the page is sandboxed, so a frame).
 const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/scratch/", title: "Scratch", className: "scratch-frame" });
@@ -802,12 +816,14 @@ let scratchView = "grid";
 try { scratchView = localStorage.getItem("tmuxrc-scratch-view") || "grid"; } catch {}
 const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light") }, "*"); // its origin is opaque
 scratchFrame.addEventListener("load", tellScratch);
-// Only the gallery is heard, never a page the viewer shows: it opens a pane, keeps its view, or
-// opens one of its pages, a path under /scratch/ here and nothing else (url-state.js).
+// Only the gallery is heard: it opens a pane, keeps its view, or opens one of its pages, a path
+// under /scratch/ here and nothing else (url-state.js). A page the viewer shows (a page still
+// being made links the pane making it) may open a pane, and nothing else: its origin is opaque,
+// so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  if (e.source !== scratchFrame.contentWindow) return;
   const { pane, view, open, title } = e.data || {}, href = scratchUrl(open, location.href);
-  if (/^%\d+$/.test(pane)) navigate(pane);
+  if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane);
+  if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
 });
@@ -817,10 +833,11 @@ function scratchPage() { return cardView("Scratch", scratchFrame); }
 // A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
 const viewer = $("scratch-viewer");
 function viewScratch(href, title) {
-  text($("viewer-title"), String(title || ""));
+  title = String(title || "Scratch page"); // a "Ready" push's link names no title
+  text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title: String(title || "Scratch page") }));
+  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title }));
   viewer.showModal(); viewer.focus();
 }
 $("close-viewer").onclick = () => viewer.close();
@@ -867,6 +884,9 @@ function render() {
   if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with search and sort
   show("brand", wide || !list); show("find", wide || list);
+  // A phone's title heads the overview and scrolls off under the bar, as Gmail's subject does.
+  const head = $("pane-title").parentElement, headTo = wide ? $("heading") : $("overview");
+  if (head.parentElement !== headTo) wide ? $("back").after(head) : headTo.prepend(head);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -907,6 +927,7 @@ function render() {
   const account = pane && accounts.badge(pane.pane_id);
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
+  $("heading").dataset.title = $("pane-title").textContent; // a phone's bar shows it once the title is out of sight
   $("detail").dataset.layout = effectiveLayout();
   // Each choice carries a line on what it shows and, wide, a wireframe of it (LAYOUT_THUMBS).
   const layouts = [["summary", "Overview", "The overview alone"], ["terminal", "Terminal", "The terminal alone"]];
@@ -999,12 +1020,47 @@ function render() {
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
-// One tappable link row: the Links list's, and the one leading a question's card.
+// A card's link chip: a real <a>, so a long press offers the system's own link menu, and a
+// Copy link button beside it, so a link (a sign-in, say) can be opened in another browser
+// even where that menu is missing (a home-screen app).
+function linkPair(href) {
+  const pair = document.createElement("span"), anchor = document.createElement("a"), copy = document.createElement("button");
+  pair.className = "link-pair";
+  Object.assign(anchor, { href, target: "_blank", rel: "noopener noreferrer" });
+  Object.assign(copy, { type: "button", className: "icon-button link-copy", title: "Copy link", innerHTML: licon("copy", 16) });
+  copy.setAttribute("aria-label", "Copy link");
+  copy.onclick = (event) => { event.stopPropagation(); copyHere(copy, href, "copy"); };
+  pair.append(anchor, copy);
+  return pair;
+}
+
+// Copy `value` and say so in place, not in a banner: `el`'s icon turns to a check a moment.
+function copyHere(el, value, icon) {
+  const swap = (name) => { el.querySelector("svg").outerHTML = licon(name, 16); };
+  copyText(value, () => { swap("check"); text($("copied"), "Copied to clipboard."); setTimeout(() => { swap(icon); text($("copied"), ""); }, 1500); });
+}
+
+// One tappable link row: the Links list's, and the one leading a question's card. A tap opens
+// it; a long press copies it instead (to open in another browser), and the click after is not
+// a tap. The hold only arms the copy: it runs on release, where iOS grants the gesture that a
+// clipboard write needs. Scrolling, a second finger or a cancel disarms it.
 function renderLinks(el, links) {
   reconcile(el, links, (link) => link.href, () => {
     const anchor = document.createElement("a");
+    let timer, held = false;
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
+    const disarm = () => { clearTimeout(timer); held = false; };
+    anchor.addEventListener("touchstart", (event) => {
+      disarm();
+      if (event.touches.length > 1) return;
+      timer = setTimeout(() => { held = true; }, 500);
+      document.addEventListener("touchstart", disarm, { capture: true, once: true, passive: true }); // the next finger anywhere (this one's capture has passed)
+    }, { passive: true });
+    for (const type of ["touchmove", "touchcancel"]) anchor.addEventListener(type, disarm, { passive: true });
+    anchor.addEventListener("touchend", () => { clearTimeout(timer); if (held) copyHere(anchor, anchor.href, "chevron"); }, { passive: true });
+    anchor.addEventListener("click", (event) => { if (held) event.preventDefault(); held = false; });
+    anchor.addEventListener("contextmenu", (event) => { if (held || event.pointerType === "touch") event.preventDefault(); }); // Android's link menu
     return anchor;
   }, (anchor, link) => {
     const host = new URL(link.href).host;
@@ -1015,6 +1071,7 @@ function renderLinks(el, links) {
 }
 
 function renderRichContent(pane) {
+  accounts.paneCard(pane, $("signin-section"));
   // The link the question asks you to open leads its card instead of waiting in Links.
   const ask = pane?.question && needsYou(pane) ? askLink(pane) : null;
   const links = paneLinks(pane).filter((link) => link.href !== ask?.href);
@@ -1055,9 +1112,17 @@ function renderTasks(pane) {
     return node;
   }, (node, value) => { node._value = value.text; text(node.querySelector("strong"), value.label); text(node.querySelector("pre"), value.text); });
 }
-async function copyText(value) {
-  try { await navigator.clipboard.writeText(value); notice("Copied to clipboard."); }
-  catch { notice("Could not copy. Select the text to copy it."); }
+async function copyText(value, copied = () => notice("Copied to clipboard.")) {
+  try { await navigator.clipboard.writeText(value); }
+  catch { // no Clipboard API (a plain-http origin) or no permission: the old select-and-copy
+    const area = Object.assign(document.createElement("textarea"), { value, readOnly: true });
+    area.style.cssText = "position: fixed; opacity: 0";
+    document.body.append(area); area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    if (!ok) return notice("Could not copy. Select the text to copy it.");
+  }
+  copied();
 }
 
 // One line per task or sub-agent: the pane overview's lists, and the sidebar's agent rows.
@@ -1713,7 +1778,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -1811,7 +1876,7 @@ function openRecent() {
   paintRecent();
   request("/api/recent").then((recent) => {
     opened = recent.panes; paintRecent();
-    html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" target="_blank">${licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));
+    html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" target="_blank">${s.pending ? '<span class="pane-icon pending"></span>' : licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));
   }, () => {});
 }
 // It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
@@ -2327,12 +2392,16 @@ function placeChrome() {
 // The active filters' chips: under search (a phone's list hides them there: its filter button
 // and the list's foot say it), and on a phone's dashboard (no search there) under its header,
 // so a filter is never on without saying so. There the filter button moves into the header
-// too, beside New window: the dashboard's filter row folds behind it (style.css).
+// too, beside New window: the dashboard's filter row folds behind it (style.css). A card's own
+// view follows the same filters, and on a phone its head is the bar: the button and the chips go
+// in it, which a view's rebuild keeps (atlas.js renderHeatView), so neither loses focus.
 function placePill() {
-  const dash = !WIDE.matches && dashboard, at = dash ? document.querySelector(".app-header") : $("find"), picker = renderSidebar.picker;
-  if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
-  if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
+  const head = !WIDE.matches && CARDS[page] && $("dash-page").querySelector(":scope > .landing-head"), dash = !WIDE.matches && dashboard;
+  const picker = renderSidebar.picker, at = head ? picker : dash ? document.querySelector(".app-header") : $("find");
+  if (head) { if (picker.parentElement !== head) head.append(picker); }
+  else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
+  if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
 }
 // Folded to the rail, the controls move in the DOM to the order they show in (expand, +,
 // search, filter, Dashboard, Chat, Voice, the panes, Settings), so Tab walks them top down.
@@ -2363,6 +2432,26 @@ async function killWindow(pane, birth) {
   try { await endPane(pane, `close?birth=${encodeURIComponent(birth ?? "")}`, "Closing…"); } catch (error) { if (error.status !== 404) notice(`Could not kill this window: ${error.detail || error.message}`, 6000); }
 }
 $("kill-pane").onclick = () => { closePaneMenu(); killWindow(active, panes.find((p) => p.pane_id === active)?.birth); };
+// Export all: the parts the server offers (openbus/export.py PARTS), sized once measured.
+let exportParts = [];
+const bytes = (n) => n < 1e6 ? `${Math.ceil(n / 1e3)} kB` : n < 1e9 ? `${Math.round(n / 1e6)} MB` : `${(n / 1e9).toFixed(1)} GB`;
+const exportSum = () => {
+  const on = exportParts.filter((p) => $("export-parts").querySelector(`[value="${p.part}"]`).checked);
+  text($("export-total"), on.some((p) => p.bytes == null) ? "Total: measuring…" : `Total: ${bytes(on.reduce((n, p) => n + p.bytes, 0))} before compression`);
+  $("export-go").href = `/api/export?${on.map((p) => `part=${p.part}`).join("&")}`;
+};
+$("export-parts").onchange = exportSum;
+$("close-export").onclick = $("export-go").onclick = () => $("export-dialog").close();
+$("export-open").onclick = async () => {
+  $("export-dialog").showModal();
+  for (const sizes of [false, true]) { // the labels at once, the sizes when the walk is done
+    try { exportParts = await request(`/api/export/parts?sizes=${sizes}`, {}, 120000); } catch { return text($("export-total"), "Couldn't measure the parts."); }
+    if (!sizes) html($("export-parts"), exportParts.map((p) => `<label class="acct-check${p.default === null ? " locked" : ""}"><input type="checkbox" value="${p.part}"${p.default === false ? "" : " checked"}${p.default === null ? " disabled" : ""}><span>${esc(p.label)}<small>${esc(p.note)}</small></span><b data-size="${p.part}">measuring…</b></label>`).join(""));
+    else exportParts.forEach((p) => text($("export-parts").querySelector(`[data-size="${p.part}"]`), bytes(p.bytes)));
+    exportSum();
+  }
+};
+
 // Expunge: kill the window AND delete its agent session's local files (docs/design/expunge.md).
 // The server names what it would delete first, and the confirmation is bound to that session id.
 html($("expunge-pane"), `${licon("trash", 18)}<span>Expunge</span>`);

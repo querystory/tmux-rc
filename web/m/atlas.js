@@ -298,8 +298,10 @@ export function renderHeatView(root, scope, icon, back) {
   refreshHeat();
   if (unchanged(root, [heat, settings, String(scope.tools), scope.session])) return;
   root._older?.disconnect();
-  const focus = focusKey(root);
-  if (!heat) return rebuild(root, [pageHead('Running by hour', icon, back), heatWaiting()], focus);
+  // The head is kept across rebuilds: on a phone it is the bar, holding the filter (app.js
+  // placePill), and a control that never leaves the page never loses focus.
+  const focus = focusKey(root), head = root.querySelector(':scope > .landing-head') || pageHead('Running by hour', icon, back);
+  if (!heat) return rebuild(root, [head, heatWaiting()], focus);
   const data = heatDays(scope), unit = heatUnit(), key = [settings, String(scope.tools), scope.session, heat.at];
   let view = root._view;
   if (!view || view.key.some((v, i) => v !== key[i]) || !root.contains(view.grid)) {
@@ -310,7 +312,7 @@ export function renderHeatView(root, scope, icon, back) {
     view = root._view = { key, figs: el('div'), grid: heatGrid(data, 0, false), foot: el('p', 'muted heat-foot'), rows: 0 };
     armHeatGrid(view.grid, unit);
     panel.append(view.figs, legend, view.grid, view.foot);
-    rebuild(root, [pageHead('Running by hour', icon, back), panel]); // focus returns once the rows are in
+    rebuild(root, [head, panel]); // focus returns once the rows are in
   }
   heatRows(view.grid, data, view.rows, data.all.length);
   view.grid.setAttribute('aria-label', heatLabel(data, false)); // an older page may hold a busier day

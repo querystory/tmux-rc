@@ -1,0 +1,10 @@
+{
+  "description": "A Claude pane whose status line is scrolled off or hidden shows no title chrome; a heading printed in the conversation is content, so the pane gets no session name and its idle state stands.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● Wrote the rollout notes:\n\n  Session: Garden planner sync\n  - Moved the watering schedule into its own table\n  - Added a weekly reminder for the seed order\n\n────────────────────────────────────────\n❯ \n────────────────────────────────────────",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "session": null
+  }
+}
