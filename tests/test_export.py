@@ -505,3 +505,45 @@ def test_hard_links_go_as_their_bytes_and_a_kept_login_is_private(home, monkeypa
     (new / ".claude/.credentials.json").chmod(0o644)
     export.restore(io.BytesIO(agents.getvalue()))
     assert (new / ".claude/.credentials.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_a_linked_scratch_in_a_linked_data_dir_is_scratch(home, monkeypatch):
+    old = home("old")
+    (old / ".local/share").mkdir(parents=True)
+    (old / ".local/share/tmux-rc").symlink_to(old / "store")
+    write(old / "store/previews/other.txt")
+    write(old / "pages/demo/index.html")
+    (old / "store/previews/pages").symlink_to(old / "pages")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / ".local/share/tmux-rc/previews/pages"))
+    out = io.BytesIO()
+    export.export(out, [])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        names = tar.getnames()
+    assert "data/previews/other.txt" in names and not [n for n in names if "pages" in n]
+
+
+def test_a_login_linked_into_another_swapped_dir_is_kept(home):
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    new = home("new")
+    write(new / ".claude/login-store.json", "this host's")
+    write(new / ".claude-work/CLAUDE.md")
+    (new / ".claude-work/.credentials.json").symlink_to(new / ".claude/login-store.json")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".claude-work/.credentials.json").read_text() == "this host's"
+
+
+def test_a_linked_dbs_wal_stays_with_it(home, monkeypatch):
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    real = new / ".local/share/tmux-rc/previews/real.sqlite3"
+    write(real, "db")
+    write(real.with_name("real.sqlite3-wal"), "wal")
+    (new / "db.sqlite3").symlink_to(real)
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / "db.sqlite3"))
+    export.restore(io.BytesIO(out.getvalue()))
+    assert real.with_name("real.sqlite3-wal").read_text() == "wal"

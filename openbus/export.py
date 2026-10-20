@@ -127,7 +127,7 @@ def _entries(parts=PARTS):
     owner = {p.with_name(p.name + s): {None} for s in ("", "-wal", "-shm")  # snapshotted,
              for p in (Path(os.path.abspath(at)), _spot(at), at.resolve())}  # however named
     for at, n in named:  # a link, and its target: two names may share it (~/.claude linked)
-        for p in (Path(os.path.abspath(at)), at.resolve()):
+        for p in (Path(os.path.abspath(at)), _spot(at), at.resolve()):
             owner.setdefault(p, set()).add(n)
     for part, name, at in _roots():
         root = at.resolve()  # a linked root: what it links to
@@ -246,19 +246,23 @@ def _undo(done: list) -> None:
         shutil.move(dst, src)
 
 
-def _swap(src: Path, dst: Path, stamp: str, done: list, sidecars=("",), keep=()) -> None:
-    """Move what is at dst aside (a DB with its WAL, named as SQLite looks for it), then src
-    into place. An agent dir keeps this host's sign-in, and who it is, when the archive
-    brought no sign-in; a dir keeps each place of `keep` nested in it that the archive
-    doesn't hold there: another part's, which its own swap replaces if it came. Each move
-    is journaled in `done`. Only staging's may cross disks: what is kept goes after it, a
-    rename beside what it was in."""
+def _keep_login(src: Path, dst: Path) -> None:
+    """Staged agent dir `src` takes this host's sign-in, and who it is, from `dst` when the
+    archive brought no sign-in: before any swap, while a link to it still reads."""
     if src.is_dir() and any((dst / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
-        for name in IDENTITY:  # before the move aside: a link to a file in dst still reads
+        for name in IDENTITY:
             if (dst / name).is_file():  # a fresh file: no hard link from the archive shares it
                 (src / name).unlink(missing_ok=True)
                 shutil.copy2(dst / name, src / name)
                 (src / name).chmod(0o600)  # its dir here may be open where this one wasn't
+
+
+def _swap(src: Path, dst: Path, stamp: str, done: list, sidecars=("",), keep=()) -> None:
+    """Move what is at dst aside (a DB with its WAL, named as SQLite looks for it), then src
+    into place. A dir keeps each place of `keep` nested in it that the archive
+    doesn't hold there: another part's, which its own swap replaces if it came. Each move
+    is journaled in `done`. Only staging's may cross disks: what is kept goes after it, a
+    rename beside what it was in."""
     old = dst.with_name(f"{dst.name}.pre-import-{stamp}")
     for suffix in sidecars:
         if os.path.lexists(here := dst.with_name(dst.name + suffix)):
@@ -349,7 +353,7 @@ def restore(src) -> list[str]:
                                  "here: add it as an account first.")
         db = where["history.sqlite3"]
         keep = sorted({q for p in (*where.values(), *_agent_dirs(), *(
-            db.with_name(db.name + s) for s in ("-wal", "-shm")))
+            b.with_name(b.name + s) for b in (db, db.resolve()) for s in ("-wal", "-shm")))
             for q in (Path(os.path.abspath(p)), _spot(Path(p)), Path(p).resolve())},
                   key=lambda p: len(p.parts))
         # as named, through linked dirs, and itself resolved: a place nests in a swap however
@@ -372,6 +376,8 @@ def restore(src) -> list[str]:
             for at in keep:  # and one nested in another's swap must have a dir path to stay in
                 if _displaces(child, dst, name, at):
                     raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
+        for child, path, _ in moves:
+            _keep_login(child, _spot(path))
         journal = []
         try:
             for child, path, name in moves:  # where it lands now: a swap before it may
