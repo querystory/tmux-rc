@@ -220,6 +220,8 @@ export function fleetGraph(box, mini, ctx) {
     anim = { t0: performance.now(), dur: 650, v0: { ...view }, v1 };
     animate();
   }
+  // The user (or a resize) takes the camera mid-glide: the nodes land where they were going, the view stays put.
+  function land() { if (!anim) return; anim = null; model.nodes.forEach(n => Object.assign(n, { x: n.tx, y: n.ty, alpha: 1, fresh: false })); }
   function size() {
     const b = box.getBoundingClientRect(), dpr = devicePixelRatio || 1;
     if (b.width < 20 || b.height < 60) return;
@@ -228,6 +230,7 @@ export function fleetGraph(box, mini, ctx) {
     const dx = (b.width - W) / 2, dy = (b.height - H) / 2;
     W = b.width; H = b.height; cv.width = W * dpr; cv.height = H * dpr;
     if (first) return relayout(true);
+    land(); // a glide's endpoints were for the old size
     // A view the user framed keeps its pan and zoom, recentred; an untouched one refits.
     layout(model); model.nodes.forEach(n => { n.x = n.tx; n.y = n.ty; });
     Object.assign(view, touched ? { x: view.x + dx, y: view.y + dy } : fitView()); draw(); animate();
@@ -270,8 +273,6 @@ export function fleetGraph(box, mini, ctx) {
 
   // ---- pan, pinch, wheel, hover, tap ----
   function zoomAt(x, y, f) { touched = true; land(); const k = Math.max(K_MIN, Math.min(4, view.k * f)); view.x = x - (x - view.x) * k / view.k; view.y = y - (y - view.y) * k / view.k; view.k = k; draw(); }
-  // The user takes the camera mid-glide: the nodes land where they were going, the view stays put.
-  function land() { if (!anim) return; anim = null; model.nodes.forEach(n => Object.assign(n, { x: n.tx, y: n.ty, alpha: 1, fresh: false })); }
   const world = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
   function hit(x, y) {
     const w = world(x, y), slop = n => Math.max(rad(n), (phone() ? 18 : 10) / view.k);
