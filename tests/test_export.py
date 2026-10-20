@@ -390,6 +390,7 @@ def test_a_linked_data_dir_keeps_its_scratch(home, monkeypatch):
 def test_a_linked_sign_in_goes_as_its_contents(home):
     old = home("old")
     write(old / ".claude/.credentials.json", "shared login")
+    (old / ".claude/.credentials.json").chmod(0o644)
     write(old / ".claude-work/CLAUDE.md")
     (old / ".claude-work/.credentials.json").symlink_to(old / ".claude/.credentials.json")
     write(old / ".claude-hard/CLAUDE.md")
@@ -401,6 +402,7 @@ def test_a_linked_sign_in_goes_as_its_contents(home):
                      "agents/.claude-hard/.credentials.json"):
             member = tar.getmember(name)
             assert member.isfile() and tar.extractfile(member).read() == b"shared login"
+            assert not member.mode & 0o077
 
 
 def test_a_dotenv_in_a_linked_config_dir_stays_the_daemons(home, monkeypatch):

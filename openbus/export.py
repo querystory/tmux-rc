@@ -236,6 +236,8 @@ def export(out, parts) -> list[str]:
                     continue
                 if info.islnk():  # a name sharing an inode goes as its bytes: import
                     info.type, info.size = tarfile.REGTYPE, path.stat().st_size  # drops links
+                if part == "secrets":  # private, wherever its source's dir kept it so
+                    info.mode &= 0o7700
                 with path.open("rb") if info.isreg() else contextlib.nullcontext() as f:
                     tar.addfile(info, f)
         tar.addfile(tarfile.TarInfo(DONE))  # last: an export that failed part way has none
