@@ -199,8 +199,8 @@ def export(out, parts) -> list[str]:
             if part in parts:
                 with contextlib.suppress(FileNotFoundError):  # gone since the walk
                     info = tar.gettarinfo(path, name)
-                    if info.islnk() and path.name in IDENTITY:  # a login sharing an inode:
-                        info.type, info.size = tarfile.REGTYPE, path.stat().st_size  # bytes
+                    if info.islnk():  # a name sharing an inode goes as its bytes: import
+                        info.type, info.size = tarfile.REGTYPE, path.stat().st_size  # drops links
                     with path.open("rb") if info.isreg() else contextlib.nullcontext() as f:
                         tar.addfile(info, f)
         tar.addfile(tarfile.TarInfo(DONE))  # last: an export that failed part way has none
@@ -258,6 +258,7 @@ def _swap(src: Path, dst: Path, stamp: str, done: list, sidecars=("",), keep=())
             if (dst / name).is_file():  # a fresh file: no hard link from the archive shares it
                 (src / name).unlink(missing_ok=True)
                 shutil.copy2(dst / name, src / name)
+                (src / name).chmod(0o600)  # its dir here may be open where this one wasn't
     old = dst.with_name(f"{dst.name}.pre-import-{stamp}")
     for suffix in sidecars:
         if os.path.lexists(here := dst.with_name(dst.name + suffix)):
@@ -355,16 +356,17 @@ def restore(src) -> list[str]:
         # it is reached; outermost first: a dir kept carries what is kept inside it
         if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
             (stage / "agents/.claude.json").unlink(missing_ok=True)  # stays with that login
-        moves = []  # (staged, destination, archive name)
+        moves = []  # (staged, destination as named, archive name)
         for item in sorted(stage.iterdir()):
             parent = {"data": _data(), "agents": Path(home)}.get(item.name)
-            moves += [(child, _spot(parent / child.name),
+            moves += [(child, Path(os.path.abspath(parent / child.name)),
                        f"{item.name}/{child.name}") for child in sorted(item.iterdir())
-                      ] if parent else [(item, _spot(Path(where[item.name])),
+                      ] if parent else [(item, Path(os.path.abspath(where[item.name])),
                                          item.name)] if item.name in where else []
-        if len({dst for _, dst, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
+        if len({_spot(path) for _, path, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
             raise SystemExit("Two of this archive's parts would land at one place here.")
-        for child, dst, name in moves:  # before any swap: only a place's own part replaces it,
+        for child, path, name in moves:  # before any swap: only a place's own part replaces it,
+            dst = _spot(path)
             if name.startswith("data/") and (inside := _within(dst, keep)):  # nor lands inside one
                 raise SystemExit(f"This archive's {name} would land in {inside.pop()}.")
             for at in keep:  # and one nested in another's swap must have a dir path to stay in
@@ -372,8 +374,8 @@ def restore(src) -> list[str]:
                     raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
         journal = []
         try:
-            for child, dst, name in moves:
-                _swap(child, dst, stamp, journal,
+            for child, path, name in moves:  # where it lands now: a swap before it may
+                _swap(child, _spot(path), stamp, journal,  # have replaced a link on its way
                       ("", "-wal", "-shm") if name == "history.sqlite3" else ("",), keep)
                 done.append(name)
         except BaseException:

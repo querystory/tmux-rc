@@ -466,3 +466,42 @@ def test_a_linked_history_db_goes_only_as_its_snapshot(home, monkeypatch):
         names = tar.getnames()
     assert "history.sqlite3" in names and "data/previews/other.txt" in names
     assert not [n for n in names if n.startswith("data/") and "sqlite3" in n]
+
+
+def test_a_swap_lands_where_an_earlier_one_left_its_path(home, monkeypatch):
+    """Scratch inside a linked dir that data's swap replaces: it lands in the new dir."""
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / "pages"))
+    write(old / "pages/demo/index.html")
+    out = io.BytesIO()
+    export.export(out, ["scratch"])
+    new = home("new")
+    (new / ".local/share/tmux-rc").mkdir(parents=True)
+    (new / ".local/share/tmux-rc/previews").symlink_to(new / "store")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(new / ".local/share/tmux-rc/previews/pages"))
+    write(new / "store/pages/mine/index.html")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".local/share/tmux-rc/previews/pages/demo/index.html").exists()
+    assert (new / ".local/share/tmux-rc/previews/other.txt").exists()
+
+
+def test_hard_links_go_as_their_bytes_and_a_kept_login_is_private(home, monkeypatch):
+    places = export.places
+    monkeypatch.setattr(export, "places", lambda: {
+        **places(), ".env": Path.home() / ".config/tmux-rc/.env"})
+    source(home)
+    old = Path.home()
+    write(old / ".config/tmux-rc/shared.env", "K=1")
+    (old / ".config/tmux-rc/.env").hardlink_to(old / ".config/tmux-rc/shared.env")
+    out = io.BytesIO()
+    export.export(out, ["agents", "secrets"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert tar.getmember(".env").isfile() and tar.getmember("config/shared.env").isfile()
+    agents = io.BytesIO()
+    export.export(agents, ["agents"])
+    new = home("new")
+    write(new / ".claude/.credentials.json", "this host's")
+    (new / ".claude/.credentials.json").chmod(0o644)
+    export.restore(io.BytesIO(agents.getvalue()))
+    assert (new / ".claude/.credentials.json").stat().st_mode & 0o777 == 0o600
