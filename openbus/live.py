@@ -462,11 +462,12 @@ async def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
     """Point a chat at the pane an answered call reached (not a declined call, nor a mere
     button), so "ask the agent" stays with it instead of whichever screen shares a word. Kept
     as the pane's id and process, not text, so a closed or recycled pane drops out of later
-    turns. A resumed pane is new to the watcher until its next parse, so its result names it."""
-    if result["status"] in _REACHED and (pane := result.get("pane_id") or rec.get("pane_id")) \
-            and (birth := await asyncio.to_thread(tmux.pane_pid, pane)):
-        session.focus = functools.partial(_focus_line, watcher, pane, birth,
-                                          result.get("window") or result.get("pane"))
+    turns; one already gone (an `exit` sent) leaves the chat on no pane. A resumed pane is new
+    to the watcher until its next parse, so its result names it."""
+    if result["status"] in _REACHED and (pane := result.get("pane_id") or rec.get("pane_id")):
+        birth = await asyncio.to_thread(tmux.pane_pid, pane)
+        session.focus = birth and functools.partial(
+            _focus_line, watcher, pane, birth, result.get("window") or result.get("pane"))
 
 
 async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, pid) -> dict:

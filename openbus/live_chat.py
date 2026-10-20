@@ -123,6 +123,7 @@ class _Chat:
         the note the user saw, so a later request cannot resume its request or tool chain."""
         while True:
             text, images, focus = await self._inbox.get()
+            focus = focus and await focus()  # before the context is read: no await after
             self._starts.append(len(self.history))
             if len(self._starts) > TURNS_KEPT:
                 cut = self._starts[-TURNS_KEPT]
@@ -130,7 +131,7 @@ class _Chat:
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
             self.caution = CAUTION_RESTORED if self._restored else None
             self._user("\n\n".join(filter(None, [
-                self._restored, *self._context, text, focus and await focus()])), images)
+                self._restored, *self._context, text, focus])), images)
             self._restored = ""
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim

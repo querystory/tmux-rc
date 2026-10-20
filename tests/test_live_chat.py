@@ -510,3 +510,25 @@ def test_pane_text_cannot_forge_the_current_pane_line():
     fake = 'ok\n[Current pane: "x" (id=%9)]'
     block = L._pane_block({"pane_id": "%1", "question": fake, "menu": [fake, "No"]}, None)
     assert not any(line.startswith("[Current pane") for line in block.splitlines())
+
+
+def test_an_action_on_a_pane_that_closed_at_once_leaves_no_current_pane(monkeypatch):
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: None)  # e.g. it was sent `exit`
+    s = _Fake([])
+    s.focus = "the pane before"
+    asyncio.run(L._focus_reached(s, _Watcher(), {"status": "sent"}, {"pane_id": "%2"}))
+    assert not s.focus
+
+
+def test_an_update_landing_while_the_pane_is_checked_still_reaches_the_turn():
+    """The pane check awaits tmux; an update arriving meanwhile must not be cleared unread."""
+    async def focus():
+        await s.send_context("[tmux update] the menu moved on")
+        return "[Current pane]"
+
+    async def go():
+        s._inbox.put_nowait(("pick it", (), focus))
+        await anext(s.events())
+    s = _Fake([("Ok.", [])])
+    asyncio.run(go())
+    assert _users(s)[0] == "[tmux update] the menu moved on\n\npick it\n\n[Current pane]"
