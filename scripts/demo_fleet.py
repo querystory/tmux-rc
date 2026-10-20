@@ -313,7 +313,8 @@ DETAIL = {
                    {"label": "Cross-check IAM changes", "state": "running", "elapsed": "2m",
                     "tokens": "12.3k"},
                    {"label": "Summarize the 33 in-place changes", "state": "running",
-                    "elapsed": "48s", "tokens": "6.2k"}],
+                    "elapsed": "48s", "tokens": "6.2k"},
+                   {"label": "Wait for the plan's CI check", "state": "waiting", "elapsed": "5m"}],
         "tables": [{"title": "Plan summary", "headers": ["Action", "Count"],
                  "rows": [["add", "6"], ["change", "33"], ["replace", "2"], ["destroy", "0"]]}]},
 }
