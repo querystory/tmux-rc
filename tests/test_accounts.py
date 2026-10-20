@@ -7,6 +7,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -17,7 +18,7 @@ import openbus.tmux as T
 from openbus import accounts, expunge, plan_usage
 
 STARTED = S._started  # before the moving fixture stubs it
-CODEX_LOGIN = accounts._codex_login  # before the home fixture stubs it
+CODEX_STATUS = accounts._codex_status  # before the home fixture stubs it
 
 
 def _signed_in(path, uuid, **fields):
@@ -34,7 +35,8 @@ def home(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    monkeypatch.setattr(accounts, "_codex_login", lambda config: False)  # no real codex
+    monkeypatch.setattr(accounts, "_codex_status", lambda config: False)  # no real codex
+    monkeypatch.setattr(accounts, "_CODEX_SEEN", {})
     _signed_in(home / ".claude", "u-work", organizationName="Example Org",
                emailAddress="dev@example.com", organizationType="claude_team")
     _signed_in(home / ".claude-personal", "u-me", emailAddress="sam@example.net",
@@ -141,7 +143,7 @@ def test_an_added_dirs_provider_is_kept_whatever_its_name(home):
 
 def test_a_codex_login_in_the_keyring_is_signed_in(home, monkeypatch):
     (home / ".codex-kr").mkdir()  # no auth.json: the login is where only codex can see it
-    monkeypatch.setattr(accounts, "_codex_login", lambda config: config.name == ".codex-kr")
+    monkeypatch.setattr(accounts, "_codex_status", lambda config: config.name == ".codex-kr")
     assert _by_dir(home)["~/.codex-kr"]["signed_in"]
 
 
@@ -157,13 +159,15 @@ def test_codex_is_asked_about_that_dir_alone(tmp_path, monkeypatch):
     (bin_dir / "codex").chmod(0o755)
     monkeypatch.setattr(T, "server_path", lambda: str(bin_dir))
     monkeypatch.setattr(accounts, "_CODEX_SEEN", {})
+    monkeypatch.setattr(accounts, "_codex_status", CODEX_STATUS)
+    ask = lambda d: accounts._codex_logins([d])[d]  # noqa: E731
     monkeypatch.setenv("CODEX_HOME", "/elsewhere")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
-    assert CODEX_LOGIN(tmp_path / "in") and not CODEX_LOGIN(tmp_path / "out")  # exit 1: no
+    assert ask(tmp_path / "in") and not ask(tmp_path / "out")  # exit 1: no
     monkeypatch.setattr(T, "server_path", lambda: str(tmp_path / "nowhere"))
-    assert CODEX_LOGIN(tmp_path / "in")  # asked a moment ago: the answer is kept
+    assert ask(tmp_path / "in")  # asked a moment ago: the answer is kept
     accounts._CODEX_SEEN.clear()
-    assert not CODEX_LOGIN(tmp_path / "in")  # no codex at all
+    assert not ask(tmp_path / "in")  # no codex at all
 
 
 def test_every_codex_status_check_runs_at_once(home, monkeypatch):
@@ -172,8 +176,22 @@ def test_every_codex_status_check_runs_at_once(home, monkeypatch):
     for i in range(8):
         (home / f".codex-{i}").mkdir()
     gate = threading.Barrier(8, timeout=5)
-    monkeypatch.setattr(accounts, "_codex_login", lambda config: gate.wait() >= 0)
+    monkeypatch.setattr(accounts, "_codex_status", lambda config: gate.wait() >= 0)
     assert sum(p["signed_in"] for p in accounts.profiles()) == 2 + 2 + 8
+
+
+def test_past_the_cap_one_report_probes_each_dir_once(home, monkeypatch):
+    # Nine probes as slow as the cache is long: two batches, and the first one's answers
+    # would be stale by the report's second pass, had each its own timestamp.
+    for i in range(9):
+        (home / f".codex-{i}").mkdir()
+    asked = []
+    monkeypatch.setattr(accounts, "CODEX_FRESH", 0.5)
+    monkeypatch.setattr(accounts, "_codex_status",
+                        lambda config: asked.append(config) or time.sleep(0.5))
+    accounts.profiles()
+    accounts.profiles()
+    assert len(asked) == 9
 
 
 def test_two_people_of_one_organisation_are_told_apart(home):
