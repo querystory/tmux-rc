@@ -559,7 +559,8 @@ approved a card they read as the reopen, and the model then described work the p
   prompt says a menu takes the one key that picks a row, with no Enter: typed text plus
   Enter picks the highlighted row, usually "1. Yes", and an Enter after a digit lands on
   the next screen. A code gate on keys and rows was tried instead and dropped for the
-  same reason as above; the consent card still shows exactly what would be typed.
+  same reason as above; the consent card still shows exactly what would be typed, and
+  names the row a digit picks, so the user approves a choice rather than a bare "1".
 
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
