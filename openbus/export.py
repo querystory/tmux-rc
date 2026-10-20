@@ -94,10 +94,12 @@ def _part(part: str, name: str) -> str:
 
 
 def _own(name: str, path: Path, owner: dict) -> bool:
-    """Whether `path` is no other place's: each place goes only as its own root, and one a
-    credential shares is the credential's."""
+    """Whether `path` is no other place's: each place goes only as its own root, and one
+    two parts share is the more private one's: a credential's, else an agent's."""
+    def rank(n):
+        return 2 if n in SECRETS else 1 if n is None or n.startswith("agents/") else 0
     names = owner.get(path, {name})
-    return name in names and (name in SECRETS or not names & {*SECRETS})
+    return name in names and rank(name) == max(map(rank, names))
 
 
 def _within(at: Path, places) -> set[Path]:

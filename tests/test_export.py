@@ -697,3 +697,17 @@ def test_scratch_linked_to_the_config_dir_sends_no_keys(home, monkeypatch):
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         assert not [n for n in tar.getnames() if "openai" in n]
     assert export.sizes()["scratch"] == 0
+
+
+@pytest.mark.parametrize("linked", [True, False])
+def test_scratch_sharing_an_agent_dir_sends_no_login(home, monkeypatch, linked):
+    old = home("old")
+    write(old / ".claude/.credentials.json")
+    write(old / ".claude/projects/-demo/s1.jsonl")
+    if linked:
+        (old / "pages").symlink_to(old / ".claude")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / ("pages" if linked else ".claude")))
+    out = io.BytesIO()
+    export.export(out, ["scratch"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert not [n for n in tar.getnames() if "credentials" in n or n.startswith("scratch")]
