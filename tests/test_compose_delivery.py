@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import server, tmux
+from tests.test_send_paste import typed
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def client(monkeypatch, tmp_path):
 
 def test_compose_preserves_text_image_order_and_sends_one_enter(client, monkeypatch):
     events = []
-    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
+    monkeypatch.setattr(tmux, "_run", typed(events.append))
     monkeypatch.setattr(server, "_deliver_image", lambda *a: events.append("IMAGE"))
     response = client.post("/api/panes/alias/compose", files=[
         ("text", (None, "before")), ("image", ("test.png", b"image", "image/png")),
@@ -31,6 +32,14 @@ def test_compose_preserves_text_image_order_and_sends_one_enter(client, monkeypa
     ])
     assert response.status_code == 200
     assert events == ["before", "IMAGE", "after", "Enter"]
+
+
+def test_compose_text_is_a_bracketed_paste(client, monkeypatch):
+    """The composer's draft is the paste that Codex must see end (tests/test_send_paste)."""
+    calls = []
+    monkeypatch.setattr(tmux, "_run", lambda args, stdin=None: calls.append(args) or "")
+    assert client.post("/api/panes/%1/compose", files=[("text", (None, "draft"))]).is_success
+    assert [c[:3] for c in calls if c[0] == "paste-buffer"] == [["paste-buffer", "-r", "-p"]]
 
 
 def test_all_segments_are_validated_before_typing(client, monkeypatch):
@@ -65,7 +74,7 @@ def test_plain_send_identity_failure_is_not_reported_as_success(client, monkeypa
 def test_concurrent_sender_cannot_split_a_composer(monkeypatch):
     events = []
     image_started, release_image, contender_started = (threading.Event() for _ in range(3))
-    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
+    monkeypatch.setattr(tmux, "_run", typed(events.append))
 
     def image(*args):
         image_started.set()
@@ -105,7 +114,7 @@ def test_concurrent_sender_cannot_split_a_composer(monkeypatch):
 
 def test_image_failure_never_submits_partial_draft(client, monkeypatch):
     events = []
-    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
+    monkeypatch.setattr(tmux, "_run", typed(events.append))
 
     def fail(*args):
         raise RuntimeError("clipboard failed")
@@ -189,7 +198,7 @@ def test_captioned_image_is_one_draft_under_one_lock(monkeypatch):
     monkeypatch.setattr(server, "_stage_image", lambda data, mime: "/tmp/x")
     monkeypatch.setattr(server, "_deliver_image", lambda *a: events.append("IMAGE") or "path")
     monkeypatch.setattr(tmux, "pane_pid", lambda p: "1234")
-    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
+    monkeypatch.setattr(tmux, "_run", typed(events.append))
     _, mode = asyncio.run(server.attach_image("%1", "1234", b"i", "image/png", "caption"))
     assert mode == "path" and events == ["IMAGE", "caption", "Enter"]
 
@@ -197,7 +206,7 @@ def test_captioned_image_is_one_draft_under_one_lock(monkeypatch):
 def test_caption_is_not_typed_into_a_pane_recycled_after_the_image(monkeypatch):
     events, pid = [], ["1234"]
     monkeypatch.setattr(tmux, "pane_pid", lambda p: pid[0])
-    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
+    monkeypatch.setattr(tmux, "_run", typed(events.append))
 
     def image(*args):
         pid[0] = "replacement"  # the approved process exits right after the paste

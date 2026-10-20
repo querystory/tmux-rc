@@ -16,7 +16,7 @@ STYLE = WEB_DIR / "m" / "style.css"
 
 @pytest.fixture(autouse=True)
 def _fresh_cache(monkeypatch):
-    monkeypatch.setattr(scratch, "_found", {})
+    monkeypatch.setattr(scratch, "_missed", {})
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: {})
     monkeypatch.setattr(agent_history, "reconcile", lambda: None)  # never this machine's index
 
@@ -82,13 +82,13 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
 
     def writers(pattern, due):
         calls.append(due)
-        return {"gone": {"session_id": "s1", "harness": "codex", "title": "Billing",
-                         "source": "/c/projects/x/s1.jsonl"}}
+        return {"gone": {"session_id": "s1"}}
 
     monkeypatch.setattr(agent_history, "writers", writers)
-    running = {"s1": {"running": {"tmux_pane": "%9", "pid": 5}}}
+    running = {"s1": {"session_id": "s1", "harness": "codex", "title": "Billing",
+                      "source": "/c/projects/x/s1.jsonl", "running": {"tmux_pane": "%9"}}}
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
-    _folder(tmp_path, "gone", 1000, {"pane": "%3"})
+    _folder(tmp_path, "gone", 1000, {"pane": "%3", "session": "forged"})  # the agent's key
     _folder(tmp_path, "nobody", 2000)
     items, _ = _resolved(tmp_path, [], [{"name": "Lab", "dir": "/c"}])
     assert items["gone"] | {"who": "codex · Lab", "where": "Billing", "pane": None} == items["gone"]
@@ -98,10 +98,14 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
                                      "window_name": "w"}],
                          pane_of=lambda e: e.get("running", {}).get("tmux_pane"))
     assert items["gone"]["pane"] == "%9"
-    for name in ("index.html", "meta.json"):  # rewritten: created moves, the author stays
-        (tmp_path / "gone" / name).write_text('{"pane": "%3"}')
-    _resolved(tmp_path)
-    assert calls == [{"gone": 1000, "nobody": 2000}]  # found and missed both cached
+    # The author is kept in its meta.json, so a restarted daemon never searches again.
+    meta = json.loads((tmp_path / "gone" / "meta.json").read_text())
+    assert meta == {"pane": "%3", "session": "forged", "agent_session": "s1",
+                    "generated": ["agent_session"]}
+    (tmp_path / "gone" / "index.html").write_text("rewritten")
+    items, _ = _resolved(tmp_path)
+    assert items["gone"]["where"] == "Billing"
+    assert calls == [{"gone": 1000, "nobody": 2000}]  # found is stored, a miss waits to retry
 
 
 def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):
@@ -207,3 +211,43 @@ def test_a_pending_preview_names_the_image_the_page_retries():
             "created": 0, "updated": 0}
     assert 'data-pending="a%20b/thumb.webp"' in _card(item)
     assert "data-pending" not in _card({**item, "shot": "failed"})
+
+
+def test_one_find_lists_scratch_and_none_means_an_empty_gallery(tmp_path, monkeypatch):
+    _folder(tmp_path, "a", 1000)
+    _folder(tmp_path, "b", 1000).joinpath(".git").mkdir()
+    (tmp_path / "b" / ".git" / "x.html").write_text("hidden, at any depth")
+    _folder(tmp_path, ".hidden", 1000)
+    (tmp_path / "loose.html").write_text("not in a folder")
+    run, calls = scratch.subprocess.run, []
+    monkeypatch.setattr(scratch.subprocess, "run", lambda cmd, **kw: calls.append(cmd)
+                        or run(cmd, **kw))
+    listed = scratch.items(tmp_path)
+    assert sorted(i["name"] for i in listed) == ["a", "b"] and len(calls) == 1
+    assert calls[0][1] == str(tmp_path)  # scratch itself, never one argument per folder
+
+    def missing(*_a, **_kw):
+        raise FileNotFoundError("find")
+    monkeypatch.setattr(scratch.subprocess, "run", missing)
+    assert scratch.items(tmp_path) == []
+
+
+def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
+    folder = _folder(tmp_path, "f", 1000)
+    meta = folder / "meta.json"
+    assert scratch.annotate(meta, tmp_path, "description", "d")
+    assert json.loads(meta.read_text()) == {"description": "d", "generated": ["description"]}
+    meta.write_text(json.dumps({"title": "", "generated": ["title", {}, ["x"]]}))  # malformed
+    assert scratch.annotate(meta, tmp_path, "title", "t")
+    assert json.loads(meta.read_text())["generated"] == ["title"]
+    # An agent's meta.json landing after the check is kept: the create is exclusive.
+    meta.write_text('{"title": "the agent\'s"}')
+    monkeypatch.setattr(scratch.os.path, "lexists", lambda _p: False)
+    assert not scratch.annotate(meta, tmp_path, "description", "d")
+    assert json.loads(meta.read_text()) == {"title": "the agent's"}
+    assert sorted(p.name for p in folder.iterdir()) == ["index.html", "meta.json"]  # no tmp
+
+
+def test_dot_dot_is_not_inside(tmp_path):
+    assert not scratch.inside(tmp_path / "..", tmp_path)
+    assert scratch.inside(tmp_path / "x", tmp_path)

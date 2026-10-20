@@ -56,6 +56,8 @@ const SHOTS = [
   ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
   ["mobile-usage-30d", PHONE, "light", "#view=usage", pickRange("30d")],
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
+  // A card's own view: its head is the phone's bar (Back, icon, title, filter).
+  ["mobile-heatmap-view", PHONE, "dark", "#view=heat", heatCell],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
@@ -76,6 +78,7 @@ const SHOTS = [
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
   // The scratch gallery (openbus/scratch.py), the daemon's page rather than the app's.
   ["mobile-scratch", PHONE, "dark", "", scratch],
+  ["mobile-scratch-view", PHONE, "light", "#view=scratch"],
   ["wide-scratch", WIDE, "light", "", scratch],
 ];
 
