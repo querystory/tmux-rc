@@ -81,6 +81,45 @@ ROWS = """\
 5|claude|idle|prod deploy|2m||Production is on v0.15.2. Health checks green.
 """
 
+# Where each pane works, one per ROWS line: repository/directory@worktree (the main
+# checkout when no @), or a plain folder outside any repository. The Fleet graph's Repo and
+# Worktree lenses group by these; the open-loops scan finds the worktrees (worktrees()).
+WHERE = """shop-api/docs shop-api/db shop-api/db shop-api@money-v3 shop-api@preview shop-api
+shop-api/fixtures shop-web/e2e shop-web/e2e@checkout-flake shop-web/src ci-runner ci-runner
+evals/harness evals/prompts@ab-sweep evals/data evals/notebooks /work/papers tokenizer docs-site
+docs-site/static/img docs-site/changelog docs-site/reference docs-site ops-scripts/alerts
+ops-scripts/billing ops-scripts/logs ops-scripts ops-scripts ops-scripts/backup
+infra/terraform@plan-review infra/k8s infra infra/dns infra/k8s infra/certs site-copy/pricing
+site-copy/email /work/marketing /work/marketing shop-web@deps-audit dashboard-ui/src@sidebar-toggle
+/work /work/notes invoice-tools dotfiles /work shop-api@webhooks shop-api@refunds infra""".split()  # noqa: SIM905 - a table reads better than 49 quoted strings
+
+
+def _where(i: int) -> tuple[str, str | None, str | None]:
+    """(cwd, the worktree's path, its branch) of pane %i; no worktree outside a repository.
+    A pane past ROWS (the sign-in window) sits in /work."""
+    spot = WHERE[i - 1] if i <= len(WHERE) else "/work"
+    if spot.startswith("/"):
+        return spot, None, None
+    spot, _, branch = spot.partition("@")
+    repo, _, sub = spot.partition("/")
+    root = f"/work/{repo}" + (f"/.worktrees/{branch}" if branch else "")
+    return "/".join(filter(None, [root, sub])), root, branch or "main"
+
+
+def worktrees() -> list[dict]:
+    """The worktrees the panes sit in, as the open-loops scan lists them: clean and pushed,
+    so none of them joins Open loops' lanes."""
+    rows = {}
+    for i in range(1, len(WHERE) + 1):
+        _, root, branch = _where(i)
+        if root:
+            repo = root.split("/")[2]
+            rows[root] = {"path": root, "repo": f"example-org/{repo}", "branch": branch,
+                          "common": f"/work/{repo}/.git", "dirty": 0, "unpushed": 0,
+                          "active_at": NOW - 3600}
+    return list(rows.values())
+
+
 MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("Gemini 3.5 Pro",),
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
 
@@ -307,7 +346,7 @@ def _pane(i: int, line: str, window: int) -> dict:
         "state_since": since, "updated_at": NOW - 2, "parsed_at": NOW - 2,
         "idle_seconds": int(NOW - since) if st == "idle" else 0,
         "last_activity_at": since if st == "idle" else NOW - 3,
-        "snapshot_id": None, "cwd": f"/work/{SESSIONS[int(s)]}",
+        "snapshot_id": None, "cwd": _where(i)[0],
         "tmux_active": title == "e2e triage", "session_active": window == 0,
         "events": [], "events_seq": len(EVENTS.get(title, [])), "agents": 0,
     }
@@ -484,7 +523,7 @@ def seed_loops(loops):
     loops.worktrees, loops.scanned_at = [
         {"path": path, "repo": f"example-org/{repo}", "branch": branch, "dirty": dirty,
          "unpushed": unpushed, "active_at": NOW - 2 * 86400}
-        for path, repo, branch, dirty, unpushed in LOOP_TREES], NOW - 7 * 60
+        for path, repo, branch, dirty, unpushed in LOOP_TREES] + worktrees(), NOW - 7 * 60
     return loops
 
 
