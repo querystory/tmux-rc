@@ -394,3 +394,22 @@ def test_a_linked_sign_in_goes_as_its_contents(home):
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         member = tar.getmember("agents/.claude-work/.credentials.json")
         assert member.isfile() and tar.extractfile(member).read() == b"shared login"
+
+
+def test_a_dotenv_in_a_linked_config_dir_stays_the_daemons(home, monkeypatch):
+    """No checkout .env: it is the config dir's, and that dir links elsewhere here."""
+    places = export.places
+    monkeypatch.setattr(export, "places", lambda: {
+        **places(), ".env": Path.home() / ".config/tmux-rc/.env"})
+    old = home("old")
+    write(old / ".config/tmux-rc/a.txt")
+    write(old / ".config/tmux-rc/.env", "K=1")
+    out = io.BytesIO()
+    export.export(out, ["secrets"])
+    new = home("new")
+    write(new / "cfg/.env", "mine")
+    (new / ".config").mkdir()
+    (new / ".config/tmux-rc").symlink_to(new / "cfg")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".config/tmux-rc/.env").read_text() == "K=1"
+    assert (new / ".config/tmux-rc/a.txt").exists()

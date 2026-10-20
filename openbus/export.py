@@ -344,8 +344,10 @@ def restore(src) -> list[str]:
         db = where["history.sqlite3"]
         keep = sorted({q for p in (*where.values(), *_agent_dirs(), *(
             db.with_name(db.name + s) for s in ("-wal", "-shm")))
-            for q in (_spot(Path(p)), Path(p).resolve())}, key=lambda p: len(p.parts))
-        # a link and its target; outermost first: a dir kept carries what is kept inside it
+            for q in (Path(os.path.abspath(p)), _spot(Path(p)), Path(p).resolve())},
+                  key=lambda p: len(p.parts))
+        # as named, through linked dirs, and itself resolved: a place nests in a swap however
+        # it is reached; outermost first: a dir kept carries what is kept inside it
         if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
             (stage / "agents/.claude.json").unlink(missing_ok=True)  # stays with that login
         moves = []  # (staged, destination, archive name)
