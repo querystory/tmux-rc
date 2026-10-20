@@ -229,11 +229,8 @@ def _move(src: Path, dst: Path, done: list) -> None:
 
 
 def _undo(done: list) -> None:
-    """Each move journaled, back, last first, over whatever a failed one left at its source
-    (staging, or a place's half-copied import)."""
+    """Each move journaled, back, last first."""
     for src, dst in reversed(done):
-        if os.path.lexists(src):
-            shutil.rmtree(src) if src.is_dir() and not src.is_symlink() else src.unlink()
         shutil.move(dst, src)
 
 
@@ -242,22 +239,28 @@ def _swap(src: Path, dst: Path, stamp: str, done: list, sidecars=("",), keep=())
     into place. An agent dir keeps this host's sign-in, and who it is, when the archive
     brought no sign-in; a dir keeps each place of `keep` nested in it that the archive
     doesn't hold there: another part's, which its own swap replaces if it came. Each move
-    is journaled in `done`."""
+    is journaled in `done`. Only staging's may cross disks: what is kept goes after it, a
+    rename beside what it was in."""
     old = dst.with_name(f"{dst.name}.pre-import-{stamp}")
     for suffix in sidecars:
         if os.path.lexists(here := dst.with_name(dst.name + suffix)):
             _move(here, old.with_name(old.name + suffix), done)
-    for rel in (p.relative_to(dst) for p in keep if dst in p.parents):
-        if src.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(src / rel):
-            (src / rel).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            _move(old / rel, src / rel, done)  # staging may be on another disk
     if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
         for name in IDENTITY:
             if (old / name).is_file():  # a fresh file: no hard link from the archive shares it
                 (src / name).unlink(missing_ok=True)
                 shutil.copy2(old / name, src / name)
     dst.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _move(src, dst, done)
+    try:
+        _move(src, dst, done)
+    except BaseException:  # a copy from another disk cut short: what was here is aside
+        if os.path.lexists(dst):
+            shutil.rmtree(dst) if dst.is_dir() and not dst.is_symlink() else dst.unlink()
+        raise
+    for rel in (p.relative_to(dst) for p in keep if dst in p.parents):
+        if dst.is_dir() and os.path.lexists(old / rel) and not os.path.lexists(dst / rel):
+            (dst / rel).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            _move(old / rel, dst / rel, done)
 
 
 def _displaces(child: Path, dst: Path, name: str, at: Path) -> bool:

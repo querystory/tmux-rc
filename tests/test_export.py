@@ -324,7 +324,8 @@ def tree(root: Path) -> dict:
 
 
 def test_an_import_failing_part_way_puts_everything_back(home, monkeypatch, capsys):
-    """A failure at any move, a kept nested place's included, leaves this host as it was."""
+    """A failure at any move, a kept nested place's included, and a copy from staging cut
+    short part way, leaves this host as it was."""
     source(home)
     out = io.BytesIO()
     export.export(out, ["scratch", "agents"])
@@ -341,6 +342,8 @@ def test_an_import_failing_part_way_puts_everything_back(home, monkeypatch, caps
         def flaky(*args, n=n, calls=calls):
             calls.append(args)
             if len(calls) == n:
+                if ".tmux-rc-import-" in str(args[0]) and Path(args[0]).is_dir():
+                    shutil.copytree(args[0], Path(args[1], "half"))  # another disk's copy
                 raise OSError("disk full")
             return move(*args)
         monkeypatch.setattr(shutil, "move", flaky)
