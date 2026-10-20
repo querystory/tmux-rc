@@ -211,6 +211,8 @@ def test_a_pending_preview_names_the_image_the_page_retries():
             "created": 0, "updated": 0}
     assert 'data-pending="a%20b/thumb.webp"' in _card(item)
     assert "data-pending" not in _card({**item, "shot": "failed"})
+    # its author's pane since closed: a page that landed still waits for its thumbnail
+    assert 'data-pending="a%20b/thumb.webp"' in _card({**item, "state": "stopped"})
 
 
 def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeypatch):

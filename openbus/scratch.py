@@ -352,7 +352,8 @@ def _card(i: dict) -> str:
         i.get("shot") == "pending" and "Making a preview…")
     # A pending folder's thumbnail is an earlier page's: its state shows instead, and once
     # the page lands and is shot, the poll swaps in the new thumbnail.
-    poll = "" if i["thumb"] or i.get("state") == "stopped" else (  # stopped: nothing coming
+    stopped = i["pending"] and i.get("state") == "stopped"  # nothing coming to poll for
+    poll = "" if i["thumb"] or stopped else (
         f' data-pending="{quote(i["name"])}/thumb.webp"')
     thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">'
              if i["thumb"] and not i["pending"]
