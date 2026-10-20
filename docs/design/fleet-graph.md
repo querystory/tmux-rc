@@ -22,6 +22,13 @@ account, tokens when known, what it is doing now, how long it has been at it and
 works, plus Open pane. Tapping a hub folds it into a single counted ring, and tapping it
 again unfolds it.
 
+Fit wears a crosshair rather than the four corners it first had: on a phone those corners
+read as "fill the screen", and a tester pressed it expecting exactly that. That button now
+exists beside it. Full screen pins the view over the page with CSS, inside the safe area,
+the lens chips floating at the bottom and the counts left out; Esc or the button leaves it,
+and it refits both ways. The Fullscreen API was passed over because an iPhone grants it to
+video only, so it would add a code path that does nothing on the device that wanted this.
+
 ## Why it is a drill-in, not the dashboard
 
 The prototype weighed a graph as the dashboard's main picture and rejected it. At card size

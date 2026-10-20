@@ -252,7 +252,7 @@ export function fleetGraph(box, mini, ctx) {
       if (!pop) return;
       refreshPop();
     },
-    fit() { touched = false; anim = { t0: performance.now(), dur: motion() ? 400 : 1, v0: { ...view }, v1: fitView() }; model.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; }); animate(); },
+    fit() { touched = false; size(); anim = { t0: performance.now(), dur: motion() ? 400 : 1, v0: { ...view }, v1: fitView() }; model.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; }); animate(); },
     setLens(l) { lens = l; close(); relayout(true); ctx.onChange?.(); }, lens: () => lens,
     zoom(f) { zoomAt(W / 2, H / 2, f); },
   };
@@ -372,10 +372,18 @@ export function renderGraphView(root, panes, ctx) {
     const lenses = el('div', 'fg-lenses', '<span>Group by</span>'), box = el('div', 'fg-box'), tools = el('div', 'fg-tools');
     root._stats = el('div', 'fg-stats'); root._legend = el('div', 'fg-legend');
     for (const [name, label] of LENSES) { const b = el('button', '', label); b.dataset.lens = name; b.onclick = () => { root._lens = null; g.setLens(name); }; lenses.append(b); } // a pick ends any pending restore
-    const g = root._g = fleetGraph(box, false, { ...ctx, onChange: () => { try { localStorage.setItem('tmuxrc-graph-lens', g.lens()); } catch {} paint(); } });
-    for (const [name, label, fn] of [['plus', 'Zoom in', () => g.zoom(1.35)], ['minus', 'Zoom out', () => g.zoom(1 / 1.35)], ['fit', 'Fit to view', () => g.fit()]]) {
+    const g = root._g = fleetGraph(box, false, { ...ctx, open: id => { full(false); ctx.open(id); }, onChange: () => { try { localStorage.setItem('tmuxrc-graph-lens', g.lens()); } catch {} paint(); } });
+    for (const [name, label, fn] of [['plus', 'Zoom in', () => g.zoom(1.35)], ['minus', 'Zoom out', () => g.zoom(1 / 1.35)], ['locate', 'Fit to view', () => g.fit()], ['maximize', 'Full screen', () => full(!root.classList.contains('full'))]]) {
       const b = el('button', '', ctx.icon(name, 18)); b.title = b.ariaLabel = label; b.onclick = fn; tools.append(b);
     }
+    // Full screen is the view itself pinned over the page (style.css), not the Fullscreen API,
+    // which an iPhone grants only to video. The lens chips ride along, overlaid.
+    const zoomBtn = tools.lastChild, full = on => {
+      if (on === root.classList.contains('full')) return;
+      root.classList.toggle('full', on); zoomBtn.innerHTML = ctx.icon(on ? 'minimize' : 'maximize', 18);
+      zoomBtn.title = zoomBtn.ariaLabel = on ? 'Exit full screen' : 'Full screen'; g.fit();
+    };
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && root.classList.contains('full')) full(false); });
     box.append(tools, root._legend);
     root.append(lenses, root._stats, box);
     const paint = root._paint = () => {
