@@ -786,7 +786,7 @@ loopsView.ariaLabel = "Open loops";
 detailCard($("loops-card"), "Open loops", "", () => openPage("loops"));
 // The Fleet graph (graph.js): the card's at a glance, the view's to pan, zoom and regroup.
 const graphView = Object.assign(document.createElement("section"), { className: "fg-view", ariaLabel: "Fleet graph" });
-const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), owner: accounts.owner, several: accounts.any };
+const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), close: () => closePage(), owner: accounts.owner, several: accounts.any };
 detailCard($("graph-card"), "Fleet graph", "", () => openPage("graph"));
 // A lane's count on the card opens the view at that lane, unfolded.
 function openLane(lane) {
