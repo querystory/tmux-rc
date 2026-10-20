@@ -1474,6 +1474,7 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
   .fg-call button { flex: 1; padding: 5px 7px; }
   .fg-stats { flex-direction: row; justify-content: space-between; gap: 6px; margin-right: -42px; }
   .fg-stats b { font-size: 20px; } .fg-stats small { font-size: 11px; } .fg-stats span { font-size: 8.5px; letter-spacing: .08em; }
+  .fg-stats { margin-top: -14px; padding-top: 14px; background: linear-gradient(transparent, var(--surface) 14px); } /* labels zoomed under it fade, not fight */
   .fg-legend { margin-right: -42px; } .fg-key { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; font-size: 8.5px; gap: 3px 10px; }
 }
 /* Full screen (graph.js): the view over everything, edge to edge inside the safe area. A phone
