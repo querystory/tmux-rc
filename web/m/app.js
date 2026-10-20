@@ -2367,14 +2367,15 @@ function placeChrome() {
 // and the list's foot say it), and on a phone's dashboard (no search there) under its header,
 // so a filter is never on without saying so. There the filter button moves into the header
 // too, beside New window: the dashboard's filter row folds behind it (style.css). A card's own
-// view follows the same filters, and on a phone its head is the bar: the button goes there.
+// view follows the same filters, and on a phone its head is the bar: the button and the chips go
+// in it, which a view's rebuild keeps (atlas.js renderHeatView), so neither loses focus.
 function placePill() {
-  const head = !WIDE.matches && CARDS[page] && $("dash-page").querySelector(".landing-head"), dash = !WIDE.matches && dashboard;
-  const at = head || (dash ? document.querySelector(".app-header") : $("find")), picker = renderSidebar.picker;
-  if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
+  const head = !WIDE.matches && CARDS[page] && $("dash-page").querySelector(":scope > .landing-head"), dash = !WIDE.matches && dashboard;
+  const picker = renderSidebar.picker, at = head ? picker : dash ? document.querySelector(".app-header") : $("find");
   if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
+  if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
 }
 // Folded to the rail, the controls move in the DOM to the order they show in (expand, +,
 // search, filter, Dashboard, Chat, Voice, the panes, Settings), so Tab walks them top down.
