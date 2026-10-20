@@ -988,29 +988,43 @@ function render() {
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
-// Every link chip: a real <a>, so a long press offers the system's own link menu, and a Copy
-// link button beside it, so a link (a sign-in, say) can be opened in another browser even
-// where that menu is missing (a home-screen app).
+// A card's link chip: a real <a>, so a long press offers the system's own link menu, and a
+// Copy link button beside it, so a link (a sign-in, say) can be opened in another browser
+// even where that menu is missing (a home-screen app).
 function linkPair(href) {
   const pair = document.createElement("span"), anchor = document.createElement("a"), copy = document.createElement("button");
   pair.className = "link-pair";
   Object.assign(anchor, { href, target: "_blank", rel: "noopener noreferrer" });
   Object.assign(copy, { type: "button", className: "icon-button link-copy", title: "Copy link", innerHTML: licon("copy", 16) });
   copy.setAttribute("aria-label", "Copy link");
-  copy.onclick = (event) => { event.stopPropagation(); copyText(href); };
+  copy.onclick = (event) => { event.stopPropagation(); copyHere(copy, href, "copy"); };
   pair.append(anchor, copy);
   return pair;
 }
 
-// One tappable link row: the Links list's, and the one leading a question's card.
+// Copy `value` and say so in place, not in a banner: `el`'s icon turns to a check a moment.
+function copyHere(el, value, icon) {
+  const swap = (name) => { el.querySelector("svg").outerHTML = licon(name, 16); };
+  copyText(value, () => { swap("check"); setTimeout(swap, 1500, icon); });
+}
+
+// One tappable link row: the Links list's, and the one leading a question's card. A tap opens
+// it; a long press copies it instead (to open in another browser), and the click after is not
+// a tap. Scrolling cancels the press.
 function renderLinks(el, links) {
-  reconcile(el, links, (link) => link.href, (link) => {
-    const pair = linkPair(link.href);
-    pair.firstChild.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
-    return pair;
-  }, (pair, link) => {
-    const anchor = pair.firstChild;
+  reconcile(el, links, (link) => link.href, () => {
+    const anchor = document.createElement("a");
+    let timer, held = false;
+    anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
+    anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
+    anchor.addEventListener("touchstart", () => { held = false; timer = setTimeout(() => { held = true; copyHere(anchor, anchor.href, "chevron"); }, 500); }, { passive: true });
+    for (const type of ["touchmove", "touchend", "touchcancel"]) anchor.addEventListener(type, () => clearTimeout(timer), { passive: true });
+    anchor.addEventListener("click", (event) => { if (held) event.preventDefault(); held = false; });
+    anchor.addEventListener("contextmenu", (event) => { if (held || event.pointerType === "touch") event.preventDefault(); }); // Android's link menu
+    return anchor;
+  }, (anchor, link) => {
     const host = new URL(link.href).host;
+    anchor.href = link.href;
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
     text(anchor.querySelector("small"), link.detail || host);
   });
@@ -1057,17 +1071,17 @@ function renderTasks(pane) {
     return node;
   }, (node, value) => { node._value = value.text; text(node.querySelector("strong"), value.label); text(node.querySelector("pre"), value.text); });
 }
-async function copyText(value) {
+async function copyText(value, copied = () => notice("Copied to clipboard.")) {
   try { await navigator.clipboard.writeText(value); }
   catch { // no Clipboard API (a plain-http origin) or no permission: the old select-and-copy
     const area = Object.assign(document.createElement("textarea"), { value, readOnly: true });
     area.style.cssText = "position: fixed; opacity: 0";
     document.body.append(area); area.select();
-    const copied = document.execCommand("copy");
+    const ok = document.execCommand("copy");
     area.remove();
-    if (!copied) return notice("Could not copy. Select the text to copy it.");
+    if (!ok) return notice("Could not copy. Select the text to copy it.");
   }
-  notice("Copied to clipboard.");
+  copied();
 }
 
 // One line per task or sub-agent: the pane overview's lists, and the sidebar's agent rows.
