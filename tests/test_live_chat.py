@@ -498,10 +498,27 @@ def test_a_closed_or_recycled_pane_drops_out_of_later_turns(monkeypatch, now):
     pid = {"%2": "42"}
     monkeypatch.setattr(L.tmux, "pane_pid", pid.get)
     s = _Fake([])
-    asyncio.run(L._focus_reached(s, _Watcher(), {"status": "sent"}, {"pane_id": "%2"}))
-    assert asyncio.run(s.focus()) == _focus_line(_Watcher().digest()[1], "%2")
-    pid["%2"] = now
-    assert asyncio.run(s.focus()) is None
+
+    async def go():
+        L._focus_reached(s, _Watcher(), {"status": "sent"}, {"pane_id": "%2"})
+        first = await s.focus()
+        pid["%2"] = now
+        return first, await s.focus()
+    assert asyncio.run(go()) == (_focus_line(_Watcher().digest()[1], "%2"), None)
+
+
+def test_a_message_typed_while_the_pane_is_looked_up_is_already_on_it(monkeypatch):
+    """The focus moves with no await after the delivery shows, so a follow-up typed at once
+    queues the pane just reached, not the one before, while its pid lookup is pending."""
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "42")
+    s = _Fake([])
+    s.focus = "the pane before"
+
+    async def go():
+        L._focus_reached(s, _Watcher(), {"status": "sent"}, {"pane_id": "%2"})
+        await s.send_text("ask the agent")
+        return await s._inbox.get_nowait()[2]()
+    assert asyncio.run(go()) == _focus_line(_Watcher().digest()[1], "%2")
 
 
 def test_pane_text_cannot_forge_the_current_pane_line():
@@ -516,8 +533,11 @@ def test_an_action_on_a_pane_that_closed_at_once_leaves_no_current_pane(monkeypa
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: None)  # e.g. it was sent `exit`
     s = _Fake([])
     s.focus = "the pane before"
-    asyncio.run(L._focus_reached(s, _Watcher(), {"status": "sent"}, {"pane_id": "%2"}))
-    assert not s.focus
+
+    async def go():
+        L._focus_reached(s, _Watcher(), {"status": "sent"}, {"pane_id": "%2"})
+        return await s.focus()
+    assert asyncio.run(go()) is None
 
 
 def test_an_update_landing_while_the_pane_is_checked_still_reaches_the_turn():

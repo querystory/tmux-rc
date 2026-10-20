@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import concurrent.futures
 import contextlib
 import functools
 import json
@@ -302,11 +303,17 @@ _FOCUS = ("[Current pane: {} (id={}). If the message below says 'the agent' or '
           "this pane unless it names another.]")
 
 
-async def _focus_line(watcher, pane: str, birth: str, title: str | None) -> str | None:
+# Looks up a focused pane's pid; a plain executor future, so a turn on any loop can await it.
+_PIDS = concurrent.futures.ThreadPoolExecutor(2, "live-focus")
+
+
+async def _focus_line(watcher, pane: str, birth: concurrent.futures.Future,
+                      title: str | None) -> str | None:
     """The [Current pane] line, rendered when its turn is built: None once the pane closed or
-    tmux reused its id for a new process. A pane the watcher has not parsed yet (just
-    resumed) is named by its `title` until it has."""
-    if await asyncio.to_thread(tmux.pane_pid, pane) != birth:
+    tmux reused its id for a new process (`birth`: its pid when the action reached it). A
+    pane the watcher has not parsed yet (just resumed) is named by its `title` until it has."""
+    born = await asyncio.wrap_future(birth)
+    if not born or await asyncio.to_thread(tmux.pane_pid, pane) != born:
         return None
     digest = watcher.digest()
     d = next((d for d in digest if d["pane_id"] == pane), {"pane_id": pane, "title": title})
@@ -454,19 +461,21 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
     if meter.text:
-        await _focus_reached(session, watcher, result, rec)
+        _focus_reached(session, watcher, result, rec)
     await session.send_tool_result(fc, result)
 
 
-async def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
+def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
     """Point a chat at the pane an answered call reached (not a declined call, nor a mere
     button), so "ask the agent" stays with it instead of whichever screen shares a word. Kept
     as the pane's id and process, not text, so a closed or recycled pane drops out of later
-    turns; one already gone (an `exit` sent) leaves the chat on no pane. A resumed pane is new
-    to the watcher until its next parse, so its result names it."""
+    turns; one already gone (an `exit` sent) leaves the chat on no pane. Set with no await
+    since the delivery, so a message typed after it shows can't carry the old pane; the pid
+    lookup runs meanwhile. A resumed pane is new to the watcher until its next parse, so its
+    result names it."""
     if result["status"] in _REACHED and (pane := result.get("pane_id") or rec.get("pane_id")):
-        birth = await asyncio.to_thread(tmux.pane_pid, pane)
-        session.focus = birth and functools.partial(
+        birth = _PIDS.submit(tmux.pane_pid, pane)
+        session.focus = functools.partial(
             _focus_line, watcher, pane, birth, result.get("window") or result.get("pane"))
 
 
@@ -626,7 +635,7 @@ async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool,
     finally:
         _audit_call(meter, call.name, result, started, rec)
     if session is not None:
-        await _focus_reached(session, watcher, result, rec)
+        _focus_reached(session, watcher, result, rec)
 
 
 async def _approved(
