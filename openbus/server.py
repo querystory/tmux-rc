@@ -1948,7 +1948,7 @@ def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> str | 
         for segment in segments:
             tmux.check_pane(pane_id, identity)
             if isinstance(segment, str):
-                tmux.send_keys(pane_id, segment, enter=False, expected_pid=identity)
+                tmux.send_keys(pane_id, segment, enter=False, expected_pid=identity, paste=True)
             else:
                 mode = _deliver_image(pane_id, *segment, identity)
         tmux.check_pane(pane_id, identity)

@@ -49,7 +49,8 @@ the phone does not exhibit this.
 The pause alone is not enough for Codex. It decides what is a paste by watching for the
 next key rather than a clock: fast-typed text sits in its paste buffer, however long you
 wait, until the next key flushes it, and when that key is the Return it is eaten with the
-paste. So the daemon delivers text as a paste (`load-buffer`, then `paste-buffer -p`),
+paste. So the daemon delivers a composer's text as a paste (`load-buffer`, then
+`paste-buffer -p`),
 whose bracketed-paste marks tell the app exactly where it ends; an orchestrator driving
 Codex should do the same.
 

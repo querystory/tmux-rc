@@ -37,12 +37,20 @@ def test_long_text_is_one_bracketed_paste_then_one_enter(monkeypatch):
     calls = []
     monkeypatch.setattr(T, "_run", lambda args, stdin=None: calls.append((args, stdin)))
     text = "a" + "🚀" * 9000  # past tmux's 16KB argv cap, which stdin does not have
-    T.send_keys("%1", text, enter=True)
+    T.send_keys("%1", text, enter=True, paste=True)
     (load, text_in), (paste, _), (enter, _) = calls
     name = load[2]
     assert (load, text_in) == (["load-buffer", "-b", name, "-"], text)
-    assert paste == ["paste-buffer", "-p", "-d", "-b", name, "-t", "%1"]
+    assert paste == ["paste-buffer", "-r", "-p", "-d", "-b", name, "-t", "%1"]
     assert enter == ["send-keys", "-t", "%1", "Enter"]
+
+
+def test_keystrokes_are_not_marked_as_a_paste(monkeypatch):
+    # a menu's shortcut digit or a typed key must reach the app as a key, not pasted text
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda args, stdin=None: calls.append(args))
+    T.send_keys("%1", "1", enter=False)
+    assert "-p" not in calls[1] and calls[1][:2] == ["paste-buffer", "-r"]
 
 
 def test_empty_literal_still_sends(monkeypatch):
@@ -87,7 +95,8 @@ def test_key_names_are_never_pasted(monkeypatch):
 def test_the_app_sees_one_marked_paste_and_one_return(tmp_path, monkeypatch):
     """End to end on a private tmux server (its own -S socket, never $TMUX; the pane is
     closed by its id, which ends it): a pane that asked for bracketed paste, as Codex and
-    Claude Code do, must read the marks around the whole text and then a lone Return."""
+    Claude Code do, must read a keystroke bare, then the marks around the whole draft,
+    its newline still a LF, and then a lone Return."""
     if not shutil.which("tmux"):
         pytest.skip("tmux is not installed")
     socket, out = str(tmp_path / "paste.sock"), tmp_path / "input"
@@ -106,9 +115,10 @@ def test_the_app_sees_one_marked_paste_and_one_return(tmp_path, monkeypatch):
             if (tmp_path / "input.ready").exists():
                 break
             time.sleep(0.05)
-        text = "an invented sign-in code " + "q7Zx" * 600
-        T.send_keys(pane, text)
-        want = f"\x1b[200~{text}\x1b[201~\r".encode()
+        text = "an invented sign-in code\n" + "q7Zx" * 600
+        T.send_keys(pane, "j", enter=False)  # a keystroke first: no marks
+        T.send_keys(pane, text, paste=True)
+        want = f"j\x1b[200~{text}\x1b[201~\r".encode()
         for _ in range(100):
             if len(out.read_bytes()) >= len(want):
                 break

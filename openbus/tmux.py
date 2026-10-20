@@ -1015,22 +1015,25 @@ def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bo
     return text.removesuffix("\n"), start, edge.count("\n") == 1, screen
 
 
-# Literal text goes in as a PASTE: loaded into a one-shot tmux buffer over stdin, then
-# `paste-buffer -p`, which wraps it in bracketed-paste marks when the app asked for them.
+# Literal text goes in through a one-shot tmux buffer, loaded over stdin and written
+# with `paste-buffer -r` (newlines stay LF, byte for byte what `send-keys -l` typed). A
+# composer's draft adds `-p`, which wraps it in bracketed-paste marks when the app asked
+# for them; keystrokes (a typed key, a menu's shortcut digit) go unmarked, since a marked
+# "1" or "j" would arrive as pasted text rather than a key.
 #
-# Typing it with `send-keys -l` left the app to guess where a paste ends, and Codex
+# Typed with `send-keys -l`, a draft left the app to guess where a paste ends, and Codex
 # guesses by watching for the next key: each 1KB read of fast-arriving characters became
 # a "[Pasted Content 1024 chars]" placeholder, and the tail stayed held in its paste-burst
 # buffer until the next key arrived. That next key was our Return, which flushed the tail
 # and was eaten as part of it, so a long reply (an auth code pasted from the phone) sat
 # unsent and took two more Returns by hand. No settle helps: the burst does not end on a
 # timer, only on the next key. With the marks, the paste ends where it says it ends and
-# the Return after it is a keystroke. An app that never asked for them gets the bare text,
-# as `send-keys -l` gave it.
+# the Return after it is a keystroke. An app that never asked for them gets the bare text.
 #
 # stdin also lifts tmux's 16KB per-message cap (imsg MAX_IMSGSIZE) on argv, which had
 # 30KB pastes failing outright and then needed chunking, and keeps the text out of the
 # argv any local `ps` can read.
+#
 # Pause between the typed text and the Return that submits it.
 #
 # Agent TUIs take multi-line input, so they must decide whether a Return is "submit" or
@@ -1225,12 +1228,15 @@ def _settle_before_return(pane_id: str) -> None:
 def send_keys(
     pane_id: str, keys: str, enter: bool = True, literal: bool = True,
     *, expected_pid: str | None = None, guard: Callable[[], None] | None = None,
+    paste: bool = False,
 ) -> None:
-    """Send `keys` to a pane. When `literal` (default), text is pasted (see _paste and
-    the notes above _ENTER_SETTLE_S), never read as tmux key names — for typed answers.
+    """Send `keys` to a pane. When `literal` (default), text goes in byte for byte (see
+    _paste), never read as tmux key names. `paste` marks it as a paste for an app that
+    asked for bracketed paste — for a composer's draft (see the notes above
+    _ENTER_SETTLE_S). Without it the bytes are keystrokes, as a typed key, a menu's
+    shortcut digit or a Vim motion must be: marked, they would arrive as pasted text.
     When not literal, `keys` is a tmux key-name like "Escape", "Up", or "C-c", sent as
-    that key. `enter` appends a
-    Return (only meaningful for literal text).
+    that key. `enter` appends a Return (only meaningful for literal text).
 
     `pane_id` must already be a resolved pane id — see _send_locks. When supplied,
     `expected_pid` binds the complete send transaction to that pane incarnation.
@@ -1256,7 +1262,8 @@ def send_keys(
             # purely to be measured. Skipping both leaves the real paste's time in place,
             # which is what the Return should be judged against.
             if keys:
-                _paste(pane_id, keys, lambda: check_pane(pane_id, identity), "-p")
+                _paste(pane_id, keys, lambda: check_pane(pane_id, identity),
+                       "-r", *(["-p"] if paste else []))
                 with _paste_lock:
                     _last_paste[pane_id] = (identity, now := time.monotonic())
                     if len(_last_paste) > _LAST_PASTE_MAX:
@@ -1311,8 +1318,8 @@ def _paste(pane_id: str, text: str, ready: Callable[[], None], *flags: str) -> N
     the buffer as it is pasted. `ready` runs between the load and the paste, the last
     moment to refuse."""
     name = f"tmuxrc-{secrets.token_hex(8)}"
-    _run(["load-buffer", "-b", name, "-"], stdin=text)
-    try:
+    try:  # the load too: a timeout can leave a buffer tmux did accept
+        _run(["load-buffer", "-b", name, "-"], stdin=text)
         ready()
         _run(["paste-buffer", *flags, "-d", "-b", name, "-t", pane_id])
     except BaseException:  # -d deletes it once pasted; a refusal must not leave it behind

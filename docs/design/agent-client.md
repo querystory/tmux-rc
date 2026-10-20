@@ -45,7 +45,7 @@ agent](../agent-orchestration.md).
 delivered the text and lost the Enter. Prompts sat in input boxes, composed and unsent.
 The human went hunting through windows and found steering messages parked in composers;
 the orchestrator had already reported that work as dispatched. — The daemon's own send
-path does the right thing here: `tmux.send_keys` delivers the text as a bracketed paste
+path does the right thing here: `tmux.send_keys` delivers a composer's text as a bracketed paste
 and then, after a settle, issues the Return as a *separate, ordered* `send-keys`. It also refuses to believe its own stale
 view of the pane: every `/api/panes/{id}/send` schedules a re-parse, because input
 changes the screen. Note what it still does not do — the response returns before that

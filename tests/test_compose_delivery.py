@@ -34,6 +34,14 @@ def test_compose_preserves_text_image_order_and_sends_one_enter(client, monkeypa
     assert events == ["before", "IMAGE", "after", "Enter"]
 
 
+def test_compose_text_is_a_bracketed_paste(client, monkeypatch):
+    """The composer's draft is the paste that Codex must see end (tests/test_send_paste)."""
+    calls = []
+    monkeypatch.setattr(tmux, "_run", lambda args, stdin=None: calls.append(args) or "")
+    assert client.post("/api/panes/%1/compose", files=[("text", (None, "draft"))]).is_success
+    assert [c[:3] for c in calls if c[0] == "paste-buffer"] == [["paste-buffer", "-r", "-p"]]
+
+
 def test_all_segments_are_validated_before_typing(client, monkeypatch):
     events = []
     monkeypatch.setattr(tmux, "_run", lambda args: events.append(args))
