@@ -9,12 +9,18 @@ docs/design/agent-accounts.md.
 from __future__ import annotations
 
 import contextlib
+import glob
+import http.client
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from . import plan_usage, tmux
 from .expunge import _FILES, Refused, Session, _home, _registration
@@ -29,7 +35,12 @@ COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
 SHARED = {"claude": {"CLAUDE.md": True, "skills": True, "hooks": True, "statusline.sh": True,
                      "settings.json": False},
           "codex": {"AGENTS.md": True, "prompts": True, "config.toml": False}}
-LOGIN = {"claude": ["claude"], "codex": ["codex", "login"]}  # the provider's own sign-in
+# The provider's own sign-in. Plain `codex login` redirects the browser to a callback on
+# this machine's localhost, which a remote browser cannot reach: the sheet takes the address
+# it landed on and replays it here (codex_callback). `--device-auth` avoids that, where the
+# workspace allows device codes.
+LOGIN = {"claude": ["claude"], "codex": ["codex", "login"]}
+CODEX_CALLBACK_PORT = 1455  # where `codex login` waits for the browser's redirect
 RESUME = {"claude": ["claude", "--resume"], "codex": ["codex", "resume"]}
 # What a session needs to resume on another account: of the files Expunge knows it by,
 # Claude's transcript, its subagents' and tool results' folder and its /rewind snapshots;
@@ -46,7 +57,7 @@ def store_path() -> Path:
     return state / "tmux-rc" / "accounts.json"
 
 
-def _load() -> dict:
+def load() -> dict:
     try:
         data = json.loads(store_path().read_text())
     except (OSError, ValueError):
@@ -66,16 +77,18 @@ def default_dir(provider: str) -> Path:
     return Path.home() / f".{provider}"
 
 
-def _tilde(path: str) -> str:
+def tilde(path: str) -> str:
     home = str(Path.home())
     return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
 
 
-def identity(provider: str, config: Path) -> dict | None:
+def identity(provider: str, config: Path, codex_says: bool = False) -> dict | None:
     """Who is signed in to this dir, from non-secret files only; None when nobody is.
-    Codex keeps no such file, so only its login's presence is checked, never read."""
+    Codex keeps no such file, so only its login's presence is checked, never read: its
+    auth.json, else what `codex login status` said (codex_says, asked by the caller)."""
     if provider == "codex":
-        return {"who": "", "plan": ""} if (config / "auth.json").exists() else None
+        signed_in = (config / "auth.json").exists() or codex_says
+        return {"who": "", "plan": ""} if signed_in else None
     account = plan_usage.oauth_account(config, plan_usage.env_for("claude", config))
     if not account.get("accountUuid"):
         return None
@@ -93,6 +106,105 @@ def identity(provider: str, config: Path) -> dict | None:
                                                           account["organizationUuid"]]}
 
 
+_CODEX_SEEN: dict[Path, tuple[float, bool]] = {}  # dir -> (when answered, the answer)
+CODEX_FRESH = 3.0  # seconds a `codex login status` answer is kept
+
+
+def _codex_logins(dirs: list[Path]) -> dict[Path, bool]:
+    """Whether Codex itself says each dir is signed in. Its login may live in the OS keyring
+    (cli_auth_credentials_store), where no file shows it; `codex login status` sees both.
+    The stale ones are asked at once (up to 8, a bound on processes), so a pass waits about
+    one timeout per 8 dirs. A pass's answers share one timestamp, from when the last came,
+    so the next pass of the same report finds them all fresh, and the sheet's polling costs
+    one probe per dir per interval however often the accounts are read."""
+    stale = [d for d in dirs if time.monotonic() - _CODEX_SEEN.get(d, (-1e9, False))[0]
+             >= CODEX_FRESH]
+    with ThreadPoolExecutor(max_workers=min(max(len(stale), 1), 8)) as pool:
+        seen = list(pool.map(_codex_status, stale))
+    done = time.monotonic()
+    _CODEX_SEEN.update({d: (done, s) for d, s in zip(stale, seen, strict=True)})
+    return {d: _CODEX_SEEN[d][1] for d in dirs}
+
+
+def _codex_status(config: Path) -> bool:
+    # Only what a tmux session would get: none of the daemon's secrets. D-Bus stays: the
+    # keyring login this probe exists to see is reached through it.
+    env = {k: v for k, v in tmux.safe_env().items() if k != ENV["codex"]}
+    env |= plan_usage.env_for("codex", config)
+    path = tmux.server_path()  # None: tmux can't say; "" is an answer (an empty PATH)
+    env["PATH"] = env.get("PATH", "") if path is None else path
+    try:
+        return subprocess.run(["codex", "login", "status"], env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=3, check=False).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def codex_callback(url: str) -> str | None:
+    """The path and query to replay here from the address a remote browser landed on after
+    `codex login`, or None unless it is exactly that callback: http on localhost or
+    127.0.0.1, Codex's port, /auth/callback, a printable query, no credentials or fragment.
+    Nothing else may be requested, so this is no proxy."""
+    try:
+        u = urlsplit(url.strip())
+        ok = (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
+              and u.port == CODEX_CALLBACK_PORT and u.path == "/auth/callback"
+              and re.fullmatch(r"[\x21-\x7e]+", u.query) and "@" not in u.netloc
+              and "#" not in url)
+    except ValueError:  # a port that is no number
+        return None
+    return f"{u.path}?{u.query}" if ok else None
+
+
+def sign_in_link(screen: str) -> dict:
+    """The sign-in page a Codex login window shows (the last on screen, whole: tmux joins
+    wrapped lines), and the one-time code the device flow shows beside it; "" for each it
+    has not shown yet. A labelled terminal link reaches here as `[label](url)`
+    (tmux._materialize_links): its target ends at the `)` that closes it, and a URL
+    label ends at its `]`."""
+    url = r"https://auth\.openai\.com/[^\s\x00-\x1f"
+    urls = [a or b for a, b in re.findall(rf"\]\(({url}]+)\)(?!\S)|({url}\]]+)", screen)]
+    code = re.findall(r"\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b", screen)
+    return {"url": urls[-1] if urls else "", "code": code[-1] if code else ""}
+
+
+def oauth_state(url: str) -> str:
+    """The OAuth `state` an authorize link or a callback address carries ("" for none)."""
+    return parse_qs(urlsplit(url).query).get("state", [""])[0]
+
+
+def _get_local(path: str) -> tuple[int, str, str]:
+    """GET a path from the `codex login` listening here: status, body start, Location."""
+    conn = http.client.HTTPConnection("127.0.0.1", CODEX_CALLBACK_PORT, timeout=15)
+    try:
+        conn.request("GET", path)
+        reply = conn.getresponse()
+        text = reply.read(500).decode(errors="replace")
+        return reply.status, text, reply.getheader("Location") or ""
+    finally:
+        conn.close()
+
+
+def replay_codex_callback(path: str) -> tuple[int, str] | None:
+    """GET a codex_callback path from the `codex login` listening on this machine, as the
+    browser would have: its status and the start of its body, or None when nothing is
+    listening. Codex answers a good code with a redirect to its own success page, and only
+    exits once that page is loaded too, so a redirect to the same server (and only that) is
+    followed once; any other host is left alone."""
+    try:
+        status, text, location = _get_local(path)
+        u = urlsplit(location)
+        same = (not u.netloc or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
+                                 and u.port == CODEX_CALLBACK_PORT))
+        if 300 <= status < 400 and same and u.path.startswith("/") and not u.path.startswith("//"):
+            page = _get_local(u.path + (f"?{u.query}" if u.query else ""))  # its failure is ours
+            if page[0] >= 400:
+                return page[:2]
+        return status, text
+    except (OSError, http.client.HTTPException):  # nothing there, or no HTTP spoken
+        return None
+
+
 def profiles(pane_dirs=()) -> list[dict]:
     """Every account tmux-rc lists: signed in or added here, and not forgotten. A dir seen
     for the first time gets the lowest colour no other has, kept in the store."""
@@ -100,19 +212,29 @@ def profiles(pane_dirs=()) -> list[dict]:
         return _profiles(pane_dirs)
 
 
+def in_home() -> dict[str, str]:
+    """Each provider's config dirs in HOME, the default and its siblings: dir -> provider."""
+    return {str(d): t for t in ENV for d in [default_dir(t), *sorted(Path.home().glob(MORE[t]))]
+            if d.is_dir() and ".pre-import-" not in d.name}  # not an import's backup
+
+
 def _profiles(pane_dirs) -> list[dict]:
-    store, home = _load(), Path.home()
-    found = {str(d): t for t in ENV for d in [default_dir(t), *sorted(home.glob(MORE[t]))]
-             if d.is_dir()}
+    store, found = load(), in_home()
     for tool, config in pane_dirs:  # what runs there says the provider, not the dir's name
         found[_canonical(str(config))] = tool
     for config, entry in store.items():  # an added dir's provider was chosen, not guessed
         if entry.get("provider") in ENV:
             found[config] = entry["provider"]
     used, dirty, out = {e.get("color") for e in store.values()}, False, []
+    ask = [Path(c) for c, t in found.items() if t == "codex" and not store.get(c, {}).get("hidden")
+           and not (Path(c) / "auth.json").exists()]
+    codex_says = _codex_logins(ask)
     for config, provider in found.items():
-        entry, ident = store.get(config, {}), identity(provider, Path(config))
-        if entry.get("hidden") or not (ident or config in store):
+        entry = store.get(config, {})
+        if entry.get("hidden"):  # before identity(): a forgotten dir costs no codex call
+            continue
+        ident = identity(provider, Path(config), codex_says.get(Path(config), False))
+        if not (ident or config in store):
             continue
         if "color" not in entry:
             free = sorted(set(range(COLORS)) - used) or [len(used) % COLORS]
@@ -122,7 +244,7 @@ def _profiles(pane_dirs) -> list[dict]:
         name = entry.get("label") or (ident or {}).get("who") or (
             provider.title() if Path(config) == default_dir(provider)
             else Path(config).name.lstrip("."))
-        out.append({"dir": config, "tilde": _tilde(config), "provider": provider, "name": name,
+        out.append({"dir": config, "tilde": tilde(config), "provider": provider, "name": name,
                     "label": entry.get("label"), "color": entry["color"], "panes": [],
                     "signed_in": bool(ident), "default": Path(config) == default_dir(provider),
                     **(ident or {"who": "", "plan": ""})})
@@ -168,10 +290,13 @@ def command(provider: str, config: str, cmd: str | list[str]) -> list[str]:
     return ["env", *pin, *(cmd if isinstance(cmd, list) else ["sh", "-c", cmd])]
 
 
-def resume_command(entry: dict) -> list[str]:
-    """agent-history's resume argv for `entry`, on the account whose dir holds its
-    transcript: a Claude session resumes only under the config dir it was written in."""
+def resume_command(entry: dict, config: str | None = None) -> list[str]:
+    """agent-history's resume argv for `entry`, on account `config`, else the one whose dir
+    holds its transcript: a Claude session resumes only under the config dir it was
+    written in, and a copy (Move) leaves the id in two."""
     argv, source = entry.get("resume_argv") or [], Path(entry.get("source") or "/")
+    if config and argv[:1] and argv[0] in ENV:
+        return command(argv[0], config, argv)
     if argv[:1] == ["claude"] and source.parent.parent.name == "projects":
         return command("claude", str(source.parents[2]), argv)
     return argv
@@ -223,7 +348,7 @@ def _add(provider: str, config: str, label: str, link: list[str]) -> dict:
     if not path.is_absolute():
         raise ValueError("the config dir must be an absolute path")
     if (listed := find(str(path))) and listed["signed_in"]:  # a sign-in never finished: resumed
-        raise FileExistsError(f"{_tilde(str(path))} is already an account")
+        raise FileExistsError(f"{tilde(str(path))} is already an account")
     if bad := set(link) - set(SHARED[provider]):
         raise ValueError(f"not shareable: {', '.join(sorted(bad))}")
     existed = path.exists()
@@ -234,7 +359,7 @@ def _add(provider: str, config: str, label: str, link: list[str]) -> dict:
         if src.exists() and not (dst.exists() or dst.is_symlink()):
             dst.symlink_to(src)
             linked.append(name)
-    store = _load()
+    store = load()
     entry = {k: v for k, v in store.get(str(path), {}).items() if k != "hidden"}
     store[str(path)] = {**entry, "provider": provider, "label": label.strip() or None}
     _save(store)
@@ -255,7 +380,7 @@ def _edit(config: str, label: str | None, *, forget: bool) -> None:
         raise LookupError("unknown account")
     if forget and profile["default"]:
         raise ValueError("the default account can't be removed")
-    store = _load()
+    store = load()
     entry = store.setdefault(profile["dir"], {"provider": profile["provider"]})
     if forget:
         entry["hidden"] = True
@@ -283,7 +408,22 @@ def set_default(session: str, profile: dict) -> None:
 
 def files(s: Session, root: Path) -> list[Path]:
     """The session's files (MOVED) under one account's dir."""
-    return [p for g in MOVED[s.harness] for p in root.glob(g.format(id=s.session_id))]
+    return paths(s.harness, s.session_id, root)
+
+
+def paths(harness: str, session_id: str, root: Path) -> list[Path]:
+    return [p for g in MOVED[harness] for p in root.glob(g.format(id=glob.escape(session_id)))]
+
+
+def holds(harness: str, session_id: str, config: str) -> bool:
+    """Whether this account's dir holds a resumable copy of the session."""
+    return resumable(paths(harness, session_id, Path(config)))
+
+
+def holders(harness: str, session_id: str) -> list[dict]:
+    """The listed profiles whose dir holds a resumable copy of this session."""
+    return [p for p in profiles() if p["provider"] == harness
+            and holds(harness, session_id, p["dir"])]
 
 
 def _tree(paths: list[Path]):
@@ -294,9 +434,13 @@ def _tree(paths: list[Path]):
 
 
 def _has_record(log: Path) -> bool:
-    """Whether the log holds one whole line yet, read a chunk at a time until it does."""
-    with log.open("rb") as f:
-        return any(b"\n" in chunk for chunk in iter(lambda: f.read(1 << 16), b""))
+    """Whether the log holds one whole line yet, read a chunk at a time until it does. One
+    that can't be read (gone meanwhile, say) has none."""
+    try:
+        with log.open("rb") as f:
+            return any(b"\n" in chunk for chunk in iter(lambda: f.read(1 << 16), b""))
+    except OSError:
+        return False
 
 
 def resumable(paths: list[Path]) -> bool:

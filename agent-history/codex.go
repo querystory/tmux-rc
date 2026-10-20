@@ -211,24 +211,28 @@ func RunningCodex() (map[string]Running, error) {
 	return openTranscripts("codex", codexSessionsDir(), codexProcess, codexThreadID)
 }
 
-// codexProcess is the thread a codex command line resumes (`codex resume <id>`: the
-// first thread ID after the subcommand, whatever options sit around it), and whether
-// the process holds rollouts for others: the app-server daemon (`codex app-server`,
-// after any global options) for every client's thread, and the codex-linux-sandbox
-// helper, which runs tool commands with its client's files. The ID is only where the
-// client started: it may have switched threads since (openTranscripts).
-func codexProcess(argv []string) (session string, foreign bool) {
-	foreign = filepath.Base(argv[0]) == "codex-linux-sandbox" || slices.Contains(argv[1:], "app-server")
-	if i := slices.Index(argv, "resume"); !foreign && i > 0 {
+// codexProcess reads a codex command line: the app-server daemon holds every client's
+// rollout (Codex spawns it with the subcommand first, `codex app-server ...`), the
+// codex-linux-sandbox helper runs tool commands and is no session, and a client's
+// `codex resume <id>` names the thread it started on: the first thread ID after the
+// subcommand, whatever options sit around it, as a pasted ID may be upper case.
+func codexProcess(argv []string) (session string, r role) {
+	switch {
+	case filepath.Base(argv[0]) == "codex-linux-sandbox":
+		return "", helper
+	case len(argv) > 1 && argv[1] == "app-server":
+		return "", holder
+	}
+	if i := slices.Index(argv, "resume"); i > 0 {
 		if j := slices.IndexFunc(argv[i+1:], codexUUID.MatchString); j >= 0 {
-			session = argv[i+1+j]
+			session = strings.ToLower(argv[i+1+j])
 		}
 	}
-	return session, foreign
+	return session, client
 }
 
 // codexUUID is the shape of a Codex thread ID; no option value looks like one.
-var codexUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+var codexUUID = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // pane is the tmux pane a process was started in, or "" if it has no terminal, in
 // which case the pane in its environment is just where it was first spawned.

@@ -30,9 +30,12 @@ an author. Who made it is the part that turns a list into something navigable, s
 folder says it in a `meta.json` (the pane, which tmux-rc already knows everything else
 about), and the transcripts are a fallback for folders from before that, or whose pane
 has closed. That search is a single `grep` over the transcripts active when the folder
-appeared, since Python's regex took seconds per gigabyte; a found author is kept for the
-daemon's life, and a miss is retried after ten minutes because agent-history indexes a
-session some time after it starts. The page stays under the scratch sandbox like every
+appeared, since Python's regex took seconds per gigabyte. A found author never changes, so
+its session id is written into the folder's `meta.json`, marked `generated` like a
+description: the search runs once per folder, not once per daemon restart, which had made
+the first visit after each restart take seconds. A miss is remembered in memory only and
+retried after ten minutes, because agent-history indexes a session some time after it
+starts. The page stays under the scratch sandbox like every
 other `/scratch/` response: one policy for the whole prefix is easier to trust than an
 exception for one path. That costs it the app's saved theme (no `localStorage` in an
 opaque origin), so it follows the system's, and it inlines the app's colour tokens rather
