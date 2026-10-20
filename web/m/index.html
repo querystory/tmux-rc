@@ -125,6 +125,7 @@
     </header>
     <!-- Outside the header, which a phone's pane hides, so the status is still read out there. -->
     <span id="connection" role="status">Connecting</span>
+    <span id="copied" role="status"></span><!-- copyHere's word to a screen reader; its check is aria-hidden -->
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
     <!-- Wide screens: #sessions is the sidebar. app.js moves the header's brand and buttons
