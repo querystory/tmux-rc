@@ -58,10 +58,10 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 /* The status is a dot (the word stays in the node, still read out): on the wide sidebar's
    logo, on a phone's ☰, and in a pane, where there is no ☰, on its Back. */
 #app > #connection { position: absolute; opacity: 0; pointer-events: none; }
-:is(#sb-head #brand, #menu-open, #back) { position: relative; }
-:is(#sb-head #brand, #menu-open, #back)::before { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
-#app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back)::before { background: var(--accent); }
-:is(#menu-open, #back)::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
+:is(#sb-head #brand, #menu-open, #back, #dash-page [data-key="page-back"]) { position: relative; }
+:is(#sb-head #brand, #menu-open, #back, #dash-page [data-key="page-back"])::before { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+#app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back, #dash-page [data-key="page-back"])::before { background: var(--accent); }
+:is(#menu-open, #back, #dash-page [data-key="page-back"])::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
@@ -492,7 +492,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
     column-gap: 0;
   }
   #app.rail     { grid-template-columns: 60px minmax(0, 1fr); }
-  .app-header, #pane-list { display: none; }
+  .app-header, #pane-list, #dash-page [data-key="page-back"]::before { display: none; }
   #update-notice{ grid-column: 2; grid-row: 1; }
   #notice       { grid-column: 2; grid-row: 2; }
   #sessions     { grid-column: 1; grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); --card: var(--surface); display: flex; flex-direction: column; overflow: hidden; position: relative; z-index: 4; } /* its menus and hover card overlay the main column's sticky panels */
@@ -938,6 +938,13 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 @media (max-width: 1099px) {
   #landing { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   #landing .landing-inner { padding: 20px 16px; }
+  /* A view of its own heads the screen, as a pane does: the app's header goes and the view's
+     head is the bar, under the safe area: Back (with the status dot the ☰ had), the app's
+     icon, the view's title, and the filter where the view follows it (app.js placePill). */
+  #app:has(#dash-page:not([hidden]) .landing-head) > .app-header { display: none; }
+  #landing #dash-page { padding-top: 0; }
+  #dash-page .landing-head { position: sticky; top: 0; z-index: 4; flex: none; box-sizing: border-box; min-height: 60px; margin: 0 -16px 12px; padding: 8px 16px; gap: 8px; border-bottom: 1px solid var(--line); background: var(--bg); }
+  #dash-page .landing-head h2 { flex: 1; min-width: 0; margin: 0; padding-left: 32px; background: url(/icon.svg) left center / 24px no-repeat; font-size: 18px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #landing .atlas-panel { padding: 16px; }
   #landing .atlas-panel > .atlas-panel-heading:first-child { margin-top: -8px; } /* less pull: a phone wraps the controls off the title's line */
   .sb-only { display: none !important; }
@@ -1244,7 +1251,7 @@ button.picked:disabled { opacity: 1; }
   #find .search { flex: 1; min-width: 0; margin: 0; padding: 0 0 0 4px; background: none; box-shadow: none; }
   #find + .acct-pill { display: none; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
-  .app-header #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
+  :is(.app-header, .landing-head) #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
   #heading { flex-wrap: wrap; gap: 0; padding: 4px 4px 8px 16px; }
   #heading .pane-heading-text { order: 1; flex-basis: 100%; }
   #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
@@ -1408,11 +1415,11 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 @media (max-width: 1099.98px) { .app-header > #settings-open { display: none; } }
 /* Scratch's gallery fills its page from under the header to the screen's foot, a phone's tab bar
    floating over it (scratch.html leaves room under the last card): the page keeps the side
-   gutters (a phone's edge swipe starts in the left one), the gallery its top and foot. A phone
-   drops the page head; Back is that swipe, or ☰. */
+   gutters (a phone's edge swipe starts in the left one), the gallery its top and foot. A phone's
+   page head is its bar (above). */
 #dash-page:has(> .scratch-frame) { display: flex; flex-direction: column; height: 100%; padding-block: 0; }
-#dash-page:has(> .scratch-frame) .landing-head { padding-top: 24px; }
-@media (max-width: 1099px) { #dash-page:has(> .scratch-frame) .landing-head { display: none; } #landing:has(> #dash-page > .scratch-frame) { padding-bottom: 0; } }
+@media (min-width: 1100px) { #dash-page:has(> .scratch-frame) .landing-head { padding-top: 24px; } }
+@media (max-width: 1099px) { #landing:has(> #dash-page > .scratch-frame) { padding-bottom: 0; } }
 /* A spinner behind the frame until the gallery paints over it (a frame reloads on every visit). */
 .scratch-frame { display: block; flex: 1; min-height: 0; width: 100%; border: 0;
   background: center 96px / 28px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%238a948f' stroke-width='2.5' stroke-dasharray='42 15'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.8s' repeatCount='indefinite'/%3E%3C/circle%3E%3C/svg%3E"); }

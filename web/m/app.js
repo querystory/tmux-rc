@@ -497,10 +497,11 @@ function renderPhoneList(subset) {
 
 // WebKit lays the dashboard out short for a moment when a repaint swaps nodes under its
 // container query (#landing-main), and that clamps the scroll: a phone at the bottom of the
-// page lands near the top on every poll. A repaint keeps the position it found.
+// page lands near the top on every poll. A repaint keeps the position it found, and puts the
+// filter back in a view's head it may have rebuilt (placePill).
 const steady = (paint) => (...args) => {
   const landing = $("landing"), top = landing.scrollTop;
-  try { return paint(...args); } finally { if (landing.scrollTop !== top) landing.scrollTop = top; }
+  try { return paint(...args); } finally { placePill(); if (landing.scrollTop !== top) landing.scrollTop = top; }
 };
 const renderLanding = steady(() => {
   if (page === "restore") { if (!$("dash-page").contains(restore.card)) $("dash-page").replaceChildren(restore.card); return restore.card; }
@@ -2315,11 +2316,14 @@ function placeChrome() {
 // The active filters' chips: under search (a phone's list hides them there: its filter button
 // and the list's foot say it), and on a phone's dashboard (no search there) under its header,
 // so a filter is never on without saying so. There the filter button moves into the header
-// too, beside New window: the dashboard's filter row folds behind it (style.css).
+// too, beside New window: the dashboard's filter row folds behind it (style.css). A card's own
+// view follows the same filters, and on a phone its head is the bar: the button goes there.
 function placePill() {
-  const dash = !WIDE.matches && dashboard, at = dash ? document.querySelector(".app-header") : $("find"), picker = renderSidebar.picker;
+  const head = !WIDE.matches && CARDS[page] && $("dash-page").querySelector(".landing-head"), dash = !WIDE.matches && dashboard;
+  const at = head || (dash ? document.querySelector(".app-header") : $("find")), picker = renderSidebar.picker;
   if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
-  if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
+  if (head) { if (picker.parentElement !== head) head.append(picker); }
+  else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
 }
 // Folded to the rail, the controls move in the DOM to the order they show in (expand, +,
