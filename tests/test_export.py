@@ -398,7 +398,7 @@ def test_a_linked_sign_in_goes_as_its_contents(home):
     out = io.BytesIO()
     export.export(out, ["agents", "secrets"])
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
-        for name in ("agents/.claude-work/.credentials.json",
+        for name in ("agents/.claude/.credentials.json", "agents/.claude-work/.credentials.json",
                      "agents/.claude-hard/.credentials.json"):
             member = tar.getmember(name)
             assert member.isfile() and tar.extractfile(member).read() == b"shared login"
@@ -562,6 +562,7 @@ def test_an_agents_db_goes_as_a_snapshot(home):
     db.execute("INSERT INTO t VALUES (1)")
     db.commit()
     write(old / ".codex/state.sqlite-notes", "kept")
+    write(old / ".codex/other.db-journal", "j")  # another DB's rollback journal
     write(old / ".codex/shell_snapshots/s.sh")
     sock = socket.socket(socket.AF_UNIX)
     sock.bind(str(old / ".codex/s"))  # a socket: skipped, not the export's end
@@ -575,7 +576,7 @@ def test_an_agents_db_goes_as_a_snapshot(home):
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         names = tar.getnames()
         assert "agents/.codex/state.sqlite-notes" in names
-        assert not [n for n in names if n.endswith(("-wal", "-shm", "s.sh", "/s"))]
+        assert not [n for n in names if n.endswith(("-wal", "-shm", "-journal", "s.sh", "/s"))]
         tar.extract("agents/.codex/state.sqlite", old / "out", filter="data")
     with contextlib.closing(sqlite3.connect(old / "out/agents/.codex/state.sqlite")) as copy:
         assert copy.execute("SELECT v FROM t").fetchall() == [(1,)]
@@ -734,12 +735,18 @@ def test_a_login_reached_another_way_stays_a_login(home, monkeypatch):
                         if "secrets" in parts else set())
 
 
-def test_a_login_hard_linked_under_another_name_stays_out(home):
+def test_a_login_hard_linked_under_another_name_stays_out(home, monkeypatch):
+    """Under any other name, a sign-in's name nested deeper or in scratch included."""
     old = home("old")
     write(old / ".claude/login-store.json", "login")
     (old / ".claude/.credentials.json").hardlink_to(old / ".claude/login-store.json")
+    write(old / ".claude/projects/-demo/s1.jsonl")
+    (old / ".claude/projects/-demo/.credentials.json").hardlink_to(old / ".claude/login-store.json")
+    write(old / "pages/demo/index.html")
+    (old / "pages/auth.json").hardlink_to(old / ".claude/login-store.json")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old / "pages"))
     out = io.BytesIO()
-    export.export(out, ["agents"])
+    export.export(out, ["agents", "scratch"])
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         assert not [m for m in tar if m.isfile() and tar.extractfile(m).read() == b"login"]
 

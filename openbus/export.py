@@ -131,14 +131,15 @@ def _entries(parts=PARTS):
     owner = _owners([(where[n], n) for n in ("scratch", "accounts.json", *SECRETS)] + [
         (d, f"agents/{d.name}" if d.parent == home else None) for d in _agent_dirs()] + [
         (logins[0], "agents/.claude.json")] + [  # a login, and a file one links to
-        (p.resolve(), str(p)) for p in logins[1:] if p.is_symlink()] + [
+        (p.resolve(), str(p)) for p in logins[1:] if p.is_symlink()  # not another login
+        and p.resolve() not in {q.resolve() for q in logins if not q.is_symlink()}] + [
         (b.with_name(b.name + s), None) for b in (db, db.resolve())  # snapshotted
         for s in ("", "-wal", "-shm")])
     inodes = {_inode(p) for p in logins} - {None}  # a login's other names: the login's too
     for part, name, at in _roots():
         root = at.resolve()  # a linked root: what it links to
         if part not in parts or not os.path.lexists(at) or ".pre-import-" in at.name \
-                or not _own(name, root, owner) or _aliases(name, root, inodes) \
+                or not _own(name, root, owner) or _aliases(_part(part, name), root, inodes) \
                 or (name.startswith("data/") and _within(at, owner)):
             continue
         yield _part(part, name), name, root
@@ -146,12 +147,12 @@ def _entries(parts=PARTS):
             top, kept = here == str(root), []
             for child in sorted(dirs + files):
                 path = Path(here, child)
-                if (part == "agents" and top and child in CACHES) or ".pre-import-" in child \
-                        or not _own(name, path, owner) or _aliases(child, path, inodes):
-                    continue
-                kept.append(child)
                 arc = f"{name}/{path.relative_to(root)}"
                 kind = _part(part, arc)  # a linked sign-in goes as what it links to
+                if (part == "agents" and top and child in CACHES) or ".pre-import-" in child \
+                        or not _own(name, path, owner) or _aliases(kind, path, inodes):
+                    continue
+                kept.append(child)
                 yield kind, arc, path.resolve() if kind != part else path
             dirs[:] = [d for d in dirs if d in kept]
 
@@ -172,9 +173,10 @@ def _inode(path: Path):
     return None
 
 
-def _aliases(name: str, path: Path, inodes: set) -> bool:
-    """Whether `path` is a login's file under another name: a hard link to it."""
-    return Path(name).name not in IDENTITY and path.is_file() and _inode(path) in inodes
+def _aliases(kind: str, path: Path, inodes: set) -> bool:
+    """Whether `path`, going as part `kind`, is a login's file under a name that is no
+    agent's sign-in: a hard link to it."""
+    return kind != "secrets" and path.is_file() and _inode(path) in inodes
 
 
 def _db() -> Path:
@@ -213,8 +215,9 @@ def _is_db(path: Path) -> bool:
 
 
 def _sidecar(name: str) -> bool:
-    """A DB's WAL or SHM: its snapshot holds them."""
-    return name.endswith(("-wal", "-shm")) and Path(name[:-4]).suffix in DBS
+    """A DB's WAL, SHM or rollback journal: its snapshot holds what they do."""
+    base, _, tail = name.rpartition("-")
+    return tail in ("wal", "shm", "journal") and Path(base).suffix in DBS
 
 
 def _pages(db: Path) -> int:
