@@ -732,3 +732,40 @@ def test_a_login_reached_another_way_stays_a_login(home, monkeypatch):
                     and tar.extractfile(m).read() in (b"who", b"login")}
         assert held == ({"agents/.claude.json", "agents/.claude/.credentials.json"}
                         if "secrets" in parts else set())
+
+
+def test_a_login_hard_linked_under_another_name_stays_out(home):
+    old = home("old")
+    write(old / ".claude/login-store.json", "login")
+    (old / ".claude/.credentials.json").hardlink_to(old / ".claude/login-store.json")
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        assert not [m for m in tar if m.isfile() and tar.extractfile(m).read() == b"login"]
+
+
+@pytest.mark.parametrize("place", [".config/tmux-rc", ".claude"])
+def test_scratch_here_at_a_more_private_place_is_refused(home, monkeypatch, place):
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["scratch"])
+    new = home("new")
+    write(new / place / "keep.txt")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(new / place))
+    with pytest.raises(SystemExit, match="not its own"):
+        export.restore(io.BytesIO(out.getvalue()))
+    assert (new / place / "keep.txt").exists()
+
+
+def test_the_checkout_dotenv_wins_over_the_config_dirs(home, monkeypatch, tmp_path):
+    source(home)
+    write(tmp_path / "none", "FROM=checkout")  # the fixture's .env: a checkout's
+    write(Path.home() / ".config/tmux-rc/.env", "FROM=config")
+    out = io.BytesIO()
+    export.export(out, ["secrets"])
+    new = home("new")
+    places = export.places
+    monkeypatch.setattr(export, "places", lambda: {
+        **places(), ".env": Path.home() / ".config/tmux-rc/.env"})  # no checkout .env here
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".config/tmux-rc/.env").read_text() == "FROM=checkout"

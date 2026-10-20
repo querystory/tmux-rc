@@ -126,21 +126,20 @@ def _entries(parts=PARTS):
     (scratch, the account store, credentials, an agent dir) only as its own root, wherever
     it nests, nor the data dir's contents inside one. No import's backup, and a part not
     chosen is not walked."""
-    where, home, at = places(), Path.home(), history.default_path()
-    named = [(where[n], n) for n in ("scratch", "accounts.json", *SECRETS)] + [
+    where, home, db = places(), Path.home(), history.default_path()
+    logins = [home / ".claude.json", *(d / n for d in _agent_dirs() for n in IDENTITY)]
+    owner = _owners([(where[n], n) for n in ("scratch", "accounts.json", *SECRETS)] + [
         (d, f"agents/{d.name}" if d.parent == home else None) for d in _agent_dirs()] + [
-        (home / ".claude.json", "agents/.claude.json")] + [  # a login, and a file one links to
-        (p.resolve(), str(p)) for p in (d / n for d in _agent_dirs() for n in IDENTITY)
-        if p.is_symlink()]
-    owner = {p.with_name(p.name + s): {None} for s in ("", "-wal", "-shm")  # snapshotted,
-             for p in (Path(os.path.abspath(at)), _spot(at), at.resolve())}  # however named
-    for at, n in named:  # a link, and its target: two names may share it (~/.claude linked)
-        for p in (Path(os.path.abspath(at)), _spot(at), at.resolve()):
-            owner.setdefault(p, set()).add(n)
+        (logins[0], "agents/.claude.json")] + [  # a login, and a file one links to
+        (p.resolve(), str(p)) for p in logins[1:] if p.is_symlink()] + [
+        (b.with_name(b.name + s), None) for b in (db, db.resolve())  # snapshotted
+        for s in ("", "-wal", "-shm")])
+    inodes = {_inode(p) for p in logins} - {None}  # a login's other names: the login's too
     for part, name, at in _roots():
         root = at.resolve()  # a linked root: what it links to
         if part not in parts or not os.path.lexists(at) or ".pre-import-" in at.name \
-                or not _own(name, root, owner) or (name.startswith("data/") and _within(at, owner)):
+                or not _own(name, root, owner) or _aliases(name, root, inodes) \
+                or (name.startswith("data/") and _within(at, owner)):
             continue
         yield _part(part, name), name, root
         for here, dirs, files in os.walk(root, onerror=_missing) if root.is_dir() else ():
@@ -148,13 +147,34 @@ def _entries(parts=PARTS):
             for child in sorted(dirs + files):
                 path = Path(here, child)
                 if (part == "agents" and top and child in CACHES) or ".pre-import-" in child \
-                        or not _own(name, path, owner):
+                        or not _own(name, path, owner) or _aliases(child, path, inodes):
                     continue
                 kept.append(child)
                 arc = f"{name}/{path.relative_to(root)}"
                 kind = _part(part, arc)  # a linked sign-in goes as what it links to
                 yield kind, arc, path.resolve() if kind != part else path
             dirs[:] = [d for d in dirs if d in kept]
+
+
+def _owners(named) -> dict[Path, set]:
+    """Each path a place is reached by (as named, through linked dirs, itself resolved) ->
+    the names that hold it: a link, and its target, may share one (~/.claude linked)."""
+    owner = {}
+    for at, n in named:
+        for p in (Path(os.path.abspath(at)), _spot(Path(at)), Path(at).resolve()):
+            owner.setdefault(p, set()).add(n)
+    return owner
+
+
+def _inode(path: Path):
+    with contextlib.suppress(OSError):
+        return (s := path.stat()).st_dev, s.st_ino
+    return None
+
+
+def _aliases(name: str, path: Path, inodes: set) -> bool:
+    """Whether `path` is a login's file under another name: a hard link to it."""
+    return Path(name).name not in IDENTITY and path.is_file() and _inode(path) in inodes
 
 
 def _db() -> Path:
@@ -326,11 +346,12 @@ def _swap(src: Path, dst: Path, stamp: str, done: list, sidecars=("",), keep=())
             (dst / rel).parent.chmod((dst / rel).parent.stat().st_mode & mode & 0o7777)
 
 
-def _displaces(child: Path, dst: Path, name: str, at: Path) -> bool:
+def _displaces(child: Path, dst: Path, name: str, at: Path, owner: dict) -> bool:
     """Whether staged `child`, swapped in at `dst`, would replace place `at`, not its own:
     holds something there, or a file or link on the way to it, here yet or not. A swap's
-    root is its own place, but a data part owns none."""
-    if not at.is_relative_to(dst) or (at == dst and not name.startswith("data/")):
+    root is its own place if `owner` says so: a data part owns none, and a place two parts
+    share is the more private one's."""
+    if not at.is_relative_to(dst) or (at == dst and _own(name, at, owner)):
         return False
     spot = child / at.relative_to(dst)
     return any(os.path.lexists(q) and (q == spot or q.is_symlink() or not q.is_dir())
@@ -394,6 +415,8 @@ def restore(src) -> list[str]:
                             "SELECT server, payload FROM layout_snapshots")])
         if (stage / ".env").is_file():
             (stage / ".env").chmod(0o600)  # keys: whatever dir here it lands in
+            if Path(where[".env"]).parent == Path(where["config"]):  # the checkout's won
+                (stage / "config/.env").unlink(missing_ok=True)  # there, and wins here
         if (store := stage / "accounts.json").exists():
             store.write_text(_rehome(store.read_text(), old, home))
         env = dotenv_values(stage / ".env") if (stage / ".env").is_file() else {}
@@ -408,10 +431,11 @@ def restore(src) -> list[str]:
                 raise SystemExit(f"This archive would replace {home}/{d.name}, no agent's dir "
                                  "here: add it as an account first.")
         db = where["history.sqlite3"]
-        keep = sorted({q for p in (*where.values(), *_agent_dirs(), *(
-            b.with_name(b.name + s) for b in (db, db.resolve()) for s in ("-wal", "-shm")))
-            for q in (Path(os.path.abspath(p)), _spot(Path(p)), Path(p).resolve())},
-                  key=lambda p: len(p.parts))
+        owner = _owners([(p, n) for n, p in where.items()] + [
+            (d, f"agents/{d.name}" if d.parent == Path(home) else None) for d in _agent_dirs()]
+            + [(b.with_name(b.name + s), "history.sqlite3") for b in (db, db.resolve())
+               for s in ("-wal", "-shm")])
+        keep = sorted(owner, key=lambda p: len(p.parts))
         # as named, through linked dirs, and itself resolved: a place nests in a swap however
         # it is reached; outermost first: a dir kept carries what is kept inside it
         if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
@@ -432,7 +456,7 @@ def restore(src) -> list[str]:
             if name.startswith("data/") and (inside := _within(dst, keep)):  # nor lands inside one
                 raise SystemExit(f"This archive's {name} would land in {inside.pop()}.")
             for at in keep:  # and one nested in another's swap must have a dir path to stay in
-                if _displaces(child, dst, name, at):
+                if _displaces(child, dst, name, at, owner):
                     raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
                 if any(_through_link(child, root, at) for root in {path, dst}):
                     raise SystemExit(f"This archive's {name} would replace a link on the way "
