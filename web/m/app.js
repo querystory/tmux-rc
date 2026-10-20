@@ -511,7 +511,7 @@ const renderLanding = steady(() => {
   if (page === "usage") return paintUsage();
   if (page === "scratch") return scratchPage();
   if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
-  if (page === "graph") return renderGraphView(cardView("Fleet graph", graphView), panes, graphCtx);
+  if (page === "graph") return renderGraphView(cardView("Fleet graph", graphView), panes.filter(accounts.matches), graphCtx); // the account filter scopes it, as the atlas
   paintUsage(); // follows the tool chips
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
   // only for the loading and empty states, and hides itself when blank (style.css).
@@ -527,7 +527,7 @@ const renderLanding = steady(() => {
     $("sessions").scrollTop = $("sb-scroll").scrollTop = $("side-list").scrollTop = 0;
   }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge);
   renderLoopsCard($("loops-card"), accounts.loops(loops), openLane, licon);
-  renderGraphCard($("graph-card"), panes, graphCtx);
+  renderGraphCard($("graph-card"), panes.filter(accounts.matches), graphCtx);
 });
 
 // Drag the seam between the sidebar and the main column. Width is a CSS variable the

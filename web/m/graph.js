@@ -317,7 +317,7 @@ export function fleetGraph(box, mini, ctx) {
   };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   cv.addEventListener('pointerleave', () => { if (hover && !pts.size) { hover = null; draw(); } });
-  cv.addEventListener('wheel', e => { e.preventDefault(); const at = pos(e); zoomAt(at.x, at.y, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))); }, { passive: false });
+  cv.addEventListener('wheel', e => { e.preventDefault(); const at = pos(e); zoomAt(at.x, at.y, Math.exp(-e.deltaY * [1, 16, H][e.deltaMode] * (e.ctrlKey ? 0.01 : 0.0015))); }, { passive: false }); // deltaY in px, ~16px lines, or pages
   // A drag on the graph pans it: not the app's edge swipe back (app.js), which listens on window.
   for (const t of ['touchstart', 'touchend']) box.addEventListener(t, e => e.stopPropagation());
 
@@ -359,7 +359,7 @@ export function fleetGraph(box, mini, ctx) {
     const p = n.p, s = stateOf(p), w = p.worktree, subs = subagentCount(p), src = ctx.logos[p.tool];
     popover(`${head(src ? `<img class="fg-logo" src="${esc(src)}" alt="">` : '', paneName(p))}${stLine(s, p.session)}
       ${dl([['Model', p.model], ['Account', ctx.owner(p.pane_id)?.name], ['Tokens', p.working?.tokens], ['Agents', subs ? `${subs} running` : ''],
-        ['Now', paneHeadline(p)], ['Time', busy(s) ? p.working?.elapsed || (since(p) && `for ${since(p)}`) : since(p) && `idle ${since(p)}`],
+        ['Now', paneHeadline(p)], ['Time', (busy(s) && p.working?.elapsed) || (since(p) && `${s === 2 ? 'idle' : 'for'} ${since(p)}`)],
         ['Where', `${home(p.cwd || '')}${w?.branch ? ` @ ${w.branch}` : ''}`]])}${openBtn}`, at, n);
   }
   return api;
