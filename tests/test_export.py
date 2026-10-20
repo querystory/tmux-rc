@@ -365,3 +365,32 @@ def test_running_agents_are_warned_about(home, monkeypatch, capsys):
     monkeypatch.setattr(export, "_agents_running", lambda: ["claude"])
     export.restore(io.BytesIO(out.getvalue()))
     assert "claude running here" in capsys.readouterr().err
+
+
+def test_a_linked_data_dir_keeps_its_scratch(home, monkeypatch):
+    """Here the data dir links elsewhere and scratch sits inside it: an import of data
+    without scratch keeps this host's pages."""
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    (new / ".local/share").mkdir(parents=True)
+    (new / ".local/share/tmux-rc").symlink_to(new / "store")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(new / "store/previews/pages"))
+    write(new / "store/previews/pages/mine/index.html")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / "store/previews/other.txt").exists()
+    assert (new / "store/previews/pages/mine/index.html").exists()
+
+
+def test_a_linked_sign_in_goes_as_its_contents(home):
+    old = home("old")
+    write(old / ".claude/.credentials.json", "shared login")
+    write(old / ".claude-work/CLAUDE.md")
+    (old / ".claude-work/.credentials.json").symlink_to(old / ".claude/.credentials.json")
+    out = io.BytesIO()
+    export.export(out, ["agents", "secrets"])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        member = tar.getmember("agents/.claude-work/.credentials.json")
+        assert member.isfile() and tar.extractfile(member).read() == b"shared login"

@@ -102,6 +102,12 @@ def _within(at: Path, places) -> set[Path]:
     return {*Path(os.path.abspath(at)).parents, *at.resolve().parents} & {*places}
 
 
+def _spot(p: Path) -> Path:
+    """Where `p` is, through any linked dir above it, so places compare as one; but not
+    through `p` itself: a swap replaces a link rather than follow it."""
+    return p.parent.resolve() / p.name
+
+
 def _missing(error: OSError) -> None:
     """os.walk's error: a dir gone since its listing is skipped; any other ends the export,
     which would otherwise end whole but short."""
@@ -138,7 +144,8 @@ def _entries(parts=PARTS):
                     continue
                 kept.append(child)
                 arc = f"{name}/{path.relative_to(root)}"
-                yield _part(part, arc), arc, path
+                kind = _part(part, arc)  # a linked sign-in goes as what it links to
+                yield kind, arc, path.resolve() if kind != part else path
             dirs[:] = [d for d in dirs if d in kept]
 
 
@@ -337,16 +344,16 @@ def restore(src) -> list[str]:
         db = where["history.sqlite3"]
         keep = sorted({q for p in (*where.values(), *_agent_dirs(), *(
             db.with_name(db.name + s) for s in ("-wal", "-shm")))
-            for q in (Path(os.path.abspath(p)), Path(p).resolve())}, key=lambda p: len(p.parts))
+            for q in (_spot(Path(p)), Path(p).resolve())}, key=lambda p: len(p.parts))
         # a link and its target; outermost first: a dir kept carries what is kept inside it
         if not (stage / "agents/.claude/.credentials.json").exists():  # who ~/.claude's login is
             (stage / "agents/.claude.json").unlink(missing_ok=True)  # stays with that login
         moves = []  # (staged, destination, archive name)
         for item in sorted(stage.iterdir()):
             parent = {"data": _data(), "agents": Path(home)}.get(item.name)
-            moves += [(child, Path(os.path.abspath(parent / child.name)),
+            moves += [(child, _spot(parent / child.name),
                        f"{item.name}/{child.name}") for child in sorted(item.iterdir())
-                      ] if parent else [(item, Path(os.path.abspath(where[item.name])),
+                      ] if parent else [(item, _spot(Path(where[item.name])),
                                          item.name)] if item.name in where else []
         if len({dst for _, dst, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
             raise SystemExit("Two of this archive's parts would land at one place here.")
