@@ -9,11 +9,13 @@ a description) and is never searched for again; a miss is retried after a while,
 agent-history indexes a session only some time after it starts."""
 
 import json
+import logging
 import os
 import re
 import subprocess
 import threading
 import time
+from collections import defaultdict
 from datetime import datetime
 from html import escape, unescape
 from itertools import islice
@@ -22,6 +24,7 @@ from urllib.parse import quote
 
 from . import agent_history, scratch_markdown, tmux
 
+logger = logging.getLogger(__name__)
 _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 # How an agent names the folder: the served URL, the usual dir, or one of the variables.
 # The whole path component, so "mock" never takes "mock+draft"'s author, up to what
@@ -43,8 +46,8 @@ SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src '
 def inside(path: Path, root: Path) -> bool:
     """The file is really in this folder of scratch, not a symlink out of it."""
     try:  # a plain entry of the folder needs no resolving (most calls: hot in the gallery)
-        return ((path.parent == root and not path.is_symlink())
-                or path.resolve().is_relative_to(root.resolve()))
+        return ((path.parent == root and path.name not in ("", ".", "..")
+                 and not path.is_symlink()) or path.resolve().is_relative_to(root.resolve()))
     except (OSError, RuntimeError):  # 3.12 raises RuntimeError for a symlink loop
         return False
 
@@ -68,20 +71,28 @@ def _when(stamp: str | None) -> float | None:
         return None
 
 
-def _files(root: Path, folders: list[Path]) -> dict[str, list[tuple[float, str]]]:
-    """{name: [(mtime, path)]} of every file under these folders of scratch, never
-    descending into a hidden directory (.git) nor following a directory link, and a file
-    link only to a file still in its folder. One `find` for them all: walked in Python,
-    each stat waited on the GIL behind the daemon's threads, ten times slower."""
-    out: dict[str, list[tuple[float, str]]] = {f.name: [] for f in folders}
-    listed = folders and subprocess.run(
-        ["find", *map(str, folders), "-mindepth", "1", "-name", ".*", "-prune", "-o", "(",
-         "-type", "f", "-o", "-type", "l", ")", "-printf", r"%y %T@ %p\0"],
-        capture_output=True, check=False).stdout
+def _files(root: Path, top: Path) -> dict[str, list[tuple[float, str]]]:
+    """{name: [(mtime, path)]} of every file in the folders of scratch under `top` (scratch
+    or one folder), never descending into a hidden directory (.git) nor following a
+    directory link, and a file link only to a file still in its folder. One `find` for
+    them all: walked in Python, each stat waited on the GIL behind the daemon's threads,
+    ten times slower. Its exit status is not checked: a file deleted mid-walk fails it,
+    and what it listed is still right."""
+    out: dict[str, list[tuple[float, str]]] = defaultdict(list)
+    try:
+        listed = subprocess.run(
+            ["find", str(top), "-mindepth", "1", "-name", ".*", "-prune", "-o", "(",
+             "-type", "f", "-o", "-type", "l", ")", "-printf", r"%y %T@ %p\0"],
+            capture_output=True, check=False).stdout
+    except OSError as e:  # no find: an empty gallery, not a 500
+        logger.warning("scratch: cannot list %s: %s", top, e)
+        listed = b""
     start = len(str(root)) + 1  # strings, not Paths: thousands of them, under the GIL too
-    for row in (listed or b"").split(b"\0")[:-1]:
+    for row in listed.split(b"\0")[:-1]:
         kind, at, path = os.fsdecode(row).split(" ", 2)
-        name = path[start:].split("/", 1)[0]
+        name, sub, _ = path[start:].partition("/")
+        if not sub:  # a loose file of scratch, or a folder link, which find never enters
+            continue
         if kind == "f" or (inside(Path(path), root / name) and os.path.isfile(path)):
             out[name].append((float(at), path))
     return out
@@ -109,7 +120,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
         title = m and unescape(m.group(1)).strip()
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
-            "session_id": meta.get("session"), "folder": folder,
+            "session_id": meta.get("agent_session"), "folder": folder,
             "href": quote(page.relative_to(root).as_posix() if page != index
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
@@ -123,7 +134,7 @@ def _listed(root: Path, folder: Path, files: list | None = None) -> dict | None:
     which leaves it out, not the whole gallery)."""
     try:
         if not (folder.name.startswith(".") or folder.is_symlink()) and folder.is_dir():
-            return _item(root, folder, _files(root, [folder])[folder.name]
+            return _item(root, folder, _files(root, folder)[folder.name]
                          if files is None else files)
     except OSError:
         pass
@@ -132,9 +143,8 @@ def _listed(root: Path, folder: Path, files: list | None = None) -> dict | None:
 
 def items(root: Path) -> list[dict]:
     """Every folder of scratch, most recently updated first."""
-    folders = [f for f in root.iterdir() if not f.name.startswith(".")]
-    files = _files(root, folders)
-    return sorted(filter(None, (_listed(root, f, files[f.name]) for f in folders)),
+    files = _files(root, root)
+    return sorted(filter(None, (_listed(root, f, files[f.name]) for f in root.iterdir())),
                   key=lambda i: -i["updated"])
 
 
@@ -161,7 +171,8 @@ def _writers(todo: list[dict]) -> None:
             if hit := hits.get(i["name"]):
                 i["session_id"] = hit["session_id"]
                 _found[keys[i["name"]]] = i["session_id"]
-                annotate(i["folder"] / "meta.json", i["folder"].parent, "session", i["session_id"],
+                annotate(i["folder"] / "meta.json", i["folder"].parent, "agent_session",
+                         i["session_id"],
                          i["inode"])  # not into a folder rebuilt during the search
             elif i["name"] in due:
                 _missed[keys[i["name"]]] = now
@@ -187,13 +198,21 @@ def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> 
         with _META:
             if inode and meta.parent.stat().st_ino != inode:
                 return False
-            current = None if meta.is_symlink() else {} if not meta.exists() else json.loads(
+            fresh = not os.path.lexists(meta)
+            current = {} if fresh else None if meta.is_symlink() else json.loads(
                 meta.read_text())
             if not isinstance(current, dict) or str(current.get(field) or "").strip():
                 return False
             made = current.get("generated") if isinstance(current.get("generated"), list) else []
-            data = {**current, field: value, "generated": [*made, field]}
-            replace(meta, root, lambda tmp: tmp.write_text(json.dumps(data, indent=1) + "\n"))
+            data = {**current, field: value, "generated": [*dict.fromkeys([*made, field])]}
+            text = json.dumps(data, indent=1) + "\n"
+            if not fresh:
+                replace(meta, root, lambda tmp: tmp.write_text(text))
+            elif not inside(meta.parent, root):
+                return False
+            else:  # created exclusively: an agent writing it meanwhile is not overwritten
+                with meta.open("x") as f:
+                    f.write(text)
     except (OSError, ValueError):
         return False
     return True
