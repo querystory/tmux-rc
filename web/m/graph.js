@@ -68,7 +68,7 @@ export function fleetGraph(box, mini, ctx) {
         const [id, seg] = Array.isArray(part) ? part : [part, part];
         key += `/${id}`;
         let g = groups.get(key);
-        if (!g) { g = Object.assign(node(key, () => ({ kind: 'group', label: seg, depth: d + 1, r: d ? 11 : 16 })), { children: [], panes: [], up }); groups.set(key, g); up.children.push(g); nodes.push(g); }
+        if (!g) { g = Object.assign(node(key, () => ({ kind: 'group', depth: d + 1, r: d ? 11 : 16 })), { label: seg, children: [], panes: [], up }); groups.set(key, g); up.children.push(g); nodes.push(g); }
         g.panes.push(p); up = g;
       });
       const pn = paneNode(p);
@@ -259,7 +259,9 @@ export function fleetGraph(box, mini, ctx) {
   };
 
   // ---- pan, pinch, wheel, hover, tap ----
-  function zoomAt(x, y, f) { touched = true; const k = Math.max(0.15, Math.min(4, view.k * f)); view.x = x - (x - view.x) * k / view.k; view.y = y - (y - view.y) * k / view.k; view.k = k; anim = null; draw(); }
+  function zoomAt(x, y, f) { touched = true; land(); const k = Math.max(0.15, Math.min(4, view.k * f)); view.x = x - (x - view.x) * k / view.k; view.y = y - (y - view.y) * k / view.k; view.k = k; draw(); }
+  // The user takes the camera mid-glide: the nodes land where they were going, the view stays put.
+  function land() { if (!anim) return; anim = null; model.nodes.forEach(n => Object.assign(n, { x: n.tx, y: n.ty, alpha: 1, fresh: false })); }
   const world = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
   function hit(x, y) {
     const w = world(x, y), slop = n => Math.max(rad(n), (phone() ? 18 : 10) / view.k);
@@ -271,7 +273,7 @@ export function fleetGraph(box, mini, ctx) {
   let start = null, pinch = null, moved = false;
   const pos = e => { const b = cv.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
   cv.addEventListener('pointerdown', e => {
-    cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, pos(e)); moved = false; anim = null;
+    cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, pos(e)); moved = false; land();
     const [p, q] = [...pts.values()];
     start = { ...p, vx: view.x, vy: view.y };
     pinch = q && { d: Math.hypot(p.x - q.x, p.y - q.y), k: view.k, mx: (p.x + q.x) / 2, my: (p.y + q.y) / 2, vx: view.x, vy: view.y };
@@ -348,7 +350,7 @@ export function renderGraphView(root, panes, ctx) {
     box.append(tools, root._legend);
     root.append(lenses, root._stats, box);
     const paint = root._paint = () => {
-      const lens = g.lens(), list = root._panes, counts = [0, 0, 0, 0, 0, 0], subs = list.reduce((t, p) => t + subsOf(p), 0);
+      const lens = g.lens(), list = root._panes, counts = [0, 0, 0, 0, 0, 0], subs = list.reduce((t, p) => t + (agent(p) ? subagentCount(p) : 0), 0); // all of them, where the canvas draws MAX_SUBS
       list.forEach(p => counts[stateOf(p)]++);
       root._stats.innerHTML = `<span><b>${new Set(list.map(p => p.session)).size}</b> sessions · <b>${list.length}</b> panes${subs ? ` · <b>${subs}</b> sub-agents` : ''}</span>`
         + [1, 0, 4, 5].filter(i => counts[i]).map(i => `<span class="fg-st"><i style="background:var(--chart-s${i})"></i><b>${counts[i]}</b> ${STATES[i].toLowerCase()}</span>`).join('');
