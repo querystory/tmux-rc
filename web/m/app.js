@@ -68,6 +68,7 @@ const LUCIDE = {
   bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
@@ -411,7 +412,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText,
+  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
@@ -1006,16 +1007,29 @@ function render() {
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
+// Every link chip: a real <a>, so a long press offers the system's own link menu, and a Copy
+// link button beside it, so a link (a sign-in, say) can be opened in another browser even
+// where that menu is missing (a home-screen app).
+function linkPair(href) {
+  const pair = document.createElement("span"), anchor = document.createElement("a"), copy = document.createElement("button");
+  pair.className = "link-pair";
+  Object.assign(anchor, { href, target: "_blank", rel: "noopener noreferrer" });
+  Object.assign(copy, { type: "button", className: "icon-button link-copy", title: "Copy link", innerHTML: licon("copy", 16) });
+  copy.setAttribute("aria-label", "Copy link");
+  copy.onclick = (event) => { event.stopPropagation(); copyText(href); };
+  pair.append(anchor, copy);
+  return pair;
+}
+
 // One tappable link row: the Links list's, and the one leading a question's card.
 function renderLinks(el, links) {
-  reconcile(el, links, (link) => link.href, () => {
-    const anchor = document.createElement("a");
-    anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
-    anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
-    return anchor;
-  }, (anchor, link) => {
+  reconcile(el, links, (link) => link.href, (link) => {
+    const pair = linkPair(link.href);
+    pair.firstChild.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
+    return pair;
+  }, (pair, link) => {
+    const anchor = pair.firstChild;
     const host = new URL(link.href).host;
-    anchor.href = link.href;
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
     text(anchor.querySelector("small"), link.detail || host);
   });
@@ -1064,8 +1078,16 @@ function renderTasks(pane) {
   }, (node, value) => { node._value = value.text; text(node.querySelector("strong"), value.label); text(node.querySelector("pre"), value.text); });
 }
 async function copyText(value) {
-  try { await navigator.clipboard.writeText(value); notice("Copied to clipboard."); }
-  catch { notice("Could not copy. Select the text to copy it."); }
+  try { await navigator.clipboard.writeText(value); }
+  catch { // no Clipboard API (a plain-http origin) or no permission: the old select-and-copy
+    const area = Object.assign(document.createElement("textarea"), { value, readOnly: true });
+    area.style.cssText = "position: fixed; opacity: 0";
+    document.body.append(area); area.select();
+    const copied = document.execCommand("copy");
+    area.remove();
+    if (!copied) return notice("Could not copy. Select the text to copy it.");
+  }
+  notice("Copied to clipboard.");
 }
 
 // One line per task or sub-agent: the pane overview's lists, and the sidebar's agent rows.
