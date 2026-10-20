@@ -1451,8 +1451,8 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-key span { display: inline-flex; align-items: center; gap: 5px; }
 .fg-key .fg-warn-key { border: 2px dashed var(--amber); box-sizing: border-box; }
 @media (max-width: 699px) { .fg-legend { display: none; } } /* the counts above key the colours */
-.fg-pop { position: absolute; z-index: 3; width: 280px; padding: 12px 14px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 32px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; box-sizing: border-box; }
-.fg-pop.sheet { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 75%; overflow: auto; }
+.fg-pop { position: absolute; z-index: 3; width: 280px; padding: 12px 14px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 32px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; box-sizing: border-box; max-height: calc(100% - 16px); overflow: auto; }
+.fg-pop.sheet { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 75%; }
 .fg-pop-head { display: flex; align-items: center; gap: 8px; }
 .fg-pop-head b { flex: 1; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fg-pop .fg-x { width: 28px; height: 28px; min-height: 28px; padding: 0; display: grid; place-items: center; border: 0; background: none; color: var(--muted); }

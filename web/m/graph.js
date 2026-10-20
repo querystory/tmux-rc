@@ -128,6 +128,7 @@ export function fleetGraph(box, mini, ctx) {
       if (t >= 1) { anim = null; model.nodes.forEach(n => { n.fresh = false; n.alpha = 1; }); }
     }
     const dpr = devicePixelRatio || 1;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) Object.assign(cv, { width: Math.round(W * dpr), height: Math.round(H * dpr) }); // a resize, or another display's ratio
     dc.setTransform(dpr, 0, 0, dpr, 0, 0);
     dc.clearRect(0, 0, W, H);
     dc.setTransform(dpr * view.k, 0, 0, dpr * view.k, dpr * view.x, dpr * view.y);
@@ -226,14 +227,15 @@ export function fleetGraph(box, mini, ctx) {
   // The user (or a resize) takes the camera mid-glide: the nodes land where they were going, the view stays put.
   function land() { if (!anim) return; anim = null; model.nodes.forEach(n => Object.assign(n, { x: n.tx, y: n.ty, alpha: 1, fresh: false })); }
   function size() {
-    const b = box.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+    const b = box.getBoundingClientRect();
     if (b.width < 20 || b.height < 60) return;
     const first = !W;
     if (b.width === W && b.height === H) { draw(); return animate(); } // reattached as it was
     const dx = (b.width - W) / 2, dy = (b.height - H) / 2;
-    W = b.width; H = b.height; cv.width = W * dpr; cv.height = H * dpr;
+    W = b.width; H = b.height;
     if (first) return relayout(true);
     land(); // a glide's endpoints were for the old size
+    refreshPop(true); // placed, and sheet or not, for the new size
     // A view the user framed keeps its pan and zoom, recentred; an untouched one refits.
     layout(model); model.nodes.forEach(n => { n.x = n.tx; n.y = n.ty; });
     Object.assign(view, touched ? { x: view.x + dx, y: view.y + dy } : fitView()); draw(); animate();
@@ -248,9 +250,7 @@ export function fleetGraph(box, mini, ctx) {
       if (hover && !model.nodes.includes(hover)) { hover = null; draw(); }
       if (sel && !model.nodes.includes(sel)) return close();
       if (!pop) return;
-      const focused = pop.contains(document.activeElement) && document.activeElement.className;
-      tap(pop._at, sel);
-      if (focused) pop.querySelector(`.${focused.split(' ')[0]}`)?.focus();
+      refreshPop();
     },
     fit() { touched = false; anim = { t0: performance.now(), dur: motion() ? 400 : 1, v0: { ...view }, v1: fitView() }; model.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; }); animate(); },
     setLens(l) { lens = l; close(); relayout(true); ctx.onChange?.(); }, lens: () => lens,
@@ -321,12 +321,21 @@ export function fleetGraph(box, mini, ctx) {
   // A drag on the graph pans it: not the app's edge swipe back (app.js), which listens on window.
   for (const t of ['touchstart', 'touchend']) box.addEventListener(t, e => e.stopPropagation());
 
+  // The open popover redrawn from its node's latest data, keyboard focus kept; `moved` redraws
+  // it even unchanged, to place it again.
+  function refreshPop(moved) {
+    if (!pop) return;
+    const focused = pop.contains(document.activeElement) && document.activeElement.className;
+    if (moved) pop._html = null;
+    tap(pop._at, sel);
+    if (focused) pop.querySelector(`.${focused.split(' ')[0]}`)?.focus();
+  }
   function popover(html, at, n) {
     if (pop?._html === html && sel === n) return; // a poll that changed nothing in it
     pop?.remove();
     pop = Object.assign(el('div', `fg-pop${phone() ? ' sheet' : ''}`, html), { _at: at, _html: html });
     box.append(pop);
-    if (!phone()) { pop.style.left = `${Math.min(W - 292, Math.max(8, at.x + 18))}px`; pop.style.top = `${Math.min(H - pop.offsetHeight - 8, Math.max(8, at.y - 30))}px`; }
+    if (!phone()) { pop.style.left = `${Math.min(W - 292, Math.max(8, at.x + 18))}px`; pop.style.top = `${Math.max(8, Math.min(H - pop.offsetHeight - 8, at.y - 30))}px`; }
     pop.querySelector('.fg-x').onclick = () => { // the keyboard goes back to the node it came from
       const back = pop.contains(document.activeElement) && [...buttons.children].find(b => b._n === sel);
       close(); back?.focus();
