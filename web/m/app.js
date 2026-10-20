@@ -802,7 +802,11 @@ detailCard($("graph-card"), "Fleet graph", "", () => openPage("graph"));
 function openLane(lane) {
   openPage("loops");
   const at = loopsView.querySelector(`[data-lane="${lane}"]`);
-  if (at) { at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true }); }
+  if (!at) return;
+  at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true });
+  // A phone's bar sticks over the page's top, however many rows of chips it has: clear it.
+  const bar = $("dash-page").querySelector(":scope > .landing-head"), under = bar ? bar.getBoundingClientRect().bottom - at.getBoundingClientRect().top : 0;
+  if (under > 0) $("landing").scrollTop -= under + 12;
 }
 // The scratch gallery, in the content area so the app stays put (the page is sandboxed, so a frame).
 const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/scratch/", title: "Scratch", className: "scratch-frame" });
