@@ -493,6 +493,14 @@ def test_a_pending_menu_shows_its_rows(menu, tail):
 
 
 
+async def _sent_to_pane_2(s, meanwhile=None):
+    async def act():
+        if meanwhile:
+            await meanwhile()
+        return {"status": "sent"}
+    await L._focusing(s, _Watcher(), {"pane_id": "%2"}, act())
+
+
 @pytest.mark.parametrize("now", ["43", None])  # tmux reused %2 for a new process; it closed
 def test_a_closed_or_recycled_pane_drops_out_of_later_turns(monkeypatch, now):
     pid = {"%2": "42"}
@@ -500,23 +508,22 @@ def test_a_closed_or_recycled_pane_drops_out_of_later_turns(monkeypatch, now):
     s = _Fake([])
 
     async def go():
-        L._focus_reached(s, _Watcher(), {"status": "sent"}, {"pane_id": "%2"})
+        await _sent_to_pane_2(s)
         first = await s.focus()
         pid["%2"] = now
         return first, await s.focus()
     assert asyncio.run(go()) == (_focus_line(_Watcher().digest()[1], "%2"), None)
 
 
-def test_a_message_typed_while_the_pane_is_looked_up_is_already_on_it(monkeypatch):
-    """The focus moves with no await after the delivery shows, so a follow-up typed at once
-    queues the pane just reached, not the one before, while its pid lookup is pending."""
+def test_a_message_typed_once_the_delivery_shows_is_on_the_pane_it_reached(monkeypatch):
+    """The delivery frame goes out before the action returns: a follow-up typed in between
+    takes the pane the action ends on, not the one before."""
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "42")
     s = _Fake([])
     s.focus = "the pane before"
 
     async def go():
-        L._focus_reached(s, _Watcher(), {"status": "sent"}, {"pane_id": "%2"})
-        await s.send_text("ask the agent")
+        await _sent_to_pane_2(s, lambda: s.send_text("ask the agent"))
         return await s._inbox.get_nowait()[2]()
     assert asyncio.run(go()) == _focus_line(_Watcher().digest()[1], "%2")
 
@@ -535,7 +542,7 @@ def test_an_action_on_a_pane_that_closed_at_once_leaves_no_current_pane(monkeypa
     s.focus = "the pane before"
 
     async def go():
-        L._focus_reached(s, _Watcher(), {"status": "sent"}, {"pane_id": "%2"})
+        await _sent_to_pane_2(s)
         return await s.focus()
     assert asyncio.run(go()) is None
 
