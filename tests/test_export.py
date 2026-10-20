@@ -4,9 +4,11 @@ Every file here is invented, in temp HOMEs."""
 import contextlib
 import io
 import json
+import shutil
 import socket
 import sqlite3
 import tarfile
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,7 @@ def home(monkeypatch, tmp_path):
     for var in ("XDG_STATE_HOME", "XDG_DATA_HOME", "TMUXRC_HISTORY_DB", "TMUXRC_SCRATCH_DIR"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(export, "_running", lambda: False)
+    monkeypatch.setattr(export, "_agents_running", list)
     places = export.places  # the checkout's own .env stays out of it
     monkeypatch.setattr(export, "places", lambda: {**places(), ".env": tmp_path / "none"})
 
@@ -56,9 +59,10 @@ def source(home):
     return old
 
 
-def test_round_trip(home, monkeypatch):
+def test_round_trip(home, monkeypatch, tmp_path):
     old = source(home)
     out = io.BytesIO()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "none"))  # the snapshot: not /tmp
     assert export.export(out, ["scratch", "agents"]) == []
     sizes = export.sizes()  # what the walk counts is what export holds: no cache, no login
     assert sizes["secrets"] == len("{}x") and sizes["scratch"] == 1
@@ -239,12 +243,12 @@ def test_a_linked_agent_dir_and_a_data_dir_inside_config(home, monkeypatch):
 
 
 def test_the_dotenv_is_the_one_the_daemon_loads(monkeypatch, tmp_path):
-    """Installed as a wheel (no checkout .env): the nearest up from cwd, as the daemon's."""
+    """No checkout .env: tmux-rc's config dir's, never one up from the working directory."""
     monkeypatch.setattr(config, "__file__", str(tmp_path / "site/openbus/config.py"))
-    (tmp_path / "run").mkdir()
-    monkeypatch.chdir(tmp_path / "run")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("")
-    assert config.dotenv_path() == tmp_path / ".env"
+    assert config.dotenv_path() == tmp_path / "home/.config/tmux-rc/.env"
 
 
 def test_a_linked_place_is_kept_by_its_target(home, monkeypatch):
@@ -312,3 +316,49 @@ def test_a_link_on_the_way_to_a_place_not_made_yet_is_refused(home, monkeypatch,
     monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(tmp_path / "new/.local/share/tmux-rc/p/r/pages"))
     with pytest.raises(SystemExit, match="not its own"):
         export.restore(archive)
+
+
+def tree(root: Path) -> dict:
+    return {str(p.relative_to(root)): str(p.readlink()) if p.is_symlink() else p.read_bytes()
+            for p in root.rglob("*") if p.is_symlink() or p.is_file()}
+
+
+def test_an_import_failing_part_way_puts_everything_back(home, monkeypatch, capsys):
+    """A failure at any move, a kept nested place's included, leaves this host as it was."""
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["scratch", "agents"])
+    new = home("new")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(new / ".local/share/tmux-rc/mocks/pages"))
+    write(new / ".local/share/tmux-rc/mocks/pages/mine/index.html", "this host's")
+    write(new / ".local/share/tmux-rc/mocks/b/index.html", "this host's")
+    write(new / ".local/state/tmux-rc/accounts.json", "{}")
+    write(new / ".claude/projects/-mine/s.jsonl", "this host's")
+    before, move = tree(new), shutil.move
+    for n in range(1, 100):
+        calls = []
+
+        def flaky(*args, n=n, calls=calls):
+            calls.append(args)
+            if len(calls) == n:
+                raise OSError("disk full")
+            return move(*args)
+        monkeypatch.setattr(shutil, "move", flaky)
+        try:
+            export.restore(io.BytesIO(out.getvalue()))
+        except OSError:
+            assert tree(new) == before, n
+            assert "pre-import-" in capsys.readouterr().err
+        else:
+            break
+    assert n > 5 and tree(new) != before  # it failed at every move, then went through
+
+
+def test_running_agents_are_warned_about(home, monkeypatch, capsys):
+    source(home)
+    out = io.BytesIO()
+    export.export(out, [])
+    home("new")
+    monkeypatch.setattr(export, "_agents_running", lambda: ["claude"])
+    export.restore(io.BytesIO(out.getvalue()))
+    assert "claude running here" in capsys.readouterr().err

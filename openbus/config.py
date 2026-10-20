@@ -9,17 +9,14 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
-from dotenv import find_dotenv
-
 logger = logging.getLogger(__name__)
 
 
 def dotenv_path() -> Path:
-    """The .env the daemon loads: the checkout's, beside the package; installed as a wheel,
-    the nearest one up from the working directory, else a new one there (export's import
-    writes it)."""
+    """The .env the daemon loads: the checkout's, beside the package, else tmux-rc's config
+    dir's (installed as a wheel, or none yet: export's import writes it there)."""
     repo = Path(__file__).resolve().parent.parent / ".env"
-    return repo if repo.exists() else Path(find_dotenv(usecwd=True) or Path.cwd() / ".env")
+    return repo if repo.exists() else Path.home() / ".config/tmux-rc/.env"
 
 
 def json_list(var: str, default: list, coerce: Callable[[dict], object]) -> list:
