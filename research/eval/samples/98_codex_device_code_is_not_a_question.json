@@ -1,0 +1,21 @@
+{
+  "description": "Synthetic: Codex's `codex login --device-auth` screen, a sign-in link, a one-time code, and a last line 'Enter code ABCD-12345'. That line is typed in the browser: the CLI shows no › composer, so nothing on the pane takes a reply. A text question is dropped and the pane is an external wait (tests/test_classify.py proves the override); the link and code stay as links/copyables.",
+  "current_command": "node",
+  "processes": [
+    "bash",
+    "node /usr/local/bin/codex login --device-auth",
+    "codex login --device-auth"
+  ],
+  "capture": "\u001e[visible screen]\u001f\n\nWelcome to Codex [v⟪dim⟫0.99.0⟪/dim⟫]\n\nTo sign in, finish these steps in a browser:\n\n1. Open this page and sign in\n   https://auth.example.com/device\n\n2. Type in this code ⟪dim⟫(valid for 15 minutes)\n   ⟪/dim⟫ABCD-12345\n\n⟪dim⟫Only continue if you started this sign-in yourself.\n\n⟪/dim⟫Enter code ABCD-12345\n",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "question": null,
+    "copyables": true,
+    "links": [
+      "https://auth.example.com/device"
+    ],
+    "headline": "Waiting for browser sign-in with the device code"
+  }
+}

@@ -111,18 +111,27 @@ func procStat(pid, field int) (string, error) {
 	return fields[field-3], nil
 }
 
+// A process's part in a harness's liveness, read from its command line.
+type role int
+
+const (
+	client role = iota // a session's own process: the transcripts it holds are live in it
+	holder             // holds transcripts for other sessions (a shared server): live, with no process
+	helper             // not a session at all; its files are not read
+)
+
 // openTranscripts lists the live sessions of a harness that keeps no registry but
 // holds its session's transcript open: the open files of the user's processes named
 // comm say which sessions are live, and where (see pane). Only those processes count:
 // an editor or `tail -f` on a transcript is not the session. id names the session a
-// transcript under dir belongs to ("" for none). role reads a process's command line:
-// whether it is foreign, holding transcripts on other sessions' behalf (a shared
-// server, a tool helper), and the session it names, which that process is attributed
-// if some process holds the session's transcript open. A session only a foreign
-// process holds is live with no PID; a process of its own outranks that. A name alone
-// proves nothing: the process may have moved on to another session since it started.
-// A candidate whose files can't be read makes the harness's liveness unknown.
-func openTranscripts(comm, dir string, role func(argv []string) (session string, foreign bool), id func(path string) string) (map[string]Running, error) {
+// transcript under dir belongs to ("" for none). roles reads a process's command line
+// (every process is a client without it): its role, and the session it names. A name
+// is evidence, not a verdict: it says where the process started, which it may have
+// left since, so it only attributes a session some process holds open, and only when
+// one client names it; several, and the session stays live with no process rather
+// than guessed. A candidate whose files can't be read makes the harness's liveness
+// unknown.
+func openTranscripts(comm, dir string, roles func(argv []string) (session string, r role), id func(path string) string) (map[string]Running, error) {
 	out := map[string]Running{}
 	// Open files show resolved paths, so compare against the resolved directory.
 	resolved, err := filepath.EvalSymlinks(dir)
@@ -137,7 +146,7 @@ func openTranscripts(comm, dir string, role func(argv []string) (session string,
 	if err != nil {
 		return nil, err
 	}
-	named := map[string]Running{}
+	names := map[string][]int{} // session -> the clients naming it
 	for _, p := range procs {
 		pid, err := strconv.Atoi(p.Name())
 		if err != nil {
@@ -163,15 +172,18 @@ func openTranscripts(comm, dir string, role func(argv []string) (session string,
 		}
 		_, uid, _ := strings.Cut(status, "\nUid:\t") // real, effective, saved, fs
 		mine := strings.HasPrefix(uid, strconv.Itoa(os.Getuid())+"\t")
-		var session string
-		var foreign bool
-		if role != nil {
-			session, foreign = role(strings.Split(strings.TrimSuffix(cmdline, "\x00"), "\x00"))
+		session, r := "", client
+		if roles != nil {
+			session, r = roles(strings.Split(strings.TrimSuffix(cmdline, "\x00"), "\x00"))
 		}
 		var fds []os.DirEntry
-		if err == nil && mine {
-			if session != "" && !foreign {
-				named[session] = Running{PID: pid, TmuxPane: pane(pid)}
+		own := 0 // the process a held session is live in: none for a holder's
+		if err == nil && mine && r != helper {
+			if r == client {
+				own = pid
+			}
+			if session != "" {
+				names[session] = append(names[session], pid)
 			}
 			fds, err = os.ReadDir(filepath.Join("/proc", p.Name(), "fd"))
 		}
@@ -192,17 +204,21 @@ func openTranscripts(comm, dir string, role func(argv []string) (session string,
 			// Named under dir as configured, so id can tell where in it the file is.
 			if rel, ok := strings.CutPrefix(target, resolved); ok && strings.HasSuffix(rel, ".jsonl") {
 				if session := id(filepath.Join(dir, rel)); session != "" {
-					if cur, ok := out[session]; foreign && !ok {
-						out[session] = Running{}
-					} else if !foreign && (!ok || cur.PID == 0) {
-						out[session] = Running{PID: pid, TmuxPane: pane(pid)}
+					if cur, ok := out[session]; !ok || cur.PID == 0 && own != 0 {
+						out[session] = Running{PID: own}
 					}
 				}
 			}
 		}
 	}
-	for session, r := range named {
-		if cur, ok := out[session]; ok && cur.PID == 0 {
+	for session, pids := range names {
+		if cur, ok := out[session]; ok && cur.PID == 0 && len(pids) == 1 {
+			out[session] = Running{PID: pids[0]}
+		}
+	}
+	for session, r := range out {
+		if r.PID != 0 {
+			r.TmuxPane = pane(r.PID)
 			out[session] = r
 		}
 	}
