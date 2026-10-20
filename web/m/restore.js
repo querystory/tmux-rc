@@ -10,7 +10,7 @@ const key = (wid, p) => `${wid}:${p.index}`;
 const WORKING = new Set(["running", "compacting"]); // mid-task when tmux died: an idle time would read 0s
 
 export function setupRestore({ mount, request, slow, logos, licon, notice, running, open, opened, closed }) {
-  let offer = null, picked = new Map();
+  let offer = null, picked = new Map(), pending = false;
   const card = document.createElement("div");
   card.className = "restore-card";
   mount.onclick = open;
@@ -72,6 +72,10 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
     const label = act === "restore" ? "Restore" : button.textContent;
     button.classList.add("picked");
     button.textContent = `${act === "restore" ? "Restoring" : "Dismissing"}…`;
+    // While the POST runs, background refreshes neither redraw nor close the view: the server
+    // spends the offer before building, so a refresh then would drop the spinner mid-build.
+    // Bumping `asks` also discards one already in flight; the refresh after the POST reconciles.
+    pending = true; asks++;
     let failed;
     try {
       await request(act === "restore" ? "/api/restore" : "/api/restore/dismiss",
@@ -81,6 +85,7 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
     } catch (err) {
       failed = err.detail || err.message;
     }
+    pending = false;
     await refresh();
     // A failure that kept the offer is retried from the same button; one that spent it (a partial build, 409) has no button to retry.
     if (failed) notice(offer?.server === body.server ? `${failed} — tap ${label} again.` : failed, 6000);
@@ -96,6 +101,7 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
   let asked = 0, asks = 0;
   const targets = (o) => new Map(o ? Object.entries(o.windows).flatMap(([wid, w]) => w.panes.map(p => [key(wid, p), p.resume_from || ""])) : []);
   async function refresh() {
+    if (pending) return;
     asked = Date.now();
     const mine = ++asks, was = offer?.server;
     let next = null; // no history database (503): no offer, and nothing to say about it
