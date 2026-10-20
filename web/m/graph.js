@@ -88,7 +88,7 @@ export function fleetGraph(box, mini, ctx) {
     let s = 0, D = 0;
     const walk = n => {
       if (n.kind === 'group') D = Math.max(D, n.depth);
-      if (n.kind === 'pane' || collapsed.has(n.id)) { n.slot = s++; return [n.slot, n.slot]; }
+      if (n.kind === 'pane' || collapsed.has(n.id) || !n.children.length) { n.slot = s++; return [n.slot, n.slot]; } // a leaf, an empty fleet's root too
       let lo = Infinity, hi = -Infinity;
       n.children.forEach((c, i) => { if (i) s += n.kind === 'root' ? 1.4 : 0.6; const [a, b] = walk(c); lo = Math.min(lo, a); hi = Math.max(hi, b); });
       n.slot = (lo + hi) / 2;
@@ -212,11 +212,12 @@ export function fleetGraph(box, mini, ctx) {
     if (model?.sig === next.sig && !refit) { model = next; layout(model); draw(); return animate(); }
     const old = new Map(model ? model.nodes.filter(n => !Number.isNaN(n.x)).map(n => [n.id, n]) : []); // placed ones
     model = next; layout(model);
-    const v1 = refit || !old.size ? fitView() : { ...view };
+    const first = old.size < 2; // nothing placed but the root (an empty fleet): frame what arrives
+    const v1 = refit || first ? fitView() : { ...view };
     const fromOf = n => { if (old.has(n.id)) return [n.x, n.y, false];
       const u = n.up && old.has(n.up.id) ? n.up : null; return u ? [u.x, u.y, true] : [n.tx, n.ty, true]; };
     model.nodes.forEach(n => { const [fx, fy, fresh] = fromOf(n); Object.assign(n, { fx, fy, fresh }); });
-    if (!old.size || !motion()) { model.nodes.forEach(n => Object.assign(n, { x: n.tx, y: n.ty, alpha: 1, fresh: false })); Object.assign(view, v1); anim = null; draw(); return animate(); }
+    if (first || !motion()) { model.nodes.forEach(n => Object.assign(n, { x: n.tx, y: n.ty, alpha: 1, fresh: false })); Object.assign(view, v1); anim = null; draw(); return animate(); }
     anim = { t0: performance.now(), dur: 650, v0: { ...view }, v1 };
     animate();
   }
@@ -322,7 +323,10 @@ export function fleetGraph(box, mini, ctx) {
     pop = Object.assign(el('div', `fg-pop${phone() ? ' sheet' : ''}`, html), { _at: at, _html: html });
     box.append(pop);
     if (!phone()) { pop.style.left = `${Math.min(W - 292, Math.max(8, at.x + 18))}px`; pop.style.top = `${Math.min(H - pop.offsetHeight - 8, Math.max(8, at.y - 30))}px`; }
-    pop.querySelector('.fg-x').onclick = close;
+    pop.querySelector('.fg-x').onclick = () => { // the keyboard goes back to the node it came from
+      const back = pop.contains(document.activeElement) && [...buttons.children].find(b => b._n === sel);
+      close(); back?.focus();
+    };
     pop.querySelector('[data-open]').onclick = () => ctx.open(n.kind === 'sub' ? n.parent.id : n.id);
     sel = n; draw();
   }

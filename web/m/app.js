@@ -527,7 +527,6 @@ const renderLanding = steady(() => {
     $("sessions").scrollTop = $("sb-scroll").scrollTop = $("side-list").scrollTop = 0;
   }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge);
   renderLoopsCard($("loops-card"), accounts.loops(loops), openLane, licon);
-  show("graph-card", panes.length > 0); // and its ☰ row with it
   renderGraphCard($("graph-card"), panes, graphCtx);
 });
 
@@ -870,6 +869,7 @@ function render() {
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
   show("landing", dashboardVisible()); show("landing-main", !page); show("dash-page", !!page);
+  show("graph-card", panes.length > 0); // and its ☰ row with it, wherever the app is
   show("divider", wide); show("fleet", wide); show("fleet-handle", wide);
   renderList();
   if (!inPane) { if (dashboardVisible()) renderLanding(); return; }
