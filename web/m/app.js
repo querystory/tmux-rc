@@ -1710,7 +1710,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -2360,6 +2360,26 @@ async function killWindow(pane, birth) {
   try { await endPane(pane, `close?birth=${encodeURIComponent(birth ?? "")}`, "Closing…"); } catch (error) { if (error.status !== 404) notice(`Could not kill this window: ${error.detail || error.message}`, 6000); }
 }
 $("kill-pane").onclick = () => { closePaneMenu(); killWindow(active, panes.find((p) => p.pane_id === active)?.birth); };
+// Export all: the parts the server offers (openbus/export.py PARTS), sized once measured.
+let exportParts = [];
+const bytes = (n) => n < 1e6 ? `${Math.ceil(n / 1e3)} kB` : n < 1e9 ? `${Math.round(n / 1e6)} MB` : `${(n / 1e9).toFixed(1)} GB`;
+const exportSum = () => {
+  const on = exportParts.filter((p) => $("export-parts").querySelector(`[value="${p.part}"]`).checked);
+  text($("export-total"), on.some((p) => p.bytes == null) ? "Total: measuring…" : `Total: ${bytes(on.reduce((n, p) => n + p.bytes, 0))} before compression`);
+  $("export-go").href = `/api/export?${on.map((p) => `part=${p.part}`).join("&")}`;
+};
+$("export-parts").onchange = exportSum;
+$("close-export").onclick = $("export-go").onclick = () => $("export-dialog").close();
+$("export-open").onclick = async () => {
+  $("export-dialog").showModal();
+  for (const sizes of [false, true]) { // the labels at once, the sizes when the walk is done
+    try { exportParts = await request(`/api/export/parts?sizes=${sizes}`, {}, 120000); } catch { return text($("export-total"), "Couldn't measure the parts."); }
+    if (!sizes) html($("export-parts"), exportParts.map((p) => `<label class="acct-check${p.default === null ? " locked" : ""}"><input type="checkbox" value="${p.part}"${p.default === false ? "" : " checked"}${p.default === null ? " disabled" : ""}><span>${esc(p.label)}<small>${esc(p.note)}</small></span><b data-size="${p.part}">measuring…</b></label>`).join(""));
+    else exportParts.forEach((p) => text($("export-parts").querySelector(`[data-size="${p.part}"]`), bytes(p.bytes)));
+    exportSum();
+  }
+};
+
 // Expunge: kill the window AND delete its agent session's local files (docs/design/expunge.md).
 // The server names what it would delete first, and the confirmation is bound to that session id.
 html($("expunge-pane"), `${licon("trash", 18)}<span>Expunge</span>`);

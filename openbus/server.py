@@ -23,6 +23,7 @@ import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -36,7 +37,9 @@ from typing import Annotated, Literal
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
 # launch that didn't inherit the env (e.g. a stray `make dev`) silently loses Vertex creds
 # and every parse fails. Real environment vars still win over .env (override=False).
-from dotenv import find_dotenv, load_dotenv
+from dotenv import load_dotenv
+
+from .config import dotenv_path, json_list
 
 # One spelling of the package dir and the dir above it, reused for .env / web/ / docs
 # resolution below. In a source checkout the parent is the repo root; in an installed
@@ -45,11 +48,9 @@ from dotenv import find_dotenv, load_dotenv
 _PKG_DIR = Path(__file__).resolve().parent  # .../openbus (checkout or site-packages)
 _REPO_ROOT = _PKG_DIR.parent
 
-# Prefer the repo-root .env next to the package (the dev/run-from-checkout case); if that
-# doesn't exist (e.g. installed as a wheel and launched elsewhere), fall back to the
-# usual upward search from cwd. Either way, real env vars still win (override=False).
-_repo_env = _REPO_ROOT / ".env"
-load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
+# The checkout's .env, else ~/.config/tmux-rc's (config.dotenv_path). Real env vars
+# still win (override=False).
+load_dotenv(dotenv_path())
 # Live Mode provider keys (OpenAI, Azure, AI Studio) live in ONE mode-600 file outside
 # every checkout, so a worktree's .env or a commit can never carry them. Same
 # override=False rule; silently a no-op when the file is absent.
@@ -71,6 +72,7 @@ from fastapi.responses import (  # noqa: E402
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
+    StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
@@ -79,6 +81,7 @@ from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 from . import (  # noqa: E402
     accounts,
     agent_history,
+    export,
     expunge,
     fit,
     restore,
@@ -89,7 +92,6 @@ from . import (  # noqa: E402
     tmux,
 )
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
-from .config import json_list  # noqa: E402
 from .history import History, default_path, pane_key  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
@@ -539,7 +541,7 @@ from starlette.middleware import gzip  # noqa: E402
 app.add_middleware(gzip.GZipMiddleware, minimum_size=512)
 # Video and audio come compressed already, and gzip over a 206 garbles its Content-Range.
 # The responder reads this tuple on every response, so extending it is the hook.
-gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/")
+gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/", "application/gzip")
 
 # Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
@@ -633,6 +635,49 @@ def get_version():
     return {"version": _web_version(), "live_enabled": live.enabled() and bool(offered or keyless),
             "live_models": offered + keyless, "docs": DOCS_MOUNTED,
             "scratch": bool(_scratch_dir)}
+
+
+_export_sizes: dict = {"at": float("-inf")}
+
+
+@app.get("/api/export/parts")
+def export_parts(sizes: bool = True):
+    """Export all's choices (export.PARTS) and, with sizes, each one's size on disk,
+    uncompressed. The walk takes seconds over agents' dirs, so a minute's answer is reused."""
+    if sizes and time.monotonic() - _export_sizes["at"] > 60:
+        _export_sizes.update(at=time.monotonic(), bytes=export.sizes())
+    return [{"part": p, "label": label, "note": note, "default": on,
+             "bytes": _export_sizes["bytes"][p] if sizes else None}
+            for p, (label, note, on) in export.PARTS.items()]
+
+
+@app.get("/api/export")
+def export_all(request: Request, part: Annotated[list[str] | None, Query()] = None):
+    """Export all: the parts chosen, as the CLI's flags choose them (openbus/export.py),
+    streamed as the .tgz is written."""
+    parts = [p for p in part or [] if p in export.PARTS]
+    _audit(request, "export", "-", f"parts={','.join(parts)}")
+    read, write = os.pipe()
+
+    failed = []
+
+    def produce():
+        with suppress(BrokenPipeError), open(write, "wb") as out:  # the download was dropped
+            try:
+                export.export(out, parts)
+            except Exception as e:  # noqa: BLE001 - raised below, so the download fails
+                failed.append(e)
+
+    def chunks():
+        with open(read, "rb") as f:
+            while chunk := f.read(1 << 16):
+                yield chunk
+        if failed:  # never a short archive that looks whole
+            raise failed[0]
+
+    threading.Thread(target=produce, daemon=True).start()
+    return StreamingResponse(chunks(), media_type="application/gzip", headers={
+        "Content-Disposition": f'attachment; filename="{export.filename()}"'})
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -2158,6 +2203,9 @@ if WEB_DIR.is_dir():
 
 
 def main() -> None:
+    if sys.argv[1:2] in (["export"], ["import"]):
+        export.cli(sys.argv[1:])
+        return
     import uvicorn  # noqa: PLC0415 - entrypoint-only; keeps `import openbus.server` cheap
 
     # Reload watches the package source and restarts the process on edits (resetting
