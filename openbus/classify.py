@@ -90,6 +90,9 @@ _TURN_ERROR_RE = {
 }
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
+# Codex's live composer: a › row with no transcript cell ("• …") under it. An earlier
+# turn's row is always followed by Codex's reply to it, and a shell's ❯ is no composer.
+_CODEX_COMPOSER_RE = re.compile(r"^[ \t]*›(?![\s\S]*^• )", re.MULTILINE)
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
@@ -618,9 +621,10 @@ def _ground_visible_fields(
         )
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"
+    # With no status chrome, an identity re-read has nothing to read a title from.
     retry = llm_fn(
         prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}",
-    ) if llm_fn else None
+    ) if llm_fn and (bad_action or identity_chrome) else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if retry:
         _fold_sends(retry)
@@ -1388,6 +1392,15 @@ def classify(
             # keeps its own question.
             if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
+    # Codex reads typed text only in its › composer (a menu the screen can't back is text
+    # by now). A text question with no composer on screen has nowhere to be typed: `codex
+    # login --device-auth`'s "Enter code …" means in the browser, so the pane waits on
+    # something outside it.
+    if (result.get("tool") == "codex" and isinstance(result.get("question"), dict)
+            and result["question"].get("answer_style", "text") == "text"
+            and not _CODEX_COMPOSER_RE.search(visible)):
+        del result["question"]
+        result.update(activity="waiting", waiting_on="external")
     # The model's own answers must agree: a question, rewind or offer it returned (and the
     # screen showed) is something for the user to answer or send, so the pane waits on the
     # user, whatever it put in "activity" (a stray "external" included).

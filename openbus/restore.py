@@ -5,7 +5,8 @@ agent pane holds. When that server dies, its snapshot is offered back.
 A snapshot is current state, not history: one row per server, replaced in place, its
 payload rewritten only when the layout changes and its last-seen stamp every minute, since
 that stamp stands for when the server died. Nothing from a pane's command line or
-environment is stored; a resume command is rebuilt from agent-history at restore time."""
+environment is stored but the account dir each agent ran on, and each session's default
+one; a resume command is rebuilt from agent-history at restore time."""
 from __future__ import annotations
 
 import asyncio
@@ -18,9 +19,11 @@ import sqlite3
 import subprocess
 import time
 from datetime import datetime
+from pathlib import Path
 
-from . import accounts, agent_history, tmux
+from . import accounts, agent_history, plan_usage, tmux
 from .history import AGENT_TOOLS
+from .plan_usage import ENV
 
 logger = logging.getLogger(__name__)
 EVERY = 60
@@ -93,8 +96,10 @@ class Recorder:
         seen, bound = set(), self._bindings({r[10]: r[13] for r in rows})
         for (name, path, group, wid, windex, current, wname, auto, zoomed, layout,
              pane, index, active, _pid, cwd, command) in rows:
-            session = sessions.setdefault(name, {"name": name, "path": path, "group": group,
-                                                 "windows": []})
+            if name not in sessions:
+                sessions[name] = {"name": name, "path": path, "group": group, "windows": [],
+                                  "accounts": _session_accounts(name)}
+            session = sessions[name]
             if not any(w["id"] == wid for w in session["windows"]):
                 session["windows"].append({"id": wid, "index": int(windex),
                                            "current": current == "1"})
@@ -133,8 +138,9 @@ class Recorder:
             stat = tmux.proc_stat(run.get("pid", 0))
             pane = next((p for p, g in foreground.items() if stat[2:3] == [g]), None)
             if pane:
-                found.setdefault(pane, []).append({"harness": run.get("harness"),
-                                                   "session_id": sid})
+                harness = run.get("harness")  # an account per agent that has them
+                found.setdefault(pane, []).append({"harness": harness, "session_id": sid, **(
+                    {"account": _account(run)} if harness in ENV else {})})
         out = {}
         for pane, group in foreground.items():
             if len(found.get(pane, ())) == 1:
@@ -144,6 +150,30 @@ class Recorder:
                 out[pane] = self._bound[pane][1]
         self._bound = {p: (foreground[p], b) for p, b in out.items()}
         return out
+
+
+def _account(run: dict) -> str | None:
+    """The config dir the agent runs on, from its own environment: a session copied to
+    another account (Move) keeps its id in both, and only this says which one it is. None
+    when unreadable: restore then refuses it rather than guess. A relative dir is the
+    agent's, so it is resolved against the agent's cwd, never the daemon's."""
+    pid = str(run.get("pid", 0))
+    if not (env := plan_usage.pane_env(pid, run["harness"])):
+        return None
+    config = plan_usage.home(run["harness"], env)
+    try:
+        return str(config if config.is_absolute() else Path(plan_usage.canonical(
+            os.path.join(os.readlink(f"/proc/{pid}/cwd"), config))))
+    except OSError:
+        return None
+
+
+def _session_accounts(session: str) -> dict[str, str | None]:
+    """The session's own account default per provider (`tmux set-environment`, as the
+    account picker sets it): a dir, or None where it is marked removed; unset is absent."""
+    env = tmux.show_env(session)
+    return {t: plan_usage.canonical(v) if v else None for t, var in ENV.items()
+            if (v := env.get(var)) is not None}
 
 
 def candidate(history) -> dict | None:
@@ -196,12 +226,16 @@ def _judge(pane: dict, died: float, entries: dict | None) -> tuple[bool, str | N
         if entries is None:
             return False, "agent-history isn't answering; rebuild it with make install-units"
         entry = entries.get(binding["session_id"])
-        if entry is None or entry.get("source_missing"):
+        # An index naming a deleted copy is no loss when the recorded account holds one:
+        # _elsewhere judges that.
+        if entry is None or (entry.get("source_missing") and "account" not in binding):
             return False, "its conversation is gone"
         if entry.get("running_unknown"):
             return False, "can't tell whether it's already running"
         if entry.get("running"):
             return False, "it's already running"
+        if why := _elsewhere(pane, binding):
+            return False, why
         pane["cwd"] = entry.get("cwd") or pane["cwd"]  # the harness finds it only there
         if not os.path.isdir(pane["cwd"]):
             return False, "its directory is gone"
@@ -213,7 +247,29 @@ def _judge(pane: dict, died: float, entries: dict | None) -> tuple[bool, str | N
         return False, None
     elif pane.get("command") in _SHELLS:
         return False, None  # a shell with nothing running: there for the asking
-    return working or died - last < RECENT, None
+    # One resuming on another account (_elsewhere) comes back only if picked.
+    return (working or died - last < RECENT) and "resume_from" not in pane, None
+
+
+def _elsewhere(pane: dict, binding: dict) -> str | None:
+    """Why the pane can't resume on the account it ran on, or None. Its dir must still hold
+    the conversation: resuming the id elsewhere would silently pick up another account's
+    copy, likely older. When exactly one other account has it, the pane is offered
+    unticked, resuming there only if picked (`resume_from`); never the default dir unasked."""
+    if "account" not in binding:  # recorded before accounts were, or a harness without them
+        return None
+    account, harness, sid = binding["account"], binding["harness"], binding["session_id"]
+    if account is None:
+        return "can't tell which account it ran on"
+    if accounts.holds(harness, sid, account):
+        return None
+    where = f"its account dir {accounts.tilde(account)} no longer has this conversation"
+    others = [p for p in accounts.holders(harness, sid) if p["dir"] != account]
+    if len(others) != 1:
+        return where + ("; several other accounts do" if others else "")
+    pane["resume_from"] = others[0]["dir"]
+    pane["note"] = f"{where}; tick it to resume from {others[0]['name']} ({others[0]['tilde']})"
+    return None
 
 
 def _epoch(iso: str | None) -> float | None:
@@ -242,10 +298,13 @@ def build(snapshot: dict, chosen: set[tuple[str, int]]) -> list[tuple[str, dict]
         name = _free(session["name"], taken)
         if session["group"] in groups:  # a group member shares the windows already built
             tmux.run("new-session", "-d", "-s", name, "-t", groups[session["group"]])
+            _defaults(session, name)
         else:
             fresh = next((w for w in links if w["id"] not in built), None)
             first = fresh and _picked(windows[fresh["id"]], fresh["id"], chosen)[0]["cwd"]
             seed = tmux.new_session(name, first or session["path"], size=_size(windows, session))
+            if _defaults(session, name):  # the seed's shell started before them: again, after
+                tmux.run("respawn-pane", "-k", "-t", seed, "-c", first or session["path"])
             for link in links:
                 target = f"{name}:{link['index']}"
                 if link["id"] in built:
@@ -269,6 +328,14 @@ def build(snapshot: dict, chosen: set[tuple[str, int]]) -> list[tuple[str, dict]
         current = next((w for w in links if w["current"]), links[0])
         tmux.run("select-window", "-t", f"{name}:{current['index']}")
     return out
+
+
+def _defaults(session: dict, name: str) -> bool:
+    """Set the session's recorded account defaults on its rebuilt namesake, before its
+    other shells start, so they and its new windows open where they did. Whether any."""
+    for tool, config in session.get("accounts", {}).items():
+        tmux.set_env(ENV[tool], config, session=name)
+    return bool(session.get("accounts"))
 
 
 def _size(windows: dict, session: dict) -> tuple[int, int] | None:
@@ -328,15 +395,23 @@ async def launch(built: list[tuple[str, dict]], watcher, audit) -> None:
     slots = asyncio.Semaphore(PACE)
 
     async def one(pane: str, entry: dict) -> None:
-        sid = entry["binding"]["session_id"]
+        binding = entry["binding"]
+        sid, account = binding["session_id"], entry.get("resume_from") or binding.get("account")
         async with slots:
             found = await asyncio.to_thread(agent_history.get, sid) or {}
-            argv = found.get("resume_argv") or []
+            # agent-history drops the argv when its indexed copy is gone (source_missing);
+            # the recorded account's copy then resumes the harness's own way.
+            argv = found.get("resume_argv") or (
+                [*accounts.RESUME[binding["harness"]], sid] if found and account else [])
             if found.get("running") or found.get("running_unknown") or not argv or \
                     argv[0] not in agent_history.RESUMABLE:
                 audit("restore_resume", pane, sid, "skipped: running, unknown or not resumable")
                 return
-            line = shlex.join(accounts.resume_command(found))
+            if "account" in binding and not (account and await asyncio.to_thread(
+                    accounts.holds, binding["harness"], sid, account)):
+                audit("restore_resume", pane, sid, "skipped: its account dir lacks it")
+                return
+            line = shlex.join(accounts.resume_command({**found, "resume_argv": argv}, account))
             await asyncio.to_thread(tmux.run, "send-keys", "-t", pane, "-l", line)
             await asyncio.to_thread(tmux.run, "send-keys", "-t", pane, "Enter")
             audit("restore_resume", pane, sid, "ok")

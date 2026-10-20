@@ -290,3 +290,29 @@ func TestEveryAccountInHomeIsIndexed(t *testing.T) {
 		t.Fatalf("want a session from each config dir, got %v", sessions)
 	}
 }
+
+func TestASessionInTwoAccountsIsIndexedOnceFromTheNewerCopy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+	var copies []string
+	for i, dir := range []string{".claude-personal", ".claude"} { // resumed later under .claude
+		path := filepath.Join(home, dir, "projects", "p", "s.jsonl")
+		must(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		must(t, os.WriteFile(path, []byte(`{"type":"user","cwd":"/`+dir+`"}`+"\n"), 0o600))
+		at := time.Now().Add(time.Duration(i-2) * time.Hour)
+		must(t, os.Chtimes(path, at, at))
+		copies = append(copies, path)
+	}
+	entry := indexPath("claude", "", "s")
+	for run := range 2 {
+		reconcileAll(false)
+		info, err := os.Stat(entry)
+		must(t, err)
+		newer, _ := os.Stat(copies[1])
+		if !info.ModTime().Equal(newer.ModTime()) {
+			t.Fatalf("run %d: entry not built from the newer copy (or rebuilt from the older)", run)
+		}
+	}
+}
