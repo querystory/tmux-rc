@@ -1,0 +1,15 @@
+{
+  "description": "A two-question AskUserQuestion dialog in Claude Code at 50 columns, its first tab (Beds) answered (☒) and its second (Shade) live under the tab strip. Claude draws the question as a quote block, every wrapped row led by a │ bar, so the prompt the model quotes only matches the screen if grounding skips the bar at each row's start. Before it did, the tab-2 question was rejected three times and the watcher kept showing tab 1's answered question and buttons. The tab strip is not a /config panel either (that rule needs a ▔▔▔ edge and an Esc to close footer). Fictional screen (tmux-rc, 2026-10-20).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n\n● The bed layout draft is in garden-plan.md. Two\n  choices shape the rest of it.\n\n❯ plan the spring beds\n──────────────────────────────────────────────────\n←  ☒ Beds  ☐ Shade  ✔ Submit  →\n\n│ The north bed gets about two hours of sun.\n│ Should I move the shade-tolerant herbs (mint,\n│ parsley, chives) there and give the tomatoes\n│ the south bed instead?\n\n❯ 1. Yes, swap them\n     Herbs go north, tomatoes go south\n  2. No, keep the draft\n     Leave every bed as it is now\n  3. Type something.\n──────────────────────────────────────────────────\n  4. Chat about this\n\nEnter to select · Tab/Arrow keys to navigate · Esc\nto cancel\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "menu"
+    },
+    "headline": "Asking whether to move the herbs to the shady north bed"
+  }
+}

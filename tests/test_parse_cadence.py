@@ -536,6 +536,13 @@ def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
     # Still live fields, re-stamped from tmux rather than frozen with the old card.
     assert state["snapshot_id"] is not None
     assert "parse_ok" not in state
+    # The next tab of a multi-question dialog: the kept question's words are gone, so its
+    # buttons would answer the new ask. The card stays, the question does not.
+    frame[0] = "? Use the browser too?  1. Yes  2. No"
+    w._forced_this_tick = set()
+    state = w._tick_pane(pane)
+    assert state["question"] is None and state["waiting_on"] is None
+    assert state["activity"] == "unknown" and state["headline"] == good["headline"]
 
 
 def test_failed_parse_still_publishes_the_links_it_read(monkeypatch):

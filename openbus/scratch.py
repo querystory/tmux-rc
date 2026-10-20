@@ -222,7 +222,8 @@ def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> 
                 meta.read_text())
             if not isinstance(current, dict) or str(current.get(field) or "").strip():
                 return False
-            made = current.get("generated") if isinstance(current.get("generated"), list) else []
+            made = current.get("generated")
+            made = [g for g in made if isinstance(g, str)] if isinstance(made, list) else []
             data = {**current, field: value, "generated": [*dict.fromkeys([*made, field])]}
             text = json.dumps(data, indent=1) + "\n"
             if not fresh:

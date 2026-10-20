@@ -285,7 +285,7 @@ def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
     meta = folder / "meta.json"
     assert scratch.annotate(meta, tmp_path, "description", "d")
     assert json.loads(meta.read_text()) == {"description": "d", "generated": ["description"]}
-    meta.write_text(json.dumps({"title": "", "generated": ["title"]}))
+    meta.write_text(json.dumps({"title": "", "generated": ["title", {}, ["x"]]}))  # malformed
     assert scratch.annotate(meta, tmp_path, "title", "t")
     assert json.loads(meta.read_text())["generated"] == ["title"]
     # An agent's meta.json landing after the check is kept: the create is exclusive.
