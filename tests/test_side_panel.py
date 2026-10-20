@@ -84,8 +84,10 @@ def test_offer_reads_the_conversation_column():
     *(["Package".ljust(W) + "│ Result", line * W + cross + line * 10]  # unboxed tables
       + [f"pkg-{i}".ljust(W) + "│ " + ("FAIL" if i == 3 else "ok") for i in range(5)]
       for line, cross in ("─┼", "━╇")),
+    ["● Done.", "", "✻ Worked for 9s · 1 monitor still running", "─" * 50 + " notes ─", "❯ ",
+     "─" * 58, *(f"  ~/src/demo | main | {i} prompts | limit: {i}% 5h" for i in range(4))],
 ], ids=["box", "table", "gutter", "short-gutter", "few-rows", "sparse", "unboxed-table",
-        "heavy-rule"])
+        "heavy-rule", "agent-footer"])
 def test_lookalikes_stay_whole(rows):
     assert _capture(rows) == _unsplit(rows)
 
