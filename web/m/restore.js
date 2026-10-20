@@ -2,10 +2,9 @@
 // died, grouped as tmux had it, sessions over windows over panes, each pane ticked by the
 // daemon's default. Nothing comes back without the tap that names the count. `mount` is the
 // list's row that opens the view; `card` is the view's body, which app.js places.
-import { since } from "/m/pane-model.js";
+import { since, home } from "/m/pane-model.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
-const home = d => d.replace(/^\/home\/[^/]+/, "~");
 const key = (wid, p) => `${wid}:${p.index}`;
 const WORKING = new Set(["running", "compacting"]); // mid-task when tmux died: an idle time would read 0s
 

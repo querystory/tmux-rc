@@ -782,6 +782,9 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
     version = w.state_version()
     panes = [dict(s) for s in w.states]
+    if loops := getattr(app.state, "loops", None):  # the Fleet graph's Repo and Worktree lenses
+        for s in panes:
+            s["worktree"] = loops.where(s.get("cwd"))
     # Each question carries what a push nonce binds: its contract digest and the input
     # generation its parse captured, plus that parse's frame. A menu answer names all
     # three, and /send refuses it once the pane holds a different ask, has taken input

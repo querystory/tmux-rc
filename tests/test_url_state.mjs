@@ -13,6 +13,7 @@ test("every addressable state round-trips", () => {
     { dashboard: true, filter: ["finished"] },
     { dashboard: true, page: "usage" },
     { dashboard: true, page: "loops" },
+    { dashboard: true, page: "graph" },
     {},
   ]) {
     const hash = formatHash(state);

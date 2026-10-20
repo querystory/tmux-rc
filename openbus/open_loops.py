@@ -287,6 +287,12 @@ def scan_worktrees(cwds: list[str], stopping: Event | None = None,
     return out
 
 
+def holding(worktrees: list[dict], cwd: str | None) -> dict | None:
+    """The innermost worktree holding cwd."""
+    hits = [w for w in worktrees if cwd and (cwd + "/").startswith(w["path"] + "/")]
+    return max(hits, key=lambda w: len(w["path"]), default=None)
+
+
 def _pane(p: dict) -> dict:
     return {"pane_id": p.get("pane_id"), "label": p.get("title") or p.get("label"),
             "session": p.get("session"), "window_index": p.get("window_index"),
@@ -328,16 +334,12 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
     def ws(key):
         return key and named[find(key)]["id"]
 
-    def tree(cwd):  # the innermost worktree holding cwd
-        hits = [w for w in worktrees if cwd and (cwd + "/").startswith(w["path"] + "/")]
-        return max(hits, key=lambda w: len(w["path"]), default=None)
-
     def head_of(w):
         return w and w["repo"] and heads.get((w["repo"].lower(), w["branch"]))
 
     owners, pane_ws, sitting = defaultdict(list), {}, defaultdict(int)
     for p in panes:
-        w = tree(p.get("cwd"))
+        w = holding(worktrees, p.get("cwd"))
         sitting[w and w["path"]] += 1
         keys = [k for k in [*((r["repo"].lower(), r["number"]) for r in p.get("prs") or []),
                             head_of(w)] if k in prs]
@@ -381,7 +383,8 @@ def build(github: dict, worktrees: list[dict], panes: list[dict], now: float,
                  "draft": p["draft"]})
 
     for p in panes:
-        w, row = tree(p.get("cwd")), {"kind": "pane", "pane": _pane(p), "at": p.get("state_since")}
+        w = holding(worktrees, p.get("cwd"))
+        row = {"kind": "pane", "pane": _pane(p), "at": p.get("state_since")}
         if p.get("activity") == "waiting" and p.get("waiting_on") == "user":
             question = p.get("question")
             lanes["waiting"][pane_ws[p.get("pane_id")]].append({**row, "reasons": ["needs_you"],
@@ -469,6 +472,16 @@ class OpenLoops:
                 await asyncio.sleep(POLL)
         finally:  # cancelling the task cannot stop its thread; this lets the thread stop
             self.stopping.set()
+
+    def where(self, cwd: str | None) -> dict | None:
+        """The repository and worktree a pane's cwd sits in, from the last scan (the Fleet
+        graph's Repo and Worktree lenses): named by its GitHub repository, else its folder."""
+        if not (w := holding(self.worktrees, cwd)):
+            return None
+        common = Path(w.get("common") or w["path"])
+        top = common.parent if common.name == ".git" else common
+        name = (w["repo"] or "").rpartition("/")[2] or top.name.removesuffix(".git")
+        return {"repo": name, "path": w["path"], "branch": w["branch"]}
 
     def report(self, panes: list[dict], now: float | None = None) -> dict:
         now = time.time() if now is None else now

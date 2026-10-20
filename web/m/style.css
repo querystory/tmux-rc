@@ -1425,3 +1425,40 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 #viewer-out { flex: none; font-size: 14px; color: var(--accent); }
 #scratch-viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; } /* a page with no background of its own reads as in a tab */
 @media (max-width: 1099px) { #scratch-viewer::after { content: ""; position: absolute; inset: calc(48px + env(safe-area-inset-top)) auto 0 0; width: 16px; } }
+/* The Fleet graph (graph.js): its card spans the dashboard; its view fills the page, the canvas
+   taking what the lenses and counts leave. */
+#graph-card { grid-column: 1 / -1; }
+.fg-mini { position: relative; height: 280px; margin: 4px -8px -8px; }
+@media (max-width: 699px) { .fg-mini { height: 230px; } }
+.fg-mini canvas, .fg-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#dash-page:has(> .fg-view) { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
+.fg-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+@media (max-width: 699px) { .fg-view { min-height: 360px; } }
+.fg-lenses { display: flex; align-items: center; gap: 6px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; }
+.fg-lenses > span { flex: none; font-size: 12px; color: var(--muted); margin-right: 2px; }
+.fg-lenses button { flex: none; min-height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font-size: 13px; }
+.fg-lenses button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); border-color: transparent; font-weight: 600; }
+.fg-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0; font-size: 13px; color: var(--muted); }
+.fg-stats b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.fg-st { display: inline-flex; align-items: center; gap: 6px; }
+:is(.fg-st, .fg-key) i, .fg-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+.fg-box { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; touch-action: none; }
+.fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
+.fg-tools button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+.fg-legend { position: absolute; left: 12px; top: 10px; max-width: min(520px, calc(100% - 70px)); font-size: 12px; color: var(--muted); pointer-events: none; background: color-mix(in oklab, var(--surface) 85%, transparent); border-radius: 8px; padding: 2px 4px; }
+.fg-legend p { margin: 0 0 4px; line-height: 1.35; }
+.fg-key { display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: 11px; }
+.fg-key span { display: inline-flex; align-items: center; gap: 5px; }
+.fg-key .fg-warn-key { border: 2px dashed var(--amber); box-sizing: border-box; }
+@media (max-width: 699px) { .fg-legend { display: none; } } /* the counts above key the colours */
+.fg-pop { position: absolute; z-index: 3; width: 280px; padding: 12px 14px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 32px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; box-sizing: border-box; }
+.fg-pop.sheet { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 75%; overflow: auto; }
+.fg-pop-head { display: flex; align-items: center; gap: 8px; }
+.fg-pop-head b { flex: 1; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fg-pop .fg-x { width: 28px; height: 28px; min-height: 28px; padding: 0; display: grid; place-items: center; border: 0; background: none; color: var(--muted); }
+.fg-pop .fg-st { margin: 4px 0 8px; color: var(--muted); }
+.fg-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 12px; }
+.fg-pop dt { color: var(--muted); }
+.fg-pop dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.fg-pop .fg-btn { width: 100%; min-height: 36px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
+.fg-logo { width: 22px; height: 22px; border-radius: 50%; flex: none; }
