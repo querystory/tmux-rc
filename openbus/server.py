@@ -2052,7 +2052,9 @@ if DOCS_MOUNTED:
 # lands in it is published to everyone the tunnel admits. Mocks worth keeping belong in
 # docs-site/static/mocks/ instead, which ships with the docs at /docs/mocks/.
 _scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
-_scratch_dir = _scratch_dir if _scratch_dir and Path(_scratch_dir).is_dir() else None
+# Absolute: panes get it as their env, and the gallery's find takes "-draft" for an option.
+_scratch_dir = os.path.realpath(_scratch_dir) if _scratch_dir and Path(_scratch_dir).is_dir() \
+    else None
 if _scratch_dir:
     @app.get("/scratch/", include_in_schema=False)
     async def scratch_listing() -> HTMLResponse:

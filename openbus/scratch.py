@@ -4,12 +4,14 @@ each card saying who made it and linking to that pane while it is still open
 
 Who made a folder comes from its meta.json "pane" while that pane lives. Otherwise the
 agent transcripts are searched for the folder's path, once per folder: a found author
-never changes, so it is kept for the daemon's lifetime, and a miss is retried after a
-while, since agent-history indexes a session only some time after it starts."""
+never changes, so its session id goes into the folder's meta.json (marked generated, like
+a description) and is never searched for again; a miss is retried after a while, since
+agent-history indexes a session only some time after it starts."""
 
 import json
 import os
 import re
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -27,7 +29,9 @@ _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
 _LOCK = threading.Lock()
-_found: dict[tuple[str, int], tuple[float, dict | None]] = {}
+_META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
+_missed: dict[tuple[str, int], float] = {}  # when each (name, inode) was last not found
+_found: dict[tuple[str, int], str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gallery.md"
@@ -38,8 +42,9 @@ SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src '
 
 def inside(path: Path, root: Path) -> bool:
     """The file is really in this folder of scratch, not a symlink out of it."""
-    try:
-        return path.resolve().is_relative_to(root.resolve())
+    try:  # a plain entry of the folder needs no resolving (most calls: hot in the gallery)
+        return ((path.parent == root and not path.is_symlink())
+                or path.resolve().is_relative_to(root.resolve()))
     except (OSError, RuntimeError):  # 3.12 raises RuntimeError for a symlink loop
         return False
 
@@ -63,26 +68,39 @@ def _when(stamp: str | None) -> float | None:
         return None
 
 
-def _files(folder: Path):
-    """Every file under `folder`, never descending into a hidden directory (.git)."""
-    for top, dirs, names in os.walk(folder):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        yield from (Path(top, n) for n in names if not n.startswith("."))
+def _files(root: Path, folders: list[Path]) -> dict[str, list[tuple[float, str]]]:
+    """{name: [(mtime, path)]} of every file under these folders of scratch, never
+    descending into a hidden directory (.git) nor following a directory link, and a file
+    link only to a file still in its folder. One `find` for them all: walked in Python,
+    each stat waited on the GIL behind the daemon's threads, ten times slower."""
+    out: dict[str, list[tuple[float, str]]] = {f.name: [] for f in folders}
+    listed = folders and subprocess.run(
+        ["find", *map(str, folders), "-mindepth", "1", "-name", ".*", "-prune", "-o", "(",
+         "-type", "f", "-o", "-type", "l", ")", "-printf", r"%y %T@ %p\0"],
+        capture_output=True, check=False).stdout
+    start = len(str(root)) + 1  # strings, not Paths: thousands of them, under the GIL too
+    for row in (listed or b"").split(b"\0")[:-1]:
+        kind, at, path = os.fsdecode(row).split(" ", 2)
+        name = path[start:].split("/", 1)[0]
+        if kind == "f" or (inside(Path(path), root / name) and os.path.isfile(path)):
+            out[name].append((float(at), path))
+    return out
 
 
-def _item(root: Path, folder: Path) -> dict | None:
+def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
     hidden (a sidecar half-written, a .git) are not the page and do not date it."""
-    sidecars = {(folder, name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
-    files = [(f.lstat().st_mtime, f) for f in _files(folder)
-             if (f.parent, f.name) not in sidecars and f.is_file() and inside(f, folder)]
+    sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
+    files = [(at, f) for at, f in files if f not in sidecars]
     if not files:
         return None
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
     # The folder's own page, served at folder/: index.html, or an index.md (rendered).
-    index = next((i for i in (folder / "index.html", folder / "index.md") if i in names), None)
-    page = index or max(files)[1]
-    title = meta.get("title")
+    index = next((i for i in (folder / "index.html", folder / "index.md") if str(i) in names),
+                 None)
+    page = index or Path(max(files)[1])
+    # The page is read: checked again, as it may have become a link out since find listed it.
+    title = meta.get("title") or (None if inside(page, folder) else folder.name)
     if not title and page.suffix == ".md":
         title = scratch_markdown.render(page)[2]
     elif not title and page.suffix in (".html", ".htm"):
@@ -91,6 +109,7 @@ def _item(root: Path, folder: Path) -> dict | None:
         title = m and unescape(m.group(1)).strip()
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
+            "session_id": meta.get("session"), "folder": folder,
             "href": quote(page.relative_to(root).as_posix() if page != index
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
@@ -99,12 +118,13 @@ def _item(root: Path, folder: Path) -> dict | None:
             and thumb.stat().st_mtime}
 
 
-def _listed(root: Path, folder: Path) -> dict | None:
+def _listed(root: Path, folder: Path, files: list | None = None) -> dict | None:
     """A folder's card, None for one hidden, a symlink, or gone (deleted or rebuilt mid-scan,
     which leaves it out, not the whole gallery)."""
     try:
         if not (folder.name.startswith(".") or folder.is_symlink()) and folder.is_dir():
-            return _item(root, folder)
+            return _item(root, folder, _files(root, [folder])[folder.name]
+                         if files is None else files)
     except OSError:
         pass
     return None
@@ -112,7 +132,9 @@ def _listed(root: Path, folder: Path) -> dict | None:
 
 def items(root: Path) -> list[dict]:
     """Every folder of scratch, most recently updated first."""
-    return sorted(filter(None, (_listed(root, f) for f in root.iterdir())),
+    folders = [f for f in root.iterdir() if not f.name.startswith(".")]
+    files = _files(root, folders)
+    return sorted(filter(None, (_listed(root, f, files[f.name]) for f in folders)),
                   key=lambda i: -i["updated"])
 
 
@@ -124,20 +146,57 @@ def opened(root: Path, visits: list[tuple[str, float]], n: int) -> list[dict]:
 
 
 def _writers(todo: list[dict]) -> None:
-    """Fill each item's `session` from the transcripts, through the cache."""
+    """Fill in each item's missing `session_id` from the transcripts, saving what is found."""
     now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}
     with _LOCK:  # a second request waits for the first's search instead of repeating it
-        stale = {k for k, (at, hit) in _found.items() if hit is None and now - at > _RETRY}
-        due = {i["name"]: i["created"] for i in todo
-               if keys[i["name"]] not in _found or keys[i["name"]] in stale}
+        for i in todo:
+            i["session_id"] = i["session_id"] or _found.get(keys[i["name"]])
+        due = {i["name"]: i["created"] for i in todo if not i["session_id"]
+               and now - _missed.get(keys[i["name"]], 0) > _RETRY}
         if due and now - _reconciled[0] > _RETRY:  # a running session's entry can be days old
             agent_history.reconcile()
             _reconciled[0] = now
         hits = agent_history.writers(_MENTION, due) if due else {}
-        for n in due:
-            _found[keys[n]] = (now, hits.get(n))
-    for i in todo:
-        i["session"] = _found[keys[i["name"]]][1]
+        for i in todo:
+            if hit := hits.get(i["name"]):
+                i["session_id"] = hit["session_id"]
+                _found[keys[i["name"]]] = i["session_id"]
+                annotate(i["folder"] / "meta.json", i["folder"].parent, "session", i["session_id"],
+                         i["inode"])  # not into a folder rebuilt during the search
+            elif i["name"] in due:
+                _missed[keys[i["name"]]] = now
+
+
+def replace(path: Path, root: Path, write) -> None:
+    """Write `path` whole or not at all, never through a symlink planted at its name, and
+    only while its folder is still really in scratch: it may have been swapped for a
+    symlink out since it was listed."""
+    if not inside(path.parent, root):
+        raise PermissionError(f"{path.parent} is no longer in scratch")
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.unlink(missing_ok=True)
+    write(tmp)
+    tmp.replace(path)
+
+
+def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> bool:
+    """Add a field tmux-rc worked out to meta.json, listed in its "generated". Never over
+    one already there, nor into a meta.json that is unreadable or a symlink: those are the
+    agent's to fix. With `inode`, only while its folder is still that one."""
+    try:
+        with _META:
+            if inode and meta.parent.stat().st_ino != inode:
+                return False
+            current = None if meta.is_symlink() else {} if not meta.exists() else json.loads(
+                meta.read_text())
+            if not isinstance(current, dict) or str(current.get(field) or "").strip():
+                return False
+            made = current.get("generated") if isinstance(current.get("generated"), list) else []
+            data = {**current, field: value, "generated": [*made, field]}
+            replace(meta, root, lambda tmp: tmp.write_text(json.dumps(data, indent=1) + "\n"))
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def _since(pane: dict, created: float) -> bool:
@@ -168,11 +227,14 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     account = {p: a for a in profiles for p in a.get("panes", [])}
     todo = [i for i in listed if i["pane"] not in panes]
     _writers(todo)
-    ids = sorted({i["session"]["session_id"] for i in todo if i["session"]})
+    ids = sorted({i["session_id"] for i in todo if i["session_id"]})
     running = agent_history.get_many(ids) or {} if ids else {}
+    open_in = {sid: pane_of(e) for sid, e in running.items()}  # asks tmux: once a session
+    if missing := [sid for sid in ids if sid not in running]:  # no binary, or a subagent
+        running = {**agent_history.indexed(missing), **running}  # the index still says who
     for i in listed:
-        s = i.pop("session", None) or {}
-        i["pane"] = pane_of(running.get(s.get("session_id")) or {}) or i["pane"]  # still open
+        s = running.get(i["session_id"]) or {} if i["pane"] not in panes else {}
+        i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
         if (pane := panes.get(i["pane"])) is not None:
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
