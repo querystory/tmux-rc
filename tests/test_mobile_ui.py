@@ -267,7 +267,7 @@ def test_opening_a_pane_focuses_its_title_not_the_back_button():
     web = Path(__file__).resolve().parent.parent / "web" / "m"
     assert '<h1 id="pane-title" tabindex="-1">' in (web / "index.html").read_text()
     app = (web / "app.js").read_text()
-    focus = '($("pane-title").checkVisibility() ? $("pane-title") : $("terminal-scroll")).focus('
+    focus = '($("pane-title").getClientRects().length ? $("pane-title") : $("terminal-scroll"))'
     assert f"if (changed && active) {focus}" in app
     assert '$("back").focus(' not in app
     css = (web / "style.css").read_text()
