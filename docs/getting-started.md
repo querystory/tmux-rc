@@ -49,6 +49,29 @@ On iPhone, follow [iPhone setup](iphone-setup.md) to install the PWA, enable pus
 notifications, and configure Live Mode. [Agent setup](agent-setup.md) covers optional
 agent settings that improve the dashboard's observations.
 
+## Move to another machine
+
+`tmux-rc export` writes one `.tgz` with everything another machine needs: the history
+database (pane history, plan usage, and the tmux layout, which the new machine then offers
+back as a workspace to restore), accounts, mocks, scratch pages, and every `~/.claude*`
+and `~/.codex*` dir, so agents can resume their conversations. It runs while the daemon
+does. On the new machine, clone the checkout, then:
+
+1. Copy the archive over, and stop tmux-rc there if it runs: `systemctl --user stop tmux-rc`.
+2. `uv run tmux-rc import tmux-rc-export-<host>-<date>.tgz`. Whatever it replaces is kept
+   beside it as `*.pre-import-<time>`, and paths under the old `$HOME` are rewritten.
+3. `make install-units`, and `make docs` if you serve the docs.
+
+Credentials stay out unless asked for: the agents' logins, `~/.claude.json`, the push keys,
+`~/.config/tmux-rc` and the checkout's `.env`. Without them, sign in again on the new
+machine. `--with-secrets` adds them, and the file then holds every sign-in and key, so keep
+it private, or move it in one pipe that never leaves a file behind: `uv run tmux-rc export
+--with-secrets -o - | ssh newhost 'cd tmux-rc && uv run tmux-rc import -'`. `--no-scratch`
+and `--no-agents` make the archive smaller.
+
+Settings › **Export all…** makes the same archive from the app: tick the parts to include,
+each shown with its size before compression, and download.
+
 ## What this website serves
 
 This is the public project website and documentation. Your live dashboard and terminal

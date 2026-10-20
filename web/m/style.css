@@ -349,7 +349,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
    WebKit column flexbox does not shrink it to fit (the sheet would run off the screen). */
 @media (max-width: 1099px) { :is(#settings, #launch-dialog) .panel-body { max-height: calc(88dvh - 64px); } }
 #settings h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
-#settings section:has(#push[hidden]), #settings section:has(#docs[hidden]):has(#scratch[hidden]) { display: none; }
+#settings section:has(#push[hidden]) { display: none; }
 .set-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .set-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 8px 14px; border-radius: 0; text-align: left; text-decoration: none; font-size: 14px; color: var(--fg); }
 .set-row[hidden] { display: none; }
@@ -365,6 +365,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .set-row small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .set-row code { font: 11.5px var(--mono); }
 .set-link { color: var(--accent); font-weight: 600; }
+.set-link small { font-weight: 400; }
 .seg { display: inline-flex; flex: none; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
 .seg button { min-height: 28px; padding: 0 10px; border-radius: 6px; font-size: 13px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; }
@@ -1356,6 +1357,11 @@ dialog .acct-check { display: flex; align-items: center; gap: 10px; margin: 8px 
 dialog .acct-check input { flex: none; width: 20px; height: 20px; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); }
 dialog .acct-check small { display: block; color: var(--muted); font-size: 12px; }
 dialog .acct-check.locked { opacity: .6; cursor: default; }
+#export-dialog { max-width: 480px; }
+#export-total { margin: 16px 0 12px; font-weight: 600; }
+#export-parts .acct-check > span { flex: 1; min-width: 0; }
+#export-parts [data-size] { flex: none; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted); }
+#export-go { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 8px; text-decoration: none; }
 #acct-dialog { max-width: 560px; overflow-y: auto; }
 #move-dialog { overflow-y: auto; }
 #acct-dialog button:not(.icon-button) { min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }

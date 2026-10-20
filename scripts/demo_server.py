@@ -178,7 +178,8 @@ def install() -> None:
     live.offered = lambda: [live_providers.LiveModel("Demo chat", "demo", "anthropic")]
     live_providers.models = list
     server.app.router.routes[:] = [r for r in server.app.router.routes
-                                   if getattr(r, "path", "") != "/api/live-mode"]
+                                   if getattr(r, "path", "") not in (  # this host's own data
+                                       "/api/live-mode", "/api/export", "/api/export/parts")]
     server.app.router.lifespan_context = lifespan
     # make mock-live: a mock's folder at /mock/, ahead of the "/" catch-all, so its harness
     # is same-origin with /m and can patch the running app (scripts/mock.mjs).
