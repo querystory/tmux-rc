@@ -49,7 +49,7 @@ IDENTITY = (*LOGINS, ".claude.json")  # the sign-in and who it is: they stay tog
 # What an agent rebuilds in its dir, left out: caches, debug logs, shell snapshots.
 AGENT_DIRS = (".claude", ".codex", *accounts.MORE.values())  # what an import may replace in HOME
 DBS = (".sqlite", ".sqlite3", ".db")  # an agent's SQLite DB: snapshotted, not copied
-CACHES = ("cache", "debug", "statsig", "shell-snapshots", "log", "tmp", ".tmp")
+CACHES = ("cache", "debug", "statsig", "shell-snapshots", "shell_snapshots", "log", "tmp", ".tmp")
 
 
 def _data() -> Path:
@@ -171,15 +171,36 @@ def _snapshot(db: Path, tar, name: str) -> None:
 
 def sizes() -> dict[str, int]:
     """Each part's size on disk, uncompressed: the walk export makes, without reading, and
-    the DB's pages, its WAL's included, as the snapshot holds them."""
+    each DB's pages, its WAL's included, as its snapshot holds them."""
     out = dict.fromkeys(PARTS, 0)
-    with contextlib.suppress(sqlite3.Error), _read(_db()) as db:
-        out["state"] = db.execute("SELECT page_count * page_size FROM pragma_page_count, "
-                                  "pragma_page_size").fetchone()[0]
-    for part, _, path in _entries():
+    with contextlib.suppress(sqlite3.Error):
+        out["state"] = _pages(_db())
+    for part, name, path in _entries():
         with contextlib.suppress(OSError):
-            out[part] += path.lstat().st_size if not path.is_dir() or path.is_symlink() else 0
+            out[part] += 0 if _sidecar(name) else _size(path)
     return out
+
+
+def _is_db(path: Path) -> bool:
+    return path.suffix in DBS and path.is_file() and not path.is_symlink()
+
+
+def _sidecar(name: str) -> bool:
+    """A DB's WAL or SHM: its snapshot holds them."""
+    return name.endswith(("-wal", "-shm")) and Path(name[:-4]).suffix in DBS
+
+
+def _pages(db: Path) -> int:
+    with _read(db) as c:
+        return c.execute("SELECT page_count * page_size FROM pragma_page_count, "
+                         "pragma_page_size").fetchone()[0]
+
+
+def _size(path: Path) -> int:
+    if _is_db(path):
+        with contextlib.suppress(sqlite3.DatabaseError):  # not one: as a file
+            return _pages(path)
+    return path.lstat().st_size if not path.is_dir() or path.is_symlink() else 0
 
 
 def export(out, parts) -> list[str]:
@@ -187,7 +208,7 @@ def export(out, parts) -> list[str]:
     Returns what a person moves by hand: agent dirs deeper than HOME's top level."""
     parts = {"state", *parts}
     deeper = [str(d) for d in _agent_dirs() if d.parent != Path.home()] * ("agents" in parts)
-    db, schema, snapped = _db(), None, set()
+    db, schema = _db(), None
     with tarfile.open(fileobj=out, mode="w|gz") as tar:
         if db.exists():
             with _read(db) as src:
@@ -201,15 +222,15 @@ def export(out, parts) -> list[str]:
         if schema is not None:
             _snapshot(db, tar, "history.sqlite3")
         for part, name, path in _entries(parts):
-            if part not in parts or name.rpartition("-")[0] in snapped:  # its DB's WAL, SHM
+            if part not in parts or _sidecar(name):
                 continue
             with contextlib.suppress(FileNotFoundError):  # gone since the walk
-                if path.suffix in DBS and path.is_file() and not path.is_symlink():
+                if _is_db(path):
                     with contextlib.suppress(sqlite3.DatabaseError):  # not one: as a file
                         _snapshot(path, tar, name)
-                        snapped.add(name)
                         continue
-                info = tar.gettarinfo(path, name)
+                if (info := tar.gettarinfo(path, name)) is None:  # a socket: tar can't hold it
+                    continue
                 if info.islnk():  # a name sharing an inode goes as its bytes: import
                     info.type, info.size = tarfile.REGTYPE, path.stat().st_size  # drops links
                 with path.open("rb") if info.isreg() else contextlib.nullcontext() as f:
@@ -382,6 +403,7 @@ def restore(src) -> list[str]:
                                          item.name)] if item.name in where else []
         if len({_spot(path) for _, path, _ in moves}) < len(moves):  # e.g. data/scratch and scratch
             raise SystemExit("Two of this archive's parts would land at one place here.")
+        db_dir = _spot(Path(db)).parent
         for child, path, name in moves:  # before any swap: only a place's own part replaces it,
             dst = _spot(path)
             if name.startswith("data/") and (inside := _within(dst, keep)):  # nor lands inside one
@@ -389,6 +411,8 @@ def restore(src) -> list[str]:
             for at in keep:  # and one nested in another's swap must have a dir path to stay in
                 if _displaces(child, dst, name, at):
                     raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
+            if db_dir.is_relative_to(dst) and (inner := child / db_dir.relative_to(dst)).is_dir():
+                inner.chmod(inner.stat().st_mode & 0o7700)  # the DB's dir: History needs it private
         for child, path, _ in moves:
             _keep_login(child, _spot(path))
         journal = []

@@ -558,11 +558,21 @@ def test_an_agents_db_goes_as_a_snapshot(home):
     db.execute("CREATE TABLE t (v)")
     db.execute("INSERT INTO t VALUES (1)")
     db.commit()
+    write(old / ".codex/state.sqlite-notes", "kept")
+    write(old / ".codex/shell_snapshots/s.sh")
+    sock = socket.socket(socket.AF_UNIX)
+    sock.bind(str(old / ".codex/s"))  # a socket: skipped, not the export's end
+    pages = db.execute("SELECT page_count * page_size FROM pragma_page_count, "
+                       "pragma_page_size").fetchone()[0]
+    assert export.sizes()["agents"] == pages + len("kept")  # as the snapshot holds it
     out = io.BytesIO()
     export.export(out, ["agents"])
     db.close()
+    sock.close()
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
-        assert not [n for n in tar.getnames() if n.endswith(("-wal", "-shm"))]
+        names = tar.getnames()
+        assert "agents/.codex/state.sqlite-notes" in names
+        assert not [n for n in names if n.endswith(("-wal", "-shm", "s.sh", "/s"))]
         tar.extract("agents/.codex/state.sqlite", old / "out", filter="data")
     with contextlib.closing(sqlite3.connect(old / "out/agents/.codex/state.sqlite")) as copy:
         assert copy.execute("SELECT v FROM t").fetchall() == [(1,)]
@@ -580,3 +590,15 @@ def test_a_kept_dbs_private_dir_stays_private(home, monkeypatch):
     (new / ".local/share/tmux-rc/previews").chmod(0o700)
     export.restore(io.BytesIO(out.getvalue()))
     assert (new / ".local/share/tmux-rc/previews").stat().st_mode & 0o777 == 0o700
+
+
+def test_an_imported_dbs_dir_is_private(home, monkeypatch):
+    """Here the DB sits in a data dir the archive brings, open there: History still opens."""
+    old = source(home)
+    (old / ".local/share/tmux-rc/mocks").chmod(0o755)
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(new / ".local/share/tmux-rc/mocks/h.sqlite3"))
+    export.restore(io.BytesIO(out.getvalue()))
+    History(new / ".local/share/tmux-rc/mocks/h.sqlite3")
