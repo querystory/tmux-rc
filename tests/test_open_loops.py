@@ -388,9 +388,11 @@ def test_where_names_the_innermost_worktree():
         {"path": "/w/app/.worktrees/fix", "repo": None, "branch": "fix",
          "common": "/w/app/.git"},
         {"path": "/w/tool", "repo": None, "branch": "", "common": "/w/tool.git"}]
-    assert loops.where("/w/app/src") == {"repo": "app", "path": "/w/app", "branch": "main"}
+    assert loops.where("/w/app/src") == {"key": "/w/app/.git", "repo": "app", "path": "/w/app",
+                                         "branch": "main"}
     assert loops.where("/w/app/.worktrees/fix/a")["path"] == "/w/app/.worktrees/fix"
     assert loops.where("/w/app/.worktrees/fix")["repo"] == "app"  # its folder, no GitHub
+    assert loops.where("/w/app/.worktrees/fix")["key"] == "/w/app/.git"  # one repository
     assert loops.where("/w/tool")["repo"] == "tool"  # a bare common dir: its name
     assert loops.where("/w/apple") is None
     assert loops.where(None) is None

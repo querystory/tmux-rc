@@ -475,13 +475,14 @@ class OpenLoops:
 
     def where(self, cwd: str | None) -> dict | None:
         """The repository and worktree a pane's cwd sits in, from the last scan (the Fleet
-        graph's Repo and Worktree lenses): named by its GitHub repository, else its folder."""
+        graph's Repo and Worktree lenses): named by its GitHub repository, else its folder, and
+        keyed by its git common dir, which no two repositories share."""
         if not (w := holding(self.worktrees, cwd)):
             return None
         common = Path(w.get("common") or w["path"])
         top = common.parent if common.name == ".git" else common
         name = (w["repo"] or "").rpartition("/")[2] or top.name.removesuffix(".git")
-        return {"repo": name, "path": w["path"], "branch": w["branch"]}
+        return {"key": str(common), "repo": name, "path": w["path"], "branch": w["branch"]}
 
     def report(self, panes: list[dict], now: float | None = None) -> dict:
         now = time.time() if now is None else now

@@ -31,8 +31,8 @@ const outside = p => ['no repository', home(p.cwd || '') || 'unknown'];
 const PATHS = {
   session: p => [p.session || 'no session'],
   account: (p, owner) => { const a = owner(p.pane_id); return [a ? [a.dir, a.name] : agent(p) ? 'Own login' : 'No agent']; },
-  repo: p => p.worktree ? [p.worktree.repo, ...below(p)] : outside(p),
-  worktree: ({ worktree: w, ...p }) => w ? [w.repo, [w.path, w.branch || w.path.split('/').pop()]] : outside(p),
+  repo: p => p.worktree ? [[p.worktree.key, p.worktree.repo], ...below(p)] : outside(p),
+  worktree: ({ worktree: w, ...p }) => w ? [[w.key, w.repo], [w.path, w.branch || w.path.split('/').pop()]] : outside(p),
   tool: p => [TOOLS[p.tool] || p.tool || 'Other', p.model],
 };
 function colors() {
@@ -233,7 +233,15 @@ export function fleetGraph(box, mini, ctx) {
   new ResizeObserver(size).observe(box);
   const close = () => { pop?.remove(); pop = null; sel = null; draw(); };
   const api = {
-    update(list) { panes = list; if (sel && !list.some(p => p.pane_id === (sel.parent || sel).id)) close(); relayout(false); },
+    update(list) {
+      panes = list; relayout(false);
+      if (!pop) return;
+      // An open popover follows the live data, in place, focus kept; its node gone, it goes.
+      if (!model.nodes.includes(sel)) return close();
+      const focused = pop.contains(document.activeElement) && document.activeElement.className;
+      tap(pop._at, sel);
+      if (focused) pop.querySelector(`.${focused.split(' ')[0]}`)?.focus();
+    },
     fit() { touched = false; anim = { t0: performance.now(), dur: motion() ? 400 : 1, v0: { ...view }, v1: fitView() }; model.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; }); animate(); },
     setLens(l) { lens = l; close(); relayout(true); ctx.onChange?.(); }, lens: () => lens,
     zoom(f) { zoomAt(W / 2, H / 2, f); },
@@ -306,8 +314,9 @@ export function fleetGraph(box, mini, ctx) {
   for (const t of ['touchstart', 'touchend']) box.addEventListener(t, e => e.stopPropagation());
 
   function popover(html, at, n) {
+    if (pop?._html === html && sel === n) return; // a poll that changed nothing in it
     pop?.remove();
-    pop = el('div', `fg-pop${phone() ? ' sheet' : ''}`, html);
+    pop = Object.assign(el('div', `fg-pop${phone() ? ' sheet' : ''}`, html), { _at: at, _html: html });
     box.append(pop);
     if (!phone()) { pop.style.left = `${Math.min(W - 292, Math.max(8, at.x + 18))}px`; pop.style.top = `${Math.min(H - pop.offsetHeight - 8, Math.max(8, at.y - 30))}px`; }
     pop.querySelector('.fg-x').onclick = close;
