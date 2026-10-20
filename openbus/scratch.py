@@ -178,16 +178,23 @@ def _writers(todo: list[dict]) -> None:
                 _missed[keys[i["name"]]] = now
 
 
-def replace(path: Path, root: Path, write) -> None:
+def replace(path: Path, root: Path, write, *, exclusive: bool = False) -> None:
     """Write `path` whole or not at all, never through a symlink planted at its name, and
     only while its folder is still really in scratch: it may have been swapped for a
-    symlink out since it was listed."""
+    symlink out since it was listed. `exclusive` never over a file there by then
+    (FileExistsError): one an agent wrote meanwhile is kept."""
     if not inside(path.parent, root):
         raise PermissionError(f"{path.parent} is no longer in scratch")
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.unlink(missing_ok=True)
     write(tmp)
-    tmp.replace(path)
+    if not exclusive:
+        tmp.replace(path)
+        return
+    try:
+        os.link(tmp, path)
+    finally:
+        tmp.unlink()
 
 
 def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> bool:
@@ -207,13 +214,7 @@ def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> 
             made = [g for g in made if isinstance(g, str)] if isinstance(made, list) else []
             data = {**current, field: value, "generated": [*dict.fromkeys([*made, field])]}
             text = json.dumps(data, indent=1) + "\n"
-            if not fresh:
-                replace(meta, root, lambda tmp: tmp.write_text(text))
-            elif not inside(meta.parent, root):
-                return False
-            else:  # created exclusively: an agent writing it meanwhile is not overwritten
-                with meta.open("x") as f:
-                    f.write(text)
+            replace(meta, root, lambda tmp: tmp.write_text(text), exclusive=fresh)
     except (OSError, ValueError):
         return False
     return True

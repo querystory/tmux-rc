@@ -245,6 +245,7 @@ def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
     monkeypatch.setattr(scratch.os.path, "lexists", lambda _p: False)
     assert not scratch.annotate(meta, tmp_path, "description", "d")
     assert json.loads(meta.read_text()) == {"title": "the agent's"}
+    assert sorted(p.name for p in folder.iterdir()) == ["index.html", "meta.json"]  # no tmp
 
 
 def test_dot_dot_is_not_inside(tmp_path):
