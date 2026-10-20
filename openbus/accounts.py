@@ -10,12 +10,17 @@ from __future__ import annotations
 
 import contextlib
 import glob
+import http.client
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from . import plan_usage, tmux
 from .expunge import _FILES, Refused, Session, _home, _registration
@@ -30,7 +35,12 @@ COLORS = 6  # web/m/style.css draws --acct-0 .. --acct-5
 SHARED = {"claude": {"CLAUDE.md": True, "skills": True, "hooks": True, "statusline.sh": True,
                      "settings.json": False},
           "codex": {"AGENTS.md": True, "prompts": True, "config.toml": False}}
-LOGIN = {"claude": ["claude"], "codex": ["codex", "login"]}  # the provider's own sign-in
+# The provider's own sign-in. Plain `codex login` redirects the browser to a callback on
+# this machine's localhost, which a remote browser cannot reach: the sheet takes the address
+# it landed on and replays it here (codex_callback). `--device-auth` avoids that, where the
+# workspace allows device codes.
+LOGIN = {"claude": ["claude"], "codex": ["codex", "login"]}
+CODEX_CALLBACK_PORT = 1455  # where `codex login` waits for the browser's redirect
 RESUME = {"claude": ["claude", "--resume"], "codex": ["codex", "resume"]}
 # What a session needs to resume on another account: of the files Expunge knows it by,
 # Claude's transcript, its subagents' and tool results' folder and its /rewind snapshots;
@@ -72,11 +82,13 @@ def tilde(path: str) -> str:
     return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
 
 
-def identity(provider: str, config: Path) -> dict | None:
+def identity(provider: str, config: Path, codex_says: bool = False) -> dict | None:
     """Who is signed in to this dir, from non-secret files only; None when nobody is.
-    Codex keeps no such file, so only its login's presence is checked, never read."""
+    Codex keeps no such file, so only its login's presence is checked, never read: its
+    auth.json, else what `codex login status` said (codex_says, asked by the caller)."""
     if provider == "codex":
-        return {"who": "", "plan": ""} if (config / "auth.json").exists() else None
+        signed_in = (config / "auth.json").exists() or codex_says
+        return {"who": "", "plan": ""} if signed_in else None
     account = plan_usage.oauth_account(config, plan_usage.env_for("claude", config))
     if not account.get("accountUuid"):
         return None
@@ -92,6 +104,100 @@ def identity(provider: str, config: Path) -> dict | None:
             # without the organisation's id, no key, since a name may be shared.
             "_key": account.get("organizationUuid") and [account["accountUuid"],
                                                           account["organizationUuid"]]}
+
+
+_CODEX_SEEN: dict[Path, tuple[float, bool]] = {}  # dir -> (when asked, the answer)
+
+
+def _codex_login(config: Path) -> bool:
+    """Whether Codex itself says this dir is signed in. Its login may live in the OS keyring
+    (cli_auth_credentials_store), where no file shows it; `codex login status` sees both.
+    The answer is kept a few seconds, so the sheet's polling costs one probe per dir per
+    interval however often the accounts are read."""
+    at, seen = _CODEX_SEEN.get(config, (-10.0, False))
+    if time.monotonic() - at < 3:
+        return seen
+    seen = _codex_status(config)
+    _CODEX_SEEN[config] = (time.monotonic(), seen)  # from when the answer came
+    return seen
+
+
+def _codex_status(config: Path) -> bool:
+    # Only what a tmux session would get: none of the daemon's secrets.
+    env = {k: v for k, v in tmux.safe_env().items() if k != ENV["codex"]}
+    env |= plan_usage.env_for("codex", config)
+    path = tmux.server_path()  # None: tmux can't say; "" is an answer (an empty PATH)
+    env["PATH"] = env.get("PATH", "") if path is None else path
+    try:
+        return subprocess.run(["codex", "login", "status"], env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=3, check=False).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def codex_callback(url: str) -> str | None:
+    """The path and query to replay here from the address a remote browser landed on after
+    `codex login`, or None unless it is exactly that callback: http on localhost or
+    127.0.0.1, Codex's port, /auth/callback, a printable query, no credentials or fragment.
+    Nothing else may be requested, so this is no proxy."""
+    try:
+        u = urlsplit(url.strip())
+        ok = (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
+              and u.port == CODEX_CALLBACK_PORT and u.path == "/auth/callback"
+              and re.fullmatch(r"[\x21-\x7e]+", u.query) and "@" not in u.netloc
+              and "#" not in url)
+    except ValueError:  # a port that is no number
+        return None
+    return f"{u.path}?{u.query}" if ok else None
+
+
+def sign_in_link(screen: str) -> dict:
+    """The sign-in page a Codex login window shows (the last on screen, whole: tmux joins
+    wrapped lines), and the one-time code the device flow shows beside it; "" for each it
+    has not shown yet. A labelled terminal link reaches here as `[label](url)`
+    (tmux._materialize_links): its target ends at the `)` that closes it, and a URL
+    label ends at its `]`."""
+    url = r"https://auth\.openai\.com/[^\s\x00-\x1f"
+    urls = [a or b for a, b in re.findall(rf"\]\(({url}]+)\)(?!\S)|({url}\]]+)", screen)]
+    code = re.findall(r"\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b", screen)
+    return {"url": urls[-1] if urls else "", "code": code[-1] if code else ""}
+
+
+def oauth_state(url: str) -> str:
+    """The OAuth `state` an authorize link or a callback address carries ("" for none)."""
+    return parse_qs(urlsplit(url).query).get("state", [""])[0]
+
+
+def _get_local(path: str) -> tuple[int, str, str]:
+    """GET a path from the `codex login` listening here: status, body start, Location."""
+    conn = http.client.HTTPConnection("127.0.0.1", CODEX_CALLBACK_PORT, timeout=15)
+    try:
+        conn.request("GET", path)
+        reply = conn.getresponse()
+        text = reply.read(500).decode(errors="replace")
+        return reply.status, text, reply.getheader("Location") or ""
+    finally:
+        conn.close()
+
+
+def replay_codex_callback(path: str) -> tuple[int, str] | None:
+    """GET a codex_callback path from the `codex login` listening on this machine, as the
+    browser would have: its status and the start of its body, or None when nothing is
+    listening. Codex answers a good code with a redirect to its own success page, and only
+    exits once that page is loaded too, so a redirect to the same server (and only that) is
+    followed once; any other host is left alone."""
+    try:
+        status, text, location = _get_local(path)
+        u = urlsplit(location)
+        same = (not u.netloc or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
+                                 and u.port == CODEX_CALLBACK_PORT))
+        if 300 <= status < 400 and same and u.path.startswith("/") and not u.path.startswith("//"):
+            page = _get_local(u.path + (f"?{u.query}" if u.query else ""))  # its failure is ours
+            if page[0] >= 400:
+                return page[:2]
+        return status, text
+    except (OSError, http.client.HTTPException):  # nothing there, or no HTTP spoken
+        return None
 
 
 def profiles(pane_dirs=()) -> list[dict]:
@@ -115,9 +221,18 @@ def _profiles(pane_dirs) -> list[dict]:
         if entry.get("provider") in ENV:
             found[config] = entry["provider"]
     used, dirty, out = {e.get("color") for e in store.values()}, False, []
+    # Codex's own status checks all at once, so one pass waits one timeout at most and its
+    # answers are all still fresh for the next pass of the same report.
+    ask = [Path(c) for c, t in found.items() if t == "codex" and not store.get(c, {}).get("hidden")
+           and not (Path(c) / "auth.json").exists()]
+    with ThreadPoolExecutor(max_workers=max(len(ask), 1)) as pool:
+        codex_says = dict(zip(ask, pool.map(_codex_login, ask), strict=True))
     for config, provider in found.items():
-        entry, ident = store.get(config, {}), identity(provider, Path(config))
-        if entry.get("hidden") or not (ident or config in store):
+        entry = store.get(config, {})
+        if entry.get("hidden"):  # before identity(): a forgotten dir costs no codex call
+            continue
+        ident = identity(provider, Path(config), codex_says.get(Path(config), False))
+        if not (ident or config in store):
             continue
         if "color" not in entry:
             free = sorted(set(range(COLORS)) - used) or [len(used) % COLORS]

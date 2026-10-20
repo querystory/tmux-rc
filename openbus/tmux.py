@@ -550,8 +550,10 @@ def new_window(session: str, name: str, command: str | list[str], cwd: str | Non
     `cwd` overrides it for a command that must start somewhere specific (a resumed
     agent session only exists in the directory it was started in).
     A `command` given as a list is executed directly by tmux, with no shell, so its
-    arguments are never parsed as shell syntax."""
-    argv = command if isinstance(command, list) else [command]
+    arguments are never parsed as shell syntax. tmux still ends a command at an argument
+    ending in ';' (after `--` too), so that ';' goes escaped as tmux's literal one."""
+    argv = [a[:-1] + "\\;" if a.endswith(";") else a
+            for a in (command if isinstance(command, list) else [command])]
     return _run(
         ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd or "#{session_path}",
          "-t", f"{session}:", "-n", name, "--", *argv]
@@ -569,6 +571,11 @@ _SERVER_ENV = re.compile(r"HOME|USER|LOGNAME|SHELL|LANG|LC_\w+|TZ|PATH|XDG_\w+"
                          r"|DBUS_SESSION_BUS_ADDRESS|SSH_AUTH_SOCK|TMUX|TMUX_TMPDIR")
 
 
+def safe_env() -> dict[str, str]:
+    """The daemon's environment cut to what a tmux session may see (_SERVER_ENV)."""
+    return {k: v for k, v in os.environ.items() if _SERVER_ENV.fullmatch(k)}
+
+
 def server_env() -> dict[str, str]:
     """The environment new_session hands tmux — see _SERVER_ENV — with PATH taken from
     the user's LOGIN shell. The daemon's unit PATH is deliberately minimal, and a launcher
@@ -577,7 +584,7 @@ def server_env() -> dict[str, str]:
     reboot, though it runs fine in one the user starts by hand. `exec env` rather than
     echoing $PATH, which fish would space-join; the LAST PATH= line wins, past anything
     the profile prints. If the shell fails, the scrubbed PATH stands."""
-    env = {k: v for k, v in os.environ.items() if _SERVER_ENV.fullmatch(k)}
+    env = safe_env()
     venv = os.environ.get("VIRTUAL_ENV")
     if venv:
         dirs = env.get("PATH", "").split(os.pathsep)
@@ -1192,6 +1199,15 @@ def pane_pid(pane_id: str) -> str | None:
         return _run(["display-message", "-p", "-t", pane_id, "#{pane_pid}"]).strip() or None
     except (OSError, subprocess.CalledProcessError):
         return None  # no such pane (or tmux) any more
+
+
+def pane_dead(pane_id: str) -> bool:
+    """Whether the pane's process has exited while tmux keeps the pane (remain-on-exit),
+    which still reports the old pane_pid."""
+    try:
+        return _run(["display-message", "-p", "-t", pane_id, "#{pane_dead}"]).strip() == "1"
+    except (OSError, subprocess.CalledProcessError):
+        return False  # gone altogether: pane_pid says so
 
 
 def before_send(pane_id: str, callback: Callable[[], None]) -> None:

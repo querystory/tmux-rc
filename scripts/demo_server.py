@@ -188,6 +188,10 @@ def install() -> None:
 
     @server.app.middleware("http")
     async def read_only(request, call_next):
+        if request.url.path == "/api/accounts/login/window" and _signing_in:  # its window: a stub
+            return JSONResponse({"pane_id": SIGN_IN["pane_id"], "pid": "1", "dir": "~/.claude-demo",
+                                 "codex": False, "device": False, "session": SIGN_IN["session"],
+                                 "url": "", "code": "", "others": []})
         if request.method in ("GET", "HEAD"):
             return await call_next(request)
         if request.url.path == "/api/accounts" and request.method == "POST":  # the add flow
