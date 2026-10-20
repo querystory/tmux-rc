@@ -297,7 +297,7 @@ export function fleetGraph(box, mini, ctx) {
   cv.addEventListener('pointermove', e => {
     const at = pos(e);
     if (!pts.has(e.pointerId)) { if (e.pointerType === 'mouse') { const h = hit(at.x, at.y); if (h !== hover) { hover = h; cv.style.cursor = h ? 'pointer' : 'grab'; draw(); } } return; }
-    pts.set(e.pointerId, at);
+    pts.set(e.pointerId, at); land(); // a glide begun mid-gesture (a poll's relayout) yields the camera
     const [p, q] = [...pts.values()];
     if (pinch && q) {
       const k = Math.max(K_MIN, Math.min(4, pinch.k * Math.hypot(p.x - q.x, p.y - q.y) / pinch.d)), mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2;
