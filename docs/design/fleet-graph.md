@@ -26,9 +26,12 @@ again unfolds it.
 Fit wears a crosshair rather than the four corners it first had: on a phone those corners
 read as "fill the screen", and a tester pressed it expecting exactly that. That button now
 exists beside it. Full screen pins the view over the page with CSS, inside the safe area;
-Esc or the button leaves it, and it refits both ways. A phone opens the view full screen
-from the start, since a graph squeezed between the app's header and tab bar is too small to
-pan, and there the button closes the view instead of shrinking it. The Fullscreen API was passed over because an iPhone grants it to
+Esc or the button leaves it, and it refits both ways. The toggle heads the control column in
+the top-right corner and stays there in both states, its icon swapped, so the way out is
+exactly where the way in was. A phone once opened the view full screen by default, with
+that button closing the view; in use it lost the app's title bar and back button, and a
+close button where the full-screen toggle belonged sent people hunting, so the view now
+opens inline like every other drill-in and full screen is one tap away. The Fullscreen API was passed over because an iPhone grants it to
 video only, so it would add a code path that does nothing on the device that wanted this.
 
 ## The look
@@ -52,7 +55,9 @@ rather than its states, per device. C's sparks and feed were dropped: the most m
 code for the least information, and a pane's events already have a home in its timeline.
 
 The detail layer is what answers "show me more" without clutter: a node's size and the arc
-round it are the context it has used, hot past 80%; a badge counts sub-agents; a needs-you
+round it are the context it has used, hot past 80%; a badge counts sub-agents, every one not
+finished or idle, each satellite in its state's colour (the sidebar lists only the busy
+ones, but a pane waiting on six background agents should show six); a needs-you
 pane pulses and says how long it has waited; idle panes fade with age, so stale ones
 recede; a dashed ring marks the account once there are several; running edges carry the
 current verb and its elapsed time; hubs sum their running, needs-you and cost; the HUD
@@ -74,7 +79,8 @@ On a phone at fit zoom there is room for perhaps a dozen labels, and labels at t
 edge were being cut off. Rather than hide names by zoom level alone, every label is queued
 with a rank and drawn after the marks, most wanted first: the selected pane and panes that
 need you (always), hub names, hub sums, working panes, then the rest. A label that would
-land on one already drawn, or under the HUD, is dropped; one near an edge slides inward
+land on one already drawn, or under the HUD or its controls, is dropped; a pane's label
+that runs out of room on its side flips to the other side of the node; one near an edge slides inward
 while its node is on screen, and one wider than the screen is cut. A hub whose full sum has
 no room says only its most urgent part ("2 need you"). The result is that the fitted phone
 view names every pane that needs you and most of the working ones, and nothing overlaps or

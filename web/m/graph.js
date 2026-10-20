@@ -4,7 +4,7 @@
 // node to its new place; a poll that changes nothing structural only recolours, and one that
 // adds a pane eases it in from its hub, so live updates never jump the layout.
 import { STATES, stateOf } from './atlas.js';
-import { esc, paneName, paneHeadline, liveSubagents, subagentCount, since, home } from './pane-model.js';
+import { esc, paneName, paneHeadline, records, since, home } from './pane-model.js';
 
 const LENSES = [['session', 'Session'], ['account', 'Account'], ['repo', 'Repo / dir'], ['worktree', 'Worktree'], ['tool', 'Tool / model']];
 const LEGEND = {
@@ -21,7 +21,7 @@ const motion = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
 const phone = () => matchMedia('(max-width: 699px)').matches;
 const busy = s => s === 1 || s === 4 || s === 5;
 const frac = x => x - Math.floor(x), hash = i => frac(Math.sin(i * 127.1 + 311.7) * 43758.5453);
-const costOf = p => parseFloat(String(p.cost || '').replace(/[^\d.]/g, '')) || 0;
+const costOf = p => (String(p.cost || '').match(/\d[\d,]*(\.\d+)?/g) || []).reduce((t, x) => t + parseFloat(x.replace(/,/g, '')), 0); // "$0.09 (+$0.18) (sub)" is $0.27
 const ageOf = p => Math.max(0, Date.now() / 1000 - (p.state_since || Date.now() / 1000));
 const fade = p => { const a = ageOf(p); return a < 600 ? 1 : a < 3600 ? 0.8 : a < 86400 ? 0.6 : 0.42; }; // idle recedes with age: fresh, an hour, a day, older
 const cut = (t, n) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
@@ -32,7 +32,13 @@ const DARK = 'tmuxrc-graph-dark';
 try { document.documentElement.classList.toggle('fg-dark', localStorage.getItem(DARK) === '1'); } catch {}
 const el = (tag, cls = '', html = '') => Object.assign(document.createElement(tag), { className: cls, innerHTML: html });
 const agent = p => p.tool && p.tool !== 'shell';
-const subsOf = p => agent(p) ? Math.min(MAX_SUBS, subagentCount(p)) : 0;
+// Every sub-agent not finished or idle, waiting ones too (the sidebar lists only the busy):
+// a parent waiting on six background agents should show six. `agents` is the backend's busy
+// count, which can exceed the rows listed. A satellite takes its state's colour.
+const subsList = p => agent(p) ? records(p.subagents).filter(a => !['done', 'idle'].includes(a.state)) : [];
+const subCount = p => agent(p) ? Math.max(Number(p.agents) || 0, subsList(p).length) : 0;
+const subsOf = p => Math.min(MAX_SUBS, subCount(p));
+const subState = a => a ? { running: 1, compacting: 4, waiting: 5 }[a.state] ?? 3 : 1; // one counted, not listed, is a busy one
 // A path segment is its label, or [identity, label] where two hubs could share a label: two
 // clones on the same branch, two accounts given one name.
 // Where a pane sits: its repository (the daemon's worktree scan, /api/state's `worktree`) and
@@ -64,13 +70,13 @@ export function fleetGraph(box, mini, ctx) {
   let listNodes = () => {}, touched = false, roomAt = null; // touched: panned or zoomed since the last fit // the full view's node buttons (below)
   const PAD = mini ? 52 : 60, view = { k: 1, x: 0, y: 0 }, collapsed = new Set(), imgs = {}, cache = new Map();
   // The renderer's: glow sprites, the ground, the particle budget and what a draw costs (ms).
-  const sprites = new Map(), spacing = 'letterSpacing' in dc, TAIL = [0, 1, 2].map(() => new Float32Array(4 * MAX_PARTS)), HEAD = new Float32Array(4 * MAX_PARTS), tn = [0, 0, 0];
+  const sprites = new Map(), spacing = 'letterSpacing' in dc, TAIL = [0, 1, 2, 3, 4, 5].map(() => new Float32Array(4 * MAX_PARTS)), HEAD = new Float32Array(4 * MAX_PARTS), tn = [0, 0, 0, 0, 0, 0];
   let bg = null, budget = 1, cost = 3, particles = 0;
   // Nodes keep their identity across lenses and polls, so a pane glides to its new place.
   const node = (id, init) => { let n = cache.get(id); if (!n) cache.set(id, n = { id, x: NaN, y: NaN, ...init() }); return n; };
   const paneNode = p => Object.assign(node(p.pane_id, () => ({ kind: 'pane' })), { p, r: mini ? 11 : p.context_pct == null ? 8 : 7 + 9 * p.context_pct / 100 }); // its size: the context it has used
-  const subNodes = pn => Array.from({ length: subsOf(pn.p) }, (_, j) => Object.assign(node(`${pn.id}/${j}`, () => ({ kind: 'sub', r: 4.5 })), { parent: pn, a: liveSubagents(pn.p)[j] }));
-  const stateOf_ = n => n.kind === 'pane' ? stateOf(n.p) : n.kind === 'sub' ? 1 : null;
+  const subNodes = pn => Array.from({ length: subsOf(pn.p) }, (_, j) => Object.assign(node(`${pn.id}/${j}`, () => ({ kind: 'sub', r: 4.5 })), { parent: pn, a: subsList(pn.p)[j] }));
+  const stateOf_ = n => n.kind === 'pane' ? stateOf(n.p) : n.kind === 'sub' ? subState(n.a) : null;
   const logo = tool => { const src = ctx.logos[tool]; if (src && !imgs[tool]) { const i = imgs[tool] = new Image(); i.onload = () => draw(); i.src = src; } return imgs[tool]; };
 
   // A lens is a tree: the root, a hub per path segment, then the panes and their satellites.
@@ -183,7 +189,7 @@ export function fleetGraph(box, mini, ctx) {
   const disc = (x, y, r) => { dc.beginPath(); dc.arc(x, y, r, 0, 7); };
 
   function draw(now = performance.now()) {
-    if (!model || !W) return;
+    if (!model || !W || !box.isConnected) return; // a view off the page has no palette to read
     const t0 = performance.now();
     if (theme !== document.documentElement.className) { theme = document.documentElement.className; C = colors(box); sprites.clear(); }
     if (anim) { // a lens change, a fold, a new pane or a jump: everything glides from where it was
@@ -209,18 +215,22 @@ export function fleetGraph(box, mini, ctx) {
     // to its width and slid in from an edge while its anchor is on screen; one that would land
     // on a block already drawn, or under the HUD, is dropped, so a crowd sheds the quiet ones.
     const tags = [], tag = (rank, A, ...a) => tags.push([rank, A, a]), R0 = roomAt || room();
-    const taken = [[0, 0, W, R0.top], [0, R0.top + R0.h, W, H], [0, 0, R0.left, H]];
-    const words = (lines, x, y, align, vb, force) => {
+    const taken = [[0, 0, W, R0.top], [0, R0.top + R0.h, W, H], [0, 0, R0.left, H], [W - R0.right, 0, W, R0.tools]]; // the HUD's bands, and the controls' column
+    // `fx`: where a pane's block goes on the far side of its node, should this side run out of room.
+    const words = (force, lines, x, y, align, vb, fx) => {
+      let sx = x * k + view.x;
+      const ns = (fx != null ? (x + fx) / 2 : x) * k + view.x, // the node's own place decides whether it is on screen
+ sy = y * k + view.y, R = sy < R0.tools + 20 ? W - R0.right : W - 6; // beside the controls, stop short of them
       let bw = 0, bh = 0;
       for (const l of lines) {
         font(l[2], l[3], l[4] || 0);
         let w = dc.measureText(l[0]).width * k;
-        if (w > W - 12) { l[0] = cut(l[0], Math.floor(l[0].length * (W - 12) / w)); w = W - 12; }
+        if (w > R - 6) { l[0] = cut(l[0], Math.floor(l[0].length * (R - 6) / w)); w = R - 6; }
         bw = Math.max(bw, w); bh += l[2] + 3;
       }
-      const sx = x * k + view.x, sy = y * k + view.y;
+      if (fx != null && (align === 'left' ? sx + bw > R : align === 'right' && sx - bw < 6)) { x = fx; sx = x * k + view.x; align = align === 'left' ? 'right' : 'left'; }
       let L = align === 'center' ? sx - bw / 2 : align === 'left' ? sx : sx - bw;
-      const T = vb === 'top' ? sy : vb === 'bottom' ? sy - bh : sy - bh / 2, dx = sx > 0 && sx < W ? Math.max(6, Math.min(W - 6 - bw, L)) - L : 0;
+      const T = vb === 'top' ? sy : vb === 'bottom' ? sy - bh : sy - bh / 2, dx = ns > 0 && ns < W ? Math.max(6, Math.min(R - bw, L)) - L : 0;
       L += dx;
       if (!force && taken.some(b => L < b[2] + 4 && L + bw + 4 > b[0] && T < b[3] + 2 && T + bh + 2 > b[1])) return;
       taken.push([L, T, L + bw, T + bh]);
@@ -255,17 +265,17 @@ export function fleetGraph(box, mini, ctx) {
         const t2 = Math.max(0, Math.min(1, t - (0.05 + 0.09 * h2) * (inward ? -1 : 1)));
         bz(c, t); const hx = PX + NX * off(t), hy = PY + NY * off(t);
         bz(c, t2);
-        const bk = h2 > 0.82 ? 2 : h2 > 0.45 ? 1 : 0, T = TAIL[bk], j = tn[bk]++ * 4, m = hn++ * 4; // tails batch into three brightness buckets
+        const bk = (h2 > 0.82 ? 2 : h2 > 0.45 ? 1 : 0) + (inward ? 3 : 0), T = TAIL[bk], j = tn[bk]++ * 4, m = hn++ * 4; // tails batch by brightness, and running or needs-you
         T[j] = PX + NX * off(t2); T[j + 1] = PY + NY * off(t2); T[j + 2] = hx; T[j + 3] = hy;
         HEAD[m] = hx; HEAD[m + 1] = hy; HEAD[m + 2] = Math.sin(Math.PI * t) ** 0.7 * (0.45 + 0.55 * h3); HEAD[m + 3] = (inward ? 0 : 1) + (b.kind === 'sub' ? 2 : 0);
       }
       parts += n;
     }
     if (hn) {
-      dc.globalCompositeOperation = add; dc.strokeStyle = C.s[1];
-      [0.16, 0.3, 0.55].forEach((a, bk) => {
+      dc.globalCompositeOperation = add;
+      [0.16, 0.3, 0.55, 0.16, 0.3, 0.55].forEach((a, bk) => {
         if (!tn[bk]) return;
-        dc.globalAlpha = a * (C.dark ? 1 : 1.3); dc.lineWidth = (0.6 + bk * 0.45) * zs; dc.beginPath();
+        dc.strokeStyle = C.s[bk > 2 ? 0 : 1]; dc.globalAlpha = a * (C.dark ? 1 : 1.3); dc.lineWidth = (0.6 + bk % 3 * 0.45) * zs; dc.beginPath();
         for (let i = 0; i < tn[bk] * 4; i += 4) { dc.moveTo(TAIL[bk][i], TAIL[bk][i + 1]); dc.lineTo(TAIL[bk][i + 2], TAIL[bk][i + 3]); }
         dc.stroke();
       });
@@ -337,11 +347,11 @@ export function fleetGraph(box, mini, ctx) {
         }
         if (!mini) paneWords(n, r, s, on, A, marks(n, r, s, on, A), tag);
       } else {
-        dc.globalCompositeOperation = add; stamp(sprite(C.s[1], true), n.x, n.y, 11 * zs, A); dc.globalCompositeOperation = 'source-over';
+        dc.globalCompositeOperation = add; stamp(sprite(ring(C, s), true), n.x, n.y, 11 * zs, A); dc.globalCompositeOperation = 'source-over';
         if ((n === hover || n === sel) && n.a?.label) { dc.globalAlpha = A; label(String(n.a.label), n.x + 8 / k, n.y, 'left', C.muted, 10); }
       }
     }
-    tags.sort((a, b) => a[0] - b[0]).forEach(([rank, A, a, b]) => { dc.globalAlpha = A; if (!words(...a, rank < 2) && b) words(b, ...a.slice(1)); }); // b: a shorter say, where the long one has no room
+    tags.sort((a, b) => a[0] - b[0]).forEach(([rank, A, a, b]) => { dc.globalAlpha = A; if (!words(rank < 2, ...a) && b) words(false, b, ...a.slice(1)); }); // b: a shorter say, where the long one has no room
     dc.globalAlpha = 1;
     if (spacing) dc.letterSpacing = '0px';
     flowed = moving && (hn > 0 || pulsing);
@@ -352,7 +362,7 @@ export function fleetGraph(box, mini, ctx) {
   // A pane's marks: its size is the context it has used (build), an arc round it the same share,
   // hot past 80%; a badge counts its sub-agents; a dashed ring is its account when there are several.
   function marks(n, r, s, on, A) {
-    const p = n.p, k = view.k, ctxPct = p.context_pct, acc = k > 0.6 && ctx.several() && agent(p) && ctx.owner(p.pane_id), subs = subagentCount(p);
+    const p = n.p, k = view.k, ctxPct = p.context_pct, acc = k > 0.6 && ctx.several() && agent(p) && ctx.owner(p.pane_id), subs = subCount(p);
     if (ctxPct != null && k * r > 5) { dc.globalAlpha = A * 0.9; dc.strokeStyle = ctxPct >= 80 ? C.amber : C.muted; dc.lineWidth = 1.8 / k; dc.beginPath(); dc.arc(n.x, n.y, r + 3 / k, -Math.PI / 2, -Math.PI / 2 + ctxPct / 50 * Math.PI); dc.stroke(); }
     if (acc) { dc.globalAlpha = A * 0.7; dc.strokeStyle = C.acct[(acc.color || 0) % C.acct.length]; dc.lineWidth = 1 / k; dc.setLineDash([2 / k, 2 / k]); disc(n.x, n.y, r + 6.5 / k); dc.stroke(); dc.setLineDash([]); }
     if (subs) {
@@ -374,7 +384,7 @@ export function fleetGraph(box, mini, ctx) {
     if (head) lines.push([cut(head, k > 2 ? 54 : 34), C.muted, 9.5, 400]);
     if (k > 2) lines.push([[p.model, p.context_pct != null && `ctx ${p.context_pct}%`, p.working?.tokens, s === 2 && `idle ${since(p)}`, p.cost, acc?.name].filter(Boolean).join(' · '), C.muted, 9, 400]);
     const away = r + (acc ? 10 : 7) / k, side = Math.abs(ux) < 0.3;
-    tag(close ? 0 : s === 0 ? 1 : on ? 4 : 5, A, lines, n.x + ux * away, n.y + uy * away, side ? 'center' : ux > 0 ? 'left' : 'right', side ? (uy > 0 ? 'top' : 'bottom') : 'middle');
+    tag(close ? 0 : s === 0 ? 1 : on ? 4 : 5, A, lines, n.x + ux * away, n.y + uy * away, side ? 'center' : ux > 0 ? 'left' : 'right', side ? (uy > 0 ? 'top' : 'bottom') : 'middle', n.x - ux * away);
   }
   // Frames run while something moves and the canvas is on screen; a hidden page costs nothing.
   let seen = false; // on screen: a hidden page or a card scrolled away costs nothing
@@ -385,7 +395,7 @@ export function fleetGraph(box, mini, ctx) {
   new MutationObserver(() => draw()).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] }); // the theme: draw() rereads the palette
 
   // The canvas less the HUD's chrome (ctx.inset), kept for draw() to keep words out from under it.
-  function room() { const { top = 10, bottom = 0, left = 0, right = 0 } = ctx.inset?.() || {}; return roomAt = { top, left, w: W - left - right, h: H - top - bottom }; }
+  function room() { const { top = 10, bottom = 0, left = 0, right = 0, tools = 0 } = ctx.inset?.() || {}; return roomAt = { top, left, right, tools, w: W - left - right, h: H - top - bottom }; }
   function fitView() { // the graph framed inside the HUD's chrome (ctx.inset), not under it
     const xs = model.nodes.map(n => n.tx), ys = model.nodes.map(n => n.ty), { top, left, w, h } = room();
     const x0 = Math.min(...xs) - PAD, x1 = Math.max(...xs) + PAD, y0 = Math.min(...ys) - PAD, y1 = Math.max(...ys) + PAD;
@@ -544,20 +554,23 @@ export function fleetGraph(box, mini, ctx) {
   const head = (lead, title) => `<div class="fg-pop-head">${lead}<b>${esc(title)}</b><button class="fg-x" aria-label="Close">${ctx.icon('x', 16)}</button></div>`;
   const stLine = (s, extra) => `<span class="fg-st"><i style="background:${ring(C, s)}"></i>${STATES[s]}${extra ? ` · ${esc(extra)}` : ''}</span>`;
   const dl = rows => `<dl>${rows.filter(([, v]) => v).map(([t, v]) => `<dt>${t}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
+  // "3 running, 1 waiting": the satellites name them; the ones counted but not listed are busy.
+  const agentTally = (p, subs) => { const t = {}, list = subsList(p); [...list, ...Array(subs - list.length).fill(null)].forEach(a => { const k = STATES[subState(a)].toLowerCase(); t[k] = (t[k] || 0) + 1; });
+    return Object.entries(t).map(([k, n]) => `${n} ${k}`).join(', '); };
   const openBtn = '<button class="fg-btn" data-open>Open pane</button>';
   function tap(at, n = hit(at.x, at.y)) {
     if (!n) return close();
     if (n.kind === 'root') { close(); return api.fit(); }
     if (n.kind === 'group') { collapsed.has(n.id) ? collapsed.delete(n.id) : collapsed.add(n.id); close(); return relayout(false); }
     if (n.kind === 'sub') {
-      const a = n.a || {};
-      return popover(`${head(`<i class="fg-dot" style="background:${C.s[1]}"></i>`, a.label || 'Sub-agent')}${stLine(1, 'sub-agent')}
+      const a = n.a || {}, st = subState(n.a);
+      return popover(`${head(`<i class="fg-dot" style="background:${ring(C, st)}"></i>`, a.label || 'Sub-agent')}${stLine(st, 'sub-agent')}
         ${dl([['Pane', paneName(n.parent.p)], ['Tokens', a.tokens], ['Time', a.elapsed]])}${openBtn}`, at, n);
     }
-    const p = n.p, s = stateOf(p), w = p.worktree, subs = subagentCount(p), src = ctx.logos[p.tool], q = s === 0 && p.question?.prompt && p.question;
+    const p = n.p, s = stateOf(p), w = p.worktree, subs = subCount(p), src = ctx.logos[p.tool], q = s === 0 && p.question?.prompt && p.question;
     popover(`${head(src ? `<img class="fg-logo" src="${esc(src)}" alt="">` : '', paneName(p))}${stLine(s, p.session)}
       ${q ? `<div class="fg-q">${esc(q.prompt)}${q.options?.length ? `<div>${q.options.map(o => `<span>${esc(o)}</span>`).join('')}</div>` : ''}</div>` : ''}
-      ${dl([['Model', p.model], ['Context', p.context_pct != null && `${p.context_pct}% used`], ['Cost', p.cost], ['Account', ctx.owner(p.pane_id)?.name], ['Tokens', p.working?.tokens], ['Agents', subs && [`${subs} running`, liveSubagents(p).map(a => cut(a.label, 24)).join(', ')].filter(Boolean).join(': ')],
+      ${dl([['Model', p.model], ['Context', p.context_pct != null && `${p.context_pct}% used`], ['Cost', p.cost], ['Account', ctx.owner(p.pane_id)?.name], ['Tokens', p.working?.tokens], ['Agents', subs && agentTally(p, subs)],
         ['Now', paneHeadline(p)], ['Time', (busy(s) && p.working?.elapsed) || (since(p) && `${s === 2 ? 'idle' : 'for'} ${since(p)}`)],
         ['Where', `${home(p.cwd || '')}${w?.branch ? ` @ ${w.branch}` : ''}`]])}${openBtn}`, at, n);
   }
@@ -565,8 +578,7 @@ export function fleetGraph(box, mini, ctx) {
 }
 
 // The view: the graph filling it, under a HUD of lens chips, the counts, jump-to callouts and the
-// key. Built once and kept, so a visit back finds the lens, folds and places it left. A phone
-// opens it full screen, where its close button leaves the view (ctx.close) rather than shrink it.
+// key. Built once and kept, so a visit back finds the lens, folds and places it left.
 export function renderGraphView(root, panes, ctx) {
   if (!root._g) {
     const lenses = el('div', 'fg-lenses', '<span>Group by</span>'), box = el('div', 'fg-box'), tools = el('div', 'fg-tools'), hud = el('div', 'fg-hud');
@@ -575,35 +587,35 @@ export function renderGraphView(root, panes, ctx) {
     for (const [name, label] of LENSES) { const b = el('button', '', label); b.dataset.lens = name; b.onclick = () => { root._lens = null; g.setLens(name); }; lenses.append(b); } // a pick ends any pending restore
     const at = e => e.getBoundingClientRect(), inset = () => { // what the HUD covers, for Fit
       const b = at(box), ph = phone();
-      return { top: Math.max(at(lenses).bottom, at(call).bottom) - b.top + 6, bottom: b.bottom - at(ph ? stats : legend).top + 6, left: ph ? 0 : at(stats).right - b.left + 6, right: 52 };
+      return { top: Math.max(at(lenses).bottom, at(call).bottom) - b.top + 6, bottom: b.bottom - at(ph ? stats : legend).top + 6, left: ph ? 0 : at(stats).right - b.left + 6, right: 52, tools: at(tools).bottom - b.top + 6 };
     };
     const g = root._g = fleetGraph(box, false, { ...ctx, inset, onChange: () => { try { localStorage.setItem('tmuxrc-graph-lens', g.lens()); } catch {} paint(); } });
     const dark = () => { const on = document.documentElement.classList.toggle('fg-dark'); try { localStorage.setItem(DARK, on ? '1' : ''); } catch {} paint(); };
-    for (const [name, label, fn] of [['plus', 'Zoom in', () => g.zoom(1.35)], ['minus', 'Zoom out', () => g.zoom(1 / 1.35)], ['locate', 'Fit to view', () => g.fit()], ['moon', 'Dark canvas', dark],
-      ['maximize', 'Full screen', () => root._auto ? ctx.close() : full(!root.classList.contains('full'))]]) {
+    // Full screen heads the column, in and out, so the way back is where the way in was.
+    for (const [name, label, fn] of [['fullscreen', 'Full screen', () => full(!root.classList.contains('full'))], ['plus', 'Zoom in', () => g.zoom(1.35)], ['minus', 'Zoom out', () => g.zoom(1 / 1.35)],
+      ['locate', 'Fit to view', () => g.fit()], ['moon', 'Dark canvas', dark]]) {
       const b = el('button', '', ctx.icon(name, 18)); b.title = b.ariaLabel = label; b.onclick = fn; tools.append(b);
     }
     // Full screen is the view itself pinned over the page (style.css), not the Fullscreen API,
     // which an iPhone grants only to video. The page under it goes inert, so Tab stays in the
     // graph; the view leaving the screen (any navigation) ends it.
-    const zoomBtn = tools.lastChild, darkBtn = zoomBtn.previousSibling, full = on => {
+    const zoomBtn = tools.firstChild, darkBtn = tools.lastChild, full = on => {
       if (on === root.classList.contains('full')) return;
       if (on) { root._inert = []; for (let a = root; a.parentElement && a !== document.body; a = a.parentElement) root._inert.push(...[...a.parentElement.children].filter(s => s !== a && !s.inert)); }
       root._inert.forEach(s => { s.inert = on; });
-      root.classList.toggle('full', on); zoomBtn.innerHTML = ctx.icon(on ? (root._auto ? 'x' : 'minimize') : 'maximize', 18);
-      zoomBtn.title = zoomBtn.ariaLabel = on ? (root._auto ? 'Close' : 'Exit full screen') : 'Full screen'; g.fit();
+      root.classList.toggle('full', on); zoomBtn.innerHTML = ctx.icon(on ? 'minimize' : 'fullscreen', 18);
+      zoomBtn.title = zoomBtn.ariaLabel = on ? 'Exit full screen' : 'Full screen'; g.fit();
     };
-    root._full = full;
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && root.classList.contains('full')) full(false); });
-    new IntersectionObserver(([e]) => { if (!e.isIntersecting) { full(false); root._auto = null; } }).observe(root);
+    new IntersectionObserver(([e]) => { if (!e.isIntersecting) full(false); }).observe(root);
     call.lastChild.onclick = e => { const b = e.target.closest('button'); if (b) g.focus(b.dataset.id); };
     hud.append(lenses, call, stats, legend);
     box.append(hud, tools);
     root.append(box);
     const paint = root._paint = () => {
-      const lens = g.lens(), list = root._panes, c = [0, 0, 0, 0, 0, 0], subs = list.reduce((t, p) => t + (agent(p) ? subagentCount(p) : 0), 0); // all of them, where the canvas draws MAX_SUBS
+      const lens = g.lens(), list = root._panes, c = [0, 0, 0, 0, 0, 0], subs = list.reduce((t, p) => t + subCount(p), 0); // all of them, where the canvas draws MAX_SUBS
       list.forEach(p => c[stateOf(p)]++);
-      const toks = list.reduce((t, p) => t + tokens(p.working?.tokens) + liveSubagents(p).reduce((u, a) => u + tokens(a.tokens), 0), 0);
+      const toks = list.reduce((t, p) => t + tokens(p.working?.tokens) + subsList(p).reduce((u, a) => u + tokens(a.tokens), 0), 0);
       const oldest = list.reduce((a, p) => !a || ageOf(p) > ageOf(a) ? p : a, null), need = list.filter(p => stateOf(p) === 0).sort((a, b) => ageOf(b) - ageOf(a))[0];
       const dear = list.reduce((a, p) => costOf(p) > (a ? costOf(a) : 0) ? p : a, null), spend = list.reduce((t, p) => t + costOf(p), 0);
       stats.innerHTML = [['', new Set(list.map(p => p.session)).size, 'Sessions'], ['go', `${c[1] + c[4] + c[5]}<small>/${list.length}</small>`, 'Running'], [c[0] ? 'need' : '', c[0], 'Needs you'],
@@ -629,7 +641,6 @@ export function renderGraphView(root, panes, ctx) {
   if (g.lens() === 'account' && !ctx.several()) g.setLens('session');
   root._paint();
   g.update(panes);
-  if (root._auto == null && (root._auto = phone())) root._full(true); // a phone opens it full screen
   return root;
 }
 
