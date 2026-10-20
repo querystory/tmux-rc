@@ -711,3 +711,24 @@ def test_scratch_sharing_an_agent_dir_sends_no_login(home, monkeypatch, linked):
     export.export(out, ["scratch"])
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         assert not [n for n in tar.getnames() if "credentials" in n or n.startswith("scratch")]
+
+
+def test_a_login_reached_another_way_stays_a_login(home, monkeypatch):
+    """~/.claude.json linked from the data dir or under a scratch at HOME, and the file a
+    login links to: only the logins part carries them, as the login."""
+    old = home("old")
+    write(old / ".claude.json", "who")
+    write(old / ".claude/login-store.json", "login")
+    write(old / ".claude/projects/-demo/s1.jsonl")
+    (old / ".claude/.credentials.json").symlink_to(old / ".claude/login-store.json")
+    (old / ".local/share/tmux-rc").mkdir(parents=True)
+    (old / ".local/share/tmux-rc/identity.json").symlink_to(old / ".claude.json")
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(old))
+    for parts in (["scratch", "agents"], ["scratch", "agents", "secrets"]):
+        out = io.BytesIO()
+        export.export(out, parts)
+        with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+            held = {m.name for m in tar if m.isfile()
+                    and tar.extractfile(m).read() in (b"who", b"login")}
+        assert held == ({"agents/.claude.json", "agents/.claude/.credentials.json"}
+                        if "secrets" in parts else set())

@@ -128,7 +128,10 @@ def _entries(parts=PARTS):
     chosen is not walked."""
     where, home, at = places(), Path.home(), history.default_path()
     named = [(where[n], n) for n in ("scratch", "accounts.json", *SECRETS)] + [
-        (d, f"agents/{d.name}" if d.parent == home else None) for d in _agent_dirs()]
+        (d, f"agents/{d.name}" if d.parent == home else None) for d in _agent_dirs()] + [
+        (home / ".claude.json", "agents/.claude.json")] + [  # a login, and a file one links to
+        (p.resolve(), str(p)) for p in (d / n for d in _agent_dirs() for n in IDENTITY)
+        if p.is_symlink()]
     owner = {p.with_name(p.name + s): {None} for s in ("", "-wal", "-shm")  # snapshotted,
              for p in (Path(os.path.abspath(at)), _spot(at), at.resolve())}  # however named
     for at, n in named:  # a link, and its target: two names may share it (~/.claude linked)
