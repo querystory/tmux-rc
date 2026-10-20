@@ -121,11 +121,11 @@ def _entries(parts=PARTS):
     (scratch, the account store, credentials, an agent dir) only as its own root, wherever
     it nests, nor the data dir's contents inside one. No import's backup, and a part not
     chosen is not walked."""
-    where, db, home = places(), _db(), Path.home()
+    where, home, at = places(), Path.home(), history.default_path()
     named = [(where[n], n) for n in ("scratch", "accounts.json", *SECRETS)] + [
         (d, f"agents/{d.name}" if d.parent == home else None) for d in _agent_dirs()]
-    owner = {p: {None} for p in (db, db.with_name(f"{db.name}-wal"),  # snapshotted
-                                 db.with_name(f"{db.name}-shm"))}
+    owner = {p.with_name(p.name + s): {None} for s in ("", "-wal", "-shm")  # snapshotted,
+             for p in (Path(os.path.abspath(at)), _spot(at), at.resolve())}  # however named
     for at, n in named:  # a link, and its target: two names may share it (~/.claude linked)
         for p in (Path(os.path.abspath(at)), at.resolve()):
             owner.setdefault(p, set()).add(n)
@@ -233,9 +233,10 @@ def _rehome(text: str, old: str, new: str) -> str:
     return json.dumps(swap(json.loads(text)), sort_keys=True, separators=(",", ":"))
 
 
-def _move(src: Path, dst: Path, done: list) -> None:
-    """A move journaled in `done`, for _undo."""
-    shutil.move(src, dst)
+def _move(src: Path, dst: Path, done: list, *, copy=False) -> None:
+    """A move journaled in `done`, for _undo: a rename, which fails whole (a mount point,
+    another disk) rather than copy, unless asked to."""
+    (shutil.move if copy else os.rename)(src, dst)
     done.append((src, dst))
 
 
@@ -252,18 +253,18 @@ def _swap(src: Path, dst: Path, stamp: str, done: list, sidecars=("",), keep=())
     doesn't hold there: another part's, which its own swap replaces if it came. Each move
     is journaled in `done`. Only staging's may cross disks: what is kept goes after it, a
     rename beside what it was in."""
+    if src.is_dir() and any((dst / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
+        for name in IDENTITY:  # before the move aside: a link to a file in dst still reads
+            if (dst / name).is_file():  # a fresh file: no hard link from the archive shares it
+                (src / name).unlink(missing_ok=True)
+                shutil.copy2(dst / name, src / name)
     old = dst.with_name(f"{dst.name}.pre-import-{stamp}")
     for suffix in sidecars:
         if os.path.lexists(here := dst.with_name(dst.name + suffix)):
             _move(here, old.with_name(old.name + suffix), done)
-    if src.is_dir() and any((old / n).is_file() and not os.path.lexists(src / n) for n in LOGINS):
-        for name in IDENTITY:
-            if (old / name).is_file():  # a fresh file: no hard link from the archive shares it
-                (src / name).unlink(missing_ok=True)
-                shutil.copy2(old / name, src / name)
     dst.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
-        _move(src, dst, done)
+        _move(src, dst, done, copy=True)
     except BaseException:  # a copy from another disk cut short: what was here is aside
         if os.path.lexists(dst):
             shutil.rmtree(dst) if dst.is_dir() and not dst.is_symlink() else dst.unlink()

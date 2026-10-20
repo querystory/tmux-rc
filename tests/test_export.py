@@ -2,8 +2,10 @@
 Every file here is invented, in temp HOMEs."""
 
 import contextlib
+import errno
 import io
 import json
+import os
 import shutil
 import socket
 import sqlite3
@@ -335,18 +337,18 @@ def test_an_import_failing_part_way_puts_everything_back(home, monkeypatch, caps
     write(new / ".local/share/tmux-rc/mocks/b/index.html", "this host's")
     write(new / ".local/state/tmux-rc/accounts.json", "{}")
     write(new / ".claude/projects/-mine/s.jsonl", "this host's")
-    before, move = tree(new), shutil.move
+    before, move = tree(new), export._move
     for n in range(1, 100):
         calls = []
 
-        def flaky(*args, n=n, calls=calls):
+        def flaky(*args, n=n, calls=calls, **kw):
             calls.append(args)
             if len(calls) == n:
                 if ".tmux-rc-import-" in str(args[0]) and Path(args[0]).is_dir():
                     shutil.copytree(args[0], Path(args[1], "half"))  # another disk's copy
                 raise OSError("disk full")
-            return move(*args)
-        monkeypatch.setattr(shutil, "move", flaky)
+            return move(*args, **kw)
+        monkeypatch.setattr(export, "_move", flaky)
         try:
             export.restore(io.BytesIO(out.getvalue()))
         except OSError:
@@ -417,3 +419,50 @@ def test_a_dotenv_in_a_linked_config_dir_stays_the_daemons(home, monkeypatch):
     export.restore(io.BytesIO(out.getvalue()))
     assert (new / ".config/tmux-rc/.env").read_text() == "K=1"
     assert (new / ".config/tmux-rc/a.txt").exists()
+
+
+def test_a_place_that_cannot_be_renamed_aside_is_not_copied(home, monkeypatch):
+    """A mount point: the import stops, the place whole where it was."""
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["scratch"])
+    new = home("new")
+    pages = new / ".local/share/tmux-rc/scratch"
+    write(pages / "mine/index.html", "this host's")
+    rename = os.rename
+
+    def busy(src, dst):
+        if Path(src) == pages:
+            raise OSError(errno.EBUSY, "busy")
+        rename(src, dst)
+    monkeypatch.setattr(os, "rename", busy)
+    with pytest.raises(OSError, match="busy"):
+        export.restore(io.BytesIO(out.getvalue()))
+    assert (pages / "mine/index.html").read_text() == "this host's"
+
+
+def test_a_linked_login_here_is_kept(home, monkeypatch):
+    """A login here linking to a file inside its own agent dir: it stays the login."""
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["agents"])
+    new = home("new")
+    write(new / ".claude-work/login-store.json", "this host's")
+    (new / ".claude-work/.credentials.json").symlink_to(new / ".claude-work/login-store.json")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert (new / ".claude-work/.credentials.json").read_text() == "this host's"
+
+
+def test_a_linked_history_db_goes_only_as_its_snapshot(home, monkeypatch):
+    old = home("old")
+    History(old / "elsewhere/real.sqlite3")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    link = old / ".local/share/tmux-rc/previews/history.sqlite3"
+    link.symlink_to(old / "elsewhere/real.sqlite3")
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(link))
+    out = io.BytesIO()
+    export.export(out, [])
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
+        names = tar.getnames()
+    assert "history.sqlite3" in names and "data/previews/other.txt" in names
+    assert not [n for n in names if n.startswith("data/") and "sqlite3" in n]
