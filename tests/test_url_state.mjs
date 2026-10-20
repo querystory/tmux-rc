@@ -26,9 +26,12 @@ test("every addressable state round-trips", () => {
 
 test("unknown fields and bad values are ignored", () => {
   const state = parseHash("#from=push&pane=%254&filter=bogus&view=nope&x=1");
-  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: [], acct: [], agent: [], q: "", compose: false });
+  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: [], acct: [], agent: [], q: "", compose: false, open: null });
   assert.equal(parseHash("#pane=%254&compose=1").compose, true);
   assert.equal(formatHash(parseHash("#pane=%254&from=push&compose=1")), "pane=%254");
+  // A "Ready" push names the scratch page to open (app.js checks it with scratchUrl), once.
+  assert.equal(parseHash("#view=scratch&open=%2Fscratch%2Fwip%2F").open, "/scratch/wip/");
+  assert.equal(formatHash(parseHash("#view=scratch&open=%2Fscratch%2Fwip%2F")), "view=scratch");
   assert.equal(parseHash("").pane, null);
   assert.deepEqual(parseHash(undefined).filter, []);
 });

@@ -509,7 +509,9 @@ async def lifespan(app: FastAPI):
     app.state.watcher = Watcher(target=target, use_llm=use_llm, history=app.state.history)
     app.state.watcher.start()
     _advertise_scratch()
-    app.state.push = PushManager(app.state.watcher)
+    app.state.push = PushManager(app.state.watcher, scratch=_scratch_dir and Path(_scratch_dir),
+                                 shoot=lambda item: scratch_sidecars.queue(
+                                     Path(_scratch_dir), WEB_DIR, [item], use_llm))
     app.state.push.start()
     app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered)
     app.state.loops = OpenLoops()
@@ -586,7 +588,7 @@ async def no_cache(request, call_next):
         inner = path.startswith("/scratch/") and request.url.path.count("/") > 2
         folder = path.split("/")[2] if inner else ""
         if folder and request.headers.get("sec-fetch-dest") in ("document", "iframe") and (
-                resp.status_code == 200):
+                resp.status_code in (200, 202)):  # 202: its placeholder (scratch.placeholder)
             await asyncio.to_thread(_visited, "scratch", folder)
     else:  # nor may such a page frame the app or the API, whose answers it would then show
         resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
@@ -2230,19 +2232,26 @@ _scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
 _scratch_dir = os.path.realpath(_scratch_dir) if _scratch_dir and Path(_scratch_dir).is_dir() \
     else None
 if _scratch_dir:
+    def _who() -> tuple:
+        """What scratch needs to say who made a folder: the panes, their accounts, the app's
+        stylesheet and the pane a running agent session is in."""
+        watcher = app.state.watcher
+        states = list(watcher.states)
+        return (states, accounts.report(states, watcher.pane_birth)["profiles"],
+                WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))
+
     @app.get("/scratch/", include_in_schema=False)
     async def scratch_listing() -> HTMLResponse:
         """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount."""
-        watcher = app.state.watcher
-        states = list(watcher.states)
+        use_llm = getattr(app.state.watcher, "use_llm", False)
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
-            Path(_scratch_dir), states, accounts.report(states, watcher.pane_birth)["profiles"],
-            WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher),
-            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed,
-                                                  getattr(watcher, "use_llm", False)),
+            Path(_scratch_dir), *_who(),
+            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed, use_llm),
             "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
 
-    _mount_static("/scratch", _scratch_dir, partial(scratch_markdown.Files, web=WEB_DIR))
+    _mount_static("/scratch", _scratch_dir, partial(
+        scratch_markdown.Files, web=WEB_DIR,
+        pending=lambda name: scratch.placeholder(Path(_scratch_dir), name, _who)))
 
 
 def _visited(kind: str, key: str) -> None:
@@ -2260,7 +2269,8 @@ def recent(n: Annotated[int, Query(ge=1, le=50)] = 5) -> dict:
     watcher, server = app.state.watcher, tmux.server_uid()
     alive = {pane_key(server, s["pane_id"], watcher.pane_birth(s["pane_id"])): s["pane_id"]
              for s in watcher.states}
-    pages = scratch.opened(Path(_scratch_dir), seen("scratch"), n) if _scratch_dir else []
+    pages = scratch.opened(Path(_scratch_dir), seen("scratch"), n,
+                           watcher.states) if _scratch_dir else []
     panes = [{"pane_id": alive[k], "at": at} for k, at in seen("pane") if k in alive]
     return {"panes": panes[:n], "scratch": pages}
 

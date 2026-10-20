@@ -106,20 +106,24 @@ def identity(provider: str, config: Path, codex_says: bool = False) -> dict | No
                                                           account["organizationUuid"]]}
 
 
-_CODEX_SEEN: dict[Path, tuple[float, bool]] = {}  # dir -> (when asked, the answer)
+_CODEX_SEEN: dict[Path, tuple[float, bool]] = {}  # dir -> (when answered, the answer)
+CODEX_FRESH = 3.0  # seconds a `codex login status` answer is kept
 
 
-def _codex_login(config: Path) -> bool:
-    """Whether Codex itself says this dir is signed in. Its login may live in the OS keyring
+def _codex_logins(dirs: list[Path]) -> dict[Path, bool]:
+    """Whether Codex itself says each dir is signed in. Its login may live in the OS keyring
     (cli_auth_credentials_store), where no file shows it; `codex login status` sees both.
-    The answer is kept a few seconds, so the sheet's polling costs one probe per dir per
-    interval however often the accounts are read."""
-    at, seen = _CODEX_SEEN.get(config, (-10.0, False))
-    if time.monotonic() - at < 3:
-        return seen
-    seen = _codex_status(config)
-    _CODEX_SEEN[config] = (time.monotonic(), seen)  # from when the answer came
-    return seen
+    The stale ones are asked at once (up to 8, a bound on processes), so a pass waits about
+    one timeout per 8 dirs. A pass's answers share one timestamp, from when the last came,
+    so the next pass of the same report finds them all fresh, and the sheet's polling costs
+    one probe per dir per interval however often the accounts are read."""
+    stale = [d for d in dirs if time.monotonic() - _CODEX_SEEN.get(d, (-1e9, False))[0]
+             >= CODEX_FRESH]
+    with ThreadPoolExecutor(max_workers=min(max(len(stale), 1), 8)) as pool:
+        seen = list(pool.map(_codex_status, stale))
+    done = time.monotonic()
+    _CODEX_SEEN.update({d: (done, s) for d, s in zip(stale, seen, strict=True)})
+    return {d: _CODEX_SEEN[d][1] for d in dirs}
 
 
 def _codex_status(config: Path) -> bool:
@@ -222,12 +226,9 @@ def _profiles(pane_dirs) -> list[dict]:
         if entry.get("provider") in ENV:
             found[config] = entry["provider"]
     used, dirty, out = {e.get("color") for e in store.values()}, False, []
-    # Codex's own status checks all at once (up to 8, a bound on processes), so one pass
-    # waits one timeout at most and its answers are all still fresh for the next pass.
     ask = [Path(c) for c, t in found.items() if t == "codex" and not store.get(c, {}).get("hidden")
            and not (Path(c) / "auth.json").exists()]
-    with ThreadPoolExecutor(max_workers=min(max(len(ask), 1), 8)) as pool:
-        codex_says = dict(zip(ask, pool.map(_codex_login, ask), strict=True))
+    codex_says = _codex_logins(ask)
     for config, provider in found.items():
         entry = store.get(config, {})
         if entry.get("hidden"):  # before identity(): a forgotten dir costs no codex call

@@ -346,6 +346,8 @@ function route() {
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   if (viewer.open && page !== "scratch") viewer.close(); // Back, a push or Safari's swipe left Scratch: its viewer goes too
+  const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
+  if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
@@ -503,10 +505,11 @@ function renderPhoneList(subset) {
 
 // WebKit lays the dashboard out short for a moment when a repaint swaps nodes under its
 // container query (#landing-main), and that clamps the scroll: a phone at the bottom of the
-// page lands near the top on every poll. A repaint keeps the position it found.
+// page lands near the top on every poll. A repaint keeps the position it found, and puts the
+// filter back in a view's head it may have rebuilt (placePill).
 const steady = (paint) => (...args) => {
   const landing = $("landing"), top = landing.scrollTop;
-  try { return paint(...args); } finally { if (landing.scrollTop !== top) landing.scrollTop = top; }
+  try { return paint(...args); } finally { placePill(); if (landing.scrollTop !== top) landing.scrollTop = top; }
 };
 const renderLanding = steady(() => {
   if (page === "restore") { if (!$("dash-page").contains(restore.card)) $("dash-page").replaceChildren(restore.card); return restore.card; }
@@ -803,12 +806,14 @@ let scratchView = "grid";
 try { scratchView = localStorage.getItem("tmuxrc-scratch-view") || "grid"; } catch {}
 const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light") }, "*"); // its origin is opaque
 scratchFrame.addEventListener("load", tellScratch);
-// Only the gallery is heard, never a page the viewer shows: it opens a pane, keeps its view, or
-// opens one of its pages, a path under /scratch/ here and nothing else (url-state.js).
+// Only the gallery is heard: it opens a pane, keeps its view, or opens one of its pages, a path
+// under /scratch/ here and nothing else (url-state.js). A page the viewer shows (a page still
+// being made links the pane making it) may open a pane, and nothing else: its origin is opaque,
+// so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  if (e.source !== scratchFrame.contentWindow) return;
   const { pane, view, open, title } = e.data || {}, href = scratchUrl(open, location.href);
-  if (/^%\d+$/.test(pane)) navigate(pane);
+  if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane);
+  if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
 });
@@ -818,10 +823,11 @@ function scratchPage() { return cardView("Scratch", scratchFrame); }
 // A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
 const viewer = $("scratch-viewer");
 function viewScratch(href, title) {
-  text($("viewer-title"), String(title || ""));
+  title = String(title || "Scratch page"); // a "Ready" push's link names no title
+  text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title: String(title || "Scratch page") }));
+  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title }));
   viewer.showModal(); viewer.focus();
 }
 $("close-viewer").onclick = () => viewer.close();
@@ -1813,7 +1819,7 @@ function openRecent() {
   paintRecent();
   request("/api/recent").then((recent) => {
     opened = recent.panes; paintRecent();
-    html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" target="_blank">${licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));
+    html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" target="_blank">${s.pending ? '<span class="pane-icon pending"></span>' : licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));
   }, () => {});
 }
 // It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
@@ -2329,11 +2335,14 @@ function placeChrome() {
 // The active filters' chips: under search (a phone's list hides them there: its filter button
 // and the list's foot say it), and on a phone's dashboard (no search there) under its header,
 // so a filter is never on without saying so. There the filter button moves into the header
-// too, beside New window: the dashboard's filter row folds behind it (style.css).
+// too, beside New window: the dashboard's filter row folds behind it (style.css). A card's own
+// view follows the same filters, and on a phone its head is the bar: the button goes there.
 function placePill() {
-  const dash = !WIDE.matches && dashboard, at = dash ? document.querySelector(".app-header") : $("find"), picker = renderSidebar.picker;
+  const head = !WIDE.matches && CARDS[page] && $("dash-page").querySelector(".landing-head"), dash = !WIDE.matches && dashboard;
+  const at = head || (dash ? document.querySelector(".app-header") : $("find")), picker = renderSidebar.picker;
   if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
-  if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
+  if (head) { if (picker.parentElement !== head) head.append(picker); }
+  else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
 }
 // Folded to the rail, the controls move in the DOM to the order they show in (expand, +,

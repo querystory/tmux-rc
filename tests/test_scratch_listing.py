@@ -134,7 +134,7 @@ def test_nothing_outside_scratch_is_listed_or_read(tmp_path, monkeypatch):
     (linked / "index.html").unlink()
     (linked / "index.html").symlink_to(outside / "index.html")
     (linked / "report.pdf").write_text("pdf")
-    _folder(root, "meta-only", 800, {"title": "nothing to open"}).joinpath("index.html").unlink()
+    os.utime(linked / "report.pdf", (900, 900))  # published long ago, not landing now
     items, order = _resolved(root)
     assert sorted(order) == ["inner", "linked", "loop"]
     assert items["inner"]["title"] == "inner"  # its <title> has no text
@@ -207,10 +207,60 @@ def test_an_empty_gallery_says_how_agents_publish_there(tmp_path):
 def test_a_pending_preview_names_the_image_the_page_retries():
     from openbus.scratch import _card
     item = {"name": "a b", "href": "a%20b/", "title": "t", "description": "", "who": "",
-            "where": "", "pane": None, "thumb": False, "shot": "pending",
+            "where": "", "pane": None, "thumb": False, "shot": "pending", "pending": False,
             "created": 0, "updated": 0}
     assert 'data-pending="a%20b/thumb.webp"' in _card(item)
     assert "data-pending" not in _card({**item, "shot": "failed"})
+    # its author's pane since closed: a page that landed still waits for its thumbnail
+    assert 'data-pending="a%20b/thumb.webp"' in _card({**item, "state": "stopped"})
+
+
+def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    now = scratch.time.time()
+    for name, pane in (("wip", "%1"), ("idle", "%2"), ("long", "%3"), ("gone", "%9"),
+                       ("bare", None), ("old", None)):
+        meta = {"title": name, "pane": pane, "created": scratch.datetime.fromtimestamp(
+            now - (7200 if name in ("old", "long") else 60)).isoformat()}
+        _folder(tmp_path, name, now, meta).joinpath("index.html").unlink()
+    (tmp_path / "idle" / "thumb.webp").write_bytes(b"")  # a sidecar is no page either
+    _folder(tmp_path, "done", now, {"pane": "%1"})
+    (tmp_path / "empty").mkdir()  # nothing at all: not listed
+    states = [{"pane_id": "%1", "activity": "waiting", "waiting_on": "external",
+               "headline": "running the visual tests", "session": "dev", "window_name": "ui"},
+              {"pane_id": "%2", "activity": "idle", "state_since": now - 60},
+              {"pane_id": "%3", "activity": "idle", "state_since": now - scratch.STALL - 1}]
+    items, _ = _resolved(tmp_path, states)
+    assert "empty" not in items and not items["done"]["pending"]
+    assert items["wip"]["href"] == "wip/" and items["wip"]["page"] is None
+    assert {n: i["state"] for n, i in items.items() if i["pending"]} == {
+        "wip": "working", "idle": "quiet", "long": "stopped", "gone": "stopped",
+        "bare": "working", "old": "stopped"}
+    assert scratch.progress({"activity": "idle", "agents": 1}, "%1", now) == "working"
+    card = scratch._card(items["wip"])
+    assert 'class="working" data-pending="wip/thumb.webp">Being made…' in card
+    assert 'aria-label="wip: Being made…">wip</a>' in card  # the thumb's state, read aloud
+    # an earlier page's thumbnail neither hides the state nor is polled in its place
+    assert '<span class="quiet">Being made…' in scratch._card(items["idle"])
+    assert '<span class="stopped">' in scratch._card(items["long"])  # nothing left to poll for
+    shot = []
+    scratch.page(tmp_path, states, [], STYLE, sidecars=shot.extend)
+    assert sorted(i["name"] for i in shot) == ["done"]  # nothing to shoot while pending
+    def who():  # the panes, accounts and stylesheet, asked only of a pending folder
+        return states, [], STYLE
+    page = scratch.placeholder(tmp_path, "wip", who)
+    assert "<h1>wip</h1>" in page and "Now: running the visual tests" in page
+    assert 'href="/m/#pane=%251">dev:ui</a> · started 1m ago' in page
+    assert "location.reload(), 5000)" in page and 'class="working"' in page
+    assert "location.reload(), 60000)" in scratch.placeholder(tmp_path, "old", who)
+    assert scratch.placeholder(tmp_path, "done", who) is None
+    (tmp_path / "bare" / "app.css").write_text("")  # a site's asset before its index
+    assert "<h1>bare</h1>" in scratch.placeholder(tmp_path, "bare", who)
+    os.utime(tmp_path / "bare" / "app.css", (now - 120, now - 120))  # loose files, finished
+    assert scratch.placeholder(tmp_path, "bare", who) is None
+    assert scratch.placeholder(tmp_path, "nope", who) is None
+    (tmp_path / "wip" / "report.html").write_text("")  # a page not at its index: no spinner
+    assert scratch.placeholder(tmp_path, "wip", who) is None
 
 
 def test_one_find_lists_scratch_and_none_means_an_empty_gallery(tmp_path, monkeypatch):
@@ -245,6 +295,7 @@ def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
     monkeypatch.setattr(scratch.os.path, "lexists", lambda _p: False)
     assert not scratch.annotate(meta, tmp_path, "description", "d")
     assert json.loads(meta.read_text()) == {"title": "the agent's"}
+    assert sorted(p.name for p in folder.iterdir()) == ["index.html", "meta.json"]  # no tmp
 
 
 def test_dot_dot_is_not_inside(tmp_path):

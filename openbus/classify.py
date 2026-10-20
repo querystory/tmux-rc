@@ -497,8 +497,11 @@ def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Mat
     unless the prompt is a whole sentence: the model quotes the question out of a longer
     paragraph (Claude's trust dialog: "… one you trust? (Like your own code, …"), which
     the terminal may also wrap, so the prompt's row runs on past it."""
-    # A wrapped prompt's rows may each carry the frame or quote bar (│ …), skipped too.
-    words = r"(?:[ \t]*[│┃╎]?[ \t]*\n[ \t]*[│┃╎]?)?\s+".join(map(re.escape, prompt.split()))
+    # A wrapped prompt's rows may each carry a frame or quote bar (│ …), skipped too. Each
+    # alternative needs its own bar, so no two ever match one gap: overlapping ones
+    # backtrack exponentially on a long wrapped near-miss.
+    words = (r"(?:[ \t]*\n[ \t]*[│┃╎][ \t]*|[ \t]*[│┃╎][ \t]*\n[ \t]*(?:[│┃╎][ \t]*)?|\s+)"
+             .join(map(re.escape, prompt.split())))
     if row:
         words = (rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?"
                  r"(?=[ \t│┃╎]*$|(?<=[?.!])[ \t]+\S)")
