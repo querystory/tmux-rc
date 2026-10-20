@@ -15,6 +15,7 @@ const LEGEND = {
   tool: 'Tool, then model.',
 };
 const TOOLS = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode', omp: 'omp', gemini: 'Gemini', antigravity: 'Antigravity', shell: 'Shell' };
+const K_MIN = 0.05; // the farthest zoom out, Fit's and the user's alike
 const MAX_SUBS = 8; // satellites drawn per pane; the popover still counts them all
 const motion = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
 const phone = () => matchMedia('(max-width: 699px)').matches;
@@ -76,7 +77,7 @@ export function fleetGraph(box, mini, ctx) {
       subNodes(pn).forEach(s => { s.up = pn; nodes.push(s); });
     }
     // Worktree lens: a checkout with two agents busy in it is where edits collide.
-    for (const g of groups.values()) g.warn = lens === 'worktree' && g.depth === 2 && g.panes.filter(p => agent(p) && busy(stateOf(p))).length > 1;
+    for (const g of groups.values()) g.warn = lens === 'worktree' && g.depth === 2 && g.panes.filter(p => p.worktree && agent(p) && busy(stateOf(p))).length > 1; // a real checkout, not a folder
     const hidden = n => { for (let u = n.up; u; u = u.up) if (collapsed.has(u.id)) return true; return false; };
     const vis = nodes.filter(n => !hidden(n));
     vis.forEach(n => { if (n.up) edges.push({ a: n.up, b: n }); });
@@ -195,11 +196,12 @@ export function fleetGraph(box, mini, ctx) {
   const loop = t => { raf = 0; if (!seen) return; draw(t); if (anim || flowed) raf = requestAnimationFrame(loop); };
   const animate = () => { if (!raf) raf = requestAnimationFrame(loop); };
   matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', () => { draw(); animate(); });
+  new MutationObserver(() => draw()).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] }); // the theme: draw() rereads the palette
 
   function fitView() {
     const xs = model.nodes.map(n => n.tx), ys = model.nodes.map(n => n.ty), pad = mini ? 52 : 60, top = mini || phone() ? 10 : 46;
     const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
-    const k = Math.max(0.05, Math.min(3, W / (x1 - x0), (H - top) / (y1 - y0)));
+    const k = Math.max(K_MIN, Math.min(3, W / (x1 - x0), (H - top) / (y1 - y0)));
     return { k, x: W / 2 - (x0 + x1) / 2 * k, y: top + (H - top) / 2 - (y0 + y1) / 2 * k };
   }
   // Rebuild and glide to it. A structure unchanged since the last poll only redraws; `refit`
@@ -267,7 +269,7 @@ export function fleetGraph(box, mini, ctx) {
   };
 
   // ---- pan, pinch, wheel, hover, tap ----
-  function zoomAt(x, y, f) { touched = true; land(); const k = Math.max(0.15, Math.min(4, view.k * f)); view.x = x - (x - view.x) * k / view.k; view.y = y - (y - view.y) * k / view.k; view.k = k; draw(); }
+  function zoomAt(x, y, f) { touched = true; land(); const k = Math.max(K_MIN, Math.min(4, view.k * f)); view.x = x - (x - view.x) * k / view.k; view.y = y - (y - view.y) * k / view.k; view.k = k; draw(); }
   // The user takes the camera mid-glide: the nodes land where they were going, the view stays put.
   function land() { if (!anim) return; anim = null; model.nodes.forEach(n => Object.assign(n, { x: n.tx, y: n.ty, alpha: 1, fresh: false })); }
   const world = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
@@ -292,7 +294,7 @@ export function fleetGraph(box, mini, ctx) {
     pts.set(e.pointerId, at);
     const [p, q] = [...pts.values()];
     if (pinch && q) {
-      const k = Math.max(0.15, Math.min(4, pinch.k * Math.hypot(p.x - q.x, p.y - q.y) / pinch.d)), mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2;
+      const k = Math.max(K_MIN, Math.min(4, pinch.k * Math.hypot(p.x - q.x, p.y - q.y) / pinch.d)), mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2;
       view.x = mx - (pinch.mx - pinch.vx) / pinch.k * k; view.y = my - (pinch.my - pinch.vy) / pinch.k * k; view.k = k; moved = touched = true;
     } else if (start) {
       if (Math.abs(at.x - start.x) + Math.abs(at.y - start.y) > 6) moved = true;
