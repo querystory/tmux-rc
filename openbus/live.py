@@ -15,6 +15,7 @@ import asyncio
 import base64
 import concurrent.futures
 import contextlib
+import contextvars
 import functools
 import json
 import logging
@@ -464,28 +465,37 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     await session.send_tool_result(fc, result)
 
 
+# The running action's _focusing hook, which _delivered calls as its delivery shows.
+_REACH: contextvars.ContextVar = contextvars.ContextVar("live_reach", default=None)
+
+
 async def _focusing(session, watcher, rec: dict, act) -> dict:
-    """Run an action, then point the chat at the pane it reached (not a declined call, nor a
+    """Run an action and point the chat at the pane it reached (not a declined call, nor a
     mere button), so "ask the agent" stays with it instead of whichever screen shares a word.
     Kept as the pane's id and process, not text, so a closed or recycled pane drops out of
-    later turns; one already gone (an `exit` sent) leaves the chat on no pane. While it runs
-    the pane is pending: a message typed once its delivery shows takes the pane it ends on.
-    A resumed pane is new to the watcher until its next parse, so its result names it."""
-    after = [getattr(session, "focus", None)]
-
-    async def pending() -> str | None:
-        return after[0] and await after[0]()
-    session.focus, result = pending, {"status": "error", "reason": "aborted"}
+    later turns; one already gone (an `exit` sent) leaves the chat on no pane. It moves just
+    before the delivery shows (_delivered): a message typed earlier keeps the pane before, one
+    typed after takes the new one. An action with no delivery frame (a session already
+    running) moves it as it returns; a resumed pane is new to the watcher until its next
+    parse, so its result names it."""
+    def reach(pane: str, title: str | None) -> None:
+        session.focus = functools.partial(
+            _focus_line, watcher, pane, _PIDS.submit(tmux.pane_pid, pane), title)
+    token = _REACH.set(reach)
     try:
         result = await act
     finally:
-        if result["status"] in _REACHED and (
-                pane := result.get("pane_id") or rec.get("pane_id")):
-            after[0] = functools.partial(_focus_line, watcher, pane,
-                                         _PIDS.submit(tmux.pane_pid, pane),
-                                         result.get("window") or result.get("pane"))
-        session.focus = after[0]
+        _REACH.reset(token)
+    if result["status"] in _REACHED and (pane := result.get("pane_id") or rec.get("pane_id")):
+        reach(pane, result.get("window") or result.get("pane"))
     return result
+
+
+async def _delivered(websocket, frame: dict) -> None:
+    """Show the phone a delivery ("typed"), moving the chat to its pane first (_focusing)."""
+    if reach := _REACH.get():
+        reach(frame["pane_id"], frame["label"])
+    await websocket.send_json({"type": "typed", **frame})
 
 
 async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, pid) -> dict:
@@ -836,11 +846,9 @@ async def _dispatch(
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
     # Every action the voice takes is visibly logged in the overlay.
-    await websocket.send_json(
-        {"type": "typed", "pane_id": pane_id, "label": label,
-         "text": what, "submitted": submitted,
-         **({"key": args["key"]} if fc.name == "press_key" else {"payload": what})}
-    )
+    await _delivered(websocket, {
+        "pane_id": pane_id, "label": label, "text": what, "submitted": submitted,
+        **({"key": args["key"]} if fc.name == "press_key" else {"payload": what})})
 
     # Let the pane react, then show the model what its keystrokes did — as ambient
     # state, not as a tool result.
@@ -909,8 +917,8 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
                        exc_info=telemetry.QSDEBUG)
         return _send_failed(e, rec, "pane did not accept the image")
     rec["detail"] += f" via {mode}"  # attach_image has already requested the reparse
-    await websocket.send_json({"type": "typed", "pane_id": pane_id, "label": labels[pane_id],
-                               "text": f"[image] {caption}".strip(), "submitted": True})
+    await _delivered(websocket, {"pane_id": pane_id, "label": labels[pane_id],
+                                 "text": f"[image] {caption}".strip(), "submitted": True})
     return _sent(labels[pane_id])
 
 
@@ -1107,10 +1115,8 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
         return {"status": "error", "reason": "the resumed session exited immediately"}
     _resumed[sid] = (pane_id, pid, dict(rec))
     watcher.request_reparse(pane_id)  # wakes a full tick, so the new pane is addressable
-    await websocket.send_json(
-        {"type": "typed", "pane_id": pane_id, "label": name,
-         "text": f"[resumed {title}]", "submitted": True}
-    )
+    await _delivered(websocket, {"pane_id": pane_id, "label": name,
+                                 "text": f"[resumed {title}]", "submitted": True})
     return {"status": "opened", "pane_id": pane_id, "window": name}
 
 
