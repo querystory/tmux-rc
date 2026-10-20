@@ -9,6 +9,7 @@ docs/design/agent-accounts.md.
 from __future__ import annotations
 
 import contextlib
+import glob
 import json
 import os
 import shutil
@@ -66,7 +67,7 @@ def default_dir(provider: str) -> Path:
     return Path.home() / f".{provider}"
 
 
-def _tilde(path: str) -> str:
+def tilde(path: str) -> str:
     home = str(Path.home())
     return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
 
@@ -122,7 +123,7 @@ def _profiles(pane_dirs) -> list[dict]:
         name = entry.get("label") or (ident or {}).get("who") or (
             provider.title() if Path(config) == default_dir(provider)
             else Path(config).name.lstrip("."))
-        out.append({"dir": config, "tilde": _tilde(config), "provider": provider, "name": name,
+        out.append({"dir": config, "tilde": tilde(config), "provider": provider, "name": name,
                     "label": entry.get("label"), "color": entry["color"], "panes": [],
                     "signed_in": bool(ident), "default": Path(config) == default_dir(provider),
                     **(ident or {"who": "", "plan": ""})})
@@ -168,10 +169,13 @@ def command(provider: str, config: str, cmd: str | list[str]) -> list[str]:
     return ["env", *pin, *(cmd if isinstance(cmd, list) else ["sh", "-c", cmd])]
 
 
-def resume_command(entry: dict) -> list[str]:
-    """agent-history's resume argv for `entry`, on the account whose dir holds its
-    transcript: a Claude session resumes only under the config dir it was written in."""
+def resume_command(entry: dict, config: str | None = None) -> list[str]:
+    """agent-history's resume argv for `entry`, on account `config`, else the one whose dir
+    holds its transcript: a Claude session resumes only under the config dir it was
+    written in, and a copy (Move) leaves the id in two."""
     argv, source = entry.get("resume_argv") or [], Path(entry.get("source") or "/")
+    if config and argv[:1] and argv[0] in ENV:
+        return command(argv[0], config, argv)
     if argv[:1] == ["claude"] and source.parent.parent.name == "projects":
         return command("claude", str(source.parents[2]), argv)
     return argv
@@ -223,7 +227,7 @@ def _add(provider: str, config: str, label: str, link: list[str]) -> dict:
     if not path.is_absolute():
         raise ValueError("the config dir must be an absolute path")
     if (listed := find(str(path))) and listed["signed_in"]:  # a sign-in never finished: resumed
-        raise FileExistsError(f"{_tilde(str(path))} is already an account")
+        raise FileExistsError(f"{tilde(str(path))} is already an account")
     if bad := set(link) - set(SHARED[provider]):
         raise ValueError(f"not shareable: {', '.join(sorted(bad))}")
     existed = path.exists()
@@ -283,7 +287,22 @@ def set_default(session: str, profile: dict) -> None:
 
 def files(s: Session, root: Path) -> list[Path]:
     """The session's files (MOVED) under one account's dir."""
-    return [p for g in MOVED[s.harness] for p in root.glob(g.format(id=s.session_id))]
+    return paths(s.harness, s.session_id, root)
+
+
+def paths(harness: str, session_id: str, root: Path) -> list[Path]:
+    return [p for g in MOVED[harness] for p in root.glob(g.format(id=glob.escape(session_id)))]
+
+
+def holds(harness: str, session_id: str, config: str) -> bool:
+    """Whether this account's dir holds a resumable copy of the session."""
+    return resumable(paths(harness, session_id, Path(config)))
+
+
+def holders(harness: str, session_id: str) -> list[dict]:
+    """The listed profiles whose dir holds a resumable copy of this session."""
+    return [p for p in profiles() if p["provider"] == harness
+            and holds(harness, session_id, p["dir"])]
 
 
 def _tree(paths: list[Path]):
@@ -294,9 +313,13 @@ def _tree(paths: list[Path]):
 
 
 def _has_record(log: Path) -> bool:
-    """Whether the log holds one whole line yet, read a chunk at a time until it does."""
-    with log.open("rb") as f:
-        return any(b"\n" in chunk for chunk in iter(lambda: f.read(1 << 16), b""))
+    """Whether the log holds one whole line yet, read a chunk at a time until it does. One
+    that can't be read (gone meanwhile, say) has none."""
+    try:
+        with log.open("rb") as f:
+            return any(b"\n" in chunk for chunk in iter(lambda: f.read(1 << 16), b""))
+    except OSError:
+        return False
 
 
 def resumable(paths: list[Path]) -> bool:

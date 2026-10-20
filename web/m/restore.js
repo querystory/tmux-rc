@@ -64,7 +64,9 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
   card.addEventListener("click", async (e) => {
     const button = e.target.closest("[data-act]"), act = button?.dataset.act;
     if (!act) return;
-    const body = { server: offer.server, panes: restorable().map(([wid, p]) => [wid, p.index]) };
+    const body = { server: offer.server, panes: restorable().map(([wid, p]) => [wid, p.index]),
+      // The other account each such pane's note named: picking it was consent to that one only.
+      resume_from: restorable().filter(([, p]) => p.resume_from).map(([wid, p]) => [wid, p.index, p.resume_from]) };
     card.querySelectorAll("button, input").forEach(b => { b.disabled = true; }); // a tick would redraw the card mid-request
     // The tapped button spins as a tapped answer does: the build takes as long as the layout.
     const label = act === "restore" ? "Restore" : button.textContent;
@@ -92,6 +94,7 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
   });
 
   let asked = 0, asks = 0;
+  const targets = (o) => new Map(o ? Object.entries(o.windows).flatMap(([wid, w]) => w.panes.map(p => [key(wid, p), p.resume_from || ""])) : []);
   async function refresh() {
     asked = Date.now();
     const mine = ++asks, was = offer?.server;
@@ -102,9 +105,12 @@ export function setupRestore({ mount, request, slow, logos, licon, notice, runni
       if (mine === asks && err.status !== 503) return render(); // a dropped request: keep the offer, its buttons live again
     }
     if (mine !== asks) return; // a later ask answers instead: an older one would bring a spent offer back
+    const before = targets(offer);
     offer = next;
     const changed = offer?.server !== was;
     if (changed) picked = new Map(offer ? Object.entries(offer.windows).flatMap(([wid, w]) => w.panes.map(p => [key(wid, p), p.default])) : []);
+    // A pick was for the account its note named: one whose account changed is picked again or not at all.
+    else for (const [k, to] of targets(offer)) if (before.has(k) && before.get(k) !== to) picked.delete(k);
     render();
     if (!offer) closed(); // a spent offer, or a link to one, shows the dashboard
     else if (changed && !running()) opened();
