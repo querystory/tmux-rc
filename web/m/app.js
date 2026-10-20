@@ -795,7 +795,8 @@ const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratc
 scratchFrame.addEventListener("load", tellScratch);
 // Only the gallery is heard: it opens a pane, keeps its view, or opens one of its pages, a path
 // under /scratch/ here and nothing else (url-state.js). A page the viewer shows (a page still
-// being made links the pane making it) may open a pane, and nothing else.
+// being made links the pane making it) may open a pane, and nothing else: its origin is opaque,
+// so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
   const { pane, view, open, title } = e.data || {}, href = scratchUrl(open, location.href);
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane);

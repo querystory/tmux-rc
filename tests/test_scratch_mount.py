@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 from types import SimpleNamespace
 from openbus import server
 server.app.state.watcher = SimpleNamespace(states=[], pane_birth=lambda _: None)
-server.accounts.report = lambda *_: {"profiles": []}  # never this machine's accounts
+scanned = []  # never this machine's accounts, and scanned only for a pending folder's page
+server.accounts.report = lambda *_: scanned.append(1) or {"profiles": []}
 server.scratch_sidecars.browser = lambda: None  # nor its browser
 server.agent_history.reconcile = lambda: None  # nor its agent-history index
 server.app.state.history = server.History(server.Path(sys.argv[1]))
@@ -20,6 +21,12 @@ for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/link.
              "/scratch/sub/", "/scratch", "/scratch/notes.md", "/scratch/sub/.env",
              "/scratch/.git/config", "/scratch/.git/", "/scratch/wip/"):
     print(c.get(path).status_code)
+wip = c.get("/scratch/wip/")  # a 202 passes `curl -f`: it says so, and its title is not the page's
+print(int(wip.headers.get("x-scratch-pending") == "1" and "Retry-After" in wip.headers
+          and "<title>In progress: Being made</title>" in wip.text))
+scanned.clear()
+c.get("/scratch/nope/")
+print(int(scanned == []))
 csp = c.get("/scratch/mock.html").headers.get("content-security-policy", "")
 print(int(csp.startswith("sandbox") and "allow-same-origin" not in csp
           and "form-action 'none'" in csp and "connect-src 'none'" in csp))
@@ -74,8 +81,9 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # bare-prefix one keeping its query; and only the folder's page (or the placeholder of
     # one being made, answering 202) counted as a visit.
     # Hidden files and directories (an .env, a .git) are refused, as the gallery skips them.
+    # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
-        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1]
+        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

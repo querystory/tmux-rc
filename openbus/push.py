@@ -531,7 +531,9 @@ class PushManager:
         for tick in itertools.count():
             await asyncio.sleep(1)
             # Needs-you each second; scratch, which stats every folder, every ten.
-            for step in (self.evaluate, self.landed)[:1 + (tick % 10 == 0)]:
+            for step in (self.evaluate, self.landed):
+                if step == self.landed and tick % 10:
+                    break
                 try:
                     # Keep notification evaluation off the server event loop.
                     await asyncio.to_thread(step)
@@ -550,6 +552,7 @@ class PushManager:
         seen, self._mtimes = self._mtimes, {  # a meta.json finished in place: the folder's alone
             e.name: (e.stat(follow_symlinks=False).st_mtime_ns, _mtime(Path(e.path, "meta.json")))
             for e in os.scandir(self.scratch)}
+        self._waiting = {k for k in self._waiting if k[0] in self._mtimes}  # removed: forgotten
         for name in [n for n, at in self._mtimes.items() if seen.get(n) != at]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
@@ -662,8 +665,8 @@ class PushManager:
                     or (items and len(body) > PUSH_BODY_MAX)
                     or not self.watcher.pane_birth(pane_id)):
                 offered = []
-            if not offered and (pane_id, pane.get("birth")) in self._ready:
-                self._notified.add(marker)  # its "Ready" was the news
+            if not question and (pane_id, pane.get("birth")) in self._ready:
+                self._notified.add(marker)  # a plain turn ended: its "Ready" was the news
                 continue
             nonce = secrets.token_urlsafe(24) if offered else None
             if nonce:

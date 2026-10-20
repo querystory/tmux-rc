@@ -135,7 +135,8 @@ class Files(StaticFiles):
                 self.pending, path)
             if not wait:
                 raise
-            return HTMLResponse(wait, status_code=202)
+            return HTMLResponse(wait, status_code=202,  # `curl -f` and .ok pass a 202
+                                headers={"Retry-After": "5", "X-Scratch-Pending": "1"})
         file = Path(getattr(response, "path", ""))
         if file.suffix != ".md":
             return response

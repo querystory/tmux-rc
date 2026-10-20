@@ -1,6 +1,7 @@
 import json
 import os
 import queue
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -966,12 +967,13 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
         service.evaluate()
         clock[0] += push.SETTLE_SECONDS
     assert len(sender.payloads) == 1
-    # ...but a question with answers still gets through, and replaces it under the same tag.
-    watcher.states = [waiting(held())]
-    for _ in range(2):
-        service.evaluate()
-        clock[0] += push.SETTLE_SECONDS
-    assert len(sender.payloads) == 2 and sender.payloads[1]["tag"] == "block:%1"
+    # ...but any question still gets through, free text or with answers, under the same tag.
+    for question in ({"prompt": "Which name?"}, held()):
+        watcher.states = [waiting(question)]
+        for _ in range(2):
+            service.evaluate()
+            clock[0] += push.SETTLE_SECONDS
+    assert [p["tag"] for p in sender.payloads[1:]] == ["block:%1"] * 2
     # A page landing while that question's buttons are out keeps out of their way.
     # Its assets were already landing as the scan first saw it (a restart mid-build).
     (root / "two").mkdir()
@@ -1010,3 +1012,10 @@ def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     (root / "wip" / "index.html").write_text("page")
     service.landed()
     assert [p["title"] for p in sender.payloads] == ["Ready: Mock"]
+    (root / "gone").mkdir()  # removed while pending: forgotten
+    (root / "gone" / "meta.json").write_text('{"title": "Gone"}')
+    service.landed()
+    assert {name for name, _ in service._waiting} == {"gone"}
+    shutil.rmtree(root / "gone")
+    service.landed()
+    assert service._waiting == set()

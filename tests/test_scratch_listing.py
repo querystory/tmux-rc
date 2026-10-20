@@ -236,17 +236,22 @@ def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeyp
     assert 'aria-label="wip: Being made…">wip</a>' in card  # the thumb's state, read aloud
     # an earlier page's thumbnail neither hides the state nor is polled in its place
     assert '<span class="quiet">Being made…' in scratch._card(items["idle"])
+    assert '<span class="stopped">' in scratch._card(items["long"])  # nothing left to poll for
     shot = []
     scratch.page(tmp_path, states, [], STYLE, sidecars=shot.extend)
     assert sorted(i["name"] for i in shot) == ["done"]  # nothing to shoot while pending
-    page = scratch.placeholder(tmp_path, "wip", states, [], STYLE)
+    def who():  # the panes, accounts and stylesheet, asked only of a pending folder
+        return states, [], STYLE
+    page = scratch.placeholder(tmp_path, "wip", who)
     assert "<h1>wip</h1>" in page and "Now: running the visual tests" in page
     assert 'href="/m/#pane=%251">dev:ui</a> · started 1m ago' in page
     assert "location.reload(), 5000)" in page and 'class="working"' in page
-    assert "location.reload(), 60000)" in scratch.placeholder(tmp_path, "old", states, [], STYLE)
-    assert scratch.placeholder(tmp_path, "done", states, [], STYLE) is None
+    assert "location.reload(), 60000)" in scratch.placeholder(tmp_path, "old", who)
+    assert scratch.placeholder(tmp_path, "done", who) is None
     (tmp_path / "bare" / "app.css").write_text("")  # a site's asset before its index
-    assert "<h1>bare</h1>" in scratch.placeholder(tmp_path, "bare", states, [], STYLE)
+    assert "<h1>bare</h1>" in scratch.placeholder(tmp_path, "bare", who)
     os.utime(tmp_path / "bare" / "app.css", (now - 120, now - 120))  # loose files, finished
-    assert scratch.placeholder(tmp_path, "bare", states, [], STYLE) is None
-    assert scratch.placeholder(tmp_path, "nope", states, [], STYLE) is None
+    assert scratch.placeholder(tmp_path, "bare", who) is None
+    assert scratch.placeholder(tmp_path, "nope", who) is None
+    (tmp_path / "wip" / "report.html").write_text("")  # a page not at its index: no spinner
+    assert scratch.placeholder(tmp_path, "wip", who) is None

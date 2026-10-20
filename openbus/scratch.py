@@ -93,7 +93,9 @@ def _item(root: Path, folder: Path) -> dict | None:
     # The folder's own page, served at folder/: index.html, or an index.md (rendered).
     index = next((i for i in (folder / "index.html", folder / "index.md") if i in names), None)
     page = index or max(files)[1]
-    pending = not index and bool(meta) and (not page or time.time() - max(files)[0] < 60)
+    pending = not index and bool(meta) and not any(  # a page not at its index: published
+        f.suffix in (".html", ".htm", ".md") for f in names) and (
+        not page or time.time() - max(files)[0] < 60)
     title = meta.get("title")
     if not title and page and page.suffix == ".md":
         title = scratch_markdown.render(page)[2]
@@ -268,7 +270,8 @@ def _card(i: dict) -> str:
         i.get("shot") == "pending" and "Making a preview…")
     # A pending folder's thumbnail is an earlier page's: its state shows instead, and once
     # the page lands and is shot, the poll swaps in the new thumbnail.
-    poll = "" if i["thumb"] else f' data-pending="{quote(i["name"])}/thumb.webp"'
+    poll = "" if i["thumb"] or i.get("state") == "stopped" else (  # stopped: nothing coming
+        f' data-pending="{quote(i["name"])}/thumb.webp"')
     thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">'
              if i["thumb"] and not i["pending"]
              else f'<span class="{i["state"] if i["pending"] else ""}"{poll}>{wait}</span>'
@@ -287,16 +290,17 @@ def _card(i: dict) -> str:
                if i["updated"] - i["created"] > 60 else "") + "</p></article>")
 
 
-def placeholder(root: Path, name: str, states: list[dict], profiles: list[dict], style: Path,
-                pane_of=lambda _entry: None) -> str | None:
+def placeholder(root: Path, name: str, who) -> str | None:
     """What a pending folder's URL shows until its page lands: what it will be, who is
     making it and what that pane is doing now, reloading itself (the sandbox allows no
     fetch) every 5s, every 30s after ten minutes, and every minute once stopped. None
-    for any other folder."""
+    for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
+    optionally, pane_of (as page's); it scans every account, so only a pending folder asks."""
     i = read(root, root / name)
     if not (i and i["pending"]):
         return None
-    resolve([i], states, profiles, pane_of)
+    states, profiles, style, *pane_of = who()
+    resolve([i], states, profiles, *pane_of)
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
     headline = next((s.get("headline") for s in states if s.get("pane_id") == i["pane"]), "")
     where = _where(i, e)

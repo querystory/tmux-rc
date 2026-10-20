@@ -60,7 +60,7 @@ a { color: var(--accent); }
 <h2>Nothing here yet</h2>
 <p>Scratch is where coding agents publish previews for you: HTML pages, Markdown documents, mocks, reports, charts and images. Each lands in a folder of its own and shows up here as a card, with who made it.</p>
 <p>The daemon serves the folder named by <code>TMUXRC_SCRATCH_DIR</code> in its <code>.env</code>. With <code>TMUXRC_SCRATCH_ADVERTISE=1</code> and <code>TMUXRC_SCRATCH_URL</code> (this page's address), new panes learn where it is. Then add this to your agents' instructions, such as <code>AGENTS.md</code> or <code>CLAUDE.md</code>:</p>
-<pre>If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a Markdown document, a built static site, a report, images, a PDF). Write it into a new subfolder as index.md (Markdown, with Mermaid diagrams, admonitions, task lists and tables) or index.html, for example $TMUXRC_SCRATCH_DIR/&lt;folder&gt;/index.md, and give the user $TMUXRC_SCRATCH_URL/&lt;folder&gt;/ (or the folder's path if that variable is unset). The public URL sits behind the user's login, so to check the page yourself request $TMUXRC_SCRATCH_LOCAL_URL/&lt;folder&gt;/ instead; a 200 means it is served. Everything in that directory is visible to everyone who can reach tmux-rc: never put secrets or private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or WebSockets, or submit forms, so inline any data a page needs. Write the folder's meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}) first, before the page: until index.html or index.md lands, the link shows that the page is being made, so it is safe to hand out early, and the user is notified when it is ready.</pre>
+<pre>If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a Markdown document, a built static site, a report, images, a PDF). Write it into a new subfolder as index.md (Markdown, with Mermaid diagrams, admonitions, task lists and tables) or index.html, for example $TMUXRC_SCRATCH_DIR/&lt;folder&gt;/index.md, and give the user $TMUXRC_SCRATCH_URL/&lt;folder&gt;/ (or the folder's path if that variable is unset). The public URL sits behind the user's login, so to check the page yourself request $TMUXRC_SCRATCH_LOCAL_URL/&lt;folder&gt;/ instead; exactly 200 means it is served (a 202 is a page still being made). Everything in that directory is visible to everyone who can reach tmux-rc: never put secrets or private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or WebSockets, or submit forms, so inline any data a page needs. Write the folder's meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}) first, before the page: until index.html or index.md lands, the link shows that the page is being made, so it is safe to hand out early, and the user is notified when it is ready.</pre>
 <p><a href="DOCS_URL">How the scratch gallery works</a></p>
 </section></main>
 <script>
@@ -82,13 +82,13 @@ for (const wait of document.querySelectorAll("[data-pending]")) {
   let tries = 0;
   const poll = () => { const img = Object.assign(new Image(), { alt: "" });
     img.onload = () => { wait.closest("article").querySelector("h2 a").removeAttribute("aria-label"); wait.replaceWith(img); };
-    img.onerror = () => setTimeout(poll, Math.min(3000 * 1.1 ** tries++, 60000)); // then once a minute
+    img.onerror = () => tries < 40 && setTimeout(poll, Math.min(3000 * 1.1 ** tries++, 60000)); // then once a minute, ~18m in all
     img.src = `${wait.dataset.pending}?${Date.now()}`; };
   poll();
 }
 // The thumbnail comes only once shot, and not without a browser: while a page is being made,
-// the gallery reloads to see it land (one stopped may yet resume), unless a filter is being typed.
-if (document.querySelector(".thumb :is(.working, .quiet, .stopped)"))
+// the gallery reloads to see it land, unless a filter is being typed.
+if (document.querySelector(".thumb :is(.working, .quiet)"))
   setInterval(() => box.value || document.activeElement === box || location.reload(), 30000);
 for (const b of document.querySelectorAll(".who")) b.onclick = () => { box.value = b.textContent; filter(); };
 // Grid or list. Remembered where the browser allows it; the sandbox usually doesn't, and
