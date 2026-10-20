@@ -921,7 +921,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #mobile-view-toggle:has([data-view="terminal"][aria-pressed="true"])::before { transform: translateX(100%); }
 #mobile-view-toggle button { position: relative; width: 40px; min-height: 36px; padding: 0; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 #mobile-view-toggle button[aria-pressed="true"] { background: none; color: var(--bg); }
-@media (prefers-reduced-motion: no-preference) {
+@media (prefers-reduced-motion: no-preference) and (max-width: 1099px) {
   #mobile-view-toggle::before { transition: transform .2s ease-out; }
   #detail > :is(#overview, #terminal) { animation: view-in .2s ease-out; }
   @keyframes view-in { from { opacity: 0; } }
