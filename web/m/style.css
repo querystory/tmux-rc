@@ -938,13 +938,16 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 @media (max-width: 1099px) {
   #landing { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   #landing .landing-inner { padding: 20px 16px; }
-  /* A view of its own heads the screen, as a pane does: the app's header goes and the view's
-     head is the bar, under the safe area: Back (with the status dot the ☰ had), the app's
-     icon, the view's title, and the filter where the view follows it (app.js placePill). */
-  #app:has(#dash-page:not([hidden]) .landing-head) > .app-header { display: none; }
-  #landing #dash-page { padding-top: 0; }
-  #dash-page .landing-head { position: sticky; top: 0; z-index: 4; flex: none; box-sizing: border-box; min-height: 60px; margin: 0 -16px 12px; padding: 8px 16px; gap: 8px; border-bottom: 1px solid var(--line); background: var(--bg); }
-  #dash-page .landing-head h2 { flex: 1; min-width: 0; margin: 0; padding-left: 32px; background: url(/icon.svg) left center / 24px no-repeat; font-size: 18px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* A card's view (or Scratch) heads the screen, as a pane does: the app's header goes and the
+     view's head is the bar: Back (with the status dot the ☰ had), the app's icon, the view's
+     title, and the filter and its chips where the view follows them (app.js placePill). Restore
+     keeps the header: its head has no Back, and the ☰ is its way out. */
+  #app:has(#dash-page:not([hidden]) > .landing-head) > .app-header { display: none; }
+  #landing:has(> #dash-page > .landing-head) { scroll-padding-top: 72px; } /* a lane scrolled to (openLane) lands below the bar */
+  #landing #dash-page:has(> .landing-head) { padding-top: 0; }
+  #dash-page > .landing-head { position: sticky; top: 0; z-index: 4; flex: none; flex-wrap: wrap; box-sizing: border-box; min-height: 60px; margin: 0 -16px 12px; padding: 8px 16px; gap: 0 8px; border-bottom: 1px solid var(--line); background: var(--bg); }
+  #dash-page > .landing-head h2 { flex: 1; min-width: 0; margin: 0; padding-left: 32px; background: url(/icon.svg) left center / 24px no-repeat; font-size: 18px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dash-page > .landing-head > .acct-pill { flex-basis: 100%; padding: 0 0 2px; }
   #landing .atlas-panel { padding: 16px; }
   #landing .atlas-panel > .atlas-panel-heading:first-child { margin-top: -8px; } /* less pull: a phone wraps the controls off the title's line */
   .sb-only { display: none !important; }
