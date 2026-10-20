@@ -1471,36 +1471,67 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 /* The Fleet graph (graph.js): its card spans the dashboard; its view fills the page, the canvas
    taking what the lenses and counts leave. */
 #graph-card { grid-column: 1 / -1; }
-.fg-mini { position: relative; height: 280px; margin: 4px -8px -8px; }
+.fg-mini { position: relative; height: 280px; margin: 4px -8px -8px; border-radius: 12px; overflow: hidden; }
 @media (max-width: 699px) { .fg-mini { height: 230px; } }
 .fg-mini canvas, .fg-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #dash-page:has(> .fg-view) { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
 .fg-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 @media (max-width: 699px) { .fg-view { min-height: 360px; } }
-.fg-lenses { display: flex; align-items: center; gap: 6px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; }
-.fg-lenses > span { flex: none; font-size: 12px; color: var(--muted); margin-right: 2px; }
-.fg-lenses button { flex: none; min-height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font-size: 13px; }
-.fg-lenses button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); border-color: transparent; font-weight: 600; }
-.fg-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0; font-size: 13px; color: var(--muted); }
-.fg-stats b { color: var(--fg); font-variant-numeric: tabular-nums; }
+/* The HUD over the canvas: monospace, the lens chips and jump-to callouts on top, the counts down
+   the left (a row at the bottom on a phone), the key along the foot. Its empty middle passes
+   touches through to the canvas. */
+.fg-box { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; touch-action: none; font-family: var(--mono); color: var(--fg); }
+.fg-hud { position: absolute; inset: 0; display: grid; grid-template: "lens lens call" auto "stats . ." 1fr "key key key" auto / auto 1fr auto; gap: 10px 14px; padding: 10px 58px 10px 12px; pointer-events: none; }
+.fg-hud > * { pointer-events: auto; min-width: 0; }
+.fg-lenses { grid-area: lens; align-self: start; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.fg-lenses > span { flex: none; font-size: 10.5px; color: var(--muted); margin-right: 6px; text-transform: uppercase; letter-spacing: .14em; }
+.fg-lenses button { flex: none; min-height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+.fg-lenses button[aria-pressed="true"] { color: var(--chart-s1); border-color: color-mix(in oklab, var(--chart-s1) 45%, transparent); background: color-mix(in oklab, var(--chart-s1) 12%, var(--surface)); font-weight: 600; }
+.fg-stats { grid-area: stats; align-self: start; display: flex; flex-direction: column; gap: 14px; }
+.fg-stats b { display: block; font-size: 28px; line-height: 1; font-weight: 300; font-variant-numeric: tabular-nums; }
+.fg-stats small { font-size: 14px; color: var(--muted); }
+.fg-stats span { display: block; margin-top: 4px; font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .14em; }
+.fg-stats .go b { color: var(--chart-s1); } .fg-stats .need b { color: var(--chart-s0); }
+.fg-call { grid-area: call; align-self: start; font-size: 9.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+.fg-call summary { cursor: pointer; text-align: right; padding: 2px 0 6px; }
+.fg-call > div { display: flex; flex-direction: column; gap: 6px; }
+.fg-call button { display: grid; grid-template-columns: 1fr auto; gap: 1px 10px; min-height: 0; text-align: left; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--fg); letter-spacing: inherit; }
+.fg-call button span { grid-column: 1 / -1; font-size: 9px; color: var(--muted); }
+.fg-call button b { font-weight: 500; text-transform: none; letter-spacing: .02em; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fg-call em { font-style: normal; color: var(--chart-s1); font-variant-numeric: tabular-nums; }
+.fg-call .need :is(em, span) { color: var(--chart-s0); }
+.fg-legend { grid-area: key; align-self: end; font-size: 11px; color: var(--muted); }
+.fg-legend p { margin: 0 0 4px; line-height: 1.35; }
 .fg-st { display: inline-flex; align-items: center; gap: 6px; }
 :is(.fg-st, .fg-key) i, .fg-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
-.fg-box { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; touch-action: none; }
-/* Full screen (graph.js): the view over everything, edge to edge inside the safe area, its lens
-   chips floating at the bottom and its counts left to the canvas. */
-.fg-view.full { position: fixed; inset: 0; z-index: 40; min-height: 0; background: var(--surface); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.fg-view.full .fg-stats { display: none; }
-.fg-view.full .fg-box { border: 0; border-radius: 0; }
-.fg-view.full .fg-lenses { position: absolute; z-index: 2; left: calc(10px + env(safe-area-inset-left)); right: calc(10px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); margin: 0; }
-.fg-view.full .fg-lenses > span { display: none; }
-.fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
-.fg-tools button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
-.fg-legend { position: absolute; left: 12px; top: 10px; max-width: min(520px, calc(100% - 70px)); font-size: 12px; color: var(--muted); pointer-events: none; background: color-mix(in oklab, var(--surface) 85%, transparent); border-radius: 8px; padding: 2px 4px; }
-.fg-legend p { margin: 0 0 4px; line-height: 1.35; }
-.fg-key { display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: 11px; }
+.fg-key { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .12em; }
 .fg-key span { display: inline-flex; align-items: center; gap: 5px; }
 .fg-key .fg-warn-key { border: 2px dashed var(--amber); box-sizing: border-box; }
-@media (max-width: 699px) { .fg-legend { display: none; } } /* the counts above key the colours */
+.fg-key .fg-acct-key { border: 1px dashed var(--muted); box-sizing: border-box; }
+/* A phone: one row of counts at the bottom, the key under it, the chips scrolling on top. */
+@media (max-width: 699px) {
+  .fg-hud { grid-template: "lens" auto "call" auto "." 1fr "stats" auto "key" auto / 1fr; gap: 6px; padding: 8px 52px 8px 10px; }
+  .fg-lenses > span, .fg-legend p, .fg-stats .opt { display: none; }
+  .fg-call summary { text-align: left; padding: 0 0 4px; }
+  .fg-call > div { flex-direction: row; }
+  .fg-call button { flex: 1; padding: 5px 7px; }
+  .fg-stats { flex-direction: row; justify-content: space-between; gap: 6px; margin-right: -42px; }
+  .fg-stats b { font-size: 20px; } .fg-stats small { font-size: 11px; } .fg-stats span { font-size: 8.5px; letter-spacing: .08em; }
+  .fg-stats { margin-top: -14px; padding-top: 14px; background: linear-gradient(transparent, var(--surface) 14px); } /* labels zoomed under it fade, not fight */
+  .fg-legend { margin-right: -42px; } .fg-key { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; font-size: 8.5px; gap: 3px 10px; }
+}
+/* Full screen (graph.js): the view over everything, edge to edge inside the safe area. A phone
+   opens the view this way. */
+.fg-view.full { position: fixed; inset: 0; z-index: 40; min-height: 0; background: var(--surface); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.fg-view.full .fg-box { border: 0; border-radius: 0; }
+/* The dark canvas: the observatory's navy under the graph whatever the app's theme, with the
+   app's dark state colours, so amber still means needs you. */
+.fg-dark :is(.fg-view, .fg-mini) { color-scheme: dark; --surface: #070c18; --line: #1f2a44; --fg: #dfe5f0; --muted: #7d89a6; --amber: #f1c56a; --accent: #83ddb3; --accent-bg: #193c2c; --bg: #03060d;
+  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5;
+  --acct-0: #5eead4; --acct-1: #c4b5fd; --acct-2: #a8b3c4; --acct-3: #fcd34d; --acct-4: #7dd3fc; --acct-5: #fda4af; }
+.fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
+.fg-tools button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--fg); }
+.fg-tools [aria-pressed="true"] { color: var(--chart-s1); }
 .fg-pop { position: absolute; z-index: 3; width: 280px; padding: 12px 14px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 32px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; box-sizing: border-box; max-height: calc(100% - 16px); overflow: auto; }
 .fg-pop.sheet { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 75%; }
 .fg-pop-head { display: flex; align-items: center; gap: 8px; }
@@ -1510,6 +1541,9 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 12px; }
 .fg-pop dt { color: var(--muted); }
 .fg-pop dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.fg-q { margin: 0 0 10px; padding: 8px 10px; border-left: 2px solid var(--chart-s0); background: color-mix(in oklab, var(--chart-s0) 10%, transparent); }
+.fg-q div { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.fg-q span { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; }
 .fg-pop .fg-btn { width: 100%; min-height: 36px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
 .fg-logo { width: 22px; height: 22px; border-radius: 50%; flex: none; }
 .fg-nodes { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* the canvas's nodes, for the keyboard and screen readers */
