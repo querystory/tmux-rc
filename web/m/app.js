@@ -1774,7 +1774,7 @@ html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["graph-card", "
 $("menu-open").onclick = (e) => {
   // One current row, the most specific pressed (rows run general to specific): Scratch, not
   // also the Dashboard it opens within.
-  const rows = [...$("drawer-nav").children], here = [...rows].reverse().find((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
+  const rows = [...$("drawer-nav").children], here = [...rows].reverse().find((row) => row.dataset.via === "graph-card" ? page === "graph" : $(row.dataset.via).getAttribute("aria-pressed") === "true");
   for (const row of rows) { row.hidden = $(row.dataset.via).hidden; row.setAttribute("aria-current", row === here ? "page" : "false"); }
   text($("drawer-nav").querySelector('[data-via="attention-tab"] .count'), $("attention-count").textContent);
   openRecent();

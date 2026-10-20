@@ -215,7 +215,7 @@ export function fleetGraph(box, mini, ctx) {
     const old = new Map(model ? model.nodes.filter(n => !Number.isNaN(n.x)).map(n => [n.id, n]) : []); // placed ones
     model = next; layout(model);
     const first = old.size < 2; // nothing placed but the root (an empty fleet): frame what arrives
-    const v1 = refit || first ? fitView() : { ...view };
+    const v1 = refit || first || mini ? fitView() : { ...view }; // the card has no camera of its own to keep
     const fromOf = n => { if (old.has(n.id)) return [n.x, n.y, false];
       const u = n.up && old.has(n.up.id) ? n.up : null; return u ? [u.x, u.y, true] : [n.tx, n.ty, true]; };
     model.nodes.forEach(n => { const [fx, fy, fresh] = fromOf(n); Object.assign(n, { fx, fy, fresh }); });
@@ -289,7 +289,7 @@ export function fleetGraph(box, mini, ctx) {
   let start = null, pinch = null, moved = false;
   const pos = e => { const b = cv.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
   cv.addEventListener('pointerdown', e => {
-    cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, pos(e)); moved = false; land();
+    cv.setPointerCapture(e.pointerId); moved = pts.size > 0; pts.set(e.pointerId, pos(e)); land(); // a second finger is never a tap
     const [p, q] = [...pts.values()];
     start = { ...p, vx: view.x, vy: view.y };
     pinch = q && { d: Math.hypot(p.x - q.x, p.y - q.y), k: view.k, mx: (p.x + q.x) / 2, my: (p.y + q.y) / 2, vx: view.x, vy: view.y };
