@@ -42,7 +42,9 @@ The app already ships ECharts, whose graph series has pan, zoom and touch built 
 fight the one thing the graph is for, though: switching lens glides every node from its old
 place to its new one, and folding a hub collapses its subtree into it. Those transitions
 need each node to keep its identity across layouts, and that is easy to own in a small
-canvas and awkward to bend a chart library into. The cost is code with no JS test harness
+canvas and awkward to bend a chart library into. A canvas is invisible to the keyboard and
+to screen readers, so every node is mirrored as an offscreen button: focusing one selects it
+on the canvas, and Enter does what a tap does. The cost is code with no JS test harness
 behind it, so the interactions are checked in Playwright against the demo fleet (mouse,
 wheel, CDP touch pinch and pan, tap, fold, lens) and by hand on a phone.
 

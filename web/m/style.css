@@ -1462,3 +1462,4 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-pop dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .fg-pop .fg-btn { width: 100%; min-height: 36px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
 .fg-logo { width: 22px; height: 22px; border-radius: 50%; flex: none; }
+.fg-nodes { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* the canvas's nodes, for the keyboard and screen readers */

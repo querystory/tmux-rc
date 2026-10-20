@@ -22,15 +22,17 @@ const busy = s => s === 1 || s === 4 || s === 5;
 const el = (tag, cls = '', html = '') => Object.assign(document.createElement(tag), { className: cls, innerHTML: html });
 const agent = p => p.tool && p.tool !== 'shell';
 const subsOf = p => agent(p) ? Math.min(MAX_SUBS, subagentCount(p)) : 0;
+// A path segment is its label, or [identity, label] where two hubs could share a label: two
+// clones on the same branch, two accounts given one name.
 // Where a pane sits: its repository (the daemon's worktree scan, /api/state's `worktree`) and
 // the directories below the worktree's root, else the folder it is in.
 const below = ({ cwd = '', worktree: w }) => cwd.startsWith(`${w.path}/`) ? cwd.slice(w.path.length + 1).split('/') : [];
 const outside = p => ['no repository', home(p.cwd || '') || 'unknown'];
 const PATHS = {
   session: p => [p.session || 'no session'],
-  account: (p, owner) => [owner(p.pane_id) || (agent(p) ? 'Own login' : 'No agent')],
+  account: (p, owner) => { const a = owner(p.pane_id); return [a ? [a.dir, a.name] : agent(p) ? 'Own login' : 'No agent']; },
   repo: p => p.worktree ? [p.worktree.repo, ...below(p)] : outside(p),
-  worktree: p => p.worktree ? [p.worktree.repo, p.worktree.branch || p.worktree.path.split('/').pop()] : outside(p),
+  worktree: ({ worktree: w, ...p }) => w ? [w.repo, [w.path, w.branch || w.path.split('/').pop()]] : outside(p),
   tool: p => [TOOLS[p.tool] || p.tool || 'Other', p.model],
 };
 function colors() {
@@ -42,11 +44,12 @@ function colors() {
 const ring = (C, s) => s === 2 || s === 3 ? C.muted : C.s[s];
 
 // The graph on `box`. `mini` is the Dashboard card's: no labels but the hubs', no input.
-// ctx: { icon, logos, open(paneId), owner(paneId) -> account name, onChange() }.
+// ctx: { icon, logos, open(paneId), owner(paneId) -> account profile, onChange() }.
 export function fleetGraph(box, mini, ctx) {
   const cv = document.createElement('canvas'), dc = cv.getContext('2d');
   box.append(cv);
   let W = 0, H = 0, C = colors(), theme = '', hover = null, sel = null, raf = 0, lens = 'session', model = null, anim = null, panes = [], pop = null, flowed = false;
+  let listNodes = () => {}, touched = false; // touched: panned or zoomed since the last fit // the full view's node buttons (below)
   const view = { k: 1, x: 0, y: 0 }, collapsed = new Set(), imgs = {}, cache = new Map();
   // Nodes keep their identity across lenses and polls, so a pane glides to its new place.
   const node = (id, init) => { let n = cache.get(id); if (!n) cache.set(id, n = { id, x: NaN, y: NaN, ...init() }); return n; };
@@ -61,8 +64,9 @@ export function fleetGraph(box, mini, ctx) {
     root.children = [];
     for (const p of panes) {
       let up = root, key = `g:${lens}`;
-      PATHS[lens](p, ctx.owner).filter(Boolean).forEach((seg, d) => {
-        key += `/${seg}`;
+      PATHS[lens](p, ctx.owner).filter(Boolean).forEach((part, d) => {
+        const [id, seg] = Array.isArray(part) ? part : [part, part];
+        key += `/${id}`;
         let g = groups.get(key);
         if (!g) { g = Object.assign(node(key, () => ({ kind: 'group', label: seg, depth: d + 1, r: d ? 11 : 16 })), { children: [], panes: [], up }); groups.set(key, g); up.children.push(g); nodes.push(g); }
         g.panes.push(p); up = g;
@@ -76,7 +80,7 @@ export function fleetGraph(box, mini, ctx) {
     const hidden = n => { for (let u = n.up; u; u = u.up) if (collapsed.has(u.id)) return true; return false; };
     const vis = nodes.filter(n => !hidden(n));
     vis.forEach(n => { if (n.up) edges.push({ a: n.up, b: n }); });
-    return { root, nodes: vis, edges, sig: `${lens}|${vis.map(n => n.id).join()}` };
+    return { root, nodes: vis, edges, sig: `${lens}|${vis.map(n => `${n.id}<${n.up?.id}`).join()}` }; // a move between hubs is a change
   }
   // Leaves (panes, folded hubs) share the circle by slot, with a gap between groups.
   function layout({ root }) {
@@ -99,6 +103,7 @@ export function fleetGraph(box, mini, ctx) {
       if (!collapsed.has(n.id)) (n.children || []).forEach(c => place(c, d + 1));
     };
     place(root, 0);
+    listNodes();
   }
   const rad = n => Math.max(n.r, (n.kind === 'group' ? 7 : n.kind === 'root' ? 9 : n.kind === 'sub' ? 2.5 : 4.5) / view.k);
   function near(n) { // what a hovered or selected node lights: itself, its edges, a hub's subtree
@@ -185,7 +190,9 @@ export function fleetGraph(box, mini, ctx) {
     dc.globalAlpha = 1;
   }
   // Frames run while something moves and the canvas is on screen; a hidden page costs nothing.
-  const loop = t => { raf = 0; if (!cv.getClientRects().length) return; draw(t); if (anim || flowed) raf = requestAnimationFrame(loop); };
+  let seen = false; // on screen: a hidden page or a card scrolled away costs nothing
+  new IntersectionObserver(([e]) => { seen = e.isIntersecting; if (seen) animate(); }).observe(cv);
+  const loop = t => { raf = 0; if (!seen) return; draw(t); if (anim || flowed) raf = requestAnimationFrame(loop); };
   const animate = () => { if (!raf) raf = requestAnimationFrame(loop); };
   matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', () => { draw(); animate(); });
 
@@ -215,22 +222,44 @@ export function fleetGraph(box, mini, ctx) {
     const b = box.getBoundingClientRect(), dpr = devicePixelRatio || 1;
     if (b.width < 20 || b.height < 60) return;
     const first = !W;
+    if (b.width === W && b.height === H) { draw(); return animate(); } // reattached as it was
+    const dx = (b.width - W) / 2, dy = (b.height - H) / 2;
     W = b.width; H = b.height; cv.width = W * dpr; cv.height = H * dpr;
     if (first) return relayout(true);
-    layout(model); model.nodes.forEach(n => { n.x = n.tx; n.y = n.ty; }); Object.assign(view, fitView()); draw(); animate();
+    // A view the user framed keeps its pan and zoom, recentred; an untouched one refits.
+    layout(model); model.nodes.forEach(n => { n.x = n.tx; n.y = n.ty; });
+    Object.assign(view, touched ? { x: view.x + dx, y: view.y + dy } : fitView()); draw(); animate();
   }
   new ResizeObserver(size).observe(box);
   const close = () => { pop?.remove(); pop = null; sel = null; draw(); };
   const api = {
     update(list) { panes = list; if (sel && !list.some(p => p.pane_id === (sel.parent || sel).id)) close(); relayout(false); },
-    fit() { anim = { t0: performance.now(), dur: motion() ? 400 : 1, v0: { ...view }, v1: fitView() }; model.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; }); animate(); },
+    fit() { touched = false; anim = { t0: performance.now(), dur: motion() ? 400 : 1, v0: { ...view }, v1: fitView() }; model.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; }); animate(); },
     setLens(l) { lens = l; close(); relayout(true); ctx.onChange?.(); }, lens: () => lens,
     zoom(f) { zoomAt(W / 2, H / 2, f); },
   };
   if (mini) return api;
 
+  // Every node as a button too, for the keyboard and screen readers: focus selects it on the
+  // canvas, Enter does what a tap does (a pane's popover, a hub's fold).
+  const buttons = el('div', 'fg-nodes');
+  box.append(buttons);
+  const say = n => n.kind === 'group' ? `${n.label}: ${n.panes.length} panes, ${collapsed.has(n.id) ? 'folded' : 'unfolded'}`
+    : n.kind === 'pane' ? `${paneName(n.p)}: ${STATES[stateOf(n.p)]}` : `Sub-agent of ${paneName(n.parent.p)}`;
+  listNodes = () => {
+    if (buttons._sig !== model.sig) {
+      const had = document.activeElement?._n?.id;
+      buttons._sig = model.sig;
+      buttons.replaceChildren(...model.nodes.filter(n => n.kind !== 'root').map(n => Object.assign(el('button'), { _n: n,
+        onfocus: () => { sel = n; draw(); },
+        onclick: () => { tap({ x: n.x * view.k + view.x, y: n.y * view.k + view.y }, n); pop?.querySelector('[data-open]')?.focus(); } })));
+      [...buttons.children].find(b => b._n.id === had)?.focus(); // a fold rebuilt the list: stay on its hub
+    }
+    for (const b of buttons.children) b.textContent = say(b._n);
+  };
+
   // ---- pan, pinch, wheel, hover, tap ----
-  function zoomAt(x, y, f) { const k = Math.max(0.15, Math.min(4, view.k * f)); view.x = x - (x - view.x) * k / view.k; view.y = y - (y - view.y) * k / view.k; view.k = k; anim = null; draw(); }
+  function zoomAt(x, y, f) { touched = true; const k = Math.max(0.15, Math.min(4, view.k * f)); view.x = x - (x - view.x) * k / view.k; view.y = y - (y - view.y) * k / view.k; view.k = k; anim = null; draw(); }
   const world = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
   function hit(x, y) {
     const w = world(x, y), slop = n => Math.max(rad(n), (phone() ? 18 : 10) / view.k);
@@ -254,10 +283,10 @@ export function fleetGraph(box, mini, ctx) {
     const [p, q] = [...pts.values()];
     if (pinch && q) {
       const k = Math.max(0.15, Math.min(4, pinch.k * Math.hypot(p.x - q.x, p.y - q.y) / pinch.d)), mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2;
-      view.x = mx - (pinch.mx - pinch.vx) / pinch.k * k; view.y = my - (pinch.my - pinch.vy) / pinch.k * k; view.k = k; moved = true;
+      view.x = mx - (pinch.mx - pinch.vx) / pinch.k * k; view.y = my - (pinch.my - pinch.vy) / pinch.k * k; view.k = k; moved = touched = true;
     } else if (start) {
       if (Math.abs(at.x - start.x) + Math.abs(at.y - start.y) > 6) moved = true;
-      if (moved) { view.x = start.vx + at.x - start.x; view.y = start.vy + at.y - start.y; cv.style.cursor = 'grabbing'; }
+      if (moved) { touched = true; view.x = start.vx + at.x - start.x; view.y = start.vy + at.y - start.y; cv.style.cursor = 'grabbing'; }
     }
     draw();
   });
@@ -287,8 +316,7 @@ export function fleetGraph(box, mini, ctx) {
   const stLine = (s, extra) => `<span class="fg-st"><i style="background:${ring(C, s)}"></i>${STATES[s]}${extra ? ` · ${esc(extra)}` : ''}</span>`;
   const dl = rows => `<dl>${rows.filter(([, v]) => v).map(([t, v]) => `<dt>${t}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
   const openBtn = '<button class="fg-btn" data-open>Open pane</button>';
-  function tap(at) {
-    const n = hit(at.x, at.y);
+  function tap(at, n = hit(at.x, at.y)) {
     if (!n) return close();
     if (n.kind === 'root') { close(); return api.fit(); }
     if (n.kind === 'group') { collapsed.has(n.id) ? collapsed.delete(n.id) : collapsed.add(n.id); close(); return relayout(false); }
@@ -299,7 +327,7 @@ export function fleetGraph(box, mini, ctx) {
     }
     const p = n.p, s = stateOf(p), w = p.worktree, subs = subagentCount(p), src = ctx.logos[p.tool];
     popover(`${head(src ? `<img class="fg-logo" src="${esc(src)}" alt="">` : '', paneName(p))}${stLine(s, p.session)}
-      ${dl([['Model', p.model], ['Account', ctx.owner(p.pane_id)], ['Tokens', p.working?.tokens], ['Agents', subs ? `${subs} running` : ''],
+      ${dl([['Model', p.model], ['Account', ctx.owner(p.pane_id)?.name], ['Tokens', p.working?.tokens], ['Agents', subs ? `${subs} running` : ''],
         ['Now', paneHeadline(p)], ['Time', busy(s) ? p.working?.elapsed || (since(p) && `for ${since(p)}`) : since(p) && `idle ${since(p)}`],
         ['Where', `${home(p.cwd || '')}${w?.branch ? ` @ ${w.branch}` : ''}`]])}${openBtn}`, at, n);
   }
