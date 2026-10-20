@@ -330,6 +330,14 @@ def _displaces(child: Path, dst: Path, name: str, at: Path) -> bool:
                for q in (spot, *spot.parents) if q.is_relative_to(child))
 
 
+def _through_link(child: Path, root: Path, at: Path) -> bool:
+    """Whether a link, staged in `child` or here, sits between swap root `root` and place
+    `at` inside it: the swap would strand the place, or send it elsewhere."""
+    return at.is_relative_to(root) and any(
+        (child / p).is_symlink() or (root / p).is_symlink()
+        for p in list(at.relative_to(root).parents)[:-1])
+
+
 def restore(src) -> list[str]:
     """Import an archive from the stream `src`. Returns the report's lines."""
     if _running():
@@ -419,6 +427,11 @@ def restore(src) -> list[str]:
             for at in keep:  # and one nested in another's swap must have a dir path to stay in
                 if _displaces(child, dst, name, at):
                     raise SystemExit(f"This archive's {name} would replace {at}, not its own.")
+                if any(_through_link(child, root, at) for root in {path, dst}):
+                    raise SystemExit(f"This archive's {name} would replace a link on the way "
+                                     f"to {at}.")
+        for child, path, _ in moves:  # nothing staged links out now: tighten, and keep logins
+            _keep_login(child, dst := _spot(path))
             for d, at in zip(db_dirs, (path, dst), strict=True):  # the DB's dir: History needs
                 if d.is_relative_to(at) and (inner := child / d.relative_to(at)).is_dir():
                     inner.chmod(inner.stat().st_mode & 0o7700)  # it private, wherever it lands
@@ -427,8 +440,6 @@ def restore(src) -> list[str]:
                 and db_dirs[1].stat().st_mode & 0o077:  # someone else's dir: not ours to chmod
             raise SystemExit(f"{db_dirs[1]} is open to others, and the history DB needs a "
                              "private dir: `chmod 700` it, then import.")
-        for child, path, _ in moves:
-            _keep_login(child, _spot(path))
         journal = []
         try:
             for child, path, name in moves:  # where it lands now: a swap before it may

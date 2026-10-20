@@ -658,3 +658,30 @@ def test_an_open_db_dir_here_is_refused(home, monkeypatch):
     with pytest.raises(SystemExit, match="chmod 700"):
         export.restore(io.BytesIO(out.getvalue()))
     assert not (new / "shared/h.sqlite3").exists()
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_a_link_on_the_way_to_a_kept_place_is_refused(home, monkeypatch, staged):
+    """A link, staged or here, between a swapped dir reached through a linked data dir and
+    the DB inside it: nothing changes."""
+    old = home("old")
+    write(old / ".local/share/tmux-rc/previews/other.txt")
+    (old / "unrelated").mkdir()
+    if staged:
+        (old / ".local/share/tmux-rc/previews/sub").symlink_to(old / "unrelated")
+    out = io.BytesIO()
+    export.export(out, [])
+    new = home("new")
+    (new / "unrelated").mkdir(mode=0o755)
+    (new / "unrelated").chmod(0o755)
+    write(new / "current/h.sqlite3", "db")
+    (new / "store/previews").mkdir(parents=True)
+    (new / "store/previews/sub").symlink_to(new / "current")
+    (new / ".local/share").mkdir(parents=True)
+    (new / ".local/share/tmux-rc").symlink_to(new / "store")
+    db = new / ".local/share/tmux-rc/previews/sub/h.sqlite3"
+    monkeypatch.setenv("TMUXRC_HISTORY_DB", str(db))
+    with pytest.raises(SystemExit, match="would replace"):
+        export.restore(io.BytesIO(out.getvalue()))
+    assert (new / "unrelated").stat().st_mode & 0o777 == 0o755
+    assert db.read_text() == "db"
