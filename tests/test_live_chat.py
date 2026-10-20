@@ -7,6 +7,7 @@ riding in front of the next turn; failures that cost a turn versus ones that end
 session; and each vendor adapter's wire shapes, against fakes."""
 
 import asyncio
+import json
 from types import SimpleNamespace as Ns
 
 import pytest
@@ -414,3 +415,78 @@ def test_a_bare_yes_is_the_chat_models_call_and_still_carded(monkeypatch):
     assert typed == [("%1", "yes", True, True)]
 
 
+
+
+def _users(s):
+    return [h[1] for h in s.history if h[0] == "user"]
+
+
+def _talk(s, monkeypatch, *turns):
+    """Typed turns in a row, each (text, the user's answer to any card)."""
+    for text, ok in turns:
+        s._inbox = asyncio.Queue()  # each turn runs on a new event loop in this harness
+        _turn(s, text, monkeypatch, ok=ok)
+
+
+def _focus_line(d, pane_id):
+    return L._FOCUS.format(json.dumps(L._pane_name(d), ensure_ascii=False), pane_id)
+
+
+def test_the_pane_an_action_reached_leads_the_next_turn(monkeypatch):
+    """"Ask the agent" right after acting on a pane means that pane, so each turn says which
+    pane the last action reached. A declined action reached nothing, so it moves nothing."""
+    s = _Fake([("", [("type_in_pane", {"pane_id": "%2", "text": "status?"})]), ("Not sent.", []),
+               ("", [("type_in_pane", {"pane_id": "%2", "text": "status?"})]), ("Sent.", []),
+               ("Ok.", [])])
+    _talk(s, monkeypatch, ("ask the shell for its status", False),
+          ("send it to the shell then", True), ("thanks", None))
+    shell = _Watcher().digest()[1]
+    users = [u for u in _users(s) if u != C._OUTCOME]
+    assert ["[Current pane" in u for u in users] == [False, False, True]
+    assert users[-1].startswith(_focus_line(shell, "%2"))
+
+
+def test_a_queued_message_keeps_the_pane_shown_when_it_was_sent():
+    async def go():
+        s = _Fake([])
+        s.focus = "[Current pane: a]"
+        await s.send_text("first")
+        s.focus = "[Current pane: b]"  # the first turn's action moved it afterwards
+        await s.send_text("second")
+        return [s._inbox.get_nowait()[2] for _ in range(2)]
+    assert asyncio.run(go()) == ["[Current pane: a]", "[Current pane: b]"]
+
+
+def test_a_resumed_pane_becomes_the_current_one_before_the_watcher_sees_it(monkeypatch):
+    async def resume(*a, **k):
+        return {"status": "opened", "pane_id": "%9", "window": "auth fix"}
+    monkeypatch.setattr(L.agent_history, "offered", lambda: True)
+    monkeypatch.setitem(L._HISTORY_TOOLS, "resume_session", resume)
+    s = _Fake([("", [("resume_session", {"session_id": "x"})]), ("Reopened.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("resume the auth fix", True), ("tell it to rebase", None))
+    assert _users(s)[-1].startswith(_focus_line({"title": "auth fix"}, "%9"))
+
+
+def test_an_open_button_moves_no_focus(monkeypatch):
+    s = _Fake([("", [("open_pane", {"pane_id": "%2"})]), ("Here.", []), ("Ok.", [])])
+    _talk(s, monkeypatch, ("where's that one", None), ("and now", None))
+    assert "[Current pane" not in _users(s)[-1]
+
+
+@pytest.mark.parametrize(("question", "menu"), [
+    ({"prompt": "Run it?", "answer_style": "menu", "options": ["Yes", "No"]}, ["Yes", "No"]),
+    ({"prompt": "Run it?", "answer_style": "menu", "options": 1}, []),
+    ({"prompt": "Run it?", "answer_style": "menu", "options": ["Yes", 2, "No"]}, []),
+    ({"prompt": "Pick", "answer_style": "cursor", "options": ["a"]}, None),
+    ({"prompt": "Which branch?", "answer_style": "text", "options": ["main"]}, None),
+    ("a bare string", None), (None, None)])
+def test_only_a_numbered_widget_question_is_a_menu(question, menu):
+    from openbus.watcher import Watcher
+    assert Watcher._question_menu({"question": question}) == menu
+
+
+@pytest.mark.parametrize(("menu", "tail"), [
+    (["Yes", "No"], " (a menu: Yes / No)"), ([], " (a menu)"), (None, "")])
+def test_a_pending_menu_shows_its_rows(menu, tail):
+    block = L._pane_block({"pane_id": "%1", "question": "Run it?", "menu": menu}, None)
+    assert block.splitlines()[-1] == f"PENDING QUESTION: Run it?{tail}"

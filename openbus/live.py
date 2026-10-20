@@ -292,6 +292,18 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     return [d for _, d in ranked[:5]], clear
 
 
+_FOCUS = ("[Current pane: {} (id={}). If the message below says 'the agent' or 'it', it means "
+          "this pane unless it names another.]")
+
+
+def _focus(session, d: dict | None, digest: list[dict] = ()) -> None:
+    """Point a chat at the pane its last action reached. Its next turn says so, so "ask the
+    agent" stays with the pane just acted on instead of whichever screen shares a word."""
+    if d:
+        session.focus = _FOCUS.format(json.dumps(_pane_name(d, digest), ensure_ascii=False),
+                                      d["pane_id"])
+
+
 def _pane_block(d: dict, screen: str | None, digest: list[dict] = ()) -> str:
     """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
     leads with the user-facing identity (_pane_name) and gives the internal pane id only
@@ -319,7 +331,9 @@ def _pane_block(d: dict, screen: str | None, digest: list[dict] = ()) -> str:
         refs = ", ".join(f"{p['repo']}#{p['number']}" for p in d["prs"])
         parts.append(f"PRs this pane has worked on: {refs}")
     if d.get("question"):
-        parts.append(f"PENDING QUESTION: {d['question']}")
+        menu = d.get("menu")
+        parts.append(f"PENDING QUESTION: {d['question']}" + (
+            f" (a menu: {' / '.join(menu)})" if menu else " (a menu)" if menu is not None else ""))
     if screen:
         parts.append(f"screen:\n{screen}")
     return "\n".join(parts)
@@ -374,8 +388,11 @@ _TEXT_NOTE = (
     "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
     "about to do before calling a tool, and never say what a pane did unless an update "
     'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
-    "with none, ask what they mean instead of acting. Pasted images are numbered in the "
-    'turn text; to give one to an agent ("send this to the auth fix") use send_image_to_pane.'
+    "with none, ask what they mean instead of acting. A [Current pane] line names the pane "
+    "this conversation is on. A PENDING QUESTION that is a menu takes the one key that "
+    "picks a row (its digit, or y/n), typed alone with press_enter false. Pasted images are "
+    'numbered in the turn text; to give one to an agent ("send this to the auth fix") use '
+    "send_image_to_pane."
 )
 
 
@@ -426,7 +443,19 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
             result = await _act(websocket, session, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
+    if meter.text:
+        _focus_reached(session, watcher, result, rec)
     await session.send_tool_result(fc, result)
+
+
+def _focus_reached(session, watcher, result: dict, rec: dict) -> None:
+    """Focus the pane an answered call reached: not a declined call, nor a mere button. A
+    resumed pane is new to the watcher until its next parse, so its result names it."""
+    if result["status"] in _REACHED:
+        pane, digest = result.get("pane_id") or rec.get("pane_id"), watcher.digest()
+        _focus(session, next((d for d in digest if d["pane_id"] == pane), None) or (
+            pane and {"pane_id": pane, "title": result.get("window") or result.get("pane")}),
+            digest)
 
 
 async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, pid) -> dict:
@@ -440,12 +469,14 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
     status, reason = result["status"], result.get("reason")
     _audit(
         meter, f"live_{name}",
-        outcome="ok" if status in {"sent", "ok", "opened", "button_shown"}
+        outcome="ok" if status in _DONE
         else f"{status}: {reason}" if reason else status,
         latency_ms=round((time.monotonic() - started) * 1000), **rec,
     )
 
 
+_DONE = {"sent", "ok", "opened", "button_shown"}  # a call's outcomes that went as asked
+_REACHED = {"sent", "ok", "opened", "already_running"}  # ones that reached a pane
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
@@ -565,10 +596,12 @@ async def _decide(
     await _tell(websocket, meter, proposal)
 
 
-async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool) -> None:
+async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool,
+                  session=None) -> None:
     """The user's answer to a parked card, run on the connection it came in on. The model
     that asked went with the old one, so the outcome reaches only the phone and the audit:
-    no session, so no post-type update tells the new model of an action it never took."""
+    no session, so no post-type update tells the new model of an action it never took. The
+    new `session` only learns which pane the conversation is now on."""
     _, call, pid, rec, meter, watcher = parked
     started, result = time.monotonic(), {"status": "error", "reason": "aborted"}
     try:
@@ -580,6 +613,8 @@ async def _resume(websocket: WebSocket, proposal: str, parked: tuple, ok: bool) 
         result = await _act(websocket, None, call, watcher, meter, rec, ok, pid)
     finally:
         _audit_call(meter, call.name, result, started, rec)
+    if session is not None:
+        _focus_reached(session, watcher, result, rec)
 
 
 async def _approved(
@@ -701,20 +736,10 @@ def _keystrokes(fc, pane_id: str) -> tuple[tuple | None, str | None, bool]:
     raw_pane_id = args.get("pane_id")
     send_args = what = None
     submitted = False
-    if (
-        fc.name == "type_in_pane"
-        and isinstance(fc.args, dict)
-        and isinstance(raw_pane_id, str)
-        and isinstance(args.get("text"), str)
-        and not (set(args) - {"pane_id", "text", "press_enter"})
-    ):
-        text = args["text"]
-        raw_enter = args.get("press_enter", True)
-        # Never coerce press_enter: bool("false") is True and would submit an unsent
-        # command. A non-bool value is malformed.
-        if text.strip() and isinstance(raw_enter, bool):
-            send_args = (pane_id, text, raw_enter, True)  # literal text
-            what, submitted = text, raw_enter
+    if fc.name == "type_in_pane" and (typed := _typed(args)):
+        text, raw_enter = typed
+        send_args = (pane_id, text, raw_enter, True)  # literal text
+        what, submitted = text, raw_enter
     elif (
         fc.name == "press_key"
         and isinstance(fc.args, dict)
@@ -801,6 +826,15 @@ async def _dispatch(
     if session is not None:  # none for a resumed card (_resume)
         _background(asyncio.create_task(refresh()))
     return _sent(label)
+
+
+def _typed(args: dict) -> tuple[str, bool] | None:
+    """A well-formed type_in_pane's (text, press_enter), else None. Never coerce press_enter:
+    bool("false") is True and would submit an unsent command, so a non-bool is malformed."""
+    text, enter = args.get("text"), args.get("press_enter", True)
+    ok = (isinstance(args.get("pane_id"), str) and isinstance(text, str) and text.strip()
+          and isinstance(enter, bool) and not set(args) - {"pane_id", "text", "press_enter"})
+    return (text, enter) if ok else None
 
 
 def _sent(label: str) -> dict:
@@ -1242,7 +1276,7 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                 if not answer.done():
                     answer.set_result(ok)
             elif parked := _unpark(meter, proposal):
-                await _resume(websocket, proposal, parked[0][1], ok)
+                await _resume(websocket, proposal, parked[0][1], ok, session)
             else:
                 await _tell(websocket, meter, proposal)
         elif action == "sync":  # a reconnected phone's untapped cards: settled meanwhile?

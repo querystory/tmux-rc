@@ -85,6 +85,7 @@ class _Chat:
         self._starts: list[int] = []  # where each kept turn begins in history
         self._restored = ""  # a restored transcript, leading the next turn
         self.caution: str | None = None  # this turn's warning for a consent card
+        self.focus: str | None = None  # the line naming the pane the chat is on (live._focus)
 
     def restore(self, rows) -> int:
         """Take the client's transcript as quoted context for a session that has none yet.
@@ -105,7 +106,9 @@ class _Chat:
 
     async def send_text(self, text: str, images: list[tuple[str, bytes]] = ()) -> None:
         """A typed turn, with any pasted images as (mime, bytes) ahead of its text."""
-        self._inbox.put_nowait((text, images))
+        # The pane is the one shown when it was sent: a message queued behind a running
+        # turn was written before that turn's actions moved it.
+        self._inbox.put_nowait((text, images, self.focus))
 
     async def send_context(self, text: str) -> None:
         """No reply-less channel exists on a chat API, so updates wait for the next turn."""
@@ -118,14 +121,15 @@ class _Chat:
         """A turn the model did not finish (failed, empty) is closed in history with
         the note the user saw, so a later request cannot resume its request or tool chain."""
         while True:
-            text, images = await self._inbox.get()
+            text, images, focus = await self._inbox.get()
             self._starts.append(len(self.history))
             if len(self._starts) > TURNS_KEPT:
                 cut = self._starts[-TURNS_KEPT]
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
             self.caution = CAUTION_RESTORED if self._restored else None
-            self._user("\n\n".join(filter(None, [self._restored, *self._context, text])), images)
+            self._user("\n\n".join(filter(None, [self._restored, *self._context, focus, text])),
+                       images)
             self._restored = ""
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim

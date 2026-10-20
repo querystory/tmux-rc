@@ -505,10 +505,13 @@ def test_a_card_survives_its_connection_dropping(monkeypatch, ok, drop):
         assert [k[2] for k in L._parked] == [proposal]
         tap = {"action": "approve", "id": proposal, "ok": ok}
         ws = _ScriptedWS([tap, tap, {"action": "stop"}])  # the second: its "decided" was lost
-        await L._forward_client(ws, _Session(), _chat())
-        return proposal, ws
+        fresh = _Session()
+        await L._forward_client(ws, fresh, _chat())
+        return proposal, ws, fresh
 
-    proposal, ws = _run(go())
+    proposal, ws, fresh = _run(go())
+    # The new session's next turn is on the pane the send reached; a Cancel moves nothing.
+    assert ("(id=%1)" in getattr(fresh, "focus", "")) is ok
     assert ws.sent[0] == ws.sent[-1] == {"type": "decided", "id": proposal, "ok": ok}
     assert typed == ([(("%1", "rebase", True, True), {"expected_pid": "4242"})] if ok else [])
     assert audits[-1]["consent"] == ("approved" if ok else "declined")
