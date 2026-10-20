@@ -43,6 +43,7 @@ const LUCIDE = {
   layers: '<path d="m12 3 10 6-10 6L2 9l10-6ZM2 15l10 6 10-6M2 12l10 6 10-6"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
+  external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
@@ -500,10 +501,11 @@ function renderPhoneList(subset) {
 
 // WebKit lays the dashboard out short for a moment when a repaint swaps nodes under its
 // container query (#landing-main), and that clamps the scroll: a phone at the bottom of the
-// page lands near the top on every poll. A repaint keeps the position it found.
+// page lands near the top on every poll. A repaint keeps the position it found, and puts the
+// filter back in a view's head it may have rebuilt (placePill).
 const steady = (paint) => (...args) => {
   const landing = $("landing"), top = landing.scrollTop;
-  try { return paint(...args); } finally { if (landing.scrollTop !== top) landing.scrollTop = top; }
+  try { return paint(...args); } finally { placePill(); if (landing.scrollTop !== top) landing.scrollTop = top; }
 };
 const renderLanding = steady(() => {
   if (page === "restore") { if (!$("dash-page").contains(restore.card)) $("dash-page").replaceChildren(restore.card); return restore.card; }
@@ -786,7 +788,11 @@ detailCard($("loops-card"), "Open loops", "", () => openPage("loops"));
 function openLane(lane) {
   openPage("loops");
   const at = loopsView.querySelector(`[data-lane="${lane}"]`);
-  if (at) { at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true }); }
+  if (!at) return;
+  at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true });
+  // A phone's bar sticks over the page's top, however many rows of chips it has: clear it.
+  const bar = $("dash-page").querySelector(":scope > .landing-head"), under = bar ? bar.getBoundingClientRect().bottom - at.getBoundingClientRect().top : 0;
+  if (under > 0) $("landing").scrollTop -= under + 12;
 }
 // The scratch gallery, in the content area so the app stays put (the page is sandboxed, so a frame).
 const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/scratch/", title: "Scratch", className: "scratch-frame" });
@@ -1012,6 +1018,7 @@ function renderLinks(el, links) {
 }
 
 function renderRichContent(pane) {
+  accounts.paneCard(pane, $("signin-section"));
   // The link the question asks you to open leads its card instead of waiting in Links.
   const ask = pane?.question && needsYou(pane) ? askLink(pane) : null;
   const links = paneLinks(pane).filter((link) => link.href !== ask?.href);
@@ -2324,12 +2331,16 @@ function placeChrome() {
 // The active filters' chips: under search (a phone's list hides them there: its filter button
 // and the list's foot say it), and on a phone's dashboard (no search there) under its header,
 // so a filter is never on without saying so. There the filter button moves into the header
-// too, beside New window: the dashboard's filter row folds behind it (style.css).
+// too, beside New window: the dashboard's filter row folds behind it (style.css). A card's own
+// view follows the same filters, and on a phone its head is the bar: the button and the chips go
+// in it, which a view's rebuild keeps (atlas.js renderHeatView), so neither loses focus.
 function placePill() {
-  const dash = !WIDE.matches && dashboard, at = dash ? document.querySelector(".app-header") : $("find"), picker = renderSidebar.picker;
-  if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
-  if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
+  const head = !WIDE.matches && CARDS[page] && $("dash-page").querySelector(":scope > .landing-head"), dash = !WIDE.matches && dashboard;
+  const picker = renderSidebar.picker, at = head ? picker : dash ? document.querySelector(".app-header") : $("find");
+  if (head) { if (picker.parentElement !== head) head.append(picker); }
+  else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
+  if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
 }
 // Folded to the rail, the controls move in the DOM to the order they show in (expand, +,
 // search, filter, Dashboard, Chat, Voice, the panes, Settings), so Tab walks them top down.

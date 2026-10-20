@@ -171,7 +171,8 @@ def install() -> None:
         server.scratch.agent_history = SimpleNamespace(
             writers=lambda _pattern, due: {n: demo.SCRATCH_WRITERS[n] for n in due
                                            if n in demo.SCRATCH_WRITERS},
-            get_many=lambda _ids: {}, reconcile=lambda: None)
+            get_many=lambda ids: {e["session_id"]: e for e in demo.SCRATCH_WRITERS.values()
+                                  if e["session_id"] in ids}, reconcile=lambda: None)
         server.scratch_sidecars.browser = lambda: None  # thumbnails are seeded, never shot
     live.enabled = lambda: True
     live.offered = lambda: [live_providers.LiveModel("Demo chat", "demo", "anthropic")]
@@ -187,6 +188,10 @@ def install() -> None:
 
     @server.app.middleware("http")
     async def read_only(request, call_next):
+        if request.url.path == "/api/accounts/login/window" and _signing_in:  # its window: a stub
+            return JSONResponse({"pane_id": SIGN_IN["pane_id"], "pid": "1", "dir": "~/.claude-demo",
+                                 "codex": False, "device": False, "session": SIGN_IN["session"],
+                                 "url": "", "code": "", "others": []})
         if request.method in ("GET", "HEAD"):
             return await call_next(request)
         if request.url.path == "/api/accounts" and request.method == "POST":  # the add flow

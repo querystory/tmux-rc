@@ -550,8 +550,10 @@ def new_window(session: str, name: str, command: str | list[str], cwd: str | Non
     `cwd` overrides it for a command that must start somewhere specific (a resumed
     agent session only exists in the directory it was started in).
     A `command` given as a list is executed directly by tmux, with no shell, so its
-    arguments are never parsed as shell syntax."""
-    argv = command if isinstance(command, list) else [command]
+    arguments are never parsed as shell syntax. tmux still ends a command at an argument
+    ending in ';' (after `--` too), so that ';' goes escaped as tmux's literal one."""
+    argv = [a[:-1] + "\\;" if a.endswith(";") else a
+            for a in (command if isinstance(command, list) else [command])]
     return _run(
         ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd or "#{session_path}",
          "-t", f"{session}:", "-n", name, "--", *argv]
@@ -569,6 +571,11 @@ _SERVER_ENV = re.compile(r"HOME|USER|LOGNAME|SHELL|LANG|LC_\w+|TZ|PATH|XDG_\w+"
                          r"|DBUS_SESSION_BUS_ADDRESS|SSH_AUTH_SOCK|TMUX|TMUX_TMPDIR")
 
 
+def safe_env() -> dict[str, str]:
+    """The daemon's environment cut to what a tmux session may see (_SERVER_ENV)."""
+    return {k: v for k, v in os.environ.items() if _SERVER_ENV.fullmatch(k)}
+
+
 def server_env() -> dict[str, str]:
     """The environment new_session hands tmux — see _SERVER_ENV — with PATH taken from
     the user's LOGIN shell. The daemon's unit PATH is deliberately minimal, and a launcher
@@ -577,7 +584,7 @@ def server_env() -> dict[str, str]:
     reboot, though it runs fine in one the user starts by hand. `exec env` rather than
     echoing $PATH, which fish would space-join; the LAST PATH= line wins, past anything
     the profile prints. If the shell fails, the scrubbed PATH stands."""
-    env = {k: v for k, v in os.environ.items() if _SERVER_ENV.fullmatch(k)}
+    env = safe_env()
     venv = os.environ.get("VIRTUAL_ENV")
     if venv:
         dirs = env.get("PATH", "").split(os.pathsep)
@@ -1023,18 +1030,34 @@ def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bo
 # chunks are measured in UTF-8 bytes — 4000 characters of emoji is ~16KB — and a slice
 # must never land inside a multi-byte code point.
 _SEND_CHUNK_BYTES = 4000
+# A composer's draft goes in as a PASTE instead (send_keys(paste=True)): loaded into a
+# one-shot buffer over stdin, which has no such cap, and written with `paste-buffer -r -p`
+# (-r keeps a LF a LF), which wraps it in bracketed-paste marks when the app asked for
+# them. Typed, a draft left the app to guess where a paste ends, and Codex guesses by
+# watching for the next key: each 1KB read of fast-arriving characters became a
+# "[Pasted Content 1024 chars]" placeholder, and the tail stayed held in its paste-burst
+# buffer until the next key arrived. That next key was our Return, which flushed the tail
+# and was eaten as part of it, so a long reply (an auth code pasted from the phone) sat
+# unsent and took two more Returns by hand. No settle helps: the burst does not end on a
+# timer, only on the next key. With the marks, the paste ends where it says it ends and
+# the Return after it is a keystroke.
+#
+# Keystrokes stay on `send-keys -l`: a typed key, a menu's shortcut digit or a Vim motion
+# must arrive as a key, which a marked paste is not, and must reach tmux's own copy mode
+# when it is up, which `paste-buffer` bypasses.
+#
 # Pause between the typed text and the Return that submits it.
 #
 # Agent TUIs take multi-line input, so they must decide whether a Return is "submit" or
 # "newline in what I am typing". They decide it by TIMING: bytes arriving in a fast burst
-# are a paste, and a Return inside a paste is a literal newline. `send-keys -l` followed
-# immediately by `send-keys Enter` is exactly that burst, so the Return lands inside the
-# paste window and becomes a newline — the message sits composed in the input box, unsent,
-# and nothing reports an error because tmux delivered every byte it was asked to.
+# are a paste, and a Return inside a paste is a literal newline. Bracketed-paste marks
+# (above) settle that for an app that asks for them; one that doesn't sees our text and
+# our Return as one burst, and the Return becomes a newline — the message sits composed in
+# the input box, unsent, and nothing reports an error because tmux delivered every byte.
 #
-# Observed from the phone: tapping an answer to a codex approval prompt left the text in
-# the input line with the composer reporting "Sent". So the wait is the fix: it ends the
-# burst, and the Return afterwards arrives as its own keystroke.
+# Observed from the phone, before the marks: tapping an answer to a codex approval prompt
+# left the text in the input line with the composer reporting "Sent". The wait ends the
+# burst, so the Return afterwards arrives as its own keystroke.
 #
 # Paid once per send, and only for literal text that asks for a Return — key-name sends
 # (Escape, C-c, arrows) are single keystrokes with no paste to escape and skip it.
@@ -1194,6 +1217,15 @@ def pane_pid(pane_id: str) -> str | None:
         return None  # no such pane (or tmux) any more
 
 
+def pane_dead(pane_id: str) -> bool:
+    """Whether the pane's process has exited while tmux keeps the pane (remain-on-exit),
+    which still reports the old pane_pid."""
+    try:
+        return _run(["display-message", "-p", "-t", pane_id, "#{pane_dead}"]).strip() == "1"
+    except (OSError, subprocess.CalledProcessError):
+        return False  # gone altogether: pane_pid says so
+
+
 def before_send(pane_id: str, callback: Callable[[], None]) -> None:
     """Linearize a quick state change with every send targeting this pane."""
     with _pane_lock(pane_id):
@@ -1217,11 +1249,13 @@ def _settle_before_return(pane_id: str) -> None:
 def send_keys(
     pane_id: str, keys: str, enter: bool = True, literal: bool = True,
     *, expected_pid: str | None = None, guard: Callable[[], None] | None = None,
+    paste: bool = False,
 ) -> None:
     """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
     isn't interpreted as tmux key names — for typed answers, chunked under tmux's
-    message-size cap (see _SEND_CHUNK_BYTES). When not literal, `keys` is a tmux
-    key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
+    message-size cap (see _SEND_CHUNK_BYTES). `paste` sends it as one bracketed paste
+    instead, for a composer's draft (see the notes there). When not literal, `keys` is
+    a tmux key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
     Return (only meaningful for literal text).
 
     `pane_id` must already be a resolved pane id — see _send_locks. When supplied,
@@ -1252,8 +1286,12 @@ def send_keys(
                 j = min(i + _SEND_CHUNK_BYTES, len(b))
                 while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
                     j -= 1
-                check_pane(pane_id, identity)
-                _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
+                if paste:  # in one piece: stdin has no size cap (see _paste)
+                    _paste(pane_id, keys, lambda: check_pane(pane_id, identity), "-r", "-p")
+                    j = len(b)
+                else:
+                    check_pane(pane_id, identity)
+                    _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
                 # Per chunk, not once at the end: if a later chunk raises, the bytes
                 # already delivered are in the pane and a paste really did happen, so a
                 # Return arriving after that failure still has a burst to clear. Stamping
@@ -1297,22 +1335,34 @@ def send_secret(pane: Pane, secret: str) -> None:
     and its one-shot buffer is deleted as it is pasted. Refuses unless the pane is the
     same one and still at the prompt, checked under the send lock: a stale page must not
     type a password into whatever replaced the prompt."""
-    name = f"tmuxrc-secret-{secrets.token_hex(8)}"
+    def ready() -> None:
+        # Checked after the load, right before the paste, identity last: the pane can be
+        # replaced (and its id recycled) while load-buffer or the prompt check runs.
+        if not at_password_prompt(pane.id, unknown=False):
+            raise PaneChangedError(
+                "The pane is no longer asking for a password; nothing was sent.")
+        check_pane(pane.id, pane.pid)
+
     with _pane_lock(pane.id):
-        try:
-            _run(["load-buffer", "-b", name, "-"], stdin=secret)
-            # Checked after the load, right before the paste, identity last: the pane can
-            # be replaced (and its id recycled) while load-buffer or the prompt check runs.
-            if not at_password_prompt(pane.id, unknown=False):
-                raise PaneChangedError(
-                    "The pane is no longer asking for a password; nothing was sent.")
-            check_pane(pane.id, pane.pid)
-            # No -p: bracketed-paste marks (left on by an earlier TUI) would join the password.
-            _run(["paste-buffer", "-d", "-b", name, "-t", pane.id])
-            _run(["send-keys", "-t", pane.id, "Enter"])
-        finally:  # -d already deleted it after a paste; any failure must not leave it
-            with suppress(OSError, subprocess.CalledProcessError):
-                _run(["delete-buffer", "-b", name])
+        # No -p: bracketed-paste marks (left on by an earlier TUI) would join the password.
+        _paste(pane.id, secret, ready)
+        _run(["send-keys", "-t", pane.id, "Enter"])
+
+
+def _paste(pane_id: str, text: str, ready: Callable[[], None], *flags: str) -> None:
+    """Paste `text` into the pane from a one-shot buffer: it travels on tmux's stdin
+    (`load-buffer -`), never argv, so no size cap and no `ps` sees it, and `-d` deletes
+    the buffer as it is pasted. `ready` runs between the load and the paste, the last
+    moment to refuse."""
+    name = f"tmuxrc-{secrets.token_hex(8)}"
+    try:  # the load too: a timeout can leave a buffer tmux did accept
+        _run(["load-buffer", "-b", name, "-"], stdin=text)
+        ready()
+        _run(["paste-buffer", *flags, "-d", "-b", name, "-t", pane_id])
+    except BaseException:  # -d deletes it once pasted; a refusal must not leave it behind
+        with suppress(OSError, subprocess.CalledProcessError):
+            _run(["delete-buffer", "-b", name])
+        raise
 
 
 def click(pane_id: str, from_bottom: int, col: int, *,
