@@ -90,6 +90,9 @@ _TURN_ERROR_RE = {
 }
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
+# Codex's live composer: a › row with no transcript cell ("• …") under it. An earlier
+# turn's row is always followed by Codex's reply to it, and a shell's ❯ is no composer.
+_CODEX_COMPOSER_RE = re.compile(r"^[ \t]*›(?![\s\S]*^• )", re.MULTILINE)
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
@@ -618,9 +621,10 @@ def _ground_visible_fields(
         )
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"
+    # With no status chrome, an identity re-read has nothing to read a title from.
     retry = llm_fn(
         prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}",
-    ) if llm_fn else None
+    ) if llm_fn and (bad_action or identity_chrome) else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if retry:
         _fold_sends(retry)
@@ -805,6 +809,9 @@ _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
 # A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
 # Code draws down the right of its transcript.
 _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
+# A terminal hyperlink as the capture spells it (tmux._materialize_links): "[label](url)".
+_LINK_TARGET_RE = re.compile(
+    r"\[((?:[^][\n]|\[[^][\n]*\])*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
 
 
 def _final_paragraph(message: str) -> str:
@@ -1385,6 +1392,15 @@ def classify(
             # keeps its own question.
             if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
+    # Codex reads typed text only in its › composer (a menu the screen can't back is text
+    # by now). A text question with no composer on screen has nowhere to be typed: `codex
+    # login --device-auth`'s "Enter code …" means in the browser, so the pane waits on
+    # something outside it.
+    if (result.get("tool") == "codex" and isinstance(result.get("question"), dict)
+            and result["question"].get("answer_style", "text") == "text"
+            and not _CODEX_COMPOSER_RE.search(visible)):
+        del result["question"]
+        result.update(activity="waiting", waiting_on="external")
     # The model's own answers must agree: a question, rewind or offer it returned (and the
     # screen showed) is something for the user to answer or send, so the pane waits on the
     # user, whatever it put in "activity" (a stray "external" included).
@@ -1457,6 +1473,9 @@ def classify(
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
     copy_source = _FRAME_BARS_RE.sub("", visible).replace("\\\n", "")
+    # A hyperlink shows only its label, so a copy may quote the screen as captured (each
+    # target intact) or as shown.
+    copy_sources = {copy_source, _LINK_TARGET_RE.sub(r"\1", copy_source)}
 
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
@@ -1464,9 +1483,8 @@ def classify(
         # line continuations kept as shown or joined (both sides drop them alike).
         text = text.replace("\\\n", "")
         words = r"\s+".join(re.escape(word) for word in text.split())
-        return f"`{text}`" in copy_source or re.search(
-            r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
-        )
+        row = re.compile(r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$")
+        return any(f"`{text}`" in src or row.search(src) for src in copy_sources)
 
     def _valid(cps, *, transcript=False):
         """Validated entries, lazily — islice below stops us at 3 without validating the

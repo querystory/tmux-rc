@@ -216,7 +216,7 @@ source is a folder outside every checkout, by default
   `label` and `options` as value/label pairs, plus an optional `default` value (else the
   first option). The harness shows each as a menu under its label and hands the current
   values to the script as `MOCK.state`.
-- `fragments`: single elements to capture once, such as a populated New window sheet,
+- `fragments`: single elements to capture once, such as a populated New session sheet,
   given as the same steps as a view plus a `selector`. The script can drop them into any
   frame (`MOCK.fragments`).
 - `note`: the working design note, in Markdown, shown in the harness's Note panel.

@@ -30,11 +30,15 @@ article { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding
 .seg button:hover { color: var(--fg); }
 .seg button[aria-pressed="true"] { color: var(--fg); background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / .15); }
 @media (max-width: 1023px) { .seg span { display: none; } }
-/* Inside the app (its Scratch page), the app's header names the page and its edges pad it:
-   its Grid/List too (the app keeps that choice and posts it here); leave room under the last
-   card for a phone's tab bar. */
-.framed main { padding: 0 0 96px; }
-.framed header { display: none; }
+/* Inside the app (its Scratch page), the app names the page and pads its sides: of the header,
+   only Grid/List stays, on the filter's line (the app keeps the choice: each side posts it).
+   Room under the last card for a phone's tab bar, which floats over this frame. */
+.framed main { display: flex; flex-wrap: wrap; gap: 0 8px; padding: 12px 0 120px; }
+.framed header { display: contents; }
+.framed header > :not(.seg) { display: none; }
+.framed input { flex: 1; width: auto; }
+.framed .seg { order: 1; height: 44px; }
+.framed :is(#cards, #empty) { order: 2; flex-basis: 100%; }
 h2 { margin: 0; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
 h2 a { color: var(--fg); text-decoration: none; }
 p { margin: 0; overflow-wrap: anywhere; }
@@ -47,7 +51,7 @@ p { margin: 0; overflow-wrap: anywhere; }
 a { color: var(--accent); }
 </style></head><body><main>
 <header><h1>Scratch</h1><a href="DOCS_URL">About</a><a href="/m/">tmux-rc</a><span class="seg" role="group" aria-label="View"><button type="button" data-view="grid" aria-label="Grid" title="Grid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg><span>Grid</span></button><button type="button" data-view="list" aria-label="List" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/></svg><span>List</span></button></span></header>
-<input type="search" placeholder="Filter by title, agent or session" aria-label="Filter">
+<input type="search" placeholder="Filter Scratch" aria-label="Filter">
 <section id="cards"><!--cards--></section>
 <section id="empty" hidden>
 <h2>Nothing here yet</h2>
@@ -59,7 +63,8 @@ a { color: var(--accent); }
 <script>
 // Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
 document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
-document.documentElement.classList.toggle("framed", window.top !== window);
+const framed = window.top !== window;
+document.documentElement.classList.toggle("framed", framed);
 const ago = (s) => { const d = Date.now() / 1000 - s;
   return d < 3600 ? `${Math.max(1, Math.round(d / 60))}m ago` : d < 86400 ? `${Math.round(d / 3600)}h ago`
     : d < 7 * 86400 ? `${Math.round(d / 86400)}d ago` : new Date(s * 1000).toLocaleDateString(); };
@@ -80,7 +85,7 @@ for (const wait of document.querySelectorAll("[data-pending]")) {
 }
 for (const b of document.querySelectorAll(".who")) b.onclick = () => { box.value = b.textContent; filter(); };
 // Grid or list. Remembered where the browser allows it; the sandbox usually doesn't, and
-// inside the app the app keeps the choice and posts it here.
+// inside the app the app keeps the choice: each side posts it to the other.
 const views = document.querySelectorAll("[data-view]");
 const show = (view) => { document.getElementById("cards").classList.toggle("list", view === "list");
   for (const b of views) b.setAttribute("aria-pressed", String(b.dataset.view === view)); };
@@ -89,13 +94,17 @@ show(saved || "grid"); // big thumbnails first; List is the compact choice
 addEventListener("message", (e) => { if (e.source !== parent) return; // the app: its view and theme
   if (["grid", "list"].includes(e.data?.view)) show(e.data.view);
   if (typeof e.data?.light === "boolean") document.documentElement.classList.toggle("light", e.data.light); });
-// Inside the app, the pane that made a page opens there, not as a second app in this frame.
+// Inside the app, the pane that made a page opens there, not as a second app in this frame,
+// and a card's page in the app's full-screen viewer (the app checks it is a /scratch/ page).
 // Every other link opens a tab of its own, so this frame only ever holds the gallery: the app
-// trusts what it posts, and its Grid/List keeps a page to steer.
-if (window.top !== window) {
+// trusts what it posts, and never what the viewer's page does.
+if (framed) {
   document.head.append(Object.assign(document.createElement("base"), { target: "_blank" }));
   for (const a of document.querySelectorAll('.where a[href^="/m/#pane="]'))
     a.onclick = (e) => { e.preventDefault(); parent.postMessage({ pane: decodeURIComponent(a.getAttribute("href").slice(9)) }, "*"); };
+  for (const a of document.querySelectorAll("article :is(.thumb, h2 a)"))
+    a.onclick = (e) => { e.preventDefault(); parent.postMessage({ open: a.href, title: a.closest("article").querySelector("h2").textContent }, "*"); };
 }
-for (const b of views) b.onclick = () => { show(b.dataset.view); try { localStorage.setItem("tmuxrc-scratch-view", b.dataset.view); } catch { /* sandboxed */ } };
+for (const b of views) b.onclick = () => { show(b.dataset.view); try { localStorage.setItem("tmuxrc-scratch-view", b.dataset.view); } catch { /* sandboxed */ }
+  if (framed) parent.postMessage({ view: b.dataset.view }, "*"); };
 </script></body></html>

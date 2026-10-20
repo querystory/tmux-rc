@@ -810,6 +810,16 @@ def test_null_session_does_not_trigger_retry():
     assert len(calls) == 1
 
 
+def test_session_without_status_chrome_skips_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        return {"tool": "claude", "session": "Unrelated title", "activity": "idle"}
+    result = classify(_pane("claude"), "\x1e[visible screen]\x1f\n> Ready", read)
+    assert "session" not in result and result["activity"] == "idle"
+    assert len(calls) == 1
+
+
 def test_failed_identity_retry_preserves_valid_current_state():
     for retry in (None, {}, {"session": "Still another title"}):
         replies = iter([{"tool": "codex", "session": "Other title", "activity": "idle",
@@ -1006,7 +1016,7 @@ def test_visible_question_is_preserved_without_retry():
         calls.append(text)
         return {"tool": "codex", "question": {"prompt": "Allow this command?"}}
     capture = ("history\n\x1e[visible screen]\x1f\nAllow this command?\n"
-               "1. Yes\n2. No\n[visible screen]")
+               "› 1. Yes\n  2. No\n[visible screen]")
     result = classify(_pane("node"), capture, read)
     assert len(calls) == 1
     assert result["question"]["prompt"] == "Allow this command?"
@@ -1273,7 +1283,8 @@ def test_users_own_turn_under_a_live_spinner_is_not_a_question():
     # Either signal alone rejects it: the ❯ row, or a live spinner below agent text.
     agent_text = "\x1e[visible screen]\x1f\n● Push now?\n\n✶ Pushing… (3s · esc to interrupt)"
     # Claude chrome quoted in another tool's pane says nothing about that tool's question.
-    codex = classify(_pane("codex"), agent_text, _llm({"question": {"prompt": "Push now?"}}))
+    push = _llm({"question": {"prompt": "Push now?"}})
+    codex = classify(_pane("codex"), f"{agent_text}\n\n› ", push)
     assert codex["question"]["prompt"] == "Push now?"
     for screen, prompt in ((capture.split("· Befuddling")[0], user_turn),
                            (agent_text, "Push now?")):
@@ -1392,6 +1403,33 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     assert "question" not in claude and "question" not in codex
 
 
+def test_codex_text_question_without_a_composer_is_not_typed(monkeypatch):
+    monkeypatch.setattr(classify_mod, "_host_tool", lambda _pane: "codex")
+    screen = _sample("98_codex_device_code_is_not_a_question")
+    code = [{"label": "Device login code", "text": "ABCD-12345"}]
+    def asked(_system, _text):  # fresh each call: classify() edits the parse in place
+        return {"activity": "waiting", "waiting_on": "user", "copyables": code,
+                "question": {"prompt": "Enter code ABCD-12345", "answer_style": "text"}}
+    # Not a composer: an earlier turn's › row with a "• …" reply, or the shell's ❯ row.
+    earlier = screen.replace("Welcome", "› log me in\n\n• Starting login.\n\nWelcome", 1)
+    shell = screen.replace("Welcome", "❯ codex login --device-auth\n\nWelcome", 1)
+    for shown in (screen, earlier, shell):
+        result = classify(_pane("node"), shown, asked)
+        assert "question" not in result and result["copyables"] == code
+        assert (result["activity"], result["waiting_on"]) == ("waiting", "external")
+    # Read as text all the same: no answer_style, or a menu of the numbered steps.
+    for style in ({}, {"answer_style": "menu", "options": ["Open this page", "Type in"]}):
+        styled = {"question": {"prompt": "Enter code ABCD-12345", **style}}
+        assert "question" not in classify(_pane("node"), screen, _llm(styled))
+    # In the TUI the composer takes the answer, and a menu is answered by its keys.
+    composer = screen + "\n\n› \n\n  gpt-5.5 high · ~/src/app"
+    assert classify(_pane("node"), composer, asked)["waiting_on"] == "user"
+    menu = {"question": {"prompt": "Enter code ABCD-12345", "answer_style": "menu",
+                         "options": ["Yes", "No"]}}
+    menu_screen = screen + "\n› 1. Yes\n  2. No"
+    assert "question" in classify(_pane("node"), menu_screen, _llm(menu))
+
+
 def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 
@@ -1479,6 +1517,24 @@ def test_a_block_quoted_draft_is_copyable_without_its_bars():
     read = {"copyables": [{"label": "Post", "text": draft}]}
     result = classify(_pane("claude"), screen, _llm(read))
     assert result["copyables"] == [{"label": "Post", "text": draft}]
+
+
+def test_a_draft_with_a_hyperlink_is_copyable_as_shown():
+    # The capture keeps a terminal hyperlink's hidden target; the screen shows its label.
+    draft = "Hi Ana, could you look at acme/widgets#42 today?\nThe docs say why.\nSee src/[id].ts"
+    captured = draft.replace("acme/widgets#42", "[acme/widgets#42](https://example.com/42)").replace(
+        "docs", "[docs](https://example.com/Widget_(tool))").replace(
+        "src/[id].ts", "[src/[id].ts](https://example.com/file)")
+    quoted = "\n".join(f"  ▎ {row}" for row in captured.split("\n"))
+    screen = _auto_screen(f"Here's a message for Ana:\n\n{quoted}\n\n✻ Waiting for 1 agent")
+    def copies(text):
+        read = {"copyables": [{"label": "", "text": text}]}
+        return classify(_pane("claude"), screen, _llm(read)).get("copyables")
+
+    for text in (draft, captured):  # as shown, or with its real targets
+        assert copies(text) == [{"label": "", "text": text}]
+    assert copies(captured.replace("example.com/42", "example.com/99")) is None
+    assert copies(f"{captured}\n{draft}") is None  # each form must be on screen alone
 
 
 def test_claude_mode_is_read_off_the_status_line_and_given_to_the_model():

@@ -277,7 +277,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       dlg.innerHTML = head(`${F.name} is ready`, 4)
         + `<div class="acct-row">${dot(p)}<div class="who"><b>${esc(p.name)}</b> <span class="muted">${F.provider}</span><small>${esc([p.who && `signed in as ${p.who}`, p.plan].filter(Boolean).join(" · "))} · <code>${esc(p.tilde)}</code></small></div></div>`
         + `<p class="acct-note">Read from the dir's non-secret account info.${F.pane ? ` The sign-in window stays open as a normal ${title(F.provider)} pane on ${esc(F.name)}.` : " It was signed in already."}</p>`
-        + (F.session ? `<label class="acct-check"><input type="checkbox" id="acct-make-default" checked><span>Make ${esc(F.name)} the default for session <b>${esc(F.session)}</b><small>New windows there start on ${esc(F.name)}; running panes keep their account.</small></span></label>` : "")
+        + (F.session ? `<label class="acct-check"><input type="checkbox" id="acct-make-default" checked><span>Make ${esc(F.name)} the default for session <b>${esc(F.session)}</b><small>Agents started there run on ${esc(F.name)}; running panes keep their account.</small></span></label>` : "")
         + btns('<button class="primary" data-done>Done</button>');
     }
     // Above the buttons, or under the rename row, which has none.

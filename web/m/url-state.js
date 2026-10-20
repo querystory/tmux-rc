@@ -62,3 +62,14 @@ export function historyMode(fromHash, toHash) {
   const from = parseHash(fromHash), to = parseHash(toHash);
   return from.pane !== to.pane || from.dashboard !== to.dashboard || from.page !== to.page ? "push" : "replace";
 }
+
+// The Scratch page the gallery asks the app to show (app.js), as a URL, or null: only a path
+// under /scratch/ on the app's own origin. The parser resolves dot segments (%2e too) and
+// backslashes; an encoded slash, which the daemon decodes into a real one, is refused.
+export function scratchUrl(href, base) {
+  if (typeof href !== "string") return null;
+  try {
+    const url = new URL(href, base);
+    return url.origin === new URL(base).origin && url.pathname.startsWith("/scratch/") && !/%(2f|5c)/i.test(url.pathname) ? url.href : null;
+  } catch { return null; }
+}

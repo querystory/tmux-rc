@@ -14,24 +14,25 @@ const HD = { width: 1920, height: 1080 };
 
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
-  // The front page's lead: a question answered from the Needs you list, and its pane.
+  // One-tap answers from the Needs you list, and the question's pane.
   ["one-tap-list", PHONE, "light", "", (page) => page.click("#attention-tab")],
   ["one-tap-pane", PHONE, "light", "#pane=%2548"],
   ["hero", WIDE, "light", "#pane=%259"],
   ["website-desktop", WIDE, "light", "#pane=%259"],
   ["website-chat", WIDE, "light", "#pane=%259", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["website-chat-phone", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["mobile-ask", PHONE, "light", "", chat("What are my agents doing?")],
   ["website-voice", WIDE, "light", "#pane=%259", voice],
   ["website-voice-phone", PHONE, "light", "", voice],
-  ["website-usage", WIDE, "light", "#pane=%259", undefined, "#usage"],
+  ["website-usage", PHONE, "light", "#view=dashboard", reach("#usage-panel"), "#usage-panel"],
   ["website-dashboard", WIDE, "light", "#view=dashboard"],
-  ["website-atlas", WIDE, "light", "#view=dashboard", (page) => page.locator(".atlas-map").scrollIntoViewIfNeeded()],
+  ["website-atlas", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
   ["website-restore", WIDE, "light", "#view=restore", afterReboot],
   ["website-restore-phone", PHONE, "light", "#view=restore", afterReboot],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
   ["wide-overview-folded", WIDE, "light", "#pane=%259", (page) => page.click("#overview-toggle")],
   ["wide-overview-folded-dark", WIDE, "dark", "#pane=%259", (page) => page.click("#overview-toggle")],
-  ["wide-needs-you", WIDE, "light", "#pane=%254"],
+  ["wide-needs-you", WIDE, "light", "#pane=%2548"],
   ["wide-layout-menu", WIDE, "light", "#pane=%259", (page) => page.click("#review-layout-picker summary")],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
@@ -50,17 +51,12 @@ const SHOTS = [
   ["mobile-activity", PHONE, "dark", "#view=dashboard", reach(".atlas-pulse", true)],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
-  ["mobile-settings", PHONE, "light", "", (page) => page.click("#settings-open")],
+  ["mobile-settings", PHONE, "light", "", phoneSettings],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
   ["mobile-usage-30d", PHONE, "light", "#view=usage", pickRange("30d")],
   ["mobile-heatmap", PHONE, "light", "#view=dashboard", heatCard],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
-  ["mobile-needs-you", PHONE, "light", "#pane=%254"],
-  ["mobile-open-link", PHONE, "light", "#pane=%2549"],
-  ["mobile-question-items", PHONE, "light", "#pane=%2546"],
-  ["mobile-question-subject", PHONE, "light", "#pane=%2547"],
-  ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
   ["mobile-pane-menu", PHONE, "dark", "#pane=%259", (page) => page.click("#pane-menu-button")],
@@ -104,7 +100,7 @@ const TWO_ACCOUNTS = [
   })],
   ["accounts-mobile-list", PHONE, "light", "", two()],
   ["accounts-mobile-list-dark", PHONE, "dark", "", two()],
-  ["accounts-mobile-settings", PHONE, "light", "", two((page) => page.click("#settings-open"))],
+  ["accounts-mobile-settings", PHONE, "light", "", two(phoneSettings)],
   ["accounts-mobile-filtered", PHONE, "dark", "", two(async (page) => { const tab = page.locator('#list-nav [data-filter="working"]'), base = await tab.count(); if (base) await tab.click(); await page.click("#side-filter-picker summary"); if (!base) await page.click('#side-filter-picker [data-v="working"]'); await page.click('#acct-filter [data-acct="claude-personal"]'); await page.click("#side-filter-picker summary"); })],
   ["accounts-wide-filter", WIDE, "light", "", two((page) => page.click("#side-filter-picker summary"))],
   ["accounts-wide-rail", WIDE, "dark", "#pane=%2513", two((page) => page.click("#collapse"))],
@@ -116,8 +112,8 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-moved", PHONE, "light", "#pane=%2513", moveMenu("#move-pane", "Exit the old pane"), "#move-dialog"],
   ["accounts-mobile-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); })],
   ["accounts-mobile-consent", PHONE, "light", "", two(chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge"))],
-  ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await page.click("#settings-open"); await page.click("#accounts-open"); })],
-  ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await page.click("#settings-open"); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
+  ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); })],
+  ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
   // Adding "Demo", step by step, each cropped to its sheet (docs/design/agent-accounts.md).
   // Last, and in this order: opening the sign-in window changes the demo server's state.
   ["accounts-add-1-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }), "#launch-dialog"],
@@ -129,11 +125,16 @@ const TWO_ACCOUNTS = [
   ["accounts-add-6-done", PHONE, "light", "", two(addFlow("done")), "#acct-dialog"],
   ["accounts-add-7-list", PHONE, "light", "", two((page) => page.fill("#search", "sign in"))],
 ];
+// A phone opens Settings from the ☰ drawer, its own button being a wide screen's.
+async function phoneSettings(page) {
+  await page.click("#menu-open"); await page.click('#drawer-nav [data-via="settings-open"]');
+  await page.waitForSelector("#settings[open]");
+}
 // The add flow up to `until`: name, share, login (its step before the window opens), wait
 // (the window open, signing in) or done.
 function addFlow(until) {
   return async (page) => {
-    await page.click("#settings-open"); await page.click("#accounts-open");
+    await phoneSettings(page); await page.click("#accounts-open");
     const added = page.locator('#acct-dialog [data-remove="~/.claude-demo"]'); // by an earlier shot
     if (await added.count()) { // remove it, and wait for the list to come back without it
       await added.click(); await page.click("#acct-dialog [data-remove-ok]");
@@ -311,7 +312,7 @@ try {
       if (name.startsWith("website-")) await page.route("**/api/state*", async (route) => {
         try {
           const response = await route.fetch({ timeout: 0 }), data = await response.json();
-          data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "api contract diff");
+          data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "refunds");
           await route.fulfill({ response, json: data });
         } catch { /* page gone */ }
       });

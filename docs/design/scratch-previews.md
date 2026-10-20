@@ -64,10 +64,23 @@ never reorders the gallery.
 alone, so the two views can't drift apart. A phone starts on the list, because full-width
 thumbnails left room for barely two cards on a screen. The choice can't be remembered:
 the gallery is sandboxed like every `/scratch/` page, so its `localStorage` throws. The
-page tries anyway and falls back to the default for the screen size. The gallery stays a
-page of its own rather than a view inside the app. Embedding it would mean framing a
-sandboxed page whose links have to leave the frame, and that is exactly what the sandbox
-forbids. The sidebar's Scratch row links to it, and it links back.
+page tries anyway and falls back to the default for the screen size. Inside the app the app
+keeps the choice: the gallery posts each pick up, and the app posts it back on every load.
+
+**Inside the app, the gallery only asks.** The app shows the gallery in a frame, and the
+frame can't navigate the app, so each in-app action is a message the app checks. It
+accepts messages only from the gallery's frame: the pane to open, the Grid/List pick, and
+a page to view. The app never hears a page it is showing, because that page is arbitrary
+HTML. A page to view must resolve to a path under `/scratch/` on the app's own origin.
+The app refuses an encoded slash, because the daemon would decode it into a real one. A
+card opens over the whole app in a viewer, a fresh frame under a slim bar. This was chosen
+over a new tab because an installed phone app has no tab strip to come back from. The
+viewer's own frame can't drive the app, and the daemon's CSP sandboxes it as it does every
+scratch page. The bar keeps "Open in browser", a plain link, for a page that wants a whole
+window. Other links in the gallery still open a tab, so the gallery's frame only ever holds
+the gallery. On a phone the gallery drops the app's page head and runs under the tab bar,
+and its own filter row carries Grid/List. A strip down the left edge is kept for the
+app's swipe back, because touches inside a frame never reach the app.
 
 **Opt-in, with no default directory.** Whatever sits in the directory is published to
 everyone the front door admits. A default path (say under `~/.local/share`) would mean a
