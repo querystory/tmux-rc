@@ -85,7 +85,7 @@ class _Chat:
         self._starts: list[int] = []  # where each kept turn begins in history
         self._restored = ""  # a restored transcript, leading the next turn
         self.caution: str | None = None  # this turn's warning for a consent card
-        self.focus: str | None = None  # the line naming the pane the chat is on (live._focus)
+        self.focus = None  # renders the line naming the pane the chat is on (live._focus_line)
 
     def restore(self, rows) -> int:
         """Take the client's transcript as quoted context for a session that has none yet.
@@ -107,7 +107,8 @@ class _Chat:
     async def send_text(self, text: str, images: list[tuple[str, bytes]] = ()) -> None:
         """A typed turn, with any pasted images as (mime, bytes) ahead of its text."""
         # The pane is the one shown when it was sent: a message queued behind a running
-        # turn was written before that turn's actions moved it.
+        # turn was written before that turn's actions moved it. Its line is rendered when
+        # the turn is built, last, so a closed pane drops out and no screen text follows it.
         self._inbox.put_nowait((text, images, self.focus))
 
     async def send_context(self, text: str) -> None:
@@ -128,8 +129,8 @@ class _Chat:
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
             self.caution = CAUTION_RESTORED if self._restored else None
-            self._user("\n\n".join(filter(None, [self._restored, *self._context, focus, text])),
-                       images)
+            self._user("\n\n".join(filter(None, [
+                self._restored, *self._context, text, focus and focus()])), images)
             self._restored = ""
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim
