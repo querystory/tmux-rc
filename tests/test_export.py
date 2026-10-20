@@ -776,3 +776,15 @@ def test_the_checkout_dotenv_wins_over_the_config_dirs(home, monkeypatch, tmp_pa
         **places(), ".env": Path.home() / ".config/tmux-rc/.env"})  # no checkout .env here
     export.restore(io.BytesIO(out.getvalue()))
     assert (new / ".config/tmux-rc/.env").read_text() == "FROM=checkout"
+
+
+def test_a_login_linked_from_scratch_is_not_kept_in_it(home):
+    source(home)
+    out = io.BytesIO()
+    export.export(out, ["scratch"])
+    new = home("new")
+    write(new / ".codex/auth.json", "login")
+    write(new / ".local/share/tmux-rc/scratch/mine/index.html")
+    (new / ".local/share/tmux-rc/scratch/auth.json").symlink_to(new / ".codex/auth.json")
+    export.restore(io.BytesIO(out.getvalue()))
+    assert not os.path.lexists(new / ".local/share/tmux-rc/scratch/auth.json")
