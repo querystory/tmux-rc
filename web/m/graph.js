@@ -191,7 +191,7 @@ export function fleetGraph(box, mini, ctx) {
   function draw(now = performance.now()) {
     if (!model || !W || !box.isConnected) return; // a view off the page has no palette to read
     const t0 = performance.now();
-    if (theme !== document.documentElement.className) { theme = document.documentElement.className; C = colors(box); sprites.clear(); }
+    if (theme !== document.documentElement.className || !C.fg) { // an empty palette (read off the page) is read again theme = document.documentElement.className; C = colors(box); sprites.clear(); }
     if (anim) { // a lens change, a fold, a new pane or a jump: everything glides from where it was
       const t = Math.max(0, Math.min(1, (now - anim.t0) / anim.dur)), e = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
       model.nodes.forEach(n => { n.x = n.fx + (n.tx - n.fx) * e; n.y = n.fy + (n.ty - n.fy) * e; n.alpha = n.fresh ? e : 1; });
@@ -216,7 +216,7 @@ export function fleetGraph(box, mini, ctx) {
     // on a block already drawn, or under the HUD, is dropped, so a crowd sheds the quiet ones.
     const tags = [], tag = (rank, A, ...a) => tags.push([rank, A, a]), R0 = roomAt || room();
     const taken = [[0, 0, W, R0.top], [0, R0.top + R0.h, W, H], [0, 0, R0.left, H], [W - R0.right, 0, W, R0.tools]]; // the HUD's bands, and the controls' column
-    // `fx`: where a pane's block goes on the far side of its node, should this side run out of room.
+    // `fx`: where a pane's block goes, on the far side of its node, when sliding it in would cover the node.
     const words = (force, lines, x, y, align, vb, fx) => {
       let sx = x * k + view.x;
       const ns = (fx != null ? (x + fx) / 2 : x) * k + view.x, // the node's own place decides whether it is on screen
@@ -228,7 +228,7 @@ export function fleetGraph(box, mini, ctx) {
         if (w > R - 6) { l[0] = cut(l[0], Math.floor(l[0].length * (R - 6) / w)); w = R - 6; }
         bw = Math.max(bw, w); bh += l[2] + 3;
       }
-      if (fx != null && (align === 'left' ? sx + bw > R : align === 'right' && sx - bw < 6)) { x = fx; sx = x * k + view.x; align = align === 'left' ? 'right' : 'left'; }
+      if (fx != null && (align === 'left' ? R - bw < ns : align === 'right' && 6 + bw > ns)) { // slid in, it would cover its node x = fx; sx = x * k + view.x; align = align === 'left' ? 'right' : 'left'; }
       let L = align === 'center' ? sx - bw / 2 : align === 'left' ? sx : sx - bw;
       const T = vb === 'top' ? sy : vb === 'bottom' ? sy - bh : sy - bh / 2, dx = ns > 0 && ns < W ? Math.max(6, Math.min(R - bw, L)) - L : 0;
       L += dx;
