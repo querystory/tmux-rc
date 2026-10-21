@@ -853,7 +853,7 @@ class Watcher:
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
         self._checkpoint(states, panes)
         if self._recorder:
-            self._recorder.tick(states)
+            self._recorder.tick(states, screens=self.snapshots)
         self._collection_failed = not collected
         self._publish_states(states, record_history=history_complete and history_server is not None,
                              history_server=history_server, unread=unread)
