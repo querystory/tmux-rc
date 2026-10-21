@@ -572,7 +572,7 @@ export function fleetGraph(box, mini, ctx) {
     }
     const p = n.p, s = stateOf(p), w = p.worktree, subs = subCount(p), src = ctx.logos[p.tool], q = s === 0 && p.question?.prompt && p.question;
     popover(`${head(src ? `<img class="fg-logo" src="${esc(src)}" alt="">` : '', paneName(p))}${stLine(s, p.session)}
-      ${q ? `<div class="fg-q">${esc(q.prompt)}${q.options?.length ? `<div>${q.options.map(o => `<span>${esc(o)}</span>`).join('')}</div>` : ''}</div>` : ''}
+      ${q ? `<div class="fg-q">${esc(q.prompt)}${Array.isArray(q.options) && q.options.length ? `<div>${q.options.map(o => `<span>${esc(o)}</span>`).join('')}</div>` : ''}</div>` : ''}
       ${dl([['Model', p.model], ['Context', p.context_pct != null && `${p.context_pct}% used`], ['Cost', p.cost], ['Account', ctx.owner(p.pane_id)?.name], ['Tokens', p.working?.tokens], ['Agents', subs && agentTally(p, subs)],
         ['Now', paneHeadline(p)], ['Time', (busy(s) && p.working?.elapsed) || (since(p) && `${s === 2 ? 'idle' : 'for'} ${since(p)}`)],
         ['Where', `${home(p.cwd || '')}${w?.branch ? ` @ ${w.branch}` : ''}`]])}${openBtn}`, at, n);
@@ -627,14 +627,16 @@ export function renderGraphView(root, panes, ctx) {
         .map(([cls, v, l]) => `<div class="${cls}"><b>${v}</b><span>${l}</span></div>`).join('');
       legend.innerHTML = `<p>${LEGEND[lens]} Size and arc: context used.</p><div class="fg-key">${[1, 0, 2, 4, 5].map(i => `<span><i style="background:${i === 2 ? 'var(--muted)' : `var(--chart-s${i})`}"></i>${STATES[i]}</span>`).join('')}${
         ctx.several() ? '<span><i class="fg-acct-key"></i>account</span>' : ''}${lens === 'worktree' ? '<span><i class="fg-warn-key"></i>two agents, one checkout</span>' : ''}</div>`;
-      const html = [need && ['need', 'Longest waiting', need, since(need) || 'now'], dear && ['', 'Most expensive', dear, dear.cost]].filter(Boolean)
-        .map(([cls, t, p, v]) => `<button class="${cls}" data-id="${esc(p.pane_id)}"><span>${t}</span><b>${esc(p.session)} / ${esc(cut(paneName(p), 22))}</b><em>${esc(v)}</em></button>`).join('');
-      if (call._html !== html) { // rewritten only on change, so a tap never lands on a detached button; a focused one stays focused
-        const had = [...call.lastChild.children].indexOf(document.activeElement);
-        call.lastChild.innerHTML = call._html = html;
-        if (had >= 0) call.lastChild.children[had]?.focus();
-      }
-      call.hidden = !html;
+      // The callouts' buttons are kept and their words updated in place, so a poll mid-tap or under focus loses neither.
+      const items = [need && ['need', 'Longest waiting', need, since(need) || 'now'], dear && ['', 'Most expensive', dear, dear.cost]].filter(Boolean), slots = call.lastChild;
+      while (slots.children.length < items.length) slots.append(el('button', '', '<span></span><b></b><em></em>'));
+      [...slots.children].forEach((b, i) => {
+        const it = items[i]; b.hidden = !it;
+        if (!it) return;
+        const [cls, t, p, v] = it; b.className = cls; b.dataset.id = p.pane_id;
+        [t, `${p.session} / ${cut(paneName(p), 22)}`, v].forEach((x, j) => { if (b.children[j].textContent !== x) b.children[j].textContent = x; });
+      });
+      call.hidden = !items.length;
       darkBtn.setAttribute('aria-pressed', String(document.documentElement.classList.contains('fg-dark')));
       for (const b of lenses.querySelectorAll('button')) { b.hidden = b.dataset.lens === 'account' && !ctx.several(); b.setAttribute('aria-pressed', String(b.dataset.lens === lens)); }
     };
