@@ -1,10 +1,10 @@
 {
-  "description": "Claude Code actively working (whimsical gerund + elapsed + tokens, live spinner at the bottom). Real tmux-rc dogfooding capture — the agent is editing research/probe.py. activity=running, tool=claude, no question/rewind.",
+  "description": "Claude Code actively working (whimsical gerund + elapsed + tokens, live spinner at the bottom). Synthetic: the agent is editing a bakery site's cart module. activity=running, tool=claude, no question/rewind.",
   "current_command": "node",
-  "capture": "● The --save flag is being included in positional arguments. I'll separate it before selecting the capture target.\n\n  Ran 1 shell command\n\n● Update(~/src/example-app/research/probe.py)\n  ⎿  Added 7 lines, removed 3 lines\n     116 -    args = [a for a in sys.argv[1:] if not a.startswith(\"--\")]\n     117 +    save_name = None\n     118 +    argv = sys.argv[1:]\n     119 +    if \"--save\" in argv:\n\n✢ Wrangling… (2m 19s · ↓ 5.9k tokens)\n  ⎿  Tip: Say \"fan out subagents\" and Claude sends a team.\n\n──────────────────────────────────────────────────────────────── example-app-dev ──\n❯\n────────────────────────────────────────────────────────────────────────────────────\n  ~/src/example-app on feat/probe | Opus 4.8 (1M context)   |  telemetry: •stats\n  session: +571/-423 lines · 47% ctx · 22m · $17.70\n  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+  "capture": "● Coupon codes are matched case-sensitively, so \"SPRING10\" misses \"spring10\". I'll normalize them before the lookup.\n\n  Ran 1 shell command\n\n● Update(~/src/bakery-site/shop/cart.py)\n  ⎿  Added 4 lines, removed 2 lines\n      58 -    coupon = COUPONS.get(code)\n      59 +    code = code.strip().upper()\n      60 +    coupon = COUPONS.get(code)\n      61 +    if coupon is None:\n\n✢ Kneading… (1m 52s · ↓ 4.1k tokens)\n  ⎿  Tip: Say \"fan out subagents\" and Claude sends a team.\n\n──────────────────────────────────────────────────────────────────── bakery-site ──\n❯\n────────────────────────────────────────────────────────────────────────────────────\n  ~/src/bakery-site on fix/coupon-case | Opus 4.8 (1M context)   |  telemetry: •stats\n  session: +88/-31 lines · 18% ctx · 9m · $2.40\n  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
   "expected": {
     "tool": "claude",
     "activity": "running",
-    "headline": "Fixing the --save argument parsing in probe.py"
+    "headline": "Normalizing coupon codes in the bakery cart"
   }
 }
