@@ -627,7 +627,11 @@ export function renderGraphView(root, panes, ctx) {
         ctx.several() ? '<span><i class="fg-acct-key"></i>account</span>' : ''}${lens === 'worktree' ? '<span><i class="fg-warn-key"></i>two agents, one checkout</span>' : ''}</div>`;
       const html = [need && ['need', 'Longest waiting', need, since(need) || 'now'], dear && ['', 'Most expensive', dear, dear.cost]].filter(Boolean)
         .map(([cls, t, p, v]) => `<button class="${cls}" data-id="${esc(p.pane_id)}"><span>${t}</span><b>${esc(p.session)} / ${esc(cut(paneName(p), 22))}</b><em>${esc(v)}</em></button>`).join('');
-      if (call._html !== html) call.lastChild.innerHTML = call._html = html; // rewritten only on change, so a tap never lands on a detached button
+      if (call._html !== html) { // rewritten only on change, so a tap never lands on a detached button; a focused one stays focused
+        const had = [...call.lastChild.children].indexOf(document.activeElement);
+        call.lastChild.innerHTML = call._html = html;
+        if (had >= 0) call.lastChild.children[had]?.focus();
+      }
       call.hidden = !html;
       darkBtn.setAttribute('aria-pressed', String(document.documentElement.classList.contains('fg-dark')));
       for (const b of lenses.querySelectorAll('button')) { b.hidden = b.dataset.lens === 'account' && !ctx.several(); b.setAttribute('aria-pressed', String(b.dataset.lens === lens)); }
