@@ -132,7 +132,7 @@ export function fleetGraph(box, mini, ctx) {
     place(root, 0);
     listNodes();
   }
-  const rad = n => Math.max(n.r, (n.kind === 'group' ? 7 : n.kind === 'root' ? 9 : n.kind === 'sub' ? 2.5 : 4.5) / view.k);
+  const rad = n => Math.max(n.r, (n.kind === 'group' ? 7 : n.kind === 'root' ? (mini ? 14 : 20) * 1.04 : n.kind === 'sub' ? 2.5 : 4.5) / view.k); // the hub's as drawn, breathing included
   function near(n) { // what a hovered or selected node lights: itself, its edges, a hub's subtree
     if (!n || n.kind === 'root') return null;
     const s = new Set([n.id]), down = x => (x.children || []).forEach(c => { s.add(c.id); down(c); });
