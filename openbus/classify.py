@@ -1293,8 +1293,9 @@ def classify(
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     # A command run in bash mode below the finished turn spends what that turn asked or
     # offered (a sent offer above all), however the command is doing: the turn stays over.
+    # Not once a ❯ row with text follows (a newer prompt, or a dialog's cursor row).
     spent = result.get("tool") == "claude" and turn and not turn["live"] and \
-        _BASH_ROW_RE.search(visible, turn.end())
+        _BASH_ROW_RE.search(visible, turn.end()) and not _USER_ROW_RE.search(visible, turn.end())
     if spent:
         result["activity"] = "idle"
         result.pop("question", None)

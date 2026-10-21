@@ -1458,6 +1458,13 @@ def test_a_sent_offer_is_spent():
         assert (result["activity"], result.get("waiting_on"), result.get("question"),
                 result.get("offers"), result.get("parse_ok", True)) == (
             "idle", None, None, None, True)
+    # A newer prompt's permission dialog below the sent command is a real ask.
+    dialog = sent.replace("\n\n❯", "\n\n❯ deploy it\n\n Bash command\n   make deploy\n"
+                          " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n")
+    menu = {"prompt": "Do you want to proceed?", "answer_style": "menu", "options": ["Yes", "No"]}
+    asked = classify(_pane("claude"), dialog, _llm({"tool": "claude", "activity": "waiting",
+                                                    "question": menu}))
+    assert (asked["activity"], asked["question"]["prompt"]) == ("waiting", menu["prompt"])
     # Not yet sent, with no duration stamp to end the turn: the offer stands.
     unstamped = handed.replace("✻ Baked for 16s\n", "")
     assert classify(_pane("claude"), unstamped, _llm({"tool": "claude", "offers": [
