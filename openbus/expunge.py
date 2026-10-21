@@ -51,6 +51,27 @@ def codex_status_segments(text: str) -> list[str]:
     return [s.strip() for s in lines[-1].split("·")] if lines else []
 
 
+def codex_status_line(home: Path) -> list:
+    """The items Codex's config under `home` puts on its status line, in order."""
+    try:
+        return tomllib.loads((home / "config.toml").read_text()).get("tui", {}).get(
+            "status_line", [])
+    except (OSError, ValueError):
+        return []
+
+
+def codex_thread_shown(shown: list, screen: str) -> str | None:
+    """The thread id on the status line, from the segment at session-id's place in the
+    configured order: never just any UUID-shaped one, which a branch can be. Codex leaves
+    out an empty item (no branch outside a repo), so that place is certain only when every
+    item shows, or when it comes first; anything else is None."""
+    if "session-id" not in shown:
+        return None
+    segments, at = codex_status_segments(screen), shown.index("session-id")
+    sid = segments[at] if segments and (len(segments) == len(shown) or at == 0) else ""
+    return sid if _ID.fullmatch(sid) else None
+
+
 class Refused(Exception):  # noqa: N818 - a refusal, not an error: nothing was touched
     """Why this pane's session can't be expunged. A fixed sentence, never a path: it is
     audited."""
@@ -138,17 +159,10 @@ def _agent(pid: int, screen: str) -> Session | None:
     if args[:1] == ["login"]:
         return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the
-    # rollout open; the thread id is only on the pane's status line (see live._codex_pane).
-    # It is the segment at session-id's place in the configured order: never just any
-    # UUID-shaped one, which a branch can be. Codex leaves out an empty item (no branch
-    # outside a repo), so that place is certain only when every item shows, or when it
-    # comes first; anything else refuses.
+    # rollout open; the thread id is only on the pane's status line (see live._codex_pane
+    # and codex_thread_shown); a place it can't be certain of refuses.
     home = _home(pid, "CODEX_HOME", ".codex")
-    try:
-        tui = tomllib.loads((home / "config.toml").read_text()).get("tui", {})
-    except (OSError, ValueError):
-        tui = {}
-    shown = tui.get("status_line", [])
+    shown = codex_status_line(home)
     if "session-id" not in shown:
         # No thread can be named, but a fresh Codex (not a resume) that has written no
         # rollout since it started has none to name: its first turn creates one.
@@ -157,9 +171,7 @@ def _agent(pid: int, screen: str) -> Session | None:
         raise Refused("Expunge can't tell which Codex conversation this is: Codex's status "
                       "line doesn't show its thread id. Add \"session-id\" to status_line "
                       "under [tui] in Codex's config.toml, then try again.")
-    segments, at = codex_status_segments(screen), shown.index("session-id")
-    sid = segments[at] if segments and (len(segments) == len(shown) or at == 0) else ""
-    if not _ID.fullmatch(sid):
+    if not (sid := codex_thread_shown(shown, screen)):
         raise Refused("Expunge can't find this conversation's thread id on Codex's status "
                       'line. Close any menu covering it, or move "session-id" to the '
                       "front of status_line under [tui] in Codex's config.toml, then try "

@@ -146,6 +146,9 @@ def test_grouped_and_linked_windows_are_recorded_once(server, tmp_path):
 
 
 def test_binding_follows_the_foreground_agent(server, tmp_path, monkeypatch):
+    codex = tmp_path / "codex"
+    codex.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(codex))
     server()
     tmux("new-session", "-d", "-s", "work")
     pane = tmux("display-message", "-p", "-t", "work:0", "#{pane_id}")
@@ -167,16 +170,41 @@ def test_binding_follows_the_foreground_agent(server, tmp_path, monkeypatch):
     monkeypatch.setattr(R.agent_history, "live", lambda: live)
     recorder = R.Recorder(History(tmp_path / "h.db"))
     pids = {pane: tmux("display-message", "-p", "-t", pane, "#{pane_pid}")}
-    front = {"harness": "codex", "session_id": "front", "account": str(Path.home() / ".codex")}
+    front = {"harness": "codex", "session_id": "front", "account": str(codex)}
     assert recorder._bindings(pids, {}) == {pane: front}
     # agent-history can't tell now: the same foreground keeps its binding.
     live = {"sessions": {}, "unknown": ["codex"]}
     assert recorder._bindings(pids, {}) == {pane: front}
     # It was resumed with "front" and has run /new since: its status bar names the thread
-    # it is on now, which wins over its command line.
+    # it is on now, which wins over its command line, but only at session-id's place: a
+    # UUID-shaped branch on a bar that doesn't show the id is no thread.
     shown = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
-    bar = [{"text": f"› \n  gpt-5.5 high · ~/src/example-org/api · {shown}\n"}]
-    assert recorder._bindings(pids, {pane: bar}) == {pane: {**front, "session_id": shown}}
+    bar = {pane: [{"text": f"› \n  gpt-5.5 high · ~/src/example-org/api · {shown}\n",
+                   "ts": time.time()}]}
+    (codex / "config.toml").write_text('[tui]\nstatus_line = ["model", "current-dir", '
+                                       '"git-branch"]\n')
+    assert recorder._bindings(pids, bar) == {pane: front}
+    (codex / "config.toml").write_text('[tui]\nstatus_line = ["model", "current-dir", '
+                                       '"session-id"]\n')
+    # A capture from before this client started may be a previous client's footer.
+    assert recorder._bindings(pids, {pane: [{**bar[pane][0], "ts": 0}]}) == {pane: front}
+    assert recorder._bindings(pids, bar) == {pane: {**front, "session_id": shown}}
+    # The daemon lets "front" go, so nothing lists this client any more; its bar still
+    # says which thread it shows.
+    live = {"sessions": {}, "unknown": []}
+    assert recorder._bindings(pids, bar) == {pane: {**front, "session_id": shown}}
+    # A menu hides the footer for a tick: unbound then, bound again once it is back.
+    assert recorder._bindings(pids, {}) == {}
+    assert recorder._bindings(pids, bar) == {pane: {**front, "session_id": shown}}
+    # Two sessions in the foreground: unbound, footer or not.
+    live = {"sessions": {"front": sessions["front"], "other": sessions["front"]}, "unknown": []}
+    assert recorder._bindings(pids, bar) == {}
+    # Another client by the same pid (another start time) inherits nothing cached.
+    live = {"sessions": {"front": sessions["front"]}, "unknown": []}
+    assert recorder._bindings(pids, bar) == {pane: {**front, "session_id": shown}}
+    recorder._bound[pane] = (sessions["front"]["pid"], ["1"]), recorder._bound[pane][1]
+    live = {"sessions": {}, "unknown": []}
+    assert recorder._bindings(pids, bar) == {}
     tmux("send-keys", "-t", pane, "C-c", "")
 
 

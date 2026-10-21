@@ -216,8 +216,10 @@ behind the shared app-server has no pane, while one a pane resumed is named on t
 pane's command line (agent-history's README explains both). That name is where the client
 began, not where it is: after `/new` it still names the old thread, which the daemon keeps
 loaded, and a restore would bring that back and lose the new one. So when the pane's status
-bar shows exactly one thread id (`session-id` configured, [agent-setup](../agent-setup.md)),
-the recorder binds that one instead, as Live Mode matches panes. The fresh thread with no
+bar shows a thread id at the place its account's config gives `session-id`
+([agent-setup](../agent-setup.md)), the recorder binds that one instead, as Expunge reads
+it. The bar also keeps the pane bound once the daemon lets the old thread go and the
+client is no longer listed at all, as long as its foreground process is unchanged. The fresh thread with no
 name stays unbound for now.
 A pane left without a binding (a Codex pane with neither, or any agent pane whose
 foreground was ambiguous) stays *unbound*: restore still knows its tool and directory
