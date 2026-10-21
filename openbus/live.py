@@ -238,8 +238,8 @@ def _labels(watcher) -> dict[str, str]:
 def _pane_name(d: dict, digest: list[dict] = ()) -> str:
     """A pane's user-facing identity as the phone's list row shows it: its name (paneName's
     rungs: the agent's own title, else the window label), its tool and its session chip,
-    `qs-app · codex in qs-app`. The prompt lists it and the model names it so, and the card
-    and Open button read the same as the reply above them. The window number (the row's
+    `example-app · codex in example-app`. The prompt lists it and the model names it so, and
+    the card and Open button read the same as the reply above them. The window number (the row's
     small print, "Window 7") is added only when another pane in `digest` reads the same, so
     two "tests" panes stay tellable apart. Splits of one window share even that, as their
     rows do; the card's Open button shows which, and the audit has the pane address. Newlines

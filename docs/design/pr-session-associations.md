@@ -5,7 +5,7 @@ replaces lifetime accumulation with session-specific context and active/done/rem
 
 ## Goal
 
-When a request names a pull request — for example, “review landed on qs-app PR 4955;
+When a request names a pull request — for example, “review landed on example-app PR 4955;
 please address it” — tmux-rc should know which live pane already has that work's
 context. The same data should later support a dashboard of PRs currently being worked.
 
@@ -91,7 +91,7 @@ and the Live prompt receives a readable “PRs this pane has worked on” line. 
 naming a repository and PR should prefer panes with an exact association.
 
 The `/m` session sidebar (on phone and desktop) searches accumulated `prs`, not just
-the current headline. Search by `4955`, `#4955`, `qs-app#4955`, `qs-app PR 4955`, the
+the current headline. Search by `4955`, `#4955`, `example-app#4955`, `example-app PR 4955`, the
 full `owner/repo#4955`, or a GitHub pull-request URL. All matching panes remain in
 the results, including several sessions for the same PR. Existing status filters still
 apply; select **All** to find an idle pane. Search does not create associations.
