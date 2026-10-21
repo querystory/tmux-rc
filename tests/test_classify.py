@@ -1447,13 +1447,21 @@ def test_an_offer_the_model_returns_is_a_user_wait():
 
 def test_a_sent_offer_is_spent():
     """Sending a `! command` runs it in Claude's bash mode, under the same final message:
-    the "!" row below the turn is the user acting, so nothing is offered or asked again."""
-    sent = _auto_screen("Run it yourself:\n\n  ! make deploy").replace(
-        "\n\n❯", "\n\n! make deploy\n  ⎿  Waiting for approval…\n\n❯")
-    read = {"tool": "claude", "activity": "running", "offers": ["! make deploy"]}
-    result = classify(_pane("claude"), sent, _llm(read))
-    assert (result["activity"], result.get("question"), result.get("offers")) == (
-        "running", None, None)
+    the "!" row below the finished turn is the user acting, so whatever the model reads
+    there (still waiting, the hand-over asked again), nothing is asked or offered again."""
+    handed = _auto_screen("Run it yourself:\n\n  ! make deploy")
+    sent = handed.replace("\n\n❯", "\n\n! make deploy\n  ⎿  Waiting for approval…\n\n❯")
+    ask = {"prompt": "Run it yourself: ! make deploy", "answer_style": "text"}
+    for read in ({"activity": "running"}, {"activity": "waiting", "question": ask}):
+        result = classify(_pane("claude"), sent, _llm({"tool": "claude", **read,
+                                                       "offers": ["! make deploy"]}))
+        assert (result["activity"], result.get("waiting_on"), result.get("question"),
+                result.get("offers"), result.get("parse_ok", True)) == (
+            "idle", None, None, None, True)
+    # Not yet sent, with no duration stamp to end the turn: the offer stands.
+    unstamped = handed.replace("✻ Baked for 16s\n", "")
+    assert classify(_pane("claude"), unstamped, _llm({"tool": "claude", "offers": [
+        "! make deploy"]}))["offers"] == ["! make deploy"]
 
 
 def test_offers_the_model_names_are_kept_only_as_the_screen_shows_them():
