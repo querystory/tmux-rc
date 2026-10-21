@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import accounts, agent_history, plan_usage, tmux
+from .expunge import _ID, codex_status_segments
 from .history import AGENT_TOOLS
 from .plan_usage import ENV
 
@@ -65,14 +66,16 @@ class Recorder:
         self._last: tuple[str, str] | None = None  # (server, payload) last written
         self._bound: dict[str, tuple[str, dict]] = {}  # pane id -> (foreground pgrp, binding)
 
-    def tick(self, states: list[dict], now: float | None = None) -> None:
+    def tick(self, states: list[dict], now: float | None = None,
+             screens: dict | None = None) -> None:
         now = time.time() if now is None else now
         if now - self._at < EVERY:
             return
         self._at = now
         try:
             server = identity()
-            payload = json.dumps(self._snapshot(states), sort_keys=True, separators=(",", ":"))
+            payload = json.dumps(self._snapshot(states, screens or {}), sort_keys=True,
+                                 separators=(",", ":"))
             if identity() != server:  # a replacement's workspace, not the dead one's
                 return
             with self.history.connect() as db:
@@ -88,12 +91,12 @@ class Recorder:
         except (OSError, IndexError, ValueError, sqlite3.Error, subprocess.SubprocessError):
             logger.warning("Could not record the workspace snapshot", exc_info=True)
 
-    def _snapshot(self, states: list[dict]) -> dict:
+    def _snapshot(self, states: list[dict], screens: dict) -> dict:
         by_pane = {s.get("pane_id"): s for s in states}
         sessions: dict[str, dict] = {}
         windows: dict[str, dict] = {}
         rows = tmux.rows("list-panes", _PANES)
-        seen, bound = set(), self._bindings({r[10]: r[13] for r in rows})
+        seen, bound = set(), self._bindings({r[10]: r[13] for r in rows}, screens)
         for (name, path, group, wid, windex, current, wname, auto, zoomed, layout,
              pane, index, active, _pid, cwd, command) in rows:
             if name not in sessions:
@@ -121,11 +124,15 @@ class Recorder:
             })
         return {"sessions": list(sessions.values()), "windows": windows}
 
-    def _bindings(self, pane_pids: dict[str, str]) -> dict[str, dict]:
+    def _bindings(self, pane_pids: dict[str, str], screens: dict) -> dict[str, dict]:
         """Pane id -> {harness, session_id} for the one live session in the pane's
         foreground process group. A stopped agent under a foreground one is not the pane's;
         none or several, and the pane stays unbound rather than guessed. When agent-history
-        can't tell, a pane whose foreground hasn't changed keeps its last binding."""
+        can't tell, a pane whose foreground hasn't changed keeps its last binding.
+
+        A Codex pane names on its command line the thread it was resumed with, which it
+        keeps naming after /new; the thread it shows now is on its status bar (with
+        `session-id` configured), so that wins when the bar names exactly one."""
         foreground = {}
         for pane, pid in pane_pids.items():
             stat = tmux.proc_stat(pid)
@@ -148,8 +155,19 @@ class Recorder:
             elif pane in self._bound and self._bound[pane][0] == group and (
                     unknown is None or self._bound[pane][1]["harness"] in unknown):
                 out[pane] = self._bound[pane][1]
+            if pane in out and out[pane]["harness"] == "codex" and (
+                    shown := _shown_thread(screens.get(pane))):
+                out[pane] = {**out[pane], "session_id": shown}
         self._bound = {p: (foreground[p], b) for p, b in out.items()}
         return out
+
+
+def _shown_thread(hist: list[dict] | None) -> str | None:
+    """The one thread id on a Codex pane's latest status bar: none or several (a branch can
+    look like one), and the command line's stands."""
+    ids = {s for s in codex_status_segments(hist[-1]["text"] or "") if _ID.fullmatch(s)} \
+        if hist else set()
+    return ids.pop() if len(ids) == 1 else None
 
 
 def _account(run: dict) -> str | None:
