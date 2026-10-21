@@ -166,13 +166,17 @@ def test_binding_follows_the_foreground_agent(server, tmp_path, monkeypatch):
     live = {"sessions": sessions, "unknown": []}
     monkeypatch.setattr(R.agent_history, "live", lambda: live)
     recorder = R.Recorder(History(tmp_path / "h.db"))
+    pids = {pane: tmux("display-message", "-p", "-t", pane, "#{pane_pid}")}
     front = {"harness": "codex", "session_id": "front", "account": str(Path.home() / ".codex")}
-    assert recorder._bindings({pane: tmux("display-message", "-p", "-t", pane, "#{pane_pid}")}) \
-        == {pane: front}
+    assert recorder._bindings(pids, {}) == {pane: front}
     # agent-history can't tell now: the same foreground keeps its binding.
     live = {"sessions": {}, "unknown": ["codex"]}
-    assert recorder._bindings({pane: tmux("display-message", "-p", "-t", pane, "#{pane_pid}")}) \
-        == {pane: front}
+    assert recorder._bindings(pids, {}) == {pane: front}
+    # It was resumed with "front" and has run /new since: its status bar names the thread
+    # it is on now, which wins over its command line.
+    shown = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+    bar = [{"text": f"› \n  gpt-5.5 high · ~/src/example-org/api · {shown}\n"}]
+    assert recorder._bindings(pids, {pane: bar}) == {pane: {**front, "session_id": shown}}
     tmux("send-keys", "-t", pane, "C-c", "")
 
 
