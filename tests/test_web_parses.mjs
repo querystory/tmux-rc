@@ -5,8 +5,9 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { globSync, readFileSync } from "node:fs";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const web = new URL("../web/", import.meta.url).pathname;
+const web = fileURLToPath(new URL("../web/", import.meta.url));
 
 test("every web/ script parses as an ES module", () => {
   const files = globSync("**/*.{js,mjs}", { cwd: web });
