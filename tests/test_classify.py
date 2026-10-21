@@ -1445,6 +1445,17 @@ def test_an_offer_the_model_returns_is_a_user_wait():
     assert classify(_pane("claude"), screen, _llm({"activity": "idle"}))["activity"] == "idle"
 
 
+def test_a_sent_offer_is_spent():
+    """Sending a `! command` runs it in Claude's bash mode, under the same final message:
+    the "!" row below the turn is the user acting, so nothing is offered or asked again."""
+    sent = _auto_screen("Run it yourself:\n\n  ! make deploy").replace(
+        "\n\n❯", "\n\n! make deploy\n  ⎿  Waiting for approval…\n\n❯")
+    read = {"tool": "claude", "activity": "running", "offers": ["! make deploy"]}
+    result = classify(_pane("claude"), sent, _llm(read))
+    assert (result["activity"], result.get("question"), result.get("offers")) == (
+        "running", None, None)
+
+
 def test_offers_the_model_names_are_kept_only_as_the_screen_shows_them():
     screen = _auto_screen("Please run it yourself:\n\n  ! gh pr merge 327\n  --squash\n\n"
                           '  Then say "merge 415".')
