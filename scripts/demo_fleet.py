@@ -276,6 +276,12 @@ DETAIL = {
         "prs": [{"repo": "example-org/shop-web", "number": 412,
               "title": "Stabilize checkout.spec under slow iframes"}],
         "links": [{"href": f"https://{ORG}/shop-web/actions/runs/1029384756", "text": "CI run"}]},
+    # Idle at its own prompt while its background agents work: the graph shows it as waiting.
+    "release notes agent": {
+        "agents": 1,
+        "subagents": [{"label": "general-purpose", "state": "running", "elapsed": "6m",
+                       "tokens": "41.2k"},
+                      {"label": "Explore", "state": "waiting", "elapsed": "3m", "tokens": "8.8k"}]},
     "api contract diff": {
         "model": "Sonnet 5", "context_pct": 39, "cost": "$0.84", "agents": 2,
         "subagents": [{"label": "List clients of the two changed endpoints", "state": "running",
