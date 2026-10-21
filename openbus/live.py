@@ -272,9 +272,9 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     """The live panes a spoken window name may mean, best first, and whether the first
     clearly wins. A pane scores the query words that its title, window label, tool, session
     or cwd's basename (its repo, usually) holds as whole words; two adjacent words also match run
-    together, so "qs linux" finds "qslinux". A "window N" in the name keeps only panes with
+    together, so "acme linux" finds "acmelinux". A "window N" in the name keeps only panes with
     that number and counts as a word they all hold. It wins alone on top with most of the
-    words: a stray extra word ("slack inbox merge") still finds "slack inbox", one shared
+    words: a stray extra word ("team inbox merge") still finds "team inbox", one shared
     word decides nothing."""
     number = re.search(r"\bwindow\s+(\d+)", name, re.IGNORECASE)
     if number:
