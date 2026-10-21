@@ -464,6 +464,7 @@ export function fleetGraph(box, mini, ctx) {
       anim = { t0: performance.now(), dur: motion() ? 500 : 1, v0: { ...view }, v1: { k, x: W / 2 - n.tx * k, y: H / 2 - n.ty * k }, then: () => tap({ x: W / 2, y: H / 2 }, n) };
       model.nodes.forEach(m => { m.fx = m.x; m.fy = m.y; }); animate();
     },
+    hud() { room(); draw(); }, // the HUD changed shape (callouts folded): words keep clear of it, the camera stays
     perf: () => ({ cost, budget, particles }),
   };
   if (mini) return api;
@@ -586,6 +587,7 @@ export function renderGraphView(root, panes, ctx) {
     const lenses = el('div', 'fg-lenses', '<span>Group by</span>'), box = el('div', 'fg-box'), tools = el('div', 'fg-tools'), hud = el('div', 'fg-hud');
     const stats = el('div', 'fg-stats'), legend = el('div', 'fg-legend'), call = el('details', 'fg-call', '<summary>Jump to</summary><div></div>');
     call.open = true;
+    call.addEventListener('toggle', () => root._g?.hud());
     for (const [name, label] of LENSES) { const b = el('button', '', label); b.dataset.lens = name; b.onclick = () => { root._lens = null; g.setLens(name); }; lenses.append(b); } // a pick ends any pending restore
     const at = e => e.getBoundingClientRect(), inset = () => { // what the HUD covers, for Fit
       const b = at(box), ph = phone();
