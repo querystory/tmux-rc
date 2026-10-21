@@ -1447,13 +1447,37 @@ def test_an_offer_the_model_returns_is_a_user_wait():
 
 def test_a_sent_offer_is_spent():
     """Sending a `! command` runs it in Claude's bash mode, under the same final message:
-    the "!" row below the turn is the user acting, so nothing is offered or asked again."""
-    sent = _auto_screen("Run it yourself:\n\n  ! make deploy").replace(
-        "\n\n❯", "\n\n! make deploy\n  ⎿  Waiting for approval…\n\n❯")
-    read = {"tool": "claude", "activity": "running", "offers": ["! make deploy"]}
-    result = classify(_pane("claude"), sent, _llm(read))
-    assert (result["activity"], result.get("question"), result.get("offers")) == (
-        "running", None, None)
+    the "!" row below the finished turn is the user acting, so whatever the model reads
+    there (still waiting, the hand-over asked again), nothing is asked or offered again."""
+    handed = _auto_screen("Run it yourself:\n\n  ! make deploy")
+    sent = handed.replace("\n\n❯", "\n\n! make deploy\n  ⎿  Waiting for approval…\n\n❯")
+    ask = {"prompt": "Run it yourself: ! make deploy", "answer_style": "text"}
+    for read in ({"activity": "running"}, {"activity": "waiting", "question": ask}):
+        result = classify(_pane("claude"), sent, _llm({"tool": "claude", **read,
+                                                       "offers": ["! make deploy"]}))
+        assert (result["activity"], result.get("waiting_on"), result.get("question"),
+                result.get("offers"), result.get("parse_ok", True)) == (
+            "idle", None, None, None, True)
+    # A newer prompt's permission dialog below the sent command is a real ask.
+    dialog = sent.replace("\n\n❯", "\n\n❯ deploy it\n\n Bash command\n   make deploy\n"
+                          " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n")
+    menu = {"prompt": "Do you want to proceed?", "answer_style": "menu", "options": ["Yes", "No"]}
+    asked = classify(_pane("claude"), dialog, _llm({"tool": "claude", "activity": "waiting",
+                                                    "question": menu}))
+    assert (asked["activity"], asked["question"]["prompt"]) == ("waiting", menu["prompt"])
+    # The input box's unsent draft is not sent: a "!" one spends nothing, and a ❯ one
+    # typed after the send brings nothing back.
+    rule = "\n" + "─" * 40 + "\n"
+    boxed = handed.replace("\n\n❯\n", rule + "! make deploy" + rule)
+    assert classify(_pane("claude"), boxed, _llm({"tool": "claude", "offers": [
+        "! make deploy"]}))["offers"] == ["! make deploy"]
+    drafted = sent.replace("\n\n❯\n", rule + "❯ check the result" + rule)
+    assert "offers" not in classify(_pane("claude"), drafted, _llm({"tool": "claude", "offers": [
+        "! make deploy"]}))
+    # Not yet sent, with no duration stamp to end the turn: the offer stands.
+    unstamped = handed.replace("✻ Baked for 16s\n", "")
+    assert classify(_pane("claude"), unstamped, _llm({"tool": "claude", "offers": [
+        "! make deploy"]}))["offers"] == ["! make deploy"]
 
 
 def test_offers_the_model_names_are_kept_only_as_the_screen_shows_them():
