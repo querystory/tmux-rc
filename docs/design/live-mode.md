@@ -485,13 +485,13 @@ and the client clicks the button it adds, which stays for getting back. The resu
 the model the user is already there, so it offers no second button.
 
 The model names the window and the daemon finds it. Left to pick a pane id itself, the
-model twice opened the wrong window: "take me to the slack inbox merge" (a voice slip for
+model twice opened the wrong window: "take me to the team inbox merge" (a voice slip for
 "pane") went to past-session search, whose top hits matched all three words, and opened
-the pane running one of them rather than the window titled "slack inbox"; "the QS linux
+the pane running one of them rather than the window titled "team inbox"; "the acme linux
 OMP session" read the tool column and chose an idle omp pane. So `open_pane` takes the
 user's words and scores each live pane by the words its title, label, tool and working
-directory's name hold whole (two adjacent words may also match run together, for "qslinux");
-the directory counts because a repo name is how people say "the sales kit session", and
+directory's name hold whole (two adjacent words may also match run together, for "acmelinux");
+the directory counts because a repo name is how people say "the press kit session", and
 only one of three windows in that repo happened to carry it in its title; a "window N" first
 narrows to panes with that number, so a 25 in some other title never competes. A pane opens only
 when it alone tops the scores with most of the words; otherwise the closest few each get a
@@ -505,8 +505,8 @@ id: a wrong Open costs a tap back, a wrong prompt costs work, and the id is chec
 card or announced aloud.
 
 A consent card that targets a pane carries the same button, because the card is where a
-wrong target gets caught: asked for "the QS linux OMP session", the model picked an omp
-pane idle for two days over the window titled "qslinux codex installation", and the card
+wrong target gets caught: asked for "the acme linux OMP session", the model picked an omp
+pane idle for two days over the window titled "acmelinux codex installation", and the card
 named it only by its tmux address, so nothing on it said which window that was. The card
 now names the pane as the list row does (title, tool and session chip, "example-app · codex in
 example-app"), and Open lets the user look before answering. It used to lead with the window

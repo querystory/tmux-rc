@@ -265,16 +265,16 @@ class _Fleet(_Watcher):
             return {"pane_id": pid, "window_index": win, "label": label, "title": title,
                     "tool": tool, "activity": "idle"}
         return [
-            pane("%11", "9", "app-0:9", "billing write back | billing-capture-inbox", "node"),
+            pane("%11", "9", "app-0:9", "invoice export | invoice-export-inbox", "node"),
             pane("%12", "3", "❋ acmelinux codex", "acmelinux codex installation", "codex"),
             pane("%13", "10", "misc:10", "release notifications", "omp"),
             pane("%14", "13", "omp-history", "Follow review instructions", "omp"),
-            pane("%10", "25", "❋ slack inbox", "✳ slack inbox", "claude"),
+            pane("%10", "25", "❋ team inbox", "✳ team inbox", "claude"),
             pane("%15", "6", "misc:6", "Café 認証 修正", "claude"),
             pane("%16", "25", "other:25", "auth fix", "codex"),  # same number
             pane("%17", "4", "misc:4", "release 25 notes", "claude"),  # number in title
-            *({**pane(p, w, "x", t, "codex"), "cwd": "~/src/sales-kit/"} for p, w, t in (
-                ("%19", "19", "pipeline fix"), ("%20", "20", "event | sales-kit"),
+            *({**pane(p, w, "x", t, "codex"), "cwd": "~/src/press-kit/"} for p, w, t in (
+                ("%19", "19", "pipeline fix"), ("%20", "20", "event | press-kit"),
                 ("%28", "28", "copy tweaks"))),  # one repo: the title alone must not win
             *({**pane(p, "2", "x", "tests", "claude"), "session": sess}  # twins but for session
               for p, sess in (("%30", "storefront"), ("%31", "ledger"))),
@@ -282,9 +282,9 @@ class _Fleet(_Watcher):
 
 
 @pytest.mark.parametrize(("name", "pane_id"), [
-    ("slack inbox merge", "%10"),      # a stray word: "inbox" alone must not win
+    ("team inbox merge", "%10"),       # a stray word: "inbox" alone must not win
     ("acme linux OMP session", "%12"),  # "acme linux" is "acmelinux"; one tool word loses
-    ("window 25 slack", "%10"),        # the number filters, the words choose
+    ("window 25 team", "%10"),         # the number filters, the words choose
     ("window 25 auth", "%16"),
     ("café 認証", "%15"),             # names are not only ASCII
     ("cafe\u0301 認証", "%15"),       # nor in one Unicode form
@@ -301,7 +301,7 @@ def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, na
     ("the omp pane", "ambiguous", ["%13", "%14"]),
     ("window 25", "ambiguous", ["%10", "%16"]),  # never %17, whose title says 25
     ("deploy dashboard", "no_match", []),
-    ("sales kit open session", "ambiguous", ["%19", "%20", "%28"]),
+    ("press kit open session", "ambiguous", ["%19", "%20", "%28"]),
 ])
 def test_open_pane_by_name_offers_candidates_rather_than_guess(
         monkeypatch, name, status, candidates):

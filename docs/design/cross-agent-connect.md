@@ -15,7 +15,7 @@ phone.
 
 Most of this ground is already covered. Each document below owns one piece. The
 mapping onto the three openbus contracts proposed in the hosting plan
-(querystory/planning#488: event envelope, harness-neutral action vocabulary, agent
+(planning issue #488: event envelope, harness-neutral action vocabulary, agent
 manifest) follows the list.
 
 - [openbus narrative](openbus-narrative.md): the hub. It names the build items this doc
