@@ -225,6 +225,8 @@ export function fleetGraph(box, mini, ctx) {
     };
     const taken = [[0, 0, W, R0.top], [0, R0.top + R0.h, W, H], [0, 0, R0.left, H], [W - R0.right, 0, W, R0.tools]]; // the HUD's bands, and the controls' column
     // `fx`: where a pane's block goes, on the far side of its node, when sliding it in would cover the node.
+    // A screen rectangle [l, t, r, b] taken for words, unless it lands on one already taken (`force` takes it anyway).
+    const claim = (q, force) => { if (!force && taken.some(b => q[0] < b[2] + 4 && q[2] + 4 > b[0] && q[1] < b[3] + 2 && q[3] + 2 > b[1])) return false; taken.push(q); return true; };
     const words = (force, lines, x, y, align, vb, fx) => {
       let sx = x * k + view.x;
       const ns = (fx != null ? (x + fx) / 2 : x) * k + view.x, // the node's own place decides whether it is on screen
@@ -241,8 +243,7 @@ export function fleetGraph(box, mini, ctx) {
       let L = align === 'center' ? sx - bw / 2 : align === 'left' ? sx : sx - bw;
       const T0 = vb === 'top' ? sy : vb === 'bottom' ? sy - bh : sy - bh / 2, T = on ? Math.max(R0.top, Math.min(R0.top + R0.h - bh, T0)) : T0, dx = on ? Math.max(6, Math.min(R - bw, L)) - L : 0;
       L += dx;
-      if (!force && taken.some(b => L < b[2] + 4 && L + bw + 4 > b[0] && T < b[3] + 2 && T + bh + 2 > b[1])) return;
-      taken.push([L, T, L + bw, T + bh]);
+      if (!claim([L, T, L + bw, T + bh], force)) return;
       let ly = (T - view.y) / k;
       for (const [t, c, z, w, tr] of lines) { label(t, x + dx / k, ly, align, c, z, w, 'top', tr); ly += (z + 3) / k; }
       return true;
@@ -292,21 +293,8 @@ export function fleetGraph(box, mini, ctx) {
       const go = sprite(C.s[1], true), wait = sprite(C.s[0], true);
       for (let i = 0; i < hn * 4; i += 4) stamp(HEAD[i + 3] % 2 ? go : wait, HEAD[i], HEAD[i + 1], (HEAD[i + 3] >= 2 ? 4 : 6.5) * zs, HEAD[i + 2]);
     }
-    // What each running pane is doing, along its edge, where the edge has room (the popover says it either way).
-    dc.globalCompositeOperation = 'source-over';
-    for (const [c, b] of verbs) {
-      const p = b.p, s = stateOf_(b), w = p.working, text = s === 0 ? 'needs you' : w?.verb ? [w.verb, w.elapsed].filter(Boolean).join(' · ') : cut(p.status_line || p.headline, 30);
-      dc.font = `500 ${9 / k}px ${C.font}`;
-      if (!text || Math.hypot(c[6] - c[0], c[7] - c[1]) * 0.8 < dc.measureText(text).width + 30 / k) continue;
-      bz(c, 0.55); let ang = Math.atan2(NX, -NY); if (Math.cos(ang) < 0) ang += Math.PI;
-      const ex = PX * k + view.x - R0.left, ey = PY * k + view.y - R0.top;
-      if (ex < 0 || ey < 0 || ex > R0.w || ey > R0.h) continue; // not under the HUD
-      dc.save(); dc.translate(PX, PY); dc.rotate(ang); dc.globalAlpha = 0.9;
-      label(text, 0, -5 / k, 'center', s === 0 ? C.amber : C.accent, 9, 500, 'bottom', 0.3);
-      dc.restore();
-    }
-
     // ---- nodes ----
+    dc.globalCompositeOperation = 'source-over';
     const breathe = moving ? 1 + 0.035 * Math.sin(now / 1100) : 1;
     for (const n of model.nodes) {
       const s = stateOf_(n), A = dim(n.id) * (n.alpha ?? 1) * (!mini && n.kind === 'pane' && s === 2 ? fade(n.p) : 1);
@@ -366,6 +354,20 @@ export function fleetGraph(box, mini, ctx) {
       }
     }
     tags.sort((a, b) => a[0] - b[0]).forEach(([rank, A, a, b]) => { dc.globalAlpha = A; if (!words(rank < 2, ...a) && b) words(false, b, ...a.slice(1)); }); // b: a shorter say, where the long one has no room
+    // Last, what each running pane is doing, along its edge, where the edge and the words around it leave room (the popover says it either way).
+    for (const [c, b] of verbs) {
+      const p = b.p, s = stateOf_(b), w = p.working, text = s === 0 ? 'needs you' : w?.verb ? [w.verb, w.elapsed].filter(Boolean).join(' · ') : cut(p.status_line || p.headline, 30);
+      font(9, 500, 0.3);
+      const tw = dc.measureText(text).width;
+      if (!text || Math.hypot(c[6] - c[0], c[7] - c[1]) * 0.8 < tw + 30 / k) continue;
+      bz(c, 0.55); let ang = Math.atan2(NX, -NY); if (Math.cos(ang) < 0) ang += Math.PI;
+      const cs = Math.cos(ang), sn = Math.sin(ang), hw = tw * k / 2, hh = 6, cx = PX * k + view.x + sn * 11, cy = PY * k + view.y - cs * 11; // its rotated box, centred above the edge
+      const ex = Math.abs(cs) * hw + Math.abs(sn) * hh, ey = Math.abs(sn) * hw + Math.abs(cs) * hh;
+      if (!claim([cx - ex, cy - ey, cx + ex, cy + ey])) continue; // under the HUD or on other words
+      dc.save(); dc.translate(PX, PY); dc.rotate(ang); dc.globalAlpha = 0.9;
+      label(text, 0, -5 / k, 'center', s === 0 ? C.amber : C.accent, 9, 500, 'bottom', 0.3);
+      dc.restore();
+    }
     dc.globalAlpha = 1;
     if (spacing) dc.letterSpacing = '0px';
     flowed = moving && (live || pulsing); // frames keep coming while a hover dims the streams, so they flow again after
