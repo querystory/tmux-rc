@@ -9,7 +9,7 @@ from openbus import repository
     ("remote", "expected"),
     [
         ("git@github.com:querystory/tmux-rc.git", "querystory/tmux-rc"),
-        ("ssh://git@github.com/querystory/qs-app", "querystory/qs-app"),
+        ("ssh://git@github.com/example-org/example-app", "example-org/example-app"),
         ("https://github.com/querystory/tmux-rc.git", "querystory/tmux-rc"),
         ("git://github.com/querystory/tmux-rc.git", "querystory/tmux-rc"),
         ("ssh://git@github.com:22/querystory/tmux-rc.git", "querystory/tmux-rc"),

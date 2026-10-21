@@ -418,20 +418,20 @@ def test_working_prs_are_validated_bounded_and_deduped():
     raw = [
         *[{"repo": repo, "number": 1} for repo in ("../bad", "./repo", "org/.", "org/..")],
         {"repo": "org/" + "a" * 257, "number": 1},
-        {"repo": "querystory/qs-app", "number": "1" * 5000},
-        {"repo": "querystory/qs-app", "number": "²"},
-        {"repo": "querystory/qs-app", "number": 2**53},
-        {"repo": "querystory/qs-app", "number": str(2**53)},
-        {"repo": "querystory/qs-app", "number": 4955},
-        {"repo": "QUERYSTORY/qs-app", "number": "4955"},
+        {"repo": "example-org/example-app", "number": "1" * 5000},
+        {"repo": "example-org/example-app", "number": "²"},
+        {"repo": "example-org/example-app", "number": 2**53},
+        {"repo": "example-org/example-app", "number": str(2**53)},
+        {"repo": "example-org/example-app", "number": 4955},
+        {"repo": "EXAMPLE-ORG/example-app", "number": "4955"},
         {"repo": "no-owner", "number": 2},
-        {"repo": "querystory/qs-app", "number": True},
-        {"repo": "querystory/qs-app", "number": 0},
+        {"repo": "example-org/example-app", "number": True},
+        {"repo": "example-org/example-app", "number": 0},
         "junk",
     ] + [{"repo": "querystory/tmux-rc", "number": n} for n in range(1, 12)]
-    r = classify(_pane(), "shipped querystory/qs-app#4955", _llm(
+    r = classify(_pane(), "shipped example-org/example-app#4955", _llm(
         {"activity": "running", "working_prs": raw}), repository="querystory/tmux-rc")
-    assert r["working_prs"][0] == {"repo": "querystory/qs-app", "number": 4955}
+    assert r["working_prs"][0] == {"repo": "example-org/example-app", "number": 4955}
     assert len(r["working_prs"]) == 8
     assert len({(p["repo"].lower(), p["number"]) for p in r["working_prs"]}) == 8
     assert "working_prs" not in classify(
