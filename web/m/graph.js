@@ -240,7 +240,7 @@ export function fleetGraph(box, mini, ctx) {
       return true;
     };
     const zs = Math.min(2, Math.max(0.55, k)) / k; // a particle grows a little with zoom, and never vanishes
-    let parts = 0, hn = 0, pulsing = false;
+    let parts = 0, hn = 0, pulsing = false, live = false; // live: an edge with work behind it, dimmed or not
     tn.fill(0);
     dc.lineCap = 'round';
 
@@ -253,6 +253,7 @@ export function fleetGraph(box, mini, ctx) {
       if (bn || need) { dc.globalCompositeOperation = add; dc.globalAlpha = A * (C.dark ? 0.07 : 0.1); dc.strokeStyle = color; dc.lineWidth = (b.kind === 'group' ? 7 : 4.5) / k; path(c); dc.globalCompositeOperation = 'source-over'; }
       dc.globalAlpha = A * (bn || need ? (C.dark ? 0.42 : 0.6) : C.dark ? 0.22 : 0.4); dc.strokeStyle = bn || need ? color : C.dark ? C.line : C.muted; dc.lineWidth = (bn ? 1.1 : 0.8) / k; path(c);
       if (!mini && b.kind === 'pane' && (bn || need) && k > 0.75 && A > 0.5) verbs.push([c, b]);
+      live ||= bn || need;
       if (!moving || !(bn || need) || A < 0.5) continue;
       // Density follows the work behind the edge, and a needs-you edge flows back toward you.
       // A particle is stateless: its place is a hash of its index and the time, so nothing is allocated.
@@ -355,7 +356,7 @@ export function fleetGraph(box, mini, ctx) {
     tags.sort((a, b) => a[0] - b[0]).forEach(([rank, A, a, b]) => { dc.globalAlpha = A; if (!words(rank < 2, ...a) && b) words(false, b, ...a.slice(1)); }); // b: a shorter say, where the long one has no room
     dc.globalAlpha = 1;
     if (spacing) dc.letterSpacing = '0px';
-    flowed = moving && (hn > 0 || pulsing);
+    flowed = moving && (live || pulsing); // frames keep coming while a hover dims the streams, so they flow again after
     // Adapt: past ~7ms of drawing, shed particles (to a quarter at most); well under, win them back.
     cost += (performance.now() - t0 - cost) * 0.1; particles = parts;
     budget = cost > 7 ? Math.max(0.25, budget * 0.92) : cost < 3.5 ? Math.min(1, budget * 1.03) : budget;
