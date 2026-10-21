@@ -38,6 +38,9 @@ const agent = p => p.tool && p.tool !== 'shell';
 const subsList = p => agent(p) ? records(p.subagents).filter(a => !['done', 'idle'].includes(a.state)) : [];
 const subCount = p => { const l = subsList(p), busy = l.filter(a => a.state === 'running' || a.state === 'compacting').length; return agent(p) ? l.length + Math.max(0, (Number(p.agents) || 0) - busy) : 0; };
 const subsOf = p => Math.min(MAX_SUBS, subCount(p));
+const ACTIVE = { running: 1, compacting: 1, waiting: 1 };
+// A pane whose sub-agents are at work is not idle, whatever its own prompt shows: it is waiting on them.
+const paneState = p => { const s = stateOf(p); return (s === 2 || s === 3) && agent(p) && (subsList(p).some(a => ACTIVE[a.state]) || Number(p.agents) > 0) ? 5 : s; };
 const subState = a => a ? { running: 1, compacting: 4, waiting: 5 }[a.state] ?? 3 : 1; // one counted, not listed, is a busy one
 // A path segment is its label, or [identity, label] where two hubs could share a label: two
 // clones on the same branch, two accounts given one name.
@@ -75,8 +78,8 @@ export function fleetGraph(box, mini, ctx) {
   // Nodes keep their identity across lenses and polls, so a pane glides to its new place.
   const node = (id, init) => { let n = cache.get(id); if (!n) cache.set(id, n = { id, x: NaN, y: NaN, ...init() }); return n; };
   const paneNode = p => Object.assign(node(p.pane_id, () => ({ kind: 'pane' })), { p, r: mini ? 11 : p.context_pct == null ? 8 : 7 + 9 * p.context_pct / 100 }); // its size: the context it has used
-  const subNodes = pn => Array.from({ length: subsOf(pn.p) }, (_, j) => Object.assign(node(`${pn.id}/${j}`, () => ({ kind: 'sub', r: 4.5 })), { parent: pn, a: subsList(pn.p)[j] }));
-  const stateOf_ = n => n.kind === 'pane' ? stateOf(n.p) : n.kind === 'sub' ? subState(n.a) : null;
+  const subNodes = pn => Array.from({ length: subsOf(pn.p) }, (_, j) => Object.assign(node(`${pn.id}/${j}`, () => ({ kind: 'sub' })), { parent: pn, a: subsList(pn.p)[j] })).map(x => Object.assign(x, { r: !x.a || ACTIVE[x.a.state] ? Math.max(5, x.parent.r * 0.6) : 3.5 }));
+  const stateOf_ = n => n.kind === 'pane' ? paneState(n.p) : n.kind === 'sub' ? subState(n.a) : null;
   const logo = tool => { const src = ctx.logos[tool]; if (src && !imgs[tool]) { const i = imgs[tool] = new Image(); i.onload = () => draw(); i.src = src; } return imgs[tool]; };
 
   // A lens is a tree: the root, a hub per path segment, then the panes and their satellites.
@@ -98,8 +101,8 @@ export function fleetGraph(box, mini, ctx) {
     }
     // Worktree lens: a checkout with two agents busy in it is where edits collide.
     for (const g of groups.values()) {
-      g.busy = g.panes.filter(p => busy(stateOf(p))).length; g.need = g.panes.filter(p => stateOf(p) === 0).length;
-      g.warn = lens === 'worktree' && g.depth === 2 && g.panes.filter(p => p.worktree && agent(p) && busy(stateOf(p))).length > 1; // a real checkout, not a folder
+      g.busy = g.panes.filter(p => busy(paneState(p))).length; g.subs = g.panes.reduce((t, p) => t + subCount(p), 0); g.need = g.panes.filter(p => paneState(p) === 0).length;
+      g.warn = lens === 'worktree' && g.depth === 2 && g.panes.filter(p => p.worktree && agent(p) && busy(paneState(p))).length > 1; // a real checkout, not a folder
     }
     const hidden = n => { for (let u = n.up; u; u = u.up) if (collapsed.has(u.id)) return true; return false; };
     const vis = nodes.filter(n => !hidden(n));
@@ -126,13 +129,14 @@ export function fleetGraph(box, mini, ctx) {
     const place = (n, d) => {
       const a = ang(n.slot), r = n.kind === 'root' ? 0 : n.kind === 'pane' ? RL : RL * d / (D + 0.6);
       Object.assign(n, { tx: r * Math.cos(a) * ax, ty: r * Math.sin(a) * ay, out: a });
-      if (n.kind === 'pane') subNodes(n).forEach((x, m, all) => { const c = a + (m - (all.length - 1) / 2) * 0.5; Object.assign(x, { tx: n.tx + 30 * Math.cos(c), ty: n.ty + 30 * Math.sin(c), out: c }); });
+      if (n.kind === 'pane') subNodes(n).forEach((x, m, all) => { const c = a + (m - (all.length - 1) / 2) * 0.55, d = n.r + x.r + 26; Object.assign(x, { tx: n.tx + d * Math.cos(c), ty: n.ty + d * Math.sin(c), out: c }); });
       if (!collapsed.has(n.id)) (n.children || []).forEach(c => place(c, d + 1));
     };
     place(root, 0);
     listNodes();
   }
-  const rad = n => Math.max(n.r, (n.kind === 'group' ? 7 : n.kind === 'root' ? (mini ? 14 : 20) * 1.04 : n.kind === 'sub' ? 2.5 : 4.5) / view.k); // the hub's as drawn, breathing included
+  const rad = n => n.kind === 'sub' ? (n.r < 5 ? Math.max(n.r, 2.5 / view.k) : Math.max(n.r, 0.6 * rad(n.parent), 3.5 / view.k)) // a working one stays six tenths of its pane
+    : Math.max(n.r, (n.kind === 'group' ? 7 : n.kind === 'root' ? (mini ? 14 : 20) * 1.04 : 4.5) / view.k); // the hub's as drawn, breathing included
   function near(n) { // what a hovered or selected node lights: itself, its edges, a hub's subtree
     if (!n || n.kind === 'root') return null;
     const s = new Set([n.id]), down = x => (x.children || []).forEach(c => { s.add(c.id); down(c); });
@@ -215,6 +219,10 @@ export function fleetGraph(box, mini, ctx) {
     // to its width and slid in from an edge while its anchor is on screen; one that would land
     // on a block already drawn, or under the HUD, is dropped, so a crowd sheds the quiet ones.
     const tags = [], tag = (rank, A, ...a) => tags.push([rank, A, a]), R0 = roomAt || room();
+    const outward = (n, away, rank, A, lines) => { // words beside a node, away from its hub, or on the far side if they would cover it
+      const ux = Math.cos(n.out || 0), uy = Math.sin(n.out || 0), side = Math.abs(ux) < 0.3;
+      tag(rank, A, lines, n.x + ux * away, n.y + uy * away, side ? 'center' : ux > 0 ? 'left' : 'right', side ? (uy > 0 ? 'top' : 'bottom') : 'middle', n.x - ux * away);
+    };
     const taken = [[0, 0, W, R0.top], [0, R0.top + R0.h, W, H], [0, 0, R0.left, H], [W - R0.right, 0, W, R0.tools]]; // the HUD's bands, and the controls' column
     // `fx`: where a pane's block goes, on the far side of its node, when sliding it in would cover the node.
     const words = (force, lines, x, y, align, vb, fx) => {
@@ -314,7 +322,7 @@ export function fleetGraph(box, mini, ctx) {
         dc.globalAlpha = A; dc.fillStyle = g; disc(n.x, n.y, R * 0.75); dc.fill();
         dc.globalAlpha = A * 0.9; dc.lineWidth = 1.4 / k; disc(n.x, n.y, R); dc.stroke();
         if (!mini && k > 0.5) tag(2, A, [[lens === 'session' ? `TMUX · ${new Set(panes.map(p => p.session)).size} SESSIONS` : `${n.children.length} × ${LENSES.find(l => l[0] === lens)[1].toUpperCase()}`, C.fg, 12, 600, 2.4],
-          [`${panes.length} panes · ${panes.filter(p => busy(stateOf(p))).length} running`, C.muted, 10, 400, 1]], n.x, n.y + R * 1.5 + 9 / k, 'center', 'top', true); // small: the HUD says it too
+          [`${panes.length} panes · ${panes.filter(p => busy(paneState(p))).length} running`, C.muted, 10, 400, 1]], n.x, n.y + R * 1.5 + 9 / k, 'center', 'top'); // small: the HUD says it too
       } else if (n.kind === 'group') { // a hub ring, the share of its panes at work as an arc on it; folded, it grows and counts
         const fold = collapsed.has(n.id), r = (fold ? 1.35 : 1) * Math.max(n.r, (n.depth === 1 ? 9 : 6) / k), { busy: bn, need: nd } = n, tot = n.panes.length, col = nd ? C.s[0] : bn ? C.s[1] : C.muted;
         if (bn || nd) { dc.globalCompositeOperation = add; stamp(sprite(col, false), n.x, n.y, r * 6, A * (C.dark ? 0.5 : 0.3)); dc.globalCompositeOperation = 'source-over'; }
@@ -329,7 +337,7 @@ export function fleetGraph(box, mini, ctx) {
         if (n.depth === 1) { // its name, and what it adds up to
           const cost = n.panes.reduce((t, p) => t + costOf(p), 0);
           tag(2, A, [[String(n.label).toUpperCase(), C.fg, mini ? 9.5 : 11, 600, 2]], n.x, n.y + r + 8 / k, 'center', 'top');
-          const sums = [nd && `${nd} need you`, bn && `${bn} running`, cost && `$${cost.toFixed(2)}`].filter(Boolean), line = t => [[t, nd ? C.amber : C.muted, 9.5, 400]];
+          const sums = [nd && `${nd} need you`, bn && `${bn} running`, n.subs && `${n.subs} sub-agent${n.subs > 1 ? 's' : ''}`, cost && `$${cost.toFixed(2)}`].filter(Boolean), line = t => [[t, nd ? C.amber : C.muted, 9.5, 400]];
           if (!mini) { tag(nd ? 2.5 : 3, A, line(sums.join(' · ') || `${tot} idle`), n.x, n.y + r + 25 / k, 'center', 'top'); if (sums.length > 1) tags.at(-1).push(line(sums[0])); }
         } else if (!mini) tag(n.warn ? 1 : 3, A, [[n.label + (n.warn ? ' · 2 agents busy' : ''), n.warn ? C.amber : C.muted, 10, 400, 0.5]], n.x, n.y + r + (n.warn ? 9 : 6) / k, 'center', 'top');
       } else if (n.kind === 'pane') {
@@ -347,10 +355,14 @@ export function fleetGraph(box, mini, ctx) {
           for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { dc.moveTo(n.x + sx * q, n.y + sy * (q - l)); dc.lineTo(n.x + sx * q, n.y + sy * q); dc.lineTo(n.x + sx * (q - l), n.y + sy * q); }
           dc.stroke();
         }
-        if (!mini) paneWords(n, r, s, on, A, marks(n, r, s, on, A), tag);
-      } else {
-        dc.globalCompositeOperation = add; stamp(sprite(ring(C, s), true), n.x, n.y, 11 * zs, A); dc.globalCompositeOperation = 'source-over';
-        if ((n === hover || n === sel) && n.a?.label) { dc.globalAlpha = A; label(String(n.a.label), n.x + 8 / k, n.y, 'left', C.muted, 10); }
+        if (!mini) paneWords(n, r, s, on, A, marks(n, r, s, on, A), outward);
+      } else { // a sub-agent: a small pane of its own, lit while it works, its job and time beside it where they fit
+        const r = rad(n), col = ring(C, s), on = busy(s), fa = A * (on ? 1 : 0.6);
+        if (on) { dc.globalCompositeOperation = add; stamp(sprite(col, false), n.x, n.y, r * 5, fa * (C.dark ? 0.7 : 0.4)); dc.globalCompositeOperation = 'source-over'; }
+        dc.globalAlpha = fa; dc.fillStyle = C.surface; disc(n.x, n.y, r); dc.fill(); dc.strokeStyle = col; dc.lineWidth = 1.3 / k; dc.stroke();
+        dc.fillStyle = col; disc(n.x, n.y, r * 0.42); dc.fill();
+        const close = n === hover || n === sel;
+        if (!mini && n.a?.label && (close || k > 0.6)) outward(n, r + 5 / k, close ? 0 : 4.5, fa, [[[cut(n.a.label, 22), n.a.elapsed].filter(Boolean).join(' · '), on ? C.accent : C.muted, 9, 500]]);
       }
     }
     tags.sort((a, b) => a[0] - b[0]).forEach(([rank, A, a, b]) => { dc.globalAlpha = A; if (!words(rank < 2, ...a) && b) words(false, b, ...a.slice(1)); }); // b: a shorter say, where the long one has no room
@@ -377,16 +389,16 @@ export function fleetGraph(box, mini, ctx) {
   // Its words, outward from the hub, arriving by zoom: working names from 0.3 (where they fit),
   // the headline or question from 1.25, idle names from 1.3, the numbers from 2. A pane that
   // needs you always says who it is and how long it has waited.
-  function paneWords(n, r, s, on, A, acc, tag) {
-    const p = n.p, k = view.k, close = n === hover || n === sel, ux = Math.cos(n.out || 0), uy = Math.sin(n.out || 0);
+  function paneWords(n, r, s, on, A, acc, outward) {
+    const p = n.p, k = view.k, close = n === hover || n === sel;
     if (!(close || s === 0 || k > 1.3 || (k > 0.3 && on))) return;
     const lines = [[paneName(p), on ? C.fg : C.muted, 10.5, on ? 600 : 400]];
     if (s === 0 || s === 5) lines.push([`waiting ${since(p) || 'now'}`, s === 0 ? C.amber : C.muted, 9.5, 600]);
     const head = (k > 1.25 || close) && (s === 0 ? p.question?.prompt : paneHeadline(p));
     if (head) lines.push([cut(head, k > 2 ? 54 : 34), C.muted, 9.5, 400]);
     if (k > 2) lines.push([[p.model, p.context_pct != null && `ctx ${p.context_pct}%`, p.working?.tokens, s === 2 && `idle ${since(p)}`, p.cost, acc?.name].filter(Boolean).join(' · '), C.muted, 9, 400]);
-    const away = r + (acc ? 10 : 7) / k, side = Math.abs(ux) < 0.3;
-    tag(close ? 0 : s === 0 ? 1 : on ? 4 : 5, A, lines, n.x + ux * away, n.y + uy * away, side ? 'center' : ux > 0 ? 'left' : 'right', side ? (uy > 0 ? 'top' : 'bottom') : 'middle', n.x - ux * away);
+    const sat = subNodes(n).reduce((m, x) => Math.max(m, n.r + 3 * rad(x) + 26), 0); // past its satellites, which sit the same way out
+    outward(n, Math.max(r + (acc ? 10 : 7) / k, sat), close ? 0 : s === 0 ? 1 : on ? 4 : 5, A, lines);
   }
   // Frames run while something moves and the canvas is on screen; a hidden page costs nothing.
   let seen = false; // on screen: a hidden page or a card scrolled away costs nothing
@@ -474,7 +486,7 @@ export function fleetGraph(box, mini, ctx) {
   const buttons = el('div', 'fg-nodes');
   box.append(buttons);
   const say = n => n.kind === 'group' ? `${n.label}: ${n.panes.length} panes, ${collapsed.has(n.id) ? 'folded' : 'unfolded'}`
-    : n.kind === 'pane' ? `${paneName(n.p)}: ${STATES[stateOf(n.p)]}` : `Sub-agent of ${paneName(n.parent.p)}`;
+    : n.kind === 'pane' ? `${paneName(n.p)}: ${STATES[paneState(n.p)]}` : `Sub-agent of ${paneName(n.parent.p)}`;
   listNodes = () => {
     if (buttons._sig !== model.sig) {
       const had = document.activeElement?._n?.id;
@@ -570,7 +582,7 @@ export function fleetGraph(box, mini, ctx) {
       return popover(`${head(`<i class="fg-dot" style="background:${ring(C, st)}"></i>`, a.label || 'Sub-agent')}${stLine(st, 'sub-agent')}
         ${dl([['Pane', paneName(n.parent.p)], ['Tokens', a.tokens], ['Time', a.elapsed]])}${openBtn}`, at, n);
     }
-    const p = n.p, s = stateOf(p), w = p.worktree, subs = subCount(p), src = ctx.logos[p.tool], q = s === 0 && p.question?.prompt && p.question;
+    const p = n.p, s = paneState(p), w = p.worktree, subs = subCount(p), src = ctx.logos[p.tool], q = s === 0 && p.question?.prompt && p.question;
     popover(`${head(src ? `<img class="fg-logo" src="${esc(src)}" alt="">` : '', paneName(p))}${stLine(s, p.session)}
       ${q ? `<div class="fg-q">${esc(q.prompt)}${Array.isArray(q.options) && q.options.length ? `<div>${q.options.map(o => `<span>${esc(o)}</span>`).join('')}</div>` : ''}</div>` : ''}
       ${dl([['Model', p.model], ['Context', p.context_pct != null && `${p.context_pct}% used`], ['Cost', p.cost], ['Account', ctx.owner(p.pane_id)?.name], ['Tokens', p.working?.tokens], ['Agents', subs && agentTally(p, subs)],
@@ -618,9 +630,9 @@ export function renderGraphView(root, panes, ctx) {
     root.append(box);
     const paint = root._paint = () => {
       const lens = g.lens(), list = root._panes, c = [0, 0, 0, 0, 0, 0], subs = list.reduce((t, p) => t + subCount(p), 0); // all of them, where the canvas draws MAX_SUBS
-      list.forEach(p => c[stateOf(p)]++);
+      list.forEach(p => c[paneState(p)]++);
       const toks = list.reduce((t, p) => t + tokens(p.working?.tokens) + subsList(p).reduce((u, a) => u + tokens(a.tokens), 0), 0);
-      const oldest = list.reduce((a, p) => !a || ageOf(p) > ageOf(a) ? p : a, null), need = list.filter(p => stateOf(p) === 0).sort((a, b) => ageOf(b) - ageOf(a))[0];
+      const oldest = list.reduce((a, p) => !a || ageOf(p) > ageOf(a) ? p : a, null), need = list.filter(p => paneState(p) === 0).sort((a, b) => ageOf(b) - ageOf(a))[0];
       const dear = list.reduce((a, p) => costOf(p) > (a ? costOf(a) : 0) ? p : a, null), spend = list.reduce((t, p) => t + costOf(p), 0);
       stats.innerHTML = [['', new Set(list.map(p => p.session)).size, 'Sessions'], ['go', `${c[1] + c[4] + c[5]}<small>/${list.length}</small>`, 'Running'], [c[0] ? 'need' : '', c[0], 'Needs you'],
         ['opt', subs, 'Sub-agents'], ['', toks >= 1000 ? `${(toks / 1000).toFixed(toks >= 1e4 ? 0 : 1)}k` : toks, 'Tokens in flight'], ['', `$${spend.toFixed(spend >= 100 ? 0 : 2)}`, 'Cost'], ['opt', oldest ? since(oldest) || '–' : '–', 'Oldest pane']]
@@ -658,6 +670,6 @@ export function renderGraphView(root, panes, ctx) {
 export function renderGraphCard(card, panes, ctx) {
   const box = card._box ||= card.appendChild(el('div', 'fg-mini'));
   (card._g ||= fleetGraph(box, true, ctx)).update(panes);
-  const running = panes.filter(p => busy(stateOf(p))).length;
+  const running = panes.filter(p => busy(paneState(p))).length;
   card.querySelector('.atlas-panel-heading > .muted').textContent = `${new Set(panes.map(p => p.session)).size} sessions · ${panes.length} panes · ${running} running`;
 }

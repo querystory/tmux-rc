@@ -73,6 +73,24 @@ allocated per frame. Past about 7 ms a draw, the renderer sheds particles down t
 quarter, and wins them back under 3.5 ms; a phone under a 4x CPU throttle settles there at
 about 6 ms a frame.
 
+## Delegated work is work
+
+A pane can sit idle at its own prompt while the background agents it started do the work.
+The first version drew that pane as idle and its sub-agents as specks. On a phone, a
+session with two agents busy read as "2 idle" and the HUD said nothing was running while
+hundreds of thousands of tokens were in flight. Now a pane whose sub-agents are at work
+counts as waiting, which is what it is doing: it is coloured, ringed and counted that way
+everywhere in the graph. A working sub-agent is drawn as a small pane of its own, about six
+tenths of its parent's size, glowing in its state's colour, with its job and elapsed time
+beside it where there is room. Finished or idle ones stay small. The parent's own words move
+out past its satellites rather than covering them.
+
+For the HUD, we chose counting the parent pane as running over bringing back a separate
+sub-agents count. "Running" is the question people actually ask the HUD ("is anything
+happening?"), and a pane that is waiting on its agents answers yes. The phone's row of
+counts also has no room for a sixth figure. The exact sub-agent number stays in each hub's
+sum, on the badge and in the popover, which is where the detail is wanted.
+
 ## Words that give way
 
 On a phone at fit zoom there is room for perhaps a dozen labels, and labels at the screen
