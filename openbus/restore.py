@@ -64,7 +64,7 @@ class Recorder:
         self.history = history
         self._at = 0.0
         self._last: tuple[str, str] | None = None  # (server, payload) last written
-        self._bound: dict[str, tuple[str, dict]] = {}  # pane id -> (foreground pgrp, binding)
+        self._bound: dict[str, tuple[tuple, dict]] = {}  # pane id -> ((pid, start), binding)
 
     def tick(self, states: list[dict], now: float | None = None,
              screens: dict | None = None) -> None:
@@ -128,7 +128,7 @@ class Recorder:
         """Pane id -> {harness, session_id} for the one live session in the pane's
         foreground process group. A stopped agent under a foreground one is not the pane's;
         none or several, and the pane stays unbound rather than guessed. When agent-history
-        can't tell, a pane whose foreground hasn't changed keeps its last binding.
+        can't tell, a pane whose agent process hasn't changed keeps its last binding.
 
         A Codex client names on its command line the thread it was resumed with, even
         after /new, and is listed only while the daemon holds that thread; the thread it
@@ -141,37 +141,45 @@ class Recorder:
                 foreground[pane] = stat[5]  # tpgid: the terminal's foreground group
         live = agent_history.live()
         unknown = set(live["unknown"]) if live else None
-        found: dict[str, list[dict]] = {}
+        found: dict[str, list[tuple[tuple, dict]]] = {}  # pane -> [(client, binding)]
         for sid, run in (live or {}).get("sessions", {}).items():
             stat = tmux.proc_stat(run.get("pid", 0))
             pane = next((p for p, g in foreground.items() if stat[2:3] == [g]), None)
             if pane:
                 harness = run.get("harness")  # an account per agent that has them
-                found.setdefault(pane, []).append({"harness": harness, "session_id": sid, **(
-                    {"account": _account(run)} if harness in ENV else {})})
+                found.setdefault(pane, []).append(((run["pid"], stat[19:20]), {
+                    "harness": harness, "session_id": sid,
+                    **({"account": _account(run)} if harness in ENV else {})}))
         out, keep = {}, {}
         for pane, group in foreground.items():
-            last = self._bound[pane][1] if self._bound.get(pane, ("",))[0] == group else None
-            if len(found.get(pane, ())) == 1:
-                out[pane] = found[pane][0]
+            if len(found.get(pane, ())) > 1:
+                continue  # several: unbound, and nothing cached carries past them
+            # The cached binding holds only while its own client, the same process by pid
+            # and start time, is still the pane's foreground.
+            client, last = self._bound.get(pane, ((0, []), None))
+            stat = tmux.proc_stat(client[0])
+            if not client[1] or stat[19:20] != client[1] or stat[2:3] != [group]:
+                last = None
+            if pane in found:
+                (client, out[pane]), = found[pane]
             elif last and (unknown is None or last["harness"] in unknown):
                 out[pane] = last
             binding = out.get(pane, last)
-            if binding and binding["harness"] == "codex":  # a footer hidden for a tick
-                keep[pane] = group, binding  # mustn't lose the client it would name
-            if binding and (shown := _shown_thread(binding, screens.get(pane), group)):
+            if binding and (shown := _shown_thread(binding, screens.get(pane), client[1])):
                 out[pane] = {**binding, "session_id": shown}
-        self._bound = keep | {p: (foreground[p], b) for p, b in out.items()}
+            # A Codex footer hidden for a tick mustn't lose the client it would name.
+            if pane in out or (binding and binding["harness"] == "codex"):
+                keep[pane] = client, out.get(pane, binding)
+        self._bound = keep
         return out
 
 
-def _shown_thread(binding: dict, hist: list[dict] | None, group: str) -> str | None:
+def _shown_thread(binding: dict, hist: list[dict] | None, start: list[str]) -> str | None:
     """The thread a Codex pane's latest status bar shows, read as the account it runs on
-    configures that bar, or None. Only a capture taken since the foreground process
-    started counts: an older one (a failed capture keeps it) may be a previous client's."""
+    configures that bar, or None. Only a capture taken since its client started counts:
+    an older one (a failed capture keeps it) may be a previous client's."""
     account = binding.get("account") if binding["harness"] == "codex" else None
-    stat = tmux.proc_stat(group)
-    if not (account and hist and len(stat) > 19 and hist[-1]["ts"] >= tmux.started_at(stat[19])):
+    if not (account and hist and start and hist[-1]["ts"] >= tmux.started_at(start[0])):
         return None
     return codex_thread_shown(codex_status_line(Path(account)), hist[-1]["text"] or "")
 

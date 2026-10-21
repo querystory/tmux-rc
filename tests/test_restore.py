@@ -196,6 +196,15 @@ def test_binding_follows_the_foreground_agent(server, tmp_path, monkeypatch):
     # A menu hides the footer for a tick: unbound then, bound again once it is back.
     assert recorder._bindings(pids, {}) == {}
     assert recorder._bindings(pids, bar) == {pane: {**front, "session_id": shown}}
+    # Two sessions in the foreground: unbound, footer or not.
+    live = {"sessions": {"front": sessions["front"], "other": sessions["front"]}, "unknown": []}
+    assert recorder._bindings(pids, bar) == {}
+    # Another client by the same pid (another start time) inherits nothing cached.
+    live = {"sessions": {"front": sessions["front"]}, "unknown": []}
+    assert recorder._bindings(pids, bar) == {pane: {**front, "session_id": shown}}
+    recorder._bound[pane] = (sessions["front"]["pid"], ["1"]), recorder._bound[pane][1]
+    live = {"sessions": {}, "unknown": []}
+    assert recorder._bindings(pids, bar) == {}
     tmux("send-keys", "-t", pane, "C-c", "")
 
 
