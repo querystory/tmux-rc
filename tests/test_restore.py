@@ -179,12 +179,15 @@ def test_binding_follows_the_foreground_agent(server, tmp_path, monkeypatch):
     # it is on now, which wins over its command line, but only at session-id's place: a
     # UUID-shaped branch on a bar that doesn't show the id is no thread.
     shown = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
-    bar = {pane: [{"text": f"› \n  gpt-5.5 high · ~/src/example-org/api · {shown}\n"}]}
+    bar = {pane: [{"text": f"› \n  gpt-5.5 high · ~/src/example-org/api · {shown}\n",
+                   "ts": time.time()}]}
     (codex / "config.toml").write_text('[tui]\nstatus_line = ["model", "current-dir", '
                                        '"git-branch"]\n')
     assert recorder._bindings(pids, bar) == {pane: front}
     (codex / "config.toml").write_text('[tui]\nstatus_line = ["model", "current-dir", '
                                        '"session-id"]\n')
+    # A capture from before this client started may be a previous client's footer.
+    assert recorder._bindings(pids, {pane: [{**bar[pane][0], "ts": 0}]}) == {pane: front}
     assert recorder._bindings(pids, bar) == {pane: {**front, "session_id": shown}}
     # The daemon lets "front" go, so nothing lists this client any more; its bar still
     # says which thread it shows.

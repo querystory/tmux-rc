@@ -157,18 +157,21 @@ class Recorder:
             elif last and (unknown is None or last["harness"] in unknown):
                 out[pane] = last
             binding = out.get(pane, last)
-            if binding and (shown := _shown_thread(binding, screens.get(pane))):
+            if binding and (shown := _shown_thread(binding, screens.get(pane), group)):
                 out[pane] = {**binding, "session_id": shown}
         self._bound = {p: (foreground[p], b) for p, b in out.items()}
         return out
 
 
-def _shown_thread(binding: dict, hist: list[dict] | None) -> str | None:
+def _shown_thread(binding: dict, hist: list[dict] | None, group: str) -> str | None:
     """The thread a Codex pane's latest status bar shows, read as the account it runs on
-    configures that bar, or None."""
+    configures that bar, or None. Only a capture taken since the foreground process
+    started counts: an older one (a failed capture keeps it) may be a previous client's."""
     account = binding.get("account") if binding["harness"] == "codex" else None
-    return codex_thread_shown(codex_status_line(Path(account)), hist[-1]["text"] or "") \
-        if account and hist else None
+    stat = tmux.proc_stat(group)
+    if not (account and hist and len(stat) > 19 and hist[-1]["ts"] >= tmux.started_at(stat[19])):
+        return None
+    return codex_thread_shown(codex_status_line(Path(account)), hist[-1]["text"] or "")
 
 
 def _account(run: dict) -> str | None:
