@@ -1465,6 +1465,15 @@ def test_a_sent_offer_is_spent():
     asked = classify(_pane("claude"), dialog, _llm({"tool": "claude", "activity": "waiting",
                                                     "question": menu}))
     assert (asked["activity"], asked["question"]["prompt"]) == ("waiting", menu["prompt"])
+    # The input box's unsent draft is not sent: a "!" one spends nothing, and a ❯ one
+    # typed after the send brings nothing back.
+    rule = "\n" + "─" * 40 + "\n"
+    boxed = handed.replace("\n\n❯\n", rule + "! make deploy" + rule)
+    assert classify(_pane("claude"), boxed, _llm({"tool": "claude", "offers": [
+        "! make deploy"]}))["offers"] == ["! make deploy"]
+    drafted = sent.replace("\n\n❯\n", rule + "❯ check the result" + rule)
+    assert "offers" not in classify(_pane("claude"), drafted, _llm({"tool": "claude", "offers": [
+        "! make deploy"]}))
     # Not yet sent, with no duration stamp to end the turn: the offer stands.
     unstamped = handed.replace("✻ Baked for 16s\n", "")
     assert classify(_pane("claude"), unstamped, _llm({"tool": "claude", "offers": [

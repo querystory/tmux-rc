@@ -97,6 +97,21 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Claude Code's bash mode echoes a command typed after "!" (no prompt glyph) and runs it
 # without starting a turn, so below a finished turn it is the user acting on that turn.
 _BASH_ROW_RE = re.compile(r"^[ \t│]*! +\S", re.MULTILINE)
+# Claude's input box: its top rule, then its prompt row (❯, or "!" in bash mode).
+_INPUT_BOX_RE = re.compile(r"^[ \t]*[─━]{3,}.*\n[ \t│]*[❯!]", re.MULTILINE)
+
+
+def _spent(visible: str, turn: re.Match | None) -> bool:
+    """Whether a command run in bash mode below Claude's finished turn spent what that turn
+    asked or offered (a sent offer above all), however the command is doing. Not once a ❯
+    row with text follows (a newer prompt, or a dialog's cursor row); the input box's
+    unsent draft is neither."""
+    if not turn or turn["live"]:
+        return False
+    after = visible[turn.end():]
+    *_, box = [None, *_INPUT_BOX_RE.finditer(after)]
+    after = after[:box.start()] if box else after
+    return bool(_BASH_ROW_RE.search(after)) and not _USER_ROW_RE.search(after)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
@@ -1291,11 +1306,7 @@ def classify(
         result.pop("parse_ok", None)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
-    # A command run in bash mode below the finished turn spends what that turn asked or
-    # offered (a sent offer above all), however the command is doing: the turn stays over.
-    # Not once a ❯ row with text follows (a newer prompt, or a dialog's cursor row).
-    spent = result.get("tool") == "claude" and turn and not turn["live"] and \
-        _BASH_ROW_RE.search(visible, turn.end()) and not _USER_ROW_RE.search(visible, turn.end())
+    spent = result.get("tool") == "claude" and _spent(visible, turn)
     if spent:
         result["activity"] = "idle"
         result.pop("question", None)
