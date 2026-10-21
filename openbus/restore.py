@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import accounts, agent_history, plan_usage, tmux
-from .expunge import _ID, codex_status_segments
+from .expunge import codex_status_line, codex_thread_shown
 from .history import AGENT_TOOLS
 from .plan_usage import ENV
 
@@ -130,9 +130,10 @@ class Recorder:
         none or several, and the pane stays unbound rather than guessed. When agent-history
         can't tell, a pane whose foreground hasn't changed keeps its last binding.
 
-        A Codex pane names on its command line the thread it was resumed with, which it
-        keeps naming after /new; the thread it shows now is on its status bar (with
-        `session-id` configured), so that wins when the bar names exactly one."""
+        A Codex client names on its command line the thread it was resumed with, even
+        after /new, and is listed only while the daemon holds that thread; the thread it
+        shows now is on its status bar (with `session-id` configured), so where the bar
+        names one, that wins, and keeps an unchanged foreground bound."""
         foreground = {}
         for pane, pid in pane_pids.items():
             stat = tmux.proc_stat(pid)
@@ -150,24 +151,24 @@ class Recorder:
                     {"account": _account(run)} if harness in ENV else {})})
         out = {}
         for pane, group in foreground.items():
+            last = self._bound[pane][1] if self._bound.get(pane, ("",))[0] == group else None
             if len(found.get(pane, ())) == 1:
                 out[pane] = found[pane][0]
-            elif pane in self._bound and self._bound[pane][0] == group and (
-                    unknown is None or self._bound[pane][1]["harness"] in unknown):
-                out[pane] = self._bound[pane][1]
-            if pane in out and out[pane]["harness"] == "codex" and (
-                    shown := _shown_thread(screens.get(pane))):
-                out[pane] = {**out[pane], "session_id": shown}
+            elif last and (unknown is None or last["harness"] in unknown):
+                out[pane] = last
+            binding = out.get(pane, last)
+            if binding and (shown := _shown_thread(binding, screens.get(pane))):
+                out[pane] = {**binding, "session_id": shown}
         self._bound = {p: (foreground[p], b) for p, b in out.items()}
         return out
 
 
-def _shown_thread(hist: list[dict] | None) -> str | None:
-    """The one thread id on a Codex pane's latest status bar: none or several (a branch can
-    look like one), and the command line's stands."""
-    ids = {s for s in codex_status_segments(hist[-1]["text"] or "") if _ID.fullmatch(s)} \
-        if hist else set()
-    return ids.pop() if len(ids) == 1 else None
+def _shown_thread(binding: dict, hist: list[dict] | None) -> str | None:
+    """The thread a Codex pane's latest status bar shows, read as the account it runs on
+    configures that bar, or None."""
+    account = binding.get("account") if binding["harness"] == "codex" else None
+    return codex_thread_shown(codex_status_line(Path(account)), hist[-1]["text"] or "") \
+        if account and hist else None
 
 
 def _account(run: dict) -> str | None:
