@@ -97,7 +97,7 @@ export function fleetGraph(box, mini, ctx) {
       });
       const pn = paneNode(p);
       pn.up = up; pn.children = []; up.children.push(pn); nodes.push(pn);
-      subNodes(pn).forEach(s => { s.up = pn; nodes.push(s); });
+      (pn.subs = subNodes(pn)).forEach(s => { s.up = pn; nodes.push(s); }); // kept: layout and draw read them, never rebuild them
     }
     // Worktree lens: a checkout with two agents busy in it is where edits collide.
     for (const g of groups.values()) {
@@ -129,7 +129,7 @@ export function fleetGraph(box, mini, ctx) {
     const place = (n, d) => {
       const a = ang(n.slot), r = n.kind === 'root' ? 0 : n.kind === 'pane' ? RL : RL * d / (D + 0.6);
       Object.assign(n, { tx: r * Math.cos(a) * ax, ty: r * Math.sin(a) * ay, out: a });
-      if (n.kind === 'pane') subNodes(n).forEach((x, m, all) => { const c = a + (m - (all.length - 1) / 2) * 0.55, d = n.r + x.r + 26; Object.assign(x, { tx: n.tx + d * Math.cos(c), ty: n.ty + d * Math.sin(c), out: c }); });
+      if (n.kind === 'pane') n.subs.forEach((x, m, all) => { const c = a + (m - (all.length - 1) / 2) * 0.55, d = n.r + x.r + 26; Object.assign(x, { tx: n.tx + d * Math.cos(c), ty: n.ty + d * Math.sin(c), out: c }); });
       if (!collapsed.has(n.id)) (n.children || []).forEach(c => place(c, d + 1));
     };
     place(root, 0);
@@ -142,7 +142,7 @@ export function fleetGraph(box, mini, ctx) {
     const s = new Set([n.id]), down = x => (x.children || []).forEach(c => { s.add(c.id); down(c); });
     model.edges.forEach(e => { if (e.a === n) s.add(e.b.id); if (e.b === n) s.add(e.a.id); });
     if (n.kind === 'group') down(n);
-    if (n.kind === 'pane') subNodes(n).forEach(x => s.add(x.id));
+    if (n.kind === 'pane') n.subs.forEach(x => s.add(x.id));
     return s;
   }
 
@@ -399,7 +399,7 @@ export function fleetGraph(box, mini, ctx) {
     const head = (k > 1.25 || close) && (s === 0 ? p.question?.prompt : paneHeadline(p));
     if (head) lines.push([cut(head, k > 2 ? 54 : 34), C.muted, 9.5, 400]);
     if (k > 2) lines.push([[p.model, p.context_pct != null && `ctx ${p.context_pct}%`, p.working?.tokens, s === 2 && `idle ${since(p)}`, p.cost, acc?.name].filter(Boolean).join(' · '), C.muted, 9, 400]);
-    const sat = subNodes(n).reduce((m, x) => Math.max(m, n.r + 3 * rad(x) + 26), 0); // past its satellites, which sit the same way out
+    const sat = n.subs.reduce((m, x) => Math.max(m, n.r + 3 * rad(x) + 26), 0); // past its satellites, which sit the same way out
     outward(n, Math.max(r + (acc ? 10 : 7) / k, sat), close ? 0 : s === 0 ? 1 : on ? 4 : 5, A, lines);
   }
   // Frames run while something moves and the canvas is on screen; a hidden page costs nothing.
