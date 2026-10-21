@@ -284,7 +284,7 @@ class _Fleet(_Watcher):
 @pytest.mark.parametrize(("name", "pane_id"), [
     ("team inbox merge", "%10"),       # a stray word: "inbox" alone must not win
     ("acme linux OMP session", "%12"),  # "acme linux" is "acmelinux"; one tool word loses
-    ("window 25 slack", "%10"),        # the number filters, the words choose
+    ("window 25 team", "%10"),         # the number filters, the words choose
     ("window 25 auth", "%16"),
     ("café 認証", "%15"),             # names are not only ASCII
     ("cafe\u0301 認証", "%15"),       # nor in one Unicode form
