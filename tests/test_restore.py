@@ -193,6 +193,9 @@ def test_binding_follows_the_foreground_agent(server, tmp_path, monkeypatch):
     # says which thread it shows.
     live = {"sessions": {}, "unknown": []}
     assert recorder._bindings(pids, bar) == {pane: {**front, "session_id": shown}}
+    # A menu hides the footer for a tick: unbound then, bound again once it is back.
+    assert recorder._bindings(pids, {}) == {}
+    assert recorder._bindings(pids, bar) == {pane: {**front, "session_id": shown}}
     tmux("send-keys", "-t", pane, "C-c", "")
 
 

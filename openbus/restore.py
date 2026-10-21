@@ -149,7 +149,7 @@ class Recorder:
                 harness = run.get("harness")  # an account per agent that has them
                 found.setdefault(pane, []).append({"harness": harness, "session_id": sid, **(
                     {"account": _account(run)} if harness in ENV else {})})
-        out = {}
+        out, keep = {}, {}
         for pane, group in foreground.items():
             last = self._bound[pane][1] if self._bound.get(pane, ("",))[0] == group else None
             if len(found.get(pane, ())) == 1:
@@ -157,9 +157,11 @@ class Recorder:
             elif last and (unknown is None or last["harness"] in unknown):
                 out[pane] = last
             binding = out.get(pane, last)
+            if binding and binding["harness"] == "codex":  # a footer hidden for a tick
+                keep[pane] = group, binding  # mustn't lose the client it would name
             if binding and (shown := _shown_thread(binding, screens.get(pane), group)):
                 out[pane] = {**binding, "session_id": shown}
-        self._bound = {p: (foreground[p], b) for p, b in out.items()}
+        self._bound = keep | {p: (foreground[p], b) for p, b in out.items()}
         return out
 
 
