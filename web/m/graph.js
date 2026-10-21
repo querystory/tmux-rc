@@ -191,7 +191,7 @@ export function fleetGraph(box, mini, ctx) {
   function draw(now = performance.now()) {
     if (!model || !W || !box.isConnected) return; // a view off the page has no palette to read
     const t0 = performance.now();
-    if (theme !== document.documentElement.className || !C.fg) { // an empty palette (read off the page) is read again theme = document.documentElement.className; C = colors(box); sprites.clear(); }
+    if (theme !== document.documentElement.className || !C?.fg) { theme = document.documentElement.className; C = colors(box); sprites.clear(); } // an empty palette is read again
     if (anim) { // a lens change, a fold, a new pane or a jump: everything glides from where it was
       const t = Math.max(0, Math.min(1, (now - anim.t0) / anim.dur)), e = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
       model.nodes.forEach(n => { n.x = n.fx + (n.tx - n.fx) * e; n.y = n.fy + (n.ty - n.fy) * e; n.alpha = n.fresh ? e : 1; });
@@ -228,7 +228,7 @@ export function fleetGraph(box, mini, ctx) {
         if (w > R - 6) { l[0] = cut(l[0], Math.floor(l[0].length * (R - 6) / w)); w = R - 6; }
         bw = Math.max(bw, w); bh += l[2] + 3;
       }
-      if (fx != null && (align === 'left' ? R - bw < ns : align === 'right' && 6 + bw > ns)) { // slid in, it would cover its node x = fx; sx = x * k + view.x; align = align === 'left' ? 'right' : 'left'; }
+      if (fx != null && (align === 'left' ? R - bw < ns : align === 'right' && 6 + bw > ns)) { x = fx; sx = x * k + view.x; align = align === 'left' ? 'right' : 'left'; } // slid in, it would cover its node
       let L = align === 'center' ? sx - bw / 2 : align === 'left' ? sx : sx - bw;
       const T = vb === 'top' ? sy : vb === 'bottom' ? sy - bh : sy - bh / 2, dx = ns > 0 && ns < W ? Math.max(6, Math.min(R - bw, L)) - L : 0;
       L += dx;
