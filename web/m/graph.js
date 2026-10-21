@@ -34,9 +34,9 @@ const el = (tag, cls = '', html = '') => Object.assign(document.createElement(ta
 const agent = p => p.tool && p.tool !== 'shell';
 // Every sub-agent not finished or idle, waiting ones too (the sidebar lists only the busy):
 // a parent waiting on six background agents should show six. `agents` is the backend's busy
-// count, which can exceed the rows listed. A satellite takes its state's colour.
+// count, which can exceed the busy rows listed: the shortfall is busy workers off the roster. A satellite takes its state's colour.
 const subsList = p => agent(p) ? records(p.subagents).filter(a => !['done', 'idle'].includes(a.state)) : [];
-const subCount = p => agent(p) ? Math.max(Number(p.agents) || 0, subsList(p).length) : 0;
+const subCount = p => { const l = subsList(p), busy = l.filter(a => a.state === 'running' || a.state === 'compacting').length; return agent(p) ? l.length + Math.max(0, (Number(p.agents) || 0) - busy) : 0; };
 const subsOf = p => Math.min(MAX_SUBS, subCount(p));
 const subState = a => a ? { running: 1, compacting: 4, waiting: 5 }[a.state] ?? 3 : 1; // one counted, not listed, is a busy one
 // A path segment is its label, or [identity, label] where two hubs could share a label: two
@@ -228,9 +228,10 @@ export function fleetGraph(box, mini, ctx) {
         if (w > R - 6) { l[0] = cut(l[0], Math.floor(l[0].length * (R - 6) / w)); w = R - 6; }
         bw = Math.max(bw, w); bh += l[2] + 3;
       }
-      if (fx != null && (align === 'left' ? R - bw < ns : align === 'right' && 6 + bw > ns)) { x = fx; sx = x * k + view.x; align = align === 'left' ? 'right' : 'left'; } // slid in, it would cover its node
+      const on = ns > 0 && ns < W && sy > R0.top && sy < R0.top + R0.h; // its node is in view, not off the canvas or under the HUD
+      if (on && fx != null && (align === 'left' ? R - bw < ns : align === 'right' && 6 + bw > ns)) { x = fx; sx = x * k + view.x; align = align === 'left' ? 'right' : 'left'; } // slid in, it would cover its node
       let L = align === 'center' ? sx - bw / 2 : align === 'left' ? sx : sx - bw;
-      const T = vb === 'top' ? sy : vb === 'bottom' ? sy - bh : sy - bh / 2, dx = ns > 0 && ns < W ? Math.max(6, Math.min(R - bw, L)) - L : 0;
+      const T0 = vb === 'top' ? sy : vb === 'bottom' ? sy - bh : sy - bh / 2, T = on ? Math.max(R0.top, Math.min(R0.top + R0.h - bh, T0)) : T0, dx = on ? Math.max(6, Math.min(R - bw, L)) - L : 0;
       L += dx;
       if (!force && taken.some(b => L < b[2] + 4 && L + bw + 4 > b[0] && T < b[3] + 2 && T + bh + 2 > b[1])) return;
       taken.push([L, T, L + bw, T + bh]);
