@@ -18,7 +18,7 @@ const TOOLS = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode', omp: 'om
 const K_MIN = 0.05; // the farthest zoom out, Fit's and the user's alike
 const MAX_SUBS = 8; // satellites drawn per pane; the popover still counts them all
 const motion = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
-const phone = () => matchMedia('(max-width: 699px)').matches;
+const phone = () => matchMedia('(max-width: 699px), (max-height: 500px)').matches; // a phone in landscape too, as style.css
 const busy = s => s === 1 || s === 4 || s === 5;
 const frac = x => x - Math.floor(x), hash = i => frac(Math.sin(i * 127.1 + 311.7) * 43758.5453);
 const costOf = p => (String(p.cost || '').match(/\d[\d,]*(\.\d+)?/g) || []).reduce((t, x) => t + parseFloat(x.replace(/,/g, '')), 0); // "$0.09 (+$0.18) (sub)" is $0.27
@@ -56,7 +56,7 @@ const PATHS = {
 function colors(box) {
   const cs = getComputedStyle(box), v = n => cs.getPropertyValue(n).trim();
   return { s: [0, 1, 2, 3, 4, 5].map(i => v(`--chart-s${i}`)), acct: [0, 1, 2, 3, 4, 5].map(i => v(`--acct-${i}`)), fg: v('--fg'), muted: v('--muted'), line: v('--line'),
-    surface: v('--surface'), amber: v('--amber'), font: v('--mono'), dark: v('color-scheme') !== 'light' };
+    surface: v('--surface'), amber: v('--amber'), accent: v('--accent'), font: v('--mono'), dark: v('color-scheme') !== 'light' }; // amber, accent: state colours safe for text
 }
 // Idle reads as a quiet grey ring, not the chart's near-invisible idle fill.
 const ring = (C, s) => s === 2 || s === 3 ? C.muted : C.s[s];
@@ -287,14 +287,14 @@ export function fleetGraph(box, mini, ctx) {
     // What each running pane is doing, along its edge, where the edge has room (the popover says it either way).
     dc.globalCompositeOperation = 'source-over';
     for (const [c, b] of verbs) {
-      const p = b.p, s = stateOf_(b), w = p.working, text = s === 0 ? 'needs you' : w?.verb ? `${w.verb} · ${w.elapsed}` : cut(p.status_line || p.headline, 30);
+      const p = b.p, s = stateOf_(b), w = p.working, text = s === 0 ? 'needs you' : w?.verb ? [w.verb, w.elapsed].filter(Boolean).join(' · ') : cut(p.status_line || p.headline, 30);
       dc.font = `500 ${9 / k}px ${C.font}`;
       if (!text || Math.hypot(c[6] - c[0], c[7] - c[1]) * 0.8 < dc.measureText(text).width + 30 / k) continue;
       bz(c, 0.55); let ang = Math.atan2(NX, -NY); if (Math.cos(ang) < 0) ang += Math.PI;
       const ex = PX * k + view.x - R0.left, ey = PY * k + view.y - R0.top;
       if (ex < 0 || ey < 0 || ex > R0.w || ey > R0.h) continue; // not under the HUD
       dc.save(); dc.translate(PX, PY); dc.rotate(ang); dc.globalAlpha = 0.9;
-      label(text, 0, -5 / k, 'center', C.s[s === 0 ? 0 : 1], 9, 500, 'bottom', 0.3);
+      label(text, 0, -5 / k, 'center', s === 0 ? C.amber : C.accent, 9, 500, 'bottom', 0.3);
       dc.restore();
     }
 
@@ -329,7 +329,7 @@ export function fleetGraph(box, mini, ctx) {
         if (n.depth === 1) { // its name, and what it adds up to
           const cost = n.panes.reduce((t, p) => t + costOf(p), 0);
           tag(2, A, [[String(n.label).toUpperCase(), C.fg, mini ? 9.5 : 11, 600, 2]], n.x, n.y + r + 8 / k, 'center', 'top');
-          const sums = [nd && `${nd} need you`, bn && `${bn} running`, cost && `$${cost.toFixed(2)}`].filter(Boolean), line = t => [[t, nd ? C.s[0] : C.muted, 9.5, 400]];
+          const sums = [nd && `${nd} need you`, bn && `${bn} running`, cost && `$${cost.toFixed(2)}`].filter(Boolean), line = t => [[t, nd ? C.amber : C.muted, 9.5, 400]];
           if (!mini) { tag(nd ? 2.5 : 3, A, line(sums.join(' · ') || `${tot} idle`), n.x, n.y + r + 25 / k, 'center', 'top'); if (sums.length > 1) tags.at(-1).push(line(sums[0])); }
         } else if (!mini) tag(n.warn ? 1 : 3, A, [[n.label + (n.warn ? ' · 2 agents busy' : ''), n.warn ? C.amber : C.muted, 10, 400, 0.5]], n.x, n.y + r + (n.warn ? 9 : 6) / k, 'center', 'top');
       } else if (n.kind === 'pane') {
@@ -370,7 +370,7 @@ export function fleetGraph(box, mini, ctx) {
     if (subs) {
       const bx = n.x + r * 0.78, by = n.y - r * 0.78;
       dc.globalAlpha = A; dc.fillStyle = C.s[1]; disc(bx, by, 6.5 / k); dc.fill(); dc.strokeStyle = C.surface; dc.lineWidth = 1.5 / k; dc.stroke();
-      dc.font = `700 ${8.5 / k}px ${C.font}`; dc.textAlign = 'center'; dc.textBaseline = 'middle'; dc.fillStyle = C.surface; dc.fillText(String(subs), bx, by + 0.5 / k);
+      dc.font = `700 ${8.5 / k}px ${C.font}`; dc.textAlign = 'center'; dc.textBaseline = 'middle'; dc.fillStyle = C.dark ? C.surface : C.fg; dc.fillText(String(subs), bx, by + 0.5 / k);
     }
     return acc;
   }
@@ -381,7 +381,7 @@ export function fleetGraph(box, mini, ctx) {
     const p = n.p, k = view.k, close = n === hover || n === sel, ux = Math.cos(n.out || 0), uy = Math.sin(n.out || 0);
     if (!(close || s === 0 || k > 1.3 || (k > 0.3 && on))) return;
     const lines = [[paneName(p), on ? C.fg : C.muted, 10.5, on ? 600 : 400]];
-    if (s === 0 || s === 5) lines.push([`waiting ${since(p) || 'now'}`, s === 0 ? C.s[0] : C.muted, 9.5, 600]);
+    if (s === 0 || s === 5) lines.push([`waiting ${since(p) || 'now'}`, s === 0 ? C.amber : C.muted, 9.5, 600]);
     const head = (k > 1.25 || close) && (s === 0 ? p.question?.prompt : paneHeadline(p));
     if (head) lines.push([cut(head, k > 2 ? 54 : 34), C.muted, 9.5, 400]);
     if (k > 2) lines.push([[p.model, p.context_pct != null && `ctx ${p.context_pct}%`, p.working?.tokens, s === 2 && `idle ${since(p)}`, p.cost, acc?.name].filter(Boolean).join(' · '), C.muted, 9, 400]);
