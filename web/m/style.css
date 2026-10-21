@@ -1527,7 +1527,7 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-view.full .fg-box { border: 0; border-radius: 0; }
 /* The dark canvas: the observatory's navy under the graph whatever the app's theme, with the
    app's dark state colours, so amber still means needs you. */
-.fg-dark :is(.fg-view, .fg-mini) { color-scheme: dark; --surface: #070c18; --line: #1f2a44; --fg: #dfe5f0; --muted: #7d89a6; --amber: #f1c56a; --accent: #83ddb3; --accent-bg: #193c2c; --bg: #03060d;
+.fg-dark :is(.fg-view, .fg-mini) { color-scheme: dark; --surface: #070c18; --raised: #141c30; --line: #1f2a44; --fg: #dfe5f0; --muted: #7d89a6; --amber: #f1c56a; --accent: #83ddb3; --accent-bg: #193c2c; --bg: #03060d;
   --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5;
   --acct-0: #5eead4; --acct-1: #c4b5fd; --acct-2: #a8b3c4; --acct-3: #fcd34d; --acct-4: #7dd3fc; --acct-5: #fda4af; }
 .fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
