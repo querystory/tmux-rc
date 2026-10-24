@@ -251,7 +251,7 @@ executor). What carried over, adapted:
 - **Proactive audio** (`proactivity.proactive_audio=true`) lets the model decide not to
   respond — required for the noise rules to actually work rather than the model
   answering every sound. It is a per-entry flag, not a constant: Gemini 3.1 Flash Live
-  rejects the setup field outright (found the hard way in the qs-app prototype).
+  rejects the setup field outright (found the hard way in an earlier prototype).
 
 ## Alternatives considered
 
@@ -351,7 +351,7 @@ a small amount of deliberate structure:
 - **What "context without a reply" means on each wire.** Gemini: a client-content turn
   with `turn_complete=False`. OpenAI: a *system*-role conversation item with no
   `response.create` — system rather than user role so a state refresh can never be
-  mistaken for the user speaking (the qs-app prototype saw user-role injections re-trigger
+  mistaken for the user speaking (an earlier prototype saw user-role injections re-trigger
   actions). OpenAI also does not continue a turn after a tool result on its own; the
   adapter asks for the follow-up, deferring until the current response has finished
   because asking mid-response is a protocol error.
@@ -485,13 +485,13 @@ and the client clicks the button it adds, which stays for getting back. The resu
 the model the user is already there, so it offers no second button.
 
 The model names the window and the daemon finds it. Left to pick a pane id itself, the
-model twice opened the wrong window: "take me to the slack inbox merge" (a voice slip for
+model twice opened the wrong window: "take me to the team inbox merge" (a voice slip for
 "pane") went to past-session search, whose top hits matched all three words, and opened
-the pane running one of them rather than the window titled "slack inbox"; "the QS linux
+the pane running one of them rather than the window titled "team inbox"; "the acme linux
 OMP session" read the tool column and chose an idle omp pane. So `open_pane` takes the
 user's words and scores each live pane by the words its title, label, tool and working
-directory's name hold whole (two adjacent words may also match run together, for "qslinux");
-the directory counts because a repo name is how people say "the sales kit session", and
+directory's name hold whole (two adjacent words may also match run together, for "acmelinux");
+the directory counts because a repo name is how people say "the press kit session", and
 only one of three windows in that repo happened to carry it in its title; a "window N" first
 narrows to panes with that number, so a 25 in some other title never competes. A pane opens only
 when it alone tops the scores with most of the words; otherwise the closest few each get a
@@ -505,11 +505,11 @@ id: a wrong Open costs a tap back, a wrong prompt costs work, and the id is chec
 card or announced aloud.
 
 A consent card that targets a pane carries the same button, because the card is where a
-wrong target gets caught: asked for "the QS linux OMP session", the model picked an omp
-pane idle for two days over the window titled "qslinux codex installation", and the card
+wrong target gets caught: asked for "the acme linux OMP session", the model picked an omp
+pane idle for two days over the window titled "acmelinux codex installation", and the card
 named it only by its tmux address, so nothing on it said which window that was. The card
-now names the pane as the list row does (title, tool and session chip, "qs-app · codex in
-qs-app"), and Open lets the user look before answering. It used to lead with the window
+now names the pane as the list row does (title, tool and session chip, "example-app · codex in
+example-app"), and Open lets the user look before answering. It used to lead with the window
 number and append the tmux address, but the phone shows the number only in a row's small
 print and the address nowhere, so leading with them read as jargon on the one surface
 where the user must recognise the target; the address now goes only to the audit record. The window number comes back only to tell two otherwise

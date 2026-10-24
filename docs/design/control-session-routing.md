@@ -45,7 +45,7 @@ fast model reading the directory sends direct only when exactly one target match
 workstream identity (below), not on a self-reported confidence score; the target is an
 agent pane, not a shell, where text executes; and the message is plain text (Live Mode's
 `type_in_pane`) asking for nothing destructive or outward-facing, such as a push or a
-delete ("tell the qs-app review pane to add a test for that"). Key presses, window
+delete ("tell the example-app review pane to add a test for that"). Key presses, window
 creation, resumes and anything doubtful go to control, which asks the user for risky
 actions per the control plane's risk tiers.
 
@@ -130,7 +130,7 @@ that is a convention the standing instructions set, not an isolation boundary.
 
 ## Optional session leads
 
-A tmux session may have a **lead**: a long-lived pane (say, a qs-app lead) that holds
+A tmux session may have a **lead**: a long-lived pane (say, an example-app lead) that holds
 that project's context and takes requests for its session. This is a convention, not a
 tier. Routing goes to a session's lead if one exists, and to the leaf pane otherwise.
 

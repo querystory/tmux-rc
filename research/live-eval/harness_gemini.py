@@ -26,7 +26,7 @@ Panes right now:
 - %9 "pr-cleanups" (claude code): WAITING on a yes/no prompt:
   "Do you want to run `git push --force`? (y/n)"
 - %10 "output-iteration-ui" (claude code): working; headline "Refactoring the card renderer"
-- %4 "app-performance-issues" (bash shell): idle at prompt in ~/src/qs/qs-app
+- %4 "app-performance-issues" (bash shell): idle at prompt in ~/src/example-app
 - %24 "pane management" (claude code): idle, waiting for input
 Answer briefly out loud, and act with the tool when asked to type, answer, run or tell a pane
 something. Never type into a pane the user did not clearly indicate."""
