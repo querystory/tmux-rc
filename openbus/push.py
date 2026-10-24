@@ -568,7 +568,9 @@ class PushManager:
         for name in [n for n, at in self._mtimes.items() if (seen or {}).get(n) != at]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
-            fresh = (seen is not None and item and key not in self._done and item["stamped"]
+            if seen is None and item and not item["pending"]:
+                self._done.add(key)  # there at startup: old news, however it changes later
+            fresh = (item and key not in self._done and item["stamped"]
                      and time.time() - item["stamped"] < LANDED_FRESH_SECONDS)
             if item and item["pending"]:
                 self._waiting.add(key)

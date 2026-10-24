@@ -1034,7 +1034,10 @@ def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):
     (root / "fast" / "meta.json").write_text(
         f'{{"title": "Fast", "created": "{made}", "description": "Later."}}')
     service.landed()
-    service._mtimes = None  # a restart
+    service._mtimes, service._done = None, set()  # a restart
+    service.landed()
+    (root / "fast" / "meta.json").write_text(
+        f'{{"title": "Fast", "created": "{made}", "description": "Again."}}')
     service.landed()
     assert [(p["title"], p["tag"]) for p in sender.payloads] == [
         (sender.payloads[0]["title"], "block:%1"),
