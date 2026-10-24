@@ -140,9 +140,24 @@ def _generate(**kwargs):
     return future.result(timeout=_DEADLINE_S)
 
 
-@cache
+_client_lock = threading.Lock()
+
+
 def _client():
-    """Lazily construct the Vertex client once. Cached so we don't rebuild per call."""
+    """The one Vertex client, built on first use and shared by every parse thread.
+
+    The lock is load-bearing: `functools.cache` does not stop concurrent first calls from
+    each running the builder, and it keeps only one result. A burst of parses at startup
+    (a reboot restoring a fleet) built one client per thread, and every client but the
+    cached one was dropped the moment its caller took `.models` from it. `Client.__del__`
+    closes its httpx client, but the `Models` object it handed out lives on mid-request,
+    so those parses failed with "client has been closed"."""
+    with _client_lock:
+        return _build_client()
+
+
+@cache
+def _build_client():
     from google import genai  # noqa: PLC0415 - same ~0.9s import as genai_types
 
     types = genai_types()
