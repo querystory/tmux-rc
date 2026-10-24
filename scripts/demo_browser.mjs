@@ -77,9 +77,10 @@ async function waitUp(url, server) {
 // Font rendering settled by flags, not by whatever fontconfig answers: on a fresh CI runner
 // one shot came out with three text baselines (and an icon aligned to one) a pixel lower
 // than every other render of the same page. Unhinted metrics and grayscale antialiasing
-// leave nothing for that answer to change.
+// leave nothing for that answer to change. Subpixel glyph positioning flips on and off while
+// a page loads, which moved words in the dashboard's word cloud (it lays out by text pixels).
 // The fake media flags give Live Mode's voice a synthetic microphone, with no prompt.
-export const launch = () => chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none",
+export const launch = () => chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none", "--disable-font-subpixel-positioning",
   "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
 
 // A new context per page, so nothing (storage, routes, the clock) leaks between shots. A
