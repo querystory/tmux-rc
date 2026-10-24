@@ -1468,9 +1468,10 @@ def test_a_sent_offer_is_spent():
     # The input box's unsent draft is not sent: a "!" one spends nothing, and a ❯ one
     # typed after the send brings nothing back.
     rule = "\n" + "─" * 40 + "\n"
-    boxed = handed.replace("\n\n❯\n", rule + "! make deploy" + rule)
-    assert classify(_pane("claude"), boxed, _llm({"tool": "claude", "offers": [
-        "! make deploy"]}))["offers"] == ["! make deploy"]
+    framed = handed.replace("\n\n❯\n", f"\n╭{'─' * 40}╮\n│ ! make deploy │\n╰{'─' * 40}╯\n")
+    for boxed in (handed.replace("\n\n❯\n", rule + "! make deploy" + rule), framed):
+        assert classify(_pane("claude"), boxed, _llm({"tool": "claude", "offers": [
+            "! make deploy"]}))["offers"] == ["! make deploy"]
     drafted = sent.replace("\n\n❯\n", rule + "❯ check the result" + rule)
     assert "offers" not in classify(_pane("claude"), drafted, _llm({"tool": "claude", "offers": [
         "! make deploy"]}))
