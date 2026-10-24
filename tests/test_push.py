@@ -4,6 +4,7 @@ import queue
 import shutil
 import subprocess
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -1012,19 +1013,26 @@ def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):
         service.evaluate()
         clock[0] += push.SETTLE_SECONDS
     service.landed()
-    for name, meta in (("fast", '{"title": "Fast", "pane": "%1"}'), ("loose", None),
+    made = datetime.now(UTC).isoformat()
+    for name, meta in (("fast", '{"title": "Fast", "pane": "%1", "created": "'),
+                       ("loose", None), ("described", '{"description": "Generated."}'),
                        ("stale", '{"title": "Stale", "created": "2020-01-01T00:00:00Z"}')):
         (root / name).mkdir()
         if meta:
             (root / name / "meta.json").write_text(meta)
         (root / name / "index.html").write_text("page")
+    service.landed()  # fast's meta.json caught half-written: read again once it is whole
+    (root / "fast" / "meta.json").write_text(
+        f'{{"title": "Fast", "pane": "%1", "created": "{made}"}}')
     sender.available = False  # a full queue: tried again, though no longer fresh by then
     service.landed()
     monkeypatch.setattr(push, "LANDED_FRESH_SECONDS", 0)
     sender.available = True
     service.landed()
     service.landed()
-    (root / "fast" / "meta.json").write_text('{"title": "Fast", "description": "Later."}')
+    monkeypatch.setattr(push, "LANDED_FRESH_SECONDS", 60.0)
+    (root / "fast" / "meta.json").write_text(
+        f'{{"title": "Fast", "created": "{made}", "description": "Later."}}')
     service.landed()
     service._mtimes = None  # a restart
     service.landed()

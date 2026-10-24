@@ -466,6 +466,7 @@ class PushManager:
         self.shoot = shoot  # what queues a landed page's thumbnail (scratch_sidecars.queue)
         self._mtimes: dict[str, tuple] | None = None  # None: not scanned since startup
         self._waiting: set[tuple[str, int]] = set()  # pending folders, (name, inode)
+        self._done: set[tuple[str, int]] = set()  # folders whose "Ready" went out
         self._ready: dict[tuple, float] = {}  # (pane, birth) -> when its "Ready" went out
 
     def start(self) -> None:
@@ -549,29 +550,33 @@ class PushManager:
     def landed(self) -> None:
         """Each tick, read again the scratch folders whose entries, or meta.json, changed
         (all of them at startup); one that was pending (only its meta.json, its page being
-        made) and has its page now sends "Ready" to every device. So does a folder new since
-        the last scan that has both a fresh meta.json and its page: one made faster than a
-        scan was never seen pending, but was promised all the same. A page published in one
-        go, without a meta.json, was never promised and does not notify; nor does any folder
-        already there at startup that was not pending."""
+        made) and has its page now sends "Ready" to every device. So does a page whose
+        meta.json says it was `created` under a minute ago: one made faster than a scan was
+        never seen pending, but was promised all the same (a meta.json tmux-rc generated, or
+        one half-written, says no such thing). A page published in one go was never promised
+        and does not notify; nor does any folder already there at startup that was not
+        pending."""
         now = self.clock()
         if not self.scratch:
             return
         seen, self._mtimes = self._mtimes, {  # a meta.json finished in place: the folder's alone
             e.name: (e.stat(follow_symlinks=False).st_mtime_ns, _mtime(Path(e.path, "meta.json")))
             for e in os.scandir(self.scratch)}
-        self._waiting = {k for k in self._waiting if k[0] in self._mtimes}  # removed: forgotten
+        # Removed: forgotten.
+        self._waiting, self._done = ({k for k in keys if k[0] in self._mtimes}
+                                     for keys in (self._waiting, self._done))
         for name in [n for n, at in self._mtimes.items() if (seen or {}).get(n) != at]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
-            fresh = (seen is not None and name not in seen and self._mtimes[name][1]
-                     and item and time.time() - item["created"] < LANDED_FRESH_SECONDS)
+            fresh = (seen is not None and item and key not in self._done and item["stamped"]
+                     and time.time() - item["stamped"] < LANDED_FRESH_SECONDS)
             if item and item["pending"]:
                 self._waiting.add(key)
             elif (key in self._waiting or fresh) and item["href"].endswith("/"):  # its index
                 if self._ready_push(item, now) or not self.store.subscriptions():
                     self.shoot(item)  # the gallery's spinner polls for it
                     self._waiting.discard(key)
+                    self._done.add(key)  # a later rewrite of its meta.json is not news
                 else:  # a full queue: the next scan tries again, however old it is by then
                     self._waiting.add(key)
                     self._mtimes.pop(name)

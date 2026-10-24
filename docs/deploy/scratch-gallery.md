@@ -100,8 +100,10 @@ crashes, and it survives a daemon restart, since the state is read from the fold
 - **When the page lands** (the daemon looks every ten seconds), every subscribed device gets one push, `Ready: <title>`, whose
   tap opens the page in the app's scratch viewer. A page made faster than that, its
   `meta.json` and page arriving between two looks, was never seen pending but was promised
-  all the same, so it notifies too while its `created` is under a minute old. A page
-  published in one go, with no `meta.json`, was never promised and does not notify, and
+  all the same, so it notifies too while the `created` in its `meta.json` is under a minute
+  old. Only the agent writes `created`, so a `meta.json` tmux-rc generated (a description
+  for a page published in one go) promises nothing, and a half-written one is read again
+  once it is whole. A page published in one go was never promised and does not notify, and
   neither does anything already there when the daemon starts.
 - **The Ready push has a tag of its own**, `scratch:<folder>`. It once shared the pane's
   Needs-you tag, so a finish would buzz once, but iOS replaces a notification with the same
