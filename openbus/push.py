@@ -43,6 +43,7 @@ NONCE_SECONDS = 10 * 60.0
 MAX_PRESENCE_LEASES = 128
 MAX_SUBSCRIPTIONS = 16
 READY_QUIET_SECONDS = 120.0  # after "Ready", a pane's Needs-you without answers says nothing new
+LANDED_FRESH_SECONDS = 60.0  # a promised page that landed between two scans: still news
 DEFAULT_PUSH_HOSTS = (
     "web.push.apple.com",
     "fcm.googleapis.com",
@@ -261,10 +262,13 @@ class PushSender:
             ) as pool:
                 futures = [pool.submit(self._deliver, subscription, payload, private)
                            for subscription in subscriptions]
-                for future in futures:
-                    future.result()  # _deliver contains and logs endpoint-specific errors
+                # _deliver contains and logs endpoint-specific errors; never log an endpoint.
+                sent = sum(future.result() for future in futures)
+            if sent:
+                logger.info("push sent to %d of %d devices: %s %r", sent, len(subscriptions),
+                            payload.get("tag"), payload.get("title"))
 
-    def _deliver(self, subscription: dict, payload: dict, private: str) -> None:
+    def _deliver(self, subscription: dict, payload: dict, private: str) -> bool:
         try:
             # pywebpush mutates this dict with endpoint-specific aud/exp claims,
             # so every endpoint receives the independent copy returned by the store.
@@ -280,6 +284,7 @@ class PushSender:
                 ttl=600,
                 headers={"Urgency": "high"},
             )
+            return True
         except WebPushException as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status in {404, 410}:
@@ -290,6 +295,7 @@ class PushSender:
                 logger.warning("push delivery failed: %s", exc)
         except Exception:
             logger.warning("push delivery failed", exc_info=True)
+        return False
 
 
 def renderable_options(question: dict) -> list[tuple[int, str]]:
@@ -458,7 +464,7 @@ class PushManager:
         self._task: asyncio.Task | None = None
         self.scratch = scratch  # the scratch dir whose pending pages notify as they land
         self.shoot = shoot  # what queues a landed page's thumbnail (scratch_sidecars.queue)
-        self._mtimes: dict[str, float] = {}
+        self._mtimes: dict[str, tuple] | None = None  # None: not scanned since startup
         self._waiting: set[tuple[str, int]] = set()  # pending folders, (name, inode)
         self._ready: dict[tuple, float] = {}  # (pane, birth) -> when its "Ready" went out
 
@@ -543,9 +549,11 @@ class PushManager:
     def landed(self) -> None:
         """Each tick, read again the scratch folders whose entries, or meta.json, changed
         (all of them at startup); one that was pending (only its meta.json, its page being
-        made) and has its page now sends "Ready" to every device, tagged as its pane's
-        Needs-you so the two never stack. A page published in one go was never promised,
-        and does not notify."""
+        made) and has its page now sends "Ready" to every device. So does a folder new since
+        the last scan that has both a fresh meta.json and its page: one made faster than a
+        scan was never seen pending, but was promised all the same. A page published in one
+        go, without a meta.json, was never promised and does not notify; nor does any folder
+        already there at startup that was not pending."""
         now = self.clock()
         if not self.scratch:
             return
@@ -553,12 +561,14 @@ class PushManager:
             e.name: (e.stat(follow_symlinks=False).st_mtime_ns, _mtime(Path(e.path, "meta.json")))
             for e in os.scandir(self.scratch)}
         self._waiting = {k for k in self._waiting if k[0] in self._mtimes}  # removed: forgotten
-        for name in [n for n, at in self._mtimes.items() if seen.get(n) != at]:
+        for name in [n for n, at in self._mtimes.items() if (seen or {}).get(n) != at]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
+            fresh = (seen is not None and name not in seen and self._mtimes[name][1]
+                     and item and time.time() - item["created"] < LANDED_FRESH_SECONDS)
             if item and item["pending"]:
                 self._waiting.add(key)
-            elif key in self._waiting and item["href"].endswith("/"):  # its index, no asset
+            elif (key in self._waiting or fresh) and item["href"].endswith("/"):  # its index
                 if self._ready_push(item, now) or not self.store.subscriptions():
                     self.shoot(item)  # the gallery's spinner polls for it
                     self._waiting.discard(key)
@@ -566,21 +576,17 @@ class PushManager:
                     self._mtimes.pop(name)
 
     def _ready_push(self, item: dict, now: float) -> bool:
-        """Tell every device a pending page has landed. Its pane's Needs-you tag, so a plain
-        Needs-you already shown for that finish is replaced without a second buzz, and one
-        after it is skipped (evaluate); while that pane holds a question with answer buttons,
-        a tag of its own, so they stay."""
+        """Tell every device a pending page has landed, under a tag of its own: a page is news
+        of its own, so it never silently replaces a Needs-you. A plain Needs-you right after
+        it is skipped (evaluate), so one finish still buzzes once."""
         pane = next((s for s in self.watcher.states if s.get("pane_id") == item["pane"]
                      and scratch.made_in(s, item["created"])), None)
-        with self._lock:
-            asking = any(n["pane_id"] == item["pane"] for n in self._nonces.values())
         body = item["description"] or (pane and f"{pane.get('tool')} finished it in "
                                        f"{pane.get('session')}:{pane.get('window_name')}")
         sent = self.sender.send({
             "title": _push_text(f"Ready: {item['title']}", 100),
             "body": _push_text(body or "Its page is ready.", PUSH_BODY_MAX),
-            "tag": f"block:{item['pane']}" if pane and not asking else f"scratch:{item['name']}",
-            "renotify": not any(p == item["pane"] for p, _ in self._notified),
+            "tag": f"scratch:{item['name']}",
             "url": "/m#" + urlencode({"view": "scratch", "open": f"/scratch/{item['href']}"}),
             "actions": []})
         if sent and pane:

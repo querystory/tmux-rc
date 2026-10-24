@@ -956,10 +956,9 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
     sender.available = True
     scan([], 0)
     scan([], 0)
-    assert [(p["title"], p["body"], p["tag"], p["url"], p["renotify"])
-            for p in sender.payloads] == [(
-        "Ready: Mock", "claude finished it in dev:ui", "block:%1",
-        "/m#view=scratch&open=%2Fscratch%2Fwip%2F", True)]
+    assert [(p["title"], p["body"], p["tag"], p["url"]) for p in sender.payloads] == [(
+        "Ready: Mock", "claude finished it in dev:ui", "scratch:wip",
+        "/m#view=scratch&open=%2Fscratch%2Fwip%2F")]
     assert [i["name"] for i in shot] == ["wip"]
     # The turn ends and the pane waits on the user: its plain Needs-you is the same news...
     watcher.states = [waiting()]
@@ -967,7 +966,7 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
         service.evaluate()
         clock[0] += push.SETTLE_SECONDS
     assert len(sender.payloads) == 1
-    # ...but any question still gets through, free text or with answers, under the same tag.
+    # ...but any question still gets through, free text or with answers, under its own tag.
     for question in ({"prompt": "Which name?"}, held()):
         watcher.states = [waiting(question)]
         for _ in range(2):
@@ -979,7 +978,7 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
     (root / "two").mkdir()
     (root / "two" / "meta.json").write_text('{"title": "Two", "pane": "%1"}')
     (root / "two" / "app.css").write_text("")
-    service._mtimes = {}
+    service._mtimes = None
     scan([], 0)
     scan([("two", "index.html")], 300)
     assert sender.payloads[-1]["tag"] == "scratch:two"
@@ -992,6 +991,43 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
         service.evaluate()
         clock[0] += push.SETTLE_SECONDS
     assert sender.payloads[-1]["tag"] == "block:%1" and sender.payloads[-1]["actions"] == []
+
+
+def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):
+    """A meta.json and its page landing inside one scan were never seen pending, but were
+    promised all the same: one Ready, under its own tag, so it buzzes beside the pane's
+    Needs-you instead of silently replacing it. Folders there at startup, stale ones and
+    pages published without a meta.json stay quiet, as does a later rewrite or a restart."""
+    clock, watcher, root = [100.0], Watcher(), tmp_path / "scratch"
+    (root / "old").mkdir(parents=True)  # landed before startup
+    (root / "old" / "meta.json").write_text('{"title": "Old", "pane": "%1"}')
+    (root / "old" / "index.html").write_text("page")
+    service, sender = manager(tmp_path, watcher, clock)
+    service.scratch, shot = root, []
+    service.shoot = shot.append
+    service.store.upsert(subscription())
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    watcher.states = [waiting()]
+    for _ in range(2):
+        service.evaluate()
+        clock[0] += push.SETTLE_SECONDS
+    service.landed()
+    for name, meta in (("fast", '{"title": "Fast", "pane": "%1"}'), ("loose", None),
+                       ("stale", '{"title": "Stale", "created": "2020-01-01T00:00:00Z"}')):
+        (root / name).mkdir()
+        if meta:
+            (root / name / "meta.json").write_text(meta)
+        (root / name / "index.html").write_text("page")
+    service.landed()
+    service.landed()
+    (root / "fast" / "meta.json").write_text('{"title": "Fast", "description": "Later."}')
+    service.landed()
+    service._mtimes = None  # a restart
+    service.landed()
+    assert [(p["title"], p["tag"]) for p in sender.payloads] == [
+        (sender.payloads[0]["title"], "block:%1"),
+        ("Ready: Fast", "scratch:fast")]
+    assert [i["name"] for i in shot] == ["fast"]
 
 
 def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
