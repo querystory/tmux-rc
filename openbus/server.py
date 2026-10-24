@@ -229,6 +229,15 @@ class PushAnswerBody(BaseModel):
     option_index: int = Field(ge=0)
 
 
+class RenameBody(BaseModel):
+    # None leaves that name alone; a pane name of "" gives the pane back its app's title.
+    # Tabs and newlines would split a pane listing's row (tmux._PANE_FMT): refused, not kept.
+    name: str | None = Field(default=None, max_length=200, pattern=r"^[^\t\n\r]*$")
+    session: str | None = Field(default=None, min_length=1, max_length=200,
+                                pattern=r"^[^\t\n\r:.]*[^\s:.][^\t\n\r:.]*$")
+    birth: str = ""
+
+
 class ClickBody(BaseModel):
     frame: str = Field(pattern=r"^[0-9a-f]{32}$")
     from_bottom: int = Field(ge=0)  # lines above the live frame's last line (see tmux.click)
@@ -1730,6 +1739,33 @@ def close_window(pane_id: str, request: Request, birth: str | None = None):
     killed = _kill_window(request, pane_id, "kill_window", pid=birth or None)
     _audit(request, "kill_window", pane_id)
     return {"ok": True, "killed": killed}
+
+
+@app.post("/api/panes/{pane_id}/rename")
+def rename(pane_id: str, body: RenameBody, request: Request):
+    """Rename the pane, its tmux session, or both: names go stale as the work moves on. The
+    pane's name is kept in tmux (tmux.rename_pane), so it outlives a daemon restart. tmux
+    itself refuses ':' and '.' in a session name, which address panes. `birth` refuses a
+    newer pane under the menu's %N."""
+    detail = f"name={body.name!r} session={body.session!r}"[:300]
+    pane = tmux.find_pane(pane_id)
+    if not pane or (body.birth and pane.pid != body.birth):
+        _audit(request, "rename", pane_id, detail, outcome="rejected: the pane changed")
+        raise HTTPException(404 if not pane else 409, "the pane changed")
+    session = body.session and body.session.strip()
+    try:
+        if body.name is not None:
+            tmux.rename_pane(pane.id, body.name.strip())
+        if session and session != pane.session:
+            if session in {p.session for p in tmux.list_panes()}:
+                _refuse(request, "rename", detail, 409, f"there is already a session {session}")
+            tmux.rename_session(pane.session, session)
+    except subprocess.CalledProcessError as e:
+        _audit(request, "rename", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
+        raise _pane_err(e) from None
+    _audit(request, "rename", pane_id, detail)
+    app.state.watcher.request_reparse(pane.id)  # the next tick restamps every pane's names
+    return {"ok": True}
 
 
 def _pane_session(pane_id: str, birth: str, expected: str | None = None):

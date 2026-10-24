@@ -259,6 +259,7 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     s["window_index"] = p.window_index
     s["pane_index"] = getattr(p, "pane_index", "")
     s["window_name"] = p.window_name
+    s["name"] = getattr(p, "name", "")  # the user's own name for it, which `title` already is
     s["session_active"] = p.session_active
     s["secret"] = getattr(p, "secret", False)  # at a password prompt: see Pane.secret
 

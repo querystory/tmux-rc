@@ -43,6 +43,9 @@ OMP_TITLE_RE = re.compile(r"^π(?::|$| (?P<state>\S)(?: |$))")
 # probe ("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA") lands there — a payload, not a title.
 _TITLE_ESCAPE_PAYLOAD = re.compile(r"^G[a-zA-Z]=[^,;]*(?:,[a-zA-Z]=[^,;]*)*;")
 
+# The name the user gave a pane from the phone (rename_pane). A pane option, so it lives in
+# tmux with the pane: it survives a daemon restart and goes when the pane closes.
+NAME = "@tmuxrc-name"
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
 # FLY002 is suppressed below: keep fields individually searchable and ordered to
@@ -64,6 +67,7 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
         "#{session_attached}",
         "#{pane_tty}",
         "#{@tmuxrc-fit}",
+        "#{@tmuxrc-name}",  # NAME
     ]
 )
 # The row the cursor sits on asks for a secret: "[sudo] password for x:", "x@host's
@@ -139,6 +143,7 @@ class Pane:
     session_attached: str = "0"
     tty: str = ""  # the pane's pts, read for `secret`
     fit: str = ""  # the width tmux-rc fitted the window to (openbus/fit.py), if it did
+    name: str = ""  # the user's own name for the pane (rename_pane), if they gave one
 
     @cached_property  # once per listing, i.e. per watcher tick; the send path rereads
     def secret(self) -> bool:
@@ -162,7 +167,10 @@ class Pane:
         """The title the pane's own app set (agents publish their state here: Claude
         Code writes '<glyph> <task summary>' — free, accurate, no LLM needed). tmux
         defaults the title to the hostname, and stores APC payloads (Kitty graphics
-        probes) as the title — both noise -> None."""
+        probes) as the title — both noise -> None. A name the user gave the pane beats
+        all of it: an agent rewrites its title as it works, and a task outgrows a name."""
+        if self.name.strip():
+            return self.name.strip()
         if _TITLE_ESCAPE_PAYLOAD.match(self.title):
             return None
         t = _TITLE_GLYPHS.sub("", OMP_TITLE_RE.sub("", self.title)).strip()
@@ -510,6 +518,17 @@ def kill_window(pane_id: str, pid: str | None = None) -> list[tuple[str, str]]:
     guard = f"#{{==:#{{pane_pid}},{int(pid)}}}" if pid is not None else "1"
     out = _run(["if-shell", "-F", "-t", pane_id, guard, kill, "display-message -p kept"])
     return [tuple(line.split(" ", 1)) for line in out.splitlines() if line not in ("", "kept")]
+
+
+def rename_pane(pane_id: str, name: str) -> None:
+    """Name the pane (Pane.display_title), or with "" give it back to its app's title."""
+    _run(["set-option", "-p", "-t", pane_id, NAME, name] if name
+         else ["set-option", "-pu", "-t", pane_id, NAME])
+
+
+def rename_session(session: str, name: str) -> None:
+    """Rename a tmux session, matched exactly (`=`): a bare name is a prefix match."""
+    _run(["rename-session", "-t", f"={session}", name])
 
 
 def server_path() -> str | None:

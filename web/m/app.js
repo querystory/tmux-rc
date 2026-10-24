@@ -1778,7 +1778,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -2426,6 +2426,44 @@ const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button")
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
+// Rename: the pane's own name (kept in tmux; it beats the title its agent sets, and empty
+// gives that back) and its tmux session's, both of which go stale as the work moves on.
+html($("rename-pane"), `${licon("pencil", 18)}<span>Rename…</span>`);
+$("close-rename").onclick = () => $("rename-dialog").close();
+$("rename-pane").onclick = () => {
+  closePaneMenu();
+  const pane = panes.find((p) => p.pane_id === active);
+  if (!pane) return;
+  const form = $("rename-form");
+  form._pane = pane;
+  $("rename-name").value = pane.name || "";
+  $("rename-name").placeholder = pane.name ? "" : paneName(pane);
+  $("rename-session").value = pane.session || "";
+  text($("rename-error"), "");
+  $("rename-dialog").showModal();
+  $("rename-name").select();
+};
+$("rename-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const pane = e.target._pane, name = $("rename-name").value.trim(), session = $("rename-session").value.trim();
+  const body = { birth: pane.birth ?? "" };
+  if (name !== (pane.name || "")) body.name = name;
+  if (session && session !== pane.session) body.session = session;
+  if (!("name" in body || "session" in body)) return $("rename-dialog").close();
+  $("rename-save").disabled = true;
+  try {
+    await post(paneUrl(pane.pane_id, "rename"), body);
+    $("rename-dialog").close();
+    // Show it now rather than on the next poll; that poll then says the same.
+    for (const p of panes) {
+      if (p.pane_id === pane.pane_id && "name" in body) { p.name = name; p.title = name || p.title; }
+      if (body.session && p.session === pane.session) p.session = body.session;
+    }
+    render();
+  } catch (error) {
+    text($("rename-error"), `Could not rename: ${error.detail?.message || error.detail || error.message}`);
+  } finally { $("rename-save").disabled = false; }
+};
 // `birth` is the incarnation the menu or sheet was drawn for: a newer pane under its %N is refused.
 async function killWindow(pane, birth) {
   if (!pane || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;
