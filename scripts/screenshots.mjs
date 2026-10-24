@@ -7,7 +7,7 @@
 // could vary on.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { PHONE, WIDE, chat, settle, startDemo } from "./demo_browser.mjs";
+import { PHONE, WIDE, chat, pace, settle, startDemo } from "./demo_browser.mjs";
 
 const [out = ".screenshots", tree = process.cwd()] = process.argv.slice(2);
 const HD = { width: 1920, height: 1080 };
@@ -207,7 +207,7 @@ function afterReboot(page) { return noTmux(page, ".restore-pane"); }
 function reach(selector, end = false) {
   return async (page) => {
     for (const node of ["#loops-card [data-lane]", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(500); // the panels above settle their height first
+    await settle(page, "reach"); // the panels above settle their height first
     await page.locator(selector).first().evaluate((el, end) => {
       const pane = document.getElementById("landing"); // scroll the dashboard, never the page
       pane.scrollTop = end ? pane.scrollHeight : pane.scrollTop + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 16;
@@ -228,7 +228,10 @@ async function showLoops(page) {
 }
 
 // The sub-agents count's switch is on by default; show their lines under activity cards too.
+// The usage strip arrives later and shortens the list, so it is waited for before scrolling:
+// otherwise the card is centred in whichever height the list had at that moment.
 async function showSubagents(page) {
+  await page.locator("#usage").waitFor();
   await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
 }
@@ -238,7 +241,7 @@ async function heatCard(page) {
   // The word cloud above lays out at random, and at the page's foot it is in frame.
   await page.addStyleTag({ content: ".atlas-cloud { visibility: hidden; }" });
   await page.waitForSelector(".atlas-heat-card .heat-grid");
-  await page.waitForTimeout(500); // the panels above settle their height first
+  await settle(page, "heatCard"); // the panels above settle their height first
   await page.locator(".atlas-heat-card").scrollIntoViewIfNeeded();
 }
 // Older days page in while the foot is near; a shot waits until the day count holds still.
@@ -284,7 +287,7 @@ function stubVoice(socket) {
   socket.onMessage((raw) => {
     if (spoken || JSON.parse(raw).action !== "audio") return;
     spoken = true;
-    for (const frame of [
+    pace(socket, [
       { type: "transcript", role: "user", text: "Tell e2e triage to rerun the checkout test with tracing.", new_segment: true },
       { type: "transcript", role: "model", text: "Sent. I'll keep an eye on that rerun.", new_segment: true },
       { type: "typed", label: "e2e triage", pane_id: "%9", text: "Rerun the checkout test with tracing.", submitted: true },
@@ -292,7 +295,7 @@ function stubVoice(socket) {
       { type: "transcript", role: "model", text: "The rerun reproduced the checkout failure. e2e triage is tracing the iframe timing now.", new_segment: true },
       { type: "open_pane", pane_id: "%9", label: "e2e triage" },
       { type: "turn_complete" },
-    ]) socket.send(JSON.stringify(frame));
+    ]);
   });
 }
 

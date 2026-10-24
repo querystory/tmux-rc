@@ -35,27 +35,31 @@ export function chat(ask, until) {
   };
 }
 
+// Frames a beat apart, as live. Sent in one burst, rows lay out in one frame or several at
+// random, and the text of one lands a pixel higher or lower.
+export function pace(socket, frames) {
+  frames.forEach((frame, i) => setTimeout(() => socket.send(JSON.stringify(frame)), i * 150));
+}
+
 // A canned Live Mode socket: a window named is offered with an Open button (open_pane), a
 // "tell" or a "Resume..." waits on a consent card, anything else gets the same summary.
 function stubChat(socket) {
   socket.send(JSON.stringify({ type: "status", status: "listening" }));
   socket.onMessage((raw) => {
-    const message = JSON.parse(raw);
-    if (message.action !== "text") return;
-    socket.send(JSON.stringify({ type: "transcript", role: "user", text: message.text }));
-    if (message.text.startsWith("Resume")) return socket.send(JSON.stringify({ type: "propose", id: "p1",
+    const { action, text } = JSON.parse(raw);
+    if (action !== "text") return;
+    const done = { type: "turn_complete" };
+    pace(socket, [{ type: "transcript", role: "user", text }, ...text.startsWith("Resume") ? [{ type: "propose", id: "p1",
       text: "Resume checkout flake hunt", session: { tool: "codex", cwd: "~/src/example-org/storefront",
-        last_active: "2026-06-10T09:12:00Z", id: "5f3a9c1e" } }));
-    if (/^Tell/.test(message.text)) socket.send(JSON.stringify({ type: "propose", id: "p1", pane_id: "%9",
-      text: "Send to e2e triage · claude in ci: From the user (via text): rerun it headed" }));
-    else if (/window/.test(message.text)) {
-      socket.send(JSON.stringify({ type: "open_pane", pane_id: "%9", label: "e2e triage · claude in ci" })); // before the text, as live
-      socket.send(JSON.stringify({ type: "transcript", role: "model", text: "**e2e triage** is rerunning checkout.spec with tracing on." }));
-    } else socket.send(JSON.stringify({ type: "transcript", role: "model", text:
-      "Two panes need you:\n\n- **refunds** asks whether to merge PRs #413 and #414\n" +
-      "- **preview deploy** hands you `make test` to run before it merges\n\n" +
-      "Others are running, including the traced checkout.spec rerun in **e2e triage**." }));
-    socket.send(JSON.stringify({ type: "turn_complete" }));
+        last_active: "2026-06-10T09:12:00Z", id: "5f3a9c1e" } }]
+      : /^Tell/.test(text) ? [{ type: "propose", id: "p1", pane_id: "%9",
+        text: "Send to e2e triage · claude in ci: From the user (via text): rerun it headed" }, done]
+      : /window/.test(text) ? [{ type: "open_pane", pane_id: "%9", label: "e2e triage · claude in ci" }, // before the text, as live
+        { type: "transcript", role: "model", text: "**e2e triage** is rerunning checkout.spec with tracing on." }, done]
+      : [{ type: "transcript", role: "model", text:
+        "Two panes need you:\n\n- **refunds** asks whether to merge PRs #413 and #414\n" +
+        "- **preview deploy** hands you `make test` to run before it merges\n\n" +
+        "Others are running, including the traced checkout.spec rerun in **e2e triage**." }, done]]);
   });
 }
 
@@ -93,20 +97,31 @@ export async function newPage(browser, viewport, colorScheme, now, options) {
   // starves the app's own Date-based throttles and makes layout racy between runs.
   if (now) await context.clock.setSystemTime(now * 1000);
   context.setDefaultTimeout(10000);
-  return context.newPage();
+  // A count of fetches started and ended, NaN while one is out, leaving out the long polls that
+  // never end: settle() wants it unchanged across a frame. A slow fetch (the dashboard's
+  // history) otherwise lands after two frames already agreed.
+  const page = await context.newPage(), fetching = new Set();
+  let events = 0;
+  const track = (add) => (r) => { if (["fetch", "xhr"].includes(r.resourceType()) && !/\/api\/state|\/live\b/.test(r.url())) { events++; fetching[add ? "add" : "delete"](r); } };
+  page.on("request", track(true));
+  for (const end of ["requestfinished", "requestfailed"]) page.on(end, track(false));
+  page.network = () => fetching.size ? NaN : events;
+  return page;
 }
 
 // Long polls never let the network idle, so wait for the pixels instead: shoot until two
-// frames in a row agree (charts and the live frame are still settling before that). Never
-// hand back a frame that did not settle: that is how nondeterminism slips in unseen.
+// frames in a row agree with no other fetch out or done between them (charts and the live
+// frame are still settling before that). Never hand back a frame that did not settle: that
+// is how nondeterminism slips in unseen.
 export async function settle(page, name, shoot = () => page.screenshot()) {
-  let last, shot;
-  for (let i = 0; i < 20 && !(shot && last?.equals(shot)); i++) {
-    last = shot;
+  let shot, still = false;
+  for (let i = 0; i < 20 && !still; i++) {
+    const last = shot, network = page.network?.();
     await page.waitForTimeout(500);
     shot = await shoot();
+    still = !!last?.equals(shot) && network === page.network?.(); // NaN: a fetch was out
   }
-  if (!last?.equals(shot)) throw new Error(`${name}: still changing after 10s`);
+  if (!still) throw new Error(`${name}: still changing after 10s`);
   return shot;
 }
 
@@ -130,6 +145,12 @@ export async function startDemo(tree = process.cwd(), env = {}) {
     async open(viewport, colorScheme, hash = "", socket = stubChat, prepare) {
       const page = await newPage(browser, viewport, colorScheme, now);
       await page.routeWebSocket(/\/api\/live-mode/, socket);
+      // History a beat late, as over a network. Served at once, its pages land in one frame
+      // or several at random, and the heatmap view's grid paints a pixel higher or lower.
+      await page.route("**/api/history*", async (route) => {
+        await new Promise((r) => setTimeout(r, 200));
+        await route.continue().catch(() => {}); // the page closed meanwhile
+      });
       await prepare?.(page);
       const state = page.waitForResponse((r) => r.url().includes("/api/state"));
       await page.goto(`${base}/m/${hash}`);
