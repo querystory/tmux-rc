@@ -213,8 +213,14 @@ it stays unbound rather than guessing. The last good binding is cached per pane 
 with that process's pid and start time, and dropped when the foreground process changes,
 so a swap never carries the old conversation forward. A Codex thread started fresh
 behind the shared app-server has no pane, while one a pane resumed is named on that
-pane's command line (agent-history's README explains both); for the former the watcher falls
-back to the status-bar `session-id` match Live Mode already uses ([agent-setup](../agent-setup.md)).
+pane's command line (agent-history's README explains both). That name is where the client
+began, not where it is: after `/new` it still names the old thread, which the daemon keeps
+loaded, and a restore would bring that back and lose the new one. So when the pane's status
+bar shows a thread id at the place its account's config gives `session-id`
+([agent-setup](../agent-setup.md)), the recorder binds that one instead, as Expunge reads
+it. The bar also keeps the pane bound once the daemon lets the old thread go and the
+client is no longer listed at all, as long as its foreground process is unchanged. The fresh thread with no
+name stays unbound for now.
 A pane left without a binding (a Codex pane with neither, or any agent pane whose
 foreground was ambiguous) stays *unbound*: restore still knows its tool and directory
 and offers a picker of that directory's recent sessions instead of guessing. Neither
