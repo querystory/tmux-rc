@@ -571,8 +571,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #sb-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 #sb-sticky { position: sticky; top: 0; z-index: 3; flex: none; background: var(--surface); transition: box-shadow 120ms; }
 #sb-sticky.stuck { box-shadow: 0 1px 0 var(--line), 0 6px 12px -8px rgb(0 0 0 / .25); }
-:is(#dash-nav, #scratch-nav)[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
-:is(#dash-nav, #scratch-nav)[aria-pressed="true"] svg { color: var(--fg); }
+:is(#dash-nav, #graph-nav, #scratch-nav)[aria-pressed="true"] { background: var(--raised); font-weight: 600; }
+:is(#dash-nav, #graph-nav, #scratch-nav)[aria-pressed="true"] svg { color: var(--fg); }
 /* Sessions: the section's title and its green +; search and the filter on one row under it. */
 #sb-sess { display: flex; align-items: center; min-height: 34px; padding: 6px 14px 0 17px; flex: none; }
 #sb-sess b { padding-right: 8px; font-size: 14px; font-weight: 700; }
@@ -659,7 +659,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
 #app.rail #collapse { margin: 12px 0 6px; }
 #app.rail :is(#new-window, #find > *) { order: 1; }
-#app.rail :is(#dash-nav, #scratch-nav) { order: 2; }
+#app.rail :is(#dash-nav, #graph-nav, #scratch-nav) { order: 2; }
 #app.rail :is(#chat, #live-mode) { order: 3; }
 #app.rail #side-list { order: 4; }
 #app.rail #settings-open { order: 5; margin: 6px 0 10px; }
