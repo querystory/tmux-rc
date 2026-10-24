@@ -97,8 +97,9 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Claude Code's bash mode echoes a command typed after "!" (no prompt glyph) and runs it
 # without starting a turn, so below a finished turn it is the user acting on that turn.
 _BASH_ROW_RE = re.compile(r"^[ \t│]*! +\S", re.MULTILINE)
-# Claude's input box: its top rule, then its prompt row (❯, or "!" in bash mode).
-_INPUT_BOX_RE = re.compile(r"^[ \t]*[─━]{3,}.*\n[ \t│]*[❯!]", re.MULTILINE)
+# Claude's input box: its top rule (flat, or framed from a ╭ corner), then its prompt row
+# (❯, or "!" in bash mode).
+_INPUT_BOX_RE = re.compile(r"^[ \t]*╭?[─━]{3,}.*\n[ \t│]*[❯!]", re.MULTILINE)
 
 
 def _spent(visible: str, turn: re.Match | None) -> bool:
