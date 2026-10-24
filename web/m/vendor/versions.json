@@ -8,8 +8,8 @@
     "integrity": "sha512-9by77b7Sd9e1K75kSmVeAD+JnGpiLR1Z4EX1mYQL91jKrU1/4bHw4h4DExQ+dzfT+PvihDcH7OS7V4Y5UkbF2w=="
   },
   "markdown-it": {
-    "version": "15.0.2",
-    "integrity": "sha512-q4IGxMv56jCqT4OCRCADBoDP3LO4MhmTXjFbphHPXs4g3j9Xg5RDnxqN8IF/3vIWEU+VCnUq+7JUg/cfy2E6Qw=="
+    "version": "15.0.3",
+    "integrity": "sha512-+Az7Ojz3iRGu8KYMvJ6xVhvrxP3eE+vEtJX75Ow88XBpcQNV/0lGX5ZynIIBftREo4DC2jsveAMDaeltmm8QvQ=="
   },
   "mermaid": {
     "version": "12.2.0",
@@ -36,7 +36,7 @@
     "integrity": "sha512-U3PppEkleoTnIfi8BozMx3yju3qc/L6SwqWo2Sw+54PX+PX0q9I+r1Um5HCmqD7n9VDX5/v3vQH/AjA6deDdtw=="
   },
   "@oxc-project/runtime": {
-    "version": "0.142.0",
-    "integrity": "sha512-Dv3jRrcXFdvUBUEljUu9kusrEo9G0iiqZFZNg3yCg+mkET4DD4S2Ow6Q6shFWDJwPidSa980d6YVXBlErUGADw=="
+    "version": "0.154.0",
+    "integrity": "sha512-cBQNGoh659BNgvA8OC/e4BNDtFkv03dJaYdkp2adgOQNtISNAPQ+nB4S8XvWtNk7Xl+0g+7aa+iRGR25Xycd1Q=="
   }
 }
