@@ -572,7 +572,8 @@ class PushManager:
                 if self._ready_push(item, now) or not self.store.subscriptions():
                     self.shoot(item)  # the gallery's spinner polls for it
                     self._waiting.discard(key)
-                else:  # a full queue: the next scan tries again
+                else:  # a full queue: the next scan tries again, however old it is by then
+                    self._waiting.add(key)
                     self._mtimes.pop(name)
 
     def _ready_push(self, item: dict, now: float) -> bool:

@@ -1018,6 +1018,10 @@ def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):
         if meta:
             (root / name / "meta.json").write_text(meta)
         (root / name / "index.html").write_text("page")
+    sender.available = False  # a full queue: tried again, though no longer fresh by then
+    service.landed()
+    monkeypatch.setattr(push, "LANDED_FRESH_SECONDS", 0)
+    sender.available = True
     service.landed()
     service.landed()
     (root / "fast" / "meta.json").write_text('{"title": "Fast", "description": "Later."}')
