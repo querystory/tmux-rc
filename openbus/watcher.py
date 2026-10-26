@@ -1536,7 +1536,10 @@ class Watcher:
             prev_activity=(previous or {}).get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
-        state["turn"] = _turn(said, text)
+        # Only reflowed (a resize, a menu still pending): the visible screen's top moved,
+        # not the turn.
+        state["turn"] = (not said and prior and _reflowed(text, prior[-1])
+                         and (previous or {}).get("turn")) or _turn(said, text)
         # Preserve the parsed conversation name before session is stamped with the
         # tmux session. It must survive cached ticks and tmux renames independently.
         parsed_title = state.get("session")

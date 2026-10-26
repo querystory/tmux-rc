@@ -337,6 +337,24 @@ def test_an_ask_whose_agent_moved_on_reparses_with_its_new_turn(monkeypatch):
     assert calls["n"] == 3
 
 
+def test_a_reflow_keeps_a_screen_s_turn(monkeypatch):
+    """No transcript: a resize moving rows across the visible screen's top re-reads the
+    card (a menu is pending) but keeps its turn, so push does not take it for a new ask."""
+    vs = W.tmux.VISIBLE_SCREEN
+    frame = [f"$ make\n{vs}Run ls?\n 1. Yes\n 2. No"]
+    w, calls = _harness(monkeypatch, frame)
+    monkeypatch.setattr(W.transcript, "turn", lambda _pane, _text: None)
+    pane = _Pane()
+    w._forced_this_tick = set()
+    turn = w._tick_pane(pane)["turn"]
+    frame[0] = f"$ make\nRun ls?\n{vs} 1. Yes\n 2. No"
+    w._forced_this_tick = {pane.id}
+    assert w._tick_pane(pane)["turn"] == turn and calls["n"] == 2
+    frame[0] = f"$ make\n{vs}Run rm?\n 1. Yes\n 2. No"
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["turn"] != turn
+
+
 def test_content_change_reparses(monkeypatch):
     frame = ["$ idle prompt"]
     w, calls = _harness(monkeypatch, frame)
