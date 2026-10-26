@@ -8,7 +8,7 @@ import { esc, paneName, paneHeadline, records, since, home } from './pane-model.
 
 const LENSES = [['session', 'Session'], ['account', 'Account'], ['repo', 'Repo / dir'], ['worktree', 'Worktree'], ['tool', 'Tool / model']];
 const LEGEND = {
-  session: 'A ring is a tmux session, coloured by its panes’ states. Tap a ring to fold it.',
+  session: 'Grouped by tmux session, coloured by its panes’ states.',
   account: 'The account each agent runs under. Shells, and agents with their own login, apart.',
   repo: 'Repository, then the directory the pane works in.',
   worktree: 'Panes in one git worktree share a ring. Amber: two agents busy in one checkout.',
@@ -738,7 +738,7 @@ export function renderGraphView(root, panes, ctx) {
       stats.innerHTML = [['', new Set(list.map(p => p.session)).size, 'Sessions'], ['go', `${c[1] + c[4] + c[5]}<small>/${list.length}</small>`, 'Running'], [c[0] ? 'need' : '', c[0], 'Needs you'],
         ['opt', subs, 'Sub-agents'], ['', tps >= 1000 ? `${(tps / 1000).toFixed(1)}k` : tps, 'Tokens / s'], ['', `$${spend.toFixed(spend >= 100 ? 0 : 2)}`, 'Cost'], ['opt', oldest ? since(oldest) || '–' : '–', 'Oldest pane']]
         .map(([cls, v, l]) => `<div class="${cls}"><b>${v}</b><span>${l}</span></div>`).join('');
-      legend.innerHTML = `<p>${LEGEND[lens]} ${g.hub() ? 'Lines from the centre group panes; nothing flows along them.' : 'Each disc is a group: tap its name to fold it.'} Size and arc: context used.
+      legend.innerHTML = `<p>${LEGEND[lens]} ${g.hub() ? 'Tap a group’s ring to fold it. Lines from the centre only group panes; nothing flows along them.' : 'Each disc is a group: tap the ring on its edge to fold it.'} Size and arc: context used.
         Sparks are tokens being written, one for every ${SPARK} a second. A line from you: a pane you typed into from here in the last ${RECENT / 60} minutes; dashed amber, one that needs you. A dot runs along when it happens.</p>
         <div class="fg-key"><span><i class="fg-k-spark"></i>${SPARK} tok/s</span><span><i class="fg-k-you"></i>you</span><span><i class="fg-k-doc"></i>page</span><span><i class="fg-k-doc busy"></i>page being made</span></div><div class="fg-key">${[1, 0, 2, 4, 5].map(i => `<span><i style="background:${i === 2 ? 'var(--muted)' : `var(--chart-s${i})`}"></i>${STATES[i]}</span>`).join('')}${
         ctx.several() ? '<span><i class="fg-acct-key"></i>account</span>' : ''}${lens === 'worktree' ? '<span><i class="fg-warn-key"></i>two agents, one checkout</span>' : ''}</div>`;
