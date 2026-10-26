@@ -619,13 +619,17 @@ export function renderGraphView(root, panes, ctx) {
     // Full screen is the view itself pinned over the page (style.css), not the Fullscreen API,
     // which an iPhone grants only to video. The page under it goes inert, so Tab stays in the
     // graph; the view leaving the screen (any navigation) ends it.
-    const zoomBtn = tools.firstChild, darkBtn = tools.lastChild, full = root._full = on => {
-      if (on === root.classList.contains('full')) return;
-      if (on) { root._inert = []; for (let a = root; a.parentElement && a !== document.body; a = a.parentElement) root._inert.push(...[...a.parentElement.children].filter(s => s !== a && !s.inert)); }
-      root._inert.forEach(s => { s.inert = on; });
-      root.classList.toggle('full', on); zoomBtn.innerHTML = ctx.icon(phone() ? 'x' : on ? 'minimize' : 'fullscreen', 18);
-      zoomBtn.title = zoomBtn.ariaLabel = phone() ? 'Close' : on ? 'Exit full screen' : 'Full screen'; g.fit();
-    };
+    // The button is relabelled every call, as crossing the phone breakpoint changes what it does.
+    const zoomBtn = tools.firstChild, darkBtn = tools.lastChild, full = on => {
+      if (on !== root.classList.contains('full')) {
+        if (on) { root._inert = []; for (let a = root; a.parentElement && a !== document.body; a = a.parentElement) root._inert.push(...[...a.parentElement.children].filter(s => s !== a && !s.inert)); }
+        root._inert.forEach(s => { s.inert = on; });
+        root.classList.toggle('full', on); g.fit();
+      }
+      zoomBtn.innerHTML = ctx.icon(phone() ? 'x' : on ? 'minimize' : 'fullscreen', 18);
+      zoomBtn.title = zoomBtn.ariaLabel = phone() ? 'Close' : on ? 'Exit full screen' : 'Full screen';
+    }, fitScreen = root._fitScreen = () => root.isConnected && full(phone() || root.classList.contains('full')); // a phone is always full screen
+    addEventListener('resize', fitScreen);
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && root.classList.contains('full')) toggle(); });
     new IntersectionObserver(([e]) => { if (!e.isIntersecting) full(false); }).observe(root);
     call.lastChild.onclick = e => { const b = e.target.closest('button'); if (b) g.focus(b.dataset.id); };
@@ -661,7 +665,7 @@ export function renderGraphView(root, panes, ctx) {
     root._lens = saved;
   }
   root._panes = panes;
-  if (phone()) root._full(true);
+  root._fitScreen();
   const g = root._g, want = root._lens;
   // The remembered lens once it can show: Account waits for the accounts, and is gone with one.
   if (want && LENSES.some(l => l[0] === want) && (want !== 'account' || ctx.several())) { root._lens = null; if (g.lens() !== want) g.setLens(want); }
