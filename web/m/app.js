@@ -846,7 +846,7 @@ function viewScratch(href, title) {
 // sandboxed page: the open pane its meta.json names (scratch.maker), that incarnation only.
 // A Composer per pane, sent through compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
-  viewerTo = null; paintViewerForm();
+  viewerTo = null; paintViewerForm(); text($("viewer-status"), "");
   const folder = new URL(href).pathname.split("/")[2];
   const to = folder ? await request(`/api/scratch/${folder}/pane`).catch(() => ({})) : {};
   if (!viewer.open || $("viewer-out").href !== href || !to.pane) return; // another page opened meanwhile
@@ -864,13 +864,16 @@ function paintViewerForm() {
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }
   const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
   editor.dataset.placeholder = to; editor.setAttribute("aria-label", to);
+  editor.contentEditable = String(!p.secret); // a password goes in the pane's own field, never here
   $("viewer-send").setAttribute("aria-disabled", String(!!viewerWhy(p)));
 }
 $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
   const p = viewerPane(), why = p ? viewerWhy(p) : "This pane has closed.";
   if (why) return text($("viewer-status"), why);
-  text($("viewer-status"), await compose(p.pane_id, viewerDrafts.get(p.pane_id), p.birth) ? "Sent" : KEPT);
+  const value = viewerDrafts.get(p.pane_id), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth);
+  // Only on the visit it was sent from, and "Sent" not over a next draft typed meanwhile.
+  if (viewer.open && $("viewer-out").href === href) text($("viewer-status"), !sent ? KEPT : value.segments().length ? "" : "Sent");
 };
 enterSubmits($("viewer-form"), (target) => $("viewer-form").contains(target) && target.closest("#viewer-reply"));
 $("close-viewer").onclick = () => viewer.close();
@@ -1608,7 +1611,7 @@ function pruneDrafts() {
   // it: in any composer, active or not, it must not wait to be sent in the clear later.
   for (const p of panes) {
     if (!p.secret) continue;
-    for (const value of [drafts.get(p.pane_id), renderSidebar.drafts.get(p.pane_id)]) {
+    for (const value of [drafts.get(p.pane_id), renderSidebar.drafts.get(p.pane_id), viewerDrafts.get(p.pane_id)]) {
       if (value?.segments().length) value.replace([]);
     }
   }
