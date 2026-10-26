@@ -859,7 +859,8 @@ function paintPins(list) {
   html($("viewer-pin"), licon("pin", 16) + (on ? "Pinned" : "Pin"));
 }
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
-$("sb-pins").onclick = (e) => { const a = e.target.closest("a"); if (a) { e.preventDefault(); viewScratch(a.href, a.title); } };
+// Over Scratch, as the gallery's own pages are: route() closes a viewer left anywhere else.
+$("sb-pins").onclick = (e) => { const a = e.target.closest("a"); if (a) { e.preventDefault(); openPage("scratch"); viewScratch(a.href, a.title); } };
 $("viewer-pin").onclick = async () => {
   const folder = viewedFolder();
   try { // from the pins as they are now: one deleted since the last read would fail the write
