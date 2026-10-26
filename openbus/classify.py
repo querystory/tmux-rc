@@ -66,9 +66,9 @@ _CHECKLIST_LINE_RE = re.compile(
 _PICKER_TABS_RE = re.compile(
     r"(?m)^[ \t]*[─━]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*?)(?:[ \t]*→)?[ \t]*$")
 _PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔\n]*[^☐☒✔\s])")
-# A label's own row elsewhere: behind any gutter and marker (⎿ ☐, ├─ [X], •), and before a
+# A label's own checkbox row elsewhere: behind any gutter (⎿ ☐, ├─ [X], •), and before a
 # barred transcript's right border. A real task there keeps a tab's label.
-_OWN_ROW = r"(?im)^[^\w\n]*(?:\[[ x✓•]\][^\w\n]*)?{}[ \t│┃║]*$"
+_OWN_ROW = r"(?im)^[^\w\n]*?(?:[☐☒☑✔✓•]|\[[ x✓•]\])[ \t]*{}[ \t│┃║]*$"
 _OPENCODE_RUNNING_RE = re.compile(
     # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
     # press turns the label into "esc again to interrupt".

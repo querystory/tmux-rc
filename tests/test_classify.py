@@ -415,6 +415,10 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs):
         assert classify(_pane("claude"), f"{row}\n" + screen, _llm({
             "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
         }))["tasks"] == tasks[1:]
+    for row in (f"❯ {label}", f"│ {label}"):  # the label in prose is no checkbox row
+        assert "tasks" not in classify(_pane("claude"), f"{row}\n" + screen, _llm({
+            "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
+        }))
     plan = "─" * 40 + f"\n☐ {label}\nOpenCode 1.18.32"  # another agent's plan under a rule
     assert classify(_pane(cmd="opencode"), plan, _llm({
         "tool": "opencode", "activity": "running", "tasks": tasks[1:],
