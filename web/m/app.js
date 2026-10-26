@@ -852,7 +852,7 @@ async function findMaker(href) {
   if (!viewer.open || $("viewer-out").href !== href || !to.pane) return; // another page opened meanwhile
   const key = viewerKey({ pane_id: to.pane, birth: to.birth });
   if (!viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
-  viewerTo = to; text($("viewer-about"), to.about); paintViewerForm(); // the line the server opens a send with
+  viewerTo = to; text($("viewer-prefix"), to.about); paintViewerForm(); // the line the server opens a send with
 }
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
@@ -865,10 +865,12 @@ function paintViewerForm() {
   const { editor } = viewerDrafts.get(viewerKey(p));
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }
   const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
-  editor.dataset.placeholder = to; editor.setAttribute("aria-label", to);
+  editor.dataset.placeholder = "Message…"; editor.setAttribute("aria-label", to); // the link above names it
+  text($("viewer-to"), to); $("viewer-to").href = "#" + formatHash({ pane: p.pane_id }); // the pane it goes to, a tap away
   editor.contentEditable = String(!p.secret); // a password goes in the pane's own field, never here
   $("viewer-send").setAttribute("aria-disabled", String(!!viewerWhy(p)));
 }
+$("viewer-to").onclick = (event) => { event.preventDefault(); navigate(viewerTo.pane); }; // leaving Scratch closes the viewer (route)
 $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
   const p = viewerPane(), why = p ? viewerWhy(p) : "This pane has closed.";

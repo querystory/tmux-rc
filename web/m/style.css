@@ -1474,6 +1474,7 @@ html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-heigh
 #viewer-form { flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; padding: 8px max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border-top: 1px solid var(--line); }
 #viewer-reply:empty::before { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #viewer-status, #viewer-about { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--muted); }
+#viewer-to { color: var(--accent); }
 #viewer-about { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #viewer-status:empty { display: none; }
 #viewer-send[aria-disabled="true"] { opacity: .45; }
