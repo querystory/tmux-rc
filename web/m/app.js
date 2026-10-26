@@ -773,7 +773,7 @@ const paintUsage = steady(() => {
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tools = scope.tools, board = tools.length ? all.filter((a) => tools.includes(a.provider)) : all;
-  show("usage-panel", board.length > 0); show("usage-tab", all.length > 0);
+  show("usage-panel", board.length > 0); show("usage-tab", all.some((a) => a.windows?.length));
   const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board", order = (list) => several ? byUrgency(list) : list;
   if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
   if (grouped) accounts.groups(el, board, (cells, one) => renderUsage(cells, one, { wide: true }));
