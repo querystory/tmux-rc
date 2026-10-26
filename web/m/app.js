@@ -1752,6 +1752,7 @@ function cursorIO(id, committed) {
     committed,
   };
 }
+const KEPT = "Delivery could not be confirmed. Draft kept; check the terminal before retrying.";
 // Send a draft to pane `id`: the pane's own composer and a sidebar card's Reply both come
 // through here, so they share one endpoint and one confirmation. Resolves to delivered.
 // `value` is a Composer, or the password input, whose text goes as the one "secret" field.
@@ -1759,7 +1760,6 @@ function cursorIO(id, committed) {
 // is the next message, and clearing on the reply erased it. A failed send puts the sent
 // draft back in front of whatever was typed since (a password only into an empty field).
 // A reply to a pane that needs you holds its card as a tapped answer does.
-const KEPT = "Delivery could not be confirmed. Draft kept; check the terminal before retrying.";
 async function compose(id, value) {
   const pane = panes.find((p) => p.pane_id === id);
   const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
