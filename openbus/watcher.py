@@ -233,19 +233,14 @@ def _reflowed(text: str, before: str) -> bool:
                 for t in (text, before)}) == 1
 
 
-def _laid_out(text: str) -> str:
-    """A whole capture at any width, words and values kept ("ls a b" is not "ls ab", nor
-    "sleep 10s" "sleep 20s"), as _turn reads its visible screen."""
-    return fit.reflow_key(text.replace(tmux.VISIBLE_SCREEN, ""), " ")
-
-
 def _turn(said: str | None, text: str) -> str:
     """The turn a card was read from, as push tells one ask from the next: the agent's
-    transcript as it stood (`said`, transcript.turn), else the visible screen as it is, at
-    any width (_fingerprint would make "sleep 10s" and "sleep 20s" one). Never the card's
-    reading or CARD_VERSION, so a card read again is the same turn."""
+    transcript as it stood (`said`, transcript.turn), else the whole capture at any width
+    (a resize moves the visible screen's top, not the turn), words and values kept ("ls a
+    b" is not "ls ab"; _fingerprint would make "sleep 10s" and "sleep 20s" one). Never the
+    card's reading or CARD_VERSION, so a card read again is the same turn."""
     return said or hashlib.sha256(
-        fit.reflow_key(text.rsplit(tmux.VISIBLE_SCREEN, 1)[-1], " ").encode()).hexdigest()
+        fit.reflow_key(text.replace(tmux.VISIBLE_SCREEN, ""), " ").encode()).hexdigest()
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
@@ -1542,10 +1537,7 @@ class Watcher:
             prev_activity=(previous or {}).get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
-        # Only reflowed (a resize, a menu still pending): the visible screen's top moved,
-        # not the turn.
-        state["turn"] = (not said and prior and _laid_out(text) == _laid_out(prior[-1])
-                         and (previous or {}).get("turn")) or _turn(said, text)
+        state["turn"] = _turn(said, text)
         # Preserve the parsed conversation name before session is stamped with the
         # tmux session. It must survive cached ticks and tmux renames independently.
         parsed_title = state.get("session")
