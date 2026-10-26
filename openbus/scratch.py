@@ -434,14 +434,15 @@ def _ask(seen, every: int) -> str:
     return f"<script>{script}</script>"
 
 
-def bar(root: Path, name: str, who) -> tuple[str, str] | None:
+def bar(root: Path, name: str, states: list[dict]) -> tuple[str, str] | None:
     """An updating folder's notice on its rendered (Markdown) pages: the tab's label and a
     thin bar, whose ask (as the placeholder's) reloads the page once the update is done or
-    its files change. None for any other folder. `who` as placeholder's, for the panes."""
+    its files change. None for any other folder. `states`: the panes (no accounts: it is
+    asked every few seconds)."""
     i = read(root, root / name)
     if not (i and i["updating"]):
         return None
-    _progress([i], who()[0])
+    _progress([i], states)
     label, every = status(i), 60000 if i["state"] == "stopped" else 5000
     return label, (f'<p class="updating {i["state"]}" role="status">{label}: '
                    f'{escape(i["updating"])} · reloads when done'

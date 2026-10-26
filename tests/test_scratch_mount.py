@@ -60,8 +60,10 @@ if server._scratch_dir:
     # An updating folder's Markdown page wears the bar and asks the same way: unchanged, then
     # its files change (a revision lands), then the mark goes (the update is done).
     rev = server.Path(server._scratch_dir) / "rev"
-    page = c.get("/scratch/rev/").text
-    print(int("<title>Updating · Rev</title>" in page and "Updating: the intro · reloads" in page))
+    scanned.clear()
+    page = c.get("/scratch/rev/").text  # asked every few seconds: no accounts scanned
+    print(int("<title>Updating · Rev</title>" in page and "Updating: the intro · reloads" in page
+              and scanned == []))
     width = lambda q: Image.open(io.BytesIO(c.get(f"/scratch/rev?seen={q}").content)).width
     mine = server.re.search(r'const SEEN = "([^"]+)"', page)[1]
     before = width(mine)

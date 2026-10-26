@@ -288,13 +288,12 @@ def test_an_updating_page_keeps_its_thumbnail_and_says_so(tmp_path, monkeypatch)
     assert '<span class="badge stopped">Update stopped</span>' in scratch._card(items["gone"])
     assert "badge" not in scratch._card(items["done"]) and "aria-label" not in scratch._card(
         items["done"])
-    def who():
-        return states, [], STYLE
-    label, bar = scratch.bar(tmp_path, "rev", who)
+    label, bar = scratch.bar(tmp_path, "rev", states)
     assert label == "Updating" and "Updating: the intro · reloads when done" in bar
     assert "setTimeout(ask, 5000)" in bar and 'id="offline"' in bar
-    assert scratch.bar(tmp_path, "gone", who)[0] == "Update stopped"
-    assert scratch.bar(tmp_path, "done", who) is None and scratch.bar(tmp_path, "no", who) is None
+    assert scratch.bar(tmp_path, "gone", states)[0] == "Update stopped"
+    assert scratch.bar(tmp_path, "done", states) is None
+    assert scratch.bar(tmp_path, "no", states) is None
 
 
 def test_one_find_lists_scratch_and_none_means_an_empty_gallery(tmp_path, monkeypatch):
