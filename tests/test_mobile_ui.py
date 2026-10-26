@@ -306,8 +306,9 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
             'callTo.replaceWith($("chat"), callTo, $("live-mode"))') in app
     assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app
     assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
-    # Every group starts open (Idle too, by the user's call); only a fold the user made persists.
-    assert "g.open = !!query || !prefs.fold[g.id];" in side
+    # Every group starts open (Idle too, by the user's call); only a fold the user made persists
+    # (tests/test_sidebar_fold.mjs: a fold made during a search lasts as long as the search).
+    assert "g.open = !g.folds[g.id];" in side
     # Hover shows the overview's own facts (shared helpers, /api/state only), mouse or keyboard
     # focus only, described for screen readers; no native title tooltip competes with it.
     assert 'text($("metadata"), paneMeta(pane));' in app

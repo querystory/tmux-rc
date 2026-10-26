@@ -29,17 +29,17 @@ def test_working_prs_accumulate_but_a_visible_pr_list_adds_nothing(monkeypatch):
     frames = iter(["working on 4955", "all open PRs: 1 2 3", "now fixing 4960"])
     results = iter([
         {"tool": "codex", "activity": "running", "events": [],
-         "working_prs": [{"repo": "querystory/qs-app", "number": 4955}]},
+         "working_prs": [{"repo": "example-org/example-app", "number": 4955}]},
         {"tool": "codex", "activity": "idle", "events": []},
         {"tool": "codex", "activity": "running", "events": [],
-         "working_prs": [{"repo": "querystory/qs-app", "number": 4960}]},
+         "working_prs": [{"repo": "example-org/example-app", "number": 4960}]},
     ])
     monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: next(frames))
     monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "server:%1")
-    monkeypatch.setattr(W, "github_repository", lambda cwd: "querystory/qs-app")
+    monkeypatch.setattr(W, "github_repository", lambda cwd: "example-org/example-app")
 
     def classify(*args, **kwargs):
-        assert kwargs["repository"] == "querystory/qs-app"
+        assert kwargs["repository"] == "example-org/example-app"
         return dict(next(results))
 
     monkeypatch.setattr(W, "classify", classify)
@@ -48,7 +48,7 @@ def test_working_prs_accumulate_but_a_visible_pr_list_adds_nothing(monkeypatch):
     w._forced_this_tick = set()
 
     first = w._tick_pane(pane)
-    assert first["prs"] == [{"repo": "querystory/qs-app", "number": 4955}]
+    assert first["prs"] == [{"repo": "example-org/example-app", "number": 4955}]
     assert "working_prs" not in first
 
     listed = w._tick_pane(pane)
@@ -56,16 +56,16 @@ def test_working_prs_accumulate_but_a_visible_pr_list_adds_nothing(monkeypatch):
 
     second = w._tick_pane(pane)
     assert second["prs"] == [
-        {"repo": "querystory/qs-app", "number": 4955},
-        {"repo": "querystory/qs-app", "number": 4960},
+        {"repo": "example-org/example-app", "number": 4955},
+        {"repo": "example-org/example-app", "number": 4960},
     ]
 
 
 def test_pr_associations_leave_with_the_pane(monkeypatch):
     w = Watcher(None)
     monkeypatch.setattr(w, "_pane_event", lambda *args, **kwargs: None)
-    w._prs["%1"] = [{"repo": "querystory/qs-app", "number": 4955}]
-    w._repositories["%1"] = ("/repo/worktree", "querystory/qs-app")
+    w._prs["%1"] = [{"repo": "example-org/example-app", "number": 4955}]
+    w._repositories["%1"] = ("/repo/worktree", "example-org/example-app")
     w._forget("%1")
     assert "%1" not in w._prs and "%1" not in w._repositories
 
@@ -76,8 +76,8 @@ def test_pr_associations_clear_when_the_last_pane_disappears(monkeypatch, server
     monkeypatch.setattr(W.tmux, "server_running", lambda: server_exists)
     monkeypatch.setattr(W.tmux, "list_panes", list)
     monkeypatch.setattr(w, "_pane_event", lambda *args, **kwargs: None)
-    w._prs["%1"] = [{"repo": "querystory/qs-app", "number": 4955}]
-    w._repositories["%1"] = ("/repo", "querystory/qs-app")
+    w._prs["%1"] = [{"repo": "example-org/example-app", "number": 4955}]
+    w._repositories["%1"] = ("/repo", "example-org/example-app")
     w._birth["%1"] = "100"
     w._tick()
     assert not w._prs and not w._repositories and not w._birth
@@ -88,17 +88,17 @@ def test_unmatched_target_is_not_proof_of_pane_death(monkeypatch):
     w = Watcher("renamed-label", use_llm=False)
     monkeypatch.setattr(W.tmux, "server_running", lambda: True)
     monkeypatch.setattr(W.tmux, "find_pane", lambda target: None)
-    w._prs["%1"] = [{"repo": "querystory/qs-app", "number": 4955}]
+    w._prs["%1"] = [{"repo": "example-org/example-app", "number": 4955}]
     w._tick()
-    assert w._prs["%1"] == [{"repo": "querystory/qs-app", "number": 4955}]
+    assert w._prs["%1"] == [{"repo": "example-org/example-app", "number": 4955}]
 
 
 def test_digest_exposes_accumulated_prs():
     w = Watcher(None)
     w.states = [{"pane_id": "%1", "label": "work", "cwd": "/repo/worktree"}]
-    w._prs["%1"] = [{"repo": "querystory/qs-app", "number": 4955}]
+    w._prs["%1"] = [{"repo": "example-org/example-app", "number": 4955}]
     assert w.digest()[0]["prs"] == [
-        {"repo": "querystory/qs-app", "number": 4955}
+        {"repo": "example-org/example-app", "number": 4955}
     ]
     assert w.digest()[0]["cwd"] == "/repo/worktree"
 
@@ -106,13 +106,13 @@ def test_digest_exposes_accumulated_prs():
 def test_associations_keep_recent_evidence_with_a_fixed_budget():
     w = Watcher(None)
     for number in range(1, W.MAX_PRS_PER_PANE + 1):
-        w._accumulate_prs("%1", [{"repo": "querystory/qs-app", "number": number}])
-    w._accumulate_prs("%1", [{"repo": "QUERYSTORY/qs-app", "number": 1}])
-    w._accumulate_prs("%1", [{"repo": "querystory/qs-app", "number": 1000}])
+        w._accumulate_prs("%1", [{"repo": "example-org/example-app", "number": number}])
+    w._accumulate_prs("%1", [{"repo": "EXAMPLE-ORG/example-app", "number": 1}])
+    w._accumulate_prs("%1", [{"repo": "example-org/example-app", "number": 1000}])
     assert len(w._prs["%1"]) == W.MAX_PRS_PER_PANE
     assert w._prs["%1"][-2:] == [
-        {"repo": "querystory/qs-app", "number": 1},
-        {"repo": "querystory/qs-app", "number": 1000},
+        {"repo": "example-org/example-app", "number": 1},
+        {"repo": "example-org/example-app", "number": 1000},
     ]
     assert not any(p["number"] == 2 for p in w._prs["%1"])
 
@@ -166,20 +166,20 @@ def test_scrollback_bootstrap_rehydrates_pr_associations(monkeypatch):
     monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "server:%1")
 
     def bootstrap(pane, text, llm_fn, repository=None):
-        assert repository == "querystory/qs-app"
+        assert repository == "example-org/example-app"
         return {
             "summary": "Addressed review feedback",
             "name": "Review 4955",
             "events": [],
-            "working_prs": [{"repo": "querystory/qs-app", "number": 4955}],
+            "working_prs": [{"repo": "example-org/example-app", "number": 4955}],
         }
 
     monkeypatch.setattr(W, "bootstrap", bootstrap)
-    monkeypatch.setattr(W, "github_repository", lambda cwd: "querystory/qs-app")
+    monkeypatch.setattr(W, "github_repository", lambda cwd: "example-org/example-app")
     w = Watcher(None)
     w._maybe_bootstrap([_Pane()])
 
-    assert w._prs["%1"] == [{"repo": "querystory/qs-app", "number": 4955}]
+    assert w._prs["%1"] == [{"repo": "example-org/example-app", "number": 4955}]
     assert "working_prs" not in w._boot["%1"]
 
 

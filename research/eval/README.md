@@ -326,7 +326,7 @@ and both are reported.
 - Idle detection did not move in any design: the offers that must stay idle stayed idle
   every run, so B does not threaten the idle/closing-offer rule. Sample 16 is the known
   failure.
-- B's buttons are worse where it matters. On the real gated capture (sample 58) B returned
+- B's buttons are worse where it matters. On the gated sample 58 B returned
   accept and decline and never the per-step checkpoints A gives; on the single-step
   sample 59 it invented a checkpoint ("Yes, but check with me before sending") on every
   run, which fails that sample's accept-then-decline check. Across the four gated synthetic
