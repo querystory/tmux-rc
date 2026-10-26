@@ -86,7 +86,8 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   started. It reloads itself, every 5 seconds and every 30 after ten minutes, so it turns
   into the page once that lands. A 202 passes `curl -f`, `raise_for_status()` and
   `fetch().ok`, so the snippet says exactly 200; the placeholder also sends `Retry-After` and
-  `X-Scratch-Pending: 1`, and its `<title>` reads "In progress: …", not the page's own.
+  `X-Scratch-Pending: 1`, and its `<title>` reads "In progress · …" (or "Stopped · …"), not the page's own. Its tab
+  icon is scratch's, with an arc running round it while the page is in progress.
 - **Its state** comes from the pane named in `meta.json`. While that pane runs, waits on a
   tool or has subagents out, the page is being made. While it idles, the placeholder says
   so but keeps waiting, since a background subagent can build the page while its
