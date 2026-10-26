@@ -121,7 +121,8 @@ const count = () => { const n = picked().length; document.getElementById("count"
 const pick = (card, on) => { card.classList.toggle("picked", on); card.setAttribute("aria-checked", on); };
 const selecting = (on) => { root.classList.toggle("selecting", on); bar.hidden = !on;
   for (const a of document.querySelectorAll("article")) { // each card a checkbox, named by its text
-    if (on) { a.role = "checkbox"; pick(a, false); } else { a.classList.remove("picked"); a.removeAttribute("role"); a.removeAttribute("aria-checked"); } }
+    if (on) { a.role = "checkbox"; a.tabIndex = 0; pick(a, false); }
+    else { a.classList.remove("picked"); for (const at of ["role", "aria-checked", "tabindex"]) a.removeAttribute(at); } }
   count(); };
 document.getElementById("cards").addEventListener("click", (e) => { // a tap picks, never opens
   const card = root.classList.contains("selecting") && e.target.closest("article");
@@ -130,7 +131,8 @@ document.getElementById("cards").addEventListener("click", (e) => { // a tap pic
 document.getElementById("select").onclick = () => framed ? selecting(true) : location.assign("/m/#view=scratch");
 document.getElementById("all").onclick = () => { for (const a of document.querySelectorAll("article:not([hidden])")) pick(a, true); count(); };
 document.getElementById("cancel").onclick = () => selecting(false);
-addEventListener("keydown", (e) => e.key === "Escape" && selecting(false));
+addEventListener("keydown", (e) => { if (e.key === "Escape") selecting(false);
+  if (e.key === " " && e.target.role === "checkbox") { e.preventDefault(); e.target.click(); } }); // Space ticks, as a checkbox does
 for (const b of bar.querySelectorAll("[data-act]"))
   b.onclick = () => { for (const d of bar.querySelectorAll("[data-act]")) d.disabled = true; // once, until the app answers
     parent.postMessage({ scratch: b.dataset.act, names: picked().map((a) => a.dataset.name) }, "*"); };

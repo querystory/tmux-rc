@@ -162,7 +162,11 @@ def read(root: Path, folder: Path, files: list | None = None) -> dict | None:
 
 
 def archive(root: Path) -> Path:
-    """Where archived folders go: a real folder of scratch, never a link planted out of it."""
+    """Where archived folders go: a real folder of scratch, never a link planted out of it.
+    Reading it is checked, then read, as every live folder is (read, _item): a link swapped
+    in between could only come from a process writing to scratch, which runs as the user and
+    reads those files anyway. What can't be undone is guarded harder: act works on opened
+    folders, so no swap can take a move or a delete out of scratch."""
     path = root / scratch_markdown.ARCHIVE
     if path.is_symlink() or (os.path.lexists(path) and not path.is_dir()):
         raise PermissionError(f"{path} is not a folder of scratch")
