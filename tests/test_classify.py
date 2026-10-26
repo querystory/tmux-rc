@@ -40,6 +40,9 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
                        ("! make deploy\n    --dry-run", "make deploy"),  # its wrapped rest
                        ("if ! grep -q x f; then echo y; fi", "grep -q x f")):
         assert classify_mod.screen_offers([offer], f"● Then:\n\n  {row}\n\n❯ ") == [offer]
+    # An older turn's handoff does not turn this turn's reply into a command.
+    two_turns = "● Run it:\n\n  ! make tea\n\n❯ ok\n\n● Now reply with: make tea\n\n❯ "
+    assert classify_mod.screen_offers(["make tea"], two_turns) == ["make tea"]
 
 
 def _pane(cmd="bash", title="t"):

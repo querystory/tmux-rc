@@ -892,13 +892,13 @@ def _parses(command: str) -> bool:
         return False
 
 
-def _quoted(text, visible: str, *, rows: bool = False) -> bool:
-    """Whether the model's quote of the screen is on it: its exact text, the terminal's
-    wraps allowed for (a wrap may fall at a space or inside a word) and the bars framing a
-    transcript row ignored. `rows`: the quote fills its rows, start to end, and a blank row
-    (or the screen's end) follows, so no wrapped remainder of it was left out."""
+def _quoted(text, visible: str, *, rows: bool = False) -> int:
+    """How often the model's quote of the screen is on it (0: it is not): its exact text,
+    the terminal's wraps allowed for (a wrap may fall at a space or inside a word) and the
+    bars framing a transcript row ignored. `rows`: the quote fills its rows, start to end,
+    and a blank row (or the screen's end) follows, so no wrapped remainder was left out."""
     if not isinstance(text, str) or not text.strip():
-        return False
+        return 0
     # One row break at most between two characters, never a blank row: a word may wrap
     # between any two of its letters, a single space is a space or a wrap, and a run of
     # spaces shows as is (a wrap there would hide its width).
@@ -909,7 +909,7 @@ def _quoted(text, visible: str, *, rows: bool = False) -> bool:
         for part in re.split(r"( +)", text.strip()))
     if rows:
         exact = rf"^[ \t]*{exact}[ \t]*(?:\n[ \t]*$|\Z)"
-    return bool(re.search(exact, _FRAME_BARS_RE.sub("", visible), re.MULTILINE))
+    return len(re.findall(exact, _FRAME_BARS_RE.sub("", visible), re.MULTILINE))
 
 
 def screen_offers(offers: object, text: str) -> list[str]:
@@ -918,11 +918,13 @@ def screen_offers(offers: object, text: str) -> list[str]:
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
     a row break the model copied from a wrap is a space. A command the screen hands over
-    as `! command`, alone on its rows, keeps that `! ` even where the model's copy dropped
-    it: it is what makes Send it run the command rather than say it to the agent."""
+    as `! command`, alone on its rows and nowhere else on screen, keeps that `! ` even where
+    the model's copy dropped it: it is what makes Send it run the command rather than say
+    it to the agent. Any other sighting (an older turn, a reply to type) leaves it as is."""
     listed = offers if isinstance(offers, list) else ()
     visible = _visible(text)
-    whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", visible, rows=True) else o
+    whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", visible, rows=True)
+             and _quoted(o, visible) == 1 else o
              for o in (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
                        for o in listed if isinstance(o, str)))
     return list(islice((o for o in dict.fromkeys(whole)
