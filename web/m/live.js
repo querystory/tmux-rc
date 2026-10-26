@@ -22,7 +22,7 @@ const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the
 const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
-export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "", panes = () => [], logos = {} }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, onChat = () => {}, account = () => "", panes = () => [], logos = {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -133,7 +133,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       // Each button only with something to start: the mic needs a voice row (a keyless one
       // still says what to set), Chat a usable chat model.
       $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
-      $("chat").hidden = !(data.live_enabled && chatModels().length) && !run;
+      const noChat = !(data.live_enabled && chatModels().length) && !run;
+      if (noChat !== $("chat").hidden) { $("chat").hidden = noChat; onChat(); } // the app offers Chat elsewhere too
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
       $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
