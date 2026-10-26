@@ -53,17 +53,26 @@ summary { cursor: pointer; }
 // page and says so, else the system's, light unless it asks for dark.
 const root = document.documentElement;
 root.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);
-addEventListener("message", (e) => { if (e.source === parent && typeof e.data?.light === "boolean") root.classList.toggle("light", e.data.light); });
+addEventListener("message", (e) => {
+  if (e.source !== parent || typeof e.data?.light !== "boolean" || e.data.light === root.classList.contains("light")) return;
+  root.classList.toggle("light", e.data.light);
+  window.drawMermaid?.(); // its diagrams are drawn in one theme
+});
 </script></head><body>
 <nav><button type="button" data-copy="markdown">Copy Markdown</button><button type="button" data-copy="formatted">Copy formatted</button><a href="?raw">Source</a></nav>
 <article><!--body--></article>
 <textarea hidden><!--source--></textarea>
 <!--mermaid-->
 <script>
-if (window.mermaid?.initialize) { // a "Mermaid" heading alone is window.mermaid too
+// Drawn from their sources each time, so a theme the app sends later redraws them in it.
+const diagrams = [...document.querySelectorAll("pre.mermaid")].map((pre) => [pre, pre.textContent]);
+function drawMermaid() {
+  if (!window.mermaid?.initialize) return; // a "Mermaid" heading alone is window.mermaid too
   mermaid.initialize({ startOnLoad: false, theme: root.classList.contains("light") ? "default" : "dark" });
+  for (const [pre, source] of diagrams) { pre.removeAttribute("data-processed"); pre.textContent = source; }
   mermaid.run();
 }
+drawMermaid();
 const article = document.querySelector("article");
 const copy = async (data) => {
   try {
