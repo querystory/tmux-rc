@@ -171,9 +171,10 @@ def _description(root: Path, _url: str, item: dict) -> None:
             _tried.discard(_version(item))
 
 
-def render(url: str, size: tuple[int, int] = VIEWPORT, dark: bool = False) -> bytes | None:
+def render(url: str, size: tuple[int, int] = VIEWPORT, dark: bool = False,
+           timeout: float = 60) -> bytes | None:
     """`url` as a PNG at `size` (CSS px), drawn in a fresh, throwaway profile, offline but for
-    `url`'s own host; None when it cannot be drawn."""
+    `url`'s own host, within `timeout`s; None when it cannot be drawn."""
     exe = browser()
     if not exe:
         return None
@@ -186,13 +187,16 @@ def render(url: str, size: tuple[int, int] = VIEWPORT, dark: bool = False) -> by
         # Every request but `url`'s host (serving's) goes to a proxy that isn't there,
         # loopback included: a page could otherwise frame a local or private-network
         # service, which the shot would then publish.
-        subprocess.run([exe, "--headless", "--no-first-run", "--hide-scrollbars",
-                        f"--user-data-dir={profile}", "--window-size={},{}".format(*size),
-                        *(["--force-dark-mode"] if dark else []),
-                        "--proxy-server=http://127.0.0.1:9",
-                        f"--proxy-bypass-list=<-loopback>;{urlsplit(url).netloc}",
-                        "--virtual-time-budget=3000", f"--screenshot={png}", url],
-                       capture_output=True, timeout=60, check=False)
+        try:
+            subprocess.run([exe, "--headless", "--no-first-run", "--hide-scrollbars",
+                            f"--user-data-dir={profile}", "--window-size={},{}".format(*size),
+                            *(["--force-dark-mode"] if dark else []),
+                            "--proxy-server=http://127.0.0.1:9",
+                            f"--proxy-bypass-list=<-loopback>;{urlsplit(url).netloc}",
+                            "--virtual-time-budget=3000", f"--screenshot={png}", url],
+                           capture_output=True, timeout=timeout, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
         return png.read_bytes() if png.is_file() else None
 
 
@@ -215,7 +219,7 @@ def capture(root: Path, web: Path, name: str, size: tuple[int, int], dark: bool)
     if not (item := scratch.named(root, name)):
         return None
     with serving(root, web) as base:
-        return render(f"{base}/{item['href']}", size, dark)
+        return render(f"{base}/{item['href']}", size, dark, 20)  # well inside a send's 45s
 
 
 class _Text(HTMLParser):

@@ -156,6 +156,14 @@ def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypa
     assert out.stat().st_mtime == 1234  # the version it shows, not when it was saved
 
 
+def test_a_browser_that_hangs_or_cannot_start_draws_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(S, "browser", lambda: "/no/such/shell")
+    monkeypatch.setattr(S, "urlopen", lambda url, timeout: open(os.devnull))  # noqa: SIM115
+    for error in (OSError("cannot start"), S.subprocess.TimeoutExpired("shell", 20)):
+        monkeypatch.setattr(S.subprocess, "run", lambda *a, e=error, **k: (_ for _ in ()).throw(e))
+        assert S.render("http://127.0.0.1:1/scratch/p/") is None
+
+
 def test_no_bundled_shell_means_no_shot(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))  # however Chrome is on PATH
     monkeypatch.delenv("TMUXRC_THUMB_BROWSER", raising=False)
