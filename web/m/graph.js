@@ -609,22 +609,24 @@ export function renderGraphView(root, panes, ctx) {
     };
     const g = root._g = fleetGraph(box, false, { ...ctx, inset, onChange: () => { try { localStorage.setItem('tmuxrc-graph-lens', g.lens()); } catch {} paint(); } });
     const dark = () => { const on = document.documentElement.classList.toggle('fg-dark'); try { localStorage.setItem(DARK, on ? '1' : ''); } catch {} paint(); };
-    // Full screen heads the column, in and out, so the way back is where the way in was.
-    for (const [name, label, fn] of [['fullscreen', 'Full screen', () => full(!root.classList.contains('full'))], ['plus', 'Zoom in', () => g.zoom(1.35)], ['minus', 'Zoom out', () => g.zoom(1 / 1.35)],
+    // Full screen heads the column, in and out, so the way back is where the way in was. A phone
+    // has only full screen (an inline graph there is too small to use), so its button closes the view.
+    const toggle = () => phone() ? ctx.close() : full(!root.classList.contains('full'));
+    for (const [name, label, fn] of [['fullscreen', 'Full screen', toggle], ['plus', 'Zoom in', () => g.zoom(1.35)], ['minus', 'Zoom out', () => g.zoom(1 / 1.35)],
       ['locate', 'Fit to view', () => g.fit()], ['moon', 'Dark canvas', dark]]) {
       const b = el('button', '', ctx.icon(name, 18)); b.title = b.ariaLabel = label; b.onclick = fn; tools.append(b);
     }
     // Full screen is the view itself pinned over the page (style.css), not the Fullscreen API,
     // which an iPhone grants only to video. The page under it goes inert, so Tab stays in the
     // graph; the view leaving the screen (any navigation) ends it.
-    const zoomBtn = tools.firstChild, darkBtn = tools.lastChild, full = on => {
+    const zoomBtn = tools.firstChild, darkBtn = tools.lastChild, full = root._full = on => {
       if (on === root.classList.contains('full')) return;
       if (on) { root._inert = []; for (let a = root; a.parentElement && a !== document.body; a = a.parentElement) root._inert.push(...[...a.parentElement.children].filter(s => s !== a && !s.inert)); }
       root._inert.forEach(s => { s.inert = on; });
-      root.classList.toggle('full', on); zoomBtn.innerHTML = ctx.icon(on ? 'minimize' : 'fullscreen', 18);
-      zoomBtn.title = zoomBtn.ariaLabel = on ? 'Exit full screen' : 'Full screen'; g.fit();
+      root.classList.toggle('full', on); zoomBtn.innerHTML = ctx.icon(phone() ? 'x' : on ? 'minimize' : 'fullscreen', 18);
+      zoomBtn.title = zoomBtn.ariaLabel = phone() ? 'Close' : on ? 'Exit full screen' : 'Full screen'; g.fit();
     };
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && root.classList.contains('full')) full(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && root.classList.contains('full')) toggle(); });
     new IntersectionObserver(([e]) => { if (!e.isIntersecting) full(false); }).observe(root);
     call.lastChild.onclick = e => { const b = e.target.closest('button'); if (b) g.focus(b.dataset.id); };
     hud.append(lenses, call, stats, legend);
@@ -659,6 +661,7 @@ export function renderGraphView(root, panes, ctx) {
     root._lens = saved;
   }
   root._panes = panes;
+  if (phone()) root._full(true);
   const g = root._g, want = root._lens;
   // The remembered lens once it can show: Account waits for the accounts, and is gone with one.
   if (want && LENSES.some(l => l[0] === want) && (want !== 'account' || ctx.several())) { root._lens = null; if (g.lens() !== want) g.setLens(want); }
