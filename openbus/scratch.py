@@ -225,14 +225,16 @@ def replace(path: Path, root: Path, write, *, exclusive: bool = False) -> None:
 
 
 def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> bool:
-    """Add a field tmux-rc worked out to meta.json, listed in its "generated". Never over
-    one already there, nor into a meta.json that is unreadable or a symlink: those are the
-    agent's to fix. With `inode`, only while its folder is still that one."""
+    """Add a field tmux-rc worked out to meta.json, listed in its "generated", keeping the
+    file's time. Never over one already there, nor into a meta.json that is unreadable or
+    a symlink: those are the agent's to fix. With `inode`, only while its folder is still
+    that one."""
     try:
         with _META:
             if inode and meta.parent.stat().st_ino != inode:
                 return False
             fresh = not os.path.lexists(meta)
+            was = None if fresh else meta.stat(follow_symlinks=False)
             current = {} if fresh else None if meta.is_symlink() else json.loads(
                 meta.read_text())
             if not isinstance(current, dict) or str(current.get(field) or "").strip():
@@ -241,7 +243,12 @@ def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> 
             made = [g for g in made if isinstance(g, str)] if isinstance(made, list) else []
             data = {**current, field: value, "generated": [*dict.fromkeys([*made, field])]}
             text = json.dumps(data, indent=1) + "\n"
-            replace(meta, root, lambda tmp: tmp.write_text(text), exclusive=fresh)
+
+            def write(tmp: Path) -> None:  # keeping the agent's time: when it named its pane
+                tmp.write_text(text)
+                if was:
+                    os.utime(tmp, ns=(was.st_atime_ns, was.st_mtime_ns))
+            replace(meta, root, write, exclusive=fresh)
     except (OSError, ValueError):
         return False
     return True

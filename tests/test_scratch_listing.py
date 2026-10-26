@@ -322,8 +322,10 @@ def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
     assert scratch.annotate(meta, tmp_path, "description", "d")
     assert json.loads(meta.read_text()) == {"description": "d", "generated": ["description"]}
     meta.write_text(json.dumps({"title": "", "generated": ["title", {}, ["x"]]}))  # malformed
+    os.utime(meta, (2000, 2000))  # when the agent named its pane, which a generated field keeps
     assert scratch.annotate(meta, tmp_path, "title", "t")
     assert json.loads(meta.read_text())["generated"] == ["title"]
+    assert meta.stat().st_mtime == 2000
     # An agent's meta.json landing after the check is kept: the create is exclusive.
     meta.write_text('{"title": "the agent\'s"}')
     monkeypatch.setattr(scratch.os.path, "lexists", lambda _p: False)
