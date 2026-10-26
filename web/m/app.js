@@ -8,7 +8,7 @@ import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
-import "/hold.js"; // globalThis.hold: a classic script, so the scratch gallery shares it
+import "/hold.js"; // globalThis.hold (the long press): a classic script, so the scratch gallery shares it
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -1062,7 +1062,7 @@ function renderLinks(el, links) {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
-    hold(anchor, { released: () => copyHere(anchor, anchor.href, "chevron") });
+    globalThis.hold(anchor, { released: () => copyHere(anchor, anchor.href, "chevron") }); // not app.js's own hold()
     return anchor;
   }, (anchor, link) => {
     const host = new URL(link.href).host;
