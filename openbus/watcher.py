@@ -233,18 +233,13 @@ def _reflowed(text: str, before: str) -> bool:
                 for t in (text, before)}) == 1
 
 
-def _screen(text: str, question: dict | None) -> str:
-    """What identifies a screen (Watcher.frame_fp): a menu's own rows verbatim, else the
-    normalized screen."""
-    rows = question_rows(question, text) if isinstance(question, dict) else ""
-    return rows or _fingerprint(text)
-
-
-def _turn(said: str | None, text: str, question: dict | None) -> str:
+def _turn(said: str | None, text: str) -> str:
     """The turn a card was read from, as push tells one ask from the next: the agent's
-    transcript as it stood (`said`, transcript.turn), else the screen at any width. Never
-    CARD_VERSION, so a card read again is the same turn."""
-    return said or hashlib.sha256(fit.reflow_key(_screen(text, question)).encode()).hexdigest()
+    transcript as it stood (`said`, transcript.turn), else the visible screen as it is, at
+    any width (_fingerprint would make "sleep 10s" and "sleep 20s" one). Never the card's
+    reading or CARD_VERSION, so a card read again is the same turn."""
+    return said or hashlib.sha256(
+        fit.reflow_key(text.rsplit(tmux.VISIBLE_SCREEN, 1)[-1]).encode()).hexdigest()
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
@@ -1139,8 +1134,9 @@ class Watcher:
         a menu `question`, only its own rows, verbatim (classify.question_rows): the
         normalized screen can't tell "sleep 10s" from "sleep 20s", and an answer token
         must, yet output still streaming above the menu must not make it look stale."""
+        rows = question_rows(question, text) if isinstance(question, dict) else ""
         return hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{_screen(text, question)}".encode()).hexdigest()
+            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
 
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
@@ -1462,7 +1458,11 @@ class Watcher:
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         # A card checkpointed before frames were kept is read again: a frame taken off
         # today's screen would vouch for a question parsed from an older one.
-        if cached is not None and not changed and not forced and "frame" in cached:
+        # So is an ask whose agent has moved on (a second, identical approval): its turn.
+        moved_on = said and cached and cached.get("activity") == "waiting" \
+            and said != cached.get("turn")
+        if cached is not None and not changed and not forced and "frame" in cached \
+                and not moved_on:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             # Offers send what they say: held to this very screen, which the fingerprint
             # may call unchanged while a command's "10s" became "20s". Not off a screen held
@@ -1471,7 +1471,7 @@ class Watcher:
                 cached["offers"] = offers
             cached.setdefault("input_generation", generation)  # a restored card has none
             if "turn" not in cached:  # nor one checkpointed before turns were kept
-                cached["turn"] = _turn(said, text, cached.get("question"))
+                cached["turn"] = _turn(said, text)
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
@@ -1533,7 +1533,7 @@ class Watcher:
             prev_activity=(previous or {}).get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
-        state["turn"] = _turn(said, text, state.get("question"))
+        state["turn"] = _turn(said, text)
         # Preserve the parsed conversation name before session is stamped with the
         # tmux session. It must survive cached ticks and tmux renames independently.
         parsed_title = state.get("session")

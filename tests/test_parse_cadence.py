@@ -299,6 +299,34 @@ def test_reply_landing_after_the_screen_settled_reparses_once(monkeypatch):
     assert calls["n"] == 3
 
 
+def test_an_ask_whose_agent_moved_on_reparses_with_its_new_turn(monkeypatch):
+    """A second, identical approval: the screen and the reply are the first one's, but the
+    transcript moved on, so the card is read again and carries the new turn (push needs it
+    to tell the two apart). An idle card does not re-read for it."""
+    w, calls = _harness(monkeypatch, [" Run ls?\n ❯ 1. Yes\n   2. No"])
+    activity, said = ["waiting"], ["s.jsonl:10"]
+
+    def classify(pane, _text, **_kw):
+        calls["n"] += 1
+        return {"activity": activity[0], "events": [], "label": pane.label, "tool": "claude"}
+
+    monkeypatch.setattr(W, "classify", classify)
+    monkeypatch.setattr(W.transcript, "turn", lambda _pane, _text: said[0])
+    pane = _Pane()
+    for turn in ("s.jsonl:10", "s.jsonl:10", "s.jsonl:20", "s.jsonl:20"):
+        said[0] = turn
+        w._forced_this_tick = set()
+        assert w._tick_pane(pane)["turn"] == turn
+    assert calls["n"] == 2
+    activity[0], said[0] = "idle", "s.jsonl:30"
+    w._forced_this_tick = {pane.id}
+    w._tick_pane(pane)
+    said[0] = "s.jsonl:40"
+    w._forced_this_tick = set()
+    w._tick_pane(pane)
+    assert calls["n"] == 3
+
+
 def test_content_change_reparses(monkeypatch):
     frame = ["$ idle prompt"]
     w, calls = _harness(monkeypatch, frame)

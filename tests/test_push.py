@@ -1056,11 +1056,9 @@ def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
 def test_a_screen_s_turn_is_the_same_under_any_card_version_or_width(monkeypatch):
     """With no agent transcript the screen is the turn: a new parser or a reflow leaves it
     be, and a menu's own rows tell "sleep 10s" from "sleep 20s"."""
-    before = _turn(None, box("ls"), None)
+    before = _turn(None, box("ls"))
     monkeypatch.setattr("openbus.watcher.CARD_VERSION", -1)
-    assert _turn(None, box("ls"), None) == before != _turn(None, box("rm"), None)
-    assert _turn(None, box("ls").replace("─" * 40, "─" * 20), None) == before
-    menus = [box(f"sleep {n}s") for n in (10, 20)]
-    assert len({_turn(None, m, held(f"sleep {n}s", context=_widget_text("Proceed?", m)))
-                for m, n in zip(menus, (10, 20), strict=True)}) == 2
-    assert _turn("t1", box("ls"), None) == "t1"  # the transcript, when there is one
+    assert _turn(None, box("ls")) == before != _turn(None, box("rm"))
+    assert _turn(None, box("ls").replace("─" * 40, "─" * 20)) == before
+    assert _turn(None, box("sleep 10s")) != _turn(None, box("sleep 20s"))
+    assert _turn("t1", box("ls")) == "t1"  # the transcript, when there is one
