@@ -300,10 +300,10 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     assert "send.onclick = () => answer(active, node._offer, -1, true);" in app
     assert "takeOffer" not in app + side
     assert 'show("list-nav", !inPane && !wide)' in app
-    # The tab bar hides in a pane, so Chat and the mic move to its heading rather than vanish.
-    assert 'const callTo = inPane ? $("pane-menu") : $("all-tab");' in app
-    assert ('callTo.before($("live-mode"), $("chat")) : '
-            'callTo.replaceWith($("chat"), callTo, $("live-mode"))') in app
+    # Chat and the mic sit in a pane's heading, by its menu; on the list, the ☰ drawer has them.
+    html = (root / "index.html").read_text()
+    assert html.index('id="heading"') < html.index('id="chat"') < html.index('id="pane-menu"')
+    assert '["chat", "Chat", "message"], ["live-mode", "Voice", "mic"]' in app
     assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app
     assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
     # Every group starts open (Idle too, by the user's call); only a fold the user made persists

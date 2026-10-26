@@ -85,6 +85,7 @@ const LUCIDE = {
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+  pie: '<path d="M21 12c.55 0 1-.45.95-1a10 10 0 0 0-8.95-8.95c-.55-.05-1 .4-1 .95v8a1 1 0 0 0 1 1z"/><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/>',
   gauge: '<path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/>',
   images: '<path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18"/><circle cx="12" cy="8" r="2"/><rect width="16" height="16" x="6" y="2" rx="2"/>',
   arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
@@ -310,6 +311,8 @@ function navigate(id = null, nextView = "summary", { mode, acct = accounts.key()
 // Opened from its card, a view's entry says so in history.state, which survives a reload and
 // Back/Forward; its Back then steps back rather than stacking a second dashboard entry.
 // Not the view already open: that adds no entry, so its Back would leave the app.
+// The dashboard's views with a place of their own: the sidebar's rows and the phone's tabs.
+const PLACES = ["scratch-nav", "graph-nav", "scratch-tab", "usage-tab"];
 const openPage = (name) => { if (page !== name) { navigate(null, name); history.replaceState({ fromCard: true }, ""); } };
 const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
 const stayPut = (opts) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", opts);
@@ -463,9 +466,9 @@ function renderList() {
   const tab = String(filter) === "attention" ? "attention" : "all";
   $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
   // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
-  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && page !== "restore"));
+  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && !["restore", "usage", "scratch"].includes(page)));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && !["restore", "scratch", "graph"].includes(page)));
-  for (const nav of ["scratch", "graph"]) $(`${nav}-nav`).setAttribute("aria-pressed", String(page === nav));
+  for (const id of PLACES) $(id).setAttribute("aria-pressed", String(page === id.split("-")[0]));
   $("restore").setAttribute("aria-pressed", String(page === "restore"));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), scope.tools.join(", "), accounts.on().join(", "), scope.session, $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
@@ -770,7 +773,7 @@ const paintUsage = steady(() => {
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tools = scope.tools, board = tools.length ? all.filter((a) => tools.includes(a.provider)) : all;
-  show("usage-panel", board.length > 0);
+  show("usage-panel", board.length > 0); show("usage-tab", all.length > 0);
   const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board", order = (list) => several ? byUrgency(list) : list;
   if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
   if (grouped) accounts.groups(el, board, (cells, one) => renderUsage(cells, one, { wide: true }));
@@ -878,11 +881,6 @@ function render() {
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
-  // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
-  // its heading takes them, by the overflow menu. Moved only when they are elsewhere: a move
-  // on every repaint would drop their focus.
-  const callTo = inPane ? $("pane-menu") : $("all-tab");
-  if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with search and sort
   show("brand", wide || !list); show("find", wide || list);
   // A phone's title heads the overview and scrolls off under the bar, as Gmail's subject does.
@@ -1780,9 +1778,9 @@ enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
-// The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
+// The phone's tab bar: Sessions, home, in the middle, Usage and Scratch either end. The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
-for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
+for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["usage", "Usage", "pie"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"], ["scratch", "Scratch", "images"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}${id === "attention" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
 }
 // The keys worth a thumb on a phone.
@@ -1833,14 +1831,14 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-// A phone's ☰ drawer: each row presses the control that already goes there (a tab, Scratch,
-// Settings, the docs link), shown when it is and current while it is pressed. A modal
+// A phone's ☰ drawer: each row presses the control that already goes there (a tab, Graph,
+// Chat, Voice, Settings, the docs link), shown when it is and current while it is pressed. A modal
 // dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a drag left closes it.
 // It slides every way it comes and goes (settle, below), a row's place opening once it is gone.
-html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["graph-nav", "Graph", "network"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-nav", "Scratch", "images"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
+html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["graph-nav", "Graph", "network"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["chat", "Chat", "message"], ["live-mode", "Voice", "mic"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
   .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
 $("menu-open").onclick = (e) => {
-  // One current row, the most specific pressed (rows run general to specific): Scratch, not
+  // One current row, the most specific pressed (rows run general to specific): Graph, not
   // also the Dashboard it opens within.
   const rows = [...$("drawer-nav").children], here = [...rows].reverse().find((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
   for (const row of rows) { row.hidden = $(row.dataset.via).hidden; row.setAttribute("aria-current", row === here ? "page" : "false"); }
@@ -1905,7 +1903,7 @@ addEventListener("touchmove", (e) => {
   drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
 }, { passive: true });
-for (const nav of ["scratch", "graph"]) $(`${nav}-nav`).onclick = (e) => { e.preventDefault(); openPage(nav); };
+for (const id of PLACES) $(id).onclick = (e) => { e.preventDefault(); openPage(id.split("-")[0]); };
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();

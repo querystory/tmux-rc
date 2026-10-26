@@ -178,11 +178,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   --lens: blur(8px) saturate(220%) brightness(1.03); --drop: 0 10px 28px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .12); }
 #list-nav button { flex: 1 1 0; min-width: 0; width: auto; height: auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 2px; border-radius: 28px; font-size: 10.5px; font-weight: 600; white-space: nowrap; color: var(--ink); text-shadow: 0 0 4px var(--halo); box-shadow: none; }
 #list-nav svg { width: 22px; height: 22px; filter: drop-shadow(0 0 3px var(--halo)); }
-#list-nav :is([aria-pressed="true"], #chat.active) { background: var(--accent-bg); color: var(--accent); }
+#list-nav [aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
 #list-nav #attention-tab[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
-#list-nav #chat::after { content: attr(aria-label); }
-#list-nav #live-mode::after { content: "Voice"; }
-#list-nav #live-mode.active { color: var(--red); }
 .nav-icon { position: relative; display: grid; place-items: center; }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
 #list-nav .count { position: absolute; left: calc(50% + 5px); top: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: var(--surface); line-height: 18px; font-weight: 700; text-align: center; }

@@ -144,8 +144,12 @@ The idle-count button ("+12") is gone: the rail lists every pane, as the list do
 
 ## The phone
 
-The phone's tab bar is a floating glass pill of Dashboard, Sessions, a raised mic, Chat and
-Needs you (variant D of the tab bar mock, with its count only on Needs you). It used to carry
+The phone's tab bar is a floating glass pill of Dashboard, Usage, Sessions, Needs you and
+Scratch, with a count only on Needs you. Usage and Scratch were a card's view and a ☰ row, a
+tap or two deep for places people check many times a day. Five is all a 320 px phone holds
+without shrinking the targets, so Chat and the mic left the bar for the ☰ drawer (and a
+pane's heading, as before): they are opt-in actions that open a sheet, not places, a casual
+user never sees them, and a running conversation keeps its own bubble. It used to carry
 the state filter as five flat tabs (All, Working, Just finished, Needs you, plus Dashboard),
 which cost "Just finished", the widest word, a tab for the least-used view, and left Chat and
 the mic up in the header, out of thumb's reach. Now the states are in the filter menu like the
