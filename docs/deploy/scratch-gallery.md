@@ -103,6 +103,10 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   Needs-you is skipped (any question still notifies), so one finish buzzes once: a
   Needs-you already shown is replaced silently, and a question with buttons keeps its
   notification, the Ready arriving beside it. A page published in one go was never promised and does not notify.
+- **When a revision ends** (meta.json's `updating` removed), the same push says `Updated: <title>`
+  under the page's own tag, not a pane's: whoever revised it, a second revision replaces the
+  first notification instead of stacking. Presence does not hold it back, so it reaches a
+  phone that is not showing the page.
 
 An orchestrator that hands a subagent's link out writes `meta.json` itself, with its own
 `$TMUX_PANE`: in Claude Code and Codex the subagent runs in that pane. A worker in another

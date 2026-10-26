@@ -1013,6 +1013,32 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
     assert sender.payloads[-1]["tag"] == "block:%1" and sender.payloads[-1]["actions"] == []
 
 
+def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypatch):
+    """An agent revising a published page marks meta.json `updating`, then removes the mark:
+    that sends "Updated", under the page's own tag, whichever pane did the revising."""
+    root = tmp_path / "scratch"
+    (root / "page").mkdir(parents=True)
+    (root / "page" / "report.html").write_text("page")
+    meta = root / "page" / "meta.json"
+    meta.write_text('{"title": "Mock", "pane": "%1"}')
+    os.utime(root / "page" / "report.html", (0, 0))  # published long ago
+    service, sender = manager(tmp_path, Watcher(), [100.0])
+    service.scratch, shot = root, []
+    service.shoot = shot.append
+    service.store.upsert(subscription())
+    service.landed()  # published, not updating: nothing to say
+    meta.write_text('{"title": "Mock", "pane": "%1", "updating": "new chart"}')
+    os.utime(meta, ns=(1, 1))
+    service.landed()
+    assert sender.payloads == []
+    meta.write_text('{"title": "Mock", "pane": "%1"}')
+    service.landed()
+    service.landed()
+    assert [(p["title"], p["tag"], p["url"]) for p in sender.payloads] == [(
+        "Updated: Mock", "scratch:page", "/m#view=scratch&open=%2Fscratch%2Fpage%2Freport.html")]
+    assert [i["name"] for i in shot] == ["page"]
+
+
 def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     """Finishing meta.json in place leaves its folder's mtime alone: the scan retries, with
     an asset already there (a loose file then, not a page being made) or not."""
@@ -1037,4 +1063,4 @@ def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     assert {name for name, _ in service._waiting} == {"gone"}
     shutil.rmtree(root / "gone")
     service.landed()
-    assert service._waiting == set()
+    assert service._waiting == {}
