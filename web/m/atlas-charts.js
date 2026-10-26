@@ -51,6 +51,7 @@ export function atlasCharts() {
         gridSize: Math.max(4, Math.round(top / 3 * ratio)), rotateRatio: 0, // wide spacing: a loose fill
         ellipticity: Math.min(1, cloud.clientHeight / cloud.clientWidth), // fill a wide card, not its middle
         shrinkToFit: true, drawOutOfBound: false, backgroundColor: 'transparent',
+        shuffle: false, // the same words always land in the same places: no reshuffle on reload
         color: word => palette[words.findIndex(([name]) => name === word) % palette.length],
         click: item => latest.selectWord(item[0]),
         hover: item => {

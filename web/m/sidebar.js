@@ -28,7 +28,9 @@ const HOVER_MS = 350;
 const bySession = () => prefs.by === "session" && !oneSession(); // one session is one group: by state instead
 
 // Needs you first, then the groups; a group with nothing in it is not drawn.
+const searched = { query: "", fold: {} };
 function groups(subset, query, sort) {
+  if (searched.query !== query) Object.assign(searched, { query, fold: {} });
   // Session order is the order the watcher publishes, tmux's own: a stable sort that ties keeps it.
   const order = sort === "session" ? () => 0 : (a, b) => rank(a) - rank(b) || newestFirst(a, b);
   const rest = subset.filter((p) => !needsYou(p)).sort(order); // in session order, the sessions are too
@@ -46,7 +48,10 @@ function groups(subset, query, sort) {
   for (const g of list) {
     g.panes.sort(order);
     g.cards = prefs.cards[g.id] ?? g.id === "need";
-    g.open = !!query || !prefs.fold[g.id]; // open unless the user folded it (only explicit folds are stored)
+    // Open unless folded (only explicit folds are stored). A search opens every section, and a
+    // fold tapped during it holds until the search changes.
+    g.folds = query ? searched.fold : prefs.fold;
+    g.open = !g.folds[g.id];
   }
   return list.filter((g) => g.panes.length);
 }
@@ -159,7 +164,7 @@ export function setupSidebar(ctx) {
     const node = document.createElement("div");
     node.className = "sb-group";
     node.innerHTML = '<button class="sb-fold"></button><button class="sb-icon"></button>';
-    node.firstChild.onclick = () => { prefs.fold[node._g.id] = node._g.open; rerender(); };
+    node.firstChild.onclick = () => { node._g.folds[node._g.id] = node._g.open; rerender(); };
     node.lastChild.onclick = () => { prefs.cards[node._g.id] = !node._g.cards; rerender(); };
     return node;
   }
@@ -184,10 +189,24 @@ export function setupSidebar(ctx) {
     open.className = "sb-open";
     open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span><span class="sb-acct"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><p class="sb-items"></p>' : "");
     node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
-    if (card) addAnswers(node);
+    if (card) {
+      const more = Object.assign(document.createElement("button"), { type: "button", className: "sb-more", hidden: true });
+      more.onclick = () => { node.classList.toggle("full"); fit(node); };
+      open.after(more);
+      addAnswers(node);
+    }
     open.onclick = () => ctx.navigate(node._p.pane_id);
     return node;
   }
+  // A long question shows three lines and More, which unfolds the rest in place (the pane has it all too).
+  function fit(node) {
+    const items = node.querySelector(".sb-items"), more = node.querySelector(".sb-more"), full = node.classList.contains("full");
+    more.hidden = !items.textContent || !full && items.scrollHeight <= items.clientHeight;
+    text(more, full ? "Less" : "More");
+  }
+  // Measured once the cards are in the list, and again when its width changes.
+  const fitAll = () => root.querySelectorAll(".sb-card").forEach(fit);
+  new ResizeObserver(fitAll).observe(root);
   // A Needs-you card's answer buttons and its Reply composer, for the pane in `node._p`.
   function addAnswers(node) {
     node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
@@ -228,7 +247,7 @@ export function setupSidebar(ctx) {
     renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
       markLine(node.querySelector("p"), paneActivity(p), p);
-      text(node.querySelector(".sb-items"), needsYou(p) ? questionItems(p.question) : "");
+      text(node.querySelector(".sb-items"), needsYou(p) ? questionItems(p.question, ctx.answers(p.question).map((o) => o.option)) : "");
       replies(node, p);
     }
   }
@@ -284,8 +303,8 @@ export function setupSidebar(ctx) {
   }
   // Folded to the rail: every pane the list shows, in its order, each with its state's dot
   // (and, with several accounts, its account's); hovering one shows its card.
-  function rail(subset) {
-    reconcile(root, groups(subset, "", ctx.sort()).flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
+  function rail(subset, query) { // the query keeps a search's folds for when it expands
+    reconcile(root, groups(subset, query, ctx.sort()).flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
       const b = document.createElement("button");
       b.className = "sb-rail";
       b.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="sb-acct"></span>';
@@ -372,7 +391,7 @@ export function setupSidebar(ctx) {
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
     search.title = prefs.rail ? "Search" : "";
     marks(filter, more);
-    if (prefs.rail) rail(subset); else list(subset, query);
+    if (prefs.rail) rail(subset, query); else list(subset, query);
     // Reconciling may have replaced the hovered row (a card that became a row, say).
     if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
   }
@@ -380,9 +399,11 @@ export function setupSidebar(ctx) {
     shown = groups(subset, query, ctx.sort());
     // A folded group still shows the open pane, so the selection never disappears. A pane
     // with offers to tap is a card in any group, as Needs you is.
-    const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards || ctx.offers(p).length > 0 }))];
+    // Searching, a Needs-you pane the search misses is a row: the matches stay in reach.
+    const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: !(query && ctx.outside(p)) && (g.cards || ctx.offers(p).length > 0) }))];
     reconcile(root, shown.flatMap(of), (i) => i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
       (i) => i.p ? row(i.card) : head(i.g), (node, i) => i.p ? updateRow(node, i) : updateHead(node, i.g));
+    fitAll();
     const n = subset.reduce((n, p) => n + liveSubagents(p).length, 0);
     subs.setAttribute("aria-pressed", String(prefs.subagents));
     subs.ariaLabel = `${n} sub-agents: ${prefs.subagents ? "hide" : "list"} them under their panes`;

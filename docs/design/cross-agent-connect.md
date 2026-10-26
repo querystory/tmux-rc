@@ -15,7 +15,7 @@ phone.
 
 Most of this ground is already covered. Each document below owns one piece. The
 mapping onto the three openbus contracts proposed in the hosting plan
-(querystory/planning#488: event envelope, harness-neutral action vocabulary, agent
+(planning issue #488: event envelope, harness-neutral action vocabulary, agent
 manifest) follows the list.
 
 - [openbus narrative](openbus-narrative.md): the hub. It names the build items this doc
@@ -345,7 +345,7 @@ This is the default everywhere, self-hosted and hosted.
 running as the user can still run `tmux send-keys`, curl the daemon on localhost, or
 read another pane's environment. Panes are not sandboxes. The sandbox changes this only
 partly. Codex's workspace sandbox turns network off by default, which closes the
-daemon's HTTP port. The qs-app investigation #488 cites (#4811) found that MCP calls
+daemon's HTTP port. An investigation #488 cites found that MCP calls
 bypass that sandbox. So for a sandboxed agent the grant really does gate everything that
 needs the daemon. Whether a sandbox also closes the tmux socket varies by harness and
 settings, so check it per harness before calling it a boundary. For an unsandboxed agent
