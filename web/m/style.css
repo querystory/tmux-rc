@@ -264,11 +264,19 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .link-pair a { min-width: 0; user-select: none; -webkit-user-select: none; }
 .link-copy { color: var(--muted); }
 /* A pane's link rows: a long press copies (app.js renderLinks), so no callout or selection. */
-#links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
-#links a:last-child { border-bottom: 0; }
-#links a span, #links a small, #ask-link a span, #ask-link a small { overflow-wrap: anywhere; }
-#links a small, #ask-link a small { color: var(--muted); font-size: 12px; grid-column: 1; }
-#links a svg, #ask-link a svg { grid-column: 2; grid-row: 1 / 3; }
+:is(#links, #pr-links, #ask-link) a, .more-links { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+:is(#links, #pr-links) a, .more-links { border-top: 1px solid var(--line); }
+#links a:first-child { border-top: 0; }
+:is(#links, #pr-links, #ask-link) a :is(span, small) { overflow-wrap: anywhere; }
+:is(#links, #pr-links, #ask-link) a small, .more-links small { color: var(--muted); font-size: 12px; grid-column: 1; }
+:is(#links, #pr-links, #ask-link) a svg, .more-links svg { grid-column: 2; grid-row: 1 / 3; }
+#links small.pending { color: var(--amber); }
+/* The rest of the Links (app.js renderRichContent): this pane's Scratch pages, its other PRs. */
+.more-links { width: 100%; border-width: 1px 0 0; border-radius: 0; background: none; color: var(--fg); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.more-links :is(small, .count) { color: var(--muted); font-weight: 400; }
+#more-prs svg { transform: rotate(90deg); }
+#more-prs[aria-expanded="true"] svg { transform: rotate(-90deg); }
+#pr-links a { padding-left: 14px; }
 /* The link a question asks you to open leads its card, framed like its answers. */
 #ask-link a { margin-top: 14px; padding: 8px 14px; border: 1px solid var(--amber); border-radius: 6px; }
 .pane-table + .pane-table { margin-top: 20px; }

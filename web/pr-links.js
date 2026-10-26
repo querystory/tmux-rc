@@ -1,6 +1,20 @@
 // PR associations and the session's scratch `pages` outlive the visible terminal frame.
 // Always offer them alongside transient parser links, without duplicating the same URL.
 export function paneLinks(pane, pages = []) {
+  const { prs, kept, transient } = groups(pane, pages);
+  return [...prs, ...kept, ...transient];
+}
+
+// The overview's Links: the few that matter on top (pages still In progress, then the newest
+// page, then the PR evidenced last: the watcher keeps them oldest first), the screen's own
+// links after them, and the rest of each kind behind a row of its own.
+export function linkGroups(pane, pages = []) {
+  const { prs, kept, transient } = groups(pane, pages), newest = prs.reverse();
+  const top = [...new Set([...kept.filter((p) => p.pending), kept[0], newest[0]])].filter(Boolean).slice(0, 3);
+  return { top: [...top, ...transient], pages: kept, prs: newest.filter((l) => !top.includes(l)) };
+}
+
+function groups(pane, pages) {
   const tracked = (Array.isArray(pane?.prs) ? pane.prs : []).flatMap((pr) => {
     if (!pr || typeof pr.repo !== "string" ||
         pr.repo.length > 256 ||
@@ -23,10 +37,10 @@ export function paneLinks(pane, pages = []) {
       return true;
     } catch { return false; }
   };
-  const kept = [tracked, pages].flatMap((list) => list.slice(0, 64).filter(accept)); // a cap each
+  const [prs, kept] = [tracked, pages].map((list) => list.slice(0, 64).filter(accept)); // a cap each
   const transient = (Array.isArray(pane?.links) ? pane.links : [])
     .filter(accept).slice(0, 3).map(({ href, text }) => ({ href, text }));
-  return [...kept, ...transient];
+  return { prs, kept, transient };
 }
 
 // The link a question asks the user to open (a sign-in or device-login URL): the screen
