@@ -30,6 +30,12 @@ def test_reset_time_rides_only_on_a_quota_blocked_pane():
     assert (r["subagents"][0]["state"], r["agents"]) == ("idle", 0)  # it shares the limit
 
 
+def test_a_handed_over_command_keeps_its_bash_prefix():
+    screen = "● Run it yourself:\n\n  ! gh pr merge 7 --squash\n\n❯ "
+    offered = classify_mod.screen_offers(["gh pr merge 7 --squash", "ship it"], screen)
+    assert offered == ["! gh pr merge 7 --squash"]  # "ship it" is not on the screen
+
+
 def _pane(cmd="bash", title="t"):
     return Pane("work", "0", "bash", "0", "%0", cmd, title, "/home/x/proj")
 
