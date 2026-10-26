@@ -292,9 +292,11 @@ const writeHash = (next, how = "replace", state = history.state) => history[`${h
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
-function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
+// `draft`: a scratch page's suggested reply, offered by route() as a link's would be.
+function navigate(id = null, nextView = "summary", { mode, acct = accounts.key(), draft } = {}) {
   const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value });
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value })
+    + (typeof draft === "string" ? `&draft=${encodeURIComponent(draft)}` : "");
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
@@ -831,10 +833,7 @@ scratchFrame.addEventListener("load", tellScratch);
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
   const { pane, view, open, title, draft: offered } = e.data || {}, href = scratchUrl(open, location.href);
-  if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) {
-    if (typeof offered === "string") location.hash = new URLSearchParams({ pane, draft: offered }); // route() offers it, as a link's
-    else navigate(pane);
-  }
+  if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
