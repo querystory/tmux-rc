@@ -394,6 +394,22 @@ def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
     ]
 
 
+@pytest.mark.parametrize("tabs", [" ☐ Fruit ", "←  ☒ Beds  ☐ Fruit  ✔ Submit  →"])
+def test_claude_picker_header_tabs_are_not_tasks(tabs):
+    screen = (
+        "  ⎿  ☐ Plant the seedlings\n" + "─" * 40 + f"\n{tabs}\n\nWhich fruit should we plant?"
+        "\n\n❯ 1. Apple\n  2. Pear\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
+    )
+    tasks = [{"text": text, "done": False} for text in ("Plant the seedlings", "Fruit")]
+    result = classify(_pane("claude"), screen, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks,
+    }))
+    assert result["tasks"] == tasks[:1]
+    assert "tasks" not in classify(_pane("claude"), screen, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
+    }))
+
+
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
     r = classify(
         _pane(cmd="opencode"),

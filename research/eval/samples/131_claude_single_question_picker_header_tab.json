@@ -1,0 +1,15 @@
+{
+  "description": "Sample 129's screen with the lone \"☐ #812\" header tab Claude Code draws above a single-question AskUserQuestion picker, on the row right under the dialog's top rule. That tab is picker chrome naming the question, not the agent's checklist: the card is the menu with no tasks. The model read it as a one-row task list (\"#812\") 3/3 runs, and prompt wordings that fixed it regressed other samples, so classify drops a task that is only a picker tab's label. Fictional screen (tmux-rc, 2026-10-25).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● Agent \"Threads: 812 907 655\" is waiting on its own background work · 1m 12s\n\n● You wanted to clarify the #655 question before choosing. What would you like to know? For example: what's in those photos, whether they're actually needed, or something\n  else.\n\n✻ Simmered for 11m 40s · done 6:05 PM · 2 shells still running\n\n❯ the old harbor photos can go in the archive bucket, it sits behind the login so people can still open them from there if they want\n  ⎿  Resuming agent b81c204\n  ⎿  Allowed by auto mode classifier\n\n❯ is that enough?\n\n● I've told the docs agent to move the photos to the archive bucket instead of the repo, drop them from the PR with a link, and resolve the review comment before\n  rerunning Copilot. Moving on to the next question now.\n\n› Message from @general-purpose (ctrl+o to expand)\n\n⟪dim⟫────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────⟪/dim⟫\n ☐ #812 \n\n│ #812 (tide alerts design doc): while this doc sat in review, the site shipped tide alerts in a different form: as a nightly digest built on the shared schedule store,\n│ written up in docs/alerts/.../nightly-digest.md. So this doc's push design, retry policy, quiet hours and per-harbor thresholds no longer match what was built.\n│ Copilot has 2 valid open threads saying exactly that. CI is green. I recommend closing it: nightly-digest.md is now the source of truth, and rewriting this doc would\n│ only duplicate it. I'd close with a comment linking nightly-digest.md. What should I do?\n\n❯ 1. Close it (Recommended)\n     ⟪dim⟫Close #812 with a comment pointing to nightly-digest.md and site/alerts/digest.py as the shipped design.⟪/dim⟫\n  ⟪dim⟫2.⟪/dim⟫ Rewrite as rationale doc\n     ⟪dim⟫Cut it down to the decision record (why a digest, alternatives rejected), pointing to nightly-digest.md for the design, then loop Copilot.⟪/dim⟫\n  ⟪dim⟫3. Type something.⟪/dim⟫\n⟪dim⟫────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────⟪/dim⟫\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "menu"
+    },
+    "headline": "Asking whether to close the outdated tide alerts design doc"
+  }
+}

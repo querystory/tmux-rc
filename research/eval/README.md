@@ -215,6 +215,7 @@ actually hit:
 | `128_claude_handoff_no_side_panel_no_question_mark` | synthetic: a signed `! git tag` handed over in a sentence, no `?`, no `[side panel]`, ASCII-pipe status rows → text user-wait offering the command |
 | `129_claude_single_question_picker_after_turns` | synthetic: a one-question AskUserQuestion picker (gray row digits, "4. Chat about this" under a rule) below answered turns → a menu with all four options |
 | `130_claude_advice_for_another_pane_not_a_reply` | synthetic: a report ending 'tap Reply and type "1"' about another pane, agents still running → no question, no "1" button |
+| `131_claude_single_question_picker_header_tab` | synthetic: 129 with its lone "☐ #812" header tab under the dialog's top rule → the menu, and no one-row task list |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
