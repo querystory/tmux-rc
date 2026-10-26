@@ -193,7 +193,6 @@ export function setupSidebar(ctx) {
       const more = Object.assign(document.createElement("button"), { type: "button", className: "sb-more", hidden: true });
       more.onclick = () => { node.classList.toggle("full"); fit(node); };
       open.after(more);
-      clipped.observe(open.querySelector(".sb-items"));
       addAnswers(node);
     }
     open.onclick = () => ctx.navigate(node._p.pane_id);
@@ -205,7 +204,9 @@ export function setupSidebar(ctx) {
     more.hidden = !items.textContent || !full && items.scrollHeight <= items.clientHeight;
     text(more, full ? "Less" : "More");
   }
-  const clipped = new ResizeObserver((entries) => entries.forEach((e) => fit(e.target.closest(".sb-card"))));
+  // Measured once the cards are in the list, and again when its width changes.
+  const fitAll = () => root.querySelectorAll(".sb-card").forEach(fit);
+  new ResizeObserver(fitAll).observe(root);
   // A Needs-you card's answer buttons and its Reply composer, for the pane in `node._p`.
   function addAnswers(node) {
     node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
@@ -247,7 +248,6 @@ export function setupSidebar(ctx) {
     if (card) {
       markLine(node.querySelector("p"), paneActivity(p), p);
       text(node.querySelector(".sb-items"), needsYou(p) ? questionItems(p.question, ctx.answers(p.question).map((o) => o.option)) : "");
-      fit(node);
       replies(node, p);
     }
   }
@@ -303,8 +303,8 @@ export function setupSidebar(ctx) {
   }
   // Folded to the rail: every pane the list shows, in its order, each with its state's dot
   // (and, with several accounts, its account's); hovering one shows its card.
-  function rail(subset) {
-    reconcile(root, groups(subset, "", ctx.sort()).flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
+  function rail(subset, query) { // the query keeps a search's folds for when it expands
+    reconcile(root, groups(subset, query, ctx.sort()).flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
       const b = document.createElement("button");
       b.className = "sb-rail";
       b.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="sb-acct"></span>';
@@ -391,7 +391,7 @@ export function setupSidebar(ctx) {
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
     search.title = prefs.rail ? "Search" : "";
     marks(filter, more);
-    if (prefs.rail) rail(subset); else list(subset, query);
+    if (prefs.rail) rail(subset, query); else list(subset, query);
     // Reconciling may have replaced the hovered row (a card that became a row, say).
     if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
   }
@@ -403,6 +403,7 @@ export function setupSidebar(ctx) {
     const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: !(query && ctx.outside(p)) && (g.cards || ctx.offers(p).length > 0) }))];
     reconcile(root, shown.flatMap(of), (i) => i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
       (i) => i.p ? row(i.card) : head(i.g), (node, i) => i.p ? updateRow(node, i) : updateHead(node, i.g));
+    fitAll();
     const n = subset.reduce((n, p) => n + liveSubagents(p).length, 0);
     subs.setAttribute("aria-pressed", String(prefs.subagents));
     subs.ariaLabel = `${n} sub-agents: ${prefs.subagents ? "hide" : "list"} them under their panes`;
