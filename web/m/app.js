@@ -153,7 +153,7 @@ let dashboard = false, page = null;
 const CARDS = { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" };
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], statePanes = [], paneIds = null, accountsAt = 0, active = null, view = "summary", filter = [], loaded = false, booted = false, tmuxRunning = true;
-let focusPushComposer = false;
+let focusPushComposer = false, linked = null; // linked: a link's draft, offered once its pane's state is in (offerDraft)
 // The sort is a per-browser preference, as the sidebar's grouping is: how you like to read the
 // list, not what a link should show. A phone's Settings and the wide filter menu share it.
 let sort = "updated";
@@ -336,7 +336,7 @@ function leaveMissingPane(id) {
   navigate(null, "summary", { mode: "replace" });
   notice("That pane isn't running.");
 }
-// A link's draft (url-state.js linkDraft), once its pane is known to be running: into the
+// A link's draft (url-state.js linkDraft), once its pane's state is in (render): into the
 // composer, never sent. One the user is already writing stays; the link's waits in the notice.
 // A password prompt hides the composer (and pruneDrafts would empty it): the notice only shows it.
 function offerDraft(id, value, replace = false) {
@@ -344,7 +344,7 @@ function offerDraft(id, value, replace = false) {
   const composer = draft(id), offer = `A link offered a draft: "${value}".`;
   if (panes.find((p) => p.pane_id === id)?.secret) notice(`${offer} This pane is at a password prompt.`);
   else if (composer.segments().length && !replace) notice(`${offer} Yours is kept.`, 0, ["Use the link's", () => offerDraft(id, value, true)]);
-  else { composer.replace([{ text: value }]); composer.editor.focus(); notice("Draft from a link: check it, then Send."); }
+  else { composer.replace([{ text: value }]); requestAnimationFrame(() => composer.editor.focus()); notice("Draft from a link: check it, then Send."); }
 }
 
 function route() {
@@ -354,6 +354,7 @@ function route() {
   dropGesture();
   active = state.pane;
   focusPushComposer = state.compose;
+  linked = state.draft;
   ({ dashboard, view, filter, page } = state);
   scope.tools = state.agent;
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
@@ -384,11 +385,11 @@ function route() {
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshHistory(true);
   }
-  if (active && (changed || state.draft)) {
+  if (active && changed) {
     const id = active;
     // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
     // rejection after the user moved on must not overwrite whatever notice that left.
-    post(paneUrl(id, "select")).then(() => state.draft && offerDraft(id, state.draft)).catch((error) => {
+    post(paneUrl(id, "select")).catch((error) => {
       if (error.status === 404) leaveMissingPane(id);
       else if (stillOnPane(location.hash, id)) notice("Could not focus this pane on the host.");
     });
@@ -1026,6 +1027,7 @@ function render() {
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
+  if (pane && linked) { offerDraft(active, linked); linked = null; }
   if (focusPushComposer && pane?.question && needsYou(pane)) {
     focusPushComposer = false;
     requestAnimationFrame(() => $(pane.secret ? "secret" : "reply").focus({ preventScroll: true }));
