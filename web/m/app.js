@@ -354,6 +354,7 @@ function route() {
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
+    foldPrs(false); // another pane's PRs start folded
     $("overview").scrollTop = 0;
     text($("draft-status"), "");
     show("keys", false);
@@ -1129,8 +1130,8 @@ function renderRichContent(pane) {
 
 // The rest of the Links: this pane's pages open in Scratch, filtered to it; its PRs unfold here.
 $("more-pages").onclick = () => { scratchFrom = active; openPage("scratch"); };
-$("more-prs").onclick = () => { const open = $("more-prs").getAttribute("aria-expanded") !== "true";
-  $("more-prs").setAttribute("aria-expanded", String(open)); show("pr-links", open); };
+$("more-prs").onclick = () => foldPrs($("more-prs").getAttribute("aria-expanded") !== "true");
+function foldPrs(open) { $("more-prs").setAttribute("aria-expanded", String(open)); show("pr-links", open); }
 for (const id of ["more-pages", "more-prs"]) $(id).insertAdjacentHTML("beforeend", licon("chevron", 16));
 
 function renderTasks(pane) {

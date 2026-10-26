@@ -136,4 +136,8 @@ test("Links lead with pages In progress, the newest page and the PR evidenced la
   assert.equal(links.pages.length, 4);
   assert.deepEqual(links.prs.map((l) => l.href), [pr(3), pr(2), pr(1)]); // newest first, none on top
   assert.deepEqual(linkGroups({ prs }, [page(5)]).top.map((l) => l.href), [page(5).href, pr(3)]);
+  // A page or PR the screen links now leads, titled, and leaves the rest.
+  const shown = linkGroups({ prs, links: [{ href: pr(1), text: "raw" }, { href: pages[2].href }] }, pages);
+  assert.deepEqual(shown.top.slice(3).map((l) => l.text), ["a/b#1", "p3"]);
+  assert.deepEqual(shown.prs.map((l) => l.href), [pr(3), pr(2)]);
 });
