@@ -836,7 +836,7 @@ async function scratchAct(action, names) {
   const idle = () => scratchFrame.contentWindow?.postMessage({ idle: true }, "*"); // its bar, usable again
   if (action === "delete" && !confirm(`Delete ${what(names.length)} for good? This cannot be undone.`)) return idle();
   let done;
-  try { ({ done } = await post("/api/scratch", { action, names })); } catch (err) { idle(); return notice(`Could not change Scratch: ${err.message}`, 6000); }
+  try { ({ done } = await post("/api/scratch", { action, names }, NO_TIMEOUT)); } catch (err) { idle(); return notice(`Could not change Scratch: ${err.message}`, 6000); }
   scratchFrame.contentWindow?.postMessage({ reload: true }, "*");
   notice(`${{ archive: "Archived", unarchive: "Restored", delete: "Deleted" }[action]} ${what(done.length)}.`, 8000,
     action === "archive" && done.length ? ["Undo", () => scratchAct("unarchive", done)] : null);

@@ -13,6 +13,7 @@ import os
 import subprocess
 import tempfile
 import threading
+from collections import defaultdict
 from contextlib import contextmanager
 from functools import partial
 from html.parser import HTMLParser
@@ -33,6 +34,7 @@ _lock = threading.Lock()
 _pending: list[tuple[Path, str, dict]] = []
 _tried: set[tuple] = set()  # folder versions queued
 _done: set[tuple] = set()  # and worked
+_moves: dict[str, int] = defaultdict(int)  # times each name was archived or restored (forget)
 _worker: threading.Thread | None = None
 
 
@@ -79,6 +81,17 @@ def queue(root: Path, web: Path, listed: list[dict], describe: bool = True) -> N
             _worker.start()
 
 
+def forget(names: list[str]) -> None:
+    """These folders were archived or restored (scratch.act): whatever was worked out for them
+    is asked afresh, and a job of theirs already running counts for nothing. A move keeps a
+    folder's inode and times, so its version alone would call it done."""
+    with _lock:
+        for name in names:
+            _moves[name] += 1
+        for seen in (_tried, _done):
+            seen.difference_update({key for key in seen if key[0] in names})
+
+
 def _work(root: Path, web: Path) -> None:
     global _worker  # noqa: PLW0603
     with serving(root, web) as base:
@@ -88,15 +101,16 @@ def _work(root: Path, web: Path) -> None:
                     _worker = None  # under the lock, so queue() starts one for what comes next
                     return
                 item = _pending.pop(0)
+                moves = _moves[item["name"]]
             for step in (_thumbnail, _description):
                 try:  # each on its own: one failing must stop neither the other nor the queue
                     step(root, f"{base}/{item['href']}", item)
                 except Exception:
                     logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
                                    exc_info=True)
-            with _lock:  # a folder archived meanwhile was not worked: restored, it is asked again
-                gone = not (root / item["name"]).is_dir()
-                (_tried.discard if gone else _done.add)(_version(item))
+            with _lock:  # a folder archived or restored meanwhile was not worked: ask again
+                moved = _moves[item["name"]] != moves
+                (_tried.discard if moved else _done.add)(_version(item))
 
 
 class _Static(SimpleHTTPRequestHandler):

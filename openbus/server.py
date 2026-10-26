@@ -2272,6 +2272,7 @@ if _scratch_dir:
         """Archive, unarchive or delete (from the archive) the gallery's selected folders."""
         try:
             done = scratch.act(Path(_scratch_dir), body.action, body.names)
+            scratch_sidecars.forget(done)
         except (ValueError, PermissionError) as e:
             raise HTTPException(400, str(e)) from e
         _audit(request, f"scratch_{body.action}", "-", ",".join(done))

@@ -226,13 +226,21 @@ def test_a_folder_archived_before_its_shot_is_shot_once_restored(tmp_path, monke
     monkeypatch.setattr(S, "describe", lambda *_: "Said.")
     _page(tmp_path)
     listed = scratch.items(tmp_path)
-    scratch.act(tmp_path, "archive", ["p"])  # after it was listed, before the worker ran
+    S.forget(scratch.act(tmp_path, "archive", ["p"]))  # listed, not yet shot (as the server does)
     monkeypatch.setattr(S, "shoot", lambda url, out, root, at: shots.append(out.exists()))
     S.queue(tmp_path, WEB_DIR, listed)
     while (worker := S._worker) is not None:
         worker.join()
-    scratch.act(tmp_path, "unarchive", ["p"])  # the same inode and times: the same version
+    S.forget(scratch.act(tmp_path, "unarchive", ["p"]))  # the same inode and times: same version
     S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path))
     while (worker := S._worker) is not None:
         worker.join()
     assert len(shots) == 2  # asked again, not taken as done
+    # a job already running when its folder moves (and comes back) counts for nothing
+    monkeypatch.setattr(S, "_done", set())
+    monkeypatch.setattr(S, "shoot", lambda *_: S.forget(["p"]) or shots.append("moved"))
+    (tmp_path / "p" / "index.html").write_text("<title>T2</title>")
+    S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path))
+    while (worker := S._worker) is not None:
+        worker.join()
+    assert not S._done and not S._tried
