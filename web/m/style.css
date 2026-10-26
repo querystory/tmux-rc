@@ -1477,6 +1477,7 @@ html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-heigh
 #viewer-reply { flex-basis: calc(100% - 56px); } /* its own row, under the label and chip */
 #viewer-status, #viewer-about { margin: 0; font-size: 13px; color: var(--muted); }
 #viewer-about { flex: 1; min-width: 0; align-self: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#viewer-to { color: var(--accent); }
 #viewer-status:empty { display: none; }
 #viewer-shot { min-height: 28px; font-size: 12px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
 #viewer-shot[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
