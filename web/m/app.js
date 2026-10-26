@@ -860,9 +860,13 @@ function paintPins(list) {
 }
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
 $("sb-pins").onclick = (e) => { const a = e.target.closest("a"); if (a) { e.preventDefault(); viewScratch(a.href, a.title); } };
-$("viewer-pin").onclick = () => {
-  const folder = viewedFolder(), names = pins.map((p) => p.name);
-  request("/api/pins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(names.includes(folder) ? names.filter((n) => n !== folder) : [...names, folder]) }).then(loadPins, () => {});
+$("viewer-pin").onclick = async () => {
+  const folder = viewedFolder();
+  try { // from the pins as they are now: one deleted since the last read would fail the write
+    const names = (await request("/api/pins")).map((p) => p.name);
+    await request("/api/pins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(names.includes(folder) ? names.filter((n) => n !== folder) : [...names, folder]) });
+    paintPins(await request("/api/pins"));
+  } catch (e) { $("viewer-pin").title = `Could not save the pin: ${e.detail || e.message}`; }
 };
 addEventListener("focus", loadPins); loadPins(); // another device's pin shows once this one is back
 $("close-viewer").onclick = () => viewer.close();

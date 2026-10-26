@@ -184,7 +184,7 @@ def pin(root: Path, store: Path, names: list[str]) -> list[dict]:
     if not all(folder_name(n) and read(root, root / n) for n in names):
         raise ValueError("a pin is one folder of scratch")
     store.parent.mkdir(parents=True, exist_ok=True)
-    tmp = store.with_suffix(".tmp")
+    tmp = store.with_suffix(f".{threading.get_ident()}.tmp")  # each request its own
     tmp.write_text(json.dumps(names))
     tmp.replace(store)
     return pinned(root, store)
