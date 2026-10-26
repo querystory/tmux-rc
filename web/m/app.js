@@ -2305,7 +2305,7 @@ async function openLaunch(fresh, opener) {
 $("close-launch").onclick = () => $("launch-dialog").close();
 $("launch-kind").onclick = (e) => {
   const b = e.target.closest("[data-start]");
-  if (b?.dataset.why) text($("launch-sub"), b.dataset.why); else if (b) { $("launch-dialog").close(); $(b.dataset.start).click(); }
+  if (b?.dataset.why) text($("launch-sub"), b.dataset.why); else if (b) { $("launch-dialog").close(); live.open[b.dataset.start](); }
 };
 let launching = false, launched = null;
 // Go to a window the daemon just opened (a launcher, or a chat resume). Record the id BEFORE

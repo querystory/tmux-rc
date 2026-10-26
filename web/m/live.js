@@ -131,7 +131,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       onVersion(data.version);
       if (!run) { menu = data.live_models || [{ label: "Default", value: "" }]; renderModels(); }
       enabled = data.live_enabled;
-      $("live-mode").hidden = !!why(false); $("chat").hidden = !!why(true);
+      // The mic shows with any voice row, a keyless one too: its picker says what to set.
+      $("live-mode").hidden = !(enabled && menu.some((model) => !model.text)) && !run; $("chat").hidden = !!why(true);
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
       $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
@@ -139,9 +140,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   const saved = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
   const chatModels = () => menu.filter((model) => model.text && !model.unavailable);
-  // Why Chat (text) or Voice can't start, "" when it can. Each needs something to start: the
-  // mic a voice row (a keyless one still says what to set), Chat a usable chat model.
-  const why = (text) => run || enabled && (text ? chatModels().length : menu.some((model) => !model.text)) ? ""
+  // Why Chat (text) or Voice can't start, "" when it can: each needs a usable model of its kind.
+  const why = (text) => run || enabled && menu.some((model) => !!model.text === text && !model.unavailable) ? ""
     : menu.find((model) => !!model.text === text && model.unavailable)?.hint || `No ${text ? "chat" : "voice"} model is set up`;
   // The voice picker (a keyless entry greyed, with why), and Chat's switcher options.
   function renderModels() {
@@ -583,15 +583,16 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       stop(`${error.name === "NotAllowedError" ? "Microphone access denied. Allow microphone access for this site." : "Live Mode could not start: " + error.message}`);
     }
   }
-  $("live-mode").onclick = () => { if (!run) mode = "voice"; paint(); show(); if (run) resumeAudio(run, true); };
+  const voice = () => { if (!run) mode = "voice"; paint(); show(); if (run) resumeAudio(run, true); };
   // Chat: straight into a text session on the last chat model used (else the first), no
   // picker and no mic. A conversation already running (either mode) is just brought back.
-  $("chat").onclick = () => {
-    if (docked()) return hide(); // a docked panel toggles: nothing covers the button
+  const chat = () => {
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
     show(); // first, so a new chat's handshake says it opened in view
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
   };
+  $("live-mode").onclick = voice;
+  $("chat").onclick = () => docked() ? hide() : chat(); // a docked panel toggles: nothing covers the button
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;
     $("voice-model").value = $("voice-switch").value; stop(); start();
@@ -653,5 +654,5 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   });
   window.addEventListener("focus", pullTaps);
   paint(); capabilities(); pullTaps();
-  return { isActive: () => !!run, refresh: capabilities, why };
+  return { isActive: () => !!run, refresh: capabilities, why, open: { chat, voice } };
 }
