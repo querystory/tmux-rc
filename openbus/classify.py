@@ -63,8 +63,9 @@ _CHECKLIST_LINE_RE = re.compile(
 # under the dialog's top rule (a lone tab for a single question, "← … →" around several):
 # picker chrome, so a task that is only a tab's label (no checkbox row of its own
 # elsewhere on screen) is the model misreading it.
-_PICKER_TABS_RE = re.compile(r"(?m)^[ \t]*[─━]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*)$")
-_PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔←→\n]*[^☐☒✔←→\s])")
+_PICKER_TABS_RE = re.compile(
+    r"(?m)^[ \t]*[─━]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*?)(?:[ \t]*→)?[ \t]*$")
+_PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔\n]*[^☐☒✔\s])")
 # A checkbox row of any supported agent, behind any gutter (Claude's ⎿, a tree's ├─).
 _CHECKBOX_ROW_RE = re.compile(
     r"(?m)^[^\w\n]*?(?:[☐☒☑✔✓]|\[[ x✓•]\])[ \t]*(\S.*?)[ \t]*$")

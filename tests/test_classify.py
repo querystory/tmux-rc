@@ -394,13 +394,14 @@ def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
     ]
 
 
-@pytest.mark.parametrize("tabs", [" ☐ Fruit ", "←  ☒ Beds  ☐ Fruit  ✔ Submit  →"])
+@pytest.mark.parametrize("tabs", [" ☐ Fruit ", "←  ☒ Beds  ☐ Fruit  ✔ Submit  →", " ☐ API → UI"])
 def test_claude_picker_header_tabs_are_not_tasks(tabs):
     screen = (
         "  ⎿  ☐ Plant the seedlings\n" + "─" * 40 + f"\n{tabs}\n\nWhich fruit should we plant?"
         "\n\n❯ 1. Apple\n  2. Pear\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
     )
-    tasks = [{"text": text, "done": False} for text in ("Plant the seedlings", "Fruit")]
+    label = "API → UI" if "API" in tabs else "Fruit"
+    tasks = [{"text": text, "done": False} for text in ("Plant the seedlings", label)]
     result = classify(_pane("claude"), screen, _llm({
         "tool": "claude", "activity": "waiting", "tasks": tasks,
     }))
@@ -409,10 +410,10 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs):
         "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
     }))
     for box in ("☐", "☒", "☑", "✓", "[x]", "[ ]"):  # a real task with the tab's label stays
-        assert classify(_pane("claude"), f"  ⎿  {box} Fruit\n" + screen, _llm({
+        assert classify(_pane("claude"), f"  ⎿  {box} {label}\n" + screen, _llm({
             "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
         }))["tasks"] == tasks[1:]
-    plan = "─" * 40 + "\n☐ Fruit\nOpenCode 1.18.32"  # another agent's plan under a rule
+    plan = "─" * 40 + f"\n☐ {label}\nOpenCode 1.18.32"  # another agent's plan under a rule
     assert classify(_pane(cmd="opencode"), plan, _llm({
         "tool": "opencode", "activity": "running", "tasks": tasks[1:],
     }))["tasks"] == tasks[1:]
