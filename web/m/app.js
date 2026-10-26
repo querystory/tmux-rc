@@ -338,11 +338,13 @@ function leaveMissingPane(id) {
 }
 // A link's draft (url-state.js linkDraft), once its pane is known to be running: into the
 // composer, never sent. One the user is already writing stays; the link's waits in the notice.
-function offerDraft(id, value) {
+// A password prompt hides the composer (and pruneDrafts would empty it): the notice only shows it.
+function offerDraft(id, value, replace = false) {
   if (active !== id) return;
-  const composer = draft(id), put = () => { composer.replace([{ text: value }]); composer.editor.focus(); notice("Draft from a link: check it, then Send."); };
-  if (composer.segments().length) notice(`A link offered a draft: "${value}". Yours is kept.`, 0, ["Use the link's", put]);
-  else put();
+  const composer = draft(id), offer = `A link offered a draft: "${value}".`;
+  if (panes.find((p) => p.pane_id === id)?.secret) notice(`${offer} This pane is at a password prompt.`);
+  else if (composer.segments().length && !replace) notice(`${offer} Yours is kept.`, 0, ["Use the link's", () => offerDraft(id, value, true)]);
+  else { composer.replace([{ text: value }]); composer.editor.focus(); notice("Draft from a link: check it, then Send."); }
 }
 
 function route() {
