@@ -870,6 +870,8 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
+        # The machine's name for the app's tab titles (docs/design/tab-icons.md): zero setup.
+        "host": os.environ.get("TMUXRC_HOST_NAME") or socket.gethostname().split(".")[0],
         "panes": panes,
     }
 
