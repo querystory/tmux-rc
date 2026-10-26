@@ -6,8 +6,8 @@
 // list that delegates for its rows. A classic script (the sandboxed scratch gallery can load
 // no module from the app's origin), so it is `longPress` on the global; app.js imports it for that.
 globalThis.longPress = (el, { armed = () => {}, released = () => {} } = {}) => {
-  let timer, held = false, target;
-  const disarm = () => { clearTimeout(timer); held = false; };
+  let timer, held = false, target, unswallow = () => {};
+  const disarm = () => { clearTimeout(timer); held = false; unswallow(); };
   el.addEventListener("touchstart", (event) => {
     disarm();
     if (event.touches.length > 1) return;
@@ -22,7 +22,8 @@ globalThis.longPress = (el, { armed = () => {}, released = () => {} } = {}) => {
     released(target);
     const swallow = (event) => { event.preventDefault(); event.stopImmediatePropagation(); };
     addEventListener("click", swallow, { capture: true, once: true });
-    setTimeout(() => removeEventListener("click", swallow, true), 400); // a browser that sends none
+    unswallow = () => removeEventListener("click", swallow, true); // the next touch's click is its own
+    setTimeout(unswallow, 400); // a browser that sends none
   }, { passive: true });
   el.addEventListener("contextmenu", (event) => { if (held || event.pointerType === "touch") event.preventDefault(); }); // Android's link menu
 };
