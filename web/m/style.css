@@ -1478,11 +1478,15 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 #dash-page:has(> .fg-view) { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
 .fg-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 @media (max-width: 699px) { .fg-view { min-height: 360px; } }
-/* The HUD over the canvas: monospace, the lens chips and jump-to callouts on top, the counts down
-   the left (a row at the bottom on a phone), the key along the foot. Its empty middle passes
-   touches through to the canvas. */
-.fg-box { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; touch-action: none; font-family: var(--mono); color: var(--fg); }
-.fg-hud { position: absolute; inset: 0; display: grid; grid-template: "lens lens call" auto "stats . ." minmax(0, 1fr) "key key key" auto / auto 1fr auto; gap: 10px 14px; padding: 10px 58px 10px 12px; pointer-events: none; }
+/* The HUD over the canvas: the lens chips and jump-to callouts on top, the counts down the left
+   (a row at the bottom on a phone), the key along the foot. Its empty middle passes touches
+   through to the canvas, and its words don't select: a double tap on Jump to toggles it, not
+   highlights it. */
+.fg-box { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; touch-action: none; color: var(--fg); }
+.fg-hud { position: absolute; inset: 0; display: grid; grid-template: "lens lens call" auto "stats . ." minmax(0, 1fr) "key key key" auto / auto 1fr auto; gap: 10px 14px; padding: 10px 58px 10px 12px; pointer-events: none; user-select: none; -webkit-user-select: none; }
+/* Monospace for what a machine says (counts, costs, times, paths, the small caps labels), the
+   app's sans for what people read (titles, the agent's words, its choices, the sentences). */
+:is(.fg-lenses > span, .fg-stats, .fg-call summary, .fg-call button span, .fg-call em, .fg-key, .fg-pop .fg-m) { font-family: var(--mono); }
 .fg-hud > * { pointer-events: auto; min-width: 0; }
 /* One fade behind the foot of the HUD, edge to edge, so labels zoomed under it fade, not fight. */
 .fg-hud::before { content: ''; grid-area: key; grid-column: 1 / -1; margin: -14px -58px -10px -12px; background: linear-gradient(transparent, var(--surface) 14px); }
@@ -1545,6 +1549,7 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 12px; }
 .fg-pop dt { color: var(--muted); }
 .fg-pop dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.fg-pop dd.fg-m { font-size: .92em; } /* monospace runs large beside the sans */
 .fg-q { margin: 0 0 10px; padding: 8px 10px; border-left: 2px solid var(--chart-s0); background: color-mix(in oklab, var(--chart-s0) 10%, transparent); }
 .fg-q div { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .fg-q span { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; }
