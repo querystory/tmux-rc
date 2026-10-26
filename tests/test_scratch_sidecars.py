@@ -217,3 +217,22 @@ def test_a_description_missed_while_the_model_is_out_is_asked_again(tmp_path, mo
         while (worker := S._worker) is not None:
             worker.join()
     assert calls == ["shot", "said", "said"]  # the failed shot is not redone with it
+
+
+def test_a_folder_archived_before_its_shot_is_shot_once_restored(tmp_path, monkeypatch):
+    shots = []
+    monkeypatch.setattr(S, "_tried", set())
+    monkeypatch.setattr(S, "_done", set())
+    monkeypatch.setattr(S, "describe", lambda *_: "Said.")
+    _page(tmp_path)
+    listed = scratch.items(tmp_path)
+    scratch.act(tmp_path, "archive", ["p"])  # after it was listed, before the worker ran
+    monkeypatch.setattr(S, "shoot", lambda url, out, root, at: shots.append(out.exists()))
+    S.queue(tmp_path, WEB_DIR, listed)
+    while (worker := S._worker) is not None:
+        worker.join()
+    scratch.act(tmp_path, "unarchive", ["p"])  # the same inode and times: the same version
+    S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path))
+    while (worker := S._worker) is not None:
+        worker.join()
+    assert len(shots) == 2  # asked again, not taken as done

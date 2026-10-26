@@ -94,8 +94,9 @@ def _work(root: Path, web: Path) -> None:
                 except Exception:
                     logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
                                    exc_info=True)
-            with _lock:
-                _done.add(_version(item))
+            with _lock:  # a folder archived meanwhile was not worked: restored, it is asked again
+                gone = not (root / item["name"]).is_dir()
+                (_tried.discard if gone else _done.add)(_version(item))
 
 
 class _Static(SimpleHTTPRequestHandler):

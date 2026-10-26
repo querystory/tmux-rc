@@ -132,7 +132,8 @@ document.getElementById("all").onclick = () => { for (const a of document.queryS
 document.getElementById("cancel").onclick = () => selecting(false);
 addEventListener("keydown", (e) => e.key === "Escape" && selecting(false));
 for (const b of bar.querySelectorAll("[data-act]"))
-  b.onclick = () => parent.postMessage({ scratch: b.dataset.act, names: picked().map((a) => a.dataset.name) }, "*");
+  b.onclick = () => { for (const d of bar.querySelectorAll("[data-act]")) d.disabled = true; // once, until the app answers
+    parent.postMessage({ scratch: b.dataset.act, names: picked().map((a) => a.dataset.name) }, "*"); };
 for (const b of document.querySelectorAll(".who")) b.onclick = () => { box.value = b.textContent; filter(); };
 // Grid or list. Remembered where the browser allows it; the sandbox usually doesn't, and
 // inside the app the app keeps the choice: each side posts it to the other.
@@ -143,6 +144,7 @@ let saved; try { saved = localStorage.getItem("tmuxrc-scratch-view"); } catch { 
 show(saved || location.hash.slice(1) || "grid"); // big thumbnails first; List is the compact choice
 addEventListener("message", (e) => { if (e.source !== parent) return; // the app: its view and theme, or a change made
   if (e.data?.reload) location.reload();
+  if (e.data?.idle) count(); // nothing done (Delete not confirmed, or it failed): the bar again
   if (["grid", "list"].includes(e.data?.view)) show(e.data.view);
   if (typeof e.data?.light === "boolean") document.documentElement.classList.toggle("light", e.data.light); });
 // Inside the app, the pane that made a page opens there, not as a second app in this frame,
