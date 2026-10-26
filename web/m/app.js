@@ -2262,6 +2262,10 @@ async function openLaunch(fresh, opener) {
   $("launch-name").value = ""; // the placeholder (the directory's name) is the default
   try { $("launch-dir").value = localStorage.getItem(LAST_DIR) || "~"; } catch { $("launch-dir").value = "~"; }
   $("launch-dir").oninput(); launchMode();
+  // Chat and Voice start as their own buttons do; greyed, the line under them says why.
+  const kinds = [...$("launch-kind").querySelectorAll("[data-start]")];
+  kinds.forEach((b) => { b.dataset.why = live.why(b.dataset.start === "chat"); });
+  show("launch-kind", kinds.some((b) => !b.dataset.why)); text($("launch-sub"), "Start an agent or shell in a new tmux window.");
   // Suggestions only (open panes' and past agent sessions' directories); any path works.
   request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
@@ -2299,6 +2303,10 @@ async function openLaunch(fresh, opener) {
   } catch { if (load === launchLoad) text($("launch-error"), "Could not load launchers. Close and try again."); }
 }
 $("close-launch").onclick = () => $("launch-dialog").close();
+$("launch-kind").onclick = (e) => {
+  const b = e.target.closest("[data-start]");
+  if (b?.dataset.why) text($("launch-sub"), b.dataset.why); else if (b) { $("launch-dialog").close(); $(b.dataset.start).click(); }
+};
 let launching = false, launched = null;
 // Go to a window the daemon just opened (a launcher, or a chat resume). Record the id BEFORE
 // navigating to it: startState only *starts* a fetch, so the hashchange this triggers

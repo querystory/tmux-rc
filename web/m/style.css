@@ -401,6 +401,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #launch-choices .desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #launch-choices [data-unavailable] :is(small, .desc) { white-space: normal; } /* why it cannot run: read in full */
 .panel-sub { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+#launch-kind { display: flex; margin-top: 8px; } #launch-kind button { flex: 1; min-height: 36px; font-size: 14px; } #launch-kind [data-why]:not([data-why=""]) { opacity: .45; }
 .acct-why { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
 .acct-default input { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--accent); }
 .acct-else { display: block; margin-left: 20px; font-size: 12px; color: var(--muted); }

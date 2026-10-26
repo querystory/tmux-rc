@@ -28,7 +28,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
   $("voice-end").innerHTML = licon("x");
   $("chat").innerHTML = licon("message");
-  let run = null, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false, composing = false;
+  let run = null, enabled = false, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false, composing = false;
   // Voice comes from the mic button, through the model picker. Chat (typed turns and
   // written replies, no mic and no playback) comes from the chat button, straight in.
   let mode = "voice";
@@ -130,10 +130,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       const data = await request("/api/version");
       onVersion(data.version);
       if (!run) { menu = data.live_models || [{ label: "Default", value: "" }]; renderModels(); }
-      // Each button only with something to start: the mic needs a voice row (a keyless one
-      // still says what to set), Chat a usable chat model.
-      $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
-      $("chat").hidden = !(data.live_enabled && chatModels().length) && !run;
+      enabled = data.live_enabled;
+      $("live-mode").hidden = !!why(false); $("chat").hidden = !!why(true);
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
       $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
@@ -141,6 +139,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   const saved = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
   const chatModels = () => menu.filter((model) => model.text && !model.unavailable);
+  // Why Chat (text) or Voice can't start, "" when it can. Each needs something to start: the
+  // mic a voice row (a keyless one still says what to set), Chat a usable chat model.
+  const why = (text) => run || enabled && (text ? chatModels().length : menu.some((model) => !model.text)) ? ""
+    : menu.find((model) => !!model.text === text && model.unavailable)?.hint || `No ${text ? "chat" : "voice"} model is set up`;
   // The voice picker (a keyless entry greyed, with why), and Chat's switcher options.
   function renderModels() {
     const models = menu.filter((model) => !model.text), last = saved("tmuxrc-live-model");
@@ -651,5 +653,5 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   });
   window.addEventListener("focus", pullTaps);
   paint(); capabilities(); pullTaps();
-  return { isActive: () => !!run, refresh: capabilities };
+  return { isActive: () => !!run, refresh: capabilities, why };
 }

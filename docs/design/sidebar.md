@@ -126,6 +126,13 @@ account it starts on where it has several, then its model or what it is. Rows th
 does not apply to carry no chip. It fits unscrolled at 900px tall; shorter, the body scrolls under
 the fixed title.
 
+Its top row picks Session, Chat or Voice, so starting something is one place whatever it is.
+Chat and Voice hand over to their own buttons rather than repeating their start logic, and the
+row is a segmented control, not a first sheet, so the common case (a session) costs no extra
+tap. A choice that can't start here is greyed, and tapping it puts the reason on the line
+below; with neither available (Live Mode is off by default) the row is hidden, so a casual
+user's sheet is unchanged.
+
 ## The collapsed rail keeps working
 
 Folded to a 60px rail, the sidebar used to show its head and the live panes. A rail with
