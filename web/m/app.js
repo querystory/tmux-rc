@@ -1075,7 +1075,7 @@ function renderLinks(el, links) {
 const scratchPages = new Map();
 function pageLinks(id) {
   const had = scratchPages.get(id);
-  if (id && !(had?.at > Date.now() - 60000)) {
+  if (id && overviewVisible() && !(had?.at > Date.now() - 60000)) {
     scratchPages.set(id, { at: Date.now(), links: had?.links || [] });
     request(`/api/panes/${encodeURIComponent(id)}/scratch`).then((pages) => {
       scratchPages.set(id, { at: Date.now(), links: pages.map((p) => ({ href: new URL(`/scratch/${p.href}`, location.href).href, text: p.title, detail: "Scratch" })) });
