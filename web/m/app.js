@@ -1073,13 +1073,13 @@ function renderLinks(el, links) {
 // The scratch pages a pane's session made (GET /api/panes/{id}/scratch), asked again at
 // most once a minute while its overview shows: they stay in Links as long as they exist.
 const scratchPages = new Map();
-function pageLinks(id) {
-  const had = scratchPages.get(id);
+function pageLinks(pane) {
+  const id = pane?.pane_id, key = paneKey(id), had = scratchPages.get(key); // a reused id is another pane
   if (id && overviewVisible() && !(had?.at > Date.now() - 60000)) {
-    scratchPages.set(id, { at: Date.now(), links: had?.links || [] });
+    scratchPages.set(key, { at: Date.now(), links: had?.links || [] });
     request(`/api/panes/${encodeURIComponent(id)}/scratch`).then((pages) => {
-      scratchPages.set(id, { at: Date.now(), links: pages.map((p) => ({ href: new URL(`/scratch/${p.href}`, location.href).href, text: p.title, detail: "Scratch" })) });
-      if (id === active) renderRichContent(panes.find((p) => p.pane_id === active));
+      scratchPages.set(key, { at: Date.now(), links: pages.map((p) => ({ href: new URL(`/scratch/${p.href}`, location.href).href, text: p.title, detail: "Scratch" })) });
+      if (paneKey(active) === key) renderRichContent(panes.find((p) => p.pane_id === active));
     }, () => {});
   }
   return had?.links || [];
@@ -1089,7 +1089,7 @@ function renderRichContent(pane) {
   accounts.paneCard(pane, $("signin-section"));
   // The link the question asks you to open leads its card instead of waiting in Links.
   const ask = pane?.question && needsYou(pane) ? askLink(pane) : null;
-  const links = paneLinks(pane, pageLinks(pane?.pane_id)).filter((link) => link.href !== ask?.href);
+  const links = paneLinks(pane, pageLinks(pane)).filter((link) => link.href !== ask?.href);
   renderLinks($("ask-link"), ask ? [ask] : []);
   show("link-section", !!links.length);
   renderLinks($("links"), links);
