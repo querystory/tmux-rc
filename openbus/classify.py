@@ -1463,16 +1463,16 @@ def classify(
     # Likewise the reset time, which only a quota-blocked pane shows.
     if result.get("activity") != "quota_blocked" or not isinstance(result.get("resets"), str):
         result.pop("resets", None)
+    if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
+        _read_workflow_rows(result, visible)
     # The model's quota read covers the workers too: they share the parent's limit, so a
-    # row it still saw as busy (a meter that only looks live) is waiting with it.
+    # row still read as busy (a meter that only looks live, a workflow bar) is paused.
     if result.get("activity") == "quota_blocked" and isinstance(result.get("subagents"), list):
         for a in result["subagents"]:
             if isinstance(a, dict) and a.get("state") in ("running", "compacting"):
-                a["state"] = "waiting"
+                a["state"] = "idle"
     # Count only workers observed running; waiting/idle/unknown are not active work.
     # Compacting has its own history state but still counts as busy in the dock.
-    if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
-        _read_workflow_rows(result, visible)
     subs = result.get("subagents")
     result["agents"] = (
         sum(1 for a in subs if isinstance(a, dict) and a.get("state") in ("running", "compacting"))

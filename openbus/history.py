@@ -49,8 +49,8 @@ def state_index(pane: dict) -> int:
     if activity == "waiting" and pane.get("waiting_on") != "external": return 0
     if activity == "running": return 1
     if activity == "compacting": return 4
-    if activity in ("waiting", "quota_blocked"): return 5  # blocked on something outside it
-    if activity == "idle": return 2
+    if activity == "waiting": return 5
+    if activity in ("idle", "quota_blocked"): return 2  # paused until its limit resets
     return 3
 
 

@@ -27,7 +27,7 @@ def test_reset_time_rides_only_on_a_quota_blocked_pane():
     assert "resets" not in classify(_pane("node"), "text", _llm({**blocked, "activity": "idle"}))
     worker = {"label": "Resize photos", "state": "running"}
     r = classify(_pane("node"), "text", _llm({**blocked, "subagents": [worker]}))
-    assert (r["subagents"][0]["state"], r["agents"]) == ("waiting", 0)  # it shares the limit
+    assert (r["subagents"][0]["state"], r["agents"]) == ("idle", 0)  # it shares the limit
 
 
 def _pane(cmd="bash", title="t"):
@@ -589,6 +589,9 @@ def test_workflow_row_is_read_from_the_agent_list():
     head, sep, block = screen.partition(" ●  main\n")  # the whole list quoted above the box
     assert "subagents" not in classify(_pane(), sep + block + "\n" + head, _llm({"tool": "claude"}))
     assert "subagents" not in classify(_pane(), screen, _llm({"tool": "shell"}))
+    # Under a quota-blocked parent the bar is frozen too: no worker of it counts as busy.
+    r = classify(_pane(), screen, _llm({"tool": "claude", "activity": "quota_blocked"}))
+    assert r["agents"] == 0 and {a["state"] for a in r["subagents"]} == {"idle"}
 
 
 def test_agents_count_defaults_zero_without_subagents():
