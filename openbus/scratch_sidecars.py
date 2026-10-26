@@ -10,7 +10,7 @@ retried until it changes, unless the model was out (llm's shared backoff)."""
 import io
 import logging
 import os
-import posixpath
+import re
 import subprocess
 import tempfile
 import threading
@@ -19,7 +19,7 @@ from functools import partial
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 from urllib.request import urlopen
 
 from PIL import Image
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 VIEWPORT, THUMB = (1280, 800), (480, 300)
 _SHOOTABLE = {".html", ".htm", ".md", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 _lock = threading.Lock()
+_VIEW = re.compile(r"(?:[\w-][\w.-]*/)*(?:[\w-][\w.-]*)?(?:[?#].*)?")  # a page in a folder
 _pending: list[tuple[Path, str, dict]] = []
 _tried: set[tuple] = set()  # folder versions queued
 _done: set[tuple] = set()  # and worked
@@ -223,14 +224,12 @@ def capture(root: Path, web: Path, name: str, view: str, size: tuple[int, int], 
     """Folder `name`'s page as the scratch viewer showed it: `view` (a path, query and hash
     in the folder, else its own page), its size and theme, from the top. For a message to
     its agent, served as the thumbnails are, scratch and nothing else."""
-    if not (item := scratch.named(root, name)):
+    # Plain names only: nothing encoded, hidden or climbing, so nothing a server or the
+    # browser could resolve to another folder or a file the viewer would not show.
+    if not (item := scratch.named(root, name)) or not _VIEW.fullmatch(view):
         return None
     with serving(root, web) as base:
-        url = f"{base}/{quote(name)}/{view.lstrip('/')}" if view else f"{base}/{item['href']}"
-        # Checked as the server will read it, decoded and resolved: inside this folder only.
-        path = posixpath.normpath(unquote(urlsplit(url).path).replace("\\", "/"))
-        if not f"{path}/".startswith(f"/scratch/{name}/"):
-            return None
+        url = f"{base}/{quote(name)}/{view}" if view else f"{base}/{item['href']}"
         return render(url, size, dark, 20)  # well inside a send's 45s
 
 
