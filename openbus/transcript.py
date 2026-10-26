@@ -9,6 +9,7 @@ The watcher asks on every tick, so a transcript written after the screen settled
 re-parses the card. Each lookup is therefore cached on the stat of what it read, and an
 unchanged tick costs a few stat calls."""
 
+import hashlib
 import json
 import os
 import re
@@ -23,6 +24,8 @@ from .tmux import Pane
 # The final message sits at the end, but a session's file grows to megabytes (pasted
 # images, tool output); reading only its tail keeps this cheap on every parse.
 _TAIL = 1 << 20
+# Conversation entries: Claude's messages and tool calls, Codex's response items.
+_SAID = frozenset({"user", "assistant", "response_item"})
 _UUID_RE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 
 
@@ -127,11 +130,18 @@ def last_reply(pane: Pane, text: str) -> str | None:
 
 
 def turn(pane: Pane, text: str) -> str | None:
-    """Where the agent's conversation stands: its transcript, and how long it is. Only the
-    conversation moving on changes it; a restart, a resize or a new reading of the same
-    screen leaves it be."""
+    """Where the agent's conversation stands: its transcript's last message or tool call.
+    Only the conversation moving on changes it; bookkeeping (token counts, hook summaries),
+    a restart, a resize or a new reading of the same screen leave it be."""
     path = _path(pane, text)
-    return path and f"{path.name}:{_stamp(path)[1]}"
+    return path and _turn(path, _stamp(path))
+
+
+@lru_cache(maxsize=256)
+def _turn(path: Path, _stat: tuple) -> str | None:
+    said = [e for e in _entries(path) if e.get("type") in _SAID]
+    last = json.dumps(said[-1], sort_keys=True).encode() if said else None
+    return last and f"{path.name}:{hashlib.sha256(last).hexdigest()}"
 
 
 @lru_cache(maxsize=256)

@@ -239,7 +239,7 @@ def _turn(said: str | None, text: str) -> str:
     any width (_fingerprint would make "sleep 10s" and "sleep 20s" one). Never the card's
     reading or CARD_VERSION, so a card read again is the same turn."""
     return said or hashlib.sha256(
-        fit.reflow_key(text.rsplit(tmux.VISIBLE_SCREEN, 1)[-1]).encode()).hexdigest()
+        fit.reflow_key(text.rsplit(tmux.VISIBLE_SCREEN, 1)[-1], " ").encode()).hexdigest()
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:

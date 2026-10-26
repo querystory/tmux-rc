@@ -62,6 +62,10 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
     pane, path = _pane(str(os.getppid())), homes / f"claude/projects/-x/{SID}.jsonl"
     turn = transcript.turn(pane, "")
     assert turn and transcript.turn(pane, "") == turn
+    with path.open("a") as f:  # bookkeeping is not the conversation moving on
+        f.write(json.dumps({"type": "system", "subtype": "turn_duration"}) + "\n")
+        f.write(json.dumps({"type": "event_msg", "payload": {"type": "token_count"}}) + "\n")
+    assert transcript.turn(pane, "") == turn
     with path.open("a") as f:
         f.write(json.dumps(_say("user", "third ask")) + "\n")
     assert transcript.turn(pane, "") not in (turn, None)

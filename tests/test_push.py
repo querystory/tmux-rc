@@ -1061,4 +1061,5 @@ def test_a_screen_s_turn_is_the_same_under_any_card_version_or_width(monkeypatch
     assert _turn(None, box("ls")) == before != _turn(None, box("rm"))
     assert _turn(None, box("ls").replace("─" * 40, "─" * 20)) == before
     assert _turn(None, box("sleep 10s")) != _turn(None, box("sleep 20s"))
+    assert _turn(None, box("ls a b")) != _turn(None, box("ls ab"))
     assert _turn("t1", box("ls")) == "t1"  # the transcript, when there is one

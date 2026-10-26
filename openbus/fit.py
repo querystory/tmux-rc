@@ -61,11 +61,12 @@ def just_resized(pane_id: str, looked: float) -> str:
         return "settled"
 
 
-def reflow_key(text: str) -> str:
+def reflow_key(text: str, sep: str = "") -> str:
     """A screen's content regardless of the width it was laid out at: what a reflow moves
     around (whitespace) or redraws to a new length (box-drawing rules) is left out, and
-    nothing else (markers such as a draft's placeholder are content)."""
-    return _REFLOWED.sub("", text)
+    nothing else (markers such as a draft's placeholder are content). With a `sep`, each
+    run of it becomes one, so words stay apart ("ls a b" is not "ls ab")."""
+    return _REFLOWED.sub(sep, text).strip()
 
 
 def _in_use(clients: str) -> set[str]:
