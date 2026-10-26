@@ -42,6 +42,7 @@ RATE_MAX = 3
 NONCE_SECONDS = 10 * 60.0
 MAX_PRESENCE_LEASES = 128
 MAX_SUBSCRIPTIONS = 16
+MAX_TURNS = 256  # the panes whose last told turn is kept (push.json, PushStore.tell)
 READY_QUIET_SECONDS = 120.0  # after "Ready", a pane's Needs-you without answers says nothing new
 DEFAULT_PUSH_HOSTS = (
     "web.push.apple.com",
@@ -127,7 +128,8 @@ class PushStore:
             data = json.loads(self.path.read_text())
         except FileNotFoundError:
             private, public = _new_keys()
-            data = {"private_key": private, "public_key": public, "subscriptions": []}
+            data = {"private_key": private, "public_key": public, "subscriptions": [],
+                    "turns": {}}
             self._data = data
             self._save()
             return data
@@ -140,6 +142,8 @@ class PushStore:
         changed = subscriptions != data["subscriptions"]
         data["subscriptions"] = subscriptions[-MAX_SUBSCRIPTIONS:]
         changed = changed or len(subscriptions) > MAX_SUBSCRIPTIONS
+        if not isinstance(data.get("turns"), dict):  # a store from before turns were kept
+            data["turns"] = {}
         self._data = data
         if changed:
             self._save()
@@ -196,6 +200,22 @@ class PushStore:
             if changed:
                 self._save()
             return changed
+
+    def told(self, pane: str, turn: str | None) -> bool:
+        """Was the user already told about this pane (id and birth) at this turn?"""
+        with self._lock:
+            return turn is not None and self._load()["turns"].get(pane) == turn
+
+    def tell(self, pane: str, turn: str | None) -> None:
+        """Remember `turn` as the pane's last one the user was told about, or that ended
+        without an ask. Kept across restarts: the same turn read again is not news."""
+        with self._lock:
+            turns = self._load()["turns"]
+            if turn is not None and turns.get(pane) != turn:
+                turns.pop(pane, None)  # newest last, so the oldest go first
+                turns[pane] = turn
+                self._data["turns"] = dict(list(turns.items())[-MAX_TURNS:])
+                self._save()
 
     def revoke_all(self) -> int:
         with self._lock:
@@ -329,6 +349,11 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
     }
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question
+
+
+def _pane_key(pane: dict) -> str:
+    """A pane across restarts: ids are recycled, so with its birth."""
+    return f"{pane['pane_id']}:{pane.get('birth')}"
 
 
 def held_question(watcher, pane_id: str, fingerprint: str) -> tuple[dict, str]:
@@ -595,12 +620,14 @@ class PushManager:
         active: set[tuple[str, str]] = set()
         candidates = []
         for pane in panes:
-            if (pane.get("activity") != "waiting"
-                    or pane.get("waiting_on") == "external"):
-                continue
             pane_id = pane.get("pane_id")
             if (not isinstance(pane_id, str)
                     or not self.watcher.pane_parse_valid(pane_id)):
+                continue
+            if (pane.get("activity") != "waiting"
+                    or pane.get("waiting_on") == "external"):
+                if pane.get("activity") in ("idle", "waiting"):  # it ended asking nothing
+                    self.store.tell(_pane_key(pane), pane.get("turn"))
                 continue
             # The snapshot's own birth: held_question checks it against the live one, so
             # a recycled pane id can never inherit this question.
@@ -635,7 +662,10 @@ class PushManager:
         for pane, fp, question in candidates:
             pane_id = pane["pane_id"]
             marker = (pane_id, fp)
-            if marker in self._notified:
+            # Evidence, not wording: a turn already told about (before a restart, too) is
+            # not news however its card reads now: re-read after a resize, by a new parser.
+            turn = pane.get("turn")
+            if marker in self._notified or self.store.told(_pane_key(pane), turn):
                 continue
             rate = self._rates[(pane_id, self.watcher.pane_birth(pane_id))]
             if len(rate) >= RATE_MAX:
@@ -667,6 +697,7 @@ class PushManager:
                 offered = []
             if not question and (pane_id, pane.get("birth")) in self._ready:
                 self._notified.add(marker)  # a plain turn ended: its "Ready" was the news
+                self.store.tell(_pane_key(pane), turn)
                 continue
             nonce = secrets.token_urlsafe(24) if offered else None
             if nonce:
@@ -703,4 +734,5 @@ class PushManager:
                         self._nonces.pop(nonce, None)
                 continue
             self._notified.add(marker)
+            self.store.tell(_pane_key(pane), turn)
             rate.append(now)

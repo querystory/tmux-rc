@@ -58,6 +58,13 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
         _say("user", "malformed", origin="human"),
     ])
     assert transcript.last_reply(_pane(str(os.getppid())), "") == "Done."
+    # The turn stands still with the conversation, and moves on with it.
+    pane, path = _pane(str(os.getppid())), homes / f"claude/projects/-x/{SID}.jsonl"
+    turn = transcript.turn(pane, "")
+    assert turn and transcript.turn(pane, "") == turn
+    with path.open("a") as f:
+        f.write(json.dumps(_say("user", "third ask")) + "\n")
+    assert transcript.turn(pane, "") not in (turn, None)
     # The cached registration is rechecked: once its process is gone, so is its reply.
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(transcript, "_started", lambda pid: None)

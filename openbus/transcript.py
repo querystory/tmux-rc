@@ -108,18 +108,30 @@ def _text(blocks) -> str | None:
     return "\n\n".join(texts) or None
 
 
-def last_reply(pane: Pane, text: str) -> str | None:
-    """The agent's latest message in its current turn: a new user message clears it, so
-    a reply from an earlier turn is never mistaken for what is on screen now."""
+def _path(pane: Pane, text: str) -> Path | None:
     claude = _home(pane, "claude")
     registry = tuple((p.name, _stamp(p)) for p in sorted((claude / "sessions").glob("*.json")))
     # Checked afresh: the process can exit (and its pid be reused) and the transcript
     # appear after its registration, all with the registry unchanged.
     pid, started, sid = _claude_session(claude, pane.pid, registry) or (0, None, None)
-    path = ((sid and _started(pid) == started
+    return ((sid and _started(pid) == started
              and next((claude / "projects").glob(f"*/{sid}.jsonl"), None))
             or _codex_file(pane, text))
+
+
+def last_reply(pane: Pane, text: str) -> str | None:
+    """The agent's latest message in its current turn: a new user message clears it, so
+    a reply from an earlier turn is never mistaken for what is on screen now."""
+    path = _path(pane, text)
     return path and _reply(path, _stamp(path))
+
+
+def turn(pane: Pane, text: str) -> str | None:
+    """Where the agent's conversation stands: its transcript, and how long it is. Only the
+    conversation moving on changes it; a restart, a resize or a new reading of the same
+    screen leaves it be."""
+    path = _path(pane, text)
+    return path and f"{path.name}:{_stamp(path)[1]}"
 
 
 @lru_cache(maxsize=256)

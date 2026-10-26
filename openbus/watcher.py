@@ -233,6 +233,12 @@ def _reflowed(text: str, before: str) -> bool:
                 for t in (text, before)}) == 1
 
 
+def _turn(pane: tmux.Pane, text: str) -> str:
+    """The turn a card was read from, as push tells one ask from the next: the agent's
+    transcript, else the screen. Never CARD_VERSION, so a card read again is the same turn."""
+    return transcript.turn(pane, text) or hashlib.sha256(_fingerprint(text).encode()).hexdigest()
+
+
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     """Copy the pane's NAMES, NUMBERS and per-session focus onto a state dict. These
     live outside the captured text — an agent renames the title, tmux rename-window/
@@ -1456,6 +1462,8 @@ class Watcher:
             if not hold and (offers := screen_offers(cached.pop("offers", None), text)):
                 cached["offers"] = offers
             cached.setdefault("input_generation", generation)  # a restored card has none
+            if "turn" not in cached:  # nor one checkpointed before turns were kept
+                cached["turn"] = _turn(pane, text)
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
@@ -1517,6 +1525,7 @@ class Watcher:
             prev_activity=(previous or {}).get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
+        state["turn"] = _turn(pane, text)
         # Preserve the parsed conversation name before session is stamped with the
         # tmux session. It must survive cached ticks and tmux renames independently.
         parsed_title = state.get("session")

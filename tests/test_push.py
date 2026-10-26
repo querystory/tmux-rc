@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from openbus import push
 from openbus.classify import _widget_text, question_rows
 from openbus.watcher import Watcher as RealWatcher
-from openbus.watcher import _fingerprint
+from openbus.watcher import _fingerprint, _turn
 
 
 def box(command):
@@ -1019,3 +1019,41 @@ def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     shutil.rmtree(root / "gone")
     service.landed()
     assert service._waiting == set()
+
+
+def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
+    """An ask notifies once per turn of its pane, not once per reading of it: a restart, a
+    new parser (CARD_VERSION) or a resize reads the same turn again, often in other words,
+    and the phone must not buzz for it. Only the conversation moving on is news."""
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    clock, watcher = [100.0], Watcher()
+    service, sender = manager(tmp_path, watcher, clock)
+
+    def settle(question, turn, activity="waiting"):
+        watcher.states = [{**waiting(question), "turn": turn, "activity": activity}]
+        for _ in range(2):
+            service.evaluate()
+            clock[0] += push.SETTLE_SECONDS
+
+    settle(held(), "t1")
+    settle(held(ask="Show the files?"), "t1")  # re-read in-run, reworded: the same ask
+    assert len(sender.payloads) == 1
+    for reworded in (held(), held(ask="Show the files?")):  # a restart, or a version bump
+        service, sender = manager(tmp_path, watcher, clock)
+        settle(reworded, "t1")
+        assert sender.payloads == []
+    settle(held(), "t2")  # the conversation moved on
+    assert len(sender.payloads) == 1
+    # A turn that ended asking nothing, read again after a restart as an ask: no news.
+    settle(None, "t3", activity="idle")
+    service, sender = manager(tmp_path, watcher, clock)
+    settle(held(), "t3")
+    assert sender.payloads == []
+
+
+def test_a_screen_s_turn_is_the_same_under_any_card_version(monkeypatch):
+    """With no agent transcript the screen is the turn, and a new parser leaves it be."""
+    monkeypatch.setattr("openbus.transcript.turn", lambda _pane, _text: None)
+    before = _turn(None, box("ls"))
+    monkeypatch.setattr("openbus.watcher.CARD_VERSION", -1)
+    assert _turn(None, box("ls")) == before != _turn(None, box("rm"))
