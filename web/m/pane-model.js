@@ -2,6 +2,17 @@ import { parseHash } from "./url-state.js";
 // Pure pane predicates for the mobile UI: no DOM, no clock of their own (time is injected),
 // so tests/test_mobile_pane_model.py can run them under node against fixture panes.
 
+export const AGENT_TOOLS = new Set(["claude", "codex", "gemini", "antigravity", "opencode", "omp"]); // history.py's AGENT_TOOLS
+// A scratch page's ask to send a line (app.js askSend), checked before the app shows its sheet.
+// The page is agent-written, so: one line of at most 500 characters with nothing hidden in it
+// (no control or format character: no Enter, escape or bidi override), to a pane in the feed
+// that runs an agent. A plain shell would run the text as a command. Null for anything else.
+export function sendIntent({ intent, pane, text } = {}, panes = []) {
+  const target = panes.find((p) => p.pane_id === pane);
+  const ok = intent === "send" && typeof text === "string" && text.trim() && [...text].length <= 500 && !/[\p{Cc}\p{Cf}]/u.test(text);
+  return ok && AGENT_TOOLS.has(target?.tool) ? { pane: target, text: text.trim() } : null;
+}
+
 // A path under a home directory, as ~/…
 export const home = (d) => d.replace(/^\/home\/[^/]+/, "~");
 // Markup-escaped text, for every module that builds HTML from strings.

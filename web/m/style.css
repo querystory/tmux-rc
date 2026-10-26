@@ -64,7 +64,7 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 :is(#menu-open, #back, #dash-page [data-key="page-back"])::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 a.icon-button { color: var(--fg); text-decoration: none; }
-#notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
+:is(#notice, #viewer-notice) { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
 #sessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
@@ -284,7 +284,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .primary:hover:not(:disabled) { background: var(--accent); filter: brightness(.92); }
 #update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; background: var(--accent-bg); color: var(--accent); flex: none; font-size: 13px; }
 #reload-update { padding: 0 12px; text-decoration: underline; }
-#notice button { padding: 0 0 0 8px; color: inherit; font-weight: 600; text-decoration: underline; } /* an Undo */
+:is(#notice, #viewer-notice) button { padding: 0 0 0 8px; color: inherit; font-weight: 600; text-decoration: underline; } /* an Undo */
 /* Transient: no row of its own, and :empty collapses it entirely, so "Draft"/"Sent"
    costs height only while it has something to say. */
 #draft-status { font-size: 11px; color: var(--muted); padding-bottom: 4px; }
@@ -905,8 +905,10 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #pane-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 #expunge-pane, #expunge-confirm { color: var(--red); }
 #expunge-caveat { color: var(--muted); font-size: 13px; }
-#expunge-confirm, #expunge-cancel { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
-#expunge-cancel { margin-top: 8px; border-color: var(--line); font-weight: 400; }
+#expunge-confirm, #expunge-cancel, #send-go, #send-edit, #send-cancel { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
+#send-go { border-color: var(--accent); color: var(--accent); }
+#send-where { color: var(--muted); font-size: 13px; }
+#expunge-cancel, #send-edit, #send-cancel { margin-top: 8px; border-color: var(--line); font-weight: 400; }
 .header-picker-menu input { accent-color: var(--accent); }
 
 .header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

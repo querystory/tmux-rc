@@ -81,6 +81,17 @@ leaves the URL once used, so a reload offers nothing. Inside the app's viewer a 
 would load a second app in the frame, so a page there posts
 `{pane, draft}` to its parent instead, as the placeholder's pane link does.
 
+Inside the app (the viewer, or a pinned page), a page may instead *ask* to send:
+`{intent: "send", pane, text}`. The app checks it (one line, at most 500 characters, no
+control or format characters, a pane in the feed that runs an agent, never a plain shell,
+where the line would run as a command) and opens its own sheet, outside the frame: the line,
+the pane, the page that asked, and Send, Edit in composer, Cancel. Only that tap sends,
+through the composer's own path, and the user stays on the page. Send ignores taps for half
+a second, so one already in flight can't land on it, and there is no "don't ask again":
+a silent send is exactly what an injected page would want. A standalone tab can't ask at
+all: the app hears only the frame it opened, so a page in a tab, even one that opens the app
+in a popup and posts to it, is ignored; its buttons stay same-tab draft links.
+
 ## A link handed out before its page
 
 Agents often hand out a link before the page behind it exists ("a subagent is building it,

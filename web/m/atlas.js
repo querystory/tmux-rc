@@ -1,5 +1,5 @@
 import { atlasCharts, fleetChart, latestAverage, shownStates } from './atlas-charts.js';
-import { needsYou, isRunning, markWorking, modelProvider, paneName } from './pane-model.js';
+import { needsYou, isRunning, markWorking, modelProvider, paneName, AGENT_TOOLS } from './pane-model.js';
 
 export const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting'];
 const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
@@ -16,7 +16,6 @@ const RANGES = ['24h', '3d', '7d', '30d'], AVERAGES = ['1d', '3d', '7d'];
 // workers), or panes alone. One choice for every surface, so the strip, the split, the
 // dashboard and the cards all count the same thing.
 const METRICS = [['all', 'Panes + background agents'], ['panes', 'Panes only']];
-const AGENT_TOOLS = new Set(['claude', 'codex', 'gemini', 'antigravity', 'opencode', 'omp']); // history.py's AGENT_TOOLS
 
 // Live counts by state in the chosen metric, as history.py's agent_counts records them: a
 // worker's state like a pane's (its waits are external unless it says otherwise), and an
