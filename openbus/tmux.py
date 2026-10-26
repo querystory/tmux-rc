@@ -688,19 +688,23 @@ LIVE_ROWS = 200
 # _mark_dim merges a run across rows, and Claude's gray box border sits on both sides of
 # that row, so live the row opens with the border's ⟪/dim⟫ and the run after the glyph
 # goes on into the border below: the suggestion ends at the close or at its row's end.
+# It is the rest of the row: a picker's highlighted row ("❯ 1. Apple") draws only its
+# digit gray, and with the label after it that run is the option's number, left unmarked,
+# since the parser reads a ⟪dim⟫ digit behind the ❯ as no digit and the menu as a cursor list.
 PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE = "⟪placeholder⟫", "⟪/placeholder⟫"
 PROMPT_GLYPHS = "❯›"  # Claude Code (U+276F), Codex (U+203A)
 _PROMPT_DIM = re.compile(
     "(?m)^((?:" + re.escape(DIM_CLOSE) + ")?[" + PROMPT_GLYPHS + r"][ \xa0]?)"
-    + re.escape(DIM_OPEN) + "(.*?)(?:(" + re.escape(DIM_CLOSE) + r")|([ \t]*)$)"
+    + re.escape(DIM_OPEN) + "([^⟪\n]*?)(?:(" + re.escape(DIM_CLOSE) + r")(?=[ \t]*([^\s⟪])?)"
+    + r"|([ \t]*)$)"
 )
 
 
 def _mark_placeholder(text: str) -> str:
     """Promote the dim run right after a prompt glyph to a ⟪placeholder⟫ run, reopening
-    ⟪dim⟫ after it when the run carried on past the row."""
-    return _PROMPT_DIM.sub(lambda m: m[1] + PLACEHOLDER_OPEN + m[2] + PLACEHOLDER_CLOSE
-                           + ("" if m[3] else DIM_OPEN + m[4]), text)
+    ⟪dim⟫ after it when the run carried on past the row; unmark it when its row goes on."""
+    return _PROMPT_DIM.sub(lambda m: m[1] + m[2] if m[4] else m[1] + PLACEHOLDER_OPEN + m[2]
+                           + PLACEHOLDER_CLOSE + ("" if m[3] else DIM_OPEN + m[5]), text)
 
 
 def strip_dim(text: str) -> str:
