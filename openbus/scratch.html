@@ -73,7 +73,7 @@ a { color: var(--accent); }
   #bar, .framed #bar { position: fixed; inset: auto 8px 8px; margin: 0; padding-bottom: max(10px, env(safe-area-inset-bottom)); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 4px 16px rgb(0 0 0 / .25); }
   .framed #bar { bottom: 88px; }
   .selecting main { padding-bottom: 200px; } }
-/* A long press selects (hold.js): no link preview, callout or text selection under the finger. */
+/* A long press selects (/long-press.js): no link preview, callout or text selection under the finger. */
 .framed article { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 </style></head><body><main>
 <header><h1>Scratch</h1><input type="search" placeholder="Filter Scratch" aria-label="Filter"><button type="button" class="act" id="select" data-icon="select" title="Select"><span>Select</span></button><a class="act" id="shelf" href="?archived" target="_self" data-icon="archive" title="Archived"><span>Archived</span></a><span class="seg" role="group" aria-label="View"><button type="button" data-view="grid" aria-label="Grid" title="Grid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg><span>Grid</span></button><button type="button" data-view="list" aria-label="List" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/></svg><span>List</span></button></span><a href="DOCS_URL">About</a><a href="/m/">tmux-rc</a></header>
@@ -86,7 +86,7 @@ a { color: var(--accent); }
 <pre>If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a Markdown document, a built static site, a report, images, a PDF). Write it into a new subfolder as index.md (Markdown, with Mermaid diagrams, admonitions, task lists and tables) or index.html, for example $TMUXRC_SCRATCH_DIR/&lt;folder&gt;/index.md, and give the user $TMUXRC_SCRATCH_URL/&lt;folder&gt;/ (or the folder's path if that variable is unset). The public URL sits behind the user's login, so to check the page yourself request $TMUXRC_SCRATCH_LOCAL_URL/&lt;folder&gt;/ instead; exactly 200 means it is served (a 202 is a page still being made). Everything in that directory is visible to everyone who can reach tmux-rc: never put secrets or private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or WebSockets, or submit forms, so inline any data a page needs. Write the folder's meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}) first, before the page: until index.html or index.md lands, the link shows that the page is being made, so it is safe to hand out early, and the user is notified when it is ready.</pre>
 <p><a href="DOCS_URL">How the scratch gallery works</a></p>
 </section></main>
-<script src="/hold.js"></script>
+<script src="/long-press.js"></script>
 <script>
 // Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
 document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
@@ -136,7 +136,7 @@ const selecting = (on) => { root.classList.toggle("selecting", on); bar.hidden =
 // On a phone, a long press on a card starts selecting with it (as Photos and Gmail do); the
 // Select button stays for a mouse. Only inside the app, which does the deed;
 // first, so the click a hold ends in is swallowed before it could toggle the card back.
-if (framed) hold(document.getElementById("cards"), { armed: (at) => { const card = at.closest?.("article");
+if (framed) longPress(document.getElementById("cards"), { armed: (at) => { const card = at.closest?.("article");
   if (!card) return;
   navigator.vibrate?.(20);
   if (!root.classList.contains("selecting")) selecting(true);

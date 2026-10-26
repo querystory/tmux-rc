@@ -44,7 +44,7 @@ def test_mobile_assets_and_manifest():
         "/terminal.js",
         "/push.js",
         "/pr-links.js",
-        "/hold.js",
+        "/long-press.js",
         "/sw.js",
         "/icon.svg",
     ):

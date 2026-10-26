@@ -4,8 +4,8 @@
 // under the finger by then), before any other listener sees it. Scrolling, a second
 // finger or a cancel disarms it. `target` is what the finger went down on, so `el` may be a
 // list that delegates for its rows. A classic script (the sandboxed scratch gallery can load
-// no module from the app's origin), so it is `hold` on the global; app.js imports it for that.
-globalThis.hold = (el, { armed = () => {}, released = () => {} } = {}) => {
+// no module from the app's origin), so it is `longPress` on the global; app.js imports it for that.
+globalThis.longPress = (el, { armed = () => {}, released = () => {} } = {}) => {
   let timer, held = false, target;
   const disarm = () => { clearTimeout(timer); held = false; };
   el.addEventListener("touchstart", (event) => {
