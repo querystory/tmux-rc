@@ -2423,7 +2423,9 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // as "close this view", and pressing it should never end a process. 404 means it is already
 // gone, the outcome asked for.
 dismissable($("pane-menu"));
-const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
+// The item just hid: a keyboard's focus moves to the menu's button. A tap's is dropped, or the
+// sheet the item opens hands it back on close and iOS paints a ring on the button.
+const closePaneMenu = () => { const keyed = document.activeElement?.matches(":focus-visible"); $("pane-menu").open = false; keyed ? $("pane-menu-button").focus() : document.activeElement?.blur(); };
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
