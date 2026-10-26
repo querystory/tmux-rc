@@ -34,6 +34,11 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
     screen = "● Run it yourself:\n\n  ! gh pr merge 7 --squash\n\n❯ "
     offered = classify_mod.screen_offers(["gh pr merge 7 --squash", "ship it"], screen)
     assert offered == ["! gh pr merge 7 --squash"]  # "ship it" is not on the screen
+    # Only a whole handed-over row: not part of one, prose punctuation, or shell negation.
+    for row, offer in (("! make deploy --dry-run", "make deploy"),
+                       ("Shipped! make tea", "make tea"),
+                       ("if ! grep -q x f; then echo y; fi", "grep -q x f")):
+        assert classify_mod.screen_offers([offer], f"● Then:\n\n  {row}\n\n❯ ") == [offer]
 
 
 def _pane(cmd="bash", title="t"):

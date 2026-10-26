@@ -892,10 +892,10 @@ def _parses(command: str) -> bool:
         return False
 
 
-def _quoted(text, visible: str) -> bool:
+def _quoted(text, visible: str, *, rows: bool = False) -> bool:
     """Whether the model's quote of the screen is on it: its exact text, the terminal's
     wraps allowed for (a wrap may fall at a space or inside a word) and the bars framing a
-    transcript row ignored."""
+    transcript row ignored. `rows`: the quote fills its rows, start to end."""
     if not isinstance(text, str) or not text.strip():
         return False
     # One row break at most between two characters, never a blank row: a word may wrap
@@ -906,7 +906,9 @@ def _quoted(text, visible: str) -> bool:
         (f"(?: |{wrap})" if part == " " else re.escape(part)) if part.isspace()
         else f"(?:{wrap})?".join(map(re.escape, part))
         for part in re.split(r"( +)", text.strip()))
-    return bool(re.search(exact, _FRAME_BARS_RE.sub("", visible)))
+    if rows:
+        exact = rf"^[ \t]*{exact}[ \t]*$"
+    return bool(re.search(exact, _FRAME_BARS_RE.sub("", visible), re.MULTILINE))
 
 
 def screen_offers(offers: object, text: str) -> list[str]:
@@ -915,11 +917,11 @@ def screen_offers(offers: object, text: str) -> list[str]:
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
     a row break the model copied from a wrap is a space. A command the screen hands over
-    as `! command` keeps that `! ` even where the model's copy dropped it: it is what makes
-    Send it run the command rather than say it to the agent."""
+    as `! command`, alone on its rows, keeps that `! ` even where the model's copy dropped
+    it: it is what makes Send it run the command rather than say it to the agent."""
     listed = offers if isinstance(offers, list) else ()
     visible = _visible(text)
-    whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", visible) else o
+    whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", visible, rows=True) else o
              for o in (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
                        for o in listed if isinstance(o, str)))
     return list(islice((o for o in dict.fromkeys(whole)
