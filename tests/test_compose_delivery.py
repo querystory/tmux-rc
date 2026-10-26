@@ -76,12 +76,12 @@ def test_the_scratch_viewer_attaches_the_page_as_drawn(client, monkeypatch, tmp_
     monkeypatch.setattr(server, "_scratch_dir", str(tmp_path))
     drawn, events = [], []
     monkeypatch.setattr(server.scratch_sidecars, "capture",
-                        lambda *a: drawn.append(a[2:]) or b"png")
+                        lambda *a, dark: drawn.append((*a[2:], dark)) or b"png")
     monkeypatch.setattr(tmux, "_run", typed(events.append))
     monkeypatch.setattr(server, "_deliver_image", lambda *a: events.append(a[1]))
     assert client.post("/api/panes/%1/compose", files=[("scratch", (None, "bugs")), (
         "shot", (None, "390x9999 dark")), ("text", (None, "add a column"))]).status_code == 200
-    assert drawn == [("bugs", (390, 2000), True)]
+    assert drawn == [("bugs", "", (390, 2000), True)]
     assert events == ["Re scratch bugs: ", b"png", "add a column", "Enter"]
 
 

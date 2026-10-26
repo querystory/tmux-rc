@@ -847,8 +847,8 @@ function viewScratch(href, title) {
 // A Composer per pane, sent through compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
   viewerTo = null; paintViewerForm(); text($("viewer-status"), "");
-  const folder = new URL(href).pathname.split("/")[2];
-  const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder) } : {};
+  const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
+  const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search } : {};
   if (!viewer.open || $("viewer-out").href !== href || !to.pane) return; // another page opened meanwhile
   const key = viewerKey({ pane_id: to.pane, birth: to.birth });
   if (!viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
@@ -879,7 +879,7 @@ $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
   const p = viewerPane(), why = p ? viewerWhy(p) : "This pane has closed.";
   if (why) return text($("viewer-status"), why);
-  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth, viewerTo.folder, viewerShot());
+  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth, { scratch: viewerTo.folder, ...viewerShot() && { shot: viewerShot(), view: viewerTo.view } });
   // Only on the visit it was sent from, and "Sent" not over a next draft typed meanwhile.
   if (viewer.open && $("viewer-out").href === href) text($("viewer-status"), !sent ? KEPT : value.segments().length ? "" : "Sent");
 };
@@ -1774,16 +1774,15 @@ const KEPT = "Delivery could not be confirmed. Draft kept; check the terminal be
 // draft back in front of whatever was typed since (a password only into an empty field).
 // A reply to a pane that needs you holds its card as a tapped answer does.
 // `birth`: the pane's incarnation the user confirmed; the server types nothing into another.
-// `page`: the scratch folder it is about, which the server names at the message's start.
-// `shot`: the size and theme to draw that page at, attached as a screenshot.
-async function compose(id, value, birth, page, shot) {
+// `fields`: from the scratch viewer, `scratch` (the folder, which the server names at the
+// message's start) and `shot` and `view` (the size, theme and page to attach a screenshot of).
+async function compose(id, value, birth, fields = {}) {
   const pane = panes.find((p) => p.pane_id === id);
   const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
   const secret = value === $("secret"), sent = secret ? value.value : value.segments();
   const form = new FormData();
   if (birth) form.append("birth", birth);
-  if (page) form.append("scratch", page);
-  if (shot) form.append("shot", shot);
+  for (const [name, field] of Object.entries(fields)) form.append(name, field);
   if (secret) form.append("secret", sent);
   else for (const segment of sent) {
     if (segment.file) form.append("image", segment.file);

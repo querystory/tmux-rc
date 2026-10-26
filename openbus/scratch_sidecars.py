@@ -18,7 +18,7 @@ from functools import partial
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 from urllib.request import urlopen
 
 from PIL import Image
@@ -179,7 +179,7 @@ def render(url: str, size: tuple[int, int] = VIEWPORT, dark: bool = False,
     if not exe:
         return None
     try:  # served, or the shot would be of the browser's error page (a 404 raises too)
-        urlopen(url, timeout=10).close()
+        urlopen(url, timeout=min(10, timeout / 4)).close()
     except OSError:
         return None
     with tempfile.TemporaryDirectory(prefix="tmux-rc-thumb-") as profile:
@@ -213,13 +213,16 @@ def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
     return True
 
 
-def capture(root: Path, web: Path, name: str, size: tuple[int, int], dark: bool) -> bytes | None:
-    """Folder `name`'s page as the scratch viewer showed it (its size and theme, from the
-    top), for a message to its agent; served as the thumbnails are, scratch and nothing else."""
-    if not (item := scratch.named(root, name)):
+def capture(root: Path, web: Path, name: str, view: str, size: tuple[int, int], *,
+            dark: bool) -> bytes | None:
+    """Folder `name`'s page as the scratch viewer showed it: `view` (a path and query in the
+    folder, else its own page), its size and theme, from the top. For a message to its
+    agent, served as the thumbnails are, scratch and nothing else."""
+    if not (item := scratch.named(root, name)) or ".." in unquote(urlsplit(view).path).split("/"):
         return None
     with serving(root, web) as base:
-        return render(f"{base}/{item['href']}", size, dark, 20)  # well inside a send's 45s
+        url = f"{base}/{quote(name)}/{view.lstrip('/')}" if view else f"{base}/{item['href']}"
+        return render(url, size, dark, 20)  # well inside a send's 45s
 
 
 class _Text(HTMLParser):

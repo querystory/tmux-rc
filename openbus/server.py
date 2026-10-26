@@ -2075,7 +2075,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments, secret, birth, page, shot = [], None, None, None, None
+    segments, secret, birth, page, shot, view = [], None, None, None, None, ""
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
@@ -2100,6 +2100,8 @@ async def _compose(pane_id: str, request: Request):
                 page = value
             elif kind == "shot" and isinstance(value, str):  # the viewer's size and theme
                 shot = re.fullmatch(r"(\d{2,4})x(\d{2,4})( dark)?", value)
+            elif kind == "view" and isinstance(value, str):  # its path and query in the folder
+                view = value
             elif kind == "secret" and isinstance(value, str) and secret is None:
                 if len(value.encode()) > 4095:  # the tty's line, less its newline
                     raise HTTPException(413, "password too long")
@@ -2121,8 +2123,8 @@ async def _compose(pane_id: str, request: Request):
             raise HTTPException(400, "no such scratch page")
         # What the user saw, attached as a pasted image is: a failed render sends the words alone.
         png = shot and await asyncio.to_thread(
-            scratch_sidecars.capture, Path(_scratch_dir), WEB_DIR, page,
-            (min(int(shot[1]), 2000), min(int(shot[2]), 2000)), bool(shot[3]))
+            scratch_sidecars.capture, Path(_scratch_dir), WEB_DIR, page, view,
+            (min(int(shot[1]), 2000), min(int(shot[2]), 2000)), dark=bool(shot[3]))
         segments[:0] = [line, *([(png, _stage_image(png, "image/png"))] if png else [])]
     if secret:
         await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
