@@ -758,6 +758,7 @@ function usageEnd(el, list, more = "") {
   was?.remove();
   if (html) el.insertAdjacentHTML("beforeend", `<div class="usage-end">${html}</div>`), el.lastElementChild._html = html;
 }
+const signedIn = (a) => (a.dirs || []).map(accounts.profile).find((p) => p?.signed_in);
 const paintUsage = steady(() => {
   // Every meter, most urgent first; Auto folds the quiet ones into a "+N", the
   // strip's last card (usage.js).
@@ -773,7 +774,9 @@ const paintUsage = steady(() => {
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tools = scope.tools, board = tools.length ? all.filter((a) => tools.includes(a.provider)) : all;
-  show("usage-panel", board.length > 0); show("usage-tab", all.some((a) => a.windows?.length));
+  show("usage-panel", board.length > 0);
+  // Usage's tab: whenever its view has a meter to draw (that view ignores the list's filters).
+  show("usage-tab", usage.some((a) => a.windows?.length && (signedIn(a) || !accounts.list().length)));
   const el = $("usage-board"), grouped = several && WIDE.matches, mode = grouped ? "groups" : "board", order = (list) => several ? byUrgency(list) : list;
   if (el._mode !== mode) { el._mode = mode; el._html = el._groups = null; el.className = "usage-board"; }
   if (grouped) accounts.groups(el, board, (cells, one) => renderUsage(cells, one, { wide: true }));
@@ -785,7 +788,7 @@ const paintUsage = steady(() => {
   // (usage-view.js). Named and chipped as the list names them; a tool filter with no meters
   // (reached by Forward, say) shows them all rather than a blank view.
   const scoped = usage.filter((a) => tools.includes(a.provider)), list = (scoped.length ? scoped : usage).map((a) => {
-    const p = (a.dirs || []).map(accounts.profile).find((p) => p?.signed_in);
+    const p = signedIn(a);
     return { ...a, acct: p, chip: p ? accounts.chip(p) : "" };
   }).filter((a) => a.acct || !accounts.list().length); // a removed account drops out, as in accounts.usage()
   renderUsageView(cardView("Plan usage", usageView), list, { refetch: () => refreshCached(true), icon: licon("filter", 16) });
