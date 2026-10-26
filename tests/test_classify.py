@@ -410,7 +410,7 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs):
         "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
     }))
     # A real task with the tab's label stays, barred (│ … │) or not.
-    for row in [f"  ⎿  {box} {label}" for box in ("☐", "☒", "☑", "✓", "[x]", "[ ]")] + [
+    for row in [f"  ⎿  {box} {label}" for box in ("☐", "☒", "☑", "✓", "•", "[x]", "[X]", "[ ]")] + [
             f"│ ⎿  ☐ {label}      │"]:
         assert classify(_pane("claude"), f"{row}\n" + screen, _llm({
             "tool": "claude", "activity": "waiting", "tasks": tasks[1:],

@@ -66,10 +66,9 @@ _CHECKLIST_LINE_RE = re.compile(
 _PICKER_TABS_RE = re.compile(
     r"(?m)^[ \t]*[─━]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*?)(?:[ \t]*→)?[ \t]*$")
 _PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔\n]*[^☐☒✔\s])")
-# A checkbox row of any supported agent, behind any gutter (Claude's ⎿, a tree's ├─) and
-# before a barred transcript's right border.
-_CHECKBOX_ROW_RE = re.compile(
-    r"(?m)^[^\w\n]*?(?:[☐☒☑✔✓]|\[[ x✓•]\])[ \t]*(\S.*?)[ \t]*(?:[│┃║][ \t]*)?$")
+# A label's own row elsewhere: behind any gutter and marker (⎿ ☐, ├─ [X], •), and before a
+# barred transcript's right border. A real task there keeps a tab's label.
+_OWN_ROW = r"(?im)^[^\w\n]*(?:\[[ x✓•]\][^\w\n]*)?{}[ \t│┃║]*$"
 _OPENCODE_RUNNING_RE = re.compile(
     # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
     # press turns the label into "esc again to interrupt".
@@ -1267,10 +1266,10 @@ def classify(
         ] if isinstance(tasks, list) else []
         result["tasks"] = validated
     if result.get("tool") == "claude" and isinstance(result.get("tasks"), list):
+        rest = _PICKER_TABS_RE.sub("", visible)
         tabs = {_checklist_text(tab) for row in _PICKER_TABS_RE.findall(visible)
-                for tab in _PICKER_TAB_RE.findall(row)}
-        tabs -= {_checklist_text(task)
-                 for task in _CHECKBOX_ROW_RE.findall(_PICKER_TABS_RE.sub("", visible))}
+                for tab in _PICKER_TAB_RE.findall(row)
+                if not re.search(_OWN_ROW.format(re.escape(tab)), rest)}
         result["tasks"] = [task for task in result["tasks"] if not isinstance(task, dict)
                            or _checklist_text(str(task.get("text"))) not in tabs]
     if result.get("tasks") == []:
