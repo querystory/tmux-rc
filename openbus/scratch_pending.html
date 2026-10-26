@@ -26,11 +26,15 @@ a { color: var(--accent); }
 document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
 const SEEN = "{seen}";
 let fails = 0;
-const ask = () => { const img = new Image();
-  img.onload = () => { fails = 0; document.getElementById("offline").hidden = true;
-    if (img.naturalWidth > 1 && !document.querySelector("a:hover")) location.reload(); else setTimeout(ask, {every}); };
-  img.onerror = () => { document.getElementById("offline").hidden = ++fails < 2; setTimeout(ask, Math.min({every} * 2 ** fails, 30000)); };
-  img.src = "./?seen=" + SEEN + "&t=" + Date.now(); };
+const ask = () => { const img = new Image(); let late; // an ask unanswered in 10s failed too
+  const end = (ok) => { if (!late) return; clearTimeout(late); late = null; img.onload = img.onerror = null;
+    document.getElementById("offline").hidden = ok || ++fails < 2;
+    if (ok) fails = 0;
+    if (ok && img.naturalWidth > 1 && !document.querySelector("a:hover")) return location.reload();
+    setTimeout(ask, ok ? {every} : Math.min({every} * 2 ** fails, 30000)); };
+  late = setTimeout(() => { end(false); img.src = ""; }, 10000);
+  img.onload = () => end(true); img.onerror = () => end(false);
+  img.src = location.pathname.replace(/\/?$/, "/?seen=") + SEEN + "&t=" + Date.now(); }; // its folder's, with or without the slash
 setTimeout(ask, {every});
 // In the app's viewer, the pane opens in the app rather than a second app in this frame.
 if (window.top !== window) for (const a of document.querySelectorAll('a[href^="/m/#pane="]'))
