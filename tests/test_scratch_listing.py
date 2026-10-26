@@ -316,3 +316,8 @@ def test_a_pane_keeps_its_sessions_pages_after_a_restore(tmp_path, monkeypatch):
     made = scratch.made_by(tmp_path, "%9", states, [], lambda e: e["running"]["tmux_pane"])
     assert [(m["href"], m["pending"]) for m in made] == [("status/", False), ("older/", False)]
     assert made[0]["at"] > made[1]["at"]  # newest first, each with when, for its Links row
+    # A page still being made before the restore is In progress while its session works on.
+    (tmp_path / "older" / "index.html").unlink()
+    states[0]["activity"] = "running"
+    made = scratch.made_by(tmp_path, "%9", states, [], lambda e: e["running"]["tmux_pane"])
+    assert [(m["href"], m["pending"]) for m in made] == [("status/", False), ("older/", True)]

@@ -308,6 +308,8 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         s = running.get(i["session_id"]) or {} if i["pane"] not in panes else {}
         i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
         if (pane := panes.get(i["pane"])) is not None:
+            if s:  # its session, found in a new pane: its page comes along as that pane does
+                i["state"] = progress(pane, i["pane"], i["created"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
             continue

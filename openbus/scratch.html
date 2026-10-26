@@ -79,16 +79,14 @@ const ago = (s) => { const d = Date.now() / 1000 - s;
     : d < 7 * 86400 ? `${Math.round(d / 86400)}d ago` : new Date(s * 1000).toLocaleDateString(); };
 for (const t of document.querySelectorAll("time")) t.textContent = ago(+t.dataset.t);
 const box = document.querySelector("input");
-let from = new URLSearchParams(location.search).get("pane");
+const from = new URLSearchParams(location.search).get("pane");
 const filter = () => { const q = box.value.trim().toLowerCase();
   for (const a of document.querySelectorAll("article")) a.hidden = !a.dataset.q.includes(q) || !!from && a.dataset.pane !== from; };
 const mine = [...document.querySelectorAll("article")].filter((a) => from && a.dataset.pane === from);
 mine.slice(0, 3).forEach((a) => a.classList.add("hot"));
 document.querySelector("#from span").textContent = `${mine.length} page${mine.length === 1 ? "" : "s"}`;
 document.getElementById("from").hidden = !from;
-document.querySelector("#from button").onclick = () => { from = null; document.getElementById("from").hidden = true;
-  for (const a of mine) a.classList.remove("hot");
-  filter(); };
+document.querySelector("#from button").onclick = () => location.replace("./"); // so a reload keeps every pane's
 filter();
 box.addEventListener("input", filter);
 // A preview still being made appears when it lands: the sandbox allows no fetch, but an
