@@ -852,8 +852,14 @@ async function findMaker(href) {
   if (!viewer.open || $("viewer-out").href !== href || !to.pane) return; // another page opened meanwhile
   const key = viewerKey({ pane_id: to.pane, birth: to.birth });
   if (!viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
-  viewerTo = to; text($("viewer-about"), to.about); paintViewerForm(); // the line the server opens a send with
+  viewerTo = to; text($("viewer-about"), to.about); shotChip(true); paintViewerForm(); // the line the server opens a send with
 }
+// The page as the user sees it goes with each send unless they take it off: the server draws it
+// (the sandboxed frame can't be read from here) at the frame's width, the window's height and the
+// system's theme, which a page follows, and attaches it as a pasted image.
+const shotChip = (on) => { $("viewer-shot").setAttribute("aria-pressed", on); text($("viewer-shot"), on ? "Screenshot attached ✕" : "Attach screenshot"); };
+$("viewer-shot").onclick = () => shotChip($("viewer-shot").getAttribute("aria-pressed") !== "true");
+const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewer.querySelector("iframe")?.clientWidth || innerWidth}x${innerHeight}${matchMedia("(prefers-color-scheme: dark)").matches ? " dark" : ""}`;
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
@@ -873,7 +879,7 @@ $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
   const p = viewerPane(), why = p ? viewerWhy(p) : "This pane has closed.";
   if (why) return text($("viewer-status"), why);
-  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth, viewerTo.folder);
+  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth, viewerTo.folder, viewerShot());
   // Only on the visit it was sent from, and "Sent" not over a next draft typed meanwhile.
   if (viewer.open && $("viewer-out").href === href) text($("viewer-status"), !sent ? KEPT : value.segments().length ? "" : "Sent");
 };
@@ -1769,13 +1775,15 @@ const KEPT = "Delivery could not be confirmed. Draft kept; check the terminal be
 // A reply to a pane that needs you holds its card as a tapped answer does.
 // `birth`: the pane's incarnation the user confirmed; the server types nothing into another.
 // `page`: the scratch folder it is about, which the server names at the message's start.
-async function compose(id, value, birth, page) {
+// `shot`: the size and theme to draw that page at, attached as a screenshot.
+async function compose(id, value, birth, page, shot) {
   const pane = panes.find((p) => p.pane_id === id);
   const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
   const secret = value === $("secret"), sent = secret ? value.value : value.segments();
   const form = new FormData();
   if (birth) form.append("birth", birth);
   if (page) form.append("scratch", page);
+  if (shot) form.append("shot", shot);
   if (secret) form.append("secret", sent);
   else for (const segment of sent) {
     if (segment.file) form.append("image", segment.file);

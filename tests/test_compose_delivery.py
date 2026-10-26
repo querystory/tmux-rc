@@ -66,6 +66,21 @@ def test_a_send_from_the_scratch_viewer_names_its_page(client, monkeypatch, tmp_
     assert send("..").status_code == 400 and len(events) == 3
 
 
+def test_the_scratch_viewer_attaches_the_page_as_drawn(client, monkeypatch, tmp_path):
+    (tmp_path / "bugs").mkdir()
+    (tmp_path / "bugs" / "index.html").write_text("<title>Bugs</title>")
+    monkeypatch.setattr(server, "_scratch_dir", str(tmp_path))
+    drawn, events = [], []
+    monkeypatch.setattr(server.scratch_sidecars, "capture",
+                        lambda *a: drawn.append(a[2:]) or b"png")
+    monkeypatch.setattr(tmux, "_run", typed(events.append))
+    monkeypatch.setattr(server, "_deliver_image", lambda *a: events.append(a[1]))
+    assert client.post("/api/panes/%1/compose", files=[("scratch", (None, "bugs")), (
+        "shot", (None, "390x9999 dark")), ("text", (None, "add a column"))]).status_code == 200
+    assert drawn == [("bugs", (390, 2000), True)]
+    assert events == ["Re scratch bugs: ", b"png", "add a column", "Enter"]
+
+
 def test_composer_identity_failure_returns_conflict(client, monkeypatch):
     monkeypatch.setattr(tmux, "pane_pid", lambda p: "replacement")
     events = []

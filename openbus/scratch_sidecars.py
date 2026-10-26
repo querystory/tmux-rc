@@ -171,36 +171,51 @@ def _description(root: Path, _url: str, item: dict) -> None:
             _tried.discard(_version(item))
 
 
-def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
-    """Render `url` at VIEWPORT in a fresh, throwaway profile, offline but for `url`'s own
-    host, and save it as a THUMB webp dated `at` (the page's version it was queued for),
-    so an edit made while it rendered still reads as newer."""
+def render(url: str, size: tuple[int, int] = VIEWPORT, dark: bool = False) -> bytes | None:
+    """`url` as a PNG at `size` (CSS px), drawn in a fresh, throwaway profile, offline but for
+    `url`'s own host; None when it cannot be drawn."""
     exe = browser()
     if not exe:
-        return False
+        return None
     try:  # served, or the shot would be of the browser's error page (a 404 raises too)
         urlopen(url, timeout=10).close()
     except OSError:
-        return False
+        return None
     with tempfile.TemporaryDirectory(prefix="tmux-rc-thumb-") as profile:
         png = Path(profile) / "shot.png"
         # Every request but `url`'s host (serving's) goes to a proxy that isn't there,
         # loopback included: a page could otherwise frame a local or private-network
         # service, which the shot would then publish.
         subprocess.run([exe, "--headless", "--no-first-run", "--hide-scrollbars",
-                        f"--user-data-dir={profile}", "--window-size={},{}".format(*VIEWPORT),
+                        f"--user-data-dir={profile}", "--window-size={},{}".format(*size),
+                        *(["--force-dark-mode"] if dark else []),
                         "--proxy-server=http://127.0.0.1:9",
                         f"--proxy-bypass-list=<-loopback>;{urlsplit(url).netloc}",
                         "--virtual-time-budget=3000", f"--screenshot={png}", url],
                        capture_output=True, timeout=60, check=False)
-        if not png.is_file():
-            return False
-        with Image.open(png) as im:
-            im.thumbnail(THUMB)
-            scratch.replace(out, root, lambda tmp: im.save(tmp, "WEBP", quality=70))
+        return png.read_bytes() if png.is_file() else None
+
+
+def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
+    """Render `url` at VIEWPORT and save it as a THUMB webp dated `at` (the page's version it
+    was queued for), so an edit made while it rendered still reads as newer."""
+    if not (data := render(url)):
+        return False
+    with Image.open(io.BytesIO(data)) as im:
+        im.thumbnail(THUMB)
+        scratch.replace(out, root, lambda tmp: im.save(tmp, "WEBP", quality=70))
     if at:
         os.utime(out, (at, at))
     return True
+
+
+def capture(root: Path, web: Path, name: str, size: tuple[int, int], dark: bool) -> bytes | None:
+    """Folder `name`'s page as the scratch viewer showed it (its size and theme, from the
+    top), for a message to its agent; served as the thumbnails are, scratch and nothing else."""
+    if not (item := scratch.read(root, root / name)):
+        return None
+    with serving(root, web) as base:
+        return render(f"{base}/{item['href']}", size, dark)
 
 
 class _Text(HTMLParser):
