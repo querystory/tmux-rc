@@ -354,7 +354,7 @@ function route() {
   dropGesture();
   active = state.pane;
   focusPushComposer = state.compose;
-  linked = state.draft;
+  linked = state.draft || (changed ? null : linked); // a reroute on the same pane (a resize) keeps it
   ({ dashboard, view, filter, page } = state);
   scope.tools = state.agent;
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
