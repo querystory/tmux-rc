@@ -45,6 +45,9 @@ class Watcher:
     def is_stale(self):
         return self.stale
 
+    def booted(self):
+        return True
+
     def pane_birth(self, pane_id):
         return self.births.get(pane_id)
 
@@ -1036,7 +1039,10 @@ def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
             clock[0] += push.SETTLE_SECONDS
 
     settle(held(), "t0")
-    settle(held(), "t1")  # a new turn, the same ask in the same words
+    watcher.states = [{**waiting(held()), "turn": "t1"}]  # a new turn, the same words:
+    service.evaluate()  # it settles afresh
+    assert len(sender.payloads) == 1
+    settle(held(), "t1")
     assert len(sender.payloads) == 2
     settle(held(ask="Show the files?"), "t1")  # re-read in-run, reworded: the same ask
     assert len(sender.payloads) == 2
@@ -1051,6 +1057,18 @@ def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
     service, sender = manager(tmp_path, watcher, clock)
     settle(held(), "t3")
     assert sender.payloads == []
+    assert service._notified  # what a "Ready" landing now reads to stay quiet
+    # Any number of idle panes keeps it so; a pane gone is forgotten.
+    idle = [{**waiting(None), "pane_id": f"%{n}", "activity": "idle", "turn": "i"}
+            for n in range(2, 300)]
+    watcher.states = [*idle, {**waiting(held()), "turn": "t3"}]
+    for _ in range(2):
+        service.evaluate()
+        clock[0] += push.SETTLE_SECONDS
+    assert sender.payloads == []
+    watcher.states = idle[:1]
+    service.evaluate()
+    assert json.loads(service.store.path.read_text())["turns"] == {"%2:123": "i"}
 
 
 def test_a_screen_s_turn_is_the_same_under_any_card_version_or_width(monkeypatch):

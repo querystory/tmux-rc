@@ -42,7 +42,6 @@ RATE_MAX = 3
 NONCE_SECONDS = 10 * 60.0
 MAX_PRESENCE_LEASES = 128
 MAX_SUBSCRIPTIONS = 16
-MAX_TURNS = 256  # the panes whose last told turn is kept (push.json, PushStore.tell)
 READY_QUIET_SECONDS = 120.0  # after "Ready", a pane's Needs-you without answers says nothing new
 DEFAULT_PUSH_HOSTS = (
     "web.push.apple.com",
@@ -212,9 +211,15 @@ class PushStore:
         with self._lock:
             turns = self._load()["turns"]
             if turn is not None and turns.get(pane) != turn:
-                turns.pop(pane, None)  # newest last, so the oldest go first
                 turns[pane] = turn
-                self._data["turns"] = dict(list(turns.items())[-MAX_TURNS:])
+                self._save()
+
+    def keep(self, panes: set[str]) -> None:
+        """Forget the turns of panes gone (not in `panes`): what bounds the store."""
+        with self._lock:
+            data = self._load()
+            if not set(data["turns"]) <= panes:
+                data["turns"] = {k: v for k, v in data["turns"].items() if k in panes}
                 self._save()
 
     def revoke_all(self) -> int:
@@ -474,7 +479,7 @@ class PushManager:
         self.sender = sender or PushSender(self.store)
         self.clock = clock
         self._presence: dict[str, float] = {}
-        self._stable: dict[str, tuple[str, float]] = {}
+        self._stable: dict[str, tuple[str, float, str | None]] = {}  # fp, since, turn
         self._notified: set[tuple[str, str]] = set()
         self._rates: dict[tuple[str, str | None], deque[float]] = defaultdict(deque)
         self._nonces: dict[str, dict] = {}
@@ -634,12 +639,14 @@ class PushManager:
             fp, question = contract(pane, pane.get("birth"))
             active.add((pane_id, fp))
             previous = self._stable.get(pane_id)
-            if previous is None or previous[0] != fp:
-                self._stable[pane_id] = (fp, now)
+            if previous is None or (previous[0], previous[2]) != (fp, pane.get("turn")):
+                self._stable[pane_id] = (fp, now, pane.get("turn"))
                 continue
             if now - previous[1] >= SETTLE_SECONDS:
                 candidates.append((pane, fp, question))
 
+        if self.watcher.booted():  # every pane is listed: the rest are gone
+            self.store.keep({_pane_key(p) for p in panes if isinstance(p.get("pane_id"), str)})
         self._ready = {k: at for k, at in self._ready.items() if now - at < READY_QUIET_SECONDS}
         cleared = set(self._notified) - active
         self._notified.intersection_update(active)
@@ -667,6 +674,7 @@ class PushManager:
             # and a new one is, however alike. The wording decides only for a card with none.
             turn = pane.get("turn")
             if self.store.told(_pane_key(pane), turn) if turn else marker in self._notified:
+                self._notified.add(marker)  # told before a restart, too: _ready_push reads it
                 continue
             rate = self._rates[(pane_id, self.watcher.pane_birth(pane_id))]
             if len(rate) >= RATE_MAX:
