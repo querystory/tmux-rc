@@ -104,6 +104,25 @@ _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
 # turn's row is always followed by Codex's reply to it, and a shell's ❯ is no composer.
 _CODEX_COMPOSER_RE = re.compile(r"^[ \t]*›(?![\s\S]*^• )", re.MULTILINE)
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
+# Claude Code's bash mode echoes a command typed after "!" (no prompt glyph) and runs it
+# without starting a turn, so below a finished turn it is the user acting on that turn.
+_BASH_ROW_RE = re.compile(r"^[ \t│]*! +\S", re.MULTILINE)
+# Claude's input box: its top rule (flat, or framed from a ╭ corner), then its prompt row
+# (❯, or "!" in bash mode).
+_INPUT_BOX_RE = re.compile(r"^[ \t]*╭?[─━]{3,}.*\n[ \t│]*[❯!]", re.MULTILINE)
+
+
+def _spent(visible: str, turn: re.Match | None) -> bool:
+    """Whether a command run in bash mode below Claude's finished turn spent what that turn
+    asked or offered (a sent offer above all), however the command is doing. Not once a ❯
+    row with text follows (a newer prompt, or a dialog's cursor row); the input box's
+    unsent draft is neither."""
+    if not turn or turn["live"]:
+        return False
+    after = visible[turn.end():]
+    *_, box = [None, *_INPUT_BOX_RE.finditer(after)]
+    after = after[:box.start()] if box else after
+    return bool(_BASH_ROW_RE.search(after)) and not _USER_ROW_RE.search(after)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
@@ -1304,7 +1323,12 @@ def classify(
         result.pop("parse_ok", None)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
-    if result.get("tool") == "claude" and turn:
+    spent = result.get("tool") == "claude" and _spent(visible, turn)
+    if spent:
+        result["activity"] = "idle"
+        result.pop("question", None)
+        result.pop("parse_ok", None)
+    elif result.get("tool") == "claude" and turn:
         if turn["live"] and result.get("activity") in (None, "idle", "unknown"):
             result["activity"] = "running"
             result.pop("parse_ok", None)
@@ -1324,8 +1348,8 @@ def classify(
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
-    final = tool in _TURN_ERROR_RE and _final_message(visible, tool)
-    if offers := screen_offers(result.pop("offers", None), text):
+    final = not spent and tool in _TURN_ERROR_RE and _final_message(visible, tool)
+    if (offers := screen_offers(result.pop("offers", None), text)) and not spent:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     if final and (ask := _final_ask(visible, tool, final, offers)):
         if ask.get("options") == ["try again"]:
