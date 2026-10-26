@@ -158,6 +158,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .badge.running { color: var(--accent); }
 .pane-row .badge.running { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* the animated logo says it; the text stays for screen readers */
 .badge.compacting { color: var(--purple); }
+.badge.quota_blocked { color: var(--red); }
 .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
 /* The phone's tab bar: Dashboard, Sessions, the mic, Chat and Needs you on a glass pill that
    floats over the page's foot (which leaves it --bar-room), so the list shows through it.

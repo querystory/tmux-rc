@@ -68,7 +68,7 @@ def test_identity_and_dimensions_are_structural_only(tmp_path):
 
 @pytest.mark.parametrize(("activity", "waiting_on", "expected"), [
     ("running", None, 1), ("waiting", "user", 0), ("waiting", "external", 5),
-    ("compacting", None, 4), ("idle", None, 2), ("nonsense", None, 3),
+    ("compacting", None, 4), ("idle", None, 2), ("nonsense", None, 3), ("quota_blocked", None, 5),
 ])
 def test_state_semantics(activity, waiting_on, expected):
     assert state_index({"activity": activity, "waiting_on": waiting_on}) == expected

@@ -308,6 +308,9 @@ DETAIL = {
                        # A link the question points at: its card leads with it (and Copy link).
                        "links": [{"href": f"https://{ORG}/shop-api/deployments/preview",
                                   "text": "Preview link"}]},
+    "alert tuning": {"activity": "quota_blocked", "resets": "4:10pm",
+                     "headline": "Usage limit reached; continuing automatically at 4:10pm",
+                     "status_line": "Paused mid-way through tuning the disk alerts"},
     "cost report": {"activity": "compacting", "headline": "Compacting the conversation",
                         "status_line": "Compacting the conversation", "context_pct": 94},
     "terraform plan review": {

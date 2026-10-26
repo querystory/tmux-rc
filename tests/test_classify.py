@@ -21,6 +21,15 @@ def test_opaque_session_identifiers_are_not_titles():
         assert result["session"] == name
 
 
+def test_reset_time_rides_only_on_a_quota_blocked_pane():
+    blocked = {"tool": "claude", "activity": "quota_blocked", "resets": "2:10pm"}
+    assert classify(_pane("node"), "text", _llm(blocked))["resets"] == "2:10pm"
+    assert "resets" not in classify(_pane("node"), "text", _llm({**blocked, "activity": "idle"}))
+    worker = {"label": "Resize photos", "state": "running"}
+    r = classify(_pane("node"), "text", _llm({**blocked, "subagents": [worker]}))
+    assert (r["subagents"][0]["state"], r["agents"]) == ("waiting", 0)  # it shares the limit
+
+
 def _pane(cmd="bash", title="t"):
     return Pane("work", "0", "bash", "0", "%0", cmd, title, "/home/x/proj")
 

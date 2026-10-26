@@ -59,6 +59,12 @@ CASES = [
         "waiting",
     ),
     ("activityClass: idle stays idle", "activityClass", [{"activity": "idle"}], "idle"),
+    ("activityLabel: quota blocked says when it resets", "activityLabel",
+     [{"activity": "quota_blocked", "resets": "2:10pm"}], "Quota blocked · resets 2:10pm"),
+    ("activityLabel: quota blocked with no reset read", "activityLabel",
+     [{"activity": "quota_blocked"}], "Quota blocked"),
+    ("isRunning: quota blocked is not running", "isRunning",
+     [{"activity": "quota_blocked"}], False),
     # isRunning
     ("isRunning: running", "isRunning", [{"activity": "running"}], True),
     (

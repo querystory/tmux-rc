@@ -662,7 +662,8 @@ def _ground_visible_fields(
         result.pop("links", None)
         if retry and isinstance(retry.get("links"), list) and retry["links"]:
             result["links"] = retry["links"]
-        state_fields = ("activity", "waiting_on", "headline", "question", "rewind", "offers")
+        state_fields = ("activity", "waiting_on", "resets", "headline", "question", "rewind",
+                        "offers")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
         for key in state_fields:
@@ -1459,6 +1460,15 @@ def classify(
             result["waiting_on"] = "user"
     else:
         result.pop("waiting_on", None)
+    # Likewise the reset time, which only a quota-blocked pane shows.
+    if result.get("activity") != "quota_blocked" or not isinstance(result.get("resets"), str):
+        result.pop("resets", None)
+    # The model's quota read covers the workers too: they share the parent's limit, so a
+    # row it still saw as busy (a meter that only looks live) is waiting with it.
+    if result.get("activity") == "quota_blocked" and isinstance(result.get("subagents"), list):
+        for a in result["subagents"]:
+            if isinstance(a, dict) and a.get("state") in ("running", "compacting"):
+                a["state"] = "waiting"
     # Count only workers observed running; waiting/idle/unknown are not active work.
     # Compacting has its own history state but still counts as busy in the dock.
     if result.get("tool") == "claude":  # its agent list's workflow rows are chrome

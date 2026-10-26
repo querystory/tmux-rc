@@ -10,7 +10,7 @@ from research.eval.harness import (
     score_structured,
 )
 
-_VALID_ACTIVITY = {"running", "waiting", "idle", "compacting"}
+_VALID_ACTIVITY = {"running", "waiting", "idle", "compacting", "quota_blocked"}
 _VALID_TOOL = {"claude", "codex", "gemini", "antigravity", "opencode", "omp", "shell", "unknown"}
 
 

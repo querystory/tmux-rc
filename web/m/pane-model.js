@@ -8,10 +8,11 @@ export const home = (d) => d.replace(/^\/home\/[^/]+/, "~");
 export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 // An idle pane older than this is parked, so it drops out of "Recent".
 export const PARKED_IDLE_SECS = 600;
-const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
+const ACTIVITIES = ["running", "waiting", "idle", "compacting", "quota_blocked", "unknown"];
 const actOf = (pane) => ACTIVITIES.includes(pane.activity) ? pane.activity : "unknown";
 export const needsYou = (pane) => pane.activity === "waiting" && pane.waiting_on !== "external";
-export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
+// A quota-blocked pane resumes by itself at its reset time, so the label says when.
+export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : actOf(pane) === "quota_blocked" ? ["Quota blocked", pane.resets && `resets ${pane.resets}`].filter(Boolean).join(" · ") : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
 // A pane whose window this page is closing (app.js sets pane.ending while the request runs):
 // greyed under a spinner, and inert, so no answer or action on it can be sent meanwhile.
 export const markEnding = (node, pane) => { node.inert = !!pane?.ending; node.classList.toggle("ending", !!pane?.ending); };

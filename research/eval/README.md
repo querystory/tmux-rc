@@ -61,6 +61,8 @@ So we split the fields by how the UI uses them:
 **Structured fields — exact match (strict).** These drive the badge and behavior, so
 strictness is correct:
 - `tool`, `activity`, `waiting_on` — compared by value.
+- `resets` — opt-in exact check of a quota-blocked pane's reset time ("9:30am"); pinned
+  `null`, it asserts a working pane carries none.
 - `parse_ok`, `model`, `cost` — opt-in checks for accepted classifications and status-row
   readouts (model preservation, cost normalized to dollars).
   An omitted `parse_ok` means success, matching the watcher.
@@ -214,6 +216,9 @@ actually hit:
 | `114_claude_mcp_picker_checked_rows` | synthetic: `/mcp` arrow picker whose rows carry ✔/✘ marks → cursor question with its arrow keymap |
 | `128_claude_handoff_no_side_panel_no_question_mark` | synthetic: a signed `! git tag` handed over in a sentence, no `?`, no `[side panel]`, ASCII-pipe status rows → text user-wait offering the command |
 | `133_claude_narrow_picker_wrapped_question` | synthetic: AskUserQuestion in a narrow pane, its question ending mid-row of a wrapped paragraph, every row behind its digit → menu (a digit answers any row), not a cursor list no walk can ground |
+| `135_claude_quota_blocked_auto_continue` | synthetic: the plan's usage limit notice as the live bottom, auto-continue at the reset → `quota_blocked` with `resets`, not running or Needs you |
+| `136_claude_quota_blocked_with_subagent_row` | synthetic: the limit hit again after a new message, a sub-agent row still listed → `quota_blocked`, the worker waiting, no running agent counted |
+| `137_claude_working_on_usage_limit_handling` | synthetic: a live spinner while editing code that handles "usage limit reached" → running, no reset time |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
