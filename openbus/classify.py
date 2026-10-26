@@ -61,9 +61,10 @@ _CHECKLIST_LINE_RE = re.compile(
 )
 # Claude's AskUserQuestion draws each question's header as a ☐/☒/✔ tab on the row right
 # under the dialog's top rule (a lone tab for a single question, "← … →" around several):
-# picker chrome, so a task that is only a tab's label is the model misreading it.
+# picker chrome, so a task that is only a tab's label (no checkbox row of its own
+# elsewhere on screen) is the model misreading it.
 _PICKER_TABS_RE = re.compile(r"(?m)^[ \t]*[─━]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*)$")
-_PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔←→]*[^☐☒✔←→\s])")
+_PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔←→\n]*[^☐☒✔←→\s])")
 _OPENCODE_RUNNING_RE = re.compile(
     # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
     # press turns the label into "esc again to interrupt".
@@ -1260,9 +1261,11 @@ def classify(
             and _checklist_text(task["text"]) in visible_tasks
         ] if isinstance(tasks, list) else []
         result["tasks"] = validated
-    tabs = {_checklist_text(tab) for row in _PICKER_TABS_RE.findall(visible)
-            for tab in _PICKER_TAB_RE.findall(row)}
-    if tabs and isinstance(result.get("tasks"), list):
+    if result.get("tool") == "claude" and isinstance(result.get("tasks"), list):
+        tabs = {_checklist_text(tab) for row in _PICKER_TABS_RE.findall(visible)
+                for tab in _PICKER_TAB_RE.findall(row)}
+        tabs -= {_checklist_text(task)
+                 for task in _PICKER_TAB_RE.findall(_PICKER_TABS_RE.sub("", visible))}
         result["tasks"] = [task for task in result["tasks"] if not isinstance(task, dict)
                            or _checklist_text(str(task.get("text"))) not in tabs]
     if result.get("tasks") == []:

@@ -408,6 +408,14 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs):
     assert "tasks" not in classify(_pane("claude"), screen, _llm({
         "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
     }))
+    shared = "  ⎿  ☐ Fruit\n" + screen  # a real task with the tab's label stays
+    assert classify(_pane("claude"), shared, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
+    }))["tasks"] == tasks[1:]
+    plan = "─" * 40 + "\n☐ Fruit\nOpenCode 1.18.32"  # another agent's plan under a rule
+    assert classify(_pane(cmd="opencode"), plan, _llm({
+        "tool": "opencode", "activity": "running", "tasks": tasks[1:],
+    }))["tasks"] == tasks[1:]
 
 
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
