@@ -611,7 +611,8 @@ export function renderGraphView(root, panes, ctx) {
     const dark = () => { const on = document.documentElement.classList.toggle('fg-dark'); try { localStorage.setItem(DARK, on ? '1' : ''); } catch {} paint(); };
     // Full screen heads the column, in and out, so the way back is where the way in was. A phone
     // has only full screen (an inline graph there is too small to use), so its button closes the view.
-    const toggle = () => phone() ? ctx.close() : full(!root.classList.contains('full'));
+    // Closing wakes the page under it first, so the focus the app hands back lands there.
+    const toggle = () => phone() ? (root._inert?.forEach(s => { s.inert = false; }), ctx.close()) : full(!root.classList.contains('full'));
     for (const [name, label, fn] of [['fullscreen', 'Full screen', toggle], ['plus', 'Zoom in', () => g.zoom(1.35)], ['minus', 'Zoom out', () => g.zoom(1 / 1.35)],
       ['locate', 'Fit to view', () => g.fit()], ['moon', 'Dark canvas', dark]]) {
       const b = el('button', '', ctx.icon(name, 18)); b.title = b.ariaLabel = label; b.onclick = fn; tools.append(b);
@@ -625,6 +626,7 @@ export function renderGraphView(root, panes, ctx) {
         if (on) { root._inert = []; for (let a = root; a.parentElement && a !== document.body; a = a.parentElement) root._inert.push(...[...a.parentElement.children].filter(s => s !== a && !s.inert)); }
         root._inert.forEach(s => { s.inert = on; });
         root.classList.toggle('full', on); g.fit();
+        if (on && !root.contains(document.activeElement)) zoomBtn.focus({ preventScroll: true }); // focus left outside would be stranded under it
       }
       zoomBtn.innerHTML = ctx.icon(phone() ? 'x' : on ? 'minimize' : 'fullscreen', 18);
       zoomBtn.title = zoomBtn.ariaLabel = phone() ? 'Close' : on ? 'Exit full screen' : 'Full screen';
