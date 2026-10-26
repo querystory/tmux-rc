@@ -841,8 +841,27 @@ def test_send_ignores_output_streaming_above_the_menu_s_edge(monkeypatch, _scree
     yes_no = {**menu, "options": ["Yes", "No"]}
     more = codex + "  3. Always\n"
     assert question_rows(yes_no, more) != question_rows(yes_no, codex)
+    # A rule under the options (AskUserQuestion's) is no edge: the question stays in.
+    ask = f"{'─' * 9}\n Pick one?\n❯ 1. A\n  2. B\n{'─' * 9}\n  3. Chat about this\n"
+    assert question_rows({**menu, "options": ["A", "B"]}, ask) == ask.rstrip("\n")
     below = f"  1. A\n  2. B\n  3. C\n{codex}"
     assert question_rows({**menu, "options": ["A", "B", "C"]}, below).endswith("2. No")
+
+
+def test_send_refuses_a_digit_once_the_next_ask_user_question_is_up(monkeypatch, _screen):
+    """AskUserQuestion rules off its last row, which reads the same in every picker: a
+    digit tapped on the old card must not answer the question that replaced it."""
+    def ask(question, a, b):
+        return (f"{'─' * 9}\n {question}\n❯ 1. {a}\n  2. {b}\n{'─' * 9}\n"
+                "  3. Chat about this\n\nEnter to select · Esc to cancel\n")
+
+    question = {"prompt": "Keep the cache?", "answer_style": "menu", "options": ["Yes", "No"]}
+    watcher = Watcher()
+    watcher.states = [waiting(question, ask("Keep the cache?", "Yes", "No"))]
+    _screen[0] = ask("Delete the backups?", "Delete", "Keep")  # answered at the desk
+    tap, token, sent = _send_app(monkeypatch, watcher)
+    assert tap(token()).status_code == 409
+    assert sent == []
 
 
 def test_send_binds_option_rows_and_the_snapshot_s_own_birth(monkeypatch, _screen):

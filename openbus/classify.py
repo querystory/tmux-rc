@@ -771,7 +771,11 @@ def question_rows(question: dict, text: str) -> str:
         return ""  # only a menu's digit needs it; any other question keeps the whole frame
     under = re.match(rf"(?:\n[ \t│┃]{{{len(end[-1][1]) + 1},}}\S.*)*", visible[end[-1].end():])
     rows = visible[:end[-1].end() + under.end()]
-    top = list(re.finditer(r"^(?:[─━▔]{3,}|╭)", rows, re.MULTILINE))
+    # The edge above its first option: Claude's AskUserQuestion also rules off its last row
+    # ("5. Chat about this"), and from there down is no question or options at all.
+    first = [m.start() for m in _FIRST_OPTION_RE.finditer(rows)]
+    head = rows[:first[-1]] if first else rows
+    top = list(re.finditer(r"^(?:[─━▔]{3,}|╭)", head, re.MULTILINE))
     return rows[top[-1].start():] if top else rows
 
 
