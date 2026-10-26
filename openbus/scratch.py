@@ -48,6 +48,7 @@ DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gall
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
 # What every /scratch/ response is served under (see server.py's no_cache middleware).
 SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"
+PINS = 6  # pages pinned to the app's menu, at most: the sidebar's nav can't overflow
 
 
 def inside(path: Path, root: Path) -> bool:
@@ -134,6 +135,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
         title = m and unescape(m.group(1)).strip()
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
+            "icon": meta.get("icon"),  # a Lucide name, drawn only if the app ships it
             "session_id": meta.get("agent_session"), "folder": folder,
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
@@ -153,6 +155,39 @@ def read(root: Path, folder: Path, files: list | None = None) -> dict | None:
     except OSError:
         pass
     return None
+
+
+def folder_name(name: object) -> bool:
+    """Whether `name` can only be one folder directly in scratch: not a path, a dot name
+    (.., .archive) or anything with a NUL."""
+    return isinstance(name, str) and name == Path(name).name and name[:1] not in ("", ".") \
+        and "\0" not in name
+
+
+def pinned(root: Path, store: Path) -> list[dict]:
+    """The folders pinned to the app's menu, in order, while still in scratch: one deleted
+    or archived (moved out) drops out here, and from `store` at the next pin or unpin."""
+    try:
+        names = json.loads(store.read_text())
+    except (OSError, ValueError):
+        names = []
+    found = (read(root, root / n) for n in names if folder_name(n)) if isinstance(
+        names, list) else ()
+    return [{k: i[k] for k in ("name", "title", "icon", "href")} for i in found if i]
+
+
+def pin(root: Path, store: Path, names: list[str]) -> list[dict]:
+    """Pin exactly these folders of scratch, in this order (the app sends its pins with one
+    added or removed). Each must be a folder there now; at most PINS of them."""
+    if len(names) > PINS or len(set(names)) < len(names):
+        raise ValueError(f"at most {PINS} pins, each once")
+    if not all(folder_name(n) and read(root, root / n) for n in names):
+        raise ValueError("a pin is one folder of scratch")
+    store.parent.mkdir(parents=True, exist_ok=True)
+    tmp = store.with_suffix(".tmp")
+    tmp.write_text(json.dumps(names))
+    tmp.replace(store)
+    return pinned(root, store)
 
 
 def items(root: Path) -> list[dict]:

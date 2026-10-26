@@ -98,6 +98,7 @@ const LUCIDE = {
   minimize: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>',
   network: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/>',
   fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/>',
+  pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
@@ -838,8 +839,32 @@ function viewScratch(href, title) {
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
   viewer.append(Object.assign(document.createElement("iframe"), { src: href, title }));
-  viewer.showModal(); viewer.focus();
+  viewer.showModal(); viewer.focus(); paintPins(pins);
 }
+// Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
+// shows the same): rows after the sidebar's nav, and a Pinned group in the phone's ☰, whose rows
+// press the sidebar's as its others do. Each opens in the viewer, as the gallery's cards do. Its
+// icon is the meta.json "icon" only when the app ships that Lucide glyph: never a page's markup.
+let pins = [];
+const pinGlyph = (name) => { name = String(name || "").replace(/-(\w)/g, (_, c) => c.toUpperCase()); return Object.hasOwn(LUCIDE, name) ? name : "fileText"; };
+const viewedFolder = () => { try { return decodeURIComponent(new URL($("viewer-out").href).pathname.split("/")[2] || ""); } catch { return ""; } };
+function paintPins(list) {
+  pins = list;
+  html($("sb-pins"), list.map((p) => `<a id="pin-${esc(p.name)}" class="icon-button" href="/scratch/${esc(p.href)}" title="${esc(p.title)}" aria-label="${esc(p.title)}">${licon(pinGlyph(p.icon))}</a>`).join(""));
+  html($("drawer-pins"), recentList("Pinned", list.map((p) => `<button type="button" data-via="pin-${esc(p.name)}">${licon(pinGlyph(p.icon))}<span>${esc(p.title)}</span></button>`)));
+  // The viewer's Pin: for a folder of scratch (an archived page's link is under .archive/).
+  const folder = viewedFolder(), on = list.some((p) => p.name === folder), full = !on && list.length >= 6;
+  $("viewer-pin").hidden = !folder || folder.startsWith(".");
+  Object.assign($("viewer-pin"), { disabled: full, title: full ? "Six pins at most: unpin one first" : on ? "Unpin from the menu" : "Pin to the menu" }).setAttribute("aria-pressed", on);
+  html($("viewer-pin"), licon("pin", 16) + (on ? "Pinned" : "Pin"));
+}
+const loadPins = () => request("/api/pins").then(paintPins, () => {});
+$("sb-pins").onclick = (e) => { const a = e.target.closest("a"); if (a) { e.preventDefault(); viewScratch(a.href, a.title); } };
+$("viewer-pin").onclick = () => {
+  const folder = viewedFolder(), names = pins.map((p) => p.name);
+  request("/api/pins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(names.includes(folder) ? names.filter((n) => n !== folder) : [...names, folder]) }).then(loadPins, () => {});
+};
+addEventListener("focus", loadPins); loadPins(); // another device's pin shows once this one is back
 $("close-viewer").onclick = () => viewer.close();
 viewer.addEventListener("close", () => viewer.querySelector("iframe")?.remove());
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
@@ -1873,7 +1898,7 @@ function paintRecent() {
   $("drawer-panes").querySelectorAll("img:first-child").forEach((img, i) => markWorking(img, recent[i][0], LOGOS));
 }
 function openRecent() {
-  paintRecent();
+  paintRecent(); loadPins();
   request("/api/recent").then((recent) => {
     opened = recent.panes; paintRecent();
     html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" target="_blank">${s.pending ? '<span class="pane-icon pending"></span>' : licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));

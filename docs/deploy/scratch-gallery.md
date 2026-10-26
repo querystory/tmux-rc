@@ -139,3 +139,18 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
 Pages are shot offline. Each shot uses a throwaway browser profile and a listener that
 serves scratch and nothing else, so a page can't put anything but scratch into its
 thumbnail. The [design note](../design/scratch-previews.md) explains why.
+
+## Pinning a page to the menu
+
+The viewer's **Pin** puts a page in the app's own menu: rows after a divider in the
+sidebar, and a Pinned group in the phone's ☰. A phone's tab bar never changes, so someone
+who pins nothing sees the app as before. A pin opens the page in the same viewer.
+
+The daemon keeps the pins in `pins.json`, beside `accounts.json` in its state directory,
+so the laptop shows what the phone pinned. There are at most six, which keeps the sidebar
+from overflowing. A pinned folder that is deleted or archived drops out of the menu.
+
+A pin is labelled with the page's title. Its icon is `meta.json`'s optional `icon`, a
+[Lucide](https://lucide.dev/icons/) name such as `network`, drawn only when the app ships
+that glyph, and the page icon otherwise. The app never draws markup a page supplies: its
+menu is same-origin with the API, so an agent-written icon could run script there.
