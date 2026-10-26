@@ -1484,6 +1484,8 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-box { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; touch-action: none; font-family: var(--mono); color: var(--fg); }
 .fg-hud { position: absolute; inset: 0; display: grid; grid-template: "lens lens call" auto "stats . ." minmax(0, 1fr) "key key key" auto / auto 1fr auto; gap: 10px 14px; padding: 10px 58px 10px 12px; pointer-events: none; }
 .fg-hud > * { pointer-events: auto; min-width: 0; }
+/* One fade behind the foot of the HUD, edge to edge, so labels zoomed under it fade, not fight. */
+.fg-hud::before { content: ''; grid-area: key; grid-column: 1 / -1; margin: -14px -58px -10px -12px; background: linear-gradient(transparent, var(--surface) 14px); }
 .fg-lenses { grid-area: lens; align-self: start; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .fg-lenses > span { flex: none; font-size: 10.5px; color: var(--muted); margin-right: 6px; text-transform: uppercase; letter-spacing: .14em; }
 .fg-lenses button { flex: none; min-height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
@@ -1494,7 +1496,7 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-stats span { display: block; margin-top: 4px; font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .14em; }
 .fg-stats .go b { color: var(--accent); } .fg-stats .need b { color: var(--amber); } /* text: the state colours' readable shades */
 .fg-call { grid-area: call; align-self: start; font-size: 9.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
-.fg-call summary { cursor: pointer; text-align: right; padding: 2px 0 6px; }
+.fg-call summary { cursor: pointer; text-align: right; padding: 2px 6px 6px; border-radius: 6px; background: color-mix(in oklab, var(--surface) 85%, transparent); }
 .fg-call > div { display: flex; flex-direction: column; gap: 6px; }
 .fg-call button { display: grid; grid-template-columns: 1fr auto; gap: 1px 10px; min-height: 0; text-align: left; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--fg); letter-spacing: inherit; }
 .fg-call button span { grid-column: 1 / -1; font-size: 9px; color: var(--muted); }
@@ -1506,7 +1508,7 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-st { display: inline-flex; align-items: center; gap: 6px; }
 :is(.fg-st, .fg-key) i, .fg-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 .fg-key { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .12em; }
-.fg-key span { display: inline-flex; align-items: center; gap: 5px; }
+.fg-key span { white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; }
 .fg-key .fg-warn-key { border: 2px dashed var(--amber); box-sizing: border-box; }
 .fg-key .fg-acct-key { border: 1px dashed var(--muted); box-sizing: border-box; }
 /* A phone, upright or on its side (graph.js phone()): one row of counts at the bottom, the key
@@ -1519,8 +1521,8 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
   .fg-call button { flex: 1; padding: 5px 7px; }
   .fg-stats { flex-flow: row nowrap; justify-content: space-between; gap: 6px; margin-right: -42px; }
   .fg-stats b { font-size: 20px; } .fg-stats small { font-size: 11px; } .fg-stats span { font-size: 8.5px; letter-spacing: .08em; }
-  .fg-stats { margin-top: -14px; padding-top: 14px; background: linear-gradient(transparent, var(--surface) 14px); } /* labels zoomed under it fade, not fight */
-  .fg-legend { margin-right: -42px; } .fg-key { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; font-size: 8.5px; gap: 3px 10px; }
+  .fg-hud::before { grid-row: stats / key; margin: -14px -52px -8px -10px; } /* the fade backs the counts too */
+  .fg-legend { margin-right: -42px; } .fg-key { font-size: 8.5px; gap: 3px 10px; }
 }
 /* Full screen (graph.js): the view over everything, edge to edge inside the safe area. A phone
    opens the view this way. */
