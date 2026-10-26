@@ -126,7 +126,10 @@ def test_the_renderer_is_served_scratch_and_nothing_else(tmp_path):
         with urlopen(f"{base}/notes.md?raw") as raw:  # the file itself, as the daemon serves it
             assert raw.read() == b"# Notes" and raw.headers["Content-Type"].startswith("text/plain")
         host = base.removesuffix("/scratch")
+        (root / ".private").mkdir()
+        (root / ".private" / "note.html").write_text("hidden")
         for url in (host + "/index.html", host + "/api/digest", base + "/link.txt",
+                    base + "/.private/note.html", base + "/%2eprivate/note.html",
                     base + "/../secret.txt", base + "/%2e%2e/secret.txt", base + "/leak/",
                     base + "/leak2/"):
             with pytest.raises(HTTPError):

@@ -25,7 +25,7 @@ from functools import partial
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 from urllib.request import urlopen
 
 from PIL import Image
@@ -123,7 +123,8 @@ class _Static(SimpleHTTPRequestHandler):
         path or the index a folder would serve that leads out of scratch is not found."""
         if path.startswith(scratch_markdown.MERMAID):
             return str(self.web / scratch_markdown.MERMAID.removeprefix("/"))
-        if not path.startswith("/scratch/"):
+        if not path.startswith("/scratch/") or any(  # nor anything hidden, as the daemon
+                part.startswith(".") for part in Path(unquote(urlsplit(path).path)).parts):
             return "/nonexistent"
         full = Path(super().translate_path(path.removeprefix("/scratch")))
         served = [full, full / "index.html", full / "index.htm"] if full.is_dir() else [full]
