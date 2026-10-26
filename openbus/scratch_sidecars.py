@@ -277,8 +277,9 @@ def whole(url: str, size: tuple[int, int], scale: int, *, dark: bool,
                     {"name": "prefers-color-scheme", "value": "dark" if dark else "light"}])
                 call("Page.navigate", tab, url=url)
                 while not call("Runtime.evaluate", tab, returnByValue=True, expression=(
-                        f"location.href === {json.dumps(url)} && document.readyState === "
-                        "'complete'"))["result"].get("value"):
+                        # off the blank page it started on, wherever a redirect took it
+                        "location.href !== 'about:blank' && document.readyState === 'complete'"
+                        ))["result"].get("value"):
                     if time.monotonic() > deadline:
                         return None
                     time.sleep(0.1)
