@@ -312,6 +312,15 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         i["where"] = s.get("title") or ""
 
 
+def made_by(root: Path, pane: str, *who) -> list[dict]:
+    """The pages this pane's session made, newest first, linked from its overview for as
+    long as they exist: matched as the gallery's cards are (resolve, `who` as for it), so
+    one made before a restore still finds the session in its new pane."""
+    listed = items(root)
+    resolve(listed, *who)
+    return [{"title": i["title"], "href": i["href"]} for i in listed if i["pane"] == pane]
+
+
 def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
          pane_of=lambda _entry: None, sidecars=lambda _listed: None, docs: str = DOCS) -> str:
     """The gallery, with `style` the app's stylesheet, `pane_of` the pane a running

@@ -1,6 +1,6 @@
-// PR associations outlive the visible terminal frame. Always offer their GitHub
-// destinations alongside transient parser links, without duplicating the same PR.
-export function paneLinks(pane) {
+// PR associations and the session's scratch `pages` outlive the visible terminal frame.
+// Always offer them alongside transient parser links, without duplicating the same URL.
+export function paneLinks(pane, pages = []) {
   const tracked = (Array.isArray(pane?.prs) ? pane.prs : []).flatMap((pr) => {
     if (!pr || typeof pr.repo !== "string" ||
         pr.repo.length > 256 ||
@@ -23,7 +23,7 @@ export function paneLinks(pane) {
       return true;
     } catch { return false; }
   };
-  const prs = tracked.filter(accept).slice(0, 64);
+  const prs = [...tracked, ...pages].filter(accept).slice(0, 64);
   const transient = (Array.isArray(pane?.links) ? pane.links : [])
     .filter(accept).slice(0, 3).map(({ href, text }) => ({ href, text }));
   return [...prs, ...transient];

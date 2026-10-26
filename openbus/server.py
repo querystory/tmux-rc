@@ -2240,6 +2240,12 @@ if _scratch_dir:
         return (states, accounts.report(states, watcher.pane_birth)["profiles"],
                 WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))
 
+    @app.get("/api/panes/{pane_id}/scratch")
+    def pane_scratch(pane_id: str) -> list[dict]:
+        """The scratch pages this pane's session made, for its overview's Links."""
+        states, profiles, _style, pane_of = _who()
+        return scratch.made_by(Path(_scratch_dir), pane_id, states, profiles, pane_of)
+
     @app.get("/scratch/", include_in_schema=False)
     async def scratch_listing() -> HTMLResponse:
         """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount."""

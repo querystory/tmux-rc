@@ -301,3 +301,19 @@ def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
 def test_dot_dot_is_not_inside(tmp_path):
     assert not scratch.inside(tmp_path / "..", tmp_path)
     assert scratch.inside(tmp_path / "x", tmp_path)
+
+
+def test_a_pane_keeps_its_sessions_pages_after_a_restore(tmp_path, monkeypatch):
+    """Its overview links them as long as they exist, not while the screen shows the URL,
+    found by the session once the pane id from before a restore names nothing."""
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    monkeypatch.setattr(agent_history, "get_many", lambda ids: {
+        "s1": {"session_id": "s1", "running": {"tmux_pane": "%9"}}})
+    _folder(tmp_path, "status", 2000, {"pane": "%9"})
+    _folder(tmp_path, "older", 1000, {"pane": "%3", "agent_session": "s1"})  # restored
+    _folder(tmp_path, "theirs", 3000, {"pane": "%4"})
+    states = [{"pane_id": p, "session": "s", "window_name": "w"} for p in ("%9", "%4")]
+    assert scratch.made_by(tmp_path, "%9", states, [],
+                           lambda e: e["running"]["tmux_pane"]) == [
+        {"title": "Its own title", "href": "status/"},
+        {"title": "Its own title", "href": "older/"}]

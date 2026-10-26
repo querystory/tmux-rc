@@ -118,3 +118,9 @@ test("a row falls back to the headline until a summary exists", () => {
   assert.equal(paneActivity({ headline: "h", session_summary: "s" }), "s");
   assert.equal(paneActivity({}), "");
 });
+
+test("a session's scratch pages stay in Links after their URL leaves the screen", () => {
+  const page = { href: "https://deck.example/scratch/status/", text: "Status", detail: "Scratch" };
+  assert.deepEqual(paneLinks({ links: [] }, [page]), [page]);
+  assert.deepEqual(paneLinks({ links: [{ href: page.href, text: "status" }] }, [page]), [page]);
+});
