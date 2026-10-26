@@ -37,6 +37,7 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
     # Only a whole handed-over row: not part of one, prose punctuation, or shell negation.
     for row, offer in (("! make deploy --dry-run", "make deploy"),
                        ("Shipped! make tea", "make tea"),
+                       ("! make deploy\n    --dry-run", "make deploy"),  # its wrapped rest
                        ("if ! grep -q x f; then echo y; fi", "grep -q x f")):
         assert classify_mod.screen_offers([offer], f"● Then:\n\n  {row}\n\n❯ ") == [offer]
 

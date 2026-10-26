@@ -895,7 +895,8 @@ def _parses(command: str) -> bool:
 def _quoted(text, visible: str, *, rows: bool = False) -> bool:
     """Whether the model's quote of the screen is on it: its exact text, the terminal's
     wraps allowed for (a wrap may fall at a space or inside a word) and the bars framing a
-    transcript row ignored. `rows`: the quote fills its rows, start to end."""
+    transcript row ignored. `rows`: the quote fills its rows, start to end, and a blank row
+    (or the screen's end) follows, so no wrapped remainder of it was left out."""
     if not isinstance(text, str) or not text.strip():
         return False
     # One row break at most between two characters, never a blank row: a word may wrap
@@ -907,7 +908,7 @@ def _quoted(text, visible: str, *, rows: bool = False) -> bool:
         else f"(?:{wrap})?".join(map(re.escape, part))
         for part in re.split(r"( +)", text.strip()))
     if rows:
-        exact = rf"^[ \t]*{exact}[ \t]*$"
+        exact = rf"^[ \t]*{exact}[ \t]*(?:\n[ \t]*$|\Z)"
     return bool(re.search(exact, _FRAME_BARS_RE.sub("", visible), re.MULTILINE))
 
 
