@@ -485,7 +485,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         if (!current.listening) drop(current);
         current.held = message.status === "reconnecting"; current.dirty = false; // see viewing()
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); if (current.text) restore(current); resync(current);
-          if (current.pending) { sendText(current.pending); current.pending = null; } }
+          for (const frame of current.pending.splice(0)) sendText(frame); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
@@ -531,7 +531,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], pending: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
@@ -596,7 +596,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function ask(text) {
     openChat();
     const frame = { action: "text", text, images: [] };
-    if (run && sendText(frame) === false) run.pending = frame;
+    if (run && sendText(frame) === false) run.pending.push(frame); // in order: none is dropped
   }
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;
