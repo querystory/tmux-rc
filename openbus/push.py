@@ -663,9 +663,10 @@ class PushManager:
             pane_id = pane["pane_id"]
             marker = (pane_id, fp)
             # Evidence, not wording: a turn already told about (before a restart, too) is
-            # not news however its card reads now: re-read after a resize, by a new parser.
+            # not news however its card reads now (re-read after a resize, by a new parser),
+            # and a new one is, however alike. The wording decides only for a card with none.
             turn = pane.get("turn")
-            if marker in self._notified or self.store.told(_pane_key(pane), turn):
+            if self.store.told(_pane_key(pane), turn) if turn else marker in self._notified:
                 continue
             rate = self._rates[(pane_id, self.watcher.pane_birth(pane_id))]
             if len(rate) >= RATE_MAX:

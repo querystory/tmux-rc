@@ -1035,14 +1035,16 @@ def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
             service.evaluate()
             clock[0] += push.SETTLE_SECONDS
 
-    settle(held(), "t1")
+    settle(held(), "t0")
+    settle(held(), "t1")  # a new turn, the same ask in the same words
+    assert len(sender.payloads) == 2
     settle(held(ask="Show the files?"), "t1")  # re-read in-run, reworded: the same ask
-    assert len(sender.payloads) == 1
+    assert len(sender.payloads) == 2
     for reworded in (held(), held(ask="Show the files?")):  # a restart, or a version bump
         service, sender = manager(tmp_path, watcher, clock)
         settle(reworded, "t1")
         assert sender.payloads == []
-    settle(held(), "t2")  # the conversation moved on
+    settle(held(), "t9")  # the conversation moved on
     assert len(sender.payloads) == 1
     # A turn that ended asking nothing, read again after a restart as an ask: no news.
     settle(None, "t3", activity="idle")
@@ -1051,9 +1053,14 @@ def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
     assert sender.payloads == []
 
 
-def test_a_screen_s_turn_is_the_same_under_any_card_version(monkeypatch):
-    """With no agent transcript the screen is the turn, and a new parser leaves it be."""
-    monkeypatch.setattr("openbus.transcript.turn", lambda _pane, _text: None)
-    before = _turn(None, box("ls"))
+def test_a_screen_s_turn_is_the_same_under_any_card_version_or_width(monkeypatch):
+    """With no agent transcript the screen is the turn: a new parser or a reflow leaves it
+    be, and a menu's own rows tell "sleep 10s" from "sleep 20s"."""
+    before = _turn(None, box("ls"), None)
     monkeypatch.setattr("openbus.watcher.CARD_VERSION", -1)
-    assert _turn(None, box("ls")) == before != _turn(None, box("rm"))
+    assert _turn(None, box("ls"), None) == before != _turn(None, box("rm"), None)
+    assert _turn(None, box("ls").replace("─" * 40, "─" * 20), None) == before
+    menus = [box(f"sleep {n}s") for n in (10, 20)]
+    assert len({_turn(None, m, held(f"sleep {n}s", context=_widget_text("Proceed?", m)))
+                for m, n in zip(menus, (10, 20), strict=True)}) == 2
+    assert _turn("t1", box("ls"), None) == "t1"  # the transcript, when there is one

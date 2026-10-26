@@ -233,10 +233,18 @@ def _reflowed(text: str, before: str) -> bool:
                 for t in (text, before)}) == 1
 
 
-def _turn(pane: tmux.Pane, text: str) -> str:
+def _screen(text: str, question: dict | None) -> str:
+    """What identifies a screen (Watcher.frame_fp): a menu's own rows verbatim, else the
+    normalized screen."""
+    rows = question_rows(question, text) if isinstance(question, dict) else ""
+    return rows or _fingerprint(text)
+
+
+def _turn(said: str | None, text: str, question: dict | None) -> str:
     """The turn a card was read from, as push tells one ask from the next: the agent's
-    transcript, else the screen. Never CARD_VERSION, so a card read again is the same turn."""
-    return transcript.turn(pane, text) or hashlib.sha256(_fingerprint(text).encode()).hexdigest()
+    transcript as it stood (`said`, transcript.turn), else the screen at any width. Never
+    CARD_VERSION, so a card read again is the same turn."""
+    return said or hashlib.sha256(fit.reflow_key(_screen(text, question)).encode()).hexdigest()
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
@@ -1131,9 +1139,8 @@ class Watcher:
         a menu `question`, only its own rows, verbatim (classify.question_rows): the
         normalized screen can't tell "sleep 10s" from "sleep 20s", and an answer token
         must, yet output still streaming above the menu must not make it look stale."""
-        rows = question_rows(question, text) if isinstance(question, dict) else ""
         return hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
+            f"{CARD_VERSION}:{self.use_llm}\n{_screen(text, question)}".encode()).hexdigest()
 
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
@@ -1423,6 +1430,7 @@ class Watcher:
         # The agent's transcript can land after its screen settles; a reply the last
         # parse didn't have re-reads the card even though the screen is unchanged.
         reply = transcript.last_reply(pane, text)
+        said = transcript.turn(pane, text)  # before the parse: what it reads, not after
         changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
                                 # A restored card has no parsed reply: the first seen stands in.
                                 or reply != self._parsed_reply.setdefault(pane.id, reply))
@@ -1463,7 +1471,7 @@ class Watcher:
                 cached["offers"] = offers
             cached.setdefault("input_generation", generation)  # a restored card has none
             if "turn" not in cached:  # nor one checkpointed before turns were kept
-                cached["turn"] = _turn(pane, text)
+                cached["turn"] = _turn(said, text, cached.get("question"))
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
@@ -1525,7 +1533,7 @@ class Watcher:
             prev_activity=(previous or {}).get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
-        state["turn"] = _turn(pane, text)
+        state["turn"] = _turn(said, text, state.get("question"))
         # Preserve the parsed conversation name before session is stamped with the
         # tmux session. It must survive cached ticks and tmux renames independently.
         parsed_title = state.get("session")
