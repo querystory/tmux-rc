@@ -131,8 +131,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       onVersion(data.version);
       if (!run) { menu = data.live_models || [{ label: "Default", value: "" }]; renderModels(); }
       enabled = data.live_enabled;
-      // The mic shows with any voice row, a keyless one too: its picker says what to set.
-      $("live-mode").hidden = !(enabled && menu.some((model) => !model.text)) && !run; $("chat").hidden = !!why(true);
+      $("live-mode").hidden = !!why(false); $("chat").hidden = !!why(true);
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
       $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
@@ -140,8 +139,9 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   const saved = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
   const chatModels = () => menu.filter((model) => model.text && !model.unavailable);
-  // Why Chat (text) or Voice can't start, "" when it can: each needs a usable model of its kind.
-  const why = (text) => run || enabled && menu.some((model) => !!model.text === text && !model.unavailable) ? ""
+  // Why Chat (text) or Voice can't open, "" when it can. Chat starts straight in, so it needs a
+  // usable model; Voice opens its picker, which shows a keyless row greyed with what to set.
+  const why = (text) => run || enabled && menu.some((model) => !!model.text === text && !(text && model.unavailable)) ? ""
     : menu.find((model) => !!model.text === text && model.unavailable)?.hint || `No ${text ? "chat" : "voice"} model is set up`;
   // The voice picker (a keyless entry greyed, with why), and Chat's switcher options.
   function renderModels() {
