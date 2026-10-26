@@ -2249,6 +2249,11 @@ if _scratch_dir:
             lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed, use_llm),
             "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
 
+    @app.get("/api/scratch/{name}/pane")
+    def scratch_maker(name: str) -> dict:
+        """The open pane that made a scratch folder (scratch.maker): the viewer's composer."""
+        return {"pane": scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states))}
+
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,
         pending=lambda name: scratch.placeholder(Path(_scratch_dir), name, _who)))

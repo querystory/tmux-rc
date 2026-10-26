@@ -15,7 +15,10 @@ to narrow the list. Grid and List switch between cards across the full width and
 rows with a small thumbnail. The app shows the gallery as Scratch, in the wide sidebar
 and in a phone's ☰ menu. There a card opens full screen over the app. Back, Escape or a
 swipe from the left edge returns to the gallery, and "Open in browser" opens the page in
-a tab of its own. Settings links to the gallery's own page under More.
+a tab of its own. While the pane its `meta.json` names is still open, a box at the
+bottom messages that agent ("Message qs:0 (Triage recent bugs)"), the way the pane's own
+composer does. The box is the app's, not the page's: a page cannot send to a pane.
+Settings links to the gallery's own page under More.
 
 ## Setting it up
 

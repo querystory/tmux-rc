@@ -174,6 +174,15 @@ def opened(root: Path, visits: list[tuple[str, float]], n: int,
              "pending": i["pending"] and i["state"] != "stopped"} for i, at in found]
 
 
+def maker(root: Path, name: str, states: list[dict]) -> str | None:
+    """The pane folder `name`'s meta.json says made it, while that very pane is still open
+    (never another under a recycled id): where the scratch viewer's composer sends."""
+    if not (item := read(root, root / name)):
+        return None
+    _progress([item], states)
+    return item["pane"]
+
+
 def _writers(todo: list[dict]) -> None:
     """Fill in each item's missing `session_id` from the transcripts, saving what is found."""
     now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}

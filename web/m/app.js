@@ -147,6 +147,7 @@ const reviewing = () => effectiveLayout() !== "focus";
 const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
+let viewerTo = null, viewerDraft = null; // the scratch viewer's composer: see findMaker
 // page: a dashboard card's own view (url-state.js PAGES), which replaces the page; leaving
 // it lands on its card (CARDS).
 let dashboard = false, page = null;
@@ -838,9 +839,38 @@ function viewScratch(href, title) {
   text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title }));
-  viewer.showModal(); viewer.focus();
+  $("viewer-form").before(Object.assign(document.createElement("iframe"), { src: href, title }));
+  viewer.showModal(); viewer.focus(); findMaker(href);
 }
+// The agent that made the page is messaged from the viewer's own footer, never from the
+// sandboxed page: the open pane its meta.json names (scratch.maker). Its own Composer, sent
+// through compose() like the pane's footer and a sidebar Reply.
+async function findMaker(href) {
+  viewerTo = null; paintViewerForm();
+  const folder = new URL(href).pathname.split("/")[2];
+  const { pane } = folder ? await request(`/api/scratch/${folder}/pane`).catch(() => ({})) : {};
+  if (!viewer.open || $("viewer-out").href !== href || !pane) return; // another page opened meanwhile
+  if (viewerDraft?.target !== pane) viewerDraft = Object.assign(new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }), { target: pane });
+  viewerTo = pane; paintViewerForm();
+}
+// Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
+const viewerWhy = (p) => sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDraft.segments().length ? "Nothing to send yet." : "";
+function paintViewerForm() {
+  const p = $("scratch-viewer").open && panes.find((x) => x.pane_id === viewerTo); // render() may run before `viewer` is defined
+  $("viewer-form").hidden = !p; // no pane named, or it has closed
+  if (!p) return;
+  if (!$("viewer-form").contains(viewerDraft.editor)) $("viewer-send").before(viewerDraft.editor);
+  const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
+  viewerDraft.editor.dataset.placeholder = to; viewerDraft.editor.setAttribute("aria-label", to);
+  $("viewer-send").setAttribute("aria-disabled", String(!!viewerWhy(p)));
+}
+$("viewer-form").onsubmit = async (event) => {
+  event.preventDefault();
+  const p = panes.find((x) => x.pane_id === viewerTo), why = p ? viewerWhy(p) : "This pane has closed.";
+  if (why) return text($("viewer-status"), why);
+  text($("viewer-status"), await compose(p.pane_id, viewerDraft) ? "Sent" : KEPT);
+};
+enterSubmits($("viewer-form"), (target) => !!viewerDraft?.editor.contains(target));
 $("close-viewer").onclick = () => viewer.close();
 viewer.addEventListener("close", () => viewer.querySelector("iframe")?.remove());
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
@@ -863,6 +893,7 @@ async function refreshCached(force) {
 }
 
 function render() {
+  paintViewerForm(); // its pane may have closed, or a send started or ended
   const pane = panes.find((p) => p.pane_id === active);
   const inPane = !!active;
   // Once state has shown us the launched pane the grace record is spent — wherever the
@@ -1728,6 +1759,7 @@ function cursorIO(id, committed) {
 // is the next message, and clearing on the reply erased it. A failed send puts the sent
 // draft back in front of whatever was typed since (a password only into an empty field).
 // A reply to a pane that needs you holds its card as a tapped answer does.
+const KEPT = "Delivery could not be confirmed. Draft kept; check the terminal before retrying.";
 async function compose(id, value) {
   const pane = panes.find((p) => p.pane_id === id);
   const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
@@ -1753,10 +1785,11 @@ async function compose(id, value) {
     else {
       // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
       // a sidebar Reply's draft into the pane's own composer and detaches the Reply.
-      const owner = renderSidebar.drafts.get(id) === value ? value : draft(id), typed = owner.segments();
+      // The viewer's composer keeps its own.
+      const owner = [viewerDraft, renderSidebar.drafts.get(id)].includes(value) ? value : draft(id), typed = owner.segments();
       owner.replace([...owner.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]);
     }
-    notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); return false;
+    notice(KEPT); return false;
   } finally { sending = false; render(); }
 }
 $("reply-form").onsubmit = (event) => {
@@ -1779,7 +1812,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", "viewer-send": "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -2575,7 +2608,7 @@ const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, o
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {
-  return [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+  return [...drafts.values(), ...renderSidebar.drafts.values(), ...viewerDraft ? [viewerDraft] : []].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
 }
 function observeVersion(version) {
   if (typeof version !== "string" || !version) return;
