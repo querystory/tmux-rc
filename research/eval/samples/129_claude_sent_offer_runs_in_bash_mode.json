@@ -1,0 +1,12 @@
+{
+  "description": "Synthetic: a finished auto-mode turn handed over a `! command`, and the user sent it: Claude Code's bash mode echoes it as a \"!\" row below the turn's stamp and streams its output there, starting no new turn. The command is the user acting on the hand-over, so the pane no longer needs them (the agent's turn is over, the shell's command is not its work: idle) and the spent command is not offered again (#463).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ ship the demo branch\n\n● The push to the shared remote was blocked by my permission check. Run it yourself:\n\n  ! git push -u origin demo/sample-branch\n\n✻ Worked for 9s · done 3:20 PM\n\n! git push -u origin demo/sample-branch\n  ⎿  Enumerating objects: 14, done.\n     Counting objects: 100% (14/14), done.\n     Writing objects:  57% (8/14)\n──────────────────────────────────────────────────────────────────────────────── demo ─\n❯\n────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/app on demo/sample-branch | Opus 5.5 | user@example.com\n  session: +12/-3 lines · 14% ctx · 1h02m · $1.20\n  ⏵⏵ auto mode on · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "question": null,
+    "offers": null,
+    "headline": "Pushing the demo branch the user ran"
+  }
+}
