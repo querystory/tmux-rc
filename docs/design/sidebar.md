@@ -118,8 +118,10 @@ rejected: New session had grown taller than the screen and scrolled its own titl
 
 New session is compact for the same reason, but not at the cost of saying how it works (a
 first cut hid every explanation in tooltips, and read as cryptic): a one-line subtitle says
-what it does; the accounts are a two-column grid of small chips, "+ Add account" the next
-cell, with a hint naming the tool they apply to; the session's default is a sentence with a
+what it does; the accounts are a step after the agent, shown only for one with several
+(a wall of every tool's accounts before you had picked a tool read as clutter), preset to the
+account that would start anyway, with Back to the agents and Start: a two-column grid of
+small chips, "+ Add account" the next cell, with a hint naming the tool they apply to; the session's default is a sentence with a
 checkbox ("Use Work for every new window in qs") and a muted line on what happens otherwise,
 not a "Default for … Not set" select; and each tool is a 52px row with a muted line, the
 account it starts on where it has several, then its model or what it is. Rows the account

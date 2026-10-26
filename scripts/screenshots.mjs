@@ -97,7 +97,7 @@ const TWO_ACCOUNTS = [
   ["accounts-wide-dashboard", WIDE, "light", "#view=dashboard", two()],
   ["accounts-hd-dashboard", HD, "dark", "#view=dashboard", two()],
   ["accounts-wide-pane", WIDE, "light", "#pane=%2513", two()],
-  ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await page.click("#new-window"); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
+  ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await page.click("#new-window"); await page.click('#launch-choices [data-provider="claude"]'); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
   ["accounts-wide-usage-tall", WIDE, "dark", "#pane=%2513", two(async (page) => { // the sidebar strip dragged to two rows
     const handle = page.locator("#usage-handle");
     if (!await handle.count()) return; // a base without the seam (boundingBox would wait for it)
@@ -123,7 +123,7 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
   // Adding "Demo", step by step, each cropped to its sheet (docs/design/agent-accounts.md).
   // Last, and in this order: opening the sign-in window changes the demo server's state.
-  ["accounts-add-1-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }), "#launch-dialog"],
+  ["accounts-add-1-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.click('#launch-choices [data-provider="claude"]'); await page.waitForSelector(".acct-pick"); }), "#launch-dialog"],
   ["accounts-add-2-name", PHONE, "light", "", two(addFlow("name")), "#acct-dialog"],
   ["accounts-add-3-share", PHONE, "light", "", two(addFlow("share")), "#acct-dialog"],
   ["accounts-add-4-sign-in", PHONE, "light", "", two(addFlow("login")), "#acct-dialog"],

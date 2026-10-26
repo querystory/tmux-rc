@@ -2296,7 +2296,7 @@ async function openLaunch(fresh, opener) {
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !!launcher.unavailable;
       button.dataset.provider = launcher.provider || "";
-      button.onclick = () => launchWindow(launcher.label, button);
+      button.onclick = () => launchPick.pick(launcher.provider, () => launchWindow(launcher.label, button));
       return button;
     }));
     launchPick = accounts.picker($("launch-choices"), $("launch-session"));
