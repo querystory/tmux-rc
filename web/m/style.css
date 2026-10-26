@@ -1506,9 +1506,13 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-st { display: inline-flex; align-items: center; gap: 6px; }
 :is(.fg-st, .fg-key) i, .fg-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 .fg-key { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .12em; }
-.fg-key span { display: inline-flex; align-items: center; gap: 5px; }
+.fg-key span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .fg-key .fg-warn-key { border: 2px dashed var(--amber); box-sizing: border-box; }
 .fg-key .fg-acct-key { border: 1px dashed var(--muted); box-sizing: border-box; }
+.fg-key .fg-k-spark { width: 4px; height: 4px; margin: 0 3px; background: var(--chart-s1); box-shadow: 4px -3px 0 -.5px var(--chart-s1), -4px 2px 0 -1px var(--chart-s1); } /* the flows (graph.js) */
+.fg-key .fg-k-you { border: 1.5px solid var(--fg); box-sizing: border-box; background: radial-gradient(var(--fg) 28%, transparent 34%); }
+.fg-key .fg-k-doc { width: 7px; height: 9px; border-radius: 1px; border: 1.2px solid var(--muted); box-sizing: border-box; }
+.fg-key .fg-k-doc.busy { border-color: var(--accent); }
 /* A phone, upright or on its side (graph.js phone()): one row of counts at the bottom, the key
    under it, the chips scrolling on top. */
 @media (max-width: 699px), (max-height: 500px) {

@@ -94,6 +94,7 @@ class DemoWatcher:
 
     def state_version(self): return 1
     def pane_birth(self, _pane_id): return None
+    def input_at(self, pane_id): return FLEET.get(pane_id, {}).get("input_at")
     def is_stale(self): return False
     def booted(self): return True
     def snapshot_text(self, *_): return None

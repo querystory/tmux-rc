@@ -846,6 +846,8 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     if loops := getattr(app.state, "loops", None):  # the Fleet graph's Repo and Worktree lenses
         for s in panes:
             s["worktree"] = loops.where(s.get("cwd"))
+    for s in panes:  # the Fleet graph's line from you
+        s["input_at"] = w.input_at(s.get("pane_id"))
     # Each question carries what a push nonce binds: its contract digest and the input
     # generation its parse captured, plus that parse's frame. A menu answer names all
     # three, and /send refuses it once the pane holds a different ask, has taken input
@@ -2239,6 +2241,11 @@ if _scratch_dir:
         states = list(watcher.states)
         return (states, accounts.report(states, watcher.pane_birth)["profiles"],
                 WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))
+
+    @app.get("/api/scratch/panes")
+    def scratch_panes() -> dict:
+        """The scratch pages each open pane made, newest first, for the Fleet graph."""
+        return scratch.by_pane(Path(_scratch_dir), list(app.state.watcher.states))
 
     @app.get("/scratch/", include_in_schema=False)
     async def scratch_listing() -> HTMLResponse:

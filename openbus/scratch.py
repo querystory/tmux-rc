@@ -284,6 +284,20 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
     return panes
 
 
+def by_pane(root: Path, states: list[dict], n: int = 6) -> dict[str, list[dict]]:
+    """The pages each open pane made, by the pane its meta.json names, newest first: what
+    the Fleet graph hangs off each pane, `pending` while one is still being made. No
+    transcript search, unlike the gallery: a page whose pane has closed has nowhere to hang."""
+    listed = [i for i in items(root) if i["pane"]]
+    _progress(listed, states)
+    out: dict[str, list[dict]] = defaultdict(list)
+    for i in sorted(listed, key=lambda i: -i["created"]):
+        if i["pane"] and len(out[i["pane"]]) < n:
+            out[i["pane"]].append({"title": i["title"], "href": i["href"],
+                                   "pending": i["pending"] and i["state"] != "stopped"})
+    return out
+
+
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             pane_of=lambda _entry: None) -> None:
     """Who made each item: `who` (agent and account), `where` (session:window, or the

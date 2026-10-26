@@ -322,6 +322,7 @@ class Watcher:
         self.tmux_running = True
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
+        self._input_at: dict[str, float] = {}  # pane_id -> when tmux-rc last sent it input
         # Each run counts from its own random base, so no answer token survives a restart:
         # a pane bumps once per input, a vanishing slice of 2**62. Not the clock, which a
         # rollback or a restored snapshot can repeat.
@@ -650,6 +651,7 @@ class Watcher:
         with self._input_generation_lock:
             generation = self._input_generation.get(pane_id, self._generation_base) + 1
             self._input_generation[pane_id] = generation
+            self._input_at[pane_id] = time.time()
             if answered:
                 self._answered[pane_id] = generation, *answered
 
@@ -1129,6 +1131,11 @@ class Watcher:
         return hashlib.sha256(
             f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
 
+    def input_at(self, pane_id: str) -> float | None:
+        """When tmux-rc last sent this pane input (a message, an answer, keys), if it has
+        since the daemon started: the Fleet graph's line from you."""
+        return self._input_at.get(pane_id)
+
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
         with self._input_generation_lock:
@@ -1194,6 +1201,7 @@ class Watcher:
         with self._input_generation_lock:  # its answer marker with it, never apart
             self._input_generation.pop(pane_id, None)
             self._answered.pop(pane_id, None)
+            self._input_at.pop(pane_id, None)
 
     def _gc(self, alive: set[str]) -> None:
         """Drop per-pane state for panes that no longer exist, so closing windows

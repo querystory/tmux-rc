@@ -301,3 +301,20 @@ def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
 def test_dot_dot_is_not_inside(tmp_path):
     assert not scratch.inside(tmp_path / "..", tmp_path)
     assert scratch.inside(tmp_path / "x", tmp_path)
+
+
+def test_by_pane_hangs_each_page_off_the_open_pane_that_made_it(tmp_path):
+    now = scratch.time.time()
+    made = lambda ago: scratch.datetime.fromtimestamp(now - ago).isoformat()  # noqa: E731
+    _folder(tmp_path, "older", now, {"pane": "%1", "title": "Older", "created": made(600)})
+    _folder(tmp_path, "newer", now, {"pane": "%1", "title": "Newer", "created": made(60)})
+    _folder(tmp_path, "wip", now, {"pane": "%1", "title": "Wip", "created": made(30)}
+            ).joinpath("index.html").unlink()
+    _folder(tmp_path, "closed", now, {"pane": "%9"})  # its pane is gone: nowhere to hang
+    _folder(tmp_path, "nobody", now)
+    states = [{"pane_id": "%1", "activity": "running"}]
+    got = scratch.by_pane(tmp_path, states)
+    assert list(got) == ["%1"]
+    assert [(p["title"], p["pending"]) for p in got["%1"]] == [
+        ("Wip", True), ("Newer", False), ("Older", False)]  # newest first, one being made
+    assert [p["title"] for p in scratch.by_pane(tmp_path, states, n=1)["%1"]] == ["Wip"]

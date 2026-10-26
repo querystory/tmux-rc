@@ -344,6 +344,9 @@ def _age(text: str) -> int:
     return 30 if text == "now" else int(text[:-1]) * _UNITS[text[-1]]
 
 
+TYPED = {"api contract diff": 2, "e2e triage": 6, "webhook timeouts": 1}  # minutes ago
+
+
 def _pane(i: int, line: str, window: int) -> dict:
     s, tool, st, title, age, extra, text = line.split("|")
     since = NOW - _age(age)
@@ -367,6 +370,8 @@ def _pane(i: int, line: str, window: int) -> dict:
                  "waiting_on": "user",
                  "question": {"prompt": extra, "options": text.split(",") if text else [],
                               "answer_style": "text"}}
+    if title in TYPED:  # tmux-rc sent it input this long ago: the Fleet graph's line from you
+        pane["input_at"] = NOW - TYPED[title] * 60
     return pane | DETAIL.get(title, {})
 
 
@@ -604,10 +609,12 @@ def seed_restore(history: History) -> History:
     return history
 
 
-# The scratch gallery (/scratch/): folder | minutes since created, last changed | pane, or
-# "-" for none | title, or "-" to fall back on the page's own | description. A pane the
-# fleet lacks has closed; its folder is found in the transcript in SCRATCH_WRITERS.
+# The scratch gallery (/scratch/): folder | minutes since created, last changed ("-": its
+# page is still being made, only meta.json there) | pane, or "-" for none | title, or "-"
+# to fall back on the page's own | description. A pane the fleet lacks has closed; its
+# folder is found in the transcript in SCRATCH_WRITERS.
 SCRATCH = """\
+webhook-retry-plan|4,-|%47|Webhook retry plan|Backoff schedule for the reservation job.
 checkout-variants|40,25|%5|Checkout flow, two variants|Single page against stepped, at \
 phone width.
 ab-sweep-interim|130,70|%14|Prompt A/B sweep: interim|Variant C leads after 60 of 200 runs.
@@ -639,11 +646,14 @@ def seed_scratch(root) -> None:
     lines = SCRATCH.splitlines()
     for n, line in enumerate(lines):
         name, ages, pane, title, description = line.split("|")
-        created, changed = (NOW - int(m) * 60 for m in ages.split(","))
+        made, changed = ages.split(",")
+        created = NOW - int(made) * 60
+        changed = created if changed == "-" else NOW - int(changed) * 60
         folder = root / name
         folder.mkdir()
         page = name.replace("-", " ").capitalize()
-        (folder / "index.html").write_text(f"<title>{page}</title><h1>{page}</h1>")
+        if not ages.endswith(",-"):  # being made: only its meta.json so far
+            (folder / "index.html").write_text(f"<title>{page}</title><h1>{page}</h1>")
         meta = folder / "meta.json"
         if pane != "-":
             meta.write_text(json.dumps({

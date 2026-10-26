@@ -4,6 +4,8 @@ pending-question identity changes — NOT on cosmetic screen churn — and it mu
 across unchanged re-parses so the clock keeps climbing (the frozen-idle_seconds bug in
 #88). Time and tmux are mocked; nothing touches the real daemon or an LLM."""
 
+import time
+
 import openbus.watcher as W
 from openbus.watcher import Watcher
 
@@ -271,3 +273,13 @@ def test_a_claim_during_a_parse_outlives_that_parse(monkeypatch):
     w._forced_this_tick = set()
     w._tick_pane(_Pane())
     assert w._answered["%1"][1:] == ("the claimed screen", "its frame")
+
+
+def test_input_at_is_when_tmux_rc_last_sent_the_pane_input():
+    """The Fleet graph's line from you: stamped with every input, dropped with the pane."""
+    w = Watcher(target=None, use_llm=False)
+    assert w.input_at("%1") is None
+    before = time.time()
+    w.invalidate_input_actions("%1")
+    assert before <= w.input_at("%1") <= time.time()
+    assert w.input_at("%2") is None

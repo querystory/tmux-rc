@@ -1,7 +1,7 @@
 # Design: the Fleet graph
 
 Status: **phase 1 implemented, with the observatory look** (`web/m/graph.js`, the
-`worktree` field on `/api/state`).
+`worktree` field on `/api/state`). **Experiment:** real flows and a hub toggle (below).
 The Files lens, Lineage, conflict links and replay are deferred (below).
 
 ## What it is
@@ -61,17 +61,59 @@ ones, but a pane waiting on six background agents should show six); a needs-you
 pane pulses and says how long it has waited; idle panes fade with age, so stale ones
 recede; a dashed ring marks the account once there are several; running edges carry the
 current verb and its elapsed time; hubs sum their running, needs-you and cost; the HUD
-counts sessions, running, needs you, sub-agents, tokens in flight, cost and the oldest
+counts sessions, running, needs you, sub-agents, tokens a second (the sparks' rate), cost and the oldest
 pane; and two callouts, Longest waiting and Most expensive, glide to the pane and open it.
 More words arrive as you zoom in: the headline or the question, then model, context,
 tokens, cost and account. The hub sparkline the mock invented was left out until a
 per-session history query exists to feed it, rather than shipped as decoration.
 
-Glow is pre-rendered sprites stamped onto the canvas, never canvas blur, and particles are
-stateless (a position is a hash of the index and the time along the edge), so nothing is
-allocated per frame. Past about 7 ms a draw, the renderer sheds particles down to a
-quarter, and wins them back under 3.5 ms; a phone under a 4x CPU throttle settles there at
-about 6 ms a frame.
+Glow is pre-rendered sprites stamped onto the canvas, never canvas blur, and sparks are
+stateless (a position is a hash of the index and the time), so nothing is allocated per
+frame.
+
+## Every moving mark is something that happened (experiment)
+
+The look shipped with particle streams on every edge leading to work. They were pretty and
+meant nothing: their density was a constant per kind of edge, and they flowed along the
+spokes of a "tmux" hub that nothing actually flows through. A tester asked the right
+question: does stuff really flow in and out of tmux? It does not. So the streams are gone,
+and what moves now is only what the daemon already knows happened:
+
+- **Tokens being written** throw sparks off a pane's rim (a sub-agent's run up its line to
+  its pane), one for every 20 tokens a second. The rate is the rise in the pane's token
+  counter over the last 20 seconds, read from the polls the graph already gets; a smaller
+  count is a new turn's, and a parse that showed no counter is no reading rather than a
+  reset. A pane that stops writing goes still within the window. Sparks scale with a number
+  instead of a constant, so a busy fleet looks busy and a quiet one is still.
+- **You** are a node at the foot of the canvas. A pulse runs from you to a pane when
+  tmux-rc sends it input (a message, an answer, keys: `input_at`, stamped where every input
+  already bumps the pane's input generation), and from a pane to you, amber, when it comes
+  to need you. Panes you typed into in the last ten minutes keep a fading line to you.
+- **Scratch pages** hang off the pane whose meta.json names it, as small sheets, with a
+  turning arc while one is being made (`GET /api/scratch/panes`, the gallery's own listing
+  without its transcript search). Publishing sends a pulse from the pane to the sheet; a
+  page that had been promised then sends a green pulse to you, the Ready push.
+- **Sub-agents** starting and handing back their work pulse between the pane and the
+  satellite, from the parser's roster changing between polls.
+
+Every one of these is a difference between two polls, so opening the graph replays
+nothing: the first poll is the baseline. That keeps the code free of history queries, at
+the price of an empty-looking graph for the first seconds, which is honest. Push
+notifications themselves were not drawn, because whether one was delivered depends on
+devices and presence; what is drawn is the ask or the landing that would prompt one.
+
+The hub became an option (the network button) rather than the frame. With it, its spokes
+group panes and are drawn still. Without it, each group of the current lens is a disc of
+its panes, sunflower-packed with those that have satellites on the rim, and the discs are
+laid in rows shaped like the room; the only lines left are ones that carry something. A
+force layout was passed over: it never settles to the same place twice, and a graph that
+re-shuffles on every poll defeats the glide that keeps identity across updates. Without
+the hub, a lens shows only its first level (repository, not directory), which costs the
+Worktree lens its two-agents-one-checkout ring.
+
+What is still missing: a running pane whose agent shows no token counter (omp today)
+writes no sparks even while busy, and input sent at the desk rather than through tmux-rc
+draws no line from you, since the daemon cannot tell it apart from the agent's own output.
 
 ## Delegated work is work
 
@@ -141,9 +183,9 @@ The graph updates from the same `/api/state` poll as the rest of the app. A poll
 changes nothing structural (the same panes, groups and satellites) only recolours the
 nodes. Nothing moves and the view keeps its pan and zoom. When a pane or sub-agent appears
 or leaves, the existing nodes glide to their new slots and the new ones ease in from their
-hub, again without re-framing the view. Only a lens change re-fits. Particles flow only along
-edges that lead to work in flight. They stop under prefers-reduced-motion, and frames stop
-altogether while the canvas is off screen.
+hub, again without re-framing the view. Only a lens change re-fits. Sparks and pulses stop under
+prefers-reduced-motion, and frames stop altogether while nothing is writing, travelling or
+asking, or the canvas is off screen.
 
 ## Where Repo and Worktree come from
 
