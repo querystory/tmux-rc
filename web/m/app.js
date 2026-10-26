@@ -850,17 +850,19 @@ async function findMaker(href) {
   const folder = new URL(href).pathname.split("/")[2];
   const to = folder ? await request(`/api/scratch/${folder}/pane`).catch(() => ({})) : {};
   if (!viewer.open || $("viewer-out").href !== href || !to.pane) return; // another page opened meanwhile
-  if (!viewerDrafts.has(to.pane)) viewerDrafts.set(to.pane, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
+  const key = viewerKey({ pane_id: to.pane, birth: to.birth });
+  if (!viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
   viewerTo = to; paintViewerForm();
 }
+const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
-const viewerWhy = (p) => sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(p.pane_id).segments().length ? "Nothing to send yet." : "";
+const viewerWhy = (p) => sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
 function paintViewerForm() {
   const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
   form.hidden = !p; // no pane named, or it has closed
   if (!p) return;
-  const { editor } = viewerDrafts.get(p.pane_id);
+  const { editor } = viewerDrafts.get(viewerKey(p));
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }
   const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
   editor.dataset.placeholder = to; editor.setAttribute("aria-label", to);
@@ -871,7 +873,7 @@ $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
   const p = viewerPane(), why = p ? viewerWhy(p) : "This pane has closed.";
   if (why) return text($("viewer-status"), why);
-  const value = viewerDrafts.get(p.pane_id), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth);
+  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth);
   // Only on the visit it was sent from, and "Sent" not over a next draft typed meanwhile.
   if (viewer.open && $("viewer-out").href === href) text($("viewer-status"), !sent ? KEPT : value.segments().length ? "" : "Sent");
 };
@@ -1611,7 +1613,7 @@ function pruneDrafts() {
   // it: in any composer, active or not, it must not wait to be sent in the clear later.
   for (const p of panes) {
     if (!p.secret) continue;
-    for (const value of [drafts.get(p.pane_id), renderSidebar.drafts.get(p.pane_id), viewerDrafts.get(p.pane_id)]) {
+    for (const value of [drafts.get(p.pane_id), renderSidebar.drafts.get(p.pane_id), viewerDrafts.get(viewerKey(p))]) {
       if (value?.segments().length) value.replace([]);
     }
   }
@@ -1793,7 +1795,7 @@ async function compose(id, value, birth) {
       // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
       // a sidebar Reply's draft into the pane's own composer and detaches the Reply.
       // The viewer's composer keeps its own.
-      const owner = [viewerDrafts.get(id), renderSidebar.drafts.get(id)].includes(value) ? value : draft(id), typed = owner.segments();
+      const owner = [...viewerDrafts.values(), renderSidebar.drafts.get(id)].includes(value) ? value : draft(id), typed = owner.segments();
       owner.replace([...owner.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]);
     }
     notice(KEPT); return false;
