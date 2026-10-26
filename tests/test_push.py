@@ -1027,18 +1027,18 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     service.shoot = shot.append
     service.store.upsert(subscription())
     service.landed()  # published, not updating: nothing to say
-    meta.write_text('{"title": "Mock", "pane": "%1", "updating": "new chart"}')
+    meta.write_text('{"updating": "new chart"}')
     os.utime(meta, ns=(1, 1))
     service.landed()
     meta.write_text('{"title": "Mo')  # caught half-written: not yet the mark gone
     os.utime(meta, ns=(2, 2))
     service.landed()
     assert sender.payloads == []
-    meta.write_text('{"title": "Mock", "pane": "%1"}')
+    meta.write_text("{}")  # the mark was all it said
     service.landed()
     service.landed()
     assert [(p["title"], p["tag"], p["url"], p["renotify"]) for p in sender.payloads] == [(
-        "Updated: Mock", "scratch:page", "/m#view=scratch&open=%2Fscratch%2Fpage%2Freport.html",
+        "Updated: page", "scratch:page", "/m#view=scratch&open=%2Fscratch%2Fpage%2Freport.html",
         True)]
     assert [i["name"] for i in shot] == ["page"]
 
