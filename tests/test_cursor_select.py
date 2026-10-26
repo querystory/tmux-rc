@@ -462,3 +462,14 @@ def test_a_numbered_picker_read_as_a_cursor_list_is_a_menu():
     question = classify(PANE, text, lambda s, t: model)["question"]
     assert question["answer_style"] == "menu"
     assert question["options"] == rows
+    # A footer that sends a digit elsewhere keeps the walk: a search box filters on it, and
+    # Codex's arrow-only dialog takes it as a move.
+    search = ASK_NARROW.replace("Esc to cancel", "Type to search · Esc to cancel")
+    model["question"]["answer_style"] = "cursor"
+    assert classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{search}",
+                    lambda s, t: model)["question"]["answer_style"] == "cursor"
+    model["question"].update(prompt="Trust this folder?",
+                             options=["1. Trust and continue", "2. Back to Agent Command Center"])
+    codex = {**model, "tool": "codex"}
+    assert classify(CODEX_PANE, f"{tmux.VISIBLE_SCREEN}\n{CODEX_TRUST}",
+                    lambda s, t: codex)["question"]["answer_style"] == "cursor"
