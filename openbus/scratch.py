@@ -112,7 +112,8 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
     whose meta.json came first is `pending` until its index lands: its page is being made
     (a site's assets may land ahead of its index, for a minute; loose files older than
     that are the publish). A published folder whose meta.json says `updating` is being
-    revised: its state is read from its pane since that mark (meta.json's time)."""
+    revised: its state is read from its pane since that mark (meta.json's time). A pane is
+    the one meta.json names if it was open when meta.json was last written."""
     sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
     files = [(at, f) for at, f in files if f not in sidecars]
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
@@ -136,13 +137,15 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
             m = _TITLE.search(f.read(65536))
         title = m and unescape(m.group(1)).strip()
     created = _when(meta.get("created")) or min(files)[0]
+    named = (folder / "meta.json").stat().st_mtime if meta else created
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
             "session_id": meta.get("agent_session"), "folder": folder,
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
             "created": created, "updated": max(files)[0], "updating": updating,
-            "since": (folder / "meta.json").stat().st_mtime if updating else created,
+            # when meta.json last named its pane (a reviser's, too), and what an update dates from
+            "named": named, "since": named if updating else created,
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
             "page": page, "pending": pending, "thumb": inside(thumb, folder)
             and thumb.is_file() and thumb.stat().st_mtime}
@@ -283,7 +286,7 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
     pane is still open. Returns the panes by id."""
     panes = {s.get("pane_id"): s for s in states}
     for i in listed:  # a pane id from before a tmux restart names some other pane now
-        if (pane := panes.get(i["pane"])) and not made_in(pane, i["since"]):
+        if (pane := panes.get(i["pane"])) and not made_in(pane, i["named"]):
             pane = None
         i["state"] = progress(pane, i["pane"], i["since"])
         i["pane"] = pane and i["pane"]

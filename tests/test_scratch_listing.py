@@ -281,6 +281,7 @@ def test_an_updating_page_keeps_its_thumbnail_and_says_so(tmp_path, monkeypatch)
         "rev": ("the intro", "working"), "gone": ("the intro", "stopped"),
         "idle": ("the intro", "stopped")}
     assert not items["done"]["updating"]
+    assert items["done"]["pane"] == "%1"  # an update just finished: its reviser still named
     card = scratch._card(items["rev"])
     assert 'thumb.webp" alt="" loading="lazy"><span class="badge working">Updating</span>' in card
     assert 'aria-label="rev: Updating">rev</a>' in card
