@@ -1030,6 +1030,10 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     meta.write_text('{"updating": "new chart"}')
     os.utime(meta, ns=(1, 1))
     service.landed()
+    (root / "page" / "report.html").unlink()  # rewritten from scratch: pending a moment
+    os.utime(root / "page", ns=(1, 1))
+    service.landed()
+    (root / "page" / "report.html").write_text("page")
     meta.write_text('{"title": "Mo')  # caught half-written: not yet the mark gone
     os.utime(meta, ns=(2, 2))
     service.landed()

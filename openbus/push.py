@@ -561,7 +561,8 @@ class PushManager:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
             if item and (item["pending"] or item["updating"]):
-                self._waiting[key] = "Ready" if item["pending"] else "Updated"
+                # its first: a revision that drops its index for a moment is still an update
+                self._waiting.setdefault(key, "Ready" if item["pending"] else "Updated")
             elif (verb := self._waiting.get(key)) and item["read"] and (  # its index, no asset
                     verb == "Updated" or item["href"].endswith("/")):
                 if self._ready_push(item, now, verb) or not self.store.subscriptions():
