@@ -1617,7 +1617,7 @@ function sendWhy() {
 // afresh (sendWhy), so a stale look can never refuse a send that may go.
 document.addEventListener("click", (event) => {
   const button = event.target.closest?.('button[aria-disabled="true"]');
-  if (!button || button.type === "submit") return;
+  if (!button || button.type === "submit" && button.form) return;
   event.preventDefault(); event.stopPropagation(); notice(button.dataset.why, 4000);
 }, true);
 // Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
@@ -1765,7 +1765,6 @@ async function compose(id, value) {
     settle(true); startState();
     return true;
   } catch {
-    settle(false);
     if (secret) { if (active === id && !value.value) value.value = sent; } // the one field is the open pane's
     else {
       // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
@@ -1773,7 +1772,8 @@ async function compose(id, value) {
       const owner = renderSidebar.drafts.get(id) === value ? value : draft(id), typed = owner.segments();
       owner.replace([...owner.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]);
     }
-    notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); return false;
+    notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying.");
+    settle(false); return false; // last: it renders, and a render that throws must not lose the draft
   } finally { sending = false; render(); }
 }
 $("reply-form").onsubmit = (event) => {
