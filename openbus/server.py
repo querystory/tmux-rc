@@ -2113,6 +2113,8 @@ async def _compose(pane_id: str, request: Request):
         raise HTTPException(400, "send a draft or a secret")
     if not (secret or "").isprintable():  # a newline or ^D would end the read early,
         raise HTTPException(400, "a password is printable text")  # the rest run as input
+    if birth and birth != pane.pid:  # a draft or a password, never into another incarnation
+        raise tmux.PaneChangedError("Pane changed; nothing was sent.")
     if page is not None:  # which page it is about, from the folder, never from the client
         line = _scratch_dir and await asyncio.to_thread(scratch.about, Path(_scratch_dir), page)
         if secret or not line:
