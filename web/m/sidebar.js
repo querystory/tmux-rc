@@ -11,7 +11,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
-import { Composer, enterSubmits } from "/m/composer.js";
+import { Composer, enterSubmits, sendBlock, block } from "/m/composer.js";
 import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
 import { paneLinks, askLink } from "/pr-links.js";
 
@@ -200,7 +200,9 @@ export function setupSidebar(ctx) {
       event.preventDefault();
       const id = node._p.pane_id, value = drafts.get(id);
       // Sent: close the Reply, unless more was typed while it went (compose clears as it sends).
-      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value) && !value.segments().length) done(id);
+      const why = sendBlock({ sending: ctx.sending(), empty: !value?.segments().length });
+      if (why) ctx.notice(why, 4000);
+      else if (await ctx.compose(id, value) && !value.segments().length) done(id);
     };
   }
   function updateRow(node, { p, g, card }) {
@@ -237,7 +239,7 @@ export function setupSidebar(ctx) {
   // card, its note standing in for Reply; Reply opens a composer that posts to the pane's
   // /compose like its footer. A question about a link leads with Open link.
   function replies(node, p) {
-    const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
+    const answered = ctx.answered(p);
     const options = needsYou(p) ? ctx.answers(p.question) : [], link = needsYou(p) && askLink(p);
     // A finished turn's first offer rides every card, Needs you or not (app.js render shows all).
     const offers = ctx.offers(p).slice(0, 1).flatMap((offer) => ["text", "send", "copy"].map((part) => ({ offer, part, option: offer, index: -1 })));
@@ -255,14 +257,14 @@ export function setupSidebar(ctx) {
       if (o.part === "text") return text(el, o.offer);
       if (o.link) { text(el.firstChild, `${o.link.text || "Open link"} ↗`); el.firstChild.title = o.link.href; return; }
       const label = o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
-      text(el, label); el.title = o.reply ? "" : label; el.disabled = busy && o.part !== "copy";
+      text(el, label); el.title = o.reply ? "" : label; block(el, o.part === "copy" ? "" : answered?.note || sendBlock({ sending: ctx.sending() }));
       el.classList.toggle("picked", !o.reply && o.part !== "copy" && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;
     if (form.hidden) return form.querySelector("#side-reply")?.remove();
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
-    form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
+    block(form.querySelector("button[type=submit]"), sendBlock({ sending: ctx.sending(), empty: !draft().segments().length }));
   }
   // On a phone, or at a password prompt, Reply opens the pane: its composer sits above the
   // keyboard (and at a password prompt is the password field), scrolled to the question.

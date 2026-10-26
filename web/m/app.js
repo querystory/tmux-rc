@@ -2,7 +2,7 @@ import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
-import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
+import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks, askLink } from "/pr-links.js";
@@ -992,7 +992,7 @@ function render() {
     button.onclick = () => answer(active, button._option.option, button._option.index);
     return button;
   }, (button, option) => {
-    button._option = option; text(button, option.option); button.disabled = sending || !!answered;
+    button._option = option; text(button, option.option); block(button, answered?.note || sendBlock({ sending }));
     button.classList.toggle("picked", picked(pane, option));
   });
   // An offer: its exact text once, folded to a row (a tap unfolds it), then Send it and Copy.
@@ -1007,7 +1007,7 @@ function render() {
     return node;
   }, (node, value) => {
     node._offer = value; text(node.querySelector("code"), value);
-    const send = node.querySelector(".offer-choices button"); send.disabled = sending || !!answered; send.classList.toggle("picked", picked(pane, { option: value, index: -1 }));
+    const send = node.querySelector(".offer-choices button"); block(send, answered?.note || sendBlock({ sending })); send.classList.toggle("picked", picked(pane, { option: value, index: -1 }));
   });
   for (const fold of $("offers").querySelectorAll('[aria-expanded="false"]')) fold.classList.toggle("fits", fold.firstChild.scrollWidth <= fold.firstChild.clientWidth);
   renderTasks(pane);
@@ -1600,18 +1600,35 @@ function updateComposer() {
   // The editor is never locked: a newly opened pane takes typing before its state lands.
   // Only delivery waits: Send, and Enter (the submit checks Send), do nothing until the pane
   // exists, keeping the text; a password prompt arriving with it empties the draft instead.
-  $("send").disabled = sending || !available || (secret ? !$("secret").value : !value.segments().length && !value.pendingEnter);
-  $("attach").disabled = sending;
-  $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
+  block($("send"), sendWhy());
+  block($("attach"), sendBlock({ sending }));
+  const why = sendBlock({ sending, available, online: online() });
+  $("keys").querySelectorAll("button").forEach((button) => block(button, why));
 }
+const online = () => $("connection").classList.contains("online");
+// Why the open pane's Send can't go now ("" when it can), from live state: the submit asks
+// again rather than trusting the button's last look.
+function sendWhy() {
+  const pane = panes.find((p) => p.pane_id === active), value = draft();
+  const secret = !!pane?.secret, empty = secret ? !$("secret").value : !value.segments().length && !value.pendingEnter;
+  return sendBlock({ sending, available: !!pane, online: online(), secret, empty });
+}
+// A greyed button (block()) says why when tapped. A submit is left to its form, which asks
+// afresh (sendWhy), so a stale look can never refuse a send that may go.
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.('button[aria-disabled="true"]');
+  if (!button || button.type === "submit") return;
+  event.preventDefault(); event.stopPropagation(); notice(button.dataset.why, 4000);
+}, true);
 // Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
 // (web/cursor-pick.js) cannot — a move it wrongly believes happened leaves every later
 // step one row out and commits the wrong row.
 async function sendKeys(body, id = active) {
   if (sending || !panes.some((p) => p.pane_id === id)) return false;
   let delivered = false;
-  sending = true; notice(); render();
+  sending = true;
   try {
+    notice(); render(); // inside the try: a render that throws must not keep `sending` held
     const sent = await paneInput.run(id, () => post(paneUrl(id, "send"), body));
     // A menu answer the widget ignored went out, but the card goes live again (answer()).
     if (sent?.took === false) notice(UNTAKEN);
@@ -1739,8 +1756,9 @@ async function compose(id, value) {
   }
   if (secret) value.value = "";
   else { value.replace([]); value.pendingEnter = false; }
-  sending = true; notice(); render();
+  sending = true;
   try {
+    notice(); render(); // inside the try, as sendKeys
     await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
     // Not over a next draft typed while this one went: that one is unsent.
     if (active === id && !(secret ? value.value : draft(id).segments().length)) text($("draft-status"), "Sent");
@@ -1760,7 +1778,8 @@ async function compose(id, value) {
 }
 $("reply-form").onsubmit = (event) => {
   event.preventDefault();
-  if (!sending && !$("send").disabled) compose(active, $("secret").hidden ? draft() : $("secret"));
+  const why = active && sendWhy();
+  if (why) notice(why, 4000); else if (active) compose(active, $("secret").hidden ? draft() : $("secret"));
 };
 $("secret").oninput = updateComposer;
 // Enter SENDS, Shift+Enter inserts a newline — the standard chat-composer contract.
