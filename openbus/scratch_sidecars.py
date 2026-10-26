@@ -178,9 +178,9 @@ def _description(root: Path, _url: str, item: dict) -> None:
 
 
 def render(url: str, size: tuple[int, int] = VIEWPORT, dark: bool = False,
-           timeout: float = 60) -> bytes | None:
-    """`url` as a PNG at `size` (CSS px), drawn in a fresh, throwaway profile, offline but for
-    `url`'s own host, within `timeout`s; None when it cannot be drawn."""
+           timeout: float = 60, scale: int = 1) -> bytes | None:
+    """`url` as a PNG at `size` (CSS px) times `scale`, drawn in a fresh, throwaway profile,
+    offline but for `url`'s own host, within `timeout`s; None when it cannot be drawn."""
     exe = browser()
     if not exe:
         return None
@@ -196,6 +196,7 @@ def render(url: str, size: tuple[int, int] = VIEWPORT, dark: bool = False,
         try:
             subprocess.run([exe, "--headless", "--no-first-run", "--hide-scrollbars",
                             f"--user-data-dir={profile}", "--window-size={},{}".format(*size),
+                            f"--force-device-scale-factor={scale}",
                             *(["--force-dark-mode"] if dark else []),
                             "--proxy-server=http://127.0.0.1:9",
                             f"--proxy-bypass-list=<-loopback>;{urlsplit(url).netloc}",
@@ -230,7 +231,7 @@ def capture(root: Path, web: Path, name: str, view: str, size: tuple[int, int], 
         return None
     with serving(root, web) as base:
         url = f"{base}/{quote(name)}/{view}" if view else f"{base}/{item['href']}"
-        return render(url, size, dark, 20)  # well inside a send's 45s
+        return render(url, size, dark, timeout=20, scale=2)  # inside a send's 45s; sharp on a phone
 
 
 class _Text(HTMLParser):

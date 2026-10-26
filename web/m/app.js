@@ -855,12 +855,14 @@ async function findMaker(href) {
   viewerTo = to; text($("viewer-prefix"), to.about); shotChip(true); paintViewerForm(); // the line the server opens a send with
 }
 // The page as the user sees it goes with each send unless they take it off: the server draws it
-// (the sandboxed frame can't be read from here) at the frame's width, the window's height and the
+// (the sandboxed frame can't be read from here) at the frame's size (as last seen without the
+// keyboard, which shrinks it), at 2x for a phone's sharpness, and the
 // theme the frame is shown in (its color-scheme, which a page's prefers-color-scheme follows),
 // and attaches it as a pasted image.
 const shotChip = (on) => { $("viewer-shot").setAttribute("aria-pressed", on); text($("viewer-shot"), on ? "Screenshot attached ✕" : "Attach screenshot"); };
 $("viewer-shot").onclick = () => shotChip($("viewer-shot").getAttribute("aria-pressed") !== "true");
-const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewer.querySelector("iframe")?.clientWidth || innerWidth}x${innerHeight}${getComputedStyle(viewer).colorScheme.includes("dark") ? " dark" : ""}`;
+let viewerSize = "";
+const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewerSize || `${innerWidth}x${innerHeight}`}${getComputedStyle(viewer).colorScheme.includes("dark") ? " dark" : ""}`;
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
@@ -869,7 +871,8 @@ function paintViewerForm() {
   const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
   form.hidden = !p; // no pane named, or it has closed
   if (!p) return;
-  const { editor } = viewerDrafts.get(viewerKey(p));
+  const { editor } = viewerDrafts.get(viewerKey(p)), frame = $("scratch-viewer").querySelector("iframe");
+  if (frame?.clientHeight && !document.documentElement.classList.contains("editing")) viewerSize = `${frame.clientWidth}x${frame.clientHeight}`;
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }
   const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
   editor.dataset.placeholder = "Message…"; editor.setAttribute("aria-label", to); // the link above names it
