@@ -63,7 +63,11 @@ def test_a_send_from_the_scratch_viewer_names_its_page(client, monkeypatch, tmp_
         ("scratch", (None, page)), ("text", (None, "add a column"))])
     assert send("bugs").status_code == 200
     assert events == ["Re scratch bugs: ", "add a column", "Enter"]
-    assert send("..").status_code == 400 and len(events) == 3
+    (tmp_path / "bugs" / "nested").mkdir()
+    (tmp_path / "bugs" / "nested" / "index.html").write_text("x")
+    for outside in ("..", "", "bugs/nested", str(tmp_path / "bugs"), "../" + tmp_path.name):
+        assert send(outside).status_code == 400
+    assert len(events) == 3
 
 
 def test_the_scratch_viewer_attaches_the_page_as_drawn(client, monkeypatch, tmp_path):
