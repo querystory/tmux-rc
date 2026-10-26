@@ -22,7 +22,7 @@ globalThis.longPress = (el, { armed = () => {}, released = () => {} } = {}) => {
     released(target);
     const swallow = (event) => { event.preventDefault(); event.stopImmediatePropagation(); };
     addEventListener("click", swallow, { capture: true, once: true });
-    unswallow = () => removeEventListener("click", swallow, true); // the next touch's click is its own
+    unswallow = () => { removeEventListener("click", swallow, true); held = false; }; // the next click is its own (and the native menu back)
     setTimeout(unswallow, 400); // a browser that sends none
   }, { passive: true });
   el.addEventListener("contextmenu", (event) => { if (held || event.pointerType === "touch") event.preventDefault(); }); // Android's link menu

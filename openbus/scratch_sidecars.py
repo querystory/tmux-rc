@@ -175,21 +175,23 @@ def serving(root: Path, web: Path):
 def _thumbnail(root: Path, url: str, item: dict) -> None:
     if stale(item) and _version(item) not in _done:  # once per version, even
         # when the description is asked again
-        shoot(url, root / item["name"] / "thumb.webp", root, item["updated"])
+        shoot(url, root / item["name"] / "thumb.webp", root, item["updated"], item["inode"])
 
 
 def _description(root: Path, _url: str, item: dict) -> None:
     folder = root / item["name"]
     if item["describe"] and not item["description"] and not describe(
-            folder / "meta.json", item["page"], item["title"], root) and llm.backing_off():
+            folder / "meta.json", item["page"], item["title"], root,
+            item["inode"]) and llm.backing_off():
         with _lock:  # the model is out, not the page at fault: ask again later
             _tried.discard(_version(item))
 
 
-def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
+def shoot(url: str, out: Path, root: Path, at: float | None = None, inode: int = 0) -> bool:
     """Render `url` at VIEWPORT in a fresh, throwaway profile, offline but for `url`'s own
     host, and save it as a THUMB webp dated `at` (the page's version it was queued for),
-    so an edit made while it rendered still reads as newer."""
+    so an edit made while it rendered still reads as newer. With `inode`, only while its
+    folder is still that one: not into another that took its name meanwhile."""
     exe = browser()
     if not exe:
         return False
@@ -212,6 +214,11 @@ def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
             return False
         with Image.open(png) as im:
             im.thumbnail(THUMB)
+            try:
+                if inode and out.parent.stat().st_ino != inode:
+                    return False
+            except OSError:  # archived meanwhile
+                return False
             scratch.replace(out, root, lambda tmp: im.save(tmp, "WEBP", quality=70))
     if at:
         os.utime(out, (at, at))
@@ -238,10 +245,11 @@ class _Text(HTMLParser):
             self.parts.append(data)
 
 
-def describe(meta: Path, page: Path, title: str, root: Path) -> str | None:
+def describe(meta: Path, page: Path, title: str, root: Path, inode: int = 0) -> str | None:
     """Ask the parse model for one sentence on the page and add it to meta.json, marked as
     generated. Never over a description already there, nor into a meta.json that is
-    unreadable or a symlink: those are the agent's to fix."""
+    unreadable or a symlink: those are the agent's to fix. With `inode`, only while its
+    folder is still that one (scratch.annotate)."""
     if not scratch.inside(page, root):
         return None
     parser, html = _Text(), ""
@@ -256,6 +264,6 @@ def describe(meta: Path, page: Path, title: str, root: Path) -> str | None:
         "Describe this web page in ONE short sentence (under 20 words) for a gallery of "
         f'previews: what it shows, starting with the subject (never "This page"). Plain '
         f"text.\nTitle: {title}\n\n{text}")
-    if not (sentence and scratch.annotate(meta, root, "description", sentence)):
+    if not (sentence and scratch.annotate(meta, root, "description", sentence, inode)):
         return None
     return sentence
