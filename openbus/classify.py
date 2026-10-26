@@ -150,8 +150,8 @@ def _tabbed_panel_open(visible: str) -> bool:
 # ahead of a value column ("Auto-compact      true"). Only a row that opens with a frame
 # loses one closing bar: a label's own bar is content.
 _HIGHLIGHT_RE = re.compile(
-    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}>][ \t]*(?:[○●◉◯✔✓✘][ \t]*)?(?:\d+[.)][ \t]+)?"
-    r"(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
+    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}>][ \t]*(?:[○●◉◯✔✓✘][ \t]*)?"
+    r"(?P<digit>\d+[.)][ \t]+)?(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
 # A picker heading's live count ("Resume session (1 of 47)"): it redraws with every move
 # and filter while the picker stays the same, so it is never part of the prompt.
 _LIVE_COUNT = r"\(\d+ of \d+\)"
@@ -1356,6 +1356,13 @@ def classify(
         if result.pop("parse_ok", True) is False or result.get("activity") != "running":
             result["activity"] = "idle"
     question = result.get("question")
+    # Digits win (the parser prompt): a highlighted row drawn behind its digit ("❯ 1. Yes")
+    # is a menu, whose digit commits any row in one key, however the model styled it. A
+    # walk needs its prompt found as a row, which a question wrapped into a paragraph is not.
+    if (isinstance(question, dict) and question.get("answer_style") == "cursor"
+            and (row := next(reversed(list(_HIGHLIGHT_RE.finditer(visible))), None))
+            and row["digit"]):
+        question["answer_style"] = "menu"
     # A numbered picker driven by arrows is walked, not answered with a digit, where the
     # screen shows its highlighted row, which a walk needs.
     if (isinstance(question, dict) and question.get("answer_style") == "menu"

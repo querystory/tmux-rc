@@ -431,3 +431,34 @@ def test_ascii_numbered_picker_is_drivable():
     assert question["keymap"]["select"] == "Enter"
     moved = screen.replace(" > 1. Forest", "   1. Forest").replace("   2. Ocean", " > 2. Ocean")
     assert highlighted_row(moved, "Choose a palette:", ["Forest", "Ocean"]) == "Ocean"
+
+
+# Claude Code's AskUserQuestion in a narrow pane: the question ends mid-row of a wrapped
+# paragraph, so no walk can find it as a row, but every option, the highlighted one
+# included, is drawn behind the digit that commits it.
+ASK_NARROW = """│ The old tide table and the new one disagree
+│ on two harbors. I recommend keeping the new
+│ one. What should I do?
+
+❯ 1. Keep the new table (Recommended)
+     Drop the old table and its cron job.
+  2. Keep both
+     Leave the old table for a week.
+  3. Keep the old table
+  4. Type something.
+──────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel"""
+
+
+def test_a_numbered_picker_read_as_a_cursor_list_is_a_menu():
+    rows = ["1. Keep the new table (Recommended)", "2. Keep both", "3. Keep the old table",
+            "4. Type something.", "5. Chat about this"]
+    model = {"tool": "claude", "question": {
+        "prompt": "What should I do?", "answer_style": "cursor", "options": rows, "selected": 0,
+        "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": False}}}
+    text = f"{tmux.VISIBLE_SCREEN}\n{ASK_NARROW}"
+    question = classify(PANE, text, lambda s, t: model)["question"]
+    assert question["answer_style"] == "menu"
+    assert question["options"] == rows
