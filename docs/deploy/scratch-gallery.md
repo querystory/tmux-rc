@@ -17,7 +17,8 @@ and in a phone's ☰ menu. There a card opens full screen over the app. Back, Es
 swipe from the left edge returns to the gallery, and "Open in browser" opens the page in
 a tab of its own. While the pane its `meta.json` names is still open, a box at the
 bottom messages that agent ("Message qs:0 (Triage recent bugs)"), the way the pane's own
-composer does. The box is the app's, not the page's: a page cannot send to a pane.
+composer does, opening with `Re scratch <folder>: ` so the agent knows which page it is
+about. The box is the app's, not the page's: a page cannot send to a pane.
 Settings links to the gallery's own page under More.
 
 ## Setting it up

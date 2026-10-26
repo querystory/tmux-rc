@@ -182,6 +182,14 @@ def maker(root: Path, name: str, states: list[dict]) -> dict | None:
     return _progress([item], states).get(item["pane"])
 
 
+def about(root: Path, name: str) -> str | None:
+    """What a message sent from the scratch viewer opens with, so its agent knows the page:
+    one line naming the folder. None for no folder of scratch."""
+    if not read(root, root / name):
+        return None
+    return f"Re scratch {''.join(c for c in name if c.isprintable())}: "
+
+
 def _writers(todo: list[dict]) -> None:
     """Fill in each item's missing `session_id` from the transcripts, saving what is found."""
     now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}

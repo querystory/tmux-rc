@@ -1473,7 +1473,8 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-height, 100%); }
 #viewer-form { flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; padding: 8px max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border-top: 1px solid var(--line); }
 #viewer-reply:empty::before { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#viewer-status { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--muted); }
+#viewer-status, #viewer-about { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--muted); }
+#viewer-about { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #viewer-status:empty { display: none; }
 #viewer-send[aria-disabled="true"] { opacity: .45; }
 #scratch-viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; } /* a page with no background of its own reads as in a tab */

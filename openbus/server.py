@@ -2075,7 +2075,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments, secret, birth = [], None, None
+    segments, secret, birth, page = [], None, None, None
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
@@ -2096,6 +2096,8 @@ async def _compose(pane_id: str, request: Request):
                 segments.append((data, _stage_image(data, mime)))
             elif kind == "birth" and isinstance(value, str):  # the incarnation the user confirmed
                 birth = value
+            elif kind == "scratch" and isinstance(value, str):  # sent from the scratch viewer
+                page = value
             elif kind == "secret" and isinstance(value, str) and secret is None:
                 if len(value.encode()) > 4095:  # the tty's line, less its newline
                     raise HTTPException(413, "password too long")
@@ -2109,6 +2111,10 @@ async def _compose(pane_id: str, request: Request):
         raise HTTPException(400, "send a draft or a secret")
     if not (secret or "").isprintable():  # a newline or ^D would end the read early,
         raise HTTPException(400, "a password is printable text")  # the rest run as input
+    if page is not None:  # which page it is about, from the folder, never from the client
+        if secret or not (line := _scratch_dir and scratch.about(Path(_scratch_dir), page)):
+            raise HTTPException(400, "no such scratch page")
+        segments.insert(0, line)
     if secret:
         await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
     else:
@@ -2255,7 +2261,8 @@ if _scratch_dir:
     def scratch_maker(name: str) -> dict:
         """The open pane that made a scratch folder (scratch.maker): the viewer's composer."""
         pane = scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states)) or {}
-        return {"pane": pane.get("pane_id"), "birth": pane.get("birth")}
+        return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
+                "about": scratch.about(Path(_scratch_dir), name)}
 
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,

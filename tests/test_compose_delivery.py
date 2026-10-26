@@ -53,6 +53,19 @@ def test_all_segments_are_validated_before_typing(client, monkeypatch):
     assert events == []
 
 
+def test_a_send_from_the_scratch_viewer_names_its_page(client, monkeypatch, tmp_path):
+    (tmp_path / "bugs").mkdir()
+    (tmp_path / "bugs" / "index.html").write_text("<title>Bugs</title>")
+    monkeypatch.setattr(server, "_scratch_dir", str(tmp_path))
+    events = []
+    monkeypatch.setattr(tmux, "_run", typed(events.append))
+    send = lambda page: client.post("/api/panes/%1/compose", files=[  # noqa: E731
+        ("scratch", (None, page)), ("text", (None, "add a column"))])
+    assert send("bugs").status_code == 200
+    assert events == ["Re scratch bugs: ", "add a column", "Enter"]
+    assert send("..").status_code == 400 and len(events) == 3
+
+
 def test_composer_identity_failure_returns_conflict(client, monkeypatch):
     monkeypatch.setattr(tmux, "pane_pid", lambda p: "replacement")
     events = []
