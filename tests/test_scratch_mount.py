@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 PROBE = """
+import io
 import sys
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
@@ -46,6 +47,15 @@ for path in ("/scratch/", "/scratch/mock.html", "/scratch/sub/", "/scratch/nope/
 c.get("/scratch/viewed/", headers={"Sec-Fetch-Dest": "iframe"})  # the app's viewer
 c.get("/scratch/wip/", headers={"Sec-Fetch-Dest": "iframe"})  # its placeholder
 print(int(sorted(seen()) == ["sub", "viewed", "wip"]))
+# The placeholder asks by image whether to reload: a 1px-wide answer while it is unchanged,
+# 2px once it changed or its page landed (never a navigation on a failed ask: client side).
+if server._scratch_dir:
+    from PIL import Image
+    width = lambda q: Image.open(io.BytesIO(c.get(f"/scratch/wip/?seen={q}").content)).width
+    mine = server.re.search(r'const SEEN = "([^"]+)"', c.get("/scratch/wip/").text)[1]
+    before = width("stale"), width(mine)
+    (server.Path(server._scratch_dir) / "wip" / "index.html").write_text("landed")
+    print(*before, width(mine))
 """
 
 
@@ -83,7 +93,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # Hidden files and directories (an .env, a .git) are refused, as the gallery skips them.
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
-        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 2]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

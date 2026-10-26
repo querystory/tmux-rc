@@ -17,10 +17,21 @@ a { color: var(--accent); }
 <h1>{title}</h1>{desc}
 <p class="muted">{say}</p>{now}
 <p class="muted">{who}{where} · started {ago} ago</p>
+<p class="muted" id="offline" hidden>Reconnecting…</p>
 </main><script>
-// Sandboxed like every /scratch/ page: the system theme, and no fetch, so a reload asks again.
+// Sandboxed like every /scratch/ page: the system theme, and no fetch. So it asks by image whether
+// the page landed or this placeholder changed (a wider image says yes), and reloads only on a yes.
+// A failed ask (the tunnel down) never navigates, or an error page with no script would be left in
+// its place for good: it says so and asks again, backing off to 30s.
 document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
-setInterval(() => document.querySelector("a:hover") || location.reload(), {every});
+const SEEN = "{seen}";
+let fails = 0;
+const ask = () => { const img = new Image();
+  img.onload = () => { fails = 0; document.getElementById("offline").hidden = true;
+    if (img.naturalWidth > 1 && !document.querySelector("a:hover")) location.reload(); else setTimeout(ask, {every}); };
+  img.onerror = () => { document.getElementById("offline").hidden = ++fails < 2; setTimeout(ask, Math.min({every} * 2 ** fails, 30000)); };
+  img.src = "./?seen=" + SEEN + "&t=" + Date.now(); };
+setTimeout(ask, {every});
 // In the app's viewer, the pane opens in the app rather than a second app in this frame.
 if (window.top !== window) for (const a of document.querySelectorAll('a[href^="/m/#pane="]'))
   a.onclick = (e) => { e.preventDefault(); parent.postMessage({ pane: decodeURIComponent(a.getAttribute("href").slice(9)) }, "*"); };

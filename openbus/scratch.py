@@ -395,4 +395,5 @@ def placeholder(root: Path, name: str, who) -> str | None:
             "now": f'<p class="now">Now: {escape(str(headline))}</p>' if headline else "",
             "ago": f"{age}m" if age < 60 else f"{age // 60}h {age % 60}m",
             "every": 60000 if i["state"] == "stopped" else 5000 if age < 10 else 30000}
+    fill["seen"] = hash(tuple(fill.values()))  # what scratch_markdown.Files compares, as SEEN
     return re.sub(r"\{(\w+)\}", lambda m: str(fill[m[1]]), _PENDING.read_text())

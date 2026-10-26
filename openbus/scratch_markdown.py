@@ -18,7 +18,7 @@ from markdown.blockprocessors import BlockProcessor
 from markdown.extensions import Extension
 from pygments.formatters import HtmlFormatter
 from starlette.exceptions import HTTPException
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, Response
 from starlette.staticfiles import StaticFiles
 
 _PAGE = Path(__file__).resolve().parent / "scratch_markdown.html"
@@ -108,6 +108,12 @@ def page(path: Path, web: Path) -> str:
             .replace("<!--mermaid-->", script).replace("<!--body-->", body))
 
 
+# A 1x1 and a 2x1 GIF: a placeholder's ask answered "no change" and "reload" (Files).
+PIXEL = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c"
+                      "00000000010001000002024401003b")
+WIDE = PIXEL[:6] + b"\x02" + PIXEL[7:]
+
+
 class Files(StaticFiles):
     """scratch's files, with a .md served as its page (`?raw` for the file itself), a
     folder's index.md as its index when it has no index.html, and, while it has neither,
@@ -128,6 +134,11 @@ class Files(StaticFiles):
         return full, st
 
     async def get_response(self, path, scope):
+        seen = parse_qs(scope["query_string"].decode()).get("seen")
+        if seen and "/" not in path:  # the placeholder asking: a wide pixel says reload
+            wait = await anyio.to_thread.run_sync(self.pending, path)
+            same = wait and f'const SEEN = "{seen[0]}";' in wait
+            return Response(PIXEL if same else WIDE, media_type="image/gif")
         try:
             response = await super().get_response(path, scope)
         except HTTPException as e:

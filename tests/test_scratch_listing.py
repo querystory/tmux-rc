@@ -251,8 +251,8 @@ def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeyp
     page = scratch.placeholder(tmp_path, "wip", who)
     assert "<h1>wip</h1>" in page and "Now: running the visual tests" in page
     assert 'href="/m/#pane=%251">dev:ui</a> · started 1m ago' in page
-    assert "location.reload(), 5000)" in page and 'class="working"' in page
-    assert "location.reload(), 60000)" in scratch.placeholder(tmp_path, "old", who)
+    assert "setTimeout(ask, 5000)" in page and 'class="working"' in page
+    assert "setTimeout(ask, 60000)" in scratch.placeholder(tmp_path, "old", who)
     assert scratch.placeholder(tmp_path, "done", who) is None
     (tmp_path / "bare" / "app.css").write_text("")  # a site's asset before its index
     assert "<h1>bare</h1>" in scratch.placeholder(tmp_path, "bare", who)
