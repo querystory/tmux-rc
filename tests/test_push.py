@@ -1045,6 +1045,18 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
         "Updated: page", "scratch:page", "/m#view=scratch&open=%2Fscratch%2Fpage%2Freport.html",
         True)]
     assert [i["name"] for i in shot] == ["page"]
+    # A PDF rewritten in a revision reads as pending for a minute, its mark already gone:
+    # nothing on disk changes when that minute ends, and the scan still sees it.
+    meta.write_text('{"title": "Mock", "updating": "v3"}')
+    service.landed()
+    (root / "page" / "report.html").unlink()
+    (root / "page" / "report.pdf").write_text("pdf")
+    meta.write_text('{"title": "Mock"}')
+    os.utime(meta, ns=(3, 3))
+    service.landed()
+    os.utime(root / "page" / "report.pdf", (0, 0))  # the minute has passed
+    service.landed()
+    assert [p["title"] for p in sender.payloads] == ["Updated: page", "Updated: Mock"]
 
 
 def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):

@@ -557,7 +557,10 @@ class PushManager:
             for e in os.scandir(self.scratch)}
         self._waiting = {k: v for k, v in self._waiting.items()
                          if k[0] in self._mtimes}  # removed: forgotten
-        for name in [n for n, at in self._mtimes.items() if seen.get(n) != at]:
+        # and an updating one each time: a fresh asset reads as pending for a minute, a change
+        # in time alone that no mtime shows
+        waiting = {name for (name, _), verb in self._waiting.items() if verb == "Updated"}
+        for name in [n for n, at in self._mtimes.items() if seen.get(n) != at or n in waiting]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
             if item and (item["pending"] or item["updating"]):
