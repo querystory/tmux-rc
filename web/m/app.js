@@ -147,7 +147,7 @@ const reviewing = () => effectiveLayout() !== "focus";
 const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
-let viewerTo = null, viewerDraft = null; // the scratch viewer's composer: see findMaker
+let viewerTo = null; const viewerDrafts = new Map(); // the scratch viewer's maker and composers: see findMaker
 // page: a dashboard card's own view (url-state.js PAGES), which replaces the page; leaving
 // it lands on its card (CARDS).
 let dashboard = false, page = null;
@@ -843,34 +843,36 @@ function viewScratch(href, title) {
   viewer.showModal(); viewer.focus(); findMaker(href);
 }
 // The agent that made the page is messaged from the viewer's own footer, never from the
-// sandboxed page: the open pane its meta.json names (scratch.maker). Its own Composer, sent
-// through compose() like the pane's footer and a sidebar Reply.
+// sandboxed page: the open pane its meta.json names (scratch.maker), that incarnation only.
+// A Composer per pane, sent through compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
   viewerTo = null; paintViewerForm();
   const folder = new URL(href).pathname.split("/")[2];
-  const { pane } = folder ? await request(`/api/scratch/${folder}/pane`).catch(() => ({})) : {};
-  if (!viewer.open || $("viewer-out").href !== href || !pane) return; // another page opened meanwhile
-  if (viewerDraft?.target !== pane) viewerDraft = Object.assign(new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }), { target: pane });
-  viewerTo = pane; paintViewerForm();
+  const to = folder ? await request(`/api/scratch/${folder}/pane`).catch(() => ({})) : {};
+  if (!viewer.open || $("viewer-out").href !== href || !to.pane) return; // another page opened meanwhile
+  if (!viewerDrafts.has(to.pane)) viewerDrafts.set(to.pane, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
+  viewerTo = to; paintViewerForm();
 }
+const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
-const viewerWhy = (p) => sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDraft.segments().length ? "Nothing to send yet." : "";
+const viewerWhy = (p) => sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(p.pane_id).segments().length ? "Nothing to send yet." : "";
 function paintViewerForm() {
-  const p = $("scratch-viewer").open && panes.find((x) => x.pane_id === viewerTo); // render() may run before `viewer` is defined
-  $("viewer-form").hidden = !p; // no pane named, or it has closed
+  const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
+  form.hidden = !p; // no pane named, or it has closed
   if (!p) return;
-  if (!$("viewer-form").contains(viewerDraft.editor)) $("viewer-send").before(viewerDraft.editor);
+  const { editor } = viewerDrafts.get(p.pane_id);
+  if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }
   const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
-  viewerDraft.editor.dataset.placeholder = to; viewerDraft.editor.setAttribute("aria-label", to);
+  editor.dataset.placeholder = to; editor.setAttribute("aria-label", to);
   $("viewer-send").setAttribute("aria-disabled", String(!!viewerWhy(p)));
 }
 $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
-  const p = panes.find((x) => x.pane_id === viewerTo), why = p ? viewerWhy(p) : "This pane has closed.";
+  const p = viewerPane(), why = p ? viewerWhy(p) : "This pane has closed.";
   if (why) return text($("viewer-status"), why);
-  text($("viewer-status"), await compose(p.pane_id, viewerDraft) ? "Sent" : KEPT);
+  text($("viewer-status"), await compose(p.pane_id, viewerDrafts.get(p.pane_id), p.birth) ? "Sent" : KEPT);
 };
-enterSubmits($("viewer-form"), (target) => !!viewerDraft?.editor.contains(target));
+enterSubmits($("viewer-form"), (target) => $("viewer-form").contains(target) && target.closest("#viewer-reply"));
 $("close-viewer").onclick = () => viewer.close();
 viewer.addEventListener("close", () => viewer.querySelector("iframe")?.remove());
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
@@ -1760,11 +1762,13 @@ const KEPT = "Delivery could not be confirmed. Draft kept; check the terminal be
 // is the next message, and clearing on the reply erased it. A failed send puts the sent
 // draft back in front of whatever was typed since (a password only into an empty field).
 // A reply to a pane that needs you holds its card as a tapped answer does.
-async function compose(id, value) {
+// `birth`: the pane's incarnation the user confirmed; the server types nothing into another.
+async function compose(id, value, birth) {
   const pane = panes.find((p) => p.pane_id === id);
   const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
   const secret = value === $("secret"), sent = secret ? value.value : value.segments();
   const form = new FormData();
+  if (birth) form.append("birth", birth);
   if (secret) form.append("secret", sent);
   else for (const segment of sent) {
     if (segment.file) form.append("image", segment.file);
@@ -1786,7 +1790,7 @@ async function compose(id, value) {
       // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
       // a sidebar Reply's draft into the pane's own composer and detaches the Reply.
       // The viewer's composer keeps its own.
-      const owner = [viewerDraft, renderSidebar.drafts.get(id)].includes(value) ? value : draft(id), typed = owner.segments();
+      const owner = [viewerDrafts.get(id), renderSidebar.drafts.get(id)].includes(value) ? value : draft(id), typed = owner.segments();
       owner.replace([...owner.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]);
     }
     notice(KEPT); return false;
@@ -2608,7 +2612,7 @@ const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, o
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {
-  return [...drafts.values(), ...renderSidebar.drafts.values(), ...viewerDraft ? [viewerDraft] : []].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+  return [...drafts.values(), ...renderSidebar.drafts.values(), ...viewerDrafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
 }
 function observeVersion(version) {
   if (typeof version !== "string" || !version) return;

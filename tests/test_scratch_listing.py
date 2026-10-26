@@ -307,7 +307,7 @@ def test_the_maker_is_its_meta_pane_only_while_that_pane_is_open(tmp_path):
     _folder(tmp_path, "mine", 1000, {"pane": "%7"})
     _folder(tmp_path, "none", 1000)
     live = [{"pane_id": "%7"}]
-    assert scratch.maker(tmp_path, "mine", live) == "%7"
+    assert scratch.maker(tmp_path, "mine", live) == {"pane_id": "%7"}
     assert scratch.maker(tmp_path, "mine", []) is None  # closed
     assert scratch.maker(tmp_path, "mine", [{"pane_id": "%7", "birth": str(os.getpid())}]) is None
     assert [scratch.maker(tmp_path, n, live) for n in ("none", "gone", "..")] == [None] * 3

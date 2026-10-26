@@ -2075,7 +2075,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments, secret = [], None
+    segments, secret, birth = [], None, None
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
@@ -2094,6 +2094,8 @@ async def _compose(pane_id: str, request: Request):
                 if not data or len(data) > IMG_MAX_BYTES:
                     raise HTTPException(413, "image empty or too large")
                 segments.append((data, _stage_image(data, mime)))
+            elif kind == "birth" and isinstance(value, str):  # the incarnation the user confirmed
+                birth = value
             elif kind == "secret" and isinstance(value, str) and secret is None:
                 if len(value.encode()) > 4095:  # the tty's line, less its newline
                     raise HTTPException(413, "password too long")
@@ -2111,7 +2113,7 @@ async def _compose(pane_id: str, request: Request):
         await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
     else:
         await asyncio.to_thread(
-            _input_attempt, pane.id, _deliver_composer, pane.id, pane.pid, segments)
+            _input_attempt, pane.id, _deliver_composer, pane.id, birth or pane.pid, segments)
     _audit(request, "compose", pane_id,
            detail="secret" if secret else f"{len(segments)} segments")
     return {"ok": True}
@@ -2252,7 +2254,8 @@ if _scratch_dir:
     @app.get("/api/scratch/{name}/pane")
     def scratch_maker(name: str) -> dict:
         """The open pane that made a scratch folder (scratch.maker): the viewer's composer."""
-        return {"pane": scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states))}
+        pane = scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states)) or {}
+        return {"pane": pane.get("pane_id"), "birth": pane.get("birth")}
 
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,

@@ -174,13 +174,12 @@ def opened(root: Path, visits: list[tuple[str, float]], n: int,
              "pending": i["pending"] and i["state"] != "stopped"} for i, at in found]
 
 
-def maker(root: Path, name: str, states: list[dict]) -> str | None:
-    """The pane folder `name`'s meta.json says made it, while that very pane is still open
-    (never another under a recycled id): where the scratch viewer's composer sends."""
+def maker(root: Path, name: str, states: list[dict]) -> dict | None:
+    """The pane (its state) folder `name`'s meta.json says made it, while that very pane is
+    still open (never another under a recycled id): where the scratch viewer's composer sends."""
     if not (item := read(root, root / name)):
         return None
-    _progress([item], states)
-    return item["pane"]
+    return _progress([item], states).get(item["pane"])
 
 
 def _writers(todo: list[dict]) -> None:
