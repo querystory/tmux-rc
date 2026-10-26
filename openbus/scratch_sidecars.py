@@ -212,7 +212,7 @@ def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
 def capture(root: Path, web: Path, name: str, size: tuple[int, int], dark: bool) -> bytes | None:
     """Folder `name`'s page as the scratch viewer showed it (its size and theme, from the
     top), for a message to its agent; served as the thumbnails are, scratch and nothing else."""
-    if not (item := scratch.read(root, root / name)):
+    if not (item := scratch.named(root, name)):
         return None
     with serving(root, web) as base:
         return render(f"{base}/{item['href']}", size, dark)
