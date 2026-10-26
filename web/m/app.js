@@ -839,7 +839,8 @@ function viewScratch(href, title) {
   text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  $("viewer-form").before(Object.assign(document.createElement("iframe"), { src: href, title }));
+  // A page that navigates its frame shows something else: the box is for the page opened, so it goes.
+  $("viewer-form").before(Object.assign(document.createElement("iframe"), { src: href, title, onload() { if (++this.loads > 1) { viewerTo = null; paintViewerForm(); } }, loads: 0 }));
   viewer.showModal(); viewer.focus(); findMaker(href);
 }
 // The agent that made the page is messaged from the viewer's own footer, never from the
@@ -849,7 +850,8 @@ async function findMaker(href) {
   viewerTo = null; paintViewerForm(); text($("viewer-status"), "");
   const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
-  if (!viewer.open || $("viewer-out").href !== href || !to.pane) return; // another page opened meanwhile
+  // Another page opened meanwhile, this one navigated, or it names no pane or no sendable folder.
+  if (!viewer.open || $("viewer-out").href !== href || viewer.querySelector("iframe")?.loads > 1 || !to.pane || !to.about) return;
   const key = viewerKey({ pane_id: to.pane, birth: to.birth });
   if (!viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
   viewerTo = to; text($("viewer-prefix"), to.about); shotChip(true); paintViewerForm(); // the line the server opens a send with

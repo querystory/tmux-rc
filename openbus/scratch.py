@@ -190,10 +190,11 @@ def maker(root: Path, name: str, states: list[dict]) -> dict | None:
 
 def about(root: Path, name: str) -> str | None:
     """What a message sent from the scratch viewer opens with, so its agent knows the page:
-    one line naming the folder. None for no folder of scratch."""
-    if not named(root, name):
+    one line naming the folder. None for no folder of scratch, or one whose name a shell
+    would read specially (the pane may be a shell)."""
+    if not (re.fullmatch(r"[\w.-]+", name) and named(root, name)):
         return None
-    return f"Re scratch {''.join(c for c in name if c.isprintable())}: "
+    return f"Re scratch {name}: "
 
 
 def _writers(todo: list[dict]) -> None:
