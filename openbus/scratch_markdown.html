@@ -46,17 +46,22 @@ summary { cursor: pointer; }
 .bug { --c: #f50057; }
 :is(.example, .important) { --c: #7c4dff; }
 :is(.quote, .cite) { --c: #9e9e9e; }
-</style></head><body>
+</style>
+<script>
+// In <head>, so no raw HTML in the body (an unclosed <title> swallows the rest) can stop it.
+// Sandboxed like every /scratch/ page, so no localStorage: the app's theme when it frames the
+// page and says so, else the system's, light unless it asks for dark.
+const root = document.documentElement;
+root.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);
+addEventListener("message", (e) => { if (e.source === parent && typeof e.data?.light === "boolean") root.classList.toggle("light", e.data.light); });
+</script></head><body>
 <nav><button type="button" data-copy="markdown">Copy Markdown</button><button type="button" data-copy="formatted">Copy formatted</button><a href="?raw">Source</a></nav>
 <article><!--body--></article>
 <textarea hidden><!--source--></textarea>
 <!--mermaid-->
 <script>
-// Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
-const light = matchMedia("(prefers-color-scheme: light)").matches;
-document.documentElement.classList.toggle("light", light);
 if (window.mermaid?.initialize) { // a "Mermaid" heading alone is window.mermaid too
-  mermaid.initialize({ startOnLoad: false, theme: light ? "default" : "dark" });
+  mermaid.initialize({ startOnLoad: false, theme: root.classList.contains("light") ? "default" : "dark" });
   mermaid.run();
 }
 const article = document.querySelector("article");

@@ -65,7 +65,7 @@ a { color: var(--accent); }
 </section></main>
 <script>
 // Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
-document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
+document.documentElement.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);
 const framed = window.top !== window;
 document.documentElement.classList.toggle("framed", framed);
 const ago = (s) => { const d = Date.now() / 1000 - s;

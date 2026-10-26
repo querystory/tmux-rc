@@ -96,6 +96,13 @@ def test_a_page_loads_mermaid_only_for_a_diagram(tmp_path):
     assert (WEB_DIR / M.MERMAID.removeprefix("/")).is_file()
 
 
+
+def test_the_theme_is_set_before_the_body_and_light_unless_asked_for_dark(tmp_path):
+    # Raw HTML passes through, and an unclosed <title> swallows everything after it as text.
+    page = M.page(_doc(tmp_path, text='"Ready: <title>" gets its own slot.'), WEB_DIR)
+    assert page.index('!matchMedia("(prefers-color-scheme: dark)")') < page.index("</head>")
+    assert "prefers-color-scheme: light" not in page
+
 def test_a_rewrite_shows_on_reload(tmp_path):
     path = _doc(tmp_path, text="# One")
     assert M.render(path)[2] == "One"

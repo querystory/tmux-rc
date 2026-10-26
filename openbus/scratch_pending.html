@@ -19,7 +19,7 @@ a { color: var(--accent); }
 <p class="muted">{who}{where} · started {ago} ago</p>
 </main><script>
 // Sandboxed like every /scratch/ page: the system theme, and no fetch, so a reload asks again.
-document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
+document.documentElement.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);
 setInterval(() => document.querySelector("a:hover") || location.reload(), {every});
 // In the app's viewer, the pane opens in the app rather than a second app in this frame.
 if (window.top !== window) for (const a of document.querySelectorAll('a[href^="/m/#pane="]'))
