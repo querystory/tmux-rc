@@ -25,7 +25,7 @@ are selected.
 ## Cleaning up
 
 In the app's Scratch, a long press on a card starts selecting with that card ticked, as in
-a phone's photo gallery or mail; with a mouse, Select does the same. Tap more to tick or
+a phone's photo gallery or mail; with a mouse, Select (shown only for a mouse) does the same. Tap more to tick or
 untick them (All takes every card the filter shows; unticking the last ends it), then
 Archive. On a phone the bar sits at the bottom, in reach however far the list scrolls. Archived folders leave the gallery but
 are not gone. Their links keep working until a new folder takes the name, and Archived

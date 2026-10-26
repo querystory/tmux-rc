@@ -73,6 +73,8 @@ a { color: var(--accent); }
   #bar, .framed #bar { position: fixed; inset: auto 8px 8px; margin: 0; padding-bottom: max(10px, env(safe-area-inset-bottom)); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 4px 16px rgb(0 0 0 / .25); }
   .framed #bar { bottom: 88px; }
   .selecting main { padding-bottom: 200px; } }
+/* On touch a long press is the way in, so the filter gets Select's room. */
+@media (pointer: coarse) { #select { display: none; } }
 /* A long press selects (/long-press.js): no link preview, callout or text selection under the finger. */
 .framed article { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 </style></head><body><main>
