@@ -58,13 +58,13 @@ print(int(act("archive", "viewed").json() == {"done": ["viewed"]}))
 print(int('data-name="viewed"' not in c.get("/scratch/").text
           and 'data-name="viewed"' in c.get("/scratch/?archived").text))
 print(c.get("/scratch/viewed/").status_code, c.get("/scratch/.archive/viewed/").status_code)
-# its name taken again (a page being made): each link is wholly one folder's
+# its name taken again (a page in progress): each link is wholly one folder's
 (root / "viewed").mkdir()
 (root / "viewed" / "meta.json").write_text('{"title": "Again"}')
 print(c.get("/scratch/viewed/").status_code, c.get("/scratch/.archive/viewed/").status_code)
 (root / "viewed" / "meta.json").unlink()
 (root / "viewed").rmdir()
-# a page still being made, archived: its placeholder answers at both links
+# a page still in progress, archived: its placeholder answers at both links
 act("archive", "wip")
 print(c.get("/scratch/wip/").status_code, c.get("/scratch/.archive/wip/").status_code)
 act("unarchive", "wip")

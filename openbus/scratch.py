@@ -37,6 +37,7 @@ _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
 _LOCK = threading.Lock()
+_ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
 _missed: dict[tuple[str, int], float] = {}  # when each (name, inode) was last not found
 _found: dict[tuple[str, int], str] = {}  # for a refusing meta.json, or a listing older than it
@@ -178,6 +179,11 @@ def act(root: Path, action: str, names: list[str]) -> list[str]:
     if not all(n and n == Path(n).name and n[0] != "." and "\0" not in n for n in names):
         raise ValueError("a name is one folder of scratch")
     archive_dir = scratch_markdown.ARCHIVE
+    with _ACT:  # overlapping batches (a Delete and a Restore) never share a folder midway
+        return _act(root, action, names, archive_dir)
+
+
+def _act(root: Path, action: str, names: list[str], archive_dir: str) -> list[str]:
     top = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
     try:
         if action == "archive":
@@ -191,7 +197,14 @@ def act(root: Path, action: str, names: list[str]) -> list[str]:
             raise PermissionError(f"{archive_dir} is not a folder of scratch") from e
         try:
             src, dst = (top, shelf) if action == "archive" else (shelf, top)
-            return [name for name in dict.fromkeys(names) if _move(name, src, dst, action)]
+            done = []
+            for name in dict.fromkeys(names):
+                try:  # one folder failing (changed under it) leaves the rest of the batch done
+                    if _move(name, src, dst, action):
+                        done.append(name)
+                except OSError as e:
+                    logger.warning("scratch: could not %s %s: %s", action, name, e)
+            return done
         finally:
             os.close(shelf)
     finally:
@@ -237,8 +250,8 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
 
 def tag(listed: list[dict]) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
-    changed, its thumbnail, title or description landed, or (by the minute) a page being
-    made may have stopped. In no particular order, as the gallery sorts after listing."""
+    changed, its thumbnail, title or description landed, or (by the minute) a page in
+    progress may have stopped. In no particular order, as the gallery sorts after listing."""
     return str(hash((*sorted((i["name"], i["updated"], i["pending"], i["thumb"], i["title"],
                               i["description"]) for i in listed),
                      any(i["pending"] for i in listed) and int(time.time() // 60))))
@@ -416,7 +429,7 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     for i in listed if archived else ():  # its own link: the name may be taken again since
         i["under"] = f"{scratch_markdown.ARCHIVE}/"
         i["href"] = i["under"] + i["href"]
-    listed.sort(key=lambda i: not i["pending"] or i["state"] == "stopped")  # being made: first
+    listed.sort(key=lambda i: not i["pending"] or i["state"] == "stopped")  # in progress: first
     out = _PAGE.read_text().replace("/*tokens*/", scratch_markdown.tokens(style)).replace(
         "DOCS_URL", docs).replace("LISTING_TAG", tag(listed))
     if archived:

@@ -103,7 +103,7 @@ which can be undone.
 folder made after it loaded. Its sandbox forbids fetch, so it can't make a conditional
 request. Instead it loads `?seen=<its listing's tag>` as an image every five seconds while
 on screen. The answer is a pixel only when the listing changed, and the page then
-reloads. The tag hashes each folder's name, newest file, whether it is being made, and
+reloads. The tag hashes each folder's name, newest file, whether it is in progress, and
 its thumbnail, so a reload means there is something new to see. Giving the gallery
 fetches was rejected. It would need CORS for the opaque origin, which every agent page
 shares, or the app's own origin for a page that renders agent-written text. A push

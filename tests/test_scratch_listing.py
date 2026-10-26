@@ -213,7 +213,7 @@ def test_the_tag_changes_with_what_the_open_gallery_shows(tmp_path):
     assert tag() == before
     wip = tmp_path / "wip"
     wip.mkdir()
-    (wip / "meta.json").write_text('{"title": "wip"}')  # a page being made shows at once
+    (wip / "meta.json").write_text('{"title": "wip"}')  # a page in progress shows at once
     assert tag() != before
     seen = tag()
     (wip / "index.md").write_text("# wip")
@@ -262,7 +262,7 @@ def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeyp
     shot = []
     out = scratch.page(tmp_path, states, [], STYLE, sidecars=shot.extend)
     assert sorted(i["name"] for i in shot) == ["done"]  # nothing to shoot while pending
-    order = [m[1] for m in re.finditer(r'data-name="([^"]+)"', out)]  # being made: first
+    order = [m[1] for m in re.finditer(r'data-name="([^"]+)"', out)]  # in progress: first
     assert set(order[:3]) == {"wip", "idle", "bare"}  # not those whose agent stopped
     def who():  # the panes, accounts and stylesheet, asked only of a pending folder
         return states, [], STYLE

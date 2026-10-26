@@ -112,7 +112,7 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   session's prompt looks idle. Once the pane is closed, or idle for 30 minutes, it says
   the agent stopped without publishing (without a pane, 30 minutes after `created`).
 - **The gallery** and the drawer's Recent show the folder with a spinner while its agent
-  works (once stopped, the gallery says so). The gallery lists pages still being made
+  works (once stopped, the gallery says so). The gallery lists pages still in progress
   first. Once the page lands, its thumbnail is queued and the spinner turns into it.
 - **When the page lands** (the daemon looks every ten seconds), every subscribed device gets one push, `Ready: <title>`, whose
   tap opens the page in the app's scratch viewer. It shares its tag with the pane's
