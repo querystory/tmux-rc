@@ -86,7 +86,10 @@ Inside the app (the viewer, or a pinned page), a page may instead *ask* to send:
 control or format characters, a pane in the feed that runs an agent, never a plain shell,
 where the line would run as a command) and opens its own sheet, outside the frame: the line,
 the pane, the page that asked, and Send, Edit in composer, Cancel. Only that tap sends,
-through the composer's own path, and the user stays on the page. Send ignores taps for half
+through the composer's own path, bound to the pane's process as it was when asked (a pane
+that has since become a shell, or a recycled id, gets nothing), and the user stays on the
+page. Only the page's first load may ask: one the frame navigated to, or a reload, can't be
+told from the page the sheet names, so the user reopens it. Send ignores taps for half
 a second, so one already in flight can't land on it, and there is no "don't ask again":
 a silent send is exactly what an injected page would want. A standalone tab can't ask at
 all: the app hears only the frame it opened, so a page in a tab, even one that opens the app

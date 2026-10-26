@@ -840,7 +840,10 @@ scratchFrame.addEventListener("load", tellScratch);
 addEventListener("message", (e) => {
   const { pane, view, open, title, draft: offered, intent } = e.data || {}, href = scratchUrl(open, location.href);
   // The page the viewer shows (a pinned one included) may ask to send a line, and only ask (askSend).
-  if (intent) return e.source === viewer.querySelector("iframe")?.contentWindow && !$("send-dialog").open && askSend(sendIntent(e.data, panes));
+  // Only on the frame's first load: the sheet names the page the viewer opened, and one the
+  // frame navigated to since (or a reload of it) can't be told apart. Reopening it asks again.
+  const framed = viewer.querySelector("iframe");
+  if (intent) return e.source === framed?.contentWindow && !$("send-dialog").open && (framed.loads === 1 ? askSend(sendIntent(e.data, panes)) : notice("This page changed since it was opened: reopen it to send."));
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
@@ -856,7 +859,7 @@ function viewScratch(href, title) {
   text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title }));
+  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title, onload() { this.loads = (this.loads || 0) + 1; } }));
   viewer.showModal(); viewer.focus();
 }
 $("close-viewer").onclick = () => viewer.close();
@@ -872,9 +875,11 @@ function askSend(ask) {
   text($("send-what"), `Send "${line}" to ${name}?`);
   text($("send-where"), `${pane.tool} in ${pane.session}, window ${pane.window_index}. Asked by ${new URL($("viewer-out").href).pathname}.`);
   go.disabled = true; clearTimeout(sendReady); sendReady = setTimeout(() => { go.disabled = false; }, 500);
-  go.onclick = async () => {
+  go.onclick = async () => { // still the same agent pane it named (the feed moved on meanwhile), and bound to it
     $("send-dialog").close();
-    if (await compose(pane.pane_id, { segments: () => [{ text: line }], replace() {} })) notice(`Sent to ${name}.`, 8000, ["Open the pane", () => navigate(pane.pane_id)]);
+    const now = sendIntent({ intent: "send", pane: pane.pane_id, text: line }, panes);
+    if (!now || now.pane.birth !== pane.birth) return notice(`${name} changed since you were asked. Nothing was sent.`);
+    if (await compose(pane.pane_id, { segments: () => [{ text: line }], replace() {} }, pane.birth)) notice(`Sent to ${name}.`, 8000, ["Open the pane", () => navigate(pane.pane_id)]);
   };
   $("send-edit").onclick = () => { $("send-dialog").close(); navigate(pane.pane_id, "summary", { draft: line }); };
   $("send-dialog").showModal();
@@ -1767,11 +1772,13 @@ function cursorIO(id, committed) {
 // is the next message, and clearing on the reply erased it. A failed send puts the sent
 // draft back in front of whatever was typed since (a password only into an empty field).
 // A reply to a pane that needs you holds its card as a tapped answer does.
-async function compose(id, value) {
+// `birth`: the pane's incarnation the user confirmed (askSend); the server types nothing into another.
+async function compose(id, value, birth) {
   const pane = panes.find((p) => p.pane_id === id);
   const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
   const secret = value === $("secret"), sent = secret ? value.value : value.segments();
   const form = new FormData();
+  if (birth) form.append("birth", birth);
   if (secret) form.append("secret", sent);
   else for (const segment of sent) {
     if (segment.file) form.append("image", segment.file);
@@ -2099,7 +2106,7 @@ for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close",
 // A phone's sheets close as their × does when dragged down, or tapped above (on the dim
 // backdrop: modal, so the tap reaches nothing under it). Every sheet's heading leads with its ×.
 for (const d of document.querySelectorAll("dialog:not(#drawer)")) { // the drawer drags itself
-  const close = () => d.querySelector(".dialog-heading button").click();
+  const close = () => d.querySelector(".dialog-heading button, #send-cancel").click();
   dragToDismiss(d, { onClose: close });
   d.addEventListener("click", (e) => {
     const r = d.getBoundingClientRect();
