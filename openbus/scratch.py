@@ -112,7 +112,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
     hidden (a sidecar half-written, a .git) are not the page and do not date it. A folder
     whose meta.json came first is `pending` until its index lands: its page is being made
     (a site's assets may land ahead of its index, for a minute; loose files older than
-    that are the publish). One whose meta.json says `updating` is being revised."""
+    that are the publish)."""
     sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
     files = [(at, f) for at, f in files if f not in sidecars]
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
@@ -128,7 +128,6 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
         f.endswith((".html", ".htm", ".md")) for f in names) and (
         not page or time.time() - max(files)[0] < 60)
     # The page is read: checked again, as it may have become a link out since find listed it.
-    updating = "" if pending else meta.get("updating", "")
     title = meta.get("title") or (None if not page or inside(page, folder) else folder.name)
     if not title and page and page.suffix == ".md":
         title = scratch_markdown.render(page)[2]
@@ -143,7 +142,8 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
-            "page": page, "pending": pending, "updating": updating,
+            "page": page, "pending": pending,
+            "revising": bool(meta.get("updating")),  # its mark, pending a moment or not
             "read": read,  # meta.json read whole, or none: one half-written says nothing yet
             "thumb": inside(thumb, folder) and thumb.is_file() and thumb.stat().st_mtime}
 

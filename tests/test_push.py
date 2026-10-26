@@ -1047,10 +1047,10 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     assert [i["name"] for i in shot] == ["page"]
     # A PDF rewritten in a revision reads as pending for a minute, its mark already gone:
     # nothing on disk changes when that minute ends, and the scan still sees it.
+    (root / "page" / "report.html").unlink()  # first seen mid-rewrite, pending
+    (root / "page" / "report.pdf").write_text("pdf")
     meta.write_text('{"title": "Mock", "updating": "v3"}')
     service.landed()
-    (root / "page" / "report.html").unlink()
-    (root / "page" / "report.pdf").write_text("pdf")
     meta.write_text('{"title": "Mock"}')
     os.utime(meta, ns=(3, 3))
     service.landed()
