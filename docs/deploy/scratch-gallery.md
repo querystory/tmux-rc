@@ -41,13 +41,13 @@ about it.
     $TMUXRC_SCRATCH_URL/<folder>/ (or the folder's path if that variable is unset). The
     public URL sits behind the user's login, so to check the page yourself request
     $TMUXRC_SCRATCH_LOCAL_URL/<folder>/ instead; exactly 200 means it is served (a 202 is a
-    page still being made). Everything in
+    page still in progress). Everything in
     that directory is visible to everyone who can reach tmux-rc: never put secrets or
     private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or
     WebSockets, or submit forms, so inline any data a page needs. Write the folder's
     meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time})
     first, before the page: until index.html or index.md lands, the link shows that the
-    page is being made, so it is safe to hand out early, and the user is notified when it
+    page is in progress, so it is safe to hand out early, and the user is notified when it
     is ready.
 
 ## Markdown pages
@@ -88,7 +88,7 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   `fetch().ok`, so the snippet says exactly 200; the placeholder also sends `Retry-After` and
   `X-Scratch-Pending: 1`, and its `<title>` reads "In progress: …", not the page's own.
 - **Its state** comes from the pane named in `meta.json`. While that pane runs, waits on a
-  tool or has subagents out, the page is being made. While it idles, the placeholder says
+  tool or has subagents out, the page is in progress. While it idles, the placeholder says
   so but keeps waiting, since a background subagent can build the page while its
   session's prompt looks idle. Once the pane is closed, or idle for 30 minutes, it says
   the agent stopped without publishing (without a pane, 30 minutes after `created`).
@@ -121,8 +121,8 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
 - **Thumbnails.** If Playwright's headless Chromium is installed (`make screenshots`
   installs it, or run `npx playwright install chromium-headless-shell`;
   `TMUXRC_THUMB_BROWSER` names another binary), each page is shot into a `thumb.webp`
-  beside it. It is shot again after the page changes. Until then the card says the preview
-  is being made, or that there is none.
+  beside it. It is shot again after the page changes. Until then the card says "Making a preview…",
+  or that there is none.
 - **Descriptions.** With the parse model configured, a folder without a description gets
   one sentence, written into its `meta.json` and marked `"generated": ["description"]`.
   A description already there is never replaced.

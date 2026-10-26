@@ -238,10 +238,10 @@ def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeyp
         "bare": "working", "old": "stopped"}
     assert scratch.progress({"activity": "idle", "agents": 1}, "%1", now) == "working"
     card = scratch._card(items["wip"])
-    assert 'class="working" data-pending="wip/thumb.webp">Being made…' in card
-    assert 'aria-label="wip: Being made…">wip</a>' in card  # the thumb's state, read aloud
+    assert 'class="working" data-pending="wip/thumb.webp">In progress' in card
+    assert 'aria-label="wip: In progress">wip</a>' in card  # the thumb's state, read aloud
     # an earlier page's thumbnail neither hides the state nor is polled in its place
-    assert '<span class="quiet">Being made…' in scratch._card(items["idle"])
+    assert '<span class="quiet">In progress' in scratch._card(items["idle"])
     assert '<span class="stopped">' in scratch._card(items["long"])  # nothing left to poll for
     shot = []
     scratch.page(tmp_path, states, [], STYLE, sidecars=shot.extend)

@@ -31,7 +31,7 @@ def test_opened_skips_folders_gone_and_takes_titles_as_the_gallery_does(tmp_path
         (tmp_path / name / "index.html").write_text(f"<title>{title}</title>")
     (tmp_path / "loose.html").write_text("a file, not a folder")
     os.symlink(tmp_path / "one", tmp_path / "link")
-    (tmp_path / "wip").mkdir()  # its page still being made: the drawer spins for it
+    (tmp_path / "wip").mkdir()  # its page still in progress: the drawer spins for it
     (tmp_path / "wip" / "meta.json").write_text('{"title": "Soon"}')
     (tmp_path / "quit").mkdir()  # its pane gone: stopped, so no spinner
     (tmp_path / "quit" / "meta.json").write_text('{"title": "Never", "pane": "%9"}')

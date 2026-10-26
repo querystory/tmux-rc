@@ -996,7 +996,7 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
 
 def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     """Finishing meta.json in place leaves its folder's mtime alone: the scan retries, with
-    an asset already there (a loose file then, not a page being made) or not."""
+    an asset already there (a loose file then, not a page in progress) or not."""
     root = tmp_path / "scratch"
     (root / "wip").mkdir(parents=True)
     (root / "wip" / "app.css").write_text("")

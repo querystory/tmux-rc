@@ -39,10 +39,11 @@ _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 _PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
 STALL = 30 * 60  # an in-progress folder's agent quiet this long has stopped
-# What a card, then the placeholder, says of a page being made, by progress().
-STATES = {"working": ("Being made…", "An agent is making this page. It opens here once it lands."),
-          "quiet": ("Being made…", "The agent's pane is idle. It may still be working."),
-          "stopped": ("Stopped without publishing",
+# What a card, then the placeholder, says of a page in progress, by progress().
+STATES = {"working": ("In progress",
+                      "An agent is working on this page. It opens here once it's ready."),
+          "quiet": ("In progress", "The agent's pane is idle. It may still be working."),
+          "stopped": ("Stopped",
                       "The agent stopped without publishing this page.")}
 DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gallery.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
@@ -108,7 +109,7 @@ def _files(root: Path, top: Path) -> dict[str, list[tuple[float, str]]]:
 def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
     hidden (a sidecar half-written, a .git) are not the page and do not date it. A folder
-    whose meta.json came first is `pending` until its index lands: its page is being made
+    whose meta.json came first is `pending` until its index lands: its page is in progress
     (a site's assets may land ahead of its index, for a minute; loose files older than
     that are the publish)."""
     sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
@@ -165,7 +166,7 @@ def items(root: Path) -> list[dict]:
 def opened(root: Path, visits: list[tuple[str, float]], n: int,
            states: list[dict] = ()) -> list[dict]:
     """The first `n` folders of these visits, (name, when), still in scratch: the title and
-    link the gallery gives each, whether its page is still being made (not stopped), and
+    link the gallery gives each, whether its page is still in progress (not stopped), and
     when it was opened."""
     found = list(islice(((item, at) for name, at in visits
                          if (item := read(root, root / name))), n))
