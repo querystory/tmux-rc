@@ -146,7 +146,8 @@ The idle-count button ("+12") is gone: the rail lists every pane, as the list do
 
 The phone's tab bar is a floating glass pill of Dashboard, Usage, Sessions, Needs you and
 Scratch, with a count only on Needs you. Usage and Scratch were a card's view and a ☰ row, a
-tap or two deep for places people check many times a day. Five is all a 320 px phone holds
+tap or two deep for places people check many times a day. The five never change: with no
+plan to meter, Usage says how to get one rather than its tab vanishing and the bar shifting. Five is all a 320 px phone holds
 without shrinking the targets, so Chat and the mic left the bar for the ☰ drawer (and a
 pane's heading, as before): they are opt-in actions that open a sheet, not places, a casual
 user never sees them, and a running conversation keeps its own bubble. It used to carry

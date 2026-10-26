@@ -1346,6 +1346,8 @@ button.picked:disabled { opacity: 1; }
 .uv-card.empty { padding-bottom: 10px; }
 .uv-card.empty .uv-chart { display: none; }
 .uv-none { color: var(--muted); font-size: 13px; }
+.uv-empty { margin: 4px; color: var(--muted); line-height: 1.5; }
+.uv-blank :is(.uv-span, .uv-key, .fleet-seg, .uv-bar:has(> .uv-errs:empty)) { display: none; }
 .uv-filter summary { min-height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; }
 .uv-filter summary::after { display: none; }
 .uv-filter summary.on { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
