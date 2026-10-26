@@ -6,6 +6,7 @@ import io
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
@@ -176,6 +177,15 @@ def test_a_browser_that_hangs_or_cannot_start_draws_nothing(tmp_path, monkeypatc
         assert S.render("http://127.0.0.1:1/scratch/p/") is None
     monkeypatch.setattr(S.subprocess, "Popen", fail(OSError("cannot start")))
     assert S.whole("http://127.0.0.1:1/scratch/p/", (390, 844), 2, dark=False) is None
+    shell = tmp_path / "shell"  # starts, then dies at once (a missing library, say)
+    shell.write_text("#!/bin/sh\nexit 1\n")
+    shell.chmod(0o755)
+    monkeypatch.undo()  # the real Popen, with only the shell and the preflight stubbed
+    monkeypatch.setattr(S, "browser", lambda: str(shell))
+    monkeypatch.setattr(S, "urlopen", lambda url, timeout: open(os.devnull))  # noqa: SIM115
+    started = time.monotonic()
+    assert S.whole("http://127.0.0.1:1/scratch/p/", (390, 844), 2, dark=False) is None
+    assert time.monotonic() - started < 5  # not the whole 20s
 
 
 def test_no_bundled_shell_means_no_shot(tmp_path, monkeypatch):

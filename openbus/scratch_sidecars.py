@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from functools import partial
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -255,7 +255,7 @@ def whole(url: str, size: tuple[int, int], scale: int, *, dark: bool,
                                     stderr=subprocess.DEVNULL, start_new_session=True)
             port = Path(profile) / "DevToolsActivePort"  # the shell writes it once listening
             while not port.is_file() or len(port.read_text().split()) < 2:
-                if time.monotonic() > deadline:
+                if time.monotonic() > deadline or proc.poll() is not None:  # or it died
                     return None
                 time.sleep(0.05)
             number, path = port.read_text().split()[:2]
@@ -295,7 +295,8 @@ def whole(url: str, size: tuple[int, int], scale: int, *, dark: bool,
             return None
         finally:  # the shell and its helpers, which share its new session
             if proc:
-                os.killpg(proc.pid, signal.SIGKILL)
+                with suppress(ProcessLookupError):  # all gone already
+                    os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
 
 
