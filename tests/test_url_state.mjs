@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatHash, historyMode, parseHash, scratchUrl } from "../web/m/url-state.js";
+import { formatHash, historyMode, linkDraft, parseHash, scratchUrl } from "../web/m/url-state.js";
 
 test("every addressable state round-trips", () => {
   for (const state of [
@@ -26,7 +26,7 @@ test("every addressable state round-trips", () => {
 
 test("unknown fields and bad values are ignored", () => {
   const state = parseHash("#from=push&pane=%254&filter=bogus&view=nope&x=1");
-  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: [], acct: [], agent: [], q: "", compose: false, open: null });
+  assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: [], acct: [], agent: [], q: "", compose: false, open: null, draft: null });
   assert.equal(parseHash("#pane=%254&compose=1").compose, true);
   assert.equal(formatHash(parseHash("#pane=%254&from=push&compose=1")), "pane=%254");
   // A "Ready" push names the scratch page to open (app.js checks it with scratchUrl), once.
@@ -138,4 +138,12 @@ test("the gallery opens only a Scratch page on the app's own origin", () => {
     "/m/", "/api/panes", "/scratch", "/scratch/../m/", "/scratch/%2e%2e/api/x", "/scratch\\..\\m/", "/scratch/..%2fm/", "/scratch/..%5Cm/",
     "/docs/mocks/x/", "", undefined, null, 1, { href: "/scratch/x/" }, "http://[bad"])
     assert.equal(scratchUrl(href, base), null, String(href));
+});
+
+test("a link's draft is read once, cut and cleaned, never written back", () => {
+  assert.equal(parseHash("#pane=%2522&draft=merge%20%23534").draft, "merge #534");
+  assert.equal(formatHash(parseHash("#pane=%2522&draft=merge%20%23534")), "pane=%2522");
+  assert.equal(linkDraft("merge #1\r\n\u001b[2J\u202eok\u0000"), "merge #1   [2J ok");
+  assert.equal([...linkDraft("é".repeat(600))].length, 500);
+  for (const empty of [null, "", " \n\t "]) assert.equal(linkDraft(empty), null);
 });
