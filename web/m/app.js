@@ -454,6 +454,8 @@ function renderList() {
   // A phone's list narrowed by the filter menu says so at its foot too, a tap from all of them.
   const scopedOn = !hidden && !WIDE.matches && accts.length + filter.length + scope.tools.length > 0, scoped = subset.filter((p) => !outside.has(p.pane_id)).length; // not the pinned
   show("empty-needs", hidden > 0 || scopedOn);
+  // A search nothing open matches may be work from an earlier session: Chat can look.
+  show("empty-history", !subset.length && !!$("search").value.trim() && !$("chat").hidden);
   $("empty-needs").dataset.all = scopedOn ? "filters" : "needs";
   // "On other accounts" only when that is what hides every one of them.
   text($("empty-needs"), scopedOn ? `${scoped} ${[...scope.tools, ...accts].map((a) => `${a} `).join("or ")}pane${scoped === 1 ? "" : "s"} of ${panes.length} · Show all`
@@ -1905,6 +1907,7 @@ addEventListener("touchmove", (e) => {
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
 }, { passive: true });
 $("scratch-nav").onclick = (e) => { e.preventDefault(); openPage("scratch"); };
+$("empty-history").onclick = () => live.ask(`Find my previous sessions about "${$("search").value.trim()}".`);
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
