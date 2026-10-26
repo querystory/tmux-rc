@@ -123,4 +123,6 @@ test("a session's scratch pages stay in Links after their URL leaves the screen"
   const page = { href: "https://deck.example/scratch/status/", text: "Status", detail: "Scratch" };
   assert.deepEqual(paneLinks({ links: [] }, [page]), [page]);
   assert.deepEqual(paneLinks({ links: [{ href: page.href, text: "status" }] }, [page]), [page]);
+  const many = Array.from({ length: 64 }, (_, i) => ({ repo: "a/b", number: i + 1 }));
+  assert.deepEqual(paneLinks({ prs: many }, [page]).at(-1), page); // its own cap, not the PRs'
 });

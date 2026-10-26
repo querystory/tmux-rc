@@ -23,10 +23,10 @@ export function paneLinks(pane, pages = []) {
       return true;
     } catch { return false; }
   };
-  const prs = [...tracked, ...pages].filter(accept).slice(0, 64);
+  const kept = [tracked, pages].flatMap((list) => list.slice(0, 64).filter(accept)); // a cap each
   const transient = (Array.isArray(pane?.links) ? pane.links : [])
     .filter(accept).slice(0, 3).map(({ href, text }) => ({ href, text }));
-  return [...prs, ...transient];
+  return [...kept, ...transient];
 }
 
 // The link a question asks the user to open (a sign-in or device-login URL): the screen
