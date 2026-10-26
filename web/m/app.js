@@ -856,10 +856,11 @@ async function findMaker(href) {
 }
 // The page as the user sees it goes with each send unless they take it off: the server draws it
 // (the sandboxed frame can't be read from here) at the frame's width, the window's height and the
-// system's theme, which a page follows, and attaches it as a pasted image.
+// theme the frame is shown in (its color-scheme, which a page's prefers-color-scheme follows),
+// and attaches it as a pasted image.
 const shotChip = (on) => { $("viewer-shot").setAttribute("aria-pressed", on); text($("viewer-shot"), on ? "Screenshot attached ✕" : "Attach screenshot"); };
 $("viewer-shot").onclick = () => shotChip($("viewer-shot").getAttribute("aria-pressed") !== "true");
-const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewer.querySelector("iframe")?.clientWidth || innerWidth}x${innerHeight}${matchMedia("(prefers-color-scheme: dark)").matches ? " dark" : ""}`;
+const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewer.querySelector("iframe")?.clientWidth || innerWidth}x${innerHeight}${getComputedStyle(viewer).colorScheme.includes("dark") ? " dark" : ""}`;
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.

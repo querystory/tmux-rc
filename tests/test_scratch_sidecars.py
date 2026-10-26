@@ -117,6 +117,9 @@ def test_the_renderer_is_served_scratch_and_nothing_else(tmp_path):
         with urlopen(f"{base}/index.html") as page:
             assert page.read() == b"<p>page</p>"
             assert page.headers["Content-Security-Policy"] == scratch.SANDBOX
+        (root / "notes.md").write_text("# Notes")
+        with urlopen(f"{base}/notes.md?raw") as raw:  # the file itself, as the daemon serves it
+            assert raw.read() == b"# Notes" and raw.headers["Content-Type"].startswith("text/plain")
         host = base.removesuffix("/scratch")
         for url in (host + "/index.html", host + "/api/digest", base + "/link.txt",
                     base + "/../secret.txt", base + "/%2e%2e/secret.txt", base + "/leak/",
@@ -231,7 +234,7 @@ def test_a_capture_draws_the_viewed_page_and_nothing_outside_its_folder(tmp_path
     _page(tmp_path, "p")
     urls = []
     monkeypatch.setattr(S, "render", lambda url, *a: urls.append(url) or b"png")
-    for view in ("", "b.html?x=1", "../q/", "a/%2e%2e/../q/"):
+    for view in ("", "b.html?x=1", "../q/", "a/%2e%2e/../q/", "//../q/", "..\\q/", "/\\../q/"):
         S.capture(tmp_path, WEB_DIR, "p", view, (390, 844), dark=False)
     assert [u.split("/scratch/")[1] for u in urls] == ["p/", "p/b.html?x=1"]
     assert not S.capture(tmp_path, WEB_DIR, "../p", "", (390, 844), dark=False)
