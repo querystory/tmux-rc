@@ -884,9 +884,10 @@ function render() {
   if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with search and sort
   show("brand", wide || !list); show("find", wide || list);
-  // A phone's title heads the overview and scrolls off under the bar, as Gmail's subject does.
-  const head = $("pane-title").parentElement, headTo = wide ? $("heading") : $("overview");
-  if (head.parentElement !== headTo) wide ? $("back").after(head) : headTo.prepend(head);
+  // A phone's title heads the overview and scrolls off under the bar, as Gmail's subject does;
+  // its terminal has no overview, so the bar carries the title and its line, as a wide header does.
+  const head = $("pane-title").parentElement, headTo = wide || view === "terminal" ? $("heading") : $("overview");
+  if (head.parentElement !== headTo) headTo === $("heading") ? $("back").after(head) : headTo.prepend(head);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -920,11 +921,12 @@ function render() {
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   // Expunge is offered only where it can work: a Claude Code or Codex pane (the server refuses the rest anyway).
   for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
-  show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
-  markEnding($("detail"), pane);
-  text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   // Which account it runs on, when that needs saying: first on a phone, which ellipsizes the end.
   const account = pane && accounts.badge(pane.pane_id);
+  show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
+  html($("move-pane"), `${licon("users", 18)}<span>Move to another account…${account ? `<small class="acct-on">Now on ${account}</small>` : ""}</span>`);
+  markEnding($("detail"), pane);
+  text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("heading").dataset.title = $("pane-title").textContent; // a phone's bar shows it once the title is out of sight
@@ -2493,7 +2495,6 @@ $("expunge-pane").onclick = async () => {
 // Move to another account: copy the pane's agent session into another account's dir and
 // resume it there in a new window; this pane and the original are left alone
 // (docs/design/agent-accounts.md).
-html($("move-pane"), `${licon("users", 18)}<span>Move to another account…</span>`);
 // Not while a choice runs: the sheet is where its outcome shows.
 $("close-move").onclick = () => $("move-choices").inert || $("move-dialog").close();
 $("move-dialog").addEventListener("cancel", (e) => { if ($("move-choices").inert) e.preventDefault(); });
