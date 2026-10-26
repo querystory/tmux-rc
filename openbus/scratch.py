@@ -140,8 +140,10 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
-            "page": page, "pending": pending, "updating": updating, "thumb": inside(thumb, folder)
-            and thumb.is_file() and thumb.stat().st_mtime}
+            "page": page, "pending": pending, "updating": updating,
+            # meta.json read whole, or none: one caught half-written says nothing yet
+            "read": bool(meta) or not os.path.lexists(folder / "meta.json"),
+            "thumb": inside(thumb, folder) and thumb.is_file() and thumb.stat().st_mtime}
 
 
 def read(root: Path, folder: Path, files: list | None = None) -> dict | None:

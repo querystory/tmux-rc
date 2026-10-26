@@ -562,7 +562,7 @@ class PushManager:
             key = item and (name, item["inode"])
             if item and (item["pending"] or item["updating"]):
                 self._waiting[key] = "Ready" if item["pending"] else "Updated"
-            elif (verb := self._waiting.get(key)) and (  # its index, no asset
+            elif (verb := self._waiting.get(key)) and item["read"] and (  # its index, no asset
                     verb == "Updated" or item["href"].endswith("/")):
                 if self._ready_push(item, now, verb) or not self.store.subscriptions():
                     self.shoot(item)  # the gallery's spinner polls for it
@@ -587,7 +587,7 @@ class PushManager:
             "title": _push_text(f"{verb}: {item['title']}", 100),
             "body": _push_text(body or f"Its page is {verb.lower()}.", PUSH_BODY_MAX),
             "tag": f"block:{item['pane']}" if pane and not asking else f"scratch:{item['name']}",
-            "renotify": not any(p == item["pane"] for p, _ in self._notified),
+            "renotify": not pane or not any(p == item["pane"] for p, _ in self._notified),
             "url": "/m#" + urlencode({"view": "scratch", "open": f"/scratch/{item['href']}"}),
             "actions": []})
         if sent and pane:
