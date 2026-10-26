@@ -446,7 +446,7 @@ function renderList() {
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
   renderSidebar.answers.prune(subset);
-  if (WIDE.matches) { renderSidebar(subset, query, filter, more); placeRail(); } else { $("app").classList.remove("rail"); placePill(); renderSidebar.marks(filter, more); renderPhoneList(subset); } // a folded sidebar's class would hide the chips
+  if (WIDE.matches) { renderSidebar(subset, query, filter, more); placeRail(); } else { $("app").classList.remove("rail"); placePill(); renderSidebar.marks(filter, more); renderPhoneList(subset, query); } // a folded sidebar's class would hide the chips
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
   // Empty, while panes the filter hides need you: say so, a click from them.
@@ -483,12 +483,13 @@ function renderList() {
 }
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
-function renderPhoneList(subset) {
+function renderPhoneList(subset, query) {
   const rows = sort === "updated" ? subset.sort(newestFirst) : oneSession() ? subset
     // Sessions as the watcher lists them: tmux's own order.
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   // A card for answers to tap: a question's, or a finished turn's offers.
-  const carded = (p) => needsYou(p) || offersOf(p).length > 0;
+  // Searching, a Needs-you pane the search misses is a row, as in the sidebar.
+  const carded = (p) => !(query && outside.has(p.pane_id)) && (needsYou(p) || offersOf(p).length > 0);
   reconcile($("pane-list"), rows, (p) => p.heading ? p.key : carded(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
     if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
     if (!carded(p)) return makeRow(p);

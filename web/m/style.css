@@ -630,8 +630,10 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .sb-card.need { background: var(--amber-bg); --card: var(--amber-bg); }
 .sb-card .sb-open { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; padding: 7px 10px; white-space: normal; }
 .sb-open p { flex-basis: 100%; padding-left: 31px; color: var(--muted); font-size: 12px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.sb-open p.sb-items { display: block; color: var(--fg); white-space: pre-line; } /* never clipped: the answers below act on these rows */
+.sb-open p.sb-items { color: var(--fg); white-space: pre-line; -webkit-line-clamp: 3; } /* More (sidebar.js) unfolds it */
+.full .sb-open p.sb-items { display: block; }
 .sb-open p.sb-items:empty { display: none; }
+.sb-more { min-height: 24px; margin: -4px 0 6px 37px; padding: 0 4px; color: var(--accent); font-size: 12px; font-weight: 600; }
 .sb-open:not(:disabled):hover { background: transparent; } /* the row underneath carries state and selection */
 :is(.sb-row, .sb-card):not(.need):not([aria-current="true"]):hover { background: var(--raised); }
 #side-hover { position: fixed; z-index: 30; width: 320px; display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); --card: var(--surface); color: var(--fg); box-shadow: 0 8px 28px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; pointer-events: none; }
