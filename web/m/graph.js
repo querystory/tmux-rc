@@ -611,17 +611,17 @@ export function renderGraphView(root, panes, ctx) {
     const dark = () => { const on = document.documentElement.classList.toggle('fg-dark'); try { localStorage.setItem(DARK, on ? '1' : ''); } catch {} paint(); };
     // Full screen heads the column, in and out, so the way back is where the way in was. A phone
     // has only full screen (an inline graph there is too small to use), so its button closes the view.
-    // Closing wakes the page under it first, so the focus the app hands back lands there.
-    const toggle = () => phone() ? (root._inert?.forEach(s => { s.inert = false; }), ctx.close()) : full(!root.classList.contains('full'));
+    const toggle = () => phone() ? ctx.close() : full(!root.classList.contains('full'));
     for (const [name, label, fn] of [['fullscreen', 'Full screen', toggle], ['plus', 'Zoom in', () => g.zoom(1.35)], ['minus', 'Zoom out', () => g.zoom(1 / 1.35)],
       ['locate', 'Fit to view', () => g.fit()], ['moon', 'Dark canvas', dark]]) {
       const b = el('button', '', ctx.icon(name, 18)); b.title = b.ariaLabel = label; b.onclick = fn; tools.append(b);
     }
     // Full screen is the view itself pinned over the page (style.css), not the Fullscreen API,
     // which an iPhone grants only to video. The page under it goes inert, so Tab stays in the
-    // graph; the view leaving the screen (any navigation) ends it.
+    // graph; the view leaving the screen ends it, at once on any navigation (app.js route()), so
+    // the focus the app moves lands on a page that is live again.
     // The button is relabelled every call, as crossing the phone breakpoint changes what it does.
-    const zoomBtn = tools.firstChild, darkBtn = tools.lastChild, full = on => {
+    const zoomBtn = tools.firstChild, darkBtn = tools.lastChild, full = root._full = on => {
       if (on !== root.classList.contains('full')) {
         if (on) { root._inert = []; for (let a = root; a.parentElement && a !== document.body; a = a.parentElement) root._inert.push(...[...a.parentElement.children].filter(s => s !== a && !s.inert)); }
         root._inert.forEach(s => { s.inert = on; });
