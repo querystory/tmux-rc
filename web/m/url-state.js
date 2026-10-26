@@ -12,7 +12,7 @@
 // Also reads the old desktop UI's `#/pane/<id>` and `#/list/<filter>` so links saved from it
 // keep working.
 
-const FILTERS = ["attention", "working", "finished", "idle"]; // the list's sections, in its order
+const FILTERS = ["attention", "working", "blocked", "finished", "idle"]; // the list's sections, in its order
 const OLD = { running: "working", recent: "finished", waiting: "attention" }; // earlier links' names
 export const PAGES = ["heat", "usage", "loops", "restore", "scratch", "graph"]; // the dashboard's cards that open their own view
 

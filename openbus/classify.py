@@ -1476,11 +1476,11 @@ def classify(
     if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
         _read_workflow_rows(result, visible)
     # The model's quota read covers the workers too: they share the parent's limit, so a
-    # row still read as busy (a meter that only looks live, a workflow bar) is paused.
+    # row still read as busy (a meter that only looks live, a workflow bar) is blocked too.
     if result.get("activity") == "quota_blocked" and isinstance(result.get("subagents"), list):
         for a in result["subagents"]:
             if isinstance(a, dict) and a.get("state") in ("running", "compacting"):
-                a["state"] = "idle"
+                a["state"] = "quota_blocked"
     # Count only workers observed running; waiting/idle/unknown are not active work.
     # Compacting has its own history state but still counts as busy in the dock.
     subs = result.get("subagents")

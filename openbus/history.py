@@ -22,7 +22,7 @@ HEARTBEAT = 60
 COVERAGE = 120
 VISITS = 200  # the drawer shows a handful; this many outlast the panes and folders now gone
 BACKFILL_TTL = 4 * 3600
-STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
+STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting", "Quota blocked")
 AGENT_TOOLS = {"claude", "codex", "gemini", "antigravity", "opencode", "omp"}
 MAX_SPAN = 90 * 86400  # bounds a request; the database itself is never pruned
 GOAL_KEY = "running_goal"
@@ -50,7 +50,8 @@ def state_index(pane: dict) -> int:
     if activity == "running": return 1
     if activity == "compacting": return 4
     if activity == "waiting": return 5
-    if activity in ("idle", "quota_blocked"): return 2  # paused until its limit resets
+    if activity == "quota_blocked": return 6
+    if activity == "idle": return 2
     return 3
 
 
@@ -80,7 +81,8 @@ def sum_counts(rows: list[dict], key: str) -> list[int] | None:
     # Missing legacy fields mean unmeasured, not zero. Empty inventories ARE zero.
     if any(row.get(key) is None for row in rows):
         return None
-    return [sum(row[key][i] for row in rows) for i in range(len(STATES))]
+    # A row recorded before a state was added has no count for it: zero.
+    return [sum(row[key][i] for row in rows if i < len(row[key])) for i in range(len(STATES))]
 
 
 def grouped(panes: list[dict]) -> tuple[list[int], list[dict]]:

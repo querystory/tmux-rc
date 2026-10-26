@@ -71,7 +71,8 @@ class SubAgent(BaseModel):
 
     label: str  # what the sub-agent is doing, e.g. "In-depth review PR 4012"
     # Unknown is not proof of active work. Only running/compacting are busy.
-    state: Literal["running", "waiting", "idle", "compacting", "unknown", "done"] = "unknown"
+    state: Literal["running", "waiting", "idle", "compacting", "quota_blocked", "unknown",
+                   "done"] = "unknown"
     elapsed: str | None = None  # e.g. "2m", if the row shows it
     tokens: str | None = None  # e.g. "88.7k", if the row shows it
     progress: str | None = None  # a workflow row's "done/total" steps, e.g. "1/2"

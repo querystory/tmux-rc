@@ -5,8 +5,8 @@
   --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
   --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c; --lift: #2b322f;
   --amber: #f1c56a; --amber-bg: #352d1c; --red: #ff9696; --purple: #a371f7;
-  /* Fleet chart states, in history order: Needs you, Running, Idle, Unknown, Compacting, Waiting. */
-  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5;
+  /* Fleet chart states, in history order: Needs you, Running, Idle, Unknown, Compacting, Waiting, Quota blocked. */
+  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5; --chart-s6: #ff9696;
   /* Agent accounts (accounts.js), by the colour index openbus/accounts.py hands out. */
   --acct-0: #5eead4; --acct-1: #c4b5fd; --acct-2: #a8b3c4; --acct-3: #fcd34d; --acct-4: #7dd3fc; --acct-5: #fda4af;
 }
@@ -15,7 +15,7 @@
   --bg: #f5f7f6; --surface: #fff; --raised: #e7ede9; --line: #ccd7d0;
   --fg: #1b2821; --muted: #53655b; --accent: #146b46; --accent-bg: #dcf4e7; --lift: #fff;
   --amber: #815600; --amber-bg: #fff2d4; --red: #b52c36; --purple: #8250df;
-  --chart-s0: #f2ad32; --chart-s1: #39b978; --chart-s2: #e3e8ed; --chart-s3: #d1d8e2; --chart-s4: #9363c4; --chart-s5: #729cc1;
+  --chart-s0: #f2ad32; --chart-s1: #39b978; --chart-s2: #e3e8ed; --chart-s3: #d1d8e2; --chart-s4: #9363c4; --chart-s5: #729cc1; --chart-s6: #b52c36;
   --acct-0: #0f766e; --acct-1: #7c3aed; --acct-2: #64748b; --acct-3: #b45309; --acct-4: #0369a1; --acct-5: #be123c;
 }
 * { box-sizing: border-box; letter-spacing: 0; -webkit-tap-highlight-color: transparent; }
@@ -791,6 +791,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .s3 { --state-color: var(--line); }
 .s4 { --state-color: var(--purple); }
 .s5 { --state-color: #729cc1; }
+.s6 { --state-color: var(--red); }
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
 .landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
 .atlas-panel > p { font-size: 12px; }
@@ -1212,6 +1213,7 @@ button.picked:disabled { opacity: 1; }
 [data-s="attention"], [data-s="need"] { --a: var(--amber); }
 [data-s="working"], [data-s="run"] { --a: var(--accent); }
 [data-s="idle"], [data-s^="session:"] { --a: var(--fg); }
+[data-s="blocked"] { --a: var(--red); }
 .acct-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: the chip stays in its box */
 .row-acct:empty, .sb-acct:empty { display: none; }
 .sb-open .sb-acct { flex: none; max-width: 50%; padding-left: 4px; } /* a long label takes the badge's own ellipsis */
@@ -1532,7 +1534,7 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 /* The dark canvas: the observatory's navy under the graph whatever the app's theme, with the
    app's dark state colours, so amber still means needs you. */
 .fg-dark :is(.fg-view, .fg-mini) { color-scheme: dark; --surface: #070c18; --raised: #141c30; --line: #1f2a44; --fg: #dfe5f0; --muted: #7d89a6; --amber: #f1c56a; --accent: #83ddb3; --accent-bg: #193c2c; --bg: #03060d;
-  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5;
+  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5; --chart-s6: #ff9696;
   --acct-0: #5eead4; --acct-1: #c4b5fd; --acct-2: #a8b3c4; --acct-3: #fcd34d; --acct-4: #7dd3fc; --acct-5: #fda4af; }
 .fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
 .fg-tools button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--fg); }

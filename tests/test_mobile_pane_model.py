@@ -65,6 +65,11 @@ CASES = [
      [{"activity": "quota_blocked"}], "Quota blocked"),
     ("isRunning: quota blocked is not running", "isRunning",
      [{"activity": "quota_blocked"}], False),
+    ("matchesFilter: quota blocked is its own section, not just finished",
+     "matchesFilter",
+     [{"activity": "quota_blocked", "state_since": NOW_S}, ["finished"], NOW_MS], False),
+    ("matchesFilter: the blocked filter keeps quota-blocked panes", "matchesFilter",
+     [{"activity": "quota_blocked", "state_since": NOW_S}, ["blocked"], NOW_MS], True),
     # isRunning
     ("isRunning: running", "isRunning", [{"activity": "running"}], True),
     (
@@ -433,7 +438,7 @@ for tool, model, expected in [
         "modelProvider", [{"tool": tool, "model": model}], expected,
     ))
 
-FILTER_NAMES = ["attention", "working", "finished", "idle"]
+FILTER_NAMES = ["attention", "working", "blocked", "finished", "idle"]
 INVALID_FILTERS = (
     "__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None,
 )
@@ -470,7 +475,7 @@ const check = (description, actual, expected) => {{
 }};
 
 {checks}
-check("FILTERS exposes exactly the four filter names",
+check("FILTERS exposes exactly the five filter names",
       () => Object.keys(m.FILTERS).sort(), {json.dumps(sorted(FILTER_NAMES))});
 
 if (failures.length) {{

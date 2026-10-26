@@ -434,7 +434,8 @@ def seed_history(history: History) -> History:
             # Rotate who is busy every hour so per-session and per-tool slices move too.
             busy = sorted(panes[:alive],
                           key=lambda p: (int(p["pane_id"][1:]) * 17 + i // 4 * 7) % 53)
-            acts = ["running"] * run + ["waiting"] * need
+            # A plan limit hit once a day: one pane quota blocked for its last two hours.
+            acts = ["running"] * run + ["waiting"] * need + ["quota_blocked"] * (i % 96 >= 88)
             states = [p | {"activity": acts[k] if k < len(acts) else "idle",
                            "waiting_on": None, "subagents": []} for k, p in enumerate(busy)]
         t0 = int(NOW) - (n - 1 - i) * STEP

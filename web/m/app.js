@@ -110,7 +110,7 @@ const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", antigravity: "/antigravity.svg", opencode: "/opencode.svg", omp: "/omp.svg", shell: "/bash.png" };
 const NO_TMUX = "tmux is not running on this host (it does not survive a reboot).";
 // What an empty list says was filtered: "No Personal panes are working."
-const STATE_VERB = { attention: "need you", working: "are working", finished: "just finished", idle: "are idle" };
+const STATE_VERB = { attention: "need you", working: "are working", blocked: "are quota blocked", finished: "just finished", idle: "are idle" };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
 // The Layout menu's wireframes, in a 38×24 box: a terminal panel is dark, with a prompt and
 // output lines; an overview panel is tinted, with a title bar and lines of text.

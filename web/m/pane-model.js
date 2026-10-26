@@ -64,9 +64,10 @@ export function isRecent(pane, nowMs = Date.now(), within = PARKED_IDLE_SECS) {
   return pane.activity !== "idle" || idle < within;
 }
 // The list's sections, each its own pane set, so a filter shows exactly one section's panes:
-// Needs you, then Working, Just finished and Idle among the rest, each the first that fits.
-const working = (pane) => !needsYou(pane) && isRunning(pane), finished = (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && isRecent(pane, nowMs);
-export const FILTERS = { attention: needsYou, working, finished, idle: (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && !isRecent(pane, nowMs) };
+// Needs you, then Working, Quota blocked, Just finished and Idle among the rest, each the first that fits.
+const working = (pane) => !needsYou(pane) && isRunning(pane), blocked = (pane) => !needsYou(pane) && pane.activity === "quota_blocked";
+const rest = (pane) => !needsYou(pane) && !isRunning(pane) && !blocked(pane);
+export const FILTERS = { attention: needsYou, working, blocked, finished: (pane, nowMs) => rest(pane) && isRecent(pane, nowMs), idle: (pane, nowMs) => rest(pane) && !isRecent(pane, nowMs) };
 // `filters` is a list of FILTERS' names: a pane shows if it matches any; none (or only
 // unknown names) shows every pane.
 export function matchesFilter(pane, filters, nowMs = Date.now()) {
