@@ -48,8 +48,9 @@ about it.
     meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time})
     first, before the page: until index.html or index.md lands, the link shows that the
     page is being made, so it is safe to hand out early, and the user is notified when it
-    is ready. To revise a published page, add "updating": "<what's changing>" to its
-    meta.json before you start and remove it when you are done.
+    is ready. To revise a published page, set "updating": "<what's changing>" and
+    "pane": "$TMUX_PANE" in its meta.json before you start, and remove "updating" when you
+    are done.
 
 ## Markdown pages
 
@@ -116,8 +117,8 @@ pane rewrites it with its own pane when it starts.
 ## A page being updated
 
 An agent revising a page that is already published (a status page, a design being
-reworked) marks it in `meta.json`: `"updating": "<what's changing>"` before it starts, and
-the field removed when it is done. A page is otherwise either in progress (not yet
+reworked) marks it in `meta.json`: `"updating": "<what's changing>"`, with its own `pane`, before it
+starts, and the field removed when it is done. A page is otherwise either in progress (not yet
 published) or done, and a rewrite would look finished while it is half-way. The mark is
 explicit because the daemon cannot tell a revision from its files: they change only as
 each write lands, so a long rework shows nothing until its last write, and an edit seen
