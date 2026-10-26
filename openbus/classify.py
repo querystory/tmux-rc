@@ -66,9 +66,10 @@ _CHECKLIST_LINE_RE = re.compile(
 _PICKER_TABS_RE = re.compile(
     r"(?m)^[ \t]*[─━]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*?)(?:[ \t]*→)?[ \t]*$")
 _PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔\n]*[^☐☒✔\s])")
-# A checkbox row of any supported agent, behind any gutter (Claude's ⎿, a tree's ├─).
+# A checkbox row of any supported agent, behind any gutter (Claude's ⎿, a tree's ├─) and
+# before a barred transcript's right border.
 _CHECKBOX_ROW_RE = re.compile(
-    r"(?m)^[^\w\n]*?(?:[☐☒☑✔✓]|\[[ x✓•]\])[ \t]*(\S.*?)[ \t]*$")
+    r"(?m)^[^\w\n]*?(?:[☐☒☑✔✓]|\[[ x✓•]\])[ \t]*(\S.*?)[ \t]*(?:[│┃║][ \t]*)?$")
 _OPENCODE_RUNNING_RE = re.compile(
     # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
     # press turns the label into "esc again to interrupt".

@@ -409,8 +409,10 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs):
     assert "tasks" not in classify(_pane("claude"), screen, _llm({
         "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
     }))
-    for box in ("☐", "☒", "☑", "✓", "[x]", "[ ]"):  # a real task with the tab's label stays
-        assert classify(_pane("claude"), f"  ⎿  {box} {label}\n" + screen, _llm({
+    # A real task with the tab's label stays, barred (│ … │) or not.
+    for row in [f"  ⎿  {box} {label}" for box in ("☐", "☒", "☑", "✓", "[x]", "[ ]")] + [
+            f"│ ⎿  ☐ {label}      │"]:
+        assert classify(_pane("claude"), f"{row}\n" + screen, _llm({
             "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
         }))["tasks"] == tasks[1:]
     plan = "─" * 40 + f"\n☐ {label}\nOpenCode 1.18.32"  # another agent's plan under a rule
