@@ -271,13 +271,16 @@ def test_an_updating_page_keeps_its_thumbnail_and_says_so(tmp_path, monkeypatch)
         _folder(tmp_path, name, now, {**meta, "updating": "the intro"} if name != "done" else meta)
         (tmp_path / name / "thumb.webp").write_bytes(b"")
     os.utime(tmp_path / "idle" / "meta.json", (now - scratch.STALL - 1,) * 2)  # marked long ago
+    # a pane opened since the page was published, but before its update began
+    monkeypatch.setattr(scratch, "made_in", lambda _pane, at: at > now - scratch.STALL)
     states = [{"pane_id": "%1", "activity": "running"},
               {"pane_id": "%3", "activity": "idle", "state_since": now - scratch.STALL - 1}]
     items, _ = _resolved(tmp_path, states)
     assert not any(i["pending"] for i in items.values())  # published: never "In progress"
-    assert {n: (i["updating"], i["state"]) for n, i in items.items()} == {
+    assert {n: (i["updating"], i["state"]) for n, i in items.items() if i["updating"]} == {
         "rev": ("the intro", "working"), "gone": ("the intro", "stopped"),
-        "idle": ("the intro", "stopped"), "done": ("", "working")}
+        "idle": ("the intro", "stopped")}
+    assert not items["done"]["updating"]
     card = scratch._card(items["rev"])
     assert 'thumb.webp" alt="" loading="lazy"><span class="badge working">Updating</span>' in card
     assert 'aria-label="rev: Updating">rev</a>' in card

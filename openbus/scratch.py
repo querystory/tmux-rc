@@ -283,7 +283,7 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
     pane is still open. Returns the panes by id."""
     panes = {s.get("pane_id"): s for s in states}
     for i in listed:  # a pane id from before a tmux restart names some other pane now
-        if (pane := panes.get(i["pane"])) and not made_in(pane, i["created"]):
+        if (pane := panes.get(i["pane"])) and not made_in(pane, i["since"]):
             pane = None
         i["state"] = progress(pane, i["pane"], i["since"])
         i["pane"] = pane and i["pane"]
