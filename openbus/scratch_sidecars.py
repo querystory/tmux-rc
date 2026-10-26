@@ -10,7 +10,7 @@ retried until it changes, unless the model was out (llm's shared backoff)."""
 import io
 import logging
 import os
-import re
+import posixpath
 import subprocess
 import tempfile
 import threading
@@ -220,15 +220,17 @@ def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
 
 def capture(root: Path, web: Path, name: str, view: str, size: tuple[int, int], *,
             dark: bool) -> bytes | None:
-    """Folder `name`'s page as the scratch viewer showed it: `view` (a path and query in the
-    folder, else its own page), its size and theme, from the top. For a message to its
-    agent, served as the thumbnails are, scratch and nothing else."""
-    view = view.lstrip("/\\")  # as the URL below joins it, so what is checked is what is drawn
-    if not (item := scratch.named(root, name)) or ".." in re.split(
-            r"[/\\]", unquote(urlsplit(view).path)):
+    """Folder `name`'s page as the scratch viewer showed it: `view` (a path, query and hash
+    in the folder, else its own page), its size and theme, from the top. For a message to
+    its agent, served as the thumbnails are, scratch and nothing else."""
+    if not (item := scratch.named(root, name)):
         return None
     with serving(root, web) as base:
-        url = f"{base}/{quote(name)}/{view}" if view else f"{base}/{item['href']}"
+        url = f"{base}/{quote(name)}/{view.lstrip('/')}" if view else f"{base}/{item['href']}"
+        # Checked as the server will read it, decoded and resolved: inside this folder only.
+        path = posixpath.normpath(unquote(urlsplit(url).path).replace("\\", "/"))
+        if not f"{path}/".startswith(f"/scratch/{name}/"):
+            return None
         return render(url, size, dark, 20)  # well inside a send's 45s
 
 

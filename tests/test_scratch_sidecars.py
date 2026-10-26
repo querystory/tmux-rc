@@ -234,7 +234,8 @@ def test_a_capture_draws_the_viewed_page_and_nothing_outside_its_folder(tmp_path
     _page(tmp_path, "p")
     urls = []
     monkeypatch.setattr(S, "render", lambda url, *a: urls.append(url) or b"png")
-    for view in ("", "b.html?x=1", "../q/", "a/%2e%2e/../q/", "//../q/", "..\\q/", "/\\../q/"):
+    for view in ("", "b.html?x=1", "../q/", "a/%2e%2e/../q/", "//../q/", "..\\q/", "/\\../q/",
+                 "x://..%2f..%2fq/", "%2e%2e%5cq/"):
         S.capture(tmp_path, WEB_DIR, "p", view, (390, 844), dark=False)
     assert [u.split("/scratch/")[1] for u in urls] == ["p/", "p/b.html?x=1"]
     assert not S.capture(tmp_path, WEB_DIR, "../p", "", (390, 844), dark=False)

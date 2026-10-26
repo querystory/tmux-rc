@@ -848,7 +848,7 @@ function viewScratch(href, title) {
 async function findMaker(href) {
   viewerTo = null; paintViewerForm(); text($("viewer-status"), "");
   const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
-  const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search } : {};
+  const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
   if (!viewer.open || $("viewer-out").href !== href || !to.pane) return; // another page opened meanwhile
   const key = viewerKey({ pane_id: to.pane, birth: to.birth });
   if (!viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
