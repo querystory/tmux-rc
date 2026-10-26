@@ -8,6 +8,8 @@ never changes, so its session id goes into the folder's meta.json (marked genera
 a description) and is never searched for again; a miss is retried after a while, since
 agent-history indexes a session only some time after it starts."""
 
+import ctypes
+import errno
 import json
 import logging
 import os
@@ -197,22 +199,35 @@ def act(root: Path, action: str, names: list[str]) -> list[str]:
 
 
 def _move(name: str, src: int, dst: int, action: str) -> bool:
-    """One folder of `act`, between the folders open as `src` and `dst`."""
-    mode = lambda fd: (  # noqa: E731  the entry itself, never what a link points at
-        os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode)
-    try:
-        if not stat.S_ISDIR(mode(src)):
+    """One folder of `act`, between the folders open as `src` and `dst`. A move never
+    replaces what is there, even a folder an agent makes that instant (renameat2's
+    RENAME_NOREPLACE; where libc lacks it, the name is checked just before)."""
+    try:  # the entry itself, never what a link points at
+        if not stat.S_ISDIR(os.stat(name, dir_fd=src, follow_symlinks=False).st_mode):
             return False
     except FileNotFoundError:
         return False
     if action == "delete":
         shutil.rmtree(name, dir_fd=src)
         return True
-    with suppress(FileNotFoundError):
-        mode(dst)
-        return False  # its name is taken there
-    os.rename(name, name, src_dir_fd=src, dst_dir_fd=dst)
-    return True
+    raw = os.fsencode(name)
+    if _RENAMEAT2:
+        if _RENAMEAT2(src, raw, dst, raw, 1) == 0:  # 1: RENAME_NOREPLACE
+            return True
+        err = ctypes.get_errno()
+        if err == errno.EEXIST:
+            return False  # its name is taken there
+        if err not in (errno.ENOSYS, errno.EINVAL):
+            raise OSError(err, os.strerror(err), name)
+    try:  # without renameat2 (or on a filesystem that refuses it)
+        os.stat(name, dir_fd=dst, follow_symlinks=False)
+    except FileNotFoundError:
+        os.rename(name, name, src_dir_fd=src, dst_dir_fd=dst)
+        return True
+    return False
+
+
+_RENAMEAT2 = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
 
 
 def listing(root: Path, *, archived: bool = False) -> list[dict]:

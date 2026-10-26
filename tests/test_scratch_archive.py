@@ -37,7 +37,10 @@ def test_a_link_is_never_followed(tmp_path):
     assert (outside / "victim" / "index.html").is_file()
 
 
-def test_archive_restore_and_delete(tmp_path):
+@pytest.mark.parametrize("renameat2", [True, False])
+def test_archive_restore_and_delete(tmp_path, monkeypatch, renameat2):
+    if not renameat2:  # a libc without it: the name is checked just before the move
+        monkeypatch.setattr(scratch, "_RENAMEAT2", None)
     for name in ("old", "keep", "twin"):
         _folder(tmp_path, name)
     assert scratch.act(tmp_path, "archive", ["old", "twin", "old", "gone"]) == ["old", "twin"]
