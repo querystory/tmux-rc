@@ -821,12 +821,24 @@ scratchFrame.addEventListener("load", tellScratch);
 // being made links the pane making it) may open a pane, and nothing else: its origin is opaque,
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  const { pane, view, open, title } = e.data || {}, href = scratchUrl(open, location.href);
+  const { pane, view, open, title, scratch, names } = e.data || {}, href = scratchUrl(open, location.href);
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane);
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
+  if (["archive", "unarchive", "delete"].includes(scratch) && Array.isArray(names)) scratchAct(scratch, names);
 });
+// The gallery's Archive, Restore and Delete, which its sandbox can't: Delete (only ever from
+// the archive) asks first, here where no page can click it; Archive offers an Undo.
+async function scratchAct(action, names) {
+  const what = (n) => (n === 1 ? "1 page" : `${n} pages`);
+  if (action === "delete" && !confirm(`Delete ${what(names.length)} for good? This cannot be undone.`)) return;
+  let done;
+  try { ({ done } = await post("/api/scratch", { action, names })); } catch (err) { return notice(`Could not change Scratch: ${err.message}`, 6000); }
+  scratchFrame.contentWindow?.postMessage({ reload: true }, "*");
+  notice(`${{ archive: "Archived", unarchive: "Restored", delete: "Deleted" }[action]} ${what(done.length)}.`, 8000,
+    action === "archive" && done.length ? ["Undo", () => scratchAct("unarchive", done)] : null);
+}
 function scratchPage() { return cardView("Scratch", scratchFrame); }
 // A gallery page, full screen over the app in a frame of its own (sandboxed by the daemon's CSP
 // like every /scratch/ page), under a bar: Back, its title, and a real link out to a tab.

@@ -17,6 +17,24 @@ and in a phone's ☰ menu. There a card opens full screen over the app. Back, Es
 swipe from the left edge returns to the gallery, and "Open in browser" opens the page in
 a tab of its own. Settings links to the gallery's own page under More.
 
+An open gallery keeps itself current: every five seconds while it is on screen, it asks
+whether anything changed and reloads if so. That covers a new folder, a page or a
+thumbnail landing, and a folder archived. It holds off while a filter is typed or cards
+are selected.
+
+## Cleaning up
+
+In the app's Scratch, Select turns each card into a tick box: tap the ones to clear (All
+takes every card the filter shows), then Archive. Archived folders leave the gallery but
+are not gone. Their links keep working, and Archived lists them, where Restore brings
+them back and Delete removes them for good, after asking. Archive offers an Undo for a
+few seconds. Delete is only offered in Archived, so nothing is deleted in one step.
+
+On disk, archiving moves the folder into `.archive/` in the scratch directory, which the
+gallery skips like any hidden folder; Restore moves it back. A folder whose name has been
+taken meanwhile stays where it is. The gallery's own page, opened in a tab, can't change
+files (it is sandboxed like every scratch page), so there Select opens the app's Scratch.
+
 ## Setting it up
 
 The gallery needs two things: a scratch directory the daemon serves, and agents that know
@@ -93,10 +111,8 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   session's prompt looks idle. Once the pane is closed, or idle for 30 minutes, it says
   the agent stopped without publishing (without a pane, 30 minutes after `created`).
 - **The gallery** and the drawer's Recent show the folder with a spinner while its agent
-  works (once stopped, the gallery says so). Once the page lands, its thumbnail is queued and the spinner
-  turns into it (it stops asking after about 18 minutes); while one spins, the gallery also
-  reloads every 30 seconds (not while a filter is being typed), since the thumbnail never
-  comes without a browser to shoot it.
+  works (once stopped, the gallery says so). The gallery lists pages still being made
+  first. Once the page lands, its thumbnail is queued and the spinner turns into it.
 - **When the page lands** (the daemon looks every ten seconds), every subscribed device gets one push, `Ready: <title>`, whose
   tap opens the page in the app's scratch viewer. It shares its tag with the pane's
   Needs-you notification, and for two minutes after it that pane's plain "turn ended"

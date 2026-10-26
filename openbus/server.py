@@ -73,6 +73,7 @@ from fastapi.responses import (  # noqa: E402
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
+    Response,
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles  # noqa: E402
@@ -2241,13 +2242,40 @@ if _scratch_dir:
                 WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))
 
     @app.get("/scratch/", include_in_schema=False)
-    async def scratch_listing() -> HTMLResponse:
-        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount."""
+    async def scratch_listing(archived: str | None = None, seen: str | None = None) -> Response:
+        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount;
+        `?archived`, the archive's. `?seen=<its tag>` is the open gallery asking whether to
+        reload, as an image that loads only on a change. Not a fetch: the gallery keeps the
+        sandbox of every /scratch/ page (no same origin, connect-src 'none'). Opening it
+        to fetches would need CORS for the opaque origin "null", which every agent page
+        shares, or the app's own origin, for a page that renders agent-written text."""
+        if seen is not None:
+            listed = await asyncio.to_thread(scratch.listing, Path(_scratch_dir),
+                                             archived=archived is not None)
+            return Response(None, 204) if seen == scratch.tag(listed) else Response(
+                _PIXEL, media_type="image/gif")
         use_llm = getattr(app.state.watcher, "use_llm", False)
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
             Path(_scratch_dir), *_who(),
             lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed, use_llm),
-            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
+            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS,
+            archived=archived is not None)))
+
+    _PIXEL = bytes.fromhex("47494638396101000100000000002c00000000010001000002024401003b")
+
+    class ScratchBody(BaseModel):
+        action: Literal["archive", "unarchive", "delete"]
+        names: list[str]
+
+    @app.post("/api/scratch")
+    def scratch_act(body: ScratchBody, request: Request) -> dict:
+        """Archive, unarchive or delete (from the archive) the gallery's selected folders."""
+        try:
+            done = scratch.act(Path(_scratch_dir), body.action, body.names)
+        except (ValueError, PermissionError) as e:
+            raise HTTPException(400, str(e)) from e
+        _audit(request, f"scratch_{body.action}", "-", ",".join(done))
+        return {"done": done}
 
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,

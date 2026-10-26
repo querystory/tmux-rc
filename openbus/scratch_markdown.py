@@ -108,12 +108,17 @@ def page(path: Path, web: Path) -> str:
             .replace("<!--mermaid-->", script).replace("<!--body-->", body))
 
 
+ARCHIVE = ".archive"  # scratch's archived folders: hidden, like any dot folder
+
+
 class Files(StaticFiles):
     """scratch's files, with a .md served as its page (`?raw` for the file itself), a
     folder's index.md as its index when it has no index.html, and, while it has neither,
     what `pending` makes of the folder's name (scratch.placeholder), as 202 Accepted:
     an agent checking for a 200 is not told its page is there. Anything hidden (a .git,
-    an .env) is not part of the page, as in the gallery, and is not served."""
+    an .env) is not part of the page, as in the gallery, and is not served. An archived
+    folder (in ARCHIVE) is still served at its own link, so links handed out keep
+    working; only the gallery leaves it out."""
 
     def __init__(self, *, web: Path, pending=lambda _name: None, **kwargs):
         super().__init__(**kwargs)
@@ -122,9 +127,12 @@ class Files(StaticFiles):
     def lookup_path(self, path):
         if any(part.startswith(".") for part in Path(path).parts):
             return "", None
-        full, st = super().lookup_path(path)
-        if st is None and Path(path).name == "index.html":
-            return super().lookup_path(path.removesuffix("html") + "md")
+        for under in ("", ARCHIVE + "/"):
+            full, st = super().lookup_path(under + path)
+            if st is None and Path(path).name == "index.html":
+                full, st = super().lookup_path(under + path.removesuffix("html") + "md")
+            if st is not None:
+                break
         return full, st
 
     async def get_response(self, path, scope):

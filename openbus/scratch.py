@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -155,8 +156,55 @@ def read(root: Path, folder: Path, files: list | None = None) -> dict | None:
     return None
 
 
+def archive(root: Path) -> Path:
+    """Where archived folders go: a real folder of scratch, never a link planted out of it."""
+    path = root / scratch_markdown.ARCHIVE
+    if path.is_symlink() or (os.path.lexists(path) and not path.is_dir()):
+        raise PermissionError(f"{path} is not a folder of scratch")
+    return path
+
+
+def act(root: Path, action: str, names: list[str]) -> list[str]:
+    """Archive, unarchive or delete these folders, returning those done. A name is only
+    ever a folder directly in scratch (or its archive): anything else (a path, a dot name,
+    a link) fails the whole request. Delete only empties the archive, so nothing is lost
+    in one step; a folder whose name is taken where it goes is left where it is."""
+    if not all(n and n == Path(n).name and n[0] != "." and "\0" not in n for n in names):
+        raise ValueError("a name is one folder of scratch")
+    shelf = archive(root)
+    src, dst = (root, shelf) if action == "archive" else (shelf, root)
+    done = []
+    for name in dict.fromkeys(names):
+        folder = src / name
+        if folder.is_symlink() or not folder.is_dir():
+            continue
+        if action == "delete":
+            shutil.rmtree(folder)
+        elif os.path.lexists(dst / name):
+            continue
+        else:
+            dst.mkdir(exist_ok=True)
+            folder.rename(dst / name)
+        done.append(name)
+    return done
+
+
+def listing(root: Path, *, archived: bool = False) -> list[dict]:
+    """The gallery's folders, or the archive's."""
+    return items(archive(root)) if archived else items(root)
+
+
+def tag(listed: list[dict]) -> str:
+    """What the open gallery compares to see that it changed: a folder came, went or
+    changed, a thumbnail landed, or (by the minute) a page being made may have stopped."""
+    return str(hash((*((i["name"], i["updated"], i["pending"], i["thumb"]) for i in listed),
+                     any(i["pending"] for i in listed) and int(time.time() // 60))))
+
+
 def items(root: Path) -> list[dict]:
     """Every folder of scratch, most recently updated first."""
+    if not root.is_dir():  # an archive not made yet
+        return []
     files = _files(root, root)
     return sorted(filter(None, (read(root, f, files[f.name]) for f in root.iterdir())),
                   key=lambda i: -i["updated"])
@@ -313,16 +361,21 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
 
 
 def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
-         pane_of=lambda _entry: None, sidecars=lambda _listed: None, docs: str = DOCS) -> str:
+         pane_of=lambda _entry: None, sidecars=lambda _listed: None, docs: str = DOCS,
+         *, archived: bool = False) -> str:
     """The gallery, with `style` the app's stylesheet, `pane_of` the pane a running
     agent-history entry is in (live.running_pane), `sidecars` what queues the missing
-    thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation."""
-    listed = items(root)
-    sidecars([i for i in listed if not i["pending"]])  # nothing to shoot or describe yet
+    thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation;
+    `archived`, the archive's instead (an archived page is still served at its link)."""
+    listed = listing(root, archived=archived)
+    sidecars([i for i in listed if not (i["pending"] or archived)])  # nothing to shoot yet
     resolve(listed, states, profiles, pane_of)
+    listed.sort(key=lambda i: not i["pending"] or i["state"] == "stopped")  # being made: first
     out = _PAGE.read_text().replace("/*tokens*/", scratch_markdown.tokens(style)).replace(
-        "DOCS_URL", docs)
-    if not listed:  # what scratch is, and how agents come to publish here
+        "DOCS_URL", docs).replace("LISTING_TAG", tag(listed))
+    if archived:
+        out = out.replace("<html>", '<html class="archived">')
+    elif not listed:  # what scratch is, and how agents come to publish here
         out = out.replace('<section id="empty" hidden>', '<section id="empty">').replace(
             '<input type="search"', '<input hidden type="search"').replace(
             '<span class="seg"', '<span hidden class="seg"')
@@ -351,17 +404,14 @@ def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
     wait = STATES[i["state"]][0] if i["pending"] else (
         i.get("shot") == "pending" and "Making a preview…")
-    # A pending folder's thumbnail is an earlier page's: its state shows instead, and once
-    # the page lands and is shot, the poll swaps in the new thumbnail.
-    stopped = i["pending"] and i.get("state") == "stopped"  # nothing coming to poll for
-    poll = "" if i["thumb"] or stopped else (
-        f' data-pending="{quote(i["name"])}/thumb.webp"')
+    # A pending folder's thumbnail is an earlier page's: its state shows instead, until the
+    # page lands and is shot, which the open gallery sees (its tag) and reloads to show.
     thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">'
              if i["thumb"] and not i["pending"]
-             else f'<span class="{i["state"] if i["pending"] else ""}"{poll}>{wait}</span>'
+             else f'<span class="{i["state"] if i["pending"] else ""}">{wait}</span>'
              if wait else "No preview")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
-    return (f'<article data-q="{escape(words)}">'
+    return (f'<article data-q="{escape(words)}" data-name="{e["name"]}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}"'
             + (f' aria-label="{e["title"]}: {wait}"' if i["pending"] else "")  # the thumb's

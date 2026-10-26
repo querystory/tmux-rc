@@ -85,6 +85,31 @@ the gallery. On a phone the gallery drops the app's page head and runs under the
 and its own filter row carries Grid/List. A strip down the left edge is kept for the
 app's swipe back, because touches inside a frame never reach the app.
 
+**Clean-up archives first, and the app does it.** Scratch fills with stale folders, and
+deleting from a gallery of look-alike thumbnails is the kind of mistake that can't be
+taken back. So the gallery archives, and only the archive deletes: a slip in the gallery
+costs an Undo, and deleting needs two separate steps. An archived folder moves to a
+hidden `.archive/` beside the others rather than into a database flag. The gallery
+already skips hidden folders, and a folder that has moved can't be listed by mistake. Its
+link keeps serving, because links to it sit in chats and notes, and a 404 there would make
+archiving feel like deleting. The gallery can't make these changes itself, since its
+sandbox allows no request that writes. It asks the app, as it does for everything else.
+The app checks every name strictly (a single folder directly under scratch, never a link
+or a dot name) and refuses a `.archive` that is a link. It raises the Delete confirm
+itself, so a page that got into the gallery's frame could at worst archive something,
+which can be undone.
+
+**The open gallery checks for changes, by image.** A gallery left open used to miss a
+folder made after it loaded. Its sandbox forbids fetch, so it can't make a conditional
+request. Instead it loads `?seen=<its listing's tag>` as an image every five seconds while
+on screen. The answer is a pixel only when the listing changed, and the page then
+reloads. The tag hashes each folder's name, newest file, whether it is being made, and
+its thumbnail, so a reload means there is something new to see. Giving the gallery
+fetches was rejected. It would need CORS for the opaque origin, which every agent page
+shares, or the app's own origin for a page that renders agent-written text. A push
+channel was rejected too: the daemon only notices scratch changes on a ten-second scan,
+so the poll costs no latency.
+
 **Opt-in, with no default directory.** Whatever sits in the directory is published to
 everyone the front door admits. A default path (say under `~/.local/share`) would mean a
 file saved there for an unrelated reason gets published by an upgrade nobody read the notes

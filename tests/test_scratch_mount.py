@@ -46,6 +46,24 @@ for path in ("/scratch/", "/scratch/mock.html", "/scratch/sub/", "/scratch/nope/
 c.get("/scratch/viewed/", headers={"Sec-Fetch-Dest": "iframe"})  # the app's viewer
 c.get("/scratch/wip/", headers={"Sec-Fetch-Dest": "iframe"})  # its placeholder
 print(int(sorted(seen()) == ["sub", "viewed", "wip"]))
+if not server._scratch_dir:
+    sys.exit()
+# Archive: gone from the gallery, still served at its link (and only there); a name that
+# is a path is refused whole; Delete empties the archive, and then the link 404s.
+act = lambda action, *names: c.post("/api/scratch", json={"action": action, "names": names})
+root = server.Path(server._scratch_dir)
+tag = lambda: server.scratch.tag(server.scratch.listing(root))
+before = tag()
+print(int(act("archive", "viewed").json() == {"done": ["viewed"]}))
+print(int('data-name="viewed"' not in c.get("/scratch/").text
+          and 'data-name="viewed"' in c.get("/scratch/?archived").text))
+print(c.get("/scratch/viewed/").status_code, c.get("/scratch/.archive/viewed/").status_code)
+print(act("archive", "sub", "../sub").status_code, int(act("delete", "sub").json()["done"] == []))
+# The open gallery's check: an image only when its tag is out of date (no fetch, sandboxed)
+old, now = c.get(f"/scratch/?seen={before}"), c.get(f"/scratch/?seen={tag()}")
+print(int(old.headers["content-type"] == "image/gif" and now.status_code == 204))
+print(int(act("delete", "viewed").json() == {"done": ["viewed"]}),
+      c.get("/scratch/viewed/").status_code)
 """
 
 
@@ -83,7 +101,8 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # Hidden files and directories (an .env, a .git) are refused, as the gallery skips them.
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
-        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 200, 404, 400, 1, 1, 1, 404]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

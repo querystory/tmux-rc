@@ -36,11 +36,14 @@ article { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding
 /* Inside the app (its Scratch page), the app names the page and pads its sides: of the header,
    only Grid/List stays, on the filter's line (the app keeps the choice: each side posts it).
    Room under the last card for a phone's tab bar, which floats over this frame. */
+/* The filter beside the other controls, on a line of its own only where they don't fit. */
+:root:not(.framed) header input { width: min(100%, 300px); margin: 0; }
+@media (max-width: 599px) { :root:not(.framed) header input { order: 1; width: 100%; } }
 .framed main { display: flex; flex-wrap: wrap; gap: 0 8px; padding: 12px 0 120px; }
 .framed header { display: contents; }
-.framed header > :not(.seg) { display: none; }
-.framed input { flex: 1; width: auto; }
-.framed .seg { order: 1; height: 44px; }
+.framed header > :not(.seg, .act, input) { display: none; }
+.framed input { flex: 1 1 0; min-width: 120px; width: auto; }
+.framed :is(.seg, .act) { order: 1; height: 44px; }
 .framed :is(#cards, #empty) { order: 2; flex-basis: 100%; }
 h2 { margin: 0; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
 h2 a { color: var(--fg); text-decoration: none; }
@@ -51,10 +54,23 @@ p { margin: 0; overflow-wrap: anywhere; }
 .tool { padding: 0; font: inherit; color: var(--muted); background: none; border: 0; }
 .where { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
 .muted { color: var(--muted); font-size: 13px; }
+/* Select, then Archive (Restore and Delete in the archive): a bar over the cards, a tick on each. */
+.act, #bar button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; font: inherit; font-size: 14px; color: var(--fg); text-decoration: none; background: var(--raised); border: 0; border-radius: 8px; cursor: pointer; }
+#bar { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-basis: 100%; margin: 0 -16px 12px; padding: 10px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.framed #bar { order: 1; margin: 0 0 12px; border: 1px solid var(--line); border-radius: 10px; }
+#count { margin-right: auto; }
+#bar button:disabled { opacity: .5; cursor: default; }
+#bar [data-act="delete"] { color: var(--bg); background: var(--red); }
+.archived #bar [data-act="archive"], :root:not(.archived) #bar :is([data-act="unarchive"], [data-act="delete"]), .selecting #select { display: none; }
+.selecting article { position: relative; cursor: pointer; user-select: none; }
+.selecting article::after { content: ""; position: absolute; top: 20px; left: 20px; width: 26px; height: 26px; background: rgb(0 0 0 / .45); border: 2px solid #fff; border-radius: 50%; box-shadow: 0 1px 3px rgb(0 0 0 / .4); }
+.selecting article.picked { outline: 2px solid var(--accent); outline-offset: -1px; }
+.selecting article.picked::after { background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 16px no-repeat; border-color: var(--accent); }
 a { color: var(--accent); }
+@media (max-width: 599px) { .act span, #bar [data-act] svg { display: none; } header { gap: 8px; } h1 { font-size: 24px; } .act, .seg button { padding: 0 8px; } }
 </style></head><body><main>
-<header><h1>Scratch</h1><a href="DOCS_URL">About</a><a href="/m/">tmux-rc</a><span class="seg" role="group" aria-label="View"><button type="button" data-view="grid" aria-label="Grid" title="Grid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg><span>Grid</span></button><button type="button" data-view="list" aria-label="List" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/></svg><span>List</span></button></span></header>
-<input type="search" placeholder="Filter Scratch" aria-label="Filter">
+<header><h1>Scratch</h1><input type="search" placeholder="Filter Scratch" aria-label="Filter"><button type="button" class="act" id="select" data-icon="select" title="Select"><span>Select</span></button><a class="act" id="shelf" href="?archived" target="_self" data-icon="archive" title="Archived"><span>Archived</span></a><span class="seg" role="group" aria-label="View"><button type="button" data-view="grid" aria-label="Grid" title="Grid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg><span>Grid</span></button><button type="button" data-view="list" aria-label="List" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/></svg><span>List</span></button></span><a href="DOCS_URL">About</a><a href="/m/">tmux-rc</a></header>
+<div id="bar" hidden><button type="button" id="cancel" data-icon="x" aria-label="Cancel" title="Cancel"></button><b id="count"></b><button type="button" id="all">All</button><button type="button" data-act="archive" data-icon="archive">Archive</button><button type="button" data-act="unarchive" data-icon="restore">Restore</button><button type="button" data-act="delete" data-icon="trash">Delete</button></div>
 <section id="cards"><!--cards--></section>
 <section id="empty" hidden>
 <h2>Nothing here yet</h2>
@@ -76,20 +92,45 @@ const box = document.querySelector("input");
 const filter = () => { const q = box.value.trim().toLowerCase();
   for (const a of document.querySelectorAll("article")) a.hidden = !a.dataset.q.includes(q); };
 box.addEventListener("input", filter);
-// A preview still being made appears when it lands: the sandbox allows no fetch, but an
-// image may be retried, so the page itself (and a filter being typed) is left alone.
-for (const wait of document.querySelectorAll("[data-pending]")) {
-  let tries = 0;
-  const poll = () => { const img = Object.assign(new Image(), { alt: "" });
-    img.onload = () => { wait.closest("article").querySelector("h2 a").removeAttribute("aria-label"); wait.replaceWith(img); };
-    img.onerror = () => tries < 40 && setTimeout(poll, Math.min(3000 * 1.1 ** tries++, 60000)); // then once a minute, ~18m in all
-    img.src = `${wait.dataset.pending}?${Date.now()}`; };
-  poll();
-}
-// The thumbnail comes only once shot, and not without a browser: while a page is being made,
-// the gallery reloads to see it land, unless a filter is being typed.
-if (document.querySelector(".thumb :is(.working, .quiet)"))
-  setInterval(() => box.value || document.activeElement === box || location.reload(), 30000);
+const root = document.documentElement, archived = root.classList.contains("archived");
+// Live: while it is seen, the gallery asks whether its listing changed (a folder came, went or
+// changed, a thumbnail landed) and reloads to show it, unless a filter is being typed or
+// cards are being selected. An image, which loads only on a change: the sandbox allows no fetch.
+const check = () => { if (document.visibilityState !== "visible") return;
+  const img = new Image();
+  img.onload = () => box.value || document.activeElement === box || root.classList.contains("selecting") || location.reload();
+  img.src = `./?${archived ? "archived&" : ""}seen=LISTING_TAG&t=${Date.now()}`; };
+setInterval(check, 5000);
+document.addEventListener("visibilitychange", check);
+// Lucide icons (lucide.dev), inline like the app's.
+const ICONS = { select: '<path d="M21 10.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.5"/><path d="m9 11 3 3L22 4"/>',
+  archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/>',
+  restore: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h2M20 8v11a2 2 0 0 1-2 2h-2M9 15l3-3 3 3M12 12v9"/>',
+  trash: '<path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/>',
+  back: '<path d="m12 19-7-7 7-7M19 12H5"/>', x: '<path d="M18 6 6 18M6 6l12 12"/>' };
+const shelf = document.getElementById("shelf");
+if (archived) { shelf.href = "./"; shelf.dataset.icon = "back"; shelf.title = shelf.firstChild.textContent = "Scratch";
+  document.querySelector("h1").textContent = "Archived"; box.placeholder = "Filter archived"; }
+for (const el of document.querySelectorAll("[data-icon]")) el.insertAdjacentHTML("afterbegin",
+  `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[el.dataset.icon]}</svg>`);
+// Select, then Archive, Restore or Delete. The app does the deed (the sandbox can't), so outside
+// it Select opens the app's Scratch, where Delete asks first and Archive offers an Undo.
+const bar = document.getElementById("bar"), picked = () => [...document.querySelectorAll("article.picked")];
+const count = () => { const n = picked().length; document.getElementById("count").textContent = `${n} selected`;
+  for (const b of bar.querySelectorAll("[data-act]")) b.disabled = !n; };
+const selecting = (on) => { root.classList.toggle("selecting", on); bar.hidden = !on;
+  if (!on) for (const a of picked()) a.classList.remove("picked");
+  count(); };
+document.getElementById("cards").addEventListener("click", (e) => { // a tap picks, never opens
+  const card = root.classList.contains("selecting") && e.target.closest("article");
+  if (!card) return;
+  e.preventDefault(); e.stopPropagation(); card.classList.toggle("picked"); count(); }, true);
+document.getElementById("select").onclick = () => framed ? selecting(true) : location.assign("/m/#view=scratch");
+document.getElementById("all").onclick = () => { for (const a of document.querySelectorAll("article:not([hidden])")) a.classList.add("picked"); count(); };
+document.getElementById("cancel").onclick = () => selecting(false);
+addEventListener("keydown", (e) => e.key === "Escape" && selecting(false));
+for (const b of bar.querySelectorAll("[data-act]"))
+  b.onclick = () => parent.postMessage({ scratch: b.dataset.act, names: picked().map((a) => a.dataset.name) }, "*");
 for (const b of document.querySelectorAll(".who")) b.onclick = () => { box.value = b.textContent; filter(); };
 // Grid or list. Remembered where the browser allows it; the sandbox usually doesn't, and
 // inside the app the app keeps the choice: each side posts it to the other.
@@ -97,8 +138,9 @@ const views = document.querySelectorAll("[data-view]");
 const show = (view) => { document.getElementById("cards").classList.toggle("list", view === "list");
   for (const b of views) b.setAttribute("aria-pressed", String(b.dataset.view === view)); };
 let saved; try { saved = localStorage.getItem("tmuxrc-scratch-view"); } catch { /* sandboxed */ }
-show(saved || "grid"); // big thumbnails first; List is the compact choice
-addEventListener("message", (e) => { if (e.source !== parent) return; // the app: its view and theme
+show(saved || location.hash.slice(1) || "grid"); // big thumbnails first; List is the compact choice
+addEventListener("message", (e) => { if (e.source !== parent) return; // the app: its view and theme, or a change made
+  if (e.data?.reload) location.reload();
   if (["grid", "list"].includes(e.data?.view)) show(e.data.view);
   if (typeof e.data?.light === "boolean") document.documentElement.classList.toggle("light", e.data.light); });
 // Inside the app, the pane that made a page opens there, not as a second app in this frame,
@@ -113,5 +155,6 @@ if (framed) {
     a.onclick = (e) => { e.preventDefault(); parent.postMessage({ open: a.href, title: a.closest("article").querySelector("h2").textContent }, "*"); };
 }
 for (const b of views) b.onclick = () => { show(b.dataset.view); try { localStorage.setItem("tmuxrc-scratch-view", b.dataset.view); } catch { /* sandboxed */ }
+  if (!framed) location.replace(`#${b.dataset.view}`); // kept by the live reload
   if (framed) parent.postMessage({ view: b.dataset.view }, "*"); };
 </script></body></html>

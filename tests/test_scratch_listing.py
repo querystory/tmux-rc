@@ -204,15 +204,26 @@ def test_an_empty_gallery_says_how_agents_publish_there(tmp_path):
     assert '<section id="empty" hidden>' in scratch.page(tmp_path, [], [], STYLE)
 
 
-def test_a_pending_preview_names_the_image_the_page_retries():
-    from openbus.scratch import _card
-    item = {"name": "a b", "href": "a%20b/", "title": "t", "description": "", "who": "",
-            "where": "", "pane": None, "thumb": False, "shot": "pending", "pending": False,
-            "created": 0, "updated": 0}
-    assert 'data-pending="a%20b/thumb.webp"' in _card(item)
-    assert "data-pending" not in _card({**item, "shot": "failed"})
-    # its author's pane since closed: a page that landed still waits for its thumbnail
-    assert 'data-pending="a%20b/thumb.webp"' in _card({**item, "state": "stopped"})
+def test_the_tag_changes_with_what_the_open_gallery_shows(tmp_path):
+    """The open gallery reloads when its tag changes: a folder coming, its page or
+    thumbnail landing, a folder archived. Nothing else, or it would reload for nothing."""
+    tag = lambda: scratch.tag(scratch.items(tmp_path))  # noqa: E731
+    _folder(tmp_path, "one", 1000)
+    before = tag()
+    assert tag() == before
+    wip = tmp_path / "wip"
+    wip.mkdir()
+    (wip / "meta.json").write_text('{"title": "wip"}')  # a page being made shows at once
+    assert tag() != before
+    seen = tag()
+    (wip / "index.md").write_text("# wip")
+    assert tag() != seen
+    seen = tag()
+    (wip / "thumb.webp").write_bytes(b"x")
+    assert tag() != seen
+    seen = tag()
+    scratch.act(tmp_path, "archive", ["one"])
+    assert tag() != seen
 
 
 def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeypatch):
@@ -238,14 +249,16 @@ def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeyp
         "bare": "working", "old": "stopped"}
     assert scratch.progress({"activity": "idle", "agents": 1}, "%1", now) == "working"
     card = scratch._card(items["wip"])
-    assert 'class="working" data-pending="wip/thumb.webp">Being made…' in card
+    assert '<span class="working">Being made…' in card
     assert 'aria-label="wip: Being made…">wip</a>' in card  # the thumb's state, read aloud
     # an earlier page's thumbnail neither hides the state nor is polled in its place
     assert '<span class="quiet">Being made…' in scratch._card(items["idle"])
     assert '<span class="stopped">' in scratch._card(items["long"])  # nothing left to poll for
     shot = []
-    scratch.page(tmp_path, states, [], STYLE, sidecars=shot.extend)
+    out = scratch.page(tmp_path, states, [], STYLE, sidecars=shot.extend)
     assert sorted(i["name"] for i in shot) == ["done"]  # nothing to shoot while pending
+    order = [m[1] for m in re.finditer(r'data-name="([^"]+)"', out)]  # being made: first
+    assert set(order[:3]) == {"wip", "idle", "bare"}  # not those whose agent stopped
     def who():  # the panes, accounts and stylesheet, asked only of a pending folder
         return states, [], STYLE
     page = scratch.placeholder(tmp_path, "wip", who)
