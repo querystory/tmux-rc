@@ -7,13 +7,19 @@ more than the slowest of them at once, and the listing never waits on it. Each f
 is tried once per version of its files: a page that cannot be shot or described is not
 retried until it changes, unless the model was out (llm's shared backoff)."""
 
+import base64
 import io
+import itertools
+import json
 import logging
+import math
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import threading
+import time
 from contextlib import contextmanager
 from functools import partial
 from html.parser import HTMLParser
@@ -23,12 +29,16 @@ from urllib.parse import parse_qs, quote, urlsplit
 from urllib.request import urlopen
 
 from PIL import Image
+from websockets.exceptions import WebSocketException
+from websockets.sync.client import connect
 
 from . import llm, scratch, scratch_markdown
 
 logger = logging.getLogger(__name__)
 
 VIEWPORT, THUMB = (1280, 800), (480, 300)
+MAX_HEIGHT = 6000  # CSS px of a whole page drawn for a message; the rest is cut
+MAX_PIXELS = 8000  # and its image's height, shrunk to fit: the most a model API takes
 _SHOOTABLE = {".html", ".htm", ".md", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 _lock = threading.Lock()
 _VIEW = re.compile(r"(?:[\w-][\w.-]*/)*(?:[\w-][\w.-]*)?(?:[?#].*)?")  # a page in a folder
@@ -177,31 +187,35 @@ def _description(root: Path, _url: str, item: dict) -> None:
             _tried.discard(_version(item))
 
 
-def render(url: str, size: tuple[int, int] = VIEWPORT, dark: bool = False,
-           timeout: float = 60, scale: int = 1) -> bytes | None:
-    """`url` as a PNG at `size` (CSS px) times `scale`, drawn in a fresh, throwaway profile,
-    offline but for `url`'s own host, within `timeout`s; None when it cannot be drawn."""
-    exe = browser()
-    if not exe:
-        return None
-    try:  # served, or the shot would be of the browser's error page (a 404 raises too)
-        urlopen(url, timeout=min(10, timeout / 4)).close()
+def _isolated(exe: str, profile: str, url: str) -> list[str]:
+    """The headless shell in a fresh, throwaway profile. Every request but `url`'s host
+    (serving's) goes to a proxy that isn't there, loopback included: a page could otherwise
+    frame a local or private-network service, which the shot would then publish."""
+    return [exe, "--headless", "--no-first-run", "--hide-scrollbars", f"--user-data-dir={profile}",
+            "--proxy-server=http://127.0.0.1:9",
+            f"--proxy-bypass-list=<-loopback>;{urlsplit(url).netloc}"]
+
+
+def _served(url: str, timeout: float = 10) -> bool:
+    """Served, or the shot would be of the browser's error page (a 404 raises too)."""
+    try:
+        urlopen(url, timeout=timeout).close()
     except OSError:
+        return False
+    return True
+
+
+def render(url: str) -> bytes | None:
+    """`url` as a PNG at VIEWPORT; None when it cannot be drawn."""
+    if not (exe := browser()) or not _served(url):
         return None
     with tempfile.TemporaryDirectory(prefix="tmux-rc-thumb-") as profile:
         png = Path(profile) / "shot.png"
-        # Every request but `url`'s host (serving's) goes to a proxy that isn't there,
-        # loopback included: a page could otherwise frame a local or private-network
-        # service, which the shot would then publish.
         try:
-            subprocess.run([exe, "--headless", "--no-first-run", "--hide-scrollbars",
-                            f"--user-data-dir={profile}", "--window-size={},{}".format(*size),
-                            f"--force-device-scale-factor={scale}",
-                            *(["--force-dark-mode"] if dark else []),
-                            "--proxy-server=http://127.0.0.1:9",
-                            f"--proxy-bypass-list=<-loopback>;{urlsplit(url).netloc}",
+            subprocess.run([*_isolated(exe, profile, url),
+                            "--window-size={},{}".format(*VIEWPORT),
                             "--virtual-time-budget=3000", f"--screenshot={png}", url],
-                           capture_output=True, timeout=timeout, check=False)
+                           capture_output=True, timeout=60, check=False)
         except (OSError, subprocess.TimeoutExpired):
             return None
         return png.read_bytes() if png.is_file() else None
@@ -220,18 +234,77 @@ def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
     return True
 
 
-def capture(root: Path, web: Path, name: str, view: str, size: tuple[int, int], *,
-            dark: bool) -> bytes | None:
+def whole(url: str, size: tuple[int, int], scale: int, *, dark: bool,
+          timeout: float = 20) -> tuple[bytes, int, int] | None:
+    """`url` as a PNG of the whole page, `size[0]` CSS px wide (laid out in a `size` window,
+    at `scale` device pixels per px and in `dark` or light), cut at MAX_HEIGHT: the PNG,
+    the height drawn and the page's own. The shell's --screenshot draws only its window, so
+    this drives it over the DevTools protocol; None when it cannot be drawn in `timeout`s."""
+    deadline = time.monotonic() + timeout
+    if not (exe := browser()) or not _served(url, timeout / 4):
+        return None
+    # The shell's helpers may still be writing the profile when it is removed: no error then.
+    with tempfile.TemporaryDirectory(prefix="tmux-rc-shot-", ignore_cleanup_errors=True) as profile:
+        proc = subprocess.Popen([*_isolated(exe, profile, url), "--remote-debugging-port=0",
+                                 "about:blank"], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, start_new_session=True)
+        try:
+            port = Path(profile) / "DevToolsActivePort"  # the shell writes it once listening
+            while not port.is_file() or len(port.read_text().split()) < 2:
+                if time.monotonic() > deadline:
+                    return None
+                time.sleep(0.05)
+            number, path = port.read_text().split()[:2]
+            with connect(f"ws://127.0.0.1:{number}{path}", max_size=None) as ws:
+                ids = itertools.count(1)
+
+                def call(method, session=None, **params):
+                    ws.send(json.dumps({"id": (n := next(ids)), "method": method, "params": params,
+                                        **({"sessionId": session} if session else {})}))
+                    while (reply := json.loads(ws.recv(max(0.1, deadline - time.monotonic())))
+                           ).get("id") != n:
+                        pass  # an event
+                    return reply["result"]  # none for an error: KeyError
+
+                target = call("Target.createTarget", url="about:blank")["targetId"]
+                tab = call("Target.attachToTarget", targetId=target, flatten=True)["sessionId"]
+                call("Emulation.setDeviceMetricsOverride", tab, width=size[0], height=size[1],
+                     deviceScaleFactor=scale, mobile=False)  # laid out as in a frame: no 980px page
+                call("Emulation.setEmulatedMedia", tab, features=[
+                    {"name": "prefers-color-scheme", "value": "dark" if dark else "light"}])
+                call("Page.navigate", tab, url=url)
+                while not call("Runtime.evaluate", tab, returnByValue=True, expression=(
+                        f"location.href === {json.dumps(url)} && document.readyState === "
+                        "'complete'"))["result"].get("value"):
+                    if time.monotonic() > deadline:
+                        return None
+                    time.sleep(0.1)
+                time.sleep(0.5)  # what the page draws once loaded (a chart, a fetch-free table)
+                height = math.ceil(call("Page.getLayoutMetrics", tab)["cssContentSize"]["height"])
+                drawn = min(height, MAX_HEIGHT)
+                png = call("Page.captureScreenshot", tab, format="png", captureBeyondViewport=True,
+                           clip={"x": 0, "y": 0, "width": size[0], "height": drawn,
+                                 "scale": min(1, MAX_PIXELS / (drawn * scale))})
+                return base64.b64decode(png["data"]), drawn, height
+        except (OSError, TimeoutError, WebSocketException, KeyError, ValueError):
+            return None
+        finally:  # the shell and its helpers, which share its new session
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+
+
+def capture(root: Path, web: Path, name: str, view: str, size: tuple[int, int], scale: int, *,
+            dark: bool) -> tuple[bytes, int, int] | None:
     """Folder `name`'s page as the scratch viewer showed it: `view` (a path, query and hash
-    in the folder, else its own page), its size and theme, from the top. For a message to
-    its agent, served as the thumbnails are, scratch and nothing else."""
+    in the folder, else its own page), at its width, pixel ratio and theme, whole (whole()).
+    For a message to its agent, served as the thumbnails are, scratch and nothing else."""
     # Plain names only: nothing encoded, hidden or climbing, so nothing a server or the
     # browser could resolve to another folder or a file the viewer would not show.
     if not (item := scratch.named(root, name)) or not _VIEW.fullmatch(view):
         return None
     with serving(root, web) as base:
         url = f"{base}/{quote(name)}/{view}" if view else f"{base}/{item['href']}"
-        return render(url, size, dark, timeout=20, scale=2)  # inside a send's 45s; sharp on a phone
+        return whole(url, size, scale, dark=dark)  # inside a send's 45s
 
 
 class _Text(HTMLParser):

@@ -2099,7 +2099,7 @@ async def _compose(pane_id: str, request: Request):
             elif kind == "scratch" and isinstance(value, str):  # sent from the scratch viewer
                 page = value
             elif kind == "shot" and isinstance(value, str):  # the viewer's size and theme
-                shot = re.fullmatch(r"(\d{2,4})x(\d{2,4})( dark)?", value)
+                shot = re.fullmatch(r"(\d{2,4})x(\d{2,4})@([1-3])( dark)?", value)  # WxH@dpr
             elif kind == "view" and isinstance(value, str):  # its path and query in the folder
                 view = value
             elif kind == "secret" and isinstance(value, str) and secret is None:
@@ -2121,11 +2121,14 @@ async def _compose(pane_id: str, request: Request):
         line = _scratch_dir and await asyncio.to_thread(scratch.about, Path(_scratch_dir), page)
         if secret or not line:
             raise HTTPException(400, "no such scratch page")
-        # What the user saw, attached as a pasted image is: a failed render sends the words alone.
-        png = shot and await asyncio.to_thread(
+        # The whole page the user saw, attached as a pasted image is, and said so when cut
+        # short; a failed render sends the words alone.
+        drawn = shot and await asyncio.to_thread(
             scratch_sidecars.capture, Path(_scratch_dir), WEB_DIR, page, view,
-            (min(int(shot[1]), 2000), min(int(shot[2]), 2000)), dark=bool(shot[3]))
-        segments[:0] = [line, *([(png, _stage_image(png, "image/png"))] if png else [])]
+            (min(int(shot[1]), 2000), min(int(shot[2]), 2000)), int(shot[3]), dark=bool(shot[4]))
+        png, height, full = drawn or (None, 0, 0)
+        cut = [f" (screenshot cut at {height} of {full} px) "] if full > height else []
+        segments[:0] = [line, *([(png, _stage_image(png, "image/png")), *cut] if png else [])]
     if secret:
         await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
     else:

@@ -858,13 +858,13 @@ async function findMaker(href) {
 }
 // The page as the user sees it goes with each send unless they take it off: the server draws it
 // (the sandboxed frame can't be read from here) at the frame's size (as last seen without the
-// keyboard, which shrinks it), at 2x for a phone's sharpness, and the
+// keyboard, which shrinks it) for its width, whole, at the screen's pixel ratio, and the
 // theme the frame is shown in (its color-scheme, which a page's prefers-color-scheme follows),
 // and attaches it as a pasted image.
 const shotChip = (on) => { $("viewer-shot").setAttribute("aria-pressed", on); text($("viewer-shot"), on ? "Screenshot attached ✕" : "Attach screenshot"); };
 $("viewer-shot").onclick = () => shotChip($("viewer-shot").getAttribute("aria-pressed") !== "true");
 let viewerSize = "";
-const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewerSize || `${innerWidth}x${innerHeight}`}${getComputedStyle(viewer).colorScheme.includes("dark") ? " dark" : ""}`;
+const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewerSize || `${innerWidth}x${innerHeight}`}@${Math.min(3, Math.round(devicePixelRatio) || 1)}${getComputedStyle(viewer).colorScheme.includes("dark") ? " dark" : ""}`;
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
