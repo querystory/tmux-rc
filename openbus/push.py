@@ -563,6 +563,9 @@ class PushManager:
         for name in [n for n, at in self._mtimes.items() if seen.get(n) != at or n in waiting]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
+            if item:  # a folder replaced under its name: the old one's wait is over
+                self._waiting = {k: v for k, v in self._waiting.items()
+                                 if k[0] != name or k == key}
             if item and (item["pending"] or item["revising"]):
                 # a revision that drops its index for a moment is still an update
                 self._waiting[key] = "Updated" if item["revising"] else self._waiting.get(

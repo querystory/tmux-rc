@@ -1057,6 +1057,15 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     os.utime(root / "page" / "report.pdf", (0, 0))  # the minute has passed
     service.landed()
     assert [p["title"] for p in sender.payloads] == ["Updated: page", "Updated: Mock"]
+    # A folder replaced under its name mid-revision: the old one's wait goes with it.
+    meta.write_text('{"title": "Mock", "updating": "v4"}')
+    service.landed()
+    (root / "new").mkdir()  # made beside it, so never its inode
+    (root / "new" / "report.html").write_text("page")
+    shutil.rmtree(root / "page")
+    (root / "new").rename(root / "page")
+    service.landed()
+    assert service._waiting == {} and len(sender.payloads) == 2
 
 
 def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
