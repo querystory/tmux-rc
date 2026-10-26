@@ -2112,7 +2112,8 @@ async def _compose(pane_id: str, request: Request):
     if not (secret or "").isprintable():  # a newline or ^D would end the read early,
         raise HTTPException(400, "a password is printable text")  # the rest run as input
     if page is not None:  # which page it is about, from the folder, never from the client
-        if secret or not (line := _scratch_dir and scratch.about(Path(_scratch_dir), page)):
+        line = _scratch_dir and await asyncio.to_thread(scratch.about, Path(_scratch_dir), page)
+        if secret or not line:
             raise HTTPException(400, "no such scratch page")
         segments.insert(0, line)
     if secret:

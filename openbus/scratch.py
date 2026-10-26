@@ -174,10 +174,16 @@ def opened(root: Path, visits: list[tuple[str, float]], n: int,
              "pending": i["pending"] and i["state"] != "stopped"} for i, at in found]
 
 
+def named(root: Path, name: str) -> dict | None:
+    """The card of the folder of scratch called `name`, None for any name that is not one
+    folder directly in it (a path, absolute or climbing out)."""
+    return read(root, root / name) if name and Path(name).name == name else None
+
+
 def maker(root: Path, name: str, states: list[dict]) -> dict | None:
     """The pane (its state) folder `name`'s meta.json says made it, while that very pane is
     still open (never another under a recycled id): where the scratch viewer's composer sends."""
-    if not (item := read(root, root / name)):
+    if not (item := named(root, name)):
         return None
     return _progress([item], states).get(item["pane"])
 
@@ -185,7 +191,7 @@ def maker(root: Path, name: str, states: list[dict]) -> dict | None:
 def about(root: Path, name: str) -> str | None:
     """What a message sent from the scratch viewer opens with, so its agent knows the page:
     one line naming the folder. None for no folder of scratch."""
-    if not read(root, root / name):
+    if not named(root, name):
         return None
     return f"Re scratch {''.join(c for c in name if c.isprintable())}: "
 
