@@ -21,6 +21,13 @@ def _sample(**expected) -> Sample:
     )
 
 
+def test_new_samples_take_a_number_of_their_own():
+    """Two branches taking the same next number leave "sample 129" naming two screens.
+    The repeats up to 105 predate this check and keep their names."""
+    numbers = [s.name.split("_")[0] for s in load_corpus()]
+    assert not {n for n in numbers if n.isdigit() and int(n) > 105 and numbers.count(n) > 1}
+
+
 def test_structured_exact_match_passes():
     ok, diffs = score_structured(
         {"tool": "claude", "activity": "idle"},
