@@ -118,6 +118,10 @@ def test_the_renderer_is_served_scratch_and_nothing_else(tmp_path):
         with urlopen(f"{base}/index.html") as page:
             assert page.read() == b"<p>page</p>"
             assert page.headers["Content-Security-Policy"] == scratch.SANDBOX
+        (root / "md").mkdir()
+        (root / "md" / "index.md").write_text("# Index")
+        with urlopen(f"{base}/md/index.html?raw") as raw:  # the daemon's alias for its index.md
+            assert raw.read() == b"# Index"
         (root / "notes.md").write_text("# Notes")
         with urlopen(f"{base}/notes.md?raw") as raw:  # the file itself, as the daemon serves it
             assert raw.read() == b"# Notes" and raw.headers["Content-Type"].startswith("text/plain")
@@ -163,9 +167,12 @@ def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypa
 def test_a_browser_that_hangs_or_cannot_start_draws_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "browser", lambda: "/no/such/shell")
     monkeypatch.setattr(S, "urlopen", lambda url, timeout: open(os.devnull))  # noqa: SIM115
+    fail = lambda error: lambda *a, **k: (_ for _ in ()).throw(error)  # noqa: E731
     for error in (OSError("cannot start"), S.subprocess.TimeoutExpired("shell", 20)):
-        monkeypatch.setattr(S.subprocess, "run", lambda *a, e=error, **k: (_ for _ in ()).throw(e))
+        monkeypatch.setattr(S.subprocess, "run", fail(error))
         assert S.render("http://127.0.0.1:1/scratch/p/") is None
+    monkeypatch.setattr(S.subprocess, "Popen", fail(OSError("cannot start")))
+    assert S.whole("http://127.0.0.1:1/scratch/p/", (390, 844), 2, dark=False) is None
 
 
 def test_no_bundled_shell_means_no_shot(tmp_path, monkeypatch):

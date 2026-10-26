@@ -129,6 +129,8 @@ class _Static(SimpleHTTPRequestHandler):
         served = [full, full / "index.html", full / "index.htm"] if full.is_dir() else [full]
         if full.is_dir() and not served[1].exists():  # the daemon's order: index.md next
             served.append(full := full / "index.md")
+        elif full.name == "index.html" and not full.exists():  # as the daemon: its index.md
+            served.append(full := full.with_suffix(".md"))
         return str(full) if all(scratch.inside(p, Path(self.directory)) for p in served
                                 if p.exists() or p.is_symlink()) else "/nonexistent"
 
@@ -245,10 +247,11 @@ def whole(url: str, size: tuple[int, int], scale: int, *, dark: bool,
         return None
     # The shell's helpers may still be writing the profile when it is removed: no error then.
     with tempfile.TemporaryDirectory(prefix="tmux-rc-shot-", ignore_cleanup_errors=True) as profile:
-        proc = subprocess.Popen([*_isolated(exe, profile, url), "--remote-debugging-port=0",
-                                 "about:blank"], stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, start_new_session=True)
+        proc = None
         try:
+            proc = subprocess.Popen([*_isolated(exe, profile, url), "--remote-debugging-port=0",
+                                     "about:blank"], stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, start_new_session=True)
             port = Path(profile) / "DevToolsActivePort"  # the shell writes it once listening
             while not port.is_file() or len(port.read_text().split()) < 2:
                 if time.monotonic() > deadline:
@@ -289,8 +292,9 @@ def whole(url: str, size: tuple[int, int], scale: int, *, dark: bool,
         except (OSError, TimeoutError, WebSocketException, KeyError, ValueError):
             return None
         finally:  # the shell and its helpers, which share its new session
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
+            if proc:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
 
 
 def capture(root: Path, web: Path, name: str, view: str, size: tuple[int, int], scale: int, *,

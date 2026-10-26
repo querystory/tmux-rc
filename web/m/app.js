@@ -874,13 +874,14 @@ function paintViewerForm() {
   form.hidden = !p; // no pane named, or it has closed
   if (!p) return;
   const { editor } = viewerDrafts.get(viewerKey(p)), frame = $("scratch-viewer").querySelector("iframe");
-  if (frame?.clientHeight && !document.documentElement.classList.contains("editing")) viewerSize = `${frame.clientWidth}x${frame.clientHeight}`;
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }
   const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
   editor.dataset.placeholder = "Message…"; editor.setAttribute("aria-label", to); // the link above names it
   text($("viewer-to"), to); $("viewer-to").href = "#" + formatHash({ pane: p.pane_id }); // the pane it goes to, a tap away
   editor.contentEditable = String(!p.secret); // a password goes in the pane's own field, never here
   $("viewer-send").setAttribute("aria-disabled", String(!!viewerWhy(p)));
+  // Last, so the size is the frame's beside the finished box (read now, it lays out).
+  if (frame?.clientHeight && !document.documentElement.classList.contains("editing")) viewerSize = `${frame.clientWidth}x${frame.clientHeight}`;
 }
 $("viewer-to").onclick = (event) => { event.preventDefault(); navigate(viewerTo.pane); }; // leaving Scratch closes the viewer (route)
 $("viewer-form").onsubmit = async (event) => {
