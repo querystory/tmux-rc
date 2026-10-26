@@ -350,9 +350,10 @@ def test_a_reflow_keeps_a_screen_s_turn(monkeypatch):
     frame[0] = f"$ make\nRun ls?\n{vs} 1. Yes\n 2. No"
     w._forced_this_tick = {pane.id}
     assert w._tick_pane(pane)["turn"] == turn and calls["n"] == 2
-    frame[0] = f"$ make\n{vs}Run rm?\n 1. Yes\n 2. No"
-    w._forced_this_tick = set()
-    assert w._tick_pane(pane)["turn"] != turn
+    for changed in ("Run l s?", "Run ls 20s?"):  # however alike: not a reflow
+        frame[0] = f"$ make\nRun ls?\n{vs} 1. Yes\n 2. No".replace("Run ls?", changed)
+        w._forced_this_tick = {pane.id}
+        assert w._tick_pane(pane)["turn"] != turn
 
 
 def test_content_change_reparses(monkeypatch):

@@ -233,6 +233,12 @@ def _reflowed(text: str, before: str) -> bool:
                 for t in (text, before)}) == 1
 
 
+def _laid_out(text: str) -> str:
+    """A whole capture at any width, words and values kept ("ls a b" is not "ls ab", nor
+    "sleep 10s" "sleep 20s"), as _turn reads its visible screen."""
+    return fit.reflow_key(text.replace(tmux.VISIBLE_SCREEN, ""), " ")
+
+
 def _turn(said: str | None, text: str) -> str:
     """The turn a card was read from, as push tells one ask from the next: the agent's
     transcript as it stood (`said`, transcript.turn), else the visible screen as it is, at
@@ -1538,7 +1544,7 @@ class Watcher:
         )
         # Only reflowed (a resize, a menu still pending): the visible screen's top moved,
         # not the turn.
-        state["turn"] = (not said and prior and _reflowed(text, prior[-1])
+        state["turn"] = (not said and prior and _laid_out(text) == _laid_out(prior[-1])
                          and (previous or {}).get("turn")) or _turn(said, text)
         # Preserve the parsed conversation name before session is stamped with the
         # tmux session. It must survive cached ticks and tmux renames independently.
