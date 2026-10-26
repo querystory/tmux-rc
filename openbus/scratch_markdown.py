@@ -6,6 +6,7 @@ Raw HTML passes through: the page is sandboxed like every scratch page, where an
 could publish any HTML and script anyway. Nothing that reads other files (snippets) is
 on, since the renderer runs in the daemon."""
 
+import os
 import re
 from functools import lru_cache
 from html import escape, unescape
@@ -117,22 +118,25 @@ class Files(StaticFiles):
     what `pending` makes of the folder's name (scratch.placeholder), as 202 Accepted:
     an agent checking for a 200 is not told its page is there. Anything hidden (a .git,
     an .env) is not part of the page, as in the gallery, and is not served. An archived
-    folder (in ARCHIVE) is still served at its own link, so links handed out keep
-    working; only the gallery leaves it out."""
+    folder (in ARCHIVE) is served at ARCHIVE/<name>/, where the Archived gallery links it,
+    and at its old link while no folder has taken that name since, so links handed out keep
+    working. Which tree answers is decided by the folder alone: a page never mixes files of
+    an archived folder and a new one of the same name."""
 
     def __init__(self, *, web: Path, pending=lambda _name: None, **kwargs):
         super().__init__(**kwargs)
         self.web, self.pending = web, pending
 
     def lookup_path(self, path):
-        if any(part.startswith(".") for part in Path(path).parts):
+        parts = Path(path).parts
+        archived = parts[:1] == (ARCHIVE,)
+        if any(part.startswith(".") for part in parts[archived:]):
             return "", None
-        for under in ("", ARCHIVE + "/"):
-            full, st = super().lookup_path(under + path)
-            if st is None and Path(path).name == "index.html":
-                full, st = super().lookup_path(under + path.removesuffix("html") + "md")
-            if st is not None:
-                break
+        if parts and not archived and not os.path.lexists(Path(self.directory, parts[0])):
+            path = f"{ARCHIVE}/{path}"  # archived, or nothing: its old link still serves
+        full, st = super().lookup_path(path)
+        if st is None and Path(path).name == "index.html":
+            return super().lookup_path(path.removesuffix("html") + "md")
         return full, st
 
     async def get_response(self, path, scope):

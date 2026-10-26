@@ -118,15 +118,17 @@ for (const el of document.querySelectorAll("[data-icon]")) el.insertAdjacentHTML
 const bar = document.getElementById("bar"), picked = () => [...document.querySelectorAll("article.picked")];
 const count = () => { const n = picked().length; document.getElementById("count").textContent = `${n} selected`;
   for (const b of bar.querySelectorAll("[data-act]")) b.disabled = !n; };
+const pick = (card, on) => { card.classList.toggle("picked", on); card.setAttribute("aria-checked", on); };
 const selecting = (on) => { root.classList.toggle("selecting", on); bar.hidden = !on;
-  if (!on) for (const a of picked()) a.classList.remove("picked");
+  for (const a of document.querySelectorAll("article")) { // each card a checkbox, named by its text
+    if (on) { a.role = "checkbox"; pick(a, false); } else { a.classList.remove("picked"); a.removeAttribute("role"); a.removeAttribute("aria-checked"); } }
   count(); };
 document.getElementById("cards").addEventListener("click", (e) => { // a tap picks, never opens
   const card = root.classList.contains("selecting") && e.target.closest("article");
   if (!card) return;
-  e.preventDefault(); e.stopPropagation(); card.classList.toggle("picked"); count(); }, true);
+  e.preventDefault(); e.stopPropagation(); pick(card, !card.classList.contains("picked")); count(); }, true);
 document.getElementById("select").onclick = () => framed ? selecting(true) : location.assign("/m/#view=scratch");
-document.getElementById("all").onclick = () => { for (const a of document.querySelectorAll("article:not([hidden])")) a.classList.add("picked"); count(); };
+document.getElementById("all").onclick = () => { for (const a of document.querySelectorAll("article:not([hidden])")) pick(a, true); count(); };
 document.getElementById("cancel").onclick = () => selecting(false);
 addEventListener("keydown", (e) => e.key === "Escape" && selecting(false));
 for (const b of bar.querySelectorAll("[data-act]"))

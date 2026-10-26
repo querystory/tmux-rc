@@ -196,8 +196,10 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
 
 def tag(listed: list[dict]) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
-    changed, a thumbnail landed, or (by the minute) a page being made may have stopped."""
-    return str(hash((*((i["name"], i["updated"], i["pending"], i["thumb"]) for i in listed),
+    changed, its thumbnail, title or description landed, or (by the minute) a page being
+    made may have stopped. In no particular order, as the gallery sorts after listing."""
+    return str(hash((*sorted((i["name"], i["updated"], i["pending"], i["thumb"], i["title"],
+                              i["description"]) for i in listed),
                      any(i["pending"] for i in listed) and int(time.time() // 60))))
 
 
@@ -370,6 +372,9 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     listed = listing(root, archived=archived)
     sidecars([i for i in listed if not (i["pending"] or archived)])  # nothing to shoot yet
     resolve(listed, states, profiles, pane_of)
+    for i in listed if archived else ():  # its own link: the name may be taken again since
+        i["under"] = f"{scratch_markdown.ARCHIVE}/"
+        i["href"] = i["under"] + i["href"]
     listed.sort(key=lambda i: not i["pending"] or i["state"] == "stopped")  # being made: first
     out = _PAGE.read_text().replace("/*tokens*/", scratch_markdown.tokens(style)).replace(
         "DOCS_URL", docs).replace("LISTING_TAG", tag(listed))
@@ -406,7 +411,8 @@ def _card(i: dict) -> str:
         i.get("shot") == "pending" and "Making a preview…")
     # A pending folder's thumbnail is an earlier page's: its state shows instead, until the
     # page lands and is shot, which the open gallery sees (its tag) and reloads to show.
-    thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">'
+    src = f'{i.get("under", "")}{quote(i["name"])}/thumb.webp'
+    thumb = (f'<img src="{src}" alt="" loading="lazy">'
              if i["thumb"] and not i["pending"]
              else f'<span class="{i["state"] if i["pending"] else ""}">{wait}</span>'
              if wait else "No preview")

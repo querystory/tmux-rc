@@ -26,7 +26,8 @@ are selected.
 
 In the app's Scratch, Select turns each card into a tick box: tap the ones to clear (All
 takes every card the filter shows), then Archive. Archived folders leave the gallery but
-are not gone. Their links keep working, and Archived lists them, where Restore brings
+are not gone. Their links keep working until a new folder takes the name, and Archived
+lists them at links of their own, where Restore brings
 them back and Delete removes them for good, after asking. Archive offers an Undo for a
 few seconds. Delete is only offered in Archived, so nothing is deleted in one step.
 

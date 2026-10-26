@@ -222,6 +222,11 @@ def test_the_tag_changes_with_what_the_open_gallery_shows(tmp_path):
     (wip / "thumb.webp").write_bytes(b"x")
     assert tag() != seen
     seen = tag()
+    (wip / "meta.json").write_text('{"title": "wip", "description": "Generated later."}')
+    assert tag() != seen
+    page = scratch.page(tmp_path, [], [], STYLE)  # sorted its own way: still the same tag
+    assert "seen=LISTING_TAG" not in page and tag() in page
+    seen = tag()
     scratch.act(tmp_path, "archive", ["one"])
     assert tag() != seen
 

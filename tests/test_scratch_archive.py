@@ -59,4 +59,5 @@ def test_the_archive_is_its_own_gallery(tmp_path):
     scratch.act(tmp_path, "archive", ["old"])
     page = scratch.page(tmp_path, [], [], style, archived=True)
     assert page.startswith('<!doctype html><html class="archived">') and 'data-name="old"' in page
+    assert 'href=".archive/old/"' in page  # its own link, even once "old" is taken again
     assert 'data-name="old"' not in scratch.page(tmp_path, [], [], style)
