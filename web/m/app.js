@@ -8,6 +8,7 @@ import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
+import "/hold.js"; // globalThis.hold: a classic script, so the scratch gallery shares it
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -1055,25 +1056,13 @@ function copyHere(el, value, icon) {
 
 // One tappable link row: the Links list's, and the one leading a question's card. A tap opens
 // it; a long press copies it instead (to open in another browser), and the click after is not
-// a tap. The hold only arms the copy: it runs on release, where iOS grants the gesture that a
-// clipboard write needs. Scrolling, a second finger or a cancel disarms it.
+// a tap (/hold.js). The copy runs on release, where iOS grants the gesture a clipboard write needs.
 function renderLinks(el, links) {
   reconcile(el, links, (link) => link.href, () => {
     const anchor = document.createElement("a");
-    let timer, held = false;
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
-    const disarm = () => { clearTimeout(timer); held = false; };
-    anchor.addEventListener("touchstart", (event) => {
-      disarm();
-      if (event.touches.length > 1) return;
-      timer = setTimeout(() => { held = true; }, 500);
-      document.addEventListener("touchstart", disarm, { capture: true, once: true, passive: true }); // the next finger anywhere (this one's capture has passed)
-    }, { passive: true });
-    for (const type of ["touchmove", "touchcancel"]) anchor.addEventListener(type, disarm, { passive: true });
-    anchor.addEventListener("touchend", () => { clearTimeout(timer); if (held) copyHere(anchor, anchor.href, "chevron"); }, { passive: true });
-    anchor.addEventListener("click", (event) => { if (held) event.preventDefault(); held = false; });
-    anchor.addEventListener("contextmenu", (event) => { if (held || event.pointerType === "touch") event.preventDefault(); }); // Android's link menu
+    hold(anchor, { released: () => copyHere(anchor, anchor.href, "chevron") });
     return anchor;
   }, (anchor, link) => {
     const host = new URL(link.href).host;

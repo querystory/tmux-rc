@@ -24,8 +24,10 @@ are selected.
 
 ## Cleaning up
 
-In the app's Scratch, Select turns each card into a tick box: tap the ones to clear (All
-takes every card the filter shows), then Archive. Archived folders leave the gallery but
+In the app's Scratch, a long press on a card starts selecting with that card ticked, as in
+a phone's photo gallery or mail; with a mouse, Select does the same. Tap more to tick or
+untick them (All takes every card the filter shows; unticking the last ends it), then
+Archive. On a phone the bar sits at the bottom, in reach however far the list scrolls. Archived folders leave the gallery but
 are not gone. Their links keep working until a new folder takes the name, and Archived
 lists them at links of their own, where Restore brings
 them back and Delete removes them for good, after asking. Archive offers an Undo for a

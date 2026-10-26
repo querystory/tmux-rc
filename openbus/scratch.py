@@ -254,10 +254,11 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
 
 def tag(listed: list[dict]) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
-    changed, its thumbnail, title or description landed, or (by the minute) a page in
-    progress may have stopped. In no particular order, as the gallery sorts after listing."""
-    return str(hash((*sorted((i["name"], i["updated"], i["pending"], i["thumb"], i["title"],
-                              i["description"]) for i in listed),
+    changed (its page too, say renamed to its index), its thumbnail, title or description
+    landed, or (by the minute) a page in progress may have stopped. In no particular order,
+    as the gallery sorts after listing."""
+    return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
+                              i["title"], i["description"]) for i in listed),
                      any(i["pending"] for i in listed) and int(time.time() // 60))))
 
 
@@ -428,6 +429,7 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation;
     `archived`, the archive's instead (an archived page is still served at its link)."""
     listed = listing(root, archived=archived)
+    seen = tag(listed)  # as the open gallery's check lists it: before the links are dressed
     sidecars([i for i in listed if not (i["pending"] or archived)])  # nothing to shoot yet
     resolve(listed, states, profiles, pane_of)
     for i in listed if archived else ():  # its own link: the name may be taken again since
@@ -435,7 +437,7 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
         i["href"] = i["under"] + i["href"]
     listed.sort(key=lambda i: not i["pending"] or i["state"] == "stopped")  # in progress: first
     out = _PAGE.read_text().replace("/*tokens*/", scratch_markdown.tokens(style)).replace(
-        "DOCS_URL", docs).replace("LISTING_TAG", tag(listed))
+        "DOCS_URL", docs).replace("LISTING_TAG", seen)
     if archived:
         out = out.replace("<html>", '<html class="archived">')
     elif not listed:  # what scratch is, and how agents come to publish here

@@ -67,7 +67,14 @@ p { margin: 0; overflow-wrap: anywhere; }
 .selecting article.picked { outline: 2px solid var(--accent); outline-offset: -1px; }
 .selecting article.picked::after { background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 16px no-repeat; border-color: var(--accent); }
 a { color: var(--accent); }
-@media (max-width: 599px) { .act span, #bar [data-act] svg { display: none; } header { gap: 8px; } h1 { font-size: 24px; } .act, .seg button { padding: 0 8px; } }
+@media (max-width: 599px) { .act span, #bar [data-act] svg { display: none; } header { gap: 8px; } h1 { font-size: 24px; } .act, .seg button { padding: 0 8px; }
+  /* A phone's bar: at the bottom, in thumb's reach and on screen however far it scrolls, above
+     the app's floating tab bar inside the app, else above the home indicator. */
+  #bar, .framed #bar { position: fixed; inset: auto 8px 8px; margin: 0; padding-bottom: max(10px, env(safe-area-inset-bottom)); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 4px 16px rgb(0 0 0 / .25); }
+  .framed #bar { bottom: 88px; }
+  .selecting main { padding-bottom: 200px; } }
+/* A long press selects (hold.js): no link preview, callout or text selection under the finger. */
+.framed article { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 </style></head><body><main>
 <header><h1>Scratch</h1><input type="search" placeholder="Filter Scratch" aria-label="Filter"><button type="button" class="act" id="select" data-icon="select" title="Select"><span>Select</span></button><a class="act" id="shelf" href="?archived" target="_self" data-icon="archive" title="Archived"><span>Archived</span></a><span class="seg" role="group" aria-label="View"><button type="button" data-view="grid" aria-label="Grid" title="Grid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg><span>Grid</span></button><button type="button" data-view="list" aria-label="List" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/></svg><span>List</span></button></span><a href="DOCS_URL">About</a><a href="/m/">tmux-rc</a></header>
 <div id="bar" hidden><button type="button" id="cancel" data-icon="x" aria-label="Cancel" title="Cancel"></button><b id="count"></b><button type="button" id="all">All</button><button type="button" data-act="archive" data-icon="archive">Archive</button><button type="button" data-act="unarchive" data-icon="restore">Restore</button><button type="button" data-act="delete" data-icon="trash">Delete</button></div>
@@ -79,6 +86,7 @@ a { color: var(--accent); }
 <pre>If TMUXRC_SCRATCH_DIR is set, you can show the user a preview (an HTML page, a Markdown document, a built static site, a report, images, a PDF). Write it into a new subfolder as index.md (Markdown, with Mermaid diagrams, admonitions, task lists and tables) or index.html, for example $TMUXRC_SCRATCH_DIR/&lt;folder&gt;/index.md, and give the user $TMUXRC_SCRATCH_URL/&lt;folder&gt;/ (or the folder's path if that variable is unset). The public URL sits behind the user's login, so to check the page yourself request $TMUXRC_SCRATCH_LOCAL_URL/&lt;folder&gt;/ instead; exactly 200 means it is served (a 202 is a page still being made). Everything in that directory is visible to everyone who can reach tmux-rc: never put secrets or private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or WebSockets, or submit forms, so inline any data a page needs. Write the folder's meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}) first, before the page: until index.html or index.md lands, the link shows that the page is being made, so it is safe to hand out early, and the user is notified when it is ready.</pre>
 <p><a href="DOCS_URL">How the scratch gallery works</a></p>
 </section></main>
+<script src="/hold.js"></script>
 <script>
 // Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
 document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
@@ -125,10 +133,21 @@ const selecting = (on) => { root.classList.toggle("selecting", on); bar.hidden =
     if (on) { a.role = "checkbox"; a.tabIndex = 0; pick(a, false); }
     else { a.classList.remove("picked"); for (const at of ["role", "aria-checked", "tabindex"]) a.removeAttribute(at); } }
   count(); };
+// On a phone, a long press on a card starts selecting with it (as Photos and Gmail do); the
+// Select button stays for a mouse. Only inside the app, which does the deed;
+// first, so the click a hold ends in is swallowed before it could toggle the card back.
+if (framed) hold(document.getElementById("cards"), { armed: (at) => { const card = at.closest?.("article");
+  if (!card) return;
+  navigator.vibrate?.(20);
+  if (!root.classList.contains("selecting")) selecting(true);
+  pick(card, true); count(); } });
 document.getElementById("cards").addEventListener("click", (e) => { // a tap picks, never opens
   const card = root.classList.contains("selecting") && e.target.closest("article");
   if (!card) return;
-  e.preventDefault(); e.stopPropagation(); pick(card, !card.classList.contains("picked")); count(); }, true);
+  e.preventDefault(); e.stopPropagation(); pick(card, !card.classList.contains("picked"));
+  if (!picked().length) selecting(false); // the last one let go: done, as Photos and Gmail do
+  count(); }, true);
+document.getElementById("cards").addEventListener("contextmenu", (e) => root.classList.contains("selecting") && e.preventDefault());
 document.getElementById("select").onclick = () => framed ? selecting(true) : location.assign("/m/#view=scratch");
 document.getElementById("all").onclick = () => { for (const a of document.querySelectorAll("article:not([hidden])")) pick(a, true); count(); };
 document.getElementById("cancel").onclick = () => selecting(false);
