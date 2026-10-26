@@ -64,13 +64,17 @@ addEventListener("message", (e) => {
 <textarea hidden><!--source--></textarea>
 <!--mermaid-->
 <script>
-// Drawn from their sources each time, so a theme the app sends later redraws them in it.
+// Drawn from their sources each time, so a theme the app sends later redraws them in it,
+// one draw after another: a reset under a draw still running would feed it its own SVG.
 const diagrams = [...document.querySelectorAll("pre.mermaid")].map((pre) => [pre, pre.textContent]);
+let drawing = Promise.resolve();
 function drawMermaid() {
   if (!window.mermaid?.initialize) return; // a "Mermaid" heading alone is window.mermaid too
-  mermaid.initialize({ startOnLoad: false, theme: root.classList.contains("light") ? "default" : "dark" });
-  for (const [pre, source] of diagrams) { pre.removeAttribute("data-processed"); pre.textContent = source; }
-  mermaid.run();
+  drawing = drawing.then(() => {
+    mermaid.initialize({ startOnLoad: false, theme: root.classList.contains("light") ? "default" : "dark" });
+    for (const [pre, source] of diagrams) { pre.removeAttribute("data-processed"); pre.textContent = source; }
+    return mermaid.run();
+  }).catch(() => {}); // a diagram that fails to parse shows its own error; the next draw still runs
 }
 drawMermaid();
 const article = document.querySelector("article");
