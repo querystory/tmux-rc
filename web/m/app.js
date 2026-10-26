@@ -892,10 +892,10 @@ function render() {
   // has nothing to go back TO — the sidebar it would return you to is already there.
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
-  const view = { pane: active, page, dashboard: dashboardVisible(), filter };
-  document.title = tabTitle(view, panes, panes.filter(asks).length, host);
+  const tab = { pane: active, page, dashboard: dashboardVisible(), filter };
+  document.title = tabTitle(tab, panes, panes.filter(asks).length, host);
   if (document.hidden && pane && isRunning(pane)) awayPane = active;
-  paintTabIcon(tabIconKey(view, panes, asks, awayPane === active));
+  paintTabIcon(tabIconKey(tab, panes, asks, awayPane === active));
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
   // its heading takes them, by the overflow menu. Moved only when they are elsewhere: a move
@@ -2580,7 +2580,7 @@ navigator.serviceWorker?.addEventListener("message", ({ data }) => {
 });
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; sendPresence(); startState(); restartDetail(); fitViewport(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; render(); sendPresence(); startState(); restartDetail(); fitViewport(); }); // render: the tab's icon notes or clears "done"
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
