@@ -18,7 +18,8 @@ a { color: var(--accent); }
 <h1>{title}</h1>{desc}
 <p class="muted">{say}</p>{now}
 <p class="muted">{who}{where} · started {ago} ago</p>
-</main><script>
+</main><script type="module">
+{draw}
 // Sandboxed like every /scratch/ page: the system theme, and no fetch, so a reload asks again.
 document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
 setInterval(() => document.querySelector("a:hover") || location.reload(), {every});
@@ -26,11 +27,9 @@ setInterval(() => document.querySelector("a:hover") || location.reload(), {every
 // (Chrome animates no SVG favicon, so step it; a background tab steps about once a second),
 // or a grey dot once its agent stopped.
 const tab = document.querySelector("link[rel=icon]"), icon = {icon};
-const mark = (extra) => { tab.href = "data:image/svg+xml," + encodeURIComponent(icon.replace("</svg>", extra + "</svg>")); };
 let frame = 0;
-if (document.body.className === "stopped") mark('<circle cx="152" cy="40" r="38" fill="#8b949e" stroke="#0b0f14" stroke-width="14"/>');
-else setInterval(() => mark(`<rect x="8" y="8" width="176" height="176" rx="34" fill="none" stroke="#1BB91F" stroke-width="16" pathLength="8" stroke-dasharray="2 6" stroke-dashoffset="${-frame++}"/>`),
-  matchMedia("(prefers-reduced-motion: reduce)").matches ? 500 : 125);
+if (document.body.className === "stopped") tab.href = tabIcon(icon, { state: "stopped" });
+else setInterval(() => { tab.href = tabIcon(icon, { frame: frame++ }); }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 500 : 125);
 // In the app's viewer, the pane opens in the app rather than a second app in this frame.
 if (window.top !== window) for (const a of document.querySelectorAll('a[href^="/m/#pane="]'))
   a.onclick = (e) => { e.preventDefault(); parent.postMessage({ pane: decodeURIComponent(a.getAttribute("href").slice(9)) }, "*"); };

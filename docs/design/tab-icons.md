@@ -1,8 +1,8 @@
 # Tab icons and titles
 
-Status: proposed. The first piece is implemented: scratch pages get their own icon, and the
-in-progress placeholder gets a spinner (`web/scratch.svg`, `openbus/scratch_pending.html`).
-The rest waits on a pick between the strategies below.
+Status: implemented, strategy B without host colours. Scratch pages have their own icon and
+the placeholder a spinner (`web/scratch.svg`, `openbus/scratch_pending.html`); every app view
+draws its own icon live (`web/tab-icon.js`, `tabIconKey` in `web/m/pane-model.js`).
 
 ## Why
 
@@ -14,7 +14,7 @@ and about five characters. Then "In pr…" and "tmux-…" say nothing, and a pag
 made looks the same as one that has landed.
 
 The same problem grows once tmux-rc runs on more than one machine. Two "Sessions" tabs from
-two hosts look identical.
+two hosts look identical; the title tells them apart (below).
 
 GitHub's tabs show what a good answer looks like: one clear glyph plus a state colour (a
 red cross for failing CI, an orange ring while it runs, a green check). You can read a whole
@@ -24,8 +24,8 @@ strip of them at a glance.
 
 Every tmux-rc icon keeps the app icon's dark rounded tile. The glyph in the middle names the
 surface: a terminal for a pane, a page for scratch, the tmux mark for the sessions home. The
-green status bar along the bottom is the family cue. Once hosts are distinguished, it takes
-the host's colour. A state dot sits top-right.
+green status bar along the bottom is the family cue, and it is always the brand green. A
+state dot sits top-right.
 
 The mock compared three strategies in a rebuilt Chrome strip, at real size, among realistic
 neighbours:
@@ -33,12 +33,21 @@ neighbours:
 - **A: the full mark with a corner badge.** It keeps the brand whole, but at 16 pixels the
   light badge and the mark split the space between them, and neither reads. In a narrow
   strip it is the least legible of the three. Rejected.
-- **B: a glyph on the brand tile.** The surface glyph gets most of the 16 pixels, the tile
-  still says "tmux-rc" next to other sites, and the host shows even on a pinned tab.
-  Recommended.
+- **B: a glyph on the brand tile.** The surface glyph gets most of the 16 pixels, and the
+  tile still says "tmux-rc" next to other sites. Chosen.
 - **C: a tile in the host's colour.** It gives the loudest host signal, but blue, purple
   and teal tiles sit among other sites' blue, purple and teal icons and stop looking like
   tmux-rc. It also leaves no colour free for state.
+
+The glyphs are Lucide's, the same set the app's chrome uses: the tmux-rc mark itself for the
+sessions home, terminal for a pane, layout-dashboard, activity, gauge, list-todo, network and
+history for the dashboard and its views, files for the scratch gallery and file-text for a
+scratch page.
+
+Host colours were dropped after the mock. A hashed colour means nothing until you learn which
+host it stands for, it spends the one colour slot the state dot leans on, and a palette that
+avoids the state colours runs out of distinct hues after a few hosts. The title names the host
+in words instead, so the bar stays the brand green and the family cue stays constant.
 
 A host monogram (a letter in the icon) was rejected because a legible letter needs about
 seven of the sixteen pixels, which leaves no room for the surface glyph or the state dot.
@@ -63,6 +72,16 @@ moves once a second, which still reads as working. When the agent stops without
 publishing, the arc gives way to the grey dot. When the page lands, the placeholder's own
 reload replaces it with the page, so the spinner has no stop logic.
 
+The app redraws its icon on every render, the same moment it sets the title, so navigating or
+a pane changing state updates the tab at once. The state poll keeps running while the tab is hidden,
+since a background tab is exactly when its icon is read; it is one long poll answered only on
+change, and the heavier history and meter fetches still wait for the tab to be seen. Each icon is the brand tile with the glyph and
+dot spliced in as SVG text, turned into a data URL, kept per glyph-and-state key, and only
+written to the page when the key changes. One small module draws both these and the
+placeholder's spinner; the sandboxed placeholder gets it inlined, since it cannot load a
+script the way the app does. The tiles themselves stay the two SVG files the static pages
+already use, so there is one drawing of each.
+
 There was no Needs-you badge on the favicon before this. The count goes in the title (next
 section), because a number is illegible in a 16-pixel icon and Chrome already marks a
 pinned tab whose title changes.
@@ -78,7 +97,8 @@ when only a few characters show:
 2. The most specific subject: the pane's name, the view, or the page's title. For the
    placeholder, the state comes first ("In progress · …", "Stopped · …"), because that is
    the one thing its tab has to say.
-3. The host, last. It is the first thing to be cut, which is fine, since the icon carries it.
+3. The host, last. It is the first thing to be cut, which is fine: a narrow strip is usually
+   one machine's tabs, and a wider tab shows it.
 
 Dialogs (chat, voice, settings, export) don't change the tab: they sit over a view, and the
 tab keeps that view's icon and title. Voice needs no icon of its own, because Chrome already
@@ -86,18 +106,18 @@ marks a tab using the microphone.
 
 ## Several machines
 
-The host's name comes from the machine's hostname: its first label, with no setup. Its
-colour is hashed from that name into a small palette that avoids the state colours. An
-environment variable can override either. A single-host user also sees the host in the
+The host's name comes from the machine's hostname: its first label, with no setup. An
+environment variable can override it. The icon carries no host signal (see above). A
+single-host user also sees the host in the
 title. That costs a few characters at the end of the title, and it is already right the day
 they add a second machine.
 
 ## Pinned tabs and phones
 
-A pinned tab shows only its icon, which is the strongest case for putting the surface glyph,
-the host colour and the state in the icon rather than only in the title. A home-screen app
-uses the touch icon from the manifest, which the daemon can colour per host. Its count
-belongs in the platform's app badge, not the icon. Phone tab switchers show the title above
+A pinned tab shows only its icon, which is the strongest case for putting the surface glyph
+and the state in the icon rather than only in the title. A home-screen app keeps the base
+tmux-rc mark from the manifest: it is the app's identity on a home screen, not a view of it.
+Its count belongs in the platform's app badge, not the icon. Phone tab switchers show the title above
 a thumbnail, so the title rule does the work there.
 
 ## Agent-written pages

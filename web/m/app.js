@@ -6,7 +6,8 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning } from "/m/pane-model.js";
+import { tabIcon } from "/tab-icon.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
@@ -98,8 +99,22 @@ const LUCIDE = {
   minimize: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>',
   network: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/>',
   fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/>',
+  activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
+  listTodo: '<rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4M13 6h8M13 12h8M13 18h8"/>',
+  files: '<path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
+// The tab's icon follows the view (tabIconKey), drawn once per key on the brand tiles.
+const tiles = {}, tabIcons = {};
+let awayPane = null, tabKey = "home:", painted; // awayPane: worked while the tab was hidden, "done" until seen
+for (const t of ["scratch", "icon"]) fetch(`/${t}.svg`).then((r) => r.text()).then((svg) => { tiles[t] = svg; paintTabIcon(); });
+function paintTabIcon(key = tabKey) {
+  tabKey = key;
+  const [glyph, state] = key.split(":"), tile = tiles[glyph === "home" ? "icon" : "scratch"];
+  if (!tile || painted === key) return;
+  painted = key;
+  document.querySelector("link[rel=icon]").href = tabIcons[key] ??= tabIcon(tile, { glyph: LUCIDE[glyph], state });
+}
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
 const text = (node, value = "") => { if (node.textContent !== String(value)) node.textContent = value; };
@@ -877,7 +892,10 @@ function render() {
   // has nothing to go back TO — the sidebar it would return you to is already there.
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
-  document.title = tabTitle({ pane: active, page, dashboard: dashboardVisible(), filter }, panes, panes.filter(asks).length, host);
+  const view = { pane: active, page, dashboard: dashboardVisible(), filter };
+  document.title = tabTitle(view, panes, panes.filter(asks).length, host);
+  if (document.hidden && pane && isRunning(pane)) awayPane = active;
+  paintTabIcon(tabIconKey(view, panes, asks, awayPane === active));
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
   // its heading takes them, by the overflow menu. Moved only when they are elsewhere: a move
@@ -1481,10 +1499,10 @@ async function streamTerminal(id, signal) {
 function startState() {
   stateController?.abort();
   stateController = new AbortController();
-  if (!document.hidden) {
-    refreshHistory(); refreshCached();
-    pollState(stateController.signal);
-  }
+  // State keeps coming while the tab is hidden: a background tab's title and icon are what the
+  // tab strip shows (docs/design/tab-icons.md). The history and meters wait to be seen.
+  if (!document.hidden) { refreshHistory(); refreshCached(); }
+  pollState(stateController.signal);
 }
 // Panes of windows this page is closing, by pane id: { birth, pane, label } while the request
 // runs, then { birth, done } for each pane the server says it killed. A killed pane stays
@@ -1550,7 +1568,7 @@ async function pollState(signal) {
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory(); refreshCached();
+      if (!document.hidden) { refreshHistory(); refreshCached(); }
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -2562,7 +2580,7 @@ navigator.serviceWorker?.addEventListener("message", ({ data }) => {
 });
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); fitViewport(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; sendPresence(); startState(); restartDetail(); fitViewport(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
