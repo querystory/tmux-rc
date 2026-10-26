@@ -153,7 +153,7 @@ let dashboard = false, page = null;
 const CARDS = { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" };
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], statePanes = [], paneIds = null, accountsAt = 0, active = null, view = "summary", filter = [], loaded = false, booted = false, tmuxRunning = true;
-let focusPushComposer = false;
+let focusPushComposer = false, linked = null; // linked: a link's draft, offered once its pane's state is in (offerDraft)
 // The sort is a per-browser preference, as the sidebar's grouping is: how you like to read the
 // list, not what a link should show. A phone's Settings and the wide filter menu share it.
 let sort = "updated";
@@ -292,9 +292,11 @@ const writeHash = (next, how = "replace", state = history.state) => history[`${h
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
-function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
+// `draft`: a scratch page's suggested reply, offered by route() as a link's would be.
+function navigate(id = null, nextView = "summary", { mode, acct = accounts.key(), draft } = {}) {
   const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value });
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value })
+    + (typeof draft === "string" ? `&draft=${encodeURIComponent(draft)}` : "");
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
@@ -332,7 +334,17 @@ function clearFilters() {
 function leaveMissingPane(id) {
   if (!stillOnPane(location.hash, id) || (ending.has(id) && !ending.get(id).done)) return;
   navigate(null, "summary", { mode: "replace" });
-  notice("That pane is no longer available.");
+  notice("That pane isn't running.");
+}
+// A link's draft (url-state.js linkDraft), once its pane's state is in (render): into the
+// composer, never sent. One the user is already writing stays; the link's waits in the notice.
+// A password prompt hides the composer (and pruneDrafts would empty it): the notice only shows it.
+function offerDraft(id, value, replace = false) {
+  if (active !== id) return;
+  const composer = draft(id), offer = `A link offered a draft: "${value}".`;
+  if (panes.find((p) => p.pane_id === id)?.secret) notice(`${offer} This pane is at a password prompt.`);
+  else if (composer.segments().length && !replace) notice(`${offer} Yours is kept.`, 0, ["Use the link's", () => offerDraft(id, value, true)]);
+  else { composer.replace([{ text: value }]); requestAnimationFrame(() => composer.editor.focus()); notice("Draft from a link: check it, then Send."); }
 }
 
 function route() {
@@ -342,6 +354,7 @@ function route() {
   dropGesture();
   active = state.pane;
   focusPushComposer = state.compose;
+  linked = state.draft || (changed ? null : linked); // a reroute on the same pane (a resize) keeps it
   ({ dashboard, view, filter, page } = state);
   scope.tools = state.agent;
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
@@ -350,6 +363,7 @@ function route() {
   if (viewer.open && page !== "scratch") viewer.close(); // Back, a push or Safari's swipe left Scratch: its viewer goes too
   const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
   if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
+  if (state.draft) writeHash(formatHash(state)); // offered once: a reload offers nothing
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
@@ -818,11 +832,11 @@ const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratc
 scratchFrame.addEventListener("load", tellScratch);
 // Only the gallery is heard: it opens a pane, keeps its view, or opens one of its pages, a path
 // under /scratch/ here and nothing else (url-state.js). A page the viewer shows (a page still
-// being made links the pane making it) may open a pane, and nothing else: its origin is opaque,
+// being made links the pane making it) may open a pane, with a draft for its composer, and nothing else: its origin is opaque,
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  const { pane, view, open, title } = e.data || {}, href = scratchUrl(open, location.href);
-  if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane);
+  const { pane, view, open, title, draft: offered } = e.data || {}, href = scratchUrl(open, location.href);
+  if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
@@ -1013,6 +1027,7 @@ function render() {
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
+  if (pane && linked) { offerDraft(active, linked); linked = null; }
   if (focusPushComposer && pane?.question && needsYou(pane)) {
     focusPushComposer = false;
     requestAnimationFrame(() => $(pane.secret ? "secret" : "reply").focus({ preventScroll: true }));

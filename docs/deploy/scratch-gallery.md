@@ -70,6 +70,17 @@ scratch page. Nothing needs setting up: the renderer ships with the daemon, and
 mermaid.js is served from the app's own files. The
 [design note](../design/scratch-markdown.md) explains the choices.
 
+## A page that suggests a reply
+
+A sandboxed page can't act, but it can link: `/m/#pane=%25N&draft=<text>` opens that pane
+with the text in its composer, so a status page's "Merge" button is one tap plus the
+user's own Send. The draft is never sent and never typed as keys; Send is the confirmation.
+It is cut to 500 characters with control characters removed, a draft already being written
+is kept (the link's is offered in a notice), a pane that is gone says so, and the parameter
+leaves the URL once used, so a reload offers nothing. Inside the app's viewer a plain link
+would load a second app in the frame, so a page there posts
+`{pane, draft}` to its parent instead, as the placeholder's pane link does.
+
 ## A link handed out before its page
 
 Agents often hand out a link before the page behind it exists ("a subagent is building it,
