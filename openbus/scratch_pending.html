@@ -22,7 +22,7 @@ a { color: var(--accent); }
 // Sandboxed like every /scratch/ page: the system theme, and no fetch, so a reload asks again.
 document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
 setInterval(() => document.querySelector("a:hover") || location.reload(), {every});
-// The tab's icon: scratch's, with an arc running round its edge while the page is being made
+// The tab's icon: scratch's, with an arc running round its edge while the page is in progress
 // (Chrome animates no SVG favicon, so step it; a background tab steps about once a second),
 // or a grey dot once its agent stopped.
 const tab = document.querySelector("link[rel=icon]"), icon = {icon};
