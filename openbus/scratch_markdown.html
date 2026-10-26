@@ -4,7 +4,11 @@
 /*pygments*/
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-nav { position: sticky; top: 0; z-index: 1; display: flex; justify-content: flex-end; gap: 6px; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
+nav { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
+/* An update under way (scratch.bar): a line at the toolbar's start, its own row on a phone. */
+.updating { flex: 1 1 260px; margin: 0; font-size: 13px; color: var(--muted); }
+.updating:not(.stopped)::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: -1px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(1turn); } }
 nav :is(a, button) { display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; font: inherit; font-size: 13px; color: var(--fg); text-decoration: none; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
 article { max-width: 860px; margin: 0 auto; padding: 8px 16px 64px; overflow-wrap: anywhere; }
 a { color: var(--accent); }
@@ -47,7 +51,7 @@ summary { cursor: pointer; }
 :is(.example, .important) { --c: #7c4dff; }
 :is(.quote, .cite) { --c: #9e9e9e; }
 </style></head><body>
-<nav><button type="button" data-copy="markdown">Copy Markdown</button><button type="button" data-copy="formatted">Copy formatted</button><a href="?raw">Source</a></nav>
+<nav><!--notice--><button type="button" data-copy="markdown">Copy Markdown</button><button type="button" data-copy="formatted">Copy formatted</button><a href="?raw">Source</a></nav>
 <article><!--body--></article>
 <textarea hidden><!--source--></textarea>
 <!--mermaid-->

@@ -7,6 +7,7 @@ import sys
 
 PROBE = """
 import io
+import os
 import sys
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
@@ -56,6 +57,19 @@ if server._scratch_dir:
     before = width("stale"), width(mine)
     (server.Path(server._scratch_dir) / "wip" / "index.html").write_text("landed")
     print(*before, width(mine))
+    # An updating folder's Markdown page wears the bar and asks the same way: unchanged, then
+    # its files change (a revision lands), then the mark goes (the update is done).
+    rev = server.Path(server._scratch_dir) / "rev"
+    page = c.get("/scratch/rev/").text
+    print(int("<title>Updating · Rev</title>" in page and "Updating: the intro · reloads" in page))
+    width = lambda q: Image.open(io.BytesIO(c.get(f"/scratch/rev?seen={q}").content)).width
+    mine = server.re.search(r'const SEEN = "([^"]+)"', page)[1]
+    before = width(mine)
+    os.utime(rev / "index.md", (2e9, 2e9))
+    landed, mine = width(mine), server.re.search(r'const SEEN = "([^"]+)"',
+                                                 c.get("/scratch/rev/").text)[1]
+    (rev / "meta.json").write_text('{"title": "Rev"}')
+    print(before, landed, width(mine), int("Updating" not in c.get("/scratch/rev/").text))
 """
 
 
@@ -81,6 +95,9 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     (scratch / ".git" / "index.html").write_text("hidden")
     (scratch / "wip").mkdir()
     (scratch / "wip" / "meta.json").write_text('{"title": "Being made"}')
+    (scratch / "rev").mkdir()
+    (scratch / "rev" / "index.md").write_text("# Rev")
+    (scratch / "rev" / "meta.json").write_text('{"title": "Rev", "updating": "the intro"}')
     (tmp_path / "secret.txt").write_text("outside")
     (scratch / "link.txt").symlink_to(tmp_path / "secret.txt")
     # file, traversal and a symlink out both refused, directory index, bare prefix
@@ -93,7 +110,8 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # Hidden files and directories (an .env, a .git) are refused, as the gallery skips them.
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
-        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 2]
+        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 2,
+        1, 1, 2, 2, 1]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

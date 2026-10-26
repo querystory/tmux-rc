@@ -38,6 +38,7 @@ _found: dict[tuple[str, int], str] = {}  # for a refusing meta.json, or a listin
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 _PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
+_ASK = Path(__file__).resolve().parent / "scratch_ask.js"
 STALL = 30 * 60  # an in-progress folder's agent quiet this long has stopped
 # What a card, then the placeholder, says of a page being made, by progress().
 STATES = {"working": ("Being made…", "An agent is making this page. It opens here once it lands."),
@@ -110,7 +111,8 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
     hidden (a sidecar half-written, a .git) are not the page and do not date it. A folder
     whose meta.json came first is `pending` until its index lands: its page is being made
     (a site's assets may land ahead of its index, for a minute; loose files older than
-    that are the publish)."""
+    that are the publish). A published folder whose meta.json says `updating` is being
+    revised: its state is read from its pane since that mark (meta.json's time)."""
     sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
     files = [(at, f) for at, f in files if f not in sidecars]
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
@@ -125,6 +127,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
         f.endswith((".html", ".htm", ".md")) for f in names) and (
         not page or time.time() - max(files)[0] < 60)
     # The page is read: checked again, as it may have become a link out since find listed it.
+    updating = "" if pending else meta.get("updating", "")
     title = meta.get("title") or (None if not page or inside(page, folder) else folder.name)
     if not title and page and page.suffix == ".md":
         title = scratch_markdown.render(page)[2]
@@ -132,12 +135,14 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
         with page.open(errors="replace") as f:
             m = _TITLE.search(f.read(65536))
         title = m and unescape(m.group(1)).strip()
+    created = _when(meta.get("created")) or min(files)[0]
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
             "session_id": meta.get("agent_session"), "folder": folder,
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
-            "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
+            "created": created, "updated": max(files)[0], "updating": updating,
+            "since": (folder / "meta.json").stat().st_mtime if updating else created,
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
             "page": page, "pending": pending, "thumb": inside(thumb, folder)
             and thumb.is_file() and thumb.stat().st_mtime}
@@ -257,7 +262,8 @@ def _author(i: dict, tool: str | None, acct: dict) -> None:
 
 
 def progress(pane: dict | None, named: str | None, created: float) -> str:
-    """How a pending folder's page is coming along (a STATES key), from the pane `named` in
+    """How a pending folder's page, or an update to one, is coming along (a STATES key),
+    from the pane `named` in
     its meta.json, `pane` while that is still open: working while it runs or waits on its
     tools or subagents; quiet while it idles, which in the pane of a session whose subagent
     builds the page is not the end; stopped once it is gone or quiet for STALL. With no
@@ -279,7 +285,7 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
     for i in listed:  # a pane id from before a tmux restart names some other pane now
         if (pane := panes.get(i["pane"])) and not made_in(pane, i["created"]):
             pane = None
-        i["state"] = progress(pane, i["pane"], i["created"])
+        i["state"] = progress(pane, i["pane"], i["since"])
         i["pane"] = pane and i["pane"]
     return panes
 
@@ -347,10 +353,21 @@ def _where(i: dict, e: dict) -> str:
             else e["where"])
 
 
+def status(i: dict) -> str | None:
+    """What a card, a tab and an updating page's bar call a folder's state: a pending one's
+    by STATES, "Updating" while its page is revised ("Update stopped" once its agent has),
+    None for a page at rest."""
+    if i["pending"]:
+        return STATES[i["state"]][0]
+    if i.get("updating"):
+        return "Update stopped" if i["state"] == "stopped" else "Updating"
+    return None
+
+
 def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
-    wait = STATES[i["state"]][0] if i["pending"] else (
-        i.get("shot") == "pending" and "Making a preview…")
+    label = status(i)
+    wait = label if i["pending"] else i.get("shot") == "pending" and "Making a preview…"
     # A pending folder's thumbnail is an earlier page's: its state shows instead, and once
     # the page lands and is shot, the poll swaps in the new thumbnail.
     stopped = i["pending"] and i.get("state") == "stopped"  # nothing coming to poll for
@@ -359,12 +376,13 @@ def _card(i: dict) -> str:
     thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">'
              if i["thumb"] and not i["pending"]
              else f'<span class="{i["state"] if i["pending"] else ""}"{poll}>{wait}</span>'
-             if wait else "No preview")
+             if wait else "No preview") + (  # an update: the page so far, with a badge
+        f'<span class="badge {i["state"]}">{label}</span>' if i.get("updating") else "")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
     return (f'<article data-q="{escape(words)}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}"'
-            + (f' aria-label="{e["title"]}: {wait}"' if i["pending"] else "")  # the thumb's
+            + (f' aria-label="{e["title"]}: {label}"' if label else "")  # the thumb's
             + f'>{e["title"]}</a></h2>'
             + (f'<p class="desc">{e["description"]}</p>' if i["description"] else "")
             + f'<p class="by">{_chip(i, e)}'
@@ -396,4 +414,26 @@ def placeholder(root: Path, name: str, who) -> str | None:
             "ago": f"{age}m" if age < 60 else f"{age // 60}h {age % 60}m",
             "every": 60000 if i["state"] == "stopped" else 5000 if age < 10 else 30000}
     fill["seen"] = hash(tuple(fill.values()))  # what scratch_markdown.Files compares, as SEEN
+    fill["ask"] = _ask(fill["seen"], fill["every"])
     return re.sub(r"\{(\w+)\}", lambda m: str(fill[m[1]]), _PENDING.read_text())
+
+
+def _ask(seen, every: int) -> str:
+    """The check-then-reload script (scratch_ask.js) of a page showing what hashes to `seen`."""
+    script = _ASK.read_text().replace("{seen}", str(seen)).replace("{every}", str(every))
+    return f"<script>{script}</script>"
+
+
+def bar(root: Path, name: str, who) -> tuple[str, str] | None:
+    """An updating folder's notice on its rendered (Markdown) pages: the tab's label and a
+    thin bar, whose ask (as the placeholder's) reloads the page once the update is done or
+    its files change. None for any other folder. `who` as placeholder's, for the panes."""
+    i = read(root, root / name)
+    if not (i and i["updating"]):
+        return None
+    _progress([i], who()[0])
+    label, every = status(i), 60000 if i["state"] == "stopped" else 5000
+    return label, (f'<p class="updating {i["state"]}" role="status">{label}: '
+                   f'{escape(i["updating"])} · reloads when done'
+                   '<span id="offline" hidden> · Reconnecting…</span></p>'
+                   + _ask(hash((label, i["updating"], i["updated"])), every))

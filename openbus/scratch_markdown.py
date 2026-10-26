@@ -6,6 +6,7 @@ Raw HTML passes through: the page is sandboxed like every scratch page, where an
 could publish any HTML and script anyway. Nothing that reads other files (snippets) is
 on, since the renderer runs in the daemon."""
 
+import os
 import re
 from functools import lru_cache
 from html import escape, unescape
@@ -96,16 +97,20 @@ def render(path: Path) -> tuple[str, str, str | None]:
     return _render(str(path), st.st_mtime, st.st_size)
 
 
-def page(path: Path, web: Path) -> str:
+def page(path: Path, web: Path, notice: tuple[str, str] | None = None) -> str:
     """The whole page for `path`: its HTML in a readable column on the app's colours (from
-    `web`, the app's static dir), the Markdown kept for copying, and mermaid.js loaded
-    only when there is a diagram to draw."""
+    `web`, the app's static dir), the Markdown kept for copying, mermaid.js loaded only
+    when there is a diagram to draw, and `notice` (scratch.bar: its label for the tab, and
+    the bar) while the page is being updated."""
     source, body, title = render(path)
+    label, notice = notice or ("", "")
+    title = f"{label} · {title or path.stem}" if label else title or path.stem
     script = f'<script src="{MERMAID}"></script>' if 'class="mermaid"' in body else ""
     return (_PAGE.read_text().replace("/*tokens*/", tokens(web / "m" / "style.css"))
-            .replace("/*pygments*/", _PYGMENTS).replace("<!--title-->", escape(title or path.stem))
+            .replace("/*pygments*/", _PYGMENTS).replace("<!--title-->", escape(title))
             .replace("<!--source-->", escape(source))
-            .replace("<!--mermaid-->", script).replace("<!--body-->", body))
+            .replace("<!--notice-->", notice).replace("<!--mermaid-->", script)
+            .replace("<!--body-->", body))
 
 
 # A 1x1 and a 2x1 GIF: a placeholder's ask answered "no change" and "reload" (Files).
@@ -118,12 +123,14 @@ class Files(StaticFiles):
     """scratch's files, with a .md served as its page (`?raw` for the file itself), a
     folder's index.md as its index when it has no index.html, and, while it has neither,
     what `pending` makes of the folder's name (scratch.placeholder), as 202 Accepted:
-    an agent checking for a 200 is not told its page is there. Anything hidden (a .git,
+    an agent checking for a 200 is not told its page is there; while `updating` says the
+    folder is being revised (scratch.bar), its .md pages wear that bar. Anything hidden (a .git,
     an .env) is not part of the page, as in the gallery, and is not served."""
 
-    def __init__(self, *, web: Path, pending=lambda _name: None, **kwargs):
+    def __init__(self, *, web: Path, pending=lambda _name: None, updating=lambda _name: None,
+                 **kwargs):
         super().__init__(**kwargs)
-        self.web, self.pending = web, pending
+        self.web, self.pending, self.updating = web, pending, updating
 
     def lookup_path(self, path):
         if any(part.startswith(".") for part in Path(path).parts):
@@ -135,8 +142,9 @@ class Files(StaticFiles):
 
     async def get_response(self, path, scope):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
-        if seen and "/" not in path:  # the placeholder asking: a wide pixel says reload
-            wait = await anyio.to_thread.run_sync(self.pending, path)
+        if seen and "/" not in path:  # a placeholder or bar asking: wide says reload
+            wait = await anyio.to_thread.run_sync(
+                lambda: self.pending(path) or "".join(self.updating(path) or ()))
             same = wait and f'const SEEN = "{seen[0]}";' in wait
             return Response(PIXEL if same else WIDE, media_type="image/gif")
         try:
@@ -154,4 +162,6 @@ class Files(StaticFiles):
         if "raw" in parse_qs(scope["query_string"].decode(), keep_blank_values=True):
             response.headers["content-type"] = "text/plain; charset=utf-8"
             return response
-        return HTMLResponse(await anyio.to_thread.run_sync(page, file, self.web))
+        parts = Path(os.path.relpath(file, self.directory)).parts  # a folder's page, not loose
+        return HTMLResponse(await anyio.to_thread.run_sync(lambda: page(
+            file, self.web, self.updating(parts[0]) if len(parts) > 1 else None)))

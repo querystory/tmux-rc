@@ -263,6 +263,36 @@ def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeyp
     assert scratch.placeholder(tmp_path, "wip", who) is None
 
 
+def test_an_updating_page_keeps_its_thumbnail_and_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    now = scratch.time.time()
+    for name, pane in (("rev", "%1"), ("gone", "%9"), ("idle", "%3"), ("done", "%1")):
+        meta = {"title": name, "pane": pane, "created": "2020-01-01T00:00:00"}
+        _folder(tmp_path, name, now, {**meta, "updating": "the intro"} if name != "done" else meta)
+        (tmp_path / name / "thumb.webp").write_bytes(b"")
+    os.utime(tmp_path / "idle" / "meta.json", (now - scratch.STALL - 1,) * 2)  # marked long ago
+    states = [{"pane_id": "%1", "activity": "running"},
+              {"pane_id": "%3", "activity": "idle", "state_since": now - scratch.STALL - 1}]
+    items, _ = _resolved(tmp_path, states)
+    assert not any(i["pending"] for i in items.values())  # published: never "In progress"
+    assert {n: (i["updating"], i["state"]) for n, i in items.items()} == {
+        "rev": ("the intro", "working"), "gone": ("the intro", "stopped"),
+        "idle": ("the intro", "stopped"), "done": ("", "working")}
+    card = scratch._card(items["rev"])
+    assert 'thumb.webp" alt="" loading="lazy"><span class="badge working">Updating</span>' in card
+    assert 'aria-label="rev: Updating">rev</a>' in card
+    assert '<span class="badge stopped">Update stopped</span>' in scratch._card(items["gone"])
+    assert "badge" not in scratch._card(items["done"]) and "aria-label" not in scratch._card(
+        items["done"])
+    def who():
+        return states, [], STYLE
+    label, bar = scratch.bar(tmp_path, "rev", who)
+    assert label == "Updating" and "Updating: the intro · reloads when done" in bar
+    assert "setTimeout(ask, 5000)" in bar and 'id="offline"' in bar
+    assert scratch.bar(tmp_path, "gone", who)[0] == "Update stopped"
+    assert scratch.bar(tmp_path, "done", who) is None and scratch.bar(tmp_path, "no", who) is None
+
+
 def test_one_find_lists_scratch_and_none_means_an_empty_gallery(tmp_path, monkeypatch):
     _folder(tmp_path, "a", 1000)
     _folder(tmp_path, "b", 1000).joinpath(".git").mkdir()
