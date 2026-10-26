@@ -621,6 +621,7 @@ class PushManager:
         if self._stopping.is_set() or self.watcher.is_stale():
             return
         now = self.clock()
+        booted = self.watcher.booted()  # before the copy: then it lists every pane
         panes = [dict(s) for s in self.watcher.states]
         active: set[tuple[str, str]] = set()
         candidates = []
@@ -645,7 +646,7 @@ class PushManager:
             if now - previous[1] >= SETTLE_SECONDS:
                 candidates.append((pane, fp, question))
 
-        if self.watcher.booted():  # every pane is listed: the rest are gone
+        if booted:  # the rest are gone
             self.store.keep({_pane_key(p) for p in panes if isinstance(p.get("pane_id"), str)})
         self._ready = {k: at for k, at in self._ready.items() if now - at < READY_QUIET_SECONDS}
         cleared = set(self._notified) - active
