@@ -143,8 +143,8 @@ class Files(StaticFiles):
         try:
             response = await super().get_response(path, scope)
         except HTTPException as e:
-            wait = e.status_code == 404 and "/" not in path and await anyio.to_thread.run_sync(
-                self.pending, path)
+            wait = e.status_code == 404 and "/" not in path.removeprefix(
+                ARCHIVE + "/") and await anyio.to_thread.run_sync(self.pending, path)
             if not wait:
                 raise
             return HTMLResponse(wait, status_code=202,  # `curl -f` and .ok pass a 202

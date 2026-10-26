@@ -13,10 +13,12 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 import threading
 import time
 from collections import defaultdict
+from contextlib import suppress
 from datetime import datetime
 from html import escape, unescape
 from itertools import islice
@@ -168,25 +170,49 @@ def act(root: Path, action: str, names: list[str]) -> list[str]:
     """Archive, unarchive or delete these folders, returning those done. A name is only
     ever a folder directly in scratch (or its archive): anything else (a path, a dot name,
     a link) fails the whole request. Delete only empties the archive, so nothing is lost
-    in one step; a folder whose name is taken where it goes is left where it is."""
+    in one step; a folder whose name is taken where it goes is left where it is. All of it
+    works on scratch and its archive as opened, never their paths again, so a link swapped
+    in meanwhile (for `.archive`, say) can't take a move or a delete out of scratch."""
     if not all(n and n == Path(n).name and n[0] != "." and "\0" not in n for n in names):
         raise ValueError("a name is one folder of scratch")
-    shelf = archive(root)
-    src, dst = (root, shelf) if action == "archive" else (shelf, root)
-    done = []
-    for name in dict.fromkeys(names):
-        folder = src / name
-        if folder.is_symlink() or not folder.is_dir():
-            continue
-        if action == "delete":
-            shutil.rmtree(folder)
-        elif os.path.lexists(dst / name):
-            continue
-        else:
-            dst.mkdir(exist_ok=True)
-            folder.rename(dst / name)
-        done.append(name)
-    return done
+    archive_dir = scratch_markdown.ARCHIVE
+    top = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        if action == "archive":
+            with suppress(FileExistsError):
+                os.mkdir(archive_dir, dir_fd=top)
+        try:
+            shelf = os.open(archive_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=top)
+        except FileNotFoundError:
+            return []  # nothing archived yet
+        except OSError as e:  # a link (ELOOP) or a file
+            raise PermissionError(f"{archive_dir} is not a folder of scratch") from e
+        try:
+            src, dst = (top, shelf) if action == "archive" else (shelf, top)
+            return [name for name in dict.fromkeys(names) if _move(name, src, dst, action)]
+        finally:
+            os.close(shelf)
+    finally:
+        os.close(top)
+
+
+def _move(name: str, src: int, dst: int, action: str) -> bool:
+    """One folder of `act`, between the folders open as `src` and `dst`."""
+    mode = lambda fd: (  # noqa: E731  the entry itself, never what a link points at
+        os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode)
+    try:
+        if not stat.S_ISDIR(mode(src)):
+            return False
+    except FileNotFoundError:
+        return False
+    if action == "delete":
+        shutil.rmtree(name, dir_fd=src)
+        return True
+    with suppress(FileNotFoundError):
+        mode(dst)
+        return False  # its name is taken there
+    os.rename(name, name, src_dir_fd=src, dst_dir_fd=dst)
+    return True
 
 
 def listing(root: Path, *, archived: bool = False) -> list[dict]:
@@ -435,8 +461,15 @@ def placeholder(root: Path, name: str, who) -> str | None:
     making it and what that pane is doing now, reloading itself (the sandbox allows no
     fetch) every 5s, every 30s after ten minutes, and every minute once stopped. None
     for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
-    optionally, pane_of (as page's); it scans every account, so only a pending folder asks."""
-    i = read(root, root / name)
+    optionally, pane_of (as page's); it scans every account, so only a pending folder asks.
+    An archived folder answers at ARCHIVE/<name>, and at <name> while that is not taken."""
+    under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
+    name = name.removeprefix(scratch_markdown.ARCHIVE + "/")
+    try:
+        base = archive(root) if under else root
+    except PermissionError:
+        return None
+    i = read(base, base / name)
     if not (i and i["pending"]):
         return None
     states, profiles, style, *pane_of = who()

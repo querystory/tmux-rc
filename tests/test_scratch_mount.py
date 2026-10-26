@@ -64,6 +64,10 @@ print(c.get("/scratch/viewed/").status_code, c.get("/scratch/.archive/viewed/").
 print(c.get("/scratch/viewed/").status_code, c.get("/scratch/.archive/viewed/").status_code)
 (root / "viewed" / "meta.json").unlink()
 (root / "viewed").rmdir()
+# a page still being made, archived: its placeholder answers at both links
+act("archive", "wip")
+print(c.get("/scratch/wip/").status_code, c.get("/scratch/.archive/wip/").status_code)
+act("unarchive", "wip")
 print(act("archive", "sub", "../sub").status_code, int(act("delete", "sub").json()["done"] == []))
 # The open gallery's check: an image only when its tag is out of date (no fetch, sandboxed)
 old, now = c.get(f"/scratch/?seen={before}"), c.get(f"/scratch/?seen={tag()}")
@@ -108,7 +112,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
         200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 200, 200, 202, 200, 400, 1, 1, 1, 404]
+        1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

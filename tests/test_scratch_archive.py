@@ -30,6 +30,7 @@ def test_a_link_is_never_followed(tmp_path):
     root.mkdir()
     (root / "link").symlink_to(outside / "victim")
     assert scratch.act(root, "archive", ["link"]) == []
+    (root / ".archive").rmdir()
     (root / ".archive").symlink_to(outside)  # a planted archive: refused outright
     with pytest.raises(PermissionError):
         scratch.act(root, "delete", ["victim"])
