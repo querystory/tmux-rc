@@ -24,8 +24,9 @@ from .tmux import Pane
 # The final message sits at the end, but a session's file grows to megabytes (pasted
 # images, tool output); reading only its tail keeps this cheap on every parse.
 _TAIL = 1 << 20
-# Conversation entries: Claude's messages and tool calls, Codex's response items.
-_SAID = frozenset({"user", "assistant", "response_item"})
+# Conversation entries: Claude's messages and tool calls, Codex's response items and events
+# (all but its token counts).
+_SAID = frozenset({"user", "assistant", "response_item", "event_msg"})
 _UUID_RE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 
 
@@ -139,7 +140,8 @@ def turn(pane: Pane, text: str) -> str | None:
 
 @lru_cache(maxsize=256)
 def _turn(path: Path, _stat: tuple) -> str | None:
-    said = [e for e in _entries(path) if e.get("type") in _SAID]
+    said = [e for e in _entries(path) if e.get("type") in _SAID and not e.get("isSidechain")
+            and not (isinstance(p := e.get("payload"), dict) and p.get("type") == "token_count")]
     last = json.dumps(said[-1], sort_keys=True).encode() if said else None
     return last and f"{path.name}:{hashlib.sha256(last).hexdigest()}"
 

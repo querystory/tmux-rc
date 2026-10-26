@@ -65,6 +65,8 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
     with path.open("a") as f:  # bookkeeping is not the conversation moving on
         f.write(json.dumps({"type": "system", "subtype": "turn_duration"}) + "\n")
         f.write(json.dumps({"type": "event_msg", "payload": {"type": "token_count"}}) + "\n")
+        f.write(json.dumps(_say("assistant", [{"type": "text", "text": "x"}], isSidechain=True))
+                + "\n")
     assert transcript.turn(pane, "") == turn
     with path.open("a") as f:
         f.write(json.dumps(_say("user", "third ask")) + "\n")
@@ -112,6 +114,8 @@ def test_codex_reply_from_the_thread_named_in_the_status_bar(homes, monkeypatch)
                          ("agent_message", "resumed"))]
     _write(resumed, flat)
     assert transcript.last_reply(_pane("7"), status) == "resumed"
+    turn = transcript.turn(_pane("7"), status)  # these shapes move the turn on, too
     _write(resumed, flat[:2])
+    assert transcript.turn(_pane("7"), status) not in (turn, None)
     assert transcript.last_reply(_pane("7"), status) is None
     assert transcript.last_reply(_pane("7"), "› Ready\n  gpt-6-sol · ~/src/app") is None

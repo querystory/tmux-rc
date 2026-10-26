@@ -324,6 +324,7 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._parsed_reply: dict[str, str | None] = {}  # pane_id -> agent reply at last parse
+        self._parsed_turn: dict[str, str | None] = {}  # pane_id -> transcript turn at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
         self._collection_failed = False
         # Last tick's answer to "is a tmux server running at all?" — lets the UI tell a
@@ -1148,6 +1149,7 @@ class Watcher:
             self._dropped,
             self._prev_fp,
             self._parsed_reply,
+            self._parsed_turn,
             self._seen_fp,
             self._parse_fails,
             self._parse_valid,
@@ -1458,9 +1460,10 @@ class Watcher:
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         # A card checkpointed before frames were kept is read again: a frame taken off
         # today's screen would vouch for a question parsed from an older one.
-        # So is an ask whose agent has moved on (a second, identical approval): its turn.
+        # So is an ask whose agent has moved on (a second, identical approval), once per turn
+        # like a screen (a failing parse retires it), a restored card's own turn standing in.
         moved_on = said and cached and cached.get("activity") == "waiting" \
-            and said != cached.get("turn")
+            and said != self._parsed_turn.setdefault(pane.id, cached.get("turn"))
         if cached is not None and not changed and not forced and "frame" in cached \
                 and not moved_on:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
@@ -1520,7 +1523,7 @@ class Watcher:
             if self.use_llm
             else None
         )
-        self._parsed_reply[pane.id] = reply
+        self._parsed_reply[pane.id], self._parsed_turn[pane.id] = reply, said
         state = classify(
             pane,
             text,

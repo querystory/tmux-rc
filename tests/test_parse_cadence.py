@@ -318,6 +318,16 @@ def test_an_ask_whose_agent_moved_on_reparses_with_its_new_turn(monkeypatch):
         w._forced_this_tick = set()
         assert w._tick_pane(pane)["turn"] == turn
     assert calls["n"] == 2
+    # A turn whose parse keeps failing retires like a screen: no call past the retries.
+    monkeypatch.setattr(W, "classify", lambda pane, text, **_kw: (
+        classify(pane, text) and {"activity": "unknown", "parse_ok": False, "events": []}))
+    said[0] = "s.jsonl:25"
+    for _ in range(W.PARSE_RETRIES + 3):
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 2 + W.PARSE_RETRIES
+    monkeypatch.setattr(W, "classify", classify)
+    calls["n"] = 2
     activity[0], said[0] = "idle", "s.jsonl:30"
     w._forced_this_tick = {pane.id}
     w._tick_pane(pane)
