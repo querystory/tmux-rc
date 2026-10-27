@@ -71,6 +71,7 @@ class Sample:
     title: str | None = None  # tmux pane title, for agents identified by it (omp)
     prior: tuple[str, ...] = ()  # earlier frames, sent with the capture as in production
     reply: str | None = None  # the agent's last transcript message, as the watcher reads it
+    turn_live: bool | None = None  # Codex's rollout has a turn open, as the watcher reads it
     processes: tuple[str, ...] = ()  # the process tree under the pane, argv space-joined
 
     @classmethod
@@ -84,6 +85,7 @@ class Sample:
             title=d.get("title"),
             prior=tuple(d.get("prior", ())),
             reply=d.get("reply"),
+            turn_live=d.get("turn_live"),
             processes=tuple(d.get("processes", ())),
             capture=d["capture"],
             expected=d["expected"],
@@ -123,6 +125,7 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         return classify(
             pane, sample.capture, llm_fn=llm_fn, prior=list(sample.prior),
             repository=sample.repository, replies_fn=llm_fn, reply=sample.reply,
+            turn_live=sample.turn_live,
         )
 
 

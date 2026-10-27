@@ -1906,6 +1906,19 @@ def test_codex_live_row_is_only_its_status_row():
         "activity"] == "idle"
 
 
+def test_codex_turn_open_in_its_rollout_is_running():
+    # Codex hides its live row while a message prints mid-turn; its rollout still has the
+    # turn open. A question it asks, and a turn the rollout has closed, keep the read.
+    streaming = _sample("134_codex_streaming_reply_mid_turn")
+    for live, activity in ((True, "running"), (False, "idle"), (None, "idle")):
+        assert classify(_pane("node"), streaming, _llm({"tool": "codex", "activity": "idle"}),
+                        turn_live=live)["activity"] == activity
+    ask = {"prompt": "Which branch?", "answer_style": "text"}
+    asked = classify(_pane("node"), streaming, _llm(
+        {"tool": "codex", "activity": "waiting", "question": ask}), turn_live=True)
+    assert asked["activity"] == "waiting"
+
+
 @pytest.mark.parametrize("command", ["agy", "antigravity"])
 def test_antigravity_process_wins_over_backend_model(command):
     result = classify(

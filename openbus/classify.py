@@ -1187,12 +1187,14 @@ def classify(
     repository: str | None = None,
     replies_fn=None,
     reply: str | None = None,
+    turn_live: bool | None = None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
     is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
     = events already reported (so the model doesn't repeat them). `prev_activity` is the
     pane's last classified activity, held onto when the parse fails (see below). `reply`
-    is the agent's last message from its transcript, whose code blocks become copyables.
+    is the agent's last message from its transcript, whose code blocks become copyables;
+    `turn_live` whether Codex's rollout has a turn open (transcript.codex_turn_live).
     Returns the model's JSON with pane_id/label merged in; on no/failed LLM a minimal
     heuristic dict."""
     visible = _visible(text)
@@ -1331,6 +1333,12 @@ def classify(
     if (result.get("tool") == "codex" and result.get("activity") in ("waiting", "unknown", None)
             and not result.get("question") and result.get("waiting_on") != "external"
             and _CODEX_LIVE_RE.search(visible)):
+        result["activity"] = "running"
+        result.pop("parse_ok", None)
+    # So is a turn Codex's own rollout has open: its "Working" row hides while a message
+    # prints mid-turn, which reads as a finished turn on screen.
+    if (result.get("tool") == "codex" and turn_live and not result.get("question")
+            and result.get("activity") in ("idle", "unknown", None)):
         result["activity"] = "running"
         result.pop("parse_ok", None)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
