@@ -270,8 +270,11 @@ const restore = setupRestore({ mount: $("restore"), request, slow: NO_TIMEOUT, l
   open: () => openPage("restore"),
   opened: () => { if (!active && !page && !dashboard) navigate(null, "restore", { mode: "replace" }); },
   closed: () => { if (page === "restore") closePage(); } });
+// shared: a link shared to the app (boot, below), pending while its notice asks for a pane.
+// Any other notice replaces that ask, and so drops the link: nothing pending goes unseen.
+let shared = null;
 function notice(message = "", ms = 0, action = null) {
-  clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
+  shared = null; clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
   if (action) $("notice").append(" ", Object.assign(document.createElement("button"), { type: "button", textContent: action[0], onclick: () => { notice(); action[1](); } }));
   if (message && ms) noticeTimer = setTimeout(() => notice(), ms);
 }
@@ -2571,11 +2574,12 @@ window.addEventListener("pageshow", () => { startState(); restartDetail(); fitVi
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 // A link shared to the app, by Android's share sheet (the manifest's share_target) or an iOS
 // Shortcut opening /m?url=…: the list is the picker, and route() hands it to the pane picked.
-const sharing = new URLSearchParams(location.search);
-let shared = sharing.get("url") || sharing.get("text") || sharing.get("title");
-if (shared) history.replaceState(null, "", location.pathname + location.hash);
+// A draft link holds 500 characters (url-state.js linkDraft): a longer one is refused, not cut.
+const sharing = new URLSearchParams(location.search), link = sharing.get("url") || sharing.get("text") || sharing.get("title");
+if (link) history.replaceState(null, "", location.pathname + location.hash);
 fitViewport(); route(); startState();
-if (shared) notice(`Pick a pane for ${shared.length > 80 ? `${shared.slice(0, 80)}…` : shared}`, 0, ["Cancel", () => { shared = null; renderList(); }]);
+if (link?.length > 500) notice("That link is too long for a draft (over 500 characters). Copy and paste it instead.");
+else if (link) { notice(`Pick a pane for ${link.length > 80 ? `${link.slice(0, 80)}…` : link}`, 0, ["Cancel", renderList]); shared = link; }
 setupPush($("push"), notice, licon("bell"));
 // A chat Open button offered within the launch grace may name a window too new for
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
