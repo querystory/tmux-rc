@@ -36,6 +36,16 @@ Microphone and notification permissions are separate: allowing one does not allo
 the other. If notifications were denied, enable them for the installed app in iOS
 **Settings → Notifications**; repeatedly turning the switch on cannot override a denial.
 
+## Share a link into a pane
+
+iOS lists no web app in its share sheet (it has no Web Share Target), so a Shortcut stands
+in: one that receives URLs from the share sheet and opens `/m?url=<the link, URL-encoded>`.
+iOS opens that in the default browser, not the installed app, since a home-screen app
+can't claim links; the browser keeps its own sign-in, so sign in there once too. On
+Android the installed app is a share target itself, through its manifest, and opens the
+same address. Either way the list asks which pane, Needs you first, and the pane picked
+opens with the link in its composer, as a draft link would: nothing is sent until you Send.
+
 ## While using it: screen timeout, lock, and interruptions
 
 | Situation | Expected behavior / what to do |

@@ -336,6 +336,8 @@ function leaveMissingPane(id) {
 }
 
 function route() {
+  // A shared link (boot, below) rides on the pane picked as a draft link's would: never sent.
+  if (shared && parseHash(location.hash).pane) { history.replaceState(history.state, "", `${location.hash}&draft=${encodeURIComponent(shared)}`); shared = null; }
   const wasDashboardVisible = dashboardVisible(), wasPage = page;
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
@@ -483,8 +485,9 @@ function renderList() {
 }
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
+// Picking a pane for a shared link (boot) is the exception: Needs you first, as the sidebar has it.
 function renderPhoneList(subset, query) {
-  const rows = sort === "updated" ? subset.sort(newestFirst) : oneSession() ? subset
+  const rows = sort === "updated" ? subset.sort((a, b) => (shared ? needsYou(b) - needsYou(a) : 0) || newestFirst(a, b)) : oneSession() ? subset
     // Sessions as the watcher lists them: tmux's own order.
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   // A card for answers to tap: a question's, or a finished turn's offers.
@@ -2565,7 +2568,13 @@ document.addEventListener("visibilitychange", () => { sendPresence(); startState
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
+// A link shared to the app, by Android's share sheet (the manifest's share_target) or an iOS
+// Shortcut opening /m?url=…: the list is the picker, and route() hands it to the pane picked.
+const sharing = new URLSearchParams(location.search);
+let shared = sharing.get("url") || sharing.get("text") || sharing.get("title");
+if (shared) history.replaceState(null, "", location.pathname + location.hash);
 fitViewport(); route(); startState();
+if (shared) notice(`Pick a pane for ${shared}`, 0, ["Cancel", () => { shared = null; }]);
 setupPush($("push"), notice, licon("bell"));
 // A chat Open button offered within the launch grace may name a window too new for
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
