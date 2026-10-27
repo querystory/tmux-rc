@@ -1336,11 +1336,11 @@ def classify(
         result["activity"] = "running"
         result.pop("parse_ok", None)
     # So is a turn Codex's own rollout has open: its "Working" row hides while a message
-    # prints mid-turn, which reads as a finished turn on screen.
+    # prints mid-turn, which reads as a finished turn on screen. A failed parse stays one,
+    # to be retried: the open turn may be waiting on an approval the parse missed.
     if (result.get("tool") == "codex" and turn_live and not result.get("question")
             and result.get("activity") in ("idle", "unknown", None)):
         result["activity"] = "running"
-        result.pop("parse_ok", None)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was

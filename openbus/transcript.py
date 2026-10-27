@@ -140,18 +140,20 @@ def codex_turn_live(pane: Pane, text: str) -> bool | None:
     try:
         with path.open("rb") as f:
             f.seek(pos)
-            chunk = f.read()
+            for line in f:  # one record at a time: a rollout can reach hundreds of MB
+                if not line.endswith(b"\n"):
+                    break  # still being written: read it whole next time
+                pos += len(line)
+                try:
+                    event = json.loads(line).get("payload")
+                except (ValueError, AttributeError):
+                    continue
+                kind = event.get("type") if isinstance(event, dict) else None
+                live = {"task_started": True, "task_complete": False,
+                        "turn_aborted": False}.get(kind, live)
     except OSError:
         return None
-    end = chunk.rfind(b"\n") + 1  # a line still being written waits for the next read
-    for line in chunk[:end].splitlines():
-        try:
-            event = json.loads(line).get("payload")
-        except (ValueError, AttributeError):
-            continue
-        kind = event.get("type") if isinstance(event, dict) else None
-        live = {"task_started": True, "task_complete": False, "turn_aborted": False}.get(kind, live)
-    _rollout_reads[path] = (pos + end, live)
+    _rollout_reads[path] = (pos, live)
     return live
 
 

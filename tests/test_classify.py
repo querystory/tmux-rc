@@ -1917,6 +1917,8 @@ def test_codex_turn_open_in_its_rollout_is_running():
     asked = classify(_pane("node"), streaming, _llm(
         {"tool": "codex", "activity": "waiting", "question": ask}), turn_live=True)
     assert asked["activity"] == "waiting"
+    unread = classify(_pane("codex"), streaming, _llm(None), prev_activity="idle", turn_live=True)
+    assert unread["activity"] == "running" and unread["parse_ok"] is False
 
 
 @pytest.mark.parametrize("command", ["agy", "antigravity"])
