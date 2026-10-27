@@ -125,7 +125,8 @@ def last_reply(pane: Pane, text: str) -> str | None:
     return path and _reply(path, _stamp(path))
 
 
-_rollout_reads: dict[Path, tuple[int, bool | None]] = {}  # rollout -> (bytes read, turn open)
+# rollout -> (file identity, bytes read, turn open)
+_rollout_reads: dict[Path, tuple[int, int, bool | None]] = {}
 
 
 def codex_turn_live(pane: Pane, text: str) -> bool | None:
@@ -136,9 +137,12 @@ def codex_turn_live(pane: Pane, text: str) -> bool | None:
     path = _codex_file(pane, text)
     if not path:
         return None
-    pos, live = _rollout_reads.get(path, (0, None))
     try:
         with path.open("rb") as f:
+            ino, size = (st := os.fstat(f.fileno())).st_ino, st.st_size
+            seen, pos, live = _rollout_reads.get(path, (ino, 0, None))
+            if seen != ino or size < pos:  # replaced (a session copied over it): start over
+                pos, live = 0, None
             f.seek(pos)
             for line in f:  # one record at a time: a rollout can reach hundreds of MB
                 if not line.endswith(b"\n"):
@@ -153,7 +157,7 @@ def codex_turn_live(pane: Pane, text: str) -> bool | None:
                         "turn_aborted": False}.get(kind, live)
     except OSError:
         return None
-    _rollout_reads[path] = (pos, live)
+    _rollout_reads[path] = (ino, pos, live)
     return live
 
 

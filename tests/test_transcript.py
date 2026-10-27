@@ -130,3 +130,8 @@ def test_codex_turn_open_from_its_rollout(homes, monkeypatch):
         f.write(event("task_started"))
     narrow = f"⟪/dim⟫› Ask Codex to do anything\n\n  ⟪/dim⟫{SID} · GPT-6.1-…"
     assert transcript.codex_turn_live(_pane("7"), narrow) is True
+    # Copied over by a shorter session whose turn is closed: read afresh, not from the
+    # old offset.
+    path.unlink()
+    path.write_text(event("task_started") + event("task_complete"))
+    assert transcript.codex_turn_live(_pane("7"), status) is False
