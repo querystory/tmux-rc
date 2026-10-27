@@ -125,7 +125,7 @@ def last_reply(pane: Pane, text: str) -> str | None:
     return path and _reply(path, _stamp(path))
 
 
-_turns: dict[Path, tuple[int, bool | None]] = {}  # rollout -> (bytes read, turn open)
+_rollout_reads: dict[Path, tuple[int, bool | None]] = {}  # rollout -> (bytes read, turn open)
 
 
 def codex_turn_live(pane: Pane, text: str) -> bool | None:
@@ -136,7 +136,7 @@ def codex_turn_live(pane: Pane, text: str) -> bool | None:
     path = _codex_file(pane, text)
     if not path:
         return None
-    pos, live = _turns.get(path, (0, None))
+    pos, live = _rollout_reads.get(path, (0, None))
     try:
         with path.open("rb") as f:
             f.seek(pos)
@@ -151,7 +151,7 @@ def codex_turn_live(pane: Pane, text: str) -> bool | None:
             continue
         kind = event.get("type") if isinstance(event, dict) else None
         live = {"task_started": True, "task_complete": False, "turn_aborted": False}.get(kind, live)
-    _turns[path] = (pos + end, live)
+    _rollout_reads[path] = (pos + end, live)
     return live
 
 
