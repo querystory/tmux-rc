@@ -410,7 +410,7 @@ function updateRow(button, pane) {
   markLine(button.querySelector(".row-status"), paneActivity(pane), pane);
   const sessionChip = button.querySelector(".session-chip");
   const session = sessionOf(pane);
-  sessionChip.hidden = sort !== "updated" || !session; // a session label already says it
+  sessionChip.hidden = sort !== "updated" && !shared || !session; // a session label already says it
   text(sessionChip, session);
   sessionChip.title = session ? `Session: ${session}` : "";
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
@@ -485,9 +485,10 @@ function renderList() {
 }
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
-// Picking a pane for a shared link (boot) is the exception: Needs you first, as the sidebar has it.
+// Picking a pane for a shared link (boot) is the exception: Needs you first, as the sidebar has
+// it, then the newest, whatever the saved sort.
 function renderPhoneList(subset, query) {
-  const rows = sort === "updated" ? subset.sort((a, b) => (shared ? needsYou(b) - needsYou(a) : 0) || newestFirst(a, b)) : oneSession() ? subset
+  const rows = sort === "updated" || shared ? subset.sort((a, b) => (shared ? needsYou(b) - needsYou(a) : 0) || newestFirst(a, b)) : oneSession() ? subset
     // Sessions as the watcher lists them: tmux's own order.
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   // A card for answers to tap: a question's, or a finished turn's offers.
@@ -2574,7 +2575,7 @@ const sharing = new URLSearchParams(location.search);
 let shared = sharing.get("url") || sharing.get("text") || sharing.get("title");
 if (shared) history.replaceState(null, "", location.pathname + location.hash);
 fitViewport(); route(); startState();
-if (shared) notice(`Pick a pane for ${shared}`, 0, ["Cancel", () => { shared = null; }]);
+if (shared) notice(`Pick a pane for ${shared.length > 80 ? `${shared.slice(0, 80)}…` : shared}`, 0, ["Cancel", () => { shared = null; renderList(); }]);
 setupPush($("push"), notice, licon("bell"));
 // A chat Open button offered within the launch grace may name a window too new for
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
