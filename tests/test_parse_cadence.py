@@ -564,7 +564,8 @@ def test_failed_parse_keeps_an_open_codex_turn_running(monkeypatch):
            {"activity": "waiting", "waiting_on": "user", "tool": "codex", "events": [],
             "question": ask},
            {"activity": "running", "tool": "codex", "events": [], "parse_ok": False}]
-    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0)))
+    failed = seq[-1]
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0) if seq else failed))
     pane = _Pane(current_command="node")
     w._forced_this_tick = set()
     assert w._tick_pane(pane)["activity"] == "idle"
@@ -579,6 +580,13 @@ def test_failed_parse_keeps_an_open_codex_turn_running(monkeypatch):
         w._forced_this_tick = set()
         state = w._tick_pane(pane)
     assert state["activity"] == "waiting" and state["question"] == ask
+    # Answered: its words gone through every retry, the question retires and the open
+    # turn is running, not unknown.
+    frame[0] = "• Running it now.\n› Ask Codex to do anything"
+    for _ in range(W.PARSE_RETRIES + 1):
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+    assert state["question"] is None and state["activity"] == "running"
 
 
 def test_failed_parse_still_publishes_the_links_it_read(monkeypatch):

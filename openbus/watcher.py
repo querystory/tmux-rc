@@ -1671,16 +1671,17 @@ class Watcher:
             if known_replacement:
                 state.update(tool=replacement_tool, identity_tool=replacement_tool,
                              agent_title=None, agent_title_tool=None)
-            # Codex's rollout is a read even when the screen was not: an open turn is
-            # running on the kept card too, unless that card holds a question to answer.
-            if (turn_live and state.get("tool") == "codex" and not state.get("question")
-                    and state.get("activity") in ("idle", "unknown", None)):
-                state["activity"] = "running"
             # Its question too, once no words on a screen that held through every retry
             # ask it (not a frame caught mid-repaint): answered and replaced (a
             # multi-question dialog's next tab), so its buttons would answer the new ask.
             if retired and prompt_gone(text, self._question_prompt(state) or ""):
                 state.update(question=None, activity="unknown", waiting_on=None)
+            # Codex's rollout is a read even when the screen was not: an open turn is
+            # running on the kept card too, unless it still holds a question (one just
+            # retired above no longer counts).
+            if (turn_live and state.get("tool") == "codex" and not state.get("question")
+                    and state.get("activity") in ("idle", "unknown", None)):
+                state["activity"] = "running"
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 
