@@ -340,7 +340,8 @@ function leaveMissingPane(id) {
 
 function route() {
   // A shared link (boot, below) rides on the pane picked as a draft link's would: never sent.
-  if (shared && parseHash(location.hash).pane) { history.replaceState(history.state, "", `${location.hash}&draft=${encodeURIComponent(shared)}`); shared = null; }
+  const to = parseHash(location.hash); // formatHash drops any other draft: the shared link is the one
+  if (shared && to.pane) { history.replaceState(history.state, "", `#${formatHash(to)}&draft=${encodeURIComponent(shared)}`); shared = null; }
   const wasDashboardVisible = dashboardVisible(), wasPage = page;
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
@@ -2589,7 +2590,7 @@ const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, o
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {
-  return [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+  return !!shared || [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
 }
 function observeVersion(version) {
   if (typeof version !== "string" || !version) return;
