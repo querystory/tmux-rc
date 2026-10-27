@@ -548,6 +548,39 @@ def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
     assert state["activity"] == "unknown" and state["headline"] == good["headline"]
 
 
+def test_failed_parse_keeps_an_open_codex_turn_running(monkeypatch):
+    """Copilot, #585 round 3: a failed parse keeps the last card, which for a pane last
+    read idle would undo the rollout's open turn and leave it idle once retries ran out.
+    The open turn stands on the kept card; the screen is still retried, and a kept
+    question still asks."""
+    frame = ["• Done.\n› Ask Codex to do anything"]
+    w, _calls = _harness(monkeypatch, frame)
+    live = [False]
+    monkeypatch.setattr(W.transcript, "last_reply", lambda pane, text: None)
+    monkeypatch.setattr(W.transcript, "codex_turn_live", lambda pane, text: live[0])
+    ask = {"answer_style": "menu", "prompt": "Run it?", "options": ["Yes", "No"]}
+    seq = [{"activity": "idle", "tool": "codex", "events": [], "headline": "Done"},
+           {"activity": "running", "tool": "codex", "events": [], "parse_ok": False},
+           {"activity": "waiting", "waiting_on": "user", "tool": "codex", "events": [],
+            "question": ask},
+           {"activity": "running", "tool": "codex", "events": [], "parse_ok": False}]
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0)))
+    pane = _Pane(current_command="node")
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["activity"] == "idle"
+    live[0] = True
+    frame[0] = "• Yes. I'll do that next.\n› Ask Codex to do anything"
+    w._forced_this_tick = set()
+    state = w._tick_pane(pane)
+    assert state["activity"] == "running" and state["headline"] == "Done"
+    assert pane.id not in w._prev_fp, "the unread screen is still retried"
+    for text in ("Run it?  1. Yes  2. No", "Run it?  1. Yes  2. No  3. Later"):
+        frame[0] = text
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+    assert state["activity"] == "waiting" and state["question"] == ask
+
+
 def test_failed_parse_still_publishes_the_links_it_read(monkeypatch):
     """A parse fails when its question is rejected, but the URLs it read are not part of
     that misread: a login link printed in the failing turn must reach the kept card."""
