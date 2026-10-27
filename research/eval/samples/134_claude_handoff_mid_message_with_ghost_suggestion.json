@@ -1,0 +1,17 @@
+{
+  "description": "Finished auto-mode turn hands over a `! command` mid-message: notes and a later step (\"say merge\") follow it, and the input box shows the same command as a greyed suggestion. The command is still the offer. Synthetic.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n\u276f get the two docs PRs merged\n\n\u25cf Both docs PRs are reviewed, but their checks are held until a maintainer\n  starts them. My permission check blocked me from doing that, so I've put\n  both starts into one script:\n\n  ! ~/bin/start-docs-checks.sh\n\n  #41 has no review notes left. On #42 I fixed one typo in the install\n  guide. Draft replies to the reviewer are ready but not posted.\n\n  Once the checks pass, say \"merge\" and I'll queue #41 then #42.\n\n\u273b Worked for 9s \u00b7 done 3:20 PM\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 demo \u2500\n\u276f\u00a0\u27eaplaceholder\u27eb! ~/bin/start-docs-checks.sh\u27ea/placeholder\u27eb\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ~/src/acme/app on demo/sample-branch | Opus 5.5 | user@example.com\n  session: +12/-3 lines \u00b7 14% ctx \u00b7 1h02m \u00b7 $1.20\n  \u23f5\u23f5 auto mode on \u00b7 \u2190 for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "User must run the script that starts the docs PRs' checks",
+    "offers": [
+      "! ~/bin/start-docs-checks.sh"
+    ]
+  }
+}
