@@ -5,7 +5,7 @@ import pytest
 
 from openbus import classify as classify_mod
 from openbus import tmux
-from openbus.classify import bootstrap, classify
+from openbus.classify import VISIBLE_SCREEN, bootstrap, classify
 from openbus.tmux import Pane
 
 
@@ -1351,8 +1351,8 @@ def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
         assert "question" not in result
     assert classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"), _llm({
         "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
-    # A boxed or indented prompt row with text counts as typed, and a model question
-    # from the finished turn is answered once the user types after it.
+    # A boxed or indented prompt row with text counts as typed, but the input box's
+    # unsent draft answers nothing: the finished turn's question stands (cf. _spent).
     insert = decision.replace("⏵⏵ auto mode on", "-- INSERT -- ⏵⏵ auto mode on")
     assert classify(_pane("claude"), insert, _llm({}))["question"]["answer_style"] == "text"
     prose = decision.replace("✻ Worked for 40s", "* Wait for 2s").replace("✻ Cooked", "* Cooked")
@@ -1365,10 +1365,10 @@ def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
     empty_box = decision.replace("\n❯\n", "\n│ ❯                │\n")
     assert classify(_pane("claude"), empty_box, _llm({}))["question"]["answer_style"] == "text"
     for row in ("│ ❯ yes start it │", "  ❯ yes start it"):
-        answered = decision.replace("\n❯\n", f"\n{row}\n")
+        drafted = decision.replace("\n❯\n", f"\n{row}\n")
         ask = "should I start it in the background"
-        result = classify(_pane("claude"), answered, _llm({"question": {"prompt": ask}}))
-        assert "question" not in result
+        result = classify(_pane("claude"), drafted, _llm({"question": {"prompt": ask}}))
+        assert result["question"]["prompt"] == ask and result["activity"] == "waiting"
     failed = classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"),
                       lambda _s, _t: None, prev_activity="running")
     assert failed["activity"] == "idle" and "parse_ok" not in failed
@@ -1432,6 +1432,97 @@ def test_codex_text_question_without_a_composer_is_not_typed(monkeypatch):
 
 def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
+
+
+def test_the_re_read_of_a_rejected_ask_carries_the_auto_mode_trailer():
+    """A finished auto-mode turn whose ask the model misquoted is read again from the
+    viewport; that read decides the wait, so it gets the same trailer as the first."""
+    payloads = []
+    def llm(system, text, **_):
+        payloads.append(text)
+        return {"tool": "claude", "activity": "waiting", "waiting_on": "user",
+                "question": {"prompt": "Not what the screen says", "answer_style": "text"}}
+    classify(_pane("claude"), _auto_screen("Tell me when the tag is signed."), llm)
+    assert len(payloads) == 2 and all("[auto mode: Claude Code ends a turn" in p for p in payloads)
+
+
+def test_a_reply_offer_is_on_the_screen_word_by_word():
+    screen = _auto_screen("I'd delete this hourly job now that it has confirmed the fix,\n"
+                          "  unless you want to keep it.")
+    offers = ["delete it", "keep it", "rename it", "", "  "]
+    result = classify(_pane("claude"), screen, _llm({"offers": offers}))
+    assert result["offers"] == ["delete it", "keep it"]  # "rename" is nowhere on the screen
+    # A reply naming something is a phrase, never assembled from the screen's words.
+    merged = _auto_screen('PR 415 was merged.\n  Say "merge 416" to queue the next one.')
+    result = classify(_pane("claude"), merged, _llm({"offers": ["merge 415", "merge 416"]}))
+    assert result["offers"] == ["merge 416"]
+    # A named reply skips only a list's filler: not another action on the way to its name.
+    two = _auto_screen("Merge PR #41 and close PR #42 when you are back.")
+    offers = ["merge PR #41", "close PR #42", "merge PR #42", "close PR #41"]
+    assert classify(_pane("claude"), two, _llm({"offers": offers}))["offers"] == offers[:2]
+    # The model listing a command with and without its "!" offers the command once.
+    handoff = _auto_screen("Push it yourself:\n  ! git push -u origin demo")
+    both = ["! git push -u origin demo", "git push -u origin demo"]
+    result = classify(_pane("claude"), handoff, _llm({"offers": list(both)}))
+    assert result["offers"] == ["! git push -u origin demo"]
+    plain = _auto_screen("Push it yourself: git push -u origin demo")  # no "!" on screen
+    result = classify(_pane("claude"), plain, _llm({"offers": list(both)}))
+    assert result["offers"] == ["! git push -u origin demo"]  # the bang form runs it here
+    wrapped = _auto_screen('Run it with ! once happy:\n  gh issue close 42 -R acme/app -c '
+                           '"Fixed in\n  prod. See #43."')
+    offer = '! gh issue close 42 -R acme/app -c "Fixed in prod. See #43."'
+    assert classify(_pane("claude"), wrapped, _llm({"offers": [offer]}))["offers"] == [offer]
+
+
+def test_a_finished_turns_ask_may_start_above_the_viewport():
+    ask = "What I need: the vendor's name and the event where you took the photo."
+    screen = _auto_screen(ask).replace(VISIBLE_SCREEN + "\n", "").replace(
+        "the event", VISIBLE_SCREEN + "\nthe event", 1)
+    assert VISIBLE_SCREEN in screen
+    question = {"prompt": ask, "answer_style": "text"}
+    parsed = {"question": question, "offers": ["vendor's name", "the event where you took"]}
+    result = classify(_pane("claude"), screen, _llm(parsed))
+    assert result["question"]["prompt"] == ask and result["activity"] == "waiting"
+    # Offered from above the viewport too, and across its boundary without a blank row.
+    assert result["offers"] == ["vendor's name", "the event where you took"]
+    # An earlier turn's question, answered above the viewport, is not the final message's.
+    old = "Which format should the export use?"
+    earlier = f"● {old}\n✻ Baked for 9s\n❯ csv\n{VISIBLE_SCREEN}\n" + screen.replace(
+        VISIBLE_SCREEN + "\n", "")
+    parsed = {"question": {"prompt": old, "answer_style": "text"}}
+    assert "question" not in classify(_pane("claude"), earlier, _llm(parsed))
+    # Nor when a newer message begins in the viewport: the history above it is older.
+    newer = (f"● {old}\n✻ Baked for 9s\n❯ csv\n{VISIBLE_SCREEN}\n● Exported as csv.\n"
+             "✻ Baked for 3s\n\n❯\n  ⏵⏵ auto mode on")
+    assert "question" not in classify(_pane("claude"), newer, _llm(parsed))
+    # A boundary-spanning question keeps the rows it cites from above the viewport.
+    listed = ("Two fixes:\n  1. Retry on 408 like on 503.\n  2. Raise the test's retry limit.\n"
+              f"  Which one?\n{VISIBLE_SCREEN}\n✻ Baked for 3s\n\n❯\n  ⏵⏵ auto mode on")
+    q = {"prompt": "Which one?", "answer_style": "text", "subject": "Two fixes:",
+         "items": ["1. Retry on 408 like on 503.", "2. Raise the test's retry limit."]}
+    got = classify(_pane("claude"), "● " + listed, _llm({"question": q}))["question"]
+    assert got["items"] == q["items"] and got["subject"] == "Two fixes:"
+    # The whole final message, its stamp included, may sit above the viewport, with only
+    # the input box and the footer below: it is still the final message.
+    above = ("● Approvals to merge PR #41 and PR #42 are still waiting on you.\n✻ Baked for 3s\n"
+             f"{VISIBLE_SCREEN}\n\n\n❯\n  ⏵⏵ auto mode on")
+    result = classify(_pane("claude"), above, _llm({"offers": ["merge PR #41", "merge PR #42"]}))
+    assert result["offers"] == ["merge PR #41", "merge PR #42"] and result["activity"] == "waiting"
+    # A turn spent by a bash row above the viewport is spent, its offer gone.
+    spent = ("● Run it yourself: ! make check\n✻ Baked for 3s\n! make check\nok\n"
+             f"{VISIBLE_SCREEN}\n\n\n❯\n  ⏵⏵ auto mode on")
+    result = classify(_pane("claude"), spent, _llm({"offers": ["! make check"]}))
+    assert result["activity"] == "idle" and "offers" not in result
+    # A stamp above the viewport and a newer submitted message below it: still running.
+    newer_turn = (f"● Done with the docs.\n✻ Baked for 3s\n{VISIBLE_SCREEN}\n❯ now the tests\n\n"
+                  "● Running the tests\n\n❯\n  ⏵⏵ auto mode on")
+    running = classify(_pane("claude"), newer_turn, _llm({"activity": "running"}))
+    assert running["activity"] == "running"
+    # The agent list's "● main" row under the input box is no newer message.
+    agents = ("● " + listed
+              + "\n\n  ● main\n  ◯ general-purpose  Copilot loop  21m 14s · ↓ 88.2k tokens\n")
+    got = classify(_pane("claude"), agents, _llm({"question": dict(q)}))["question"]
+    assert got["prompt"] == "Which one?" and got["items"] == q["items"]
 
 
 def test_an_offer_the_model_returns_is_a_user_wait():

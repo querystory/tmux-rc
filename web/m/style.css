@@ -195,8 +195,11 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #metadata { font-size: 12px; color: var(--muted); }
 #question:not(.answered) { background: var(--amber-bg); }
 #question h2 { font-size: 17px; white-space: pre-wrap; }
-#options { display: grid; gap: 8px; margin-top: 14px; }
-:is(#options, .offer-choices) button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
+/* Answers are pills, as the list row draws them (.sb-replies): a reply reads as a button, not a field. */
+#options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+#options button { min-height: 40px; max-width: 100%; padding: 8px 16px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); font-weight: 600; overflow-wrap: anywhere; }
+#prompt:empty { display: none; } /* a finished turn's offers alone: pills, no empty heading */
+.offer-choices button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
 :is(#options, .offer-choices) button:hover:not(:disabled) { border-color: var(--amber); }
 #offers:not(:empty) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 14px; } /* minmax: a long offer clips, not widens the card */
 #offers:not(:empty) + #options:empty, .offer-choices .picked svg, .offer-text.fits svg { display: none; } /* no gap for no answers; the spinner stands in for the icon */

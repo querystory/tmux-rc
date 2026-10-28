@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a finished auto-mode turn asks the user to decide, and the input box below holds an unsent draft the user is still typing. The draft answers nothing yet: the ask stands, waiting on the user.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ sort out the flaky upload test\n\n● The retry limit is the cause: the upload test passes with three retries and fails\n  with one. I can raise the limit in the test, or fix the client so it retries on a\n  408 like it does on a 503. Say which and I'll do it.\n\n✻ Worked for 21s · done 4:40 PM\n\n────────────────────────────────────────────────── demo ─\n❯ fix the client so it retr\n──────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | dev@example.com\n  session: +12/-3 lines · 9% ctx · 41m · $1.90\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Asking whether to raise the test's retry limit or fix the client's retries"
+  }
+}
