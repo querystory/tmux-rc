@@ -565,9 +565,10 @@ def _omp_asking_view(text: str) -> str:
 def _ask_view(text: str) -> str:
     """The screen a finished turn's ask or offer is read on: the viewport, and above it the
     rest of Claude's final message when a long one begins above the parser's viewport
-    (tmux.VIEWPORT_ROWS). Earlier turns stay out: a message that a stamp or a user row
-    closed above the viewport is not the final one. Each side of the boundary is
-    normalized on its own, so a side panel ends where it did."""
+    (tmux.VIEWPORT_ROWS). Earlier turns stay out: a message the user typed after, above
+    the viewport, is not the final one (its stamp may sit above the viewport too, with
+    only the input box below). Each side of the boundary is normalized on its own, so a
+    side panel ends where it did."""
     history, mark, _ = text.rpartition(VISIBLE_SCREEN)
     visible = _visible(text)
     bullet = r"(?m)^[ \t]*● "
@@ -577,7 +578,7 @@ def _ask_view(text: str) -> str:
         return visible
     *_, start = [None, *re.finditer(bullet, plain := _visible(history) if mark else "")]
     message = plain[start.end():] if start else ""  # from its first word, as _final_message reads
-    if not message or _CLAUDE_TURN_RE.search(message) or _USER_ROW_RE.search(message):
+    if not message or _USER_ROW_RE.search(message):
         return visible
     # The boundary sat between two rows: joined without the blank row it would leave, so
     # a message wrapped across it still reads as one.
@@ -937,6 +938,15 @@ def _quoted(text, visible: str) -> bool:
     return bool(re.search(exact, _FRAME_BARS_RE.sub("", visible)))
 
 
+def _invited(reply: str, view: str) -> bool:
+    """Whether `reply` reads off one paragraph of `view`: its words whole and in order,
+    never assembled across the screen ("merge 415" from "PR 415 was merged … merge 416")."""
+    words = reply.split()
+    pattern = r"[\s\S]*?".join(rf"(?<!\w){re.escape(w)}(?!\w)" for w in words)
+    paragraphs = re.split(r"\n\s*\n", view)
+    return bool(words) and any(re.search(pattern, p, re.IGNORECASE) for p in paragraphs)
+
+
 def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`, three at most: each is on the screen
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
@@ -947,13 +957,12 @@ def screen_offers(offers: object, text: str) -> list[str]:
     screen word by word rather than whole; a command is quoted whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
-    # A reply without a number or name in it may be the user's own words for the final
-    # message's proposal; one that names something ("merge 415") is quoted as a phrase.
-    # A `! command` the agent wrote without its "!" is on the screen as the command alone.
+    # A reply is the user's own words for the final message's ask ("merge PR #5144" for
+    # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
+    # `! command` the agent wrote without its "!" is on the screen as the command alone.
     shown = lambda o: _quoted(o, visible) or (  # noqa: E731
         o.startswith("! ") and _quoted(o[2:], visible)) or (
-        not o.startswith("!") and not re.search(r"[\d#]", o) and bool(o.split()) and all(
-            re.search(rf"(?i)(?<!\w){re.escape(w)}(?!\w)", visible) for w in o.split()))
+        not o.startswith("!") and _invited(o, visible))
     kept = [o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
                                      for o in listed if isinstance(o, str))
             if shown(o) and not (o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:])))]

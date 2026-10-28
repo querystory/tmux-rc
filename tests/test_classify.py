@@ -1498,6 +1498,12 @@ def test_a_finished_turns_ask_may_start_above_the_viewport():
          "items": ["1. Retry on 408 like on 503.", "2. Raise the test's retry limit."]}
     got = classify(_pane("claude"), "● " + listed, _llm({"question": q}))["question"]
     assert got["items"] == q["items"] and got["subject"] == "Two fixes:"
+    # The whole final message, its stamp included, may sit above the viewport, with only
+    # the input box and the footer below: it is still the final message.
+    above = ("● Approvals to merge PR #41 and PR #42 are still waiting on you.\n✻ Baked for 3s\n"
+             f"{VISIBLE_SCREEN}\n\n\n❯\n  ⏵⏵ auto mode on")
+    result = classify(_pane("claude"), above, _llm({"offers": ["merge PR #41", "merge PR #42"]}))
+    assert result["offers"] == ["merge PR #41", "merge PR #42"] and result["activity"] == "waiting"
     # The agent list's "● main" row under the input box is no newer message.
     agents = ("● " + listed
               + "\n\n  ● main\n  ◯ general-purpose  Copilot loop  21m 14s · ↓ 88.2k tokens\n")
