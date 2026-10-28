@@ -940,11 +940,26 @@ def _quoted(text, visible: str) -> bool:
 
 def _invited(reply: str, view: str) -> bool:
     """Whether `reply` reads off one paragraph of `view`: its words whole and in order,
-    never assembled across the screen ("merge 415" from "PR 415 was merged … merge 416")."""
-    words = reply.split()
-    pattern = r"[\s\S]*?".join(rf"(?<!\w){re.escape(w)}(?!\w)" for w in words)
-    paragraphs = re.split(r"\n\s*\n", view)
-    return bool(words) and any(re.search(pattern, p, re.IGNORECASE) for p in paragraphs)
+    never assembled across the screen ("merge 415" from "PR 415 was merged … merge 416").
+    A reply naming something ("merge PR #5144") may skip only a list's filler on the way
+    to its name (and, or, commas, other names, its own words), so "Merge PR #41 and close
+    PR #42" invites "merge PR #41" and "close PR #42", not "merge PR #42"."""
+    words = reply.lower().split()
+    if not words:
+        return False
+    named = any(re.search(r"[\d#]", w) for w in words)
+    filler = {"and", "or", ",", *words}
+    for paragraph in re.split(r"\n\s*\n", view):
+        tokens = [t.strip(",.;:!?") for t in paragraph.lower().split()]
+        i = 0
+        for t in tokens:
+            if i < len(words) and t == words[i]:
+                i += 1
+            elif 0 < i < len(words) and named and not (t in filler or re.search(r"[\d#]", t)):
+                i = int(t == words[0])  # a foreign word between them: start over from here
+            if i == len(words):
+                return True
+    return False
 
 
 def screen_offers(offers: object, text: str) -> list[str]:
@@ -1374,9 +1389,12 @@ def classify(
     elif state and result.get("activity") != "compacting":
         result["activity"] = "running"
         result.pop("parse_ok", None)
-    *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
+    # Claude's turn is read on the ask view: a long final message, its stamp and a bash
+    # row that spent it may all sit above the viewport (tmux.VIEWPORT_ROWS).
+    view = _ask_view(text) if result.get("tool") == "claude" else visible
+    *_, turn = [None, *_CLAUDE_TURN_RE.finditer(view)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
-    spent = result.get("tool") == "claude" and _spent(visible, turn)
+    spent = result.get("tool") == "claude" and _spent(view, turn)
     if spent:
         result["activity"] = "idle"
         result.pop("question", None)
@@ -1402,8 +1420,7 @@ def classify(
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
     # Claude's final message is read on the ask view: a long one begins above the viewport.
-    final = not spent and tool in _TURN_ERROR_RE and _final_message(
-        _ask_view(text) if tool == "claude" else visible, tool)
+    final = not spent and tool in _TURN_ERROR_RE and _final_message(view, tool)
     if (offers := screen_offers(result.pop("offers", None), text)) and not spent:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     if final and (ask := _final_ask(visible, tool, final, offers)):

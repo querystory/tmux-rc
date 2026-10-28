@@ -1456,6 +1456,10 @@ def test_a_reply_offer_is_on_the_screen_word_by_word():
     merged = _auto_screen('PR 415 was merged.\n  Say "merge 416" to queue the next one.')
     result = classify(_pane("claude"), merged, _llm({"offers": ["merge 415", "merge 416"]}))
     assert result["offers"] == ["merge 416"]
+    # A named reply skips only a list's filler: not another action on the way to its name.
+    two = _auto_screen("Merge PR #41 and close PR #42 when you are back.")
+    offers = ["merge PR #41", "close PR #42", "merge PR #42", "close PR #41"]
+    assert classify(_pane("claude"), two, _llm({"offers": offers}))["offers"] == offers[:2]
     # The model listing a command with and without its "!" offers the command once.
     handoff = _auto_screen("Push it yourself:\n  ! git push -u origin demo")
     both = ["! git push -u origin demo", "git push -u origin demo"]
@@ -1504,6 +1508,11 @@ def test_a_finished_turns_ask_may_start_above_the_viewport():
              f"{VISIBLE_SCREEN}\n\n\n❯\n  ⏵⏵ auto mode on")
     result = classify(_pane("claude"), above, _llm({"offers": ["merge PR #41", "merge PR #42"]}))
     assert result["offers"] == ["merge PR #41", "merge PR #42"] and result["activity"] == "waiting"
+    # A turn spent by a bash row above the viewport is spent, its offer gone.
+    spent = ("● Run it yourself: ! make check\n✻ Baked for 3s\n! make check\nok\n"
+             f"{VISIBLE_SCREEN}\n\n\n❯\n  ⏵⏵ auto mode on")
+    result = classify(_pane("claude"), spent, _llm({"offers": ["! make check"]}))
+    assert result["activity"] == "idle" and "offers" not in result
     # The agent list's "● main" row under the input box is no newer message.
     agents = ("● " + listed
               + "\n\n  ● main\n  ◯ general-purpose  Copilot loop  21m 14s · ↓ 88.2k tokens\n")
