@@ -935,14 +935,16 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
     # An offered command ending the message hands it over, its own "?" or wrapped rows and
     # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
     paragraphs = [" ".join(p.split()) for p in re.split(r"\n\s*\n", message.strip())]
-    commands = [" ".join(o.split()) for o in offers]
+    # An offer as a whole word or command: "push" is not offered by "unpushed".
+    offered = "|".join(rf"(?<!\w){re.escape(' '.join(o.split()))}(?!\w)" for o in offers)
     paragraph = paragraphs[-1]
-    if not any(paragraph.endswith(c) for c in commands):
+    if not (offered and re.search(rf"(?:{offered})\Z", paragraph)):
         paragraph = _final_paragraph(message)
         if paragraph.rstrip("*_\"'`)").endswith("?"):
             return {"prompt": paragraph, "answer_style": "text"}
         # An offer elsewhere (a command, a reply asked for): the paragraph holding it.
-        paragraph = next((p for p in reversed(paragraphs) if any(c in p for c in commands)), None)
+        paragraph = next((p for p in reversed(paragraphs)
+                          if offered and re.search(offered, p)), None)
         if paragraph is None:
             handoff = next((i for i in reversed(range(len(lines)))
                             if lines[i].startswith("! ")), None)

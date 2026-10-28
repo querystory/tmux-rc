@@ -198,8 +198,8 @@ block, "run: ..." in prose, a reply it asks for in so many words ('Say "push" an
 push' offers "push", 'say "go" when it looks right' offers "go"). Read the whole latest
 message for these: an ask mid-paragraph, before a long draft, or with notes and later
 steps after it is an offer just like one ending the message, whatever Claude Code prints
-below the message (finished background tasks, a compaction notice). A "! command" runs in
-this pane, so it is always an offer. A command the screen wraps onto further rows is one
+below the message (finished background tasks, a compaction notice). A "! command" handed to
+the user is always an offer. A command the screen wraps onto further rows is one
 offer: its rows joined into one line, Claude Code's leading "!" kept. A command or phrase
 merely mentioned is no offer.
 
