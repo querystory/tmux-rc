@@ -241,7 +241,7 @@ export function detailCard(panel, title, sub, open) {
 export function pageHead(title, icon, back) {
   const head = el('div', 'landing-head'), button = el('button', 'icon-button');
   button.innerHTML = icon('back', 18);
-  button.setAttribute('aria-label', 'Back to the Dashboard');
+  button.setAttribute('aria-label', 'Back');
   button.dataset.key = 'page-back'; // a rebuilt view gives the keyboard back to it
   button.onclick = back;
   const h2 = el('h2', '', title);
