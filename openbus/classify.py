@@ -1057,9 +1057,7 @@ def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
     if repository:
         context += f"; GitHub repository is '{repository}'"
     if mode := claude_mode(visible):
-        context += f"; Claude Code's status line shows its mode: '{mode}'" + (
-            " (it ends a turn only when it is done or needs the user, so a finished turn"
-            " that ends asking the user something waits on them)" * (mode == "auto mode"))
+        context += f"; Claude Code's status line shows its mode: '{mode}'"
     # The title's live state must reach the model before an old Ask card can override it.
     if host_tool == "omp" and (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"]:
         state = omp["state"]
@@ -1202,6 +1200,12 @@ def classify(
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
     payload = f"{_parser_context(pane, repository, process_tool, visible)}\n\n{payload}"
+    # Said after the screen, where a tall one has not pushed it out of reach of the read.
+    if claude_mode(visible) == "auto mode":
+        payload += ("\n\n[auto mode: Claude Code ends a turn only when it is done or needs the "
+                    "user. Read its final message, the one just above the input box: when it "
+                    "asks the user to act, decide, reply or give a go-ahead, the pane is "
+                    "waiting on the user, and the replies it invites are its offers]")
     result = None
     prompt = ""
     if llm_fn:
