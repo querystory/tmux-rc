@@ -1449,9 +1449,13 @@ def test_the_re_read_of_a_rejected_ask_carries_the_auto_mode_trailer():
 def test_a_reply_offer_is_on_the_screen_word_by_word():
     screen = _auto_screen("I'd delete this hourly job now that it has confirmed the fix,\n"
                           "  unless you want to keep it.")
-    offers = ["delete it", "keep it", "rename it"]
+    offers = ["delete it", "keep it", "rename it", "", "  "]
     result = classify(_pane("claude"), screen, _llm({"offers": offers}))
     assert result["offers"] == ["delete it", "keep it"]  # "rename" is nowhere on the screen
+    # A reply naming something is a phrase, never assembled from the screen's words.
+    merged = _auto_screen('PR 415 was merged.\n  Say "merge 416" to queue the next one.')
+    result = classify(_pane("claude"), merged, _llm({"offers": ["merge 415", "merge 416"]}))
+    assert result["offers"] == ["merge 416"]
 
 
 def test_a_finished_turns_ask_may_start_above_the_viewport():
@@ -1464,6 +1468,12 @@ def test_a_finished_turns_ask_may_start_above_the_viewport():
     result = classify(_pane("claude"), screen, _llm(parsed))
     assert result["question"]["prompt"] == ask and result["activity"] == "waiting"
     assert result["offers"] == ["vendor's name"]  # offered from above the viewport too
+    # An earlier turn's question, answered above the viewport, is not the final message's.
+    old = "Which format should the export use?"
+    earlier = f"● {old}\n✻ Baked for 9s\n❯ csv\n{VISIBLE_SCREEN}\n" + screen.replace(
+        VISIBLE_SCREEN + "\n", "")
+    parsed = {"question": {"prompt": old, "answer_style": "text"}}
+    assert "question" not in classify(_pane("claude"), earlier, _llm(parsed))
 
 
 def test_an_offer_the_model_returns_is_a_user_wait():

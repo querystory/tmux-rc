@@ -562,10 +562,23 @@ def _omp_asking_view(text: str) -> str:
     return joined.rsplit("\0", 1)[-1]
 
 
+def _ask_view(text: str) -> str:
+    """The screen a finished turn's ask or offer is read on: the viewport, and above it the
+    rest of Claude's final message when a long one begins above the parser's viewport
+    (tmux.VIEWPORT_ROWS). Earlier turns stay out: a message that a stamp or a user row
+    closed above the viewport is not the final one. Each side of the boundary is
+    normalized on its own, so a side panel ends where it did."""
+    history, mark, _ = text.rpartition(VISIBLE_SCREEN)
+    visible = _visible(text)
+    *_, start = [None, *re.finditer(r"(?m)^[ \t]*● ", plain := _visible(history) if mark else "")]
+    message = plain[start.start():] if start else ""
+    if not message or _CLAUDE_TURN_RE.search(message) or _USER_ROW_RE.search(message):
+        return visible
+    return message + visible
+
+
 def _supported_question(question, text: str, tool, pane: Pane) -> bool:
-    # Claude's final message is read whole: a long one starts above the parser's
-    # viewport (tmux.VIEWPORT_ROWS) while its ask still stands at the bottom.
-    visible = _visible(text.replace(VISIBLE_SCREEN, "", 1) if tool == "claude" else text)
+    visible = _ask_view(text) if tool == "claude" else _visible(text)
     prompt = _question_prompt(question)
     if prompt is None:
         return False
@@ -926,10 +939,12 @@ def screen_offers(offers: object, text: str) -> list[str]:
     delete this job, unless you want to keep it") is the user's words, so it is on the
     screen word by word rather than whole; a command is quoted whole."""
     listed = offers if isinstance(offers, list) else ()
-    # The whole capture: a finished turn's offer can sit above the parser's viewport.
-    visible = _visible(text.replace(VISIBLE_SCREEN, "", 1))
-    shown = lambda o: _quoted(o, visible) or (not o.startswith("!") and all(  # noqa: E731
-        re.search(rf"(?i)(?<!\w){re.escape(w)}(?!\w)", visible) for w in o.split()))
+    visible = _ask_view(text)
+    # A reply without a number or name in it may be the user's own words for the final
+    # message's proposal; one that names something ("merge 415") is quoted as a phrase.
+    shown = lambda o: _quoted(o, visible) or (  # noqa: E731
+        not o.startswith("!") and not re.search(r"[\d#]", o) and bool(o.split()) and all(
+            re.search(rf"(?i)(?<!\w){re.escape(w)}(?!\w)", visible) for w in o.split()))
     return list(islice((o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
                                                   for o in listed if isinstance(o, str))
                         if shown(o) and not (o.startswith("! ") and (
