@@ -1404,7 +1404,7 @@ def classify(
             result["activity"] = "running"
             result.pop("parse_ok", None)
         elif (not turn["live"] and result.get("activity") == "running"
-              and not _USER_ROW_RE.search(visible, turn.end())):  # no newer turn began
+              and not _USER_ROW_RE.search(view, turn.end())):  # no newer turn began
             result["activity"] = "idle"  # The turn is over; background shells don't count.
             result.pop("parse_ok", None)
     # Codex's live row is a read too: a user wait with no question under it, or an ask the

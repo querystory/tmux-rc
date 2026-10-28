@@ -1513,6 +1513,11 @@ def test_a_finished_turns_ask_may_start_above_the_viewport():
              f"{VISIBLE_SCREEN}\n\n\n❯\n  ⏵⏵ auto mode on")
     result = classify(_pane("claude"), spent, _llm({"offers": ["! make check"]}))
     assert result["activity"] == "idle" and "offers" not in result
+    # A stamp above the viewport and a newer submitted message below it: still running.
+    newer_turn = (f"● Done with the docs.\n✻ Baked for 3s\n{VISIBLE_SCREEN}\n❯ now the tests\n\n"
+                  "● Running the tests\n\n❯\n  ⏵⏵ auto mode on")
+    running = classify(_pane("claude"), newer_turn, _llm({"activity": "running"}))
+    assert running["activity"] == "running"
     # The agent list's "● main" row under the input box is no newer message.
     agents = ("● " + listed
               + "\n\n  ● main\n  ◯ general-purpose  Copilot loop  21m 14s · ↓ 88.2k tokens\n")
