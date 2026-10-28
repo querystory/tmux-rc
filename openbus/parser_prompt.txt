@@ -192,13 +192,16 @@ REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a sho
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
 
 "offers": whenever the agent's latest message asks the user to run, send or type something
-specific into this pane (a "! command" row, a command in a code block, "run: ..." in prose,
-a one-word reply it asks for), put that text in "offers", whole and exactly as the agent
-gives it, so the phone's Send it button can type it. It is an offer wherever it sits in
-the message (its last row, mid-paragraph, notes or a later step after it) and whatever
-Claude Code prints below the message (finished background tasks, a compaction notice). A
-command the screen wraps onto further rows is one offer: its rows joined into one line,
-Claude Code's leading "!" kept. A command or phrase merely mentioned is no offer.
+specific into this pane, put that text in "offers", whole and exactly as the agent gives
+it, so the phone's Send it button can type it: a "! command" row, a command in a code
+block, "run: ..." in prose, a reply it asks for in so many words ('Say "push" and I'll
+push' offers "push", 'say "go" when it looks right' offers "go"). Read the whole latest
+message for these: an ask mid-paragraph, before a long draft, or with notes and later
+steps after it is an offer just like one ending the message, whatever Claude Code prints
+below the message (finished background tasks, a compaction notice). A "! command" runs in
+this pane, so it is always an offer. A command the screen wraps onto further rows is one
+offer: its rows joined into one line, Claude Code's leading "!" kept. A command or phrase
+merely mentioned is no offer.
 
 "copyables": text the user will plausibly want to PASTE SOMEWHERE ELSE, lifted off the
 screen for one-tap copying. Selecting text out of a terminal on a phone is genuinely
