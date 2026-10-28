@@ -327,3 +327,13 @@ def test_agent_title_is_not_squeezed_by_its_meta():
     assert ".task, .agent { display: flex; flex-wrap: wrap;" in css
     assert ".agent > span:nth-child(2) { max-width: calc(100% - 26px); }" in css
     assert ".sb-agents .agent { min-width: 0; flex-wrap: nowrap;" in css
+
+
+def test_phone_drawer_scrolls_itself_and_never_the_view_behind_it():
+    """The drawer is a modal dialog, so its overflow came from the UA sheet and nothing contained
+    it. On iOS a swipe the drawer cannot take chains to the scroller under the finger, not up the
+    DOM: over the dashboard that scrolled the dashboard behind the scrim. The drawer declares
+    its own scrolling and containment, as every other scroller in the app does."""
+    css = (Path(__file__).resolve().parents[1] / "web/m/style.css").read_text()
+    drawer = next(line for line in css.splitlines() if line.startswith("#drawer {"))
+    assert "overflow-y: auto" in drawer and "overscroll-behavior: contain" in drawer
