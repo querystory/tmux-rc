@@ -5,7 +5,7 @@ import pytest
 
 from openbus import classify as classify_mod
 from openbus import tmux
-from openbus.classify import bootstrap, classify
+from openbus.classify import VISIBLE_SCREEN, bootstrap, classify
 from openbus.tmux import Pane
 
 
@@ -1351,8 +1351,8 @@ def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
         assert "question" not in result
     assert classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"), _llm({
         "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
-    # A boxed or indented prompt row with text counts as typed, and a model question
-    # from the finished turn is answered once the user types after it.
+    # A boxed or indented prompt row with text counts as typed, but the input box's
+    # unsent draft answers nothing: the finished turn's question stands (cf. _spent).
     insert = decision.replace("⏵⏵ auto mode on", "-- INSERT -- ⏵⏵ auto mode on")
     assert classify(_pane("claude"), insert, _llm({}))["question"]["answer_style"] == "text"
     prose = decision.replace("✻ Worked for 40s", "* Wait for 2s").replace("✻ Cooked", "* Cooked")
@@ -1365,10 +1365,10 @@ def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
     empty_box = decision.replace("\n❯\n", "\n│ ❯                │\n")
     assert classify(_pane("claude"), empty_box, _llm({}))["question"]["answer_style"] == "text"
     for row in ("│ ❯ yes start it │", "  ❯ yes start it"):
-        answered = decision.replace("\n❯\n", f"\n{row}\n")
+        drafted = decision.replace("\n❯\n", f"\n{row}\n")
         ask = "should I start it in the background"
-        result = classify(_pane("claude"), answered, _llm({"question": {"prompt": ask}}))
-        assert "question" not in result
+        result = classify(_pane("claude"), drafted, _llm({"question": {"prompt": ask}}))
+        assert result["question"]["prompt"] == ask and result["activity"] == "waiting"
     failed = classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"),
                       lambda _s, _t: None, prev_activity="running")
     assert failed["activity"] == "idle" and "parse_ok" not in failed
@@ -1452,6 +1452,18 @@ def test_a_reply_offer_is_on_the_screen_word_by_word():
     offers = ["delete it", "keep it", "rename it"]
     result = classify(_pane("claude"), screen, _llm({"offers": offers}))
     assert result["offers"] == ["delete it", "keep it"]  # "rename" is nowhere on the screen
+
+
+def test_a_finished_turns_ask_may_start_above_the_viewport():
+    ask = "What I need: the vendor's name and the event where you took the photo."
+    screen = _auto_screen(ask).replace(VISIBLE_SCREEN + "\n", "").replace(
+        "the event", VISIBLE_SCREEN + "\nthe event", 1)
+    assert VISIBLE_SCREEN in screen
+    question = {"prompt": ask, "answer_style": "text"}
+    parsed = {"question": question, "offers": ["vendor's name"]}
+    result = classify(_pane("claude"), screen, _llm(parsed))
+    assert result["question"]["prompt"] == ask and result["activity"] == "waiting"
+    assert result["offers"] == ["vendor's name"]  # offered from above the viewport too
 
 
 def test_an_offer_the_model_returns_is_a_user_wait():

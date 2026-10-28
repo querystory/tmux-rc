@@ -109,10 +109,16 @@ def _spent(visible: str, turn: re.Match | None) -> bool:
     unsent draft is neither."""
     if not turn or turn["live"]:
         return False
-    after = visible[turn.end():]
-    *_, box = [None, *_INPUT_BOX_RE.finditer(after)]
-    after = after[:box.start()] if box else after
+    after = _below_turn(visible, turn.end())
     return bool(_BASH_ROW_RE.search(after)) and not _USER_ROW_RE.search(after)
+
+
+def _below_turn(visible: str, end: int) -> str:
+    """What the user did after a finished turn: the rows between its stamp and the input
+    box. The box's own row is left out, since its unsent draft is not an answer."""
+    after = visible[end:]
+    *_, box = [None, *_INPUT_BOX_RE.finditer(after)]
+    return after[:box.start()] if box else after
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
@@ -557,7 +563,9 @@ def _omp_asking_view(text: str) -> str:
 
 
 def _supported_question(question, text: str, tool, pane: Pane) -> bool:
-    visible = _visible(text)
+    # Claude's final message is read whole: a long one starts above the parser's
+    # viewport (tmux.VIEWPORT_ROWS) while its ask still stands at the bottom.
+    visible = _visible(text.replace(VISIBLE_SCREEN, "", 1) if tool == "claude" else text)
     prompt = _question_prompt(question)
     if prompt is None:
         return False
@@ -585,7 +593,7 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     return found is not None and not (
         (idle_box and found.start() > idle_box.start())
         or _NOT_ASKING_ROW_RE.match(visible[row:])
-        or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
+        or any(turn["live"] or _USER_ROW_RE.search(_below_turn(visible, turn.end()))
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
         or (tool == "codex" and _CODEX_LIVE_RE.search(visible, row))  # the prompt's own row too
@@ -918,7 +926,8 @@ def screen_offers(offers: object, text: str) -> list[str]:
     delete this job, unless you want to keep it") is the user's words, so it is on the
     screen word by word rather than whole; a command is quoted whole."""
     listed = offers if isinstance(offers, list) else ()
-    visible = _visible(text)
+    # The whole capture: a finished turn's offer can sit above the parser's viewport.
+    visible = _visible(text.replace(VISIBLE_SCREEN, "", 1))
     shown = lambda o: _quoted(o, visible) or (not o.startswith("!") and all(  # noqa: E731
         re.search(rf"(?i)(?<!\w){re.escape(w)}(?!\w)", visible) for w in o.split()))
     return list(islice((o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
