@@ -1914,17 +1914,49 @@ $("back").onclick = $("close-pane").onclick = () => navigate();
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
 // Installed only: in a browser tab that edge is the browser's own Back, and both at once slide
 // two things in (☰ still opens the drawer there, and an open one still drags).
-let edge = null;
+let edge = null, headingSwipe = null, headingClickUntil = 0;
 addEventListener("touchstart", (e) => {
+  headingSwipe = null; // a second finger cancels session navigation
+  headingClickUntil = 0; // a fresh touch is intentional, even just after a swipe
   if (drag?.live) return; // a second finger: the drag stays the first one's
   const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
+  // The bar and the title below it are both header space. Keep the screen edges for
+  // browser/PWA Back, and leave open menus and sheets to their own gestures.
+  if (!WIDE.matches && active && e.touches.length === 1 && t.clientX >= 20 && t.clientX < innerWidth - 20 && e.target.closest("#heading, .pane-heading-text") && !document.querySelector("dialog[open], #pane-menu[open]")) {
+    headingSwipe = { x: t.clientX, y: t.clientY, href: location.href, live: false,
+      ids: [...$("pane-list").children].filter((n) => n._p && !ending.has(n._p.pane_id)).map((n) => n._p.pane_id) };
+  }
   edge = standalone() && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
   drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
 // A gesture the page moved under (a touchcancel, or a route() mid-swipe) springs back to where it began.
-const dropGesture = () => { edge = null; if (drag?.live) settle(drag.open); drag = null; };
+const dropGesture = () => { edge = headingSwipe = null; if (drag?.live) settle(drag.open); drag = null; };
 addEventListener("touchcancel", dropGesture);
+addEventListener("touchmove", (e) => {
+  if (!headingSwipe) return;
+  const t = e.touches[0], dx = Math.abs(t.clientX - headingSwipe.x), dy = Math.abs(t.clientY - headingSwipe.y);
+  if (!headingSwipe.live) {
+    if (Math.max(dx, dy) < 10) return;
+    if (dx <= dy * 2) { headingSwipe = null; return; } // vertical or diagonal: leave it to scrolling
+    headingSwipe.live = true;
+  }
+  e.preventDefault(); // a horizontal header swipe must not pan the page or tap a control
+  headingClickUntil = performance.now() + 500;
+}, { passive: false });
+addEventListener("click", (e) => {
+  if (e.detail && performance.now() < headingClickUntil && e.target.closest("#heading, .pane-heading-text")) { e.preventDefault(); e.stopImmediatePropagation(); }
+}, { capture: true });
 addEventListener("touchend", (e) => {
+  const swipe = headingSwipe;
+  headingSwipe = null;
+  if (swipe && !WIDE.matches && !e.touches.length && location.href === swipe.href) {
+    const t = e.changedTouches[0], dx = t.clientX - swipe.x, index = swipe.ids.indexOf(active);
+    if (Math.abs(dx) > 60 && Math.abs(t.clientY - swipe.y) < Math.abs(dx) / 2) {
+      headingClickUntil = performance.now() + 500;
+      const id = index >= 0 && swipe.ids[index + (dx < 0 ? 1 : -1)];
+      if (id && panes.some((p) => p.pane_id === id) && !ending.has(id)) navigate(id, view);
+    }
+  }
   const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
   if (drag?.live && e.timeStamp - drag.t > 100) drag.v = 0; // held before letting go: no flick
   if (drag?.live) settle(drag.v > .5 || drag.v > -.5 && drag.pos > -drawer.offsetWidth * (drag.open ? 1 : 2) / 3);
