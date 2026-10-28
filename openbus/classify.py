@@ -924,7 +924,7 @@ def screen_offers(offers: object, text: str) -> list[str]:
 def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run: on a row of its own, or an offer ending the message."""
+    `! command` handed over to run: an offer anywhere in the message, or a row of its own."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
@@ -934,15 +934,22 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         return None
     # An offered command ending the message hands it over, its own "?" or wrapped rows and
     # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
-    paragraph = " ".join(re.split(r"\n\s*\n", message.strip())[-1].split())
-    if not any(o.startswith("! ") and paragraph.endswith(" ".join(o.split())) for o in offers):
+    paragraphs = [" ".join(p.split()) for p in re.split(r"\n\s*\n", message.strip())]
+    commands = [" ".join(o.split()) for o in offers if o.startswith("! ")]
+    paragraph = paragraphs[-1]
+    if not any(paragraph.endswith(c) for c in commands):
         paragraph = _final_paragraph(message)
         if paragraph.rstrip("*_\"'`)").endswith("?"):
             return {"prompt": paragraph, "answer_style": "text"}
-        handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
-        if handoff is None:
-            return None
-        paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
+        # An offered command elsewhere: its paragraph, read up to the command's end.
+        paragraph = next((p[:p.index(c) + len(c)] for p in reversed(paragraphs)
+                          for c in commands if c in p), None)
+        if paragraph is None:
+            handoff = next((i for i in reversed(range(len(lines)))
+                            if lines[i].startswith("! ")), None)
+            if handoff is None:
+                return None
+            paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 
