@@ -5,7 +5,9 @@ import { test } from "node:test";
 import vm from "node:vm";
 
 const source = readFileSync(new URL("../web/m/app.js", import.meta.url), "utf8");
-const block = source.slice(source.indexOf("let drag = null"), source.indexOf("// Typing only rewrites"));
+// The drawer's handlers (up to the handlers that follow them) and the edge and header swipes.
+const from = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+const block = from("let drag = null", "\nfor (const ") + from("let edge = null", "// Typing only rewrites");
 
 function app(overrides = {}) {
   const handlers = new Map(), navigated = [], clicks = [], animations = [], settled = [], els = {};
