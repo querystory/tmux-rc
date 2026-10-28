@@ -1612,6 +1612,13 @@ def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
         result = classify(_pane("claude"), _auto_screen(shown), _llm({"offers": [reply[19:]]}))
         assert result["question"] == {"prompt": reply, "answer_style": "text", "options": []}
 
+def test_an_offer_mid_message_asks_with_the_paragraph_holding_it():
+    ask = 'Say "push" and I will request reviews.'
+    screen = _auto_screen(f"{ask}\n\n  The branches are still unpushed.")
+    result = classify(_pane("claude"), screen, _llm({"offers": ["push"]}))
+    assert result["question"] == {"prompt": ask, "answer_style": "text", "options": []}
+
+
 @pytest.mark.parametrize("message", [
     "Done.\n  Should I send this to\n  Copilot, then merge\n  after approval?",
     ("Done.\n\n  - first item\n  - second item\n\n  Should I send this to\n"
