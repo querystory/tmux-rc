@@ -1914,8 +1914,9 @@ $("back").onclick = $("close-pane").onclick = () => navigate();
 // view or Scratch's viewer (whose left edge is kept for it; on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
 // One owner per swipe: the edge is the browser's wherever it has a page to go back to (a tab,
-// or an installed app that says so), and there neither Back nor the drawer answers it, so the
-// two can never slide in together (☰ still opens the drawer, and an open one still drags);
+// or an installed app that says so: navigation.canGoBack from Safari 26.2; before it any history
+// at all counts, which yields more often and never doubles), and there neither Back nor the
+// drawer answers it, so the two can never slide in together (☰ still opens the drawer, and an open one still drags);
 // ours only where the browser has nothing behind, and then the list's edge opens the drawer
 // and nothing else, decided once the drag commits.
 let edge = null, headingSwipe = null, headingClickUntil = 0;
@@ -1938,7 +1939,7 @@ addEventListener("touchstart", (e) => {
     headingSwipe = { x: t.clientX, y: t.clientY, at: 0, href: location.href, live: false,
       ids: [...$("pane-list").children].filter((n) => n._p && !ending.has(n._p.pane_id)).map((n) => n._p.pane_id) };
   }
-  edge = standalone() && !globalThis.navigation?.canGoBack && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+  edge = standalone() && !(globalThis.navigation?.canGoBack ?? history.length > 1) && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
   drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
 // A gesture the page moved under (a touchcancel, or a route() mid-swipe) springs back to where it began.

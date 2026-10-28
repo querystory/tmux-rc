@@ -26,7 +26,7 @@ function app(overrides = {}) {
     panes: ["%1", "%2", "%3"].map((pane_id) => ({ pane_id })),
     location: { href: "https://example.test/m/#pane=%251&view=terminal" },
     performance: { now: () => now }, viewer: { open: false },
-    document: { activeElement: null, querySelector: (sel) => drawer.open && sel.includes("dialog[open]") ? drawer : null }, standalone: () => false,
+    document: { activeElement: null, querySelector: (sel) => drawer.open && sel.includes("dialog[open]") ? drawer : null }, standalone: () => false, history: { length: 1 },
     setTimeout: (fn) => { fn(); return 0; }, clearTimeout() {}, getComputedStyle: () => ({ transform: "none" }), DOMMatrix: class { m41 = 0; },
     $: (id) => id === "pane-list" ? list : els[id] ??= { style: {}, click: () => { clicks.push(id); if (id === "menu-open") drawer.open = true; }, animate: (frames, options) => animations.push({ id, frames, options }) },
     navigate: (id, view) => { navigated.push([id, view]); sandbox.active = id; sandbox.dropGesture(); },
@@ -245,4 +245,12 @@ test("where the browser has a page to go back to, the edge is its alone", () => 
   const first = app({ standalone: () => true, navigation: { canGoBack: false } }); // the app's first screen: Back is ours
   first.swipe(90, 0, 8);
   assert.deepEqual(first.clicks, ["back"]);
+  // Before the Navigation API (iOS 26.2) any history behind counts, and the API outranks the count.
+  const older = app({ standalone: () => true, active: null, history: { length: 2 } });
+  older.swipe(90, 0, 8);
+  assert.equal(older.drawer.open, false);
+  assert.deepEqual(older.clicks, []);
+  const api = app({ standalone: () => true, navigation: { canGoBack: false }, history: { length: 5 } });
+  api.swipe(90, 0, 8);
+  assert.deepEqual(api.clicks, ["back"]);
 });
