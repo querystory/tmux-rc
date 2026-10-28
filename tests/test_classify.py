@@ -1434,6 +1434,18 @@ def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 
 
+def test_the_re_read_of_a_rejected_ask_carries_the_auto_mode_trailer():
+    """A finished auto-mode turn whose ask the model misquoted is read again from the
+    viewport; that read decides the wait, so it gets the same trailer as the first."""
+    payloads = []
+    def llm(system, text, **_):
+        payloads.append(text)
+        return {"tool": "claude", "activity": "waiting", "waiting_on": "user",
+                "question": {"prompt": "Not what the screen says", "answer_style": "text"}}
+    classify(_pane("claude"), _auto_screen("Tell me when the tag is signed."), llm)
+    assert len(payloads) == 2 and all("[auto mode: Claude Code ends a turn" in p for p in payloads)
+
+
 def test_an_offer_the_model_returns_is_a_user_wait():
     """Its next step is the user's (run this, say that), so it waits on the user as a
     question does, outside auto mode too; a turn that offers nothing stays idle."""

@@ -648,7 +648,8 @@ def _ground_visible_fields(
         evidence = f"{evidence}\n\n{identity_chrome}"
     # With no status chrome, an identity re-read has nothing to read a title from.
     retry = llm_fn(
-        prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}",
+        prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}"
+        f"{_auto_mode_trailer(visible) if bad_action else ''}",
     ) if llm_fn and (bad_action or identity_chrome) else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if retry:
@@ -1051,6 +1052,17 @@ def claude_mode(visible: str) -> str | None:
     return m and m[1]
 
 
+def _auto_mode_trailer(visible: str) -> str:
+    """Said after the screen, where a tall one has not pushed it out of reach of the read:
+    on the main payload and on the viewport re-read of a rejected ask alike."""
+    if claude_mode(visible) != "auto mode":
+        return ""
+    return ("\n\n[auto mode: Claude Code ends a turn only when it is done or needs the user. "
+            "Read its final message, the one just above the input box: when it asks the user "
+            "to act, decide, reply or give a go-ahead, the pane is waiting on the user, and "
+            "the replies it invites are its offers]")
+
+
 def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
                     visible: str = "") -> str:
     context = f"[tmux: this pane's foreground process is '{pane.current_command}'"
@@ -1199,13 +1211,8 @@ def classify(
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
-    payload = f"{_parser_context(pane, repository, process_tool, visible)}\n\n{payload}"
-    # Said after the screen, where a tall one has not pushed it out of reach of the read.
-    if claude_mode(visible) == "auto mode":
-        payload += ("\n\n[auto mode: Claude Code ends a turn only when it is done or needs the "
-                    "user. Read its final message, the one just above the input box: when it "
-                    "asks the user to act, decide, reply or give a go-ahead, the pane is "
-                    "waiting on the user, and the replies it invites are its offers]")
+    payload = (f"{_parser_context(pane, repository, process_tool, visible)}\n\n{payload}"
+               f"{_auto_mode_trailer(visible)}")
     result = None
     prompt = ""
     if llm_fn:
