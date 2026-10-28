@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName, paneActivity } from "../web/m/pane-model.js";
-import { paneLinks, askLink } from "../web/pr-links.js";
+import { paneLinks, linkGroups, askLink } from "../web/pr-links.js";
 
 test("PR titles are primary, with the repository and number beneath", () => {
   const [link] = paneLinks({ prs: [{ repo: "querystory/tmux-rc", number: 245,
@@ -125,4 +125,19 @@ test("a session's scratch pages stay in Links after their URL leaves the screen"
   assert.deepEqual(paneLinks({ links: [{ href: page.href, text: "status" }] }, [page]), [page]);
   const many = Array.from({ length: 64 }, (_, i) => ({ repo: "a/b", number: i + 1 }));
   assert.deepEqual(paneLinks({ prs: many }, [page]).at(-1), page); // its own cap, not the PRs'
+});
+
+test("Links lead with pages In progress, the newest page and the PR evidenced last", () => {
+  const page = (n, pending = false) => ({ href: `https://deck.example/scratch/p${n}/`, text: `p${n}`, pending });
+  const pages = [page(1), page(2, true), page(3), page(4, true)];
+  const prs = [1, 2, 3].map((number) => ({ repo: "a/b", number })), pr = (n) => `https://github.com/a/b/pull/${n}`;
+  const links = linkGroups({ prs, links: [{ href: "https://screen.example/", text: "now" }] }, pages);
+  assert.deepEqual(links.top.map((l) => l.href), [pages[1].href, pages[3].href, pages[0].href, "https://screen.example/"]);
+  assert.equal(links.pages.length, 4);
+  assert.deepEqual(links.prs.map((l) => l.href), [pr(3), pr(2), pr(1)]); // newest first, none on top
+  assert.deepEqual(linkGroups({ prs }, [page(5)]).top.map((l) => l.href), [page(5).href, pr(3)]);
+  // A page or PR the screen links now leads, titled, and leaves the rest.
+  const shown = linkGroups({ prs, links: [{ href: pr(1), text: "raw" }, { href: pages[2].href }] }, pages);
+  assert.deepEqual(shown.top.slice(3).map((l) => l.text), ["a/b#1", "p3"]);
+  assert.deepEqual(shown.prs.map((l) => l.href), [pr(3), pr(2)]);
 });

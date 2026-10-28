@@ -5,7 +5,7 @@ import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
-import { paneLinks, askLink } from "/pr-links.js";
+import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
@@ -348,11 +348,13 @@ function route() {
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   if (viewer.open && page !== "scratch") viewer.close(); // Back, a push or Safari's swipe left Scratch: its viewer goes too
+  if (page !== "scratch") scratchFrom = null; // and its pane filter
   const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
   if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
+    foldPrs(false); // another pane's PRs start folded
     $("overview").scrollTop = 0;
     text($("draft-status"), "");
     show("keys", false);
@@ -827,7 +829,13 @@ addEventListener("message", (e) => {
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
 });
-function scratchPage() { return cardView("Scratch", scratchFrame); }
+// The pane whose pages it shows (?pane=, scratch.html), opened from that pane's Links.
+let scratchFrom = null;
+function scratchPage() {
+  const src = scratchFrom ? `/scratch/?pane=${encodeURIComponent(scratchFrom)}` : "/scratch/";
+  if (scratchFrame.getAttribute("src") !== src) scratchFrame.src = src;
+  return cardView("Scratch", scratchFrame);
+}
 // A gallery page, full screen over the app in a frame of its own (sandboxed by the daemon's CSP
 // like every /scratch/ page), under a bar: Back, its title, and a real link out to a tab.
 // A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
@@ -1067,6 +1075,7 @@ function renderLinks(el, links) {
     anchor.href = link.href;
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
     text(anchor.querySelector("small"), link.detail || host);
+    anchor.querySelector("small").classList.toggle("pending", !!link.pending);
   });
 }
 
@@ -1078,7 +1087,8 @@ function pageLinks(pane) {
   if (id && overviewVisible() && !(had?.at > Date.now() - 60000)) {
     scratchPages.set(key, { at: Date.now(), links: had?.links || [] });
     request(`/api/panes/${encodeURIComponent(id)}/scratch`).then((pages) => {
-      scratchPages.set(key, { at: Date.now(), links: pages.map((p) => ({ href: new URL(`/scratch/${p.href}`, location.href).href, text: p.title, detail: "Scratch" })) });
+      scratchPages.set(key, { at: Date.now(), links: pages.map((p) => ({ href: new URL(`/scratch/${p.href}`, location.href).href, text: p.title, pending: p.pending,
+        detail: p.pending ? "In progress" : `Scratch · ${since({ state_since: p.at })} ago` })) });
       if (paneKey(active) === key) renderRichContent(panes.find((p) => p.pane_id === active));
     }, () => {});
   }
@@ -1089,10 +1099,14 @@ function renderRichContent(pane) {
   accounts.paneCard(pane, $("signin-section"));
   // The link the question asks you to open leads its card instead of waiting in Links.
   const ask = pane?.question && needsYou(pane) ? askLink(pane) : null;
-  const links = paneLinks(pane, pageLinks(pane)).filter((link) => link.href !== ask?.href);
+  const { top, pages, prs } = linkGroups(pane, pageLinks(pane)), links = top.filter((link) => link.href !== ask?.href);
+  const more = { "more-pages": pages.some((p) => !top.includes(p)) && pages.length, "more-prs": prs.length }, making = pages.filter((p) => p.pending).length;
   renderLinks($("ask-link"), ask ? [ask] : []);
-  show("link-section", !!links.length);
+  show("link-section", !!(links.length || more["more-pages"] || prs.length));
   renderLinks($("links"), links);
+  for (const [id, n] of Object.entries(more)) { show(id, !!n); text($(id).querySelector(".count"), n); }
+  text($("more-pages").querySelector("small"), making ? `${making} In progress` : "From this pane");
+  renderLinks($("pr-links"), prs);
   const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter((table) => table && Array.isArray(table.rows));
   show("table-section", !!tables.length);
   // Reconcile inside stable scroll containers so a poll never resets a table's position.
@@ -1113,6 +1127,12 @@ function renderRichContent(pane) {
     });
   });
 }
+
+// The rest of the Links: this pane's pages open in Scratch, filtered to it; its PRs unfold here.
+$("more-pages").onclick = () => { scratchFrom = active; openPage("scratch"); };
+$("more-prs").onclick = () => foldPrs($("more-prs").getAttribute("aria-expanded") !== "true");
+function foldPrs(open) { $("more-prs").setAttribute("aria-expanded", String(open)); show("pr-links", open); }
+for (const id of ["more-pages", "more-prs"]) $(id).insertAdjacentHTML("beforeend", licon("chevron", 16));
 
 function renderTasks(pane) {
   // A copyable of an offer's text would repeat the question card's.
