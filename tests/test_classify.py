@@ -1456,6 +1456,11 @@ def test_a_reply_offer_is_on_the_screen_word_by_word():
     merged = _auto_screen('PR 415 was merged.\n  Say "merge 416" to queue the next one.')
     result = classify(_pane("claude"), merged, _llm({"offers": ["merge 415", "merge 416"]}))
     assert result["offers"] == ["merge 416"]
+    # The model listing a command with and without its "!" offers the command once.
+    handoff = _auto_screen("Push it yourself:\n  ! git push -u origin demo")
+    both = {"offers": ["! git push -u origin demo", "git push -u origin demo"]}
+    result = classify(_pane("claude"), handoff, _llm(both))
+    assert result["offers"] == ["! git push -u origin demo"]
 
 
 def test_a_finished_turns_ask_may_start_above_the_viewport():

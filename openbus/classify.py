@@ -945,9 +945,11 @@ def screen_offers(offers: object, text: str) -> list[str]:
     shown = lambda o: _quoted(o, visible) or (  # noqa: E731
         not o.startswith("!") and not re.search(r"[\d#]", o) and bool(o.split()) and all(
             re.search(rf"(?i)(?<!\w){re.escape(w)}(?!\w)", visible) for w in o.split()))
-    return list(islice((o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
-                                                  for o in listed if isinstance(o, str))
-                        if shown(o) and not (o.startswith("! ") and (
+    listed = dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
+                           for o in listed if isinstance(o, str))
+    return list(islice((o for o in listed
+                        if f"! {o}" not in listed  # the command, not its plain copy too
+                        and shown(o) and not (o.startswith("! ") and (
                             o.endswith("\\") or not _parses(o[2:])))), 3))
 
 
