@@ -1446,6 +1446,14 @@ def test_the_re_read_of_a_rejected_ask_carries_the_auto_mode_trailer():
     assert len(payloads) == 2 and all("[auto mode: Claude Code ends a turn" in p for p in payloads)
 
 
+def test_a_reply_offer_is_on_the_screen_word_by_word():
+    screen = _auto_screen("I'd delete this hourly job now that it has confirmed the fix,\n"
+                          "  unless you want to keep it.")
+    offers = ["delete it", "keep it", "rename it"]
+    result = classify(_pane("claude"), screen, _llm({"offers": offers}))
+    assert result["offers"] == ["delete it", "keep it"]  # "rename" is nowhere on the screen
+
+
 def test_an_offer_the_model_returns_is_a_user_wait():
     """Its next step is the user's (run this, say that), so it waits on the user as a
     question does, outside auto mode too; a turn that offers nothing stays idle."""

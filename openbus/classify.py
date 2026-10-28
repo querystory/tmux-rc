@@ -914,11 +914,16 @@ def screen_offers(offers: object, text: str) -> list[str]:
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
-    a row break the model copied from a wrap is a space."""
+    a row break the model copied from a wrap is a space. A reply ("delete it" for "I'd
+    delete this job, unless you want to keep it") is the user's words, so it is on the
+    screen word by word rather than whole; a command is quoted whole."""
     listed = offers if isinstance(offers, list) else ()
+    visible = _visible(text)
+    shown = lambda o: _quoted(o, visible) or (not o.startswith("!") and all(  # noqa: E731
+        re.search(rf"(?i)(?<!\w){re.escape(w)}(?!\w)", visible) for w in o.split()))
     return list(islice((o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
                                                   for o in listed if isinstance(o, str))
-                        if _quoted(o, _visible(text)) and not (o.startswith("! ") and (
+                        if shown(o) and not (o.startswith("! ") and (
                             o.endswith("\\") or not _parses(o[2:])))), 3))
 
 
@@ -1060,7 +1065,8 @@ def _auto_mode_trailer(visible: str) -> str:
     return ("\n\n[auto mode: Claude Code ends a turn only when it is done or needs the user. "
             "Read its final message, the one just above the input box: when it asks the user "
             "to act, decide, reply or give a go-ahead, the pane is waiting on the user, and "
-            "the replies it invites are its offers]")
+            "its offers are the replies it invites: one per thing it waits on the user for, "
+            "and both answers to a proposal with an alternative, the proposed one first]")
 
 
 def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
