@@ -1779,9 +1779,11 @@ bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : nu
 
 for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle, Usage and Scratch either end. The gauge is Dashboard's
-// everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
-for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["usage", "Usage", "pie"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"], ["scratch", "Scratch", "images"]]) {
-  html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}${id === "attention" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
+// everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count. The ☰ drawer
+// lists the same five (below), so one list names them.
+const TABS = [["dashboard-tab", "Dashboard", "gauge"], ["usage-tab", "Usage", "pie"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-tab", "Scratch", "images"]];
+for (const [id, label, glyph] of TABS) {
+  html($(id), `<span class="nav-icon">${licon(glyph)}${id === "attention-tab" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
 }
 // The keys worth a thumb on a phone.
 //
@@ -1831,11 +1833,12 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-// A phone's ☰ drawer: each row presses the control that already goes there (a tab, Graph,
-// Chat, Voice, Settings, the docs link), shown when it is and current while it is pressed. A modal
+// A phone's ☰ drawer: every destination, each row pressing the control that already goes there
+// (the five tabs in the bar's order, Graph under the Dashboard it opens within, then Chat, Voice,
+// Settings, the docs link), shown when it is and current while it is pressed. A modal
 // dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a drag left closes it.
 // It slides every way it comes and goes (settle, below), a row's place opening once it is gone.
-html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["graph-nav", "Graph", "network"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["chat", "Chat", "message"], ["live-mode", "Voice", "mic"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
+html($("drawer-nav"), [TABS[0], ["graph-nav", "Graph", "network"], ...TABS.slice(1), ["chat", "Chat", "message"], ["live-mode", "Voice", "mic"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
   .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
 $("menu-open").onclick = (e) => {
   // One current row, the most specific pressed (rows run general to specific): Graph, not
