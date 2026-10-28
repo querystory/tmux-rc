@@ -571,7 +571,7 @@ def _ask_view(text: str) -> str:
     history, mark, _ = text.rpartition(VISIBLE_SCREEN)
     visible = _visible(text)
     *_, start = [None, *re.finditer(r"(?m)^[ \t]*● ", plain := _visible(history) if mark else "")]
-    message = plain[start.end():] if start else ""  # from its first word, as _final_message reads one
+    message = plain[start.end():] if start else ""  # from its first word, as _final_message reads
     if not message or _CLAUDE_TURN_RE.search(message) or _USER_ROW_RE.search(message):
         return visible
     # The boundary sat between two rows: joined without the blank row it would leave, so
