@@ -1494,6 +1494,11 @@ def test_a_finished_turns_ask_may_start_above_the_viewport():
          "items": ["1. Retry on 408 like on 503.", "2. Raise the test's retry limit."]}
     got = classify(_pane("claude"), "● " + listed, _llm({"question": q}))["question"]
     assert got["items"] == q["items"] and got["subject"] == "Two fixes:"
+    # The agent list's "● main" row under the input box is no newer message.
+    agents = ("● " + listed
+              + "\n\n  ● main\n  ◯ general-purpose  Copilot loop  21m 14s · ↓ 88.2k tokens\n")
+    got = classify(_pane("claude"), agents, _llm({"question": dict(q)}))["question"]
+    assert got["prompt"] == "Which one?" and got["items"] == q["items"]
 
 
 def test_an_offer_the_model_returns_is_a_user_wait():

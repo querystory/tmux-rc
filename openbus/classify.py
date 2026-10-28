@@ -571,7 +571,9 @@ def _ask_view(text: str) -> str:
     history, mark, _ = text.rpartition(VISIBLE_SCREEN)
     visible = _visible(text)
     bullet = r"(?m)^[ \t]*● "
-    if re.search(bullet, visible):  # the final message begins in the viewport: history is older
+    # A message bullet in the viewport means the final message begins there, so history
+    # is older; the agent list's "● main" row below the input box is no message.
+    if re.search(bullet, _AGENT_LIST_RE.sub("", visible)):
         return visible
     *_, start = [None, *re.finditer(bullet, plain := _visible(history) if mark else "")]
     message = plain[start.end():] if start else ""  # from its first word, as _final_message reads
