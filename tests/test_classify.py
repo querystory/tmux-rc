@@ -1483,6 +1483,17 @@ def test_a_finished_turns_ask_may_start_above_the_viewport():
         VISIBLE_SCREEN + "\n", "")
     parsed = {"question": {"prompt": old, "answer_style": "text"}}
     assert "question" not in classify(_pane("claude"), earlier, _llm(parsed))
+    # Nor when a newer message begins in the viewport: the history above it is older.
+    newer = (f"● {old}\n✻ Baked for 9s\n❯ csv\n{VISIBLE_SCREEN}\n● Exported as csv.\n"
+             "✻ Baked for 3s\n\n❯\n  ⏵⏵ auto mode on")
+    assert "question" not in classify(_pane("claude"), newer, _llm(parsed))
+    # A boundary-spanning question keeps the rows it cites from above the viewport.
+    listed = ("Two fixes:\n  1. Retry on 408 like on 503.\n  2. Raise the test's retry limit.\n"
+              f"  Which one?\n{VISIBLE_SCREEN}\n✻ Baked for 3s\n\n❯\n  ⏵⏵ auto mode on")
+    q = {"prompt": "Which one?", "answer_style": "text", "subject": "Two fixes:",
+         "items": ["1. Retry on 408 like on 503.", "2. Raise the test's retry limit."]}
+    got = classify(_pane("claude"), "● " + listed, _llm({"question": q}))["question"]
+    assert got["items"] == q["items"] and got["subject"] == "Two fixes:"
 
 
 def test_an_offer_the_model_returns_is_a_user_wait():

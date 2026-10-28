@@ -570,7 +570,10 @@ def _ask_view(text: str) -> str:
     normalized on its own, so a side panel ends where it did."""
     history, mark, _ = text.rpartition(VISIBLE_SCREEN)
     visible = _visible(text)
-    *_, start = [None, *re.finditer(r"(?m)^[ \t]*● ", plain := _visible(history) if mark else "")]
+    bullet = r"(?m)^[ \t]*● "
+    if re.search(bullet, visible):  # the final message begins in the viewport: history is older
+        return visible
+    *_, start = [None, *re.finditer(bullet, plain := _visible(history) if mark else "")]
     message = plain[start.end():] if start else ""  # from its first word, as _final_message reads
     if not message or _CLAUDE_TURN_RE.search(message) or _USER_ROW_RE.search(message):
         return visible
@@ -1448,9 +1451,10 @@ def classify(
             question.pop(key, None)
         # The rows the model cites for the question, and what they decide, must be on screen.
         items = question.pop("items", None)
-        if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, visible)]):
+        view = _ask_view(text) if result.get("tool") == "claude" else visible
+        if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, view)]):
             question["items"] = quoted
-        if not _quoted(question.get("subject"), visible):
+        if not _quoted(question.get("subject"), view):
             question.pop("subject", None)
         # A question with no style is answered as text (models.py).
         style, asked = question.get("answer_style", "text"), _question_prompt(question)
