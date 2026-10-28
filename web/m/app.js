@@ -340,6 +340,7 @@ function route() {
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
   dropGesture();
+  if (drawer.open) settle(false); // a move the drawer did not make (the browser's own Back) must not carry it over the next screen
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, page } = state);
@@ -1896,7 +1897,7 @@ addEventListener("touchmove", (e) => {
   if (!drag) return;
   const t = e.touches[0], dx = t.clientX - drag.x, dy = Math.abs(t.clientY - drag.y);
   if (!drag.live) {
-    if (dy > Math.abs(dx)) { if (dy > 10) drag = null; return; } // vertical: a scroll, not a drag
+    if (dy > Math.abs(dx)) { if (dy > 10) drag = edge = null; return; } // vertical: a scroll, not a drag, and not a Back either
     if (Math.abs(dx) < 10 || !drag.open && dx < 0) return;
     // From where it is, which may be partway through settling, read before .settling is dropped.
     const x = drawer.open && new DOMMatrix(getComputedStyle(drawer).transform).m41;
@@ -1912,8 +1913,11 @@ $("back").onclick = $("close-pane").onclick = () => navigate();
 // A phone's Back is also a swipe in from the left edge: it presses the Back of the pane, the
 // view or Scratch's viewer (whose left edge is kept for it; on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
-// Installed only: in a browser tab that edge is the browser's own Back, and both at once slide
-// two things in (☰ still opens the drawer there, and an open one still drags).
+// One owner per swipe: the edge is the browser's wherever it has a page to go back to (a tab,
+// or an installed app that says so), and there neither Back nor the drawer answers it, so the
+// two can never slide in together (☰ still opens the drawer, and an open one still drags);
+// ours only where the browser has nothing behind, and then the list's edge opens the drawer
+// and nothing else, decided once the drag commits.
 let edge = null, headingSwipe = null, headingClickUntil = 0;
 // The view under the bar rides with the finger: 1:1 up to the threshold, a third of the way past it
 // (and from the start where no session lies that way), capped. Let go past it, the view slides out and
@@ -1934,7 +1938,7 @@ addEventListener("touchstart", (e) => {
     headingSwipe = { x: t.clientX, y: t.clientY, at: 0, href: location.href, live: false,
       ids: [...$("pane-list").children].filter((n) => n._p && !ending.has(n._p.pane_id)).map((n) => n._p.pane_id) };
   }
-  edge = standalone() && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+  edge = standalone() && !globalThis.navigation?.canGoBack && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
   drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
 // A gesture the page moved under (a touchcancel, or a route() mid-swipe) springs back to where it began.

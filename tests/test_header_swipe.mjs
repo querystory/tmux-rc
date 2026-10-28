@@ -206,3 +206,41 @@ test("past the threshold the view slides out and the next pane's in; short of it
   assert.ok(quiet.animations.every((x) => x.options.duration === 0));
 });
 
+test("an installed app's left-edge swipe on the list opens the drawer and nothing else", () => {
+  const a = app({ standalone: () => true, active: null });
+  a.swipe(90, 0, 8);
+  assert.equal(a.drawer.open, true);
+  assert.deepEqual(a.clicks, ["menu-open"]);
+  assert.deepEqual(a.navigated, []);
+  a.swipe(-200, 0, 250); // dragged shut again, still without a Back
+  assert.equal(a.drawer.open, false);
+  assert.deepEqual(a.clicks, ["menu-open"]);
+  const open = app({ standalone: () => true });
+  open.drawer.open = true;
+  open.swipe(90, 0, 8); // over an open drawer the edge drags it, never presses Back under it
+  assert.deepEqual(open.clicks, []);
+  assert.equal(open.drawer.open, true);
+});
+
+test("a swipe that starts vertical at the edge is a scroll: neither the drawer nor Back", () => {
+  const a = app({ standalone: () => true, active: null });
+  a.emit("touchstart", 8);
+  a.emit("touchmove", 8, 80);
+  a.emit("touchmove", 120, 80);
+  a.emit("touchend", 120, 80);
+  assert.equal(a.drawer.open, false);
+  assert.deepEqual(a.clicks, []);
+});
+
+test("where the browser has a page to go back to, the edge is its alone", () => {
+  for (const active of [null, "%1"]) {
+    const a = app({ standalone: () => true, active, navigation: { canGoBack: true } });
+    a.swipe(90, 0, 8);
+    assert.equal(a.drawer.open, false);
+    assert.deepEqual(a.clicks, []);
+    assert.deepEqual(a.navigated, []);
+  }
+  const first = app({ standalone: () => true, navigation: { canGoBack: false } }); // the app's first screen: Back is ours
+  first.swipe(90, 0, 8);
+  assert.deepEqual(first.clicks, ["back"]);
+});
