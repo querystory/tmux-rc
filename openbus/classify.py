@@ -1091,10 +1091,10 @@ def _auto_mode_trailer(visible: str) -> str:
     return ("\n\n[auto mode: Claude Code ends a turn only when it is done or needs the user. "
             "Read its final message, the one just above the input box: when it asks the user "
             "to act, decide, reply or give a go-ahead, the pane is waiting on the user, and "
-            "its offers are the replies it asks the user to say to it here: one per thing it "
-            "waits on the user for, and both answers to a proposal with an alternative, the "
-            "proposed one first. Words it tells the user to type somewhere else (another "
-            "pane, tool or person) are no offer]")
+            "its offers are the replies it asks the user to say to it here (one per thing "
+            "it waits on the user for, and both answers to a proposal with an alternative, "
+            'the proposed one first) and any "! command" it hands the user to run here; '
+            "words meant for another pane or tool are no offer]")
 
 
 def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
