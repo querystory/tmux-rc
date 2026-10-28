@@ -191,17 +191,17 @@ user is being asked to open. Terminal wrapping splits long URLs across lines —
 REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a short
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
 
-"offers": whenever the agent's latest message asks the user to run, send or type something
-specific into this pane, put that text in "offers", whole and exactly as the agent gives
-it, so the phone's Send it button can type it: a "! command" row, a command in a code
-block, "run: ..." in prose, a reply it asks for in so many words ('Say "push" and I'll
-push' offers "push", 'say "go" when it looks right' offers "go"). Read the whole latest
-message for these: an ask mid-paragraph, before a long draft, or with notes and later
-steps after it is an offer just like one ending the message, whatever Claude Code prints
-below the message (finished background tasks, a compaction notice). A "! command" handed to
-the user is always an offer. A command the screen wraps onto further rows is one
-offer: its rows joined into one line, Claude Code's leading "!" kept. A command or phrase
-merely mentioned is no offer.
+"offers": when the agent is blocked on the user or hands them the next step, and that action is text to
+send into this pane (a command it could not run itself, a reply it asks for word for word:
+'Say "push" and I'll push' offers "push"), put that text in "offers", whole and exactly as
+the agent gives it, so the phone's Send button can type it. Read the whole latest message
+for it: an ask mid-paragraph, before a long draft, or with notes and later steps after it
+counts just like one ending the message, whatever Claude Code prints below it (finished
+background tasks, a compaction notice). A command the screen wraps onto further rows is one
+offer: its rows joined into one line. For example, Claude Code hands over a command to run
+here as "! command" (a row of its own, a code block, or "run: ! ..." in prose): that is an
+offer, its "!" kept, even where it is a copyable too. A command or phrase merely mentioned
+is no offer.
 
 "copyables": text the user will plausibly want to PASTE SOMEWHERE ELSE, lifted off the
 screen for one-tap copying. Selecting text out of a terminal on a phone is genuinely
