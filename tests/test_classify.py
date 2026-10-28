@@ -1463,7 +1463,11 @@ def test_a_reply_offer_is_on_the_screen_word_by_word():
     assert result["offers"] == ["! git push -u origin demo"]
     plain = _auto_screen("Push it yourself: git push -u origin demo")  # no "!" on screen
     result = classify(_pane("claude"), plain, _llm({"offers": list(both)}))
-    assert result["offers"] == ["git push -u origin demo"]
+    assert result["offers"] == ["! git push -u origin demo"]  # the bang form runs it here
+    wrapped = _auto_screen('Run it with ! once happy:\n  gh issue close 42 -R acme/app -c '
+                           '"Fixed in\n  prod. See #43."')
+    offer = '! gh issue close 42 -R acme/app -c "Fixed in prod. See #43."'
+    assert classify(_pane("claude"), wrapped, _llm({"offers": [offer]}))["offers"] == [offer]
 
 
 def test_a_finished_turns_ask_may_start_above_the_viewport():

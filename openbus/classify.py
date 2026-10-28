@@ -949,7 +949,9 @@ def screen_offers(offers: object, text: str) -> list[str]:
     visible = _ask_view(text)
     # A reply without a number or name in it may be the user's own words for the final
     # message's proposal; one that names something ("merge 415") is quoted as a phrase.
+    # A `! command` the agent wrote without its "!" is on the screen as the command alone.
     shown = lambda o: _quoted(o, visible) or (  # noqa: E731
+        o.startswith("! ") and _quoted(o[2:], visible)) or (
         not o.startswith("!") and not re.search(r"[\d#]", o) and bool(o.split()) and all(
             re.search(rf"(?i)(?<!\w){re.escape(w)}(?!\w)", visible) for w in o.split()))
     kept = [o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
@@ -1098,8 +1100,10 @@ def _auto_mode_trailer(visible: str) -> str:
             "to act, decide, reply or give a go-ahead, the pane is waiting on the user, and "
             "its offers are the replies it asks the user to say to it here (one per thing "
             "it waits on the user for, and both answers to a proposal with an alternative, "
-            'the proposed one first) and any "! command" it hands the user to run here; '
-            "words meant for another pane or tool are no offer]")
+            'the proposed one first) and any "! command" it hands the user to run here. A '
+            'command it wrote without the "!" and asks the user to run here is offered as '
+            '"! " then the command on one line, its wrapped rows joined; words meant for '
+            "another pane or tool are no offer]")
 
 
 def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
