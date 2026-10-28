@@ -1381,7 +1381,9 @@ def classify(
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
-    final = not spent and tool in _TURN_ERROR_RE and _final_message(visible, tool)
+    # Claude's final message is read on the ask view: a long one begins above the viewport.
+    final = not spent and tool in _TURN_ERROR_RE and _final_message(
+        _ask_view(text) if tool == "claude" else visible, tool)
     if (offers := screen_offers(result.pop("offers", None), text)) and not spent:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     if final and (ask := _final_ask(visible, tool, final, offers)):
