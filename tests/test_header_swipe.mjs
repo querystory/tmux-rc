@@ -219,13 +219,21 @@ test("the finger takes the view back from a glide still running, and the hand-ov
   assert.deepEqual(a.cancelled, ["overview", "terminal"]);
   assert.deepEqual(a.shifted(), ["translateX(-50px)", "translateX(-50px)"]);
   for (const [moved, navigated] of [[() => {}, [["%2", "terminal"]]], [(b) => { b.sandbox.location.href += "&q=moon"; }, []], [(b) => b.sandbox.ending.set("%2", {}), []], [(b) => { b.sandbox.WIDE.matches = true; }, []]]) {
-    const timers = [], b = app({ setTimeout: (fn) => timers.push(fn) });
+    const timers = new Map(), b = app({ setTimeout: (fn) => timers.set(timers.size + 1, fn) && timers.size, clearTimeout: (id) => timers.delete(id) });
     b.swipe(-90);
     assert.deepEqual(b.navigated, []);
     moved(b);
-    for (const fn of timers) fn();
+    for (const fn of timers.values()) fn();
     assert.deepEqual(b.navigated, navigated);
   }
+  const timers = new Map(), c = app({ setTimeout: (fn) => timers.set(timers.size + 1, fn) && timers.size, clearTimeout: (id) => timers.delete(id) });
+  c.swipe(-90);
+  c.emit("touchstart");
+  c.emit("touchmove", 290); // a drag the other way within the hand-over: the open it cancelled must not follow
+  assert.deepEqual([...timers.values()], []);
+  c.emit("touchend", 290);
+  for (const fn of timers.values()) fn();
+  assert.deepEqual(c.navigated, [["%3", "terminal"]]);
 });
 
 test("an installed app's left-edge swipe on the list opens the drawer and nothing else", () => {

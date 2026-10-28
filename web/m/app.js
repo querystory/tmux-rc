@@ -1925,7 +1925,7 @@ let edge = null, headingSwipe = null, headingClickUntil = 0;
 // overview and terminal move together, so the gesture reads the same in either view. Reduced motion just switches.
 const swept = [$("overview"), $("terminal")], shift = (x) => `translateX(${x}px)`;
 const swipeTarget = (swipe, dx) => { const index = swipe.ids.indexOf(active), id = index >= 0 && swipe.ids[index + (dx < 0 ? 1 : -1)]; return id && panes.some((p) => p.pane_id === id) && !ending.has(id) ? id : null; };
-let gliding = []; // the last glide, for the finger that takes the view back mid-way
+let gliding = [], opening; // the last glide and the open it leads to, for the finger that takes the view back mid-way
 const glide = (frames, ms = 180) => { gliding = swept.map((v) => { v.style.transform = ""; return v.animate(frames, { duration: still.matches ? 0 : ms }); }); };
 const settleSwipe = () => { if (headingSwipe?.live) glide([{ transform: shift(headingSwipe.at), easing: "ease-out" }, { transform: "none" }]); headingSwipe = null; };
 addEventListener("touchstart", (e) => {
@@ -1952,7 +1952,7 @@ addEventListener("touchmove", (e) => {
     if (Math.max(ax, dy) < 10) return;
     if (ax <= dy * 2) { headingSwipe = null; return; } // vertical or diagonal: leave it to scrolling
     headingSwipe.live = true;
-    for (const a of gliding) a.cancel(); // a glide still running would hold the view against the finger
+    for (const a of gliding) a.cancel(); clearTimeout(opening); // a glide still running would hold the view against the finger, and its open would take it away
   }
   e.preventDefault(); // a horizontal header swipe must not pan the page or tap a control
   headingClickUntil = performance.now() + 500;
@@ -1975,7 +1975,7 @@ addEventListener("touchend", (e) => {
     // nothing moved meanwhile: a Back landing first, or the pane going, must not be covered by it.
     const out = Math.sign(sdx) * innerWidth;
     glide([{ transform: shift(swipe.at), opacity: 1, easing: "ease-in" }, { transform: shift(out), opacity: 0, offset: .4 }, { transform: shift(-out), opacity: 0, offset: .4, easing: "ease-out" }, { transform: "none", opacity: 1 }], 200);
-    setTimeout(() => { const to = location.href === swipe.href && !WIDE.matches && swipeTarget(swipe, sdx); if (to) navigate(to, view); }, still.matches ? 0 : 80);
+    opening = setTimeout(() => { const to = location.href === swipe.href && !WIDE.matches && swipeTarget(swipe, sdx); if (to) navigate(to, view); }, still.matches ? 0 : 80);
   } else settleSwipe();
   const dx = edge && t.clientX - edge.x;
   if (drag?.live && e.timeStamp - drag.t > 100) drag.v = 0; // held before letting go: no flick
