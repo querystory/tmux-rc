@@ -574,7 +574,9 @@ def _ask_view(text: str) -> str:
     message = plain[start.start():] if start else ""
     if not message or _CLAUDE_TURN_RE.search(message) or _USER_ROW_RE.search(message):
         return visible
-    return message + visible
+    # The boundary sat between two rows: joined without the blank row it would leave, so
+    # a message wrapped across it still reads as one.
+    return message + visible.removeprefix("\n")
 
 
 def _supported_question(question, text: str, tool, pane: Pane) -> bool:
@@ -945,12 +947,10 @@ def screen_offers(offers: object, text: str) -> list[str]:
     shown = lambda o: _quoted(o, visible) or (  # noqa: E731
         not o.startswith("!") and not re.search(r"[\d#]", o) and bool(o.split()) and all(
             re.search(rf"(?i)(?<!\w){re.escape(w)}(?!\w)", visible) for w in o.split()))
-    listed = dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
-                           for o in listed if isinstance(o, str))
-    return list(islice((o for o in listed
-                        if f"! {o}" not in listed  # the command, not its plain copy too
-                        and shown(o) and not (o.startswith("! ") and (
-                            o.endswith("\\") or not _parses(o[2:])))), 3))
+    kept = [o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
+                                     for o in listed if isinstance(o, str))
+            if shown(o) and not (o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:])))]
+    return [o for o in kept if f"! {o}" not in kept][:3]  # the command, not its plain copy too
 
 
 def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:

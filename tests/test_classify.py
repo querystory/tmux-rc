@@ -1458,9 +1458,12 @@ def test_a_reply_offer_is_on_the_screen_word_by_word():
     assert result["offers"] == ["merge 416"]
     # The model listing a command with and without its "!" offers the command once.
     handoff = _auto_screen("Push it yourself:\n  ! git push -u origin demo")
-    both = {"offers": ["! git push -u origin demo", "git push -u origin demo"]}
-    result = classify(_pane("claude"), handoff, _llm(both))
+    both = ["! git push -u origin demo", "git push -u origin demo"]
+    result = classify(_pane("claude"), handoff, _llm({"offers": list(both)}))
     assert result["offers"] == ["! git push -u origin demo"]
+    plain = _auto_screen("Push it yourself: git push -u origin demo")  # no "!" on screen
+    result = classify(_pane("claude"), plain, _llm({"offers": list(both)}))
+    assert result["offers"] == ["git push -u origin demo"]
 
 
 def test_a_finished_turns_ask_may_start_above_the_viewport():
@@ -1469,10 +1472,11 @@ def test_a_finished_turns_ask_may_start_above_the_viewport():
         "the event", VISIBLE_SCREEN + "\nthe event", 1)
     assert VISIBLE_SCREEN in screen
     question = {"prompt": ask, "answer_style": "text"}
-    parsed = {"question": question, "offers": ["vendor's name"]}
+    parsed = {"question": question, "offers": ["vendor's name", "the event where you took"]}
     result = classify(_pane("claude"), screen, _llm(parsed))
     assert result["question"]["prompt"] == ask and result["activity"] == "waiting"
-    assert result["offers"] == ["vendor's name"]  # offered from above the viewport too
+    # Offered from above the viewport too, and across its boundary without a blank row.
+    assert result["offers"] == ["vendor's name", "the event where you took"]
     # An earlier turn's question, answered above the viewport, is not the final message's.
     old = "Which format should the export use?"
     earlier = f"● {old}\n✻ Baked for 9s\n❯ csv\n{VISIBLE_SCREEN}\n" + screen.replace(
