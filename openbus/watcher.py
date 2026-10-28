@@ -259,6 +259,7 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     s["window_index"] = p.window_index
     s["pane_index"] = getattr(p, "pane_index", "")
     s["window_name"] = p.window_name
+    s["name"] = getattr(p, "name", "")  # the user's own name for it, which `title` already is
     s["session_active"] = p.session_active
     s["secret"] = getattr(p, "secret", False)  # at a password prompt: see Pane.secret
 
@@ -602,14 +603,19 @@ class Watcher:
         thread; setting an asyncio.Event from another thread is safe via the loop's
         thread-safe scheduling."""
         self._force_parse.add(pane_id)
+        self.wake()
+
+    def wake(self) -> None:
+        """Run a full tick now, re-parsing only what changed on screen: it restamps every
+        pane's names (_stamp_identity), so a rename shows without an LLM call."""
         loop = getattr(self, "_evloop", None)
         if loop is not None:
             try:
                 loop.call_soon_threadsafe(self._wake.set)
             except RuntimeError:
                 # Loop already closed (shutdown). The tmux send has already succeeded, so
-                # don't fail the request over a wake we no longer need — the pane id stays
-                # in _force_parse and a running loop would pick it up on its next tick.
+                # don't fail the request over a wake we no longer need — a pane id stays
+                # in _force_parse (if forced) for a running loop's next tick.
                 pass
 
     def drop_panes(self, pane_ids: set[str]) -> None:
@@ -950,7 +956,7 @@ class Watcher:
                 # The structural identity the phone RENDERS (headers, window numbers):
                 # a renumber/rename with unchanged content must still bump the version.
                 s.get("session"), s.get("window_index"), s.get("window_name"),
-                s.get("label"), s.get("title"), s.get("cwd"),
+                s.get("label"), s.get("title"), s.get("name"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
                 s.get("secret"),  # the composer mode: a tty change with an unchanged screen
                 tuple((p.get("repo"), p.get("number"), p.get("title"))

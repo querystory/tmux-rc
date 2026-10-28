@@ -1779,7 +1779,7 @@ $("secret").oninput = updateComposer;
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -2428,6 +2428,41 @@ const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button")
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
+// Rename: the pane's own name (kept in tmux; it beats the title its agent sets, and empty
+// gives that back) and its tmux session's, both of which go stale as the work moves on.
+// No "name" in its fields' ids or labels: iOS takes such a field for a person's and offers a contact.
+html($("rename-pane"), `${licon("pencil", 18)}<span>Rename…</span>`);
+$("close-rename").onclick = () => $("rename-dialog").close();
+let renaming; // the pane the sheet opened for: a newer one under its %N is refused (birth)
+$("rename-pane").onclick = () => {
+  closePaneMenu();
+  // A save still pending owns the sheet: it reopens as it was left, and that save's answer closes it.
+  if ($("rename-save").disabled) return $("rename-dialog").showModal();
+  renaming = panes.find((p) => p.pane_id === active);
+  if (!renaming) return;
+  // defaultValue is what "unchanged" means: a session's own odd name is never sent back as is.
+  $("pane-label").value = $("pane-label").defaultValue = renaming.name || "";
+  $("pane-label").placeholder = renaming.name ? "" : paneName(renaming);
+  $("session-label").value = $("session-label").defaultValue = renaming.session || "";
+  text($("rename-error"), "");
+  $("rename-dialog").showModal();
+  $("pane-label").select();
+};
+// What the daemon takes for a session name (server.py RenameBody, which refuses anything else with a 422).
+const SESSION_HINT = "A session name is letters, digits, spaces, _ and -, starting with a letter or digit.";
+$("rename-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const body = { birth: renaming.birth ?? "", was: renaming.session || "" };
+  for (const [key, id] of [["name", "pane-label"], ["session", "session-label"]]) if ($(id).value !== $(id).defaultValue) body[key] = $(id).value;
+  if (!("name" in body || "session" in body)) return $("rename-dialog").close();
+  $("rename-save").disabled = true;
+  try {
+    await post(paneUrl(renaming.pane_id, "rename"), body);
+    $("rename-dialog").close(); // the daemon wakes its watcher: the next poll shows the new name
+  } catch (error) {
+    text($("rename-error"), error.status === 422 && "session" in body ? SESSION_HINT : `Could not rename: ${error.detail || error.message}`);
+  } finally { $("rename-save").disabled = false; }
+};
 // `birth` is the incarnation the menu or sheet was drawn for: a newer pane under its %N is refused.
 async function killWindow(pane, birth) {
   if (!pane || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;

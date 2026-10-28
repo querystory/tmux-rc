@@ -306,6 +306,9 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #reply:focus-visible, #secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
 dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; width: min(760px, 100%); max-width: 100%; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); max-height: 88dvh; }
+/* With the keyboard up iOS shrinks only the visual viewport (app.js fitViewport measures it), so a
+   sheet sits on that viewport's bottom, above the keyboard, not the layout viewport's behind it. */
+html.editing dialog:not(.beside) { bottom: calc(100% - var(--app-top, 0px) - var(--app-height, 100%)); max-height: calc(var(--app-height, 100dvh) - 16px); }
 dialog::backdrop { background: #0008; opacity: var(--drag, 1); } /* fades as the sheet is dragged away (drag-dismiss.js) */
 /* A phone's ☰ drawer (Gmail's): a sheet from the left, the logo atop the rows; the current
    one is a tinted pill. */
@@ -901,7 +904,10 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
    boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
    the visible glyphs come out even and the X's ink lines up with the right gutter. */
 #close-pane { margin: 0 -12px; }
-#kill-pane, #move-pane, #expunge-pane { width: 100%; white-space: nowrap; }
+#rename-pane, #kill-pane, #move-pane, #expunge-pane { width: 100%; white-space: nowrap; }
+#rename-error { color: var(--red); margin-top: 12px; font-size: 13px; }
+#rename-error:empty { display: none; }
+#rename-save { width: 100%; min-height: 48px; margin-top: 16px; border-radius: 6px; }
 /* Expunge sits last, under a rule, and is the menu's one red item: killing a window ends a
    process, expunging also deletes the session's files for good. */
 #pane-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
