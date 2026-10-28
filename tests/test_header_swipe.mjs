@@ -5,10 +5,10 @@ import { test } from "node:test";
 import vm from "node:vm";
 
 const source = readFileSync(new URL("../web/m/app.js", import.meta.url), "utf8");
-const block = source.slice(source.indexOf("let edge = null"), source.indexOf("// Typing only rewrites"));
+const block = source.slice(source.indexOf("let drag = null"), source.indexOf("// Typing only rewrites"));
 
 function app(overrides = {}) {
-  const handlers = new Map(), navigated = [], clicks = [];
+  const handlers = new Map(), navigated = [], clicks = [], animations = [], settled = [], els = {};
   let now = 1000;
   class Element {
     constructor(header = true) { this.header = header; this.scrollLeft = 0; this.parentNode = null; }
@@ -17,15 +17,16 @@ function app(overrides = {}) {
   const target = new Element();
   // The rendered order intentionally differs from inventory order and contains a group heading.
   const list = { children: [{ _p: { pane_id: "%3" } }, {}, { _p: { pane_id: "%1" } }, { _p: { pane_id: "%2" } }] };
+  const drawer = { open: false, offsetWidth: 304, style: { setProperty() {}, removeProperty() {} }, classList: { add: (c) => settled.push(c), remove() {} }, close() { this.open = false; } };
   const sandbox = {
-    Element, active: "%1", view: "terminal", page: null, drag: null,
+    Element, active: "%1", view: "terminal", page: null, drawer, still: { matches: false },
     WIDE: { matches: false }, innerWidth: 390, ending: new Map(),
     panes: ["%1", "%2", "%3"].map((pane_id) => ({ pane_id })),
     location: { href: "https://example.test/m/#pane=%251&view=terminal" },
-    performance: { now: () => now }, viewer: { open: false }, drawer: { open: false },
-    document: { querySelector: () => null }, standalone: () => false,
-    $: (id) => id === "pane-list" ? list : { click: () => clicks.push(id) },
-    settle: () => assert.fail("header swipes must not move the drawer"),
+    performance: { now: () => now }, viewer: { open: false },
+    document: { activeElement: null, querySelector: (sel) => drawer.open && sel.includes("dialog[open]") ? drawer : null }, standalone: () => false,
+    setTimeout: (fn) => { fn(); return 0; }, clearTimeout() {}, getComputedStyle: () => ({ transform: "none" }), DOMMatrix: class { m41 = 0; },
+    $: (id) => id === "pane-list" ? list : els[id] ??= { style: {}, click: () => { clicks.push(id); if (id === "menu-open") drawer.open = true; }, animate: (frames, options) => animations.push({ id, frames, options }) },
     navigate: (id, view) => { navigated.push([id, view]); sandbox.active = id; sandbox.dropGesture(); },
     addEventListener: (name, handler) => handlers.set(name, [...handlers.get(name) || [], handler]),
     ...overrides,
@@ -42,7 +43,8 @@ function app(overrides = {}) {
     return event;
   };
   const swipe = (dx, dy = 0, x = 200) => { emit("touchstart", x); emit("touchmove", x + dx, 50 + dy); return emit("touchend", x + dx, 50 + dy); };
-  return { sandbox, navigated, clicks, emit, swipe, list, elsewhere: new Element(false), advance: (ms) => { now += ms; } };
+  return { sandbox, navigated, clicks, animations, settled, drawer, emit, swipe, list, elsewhere: new Element(false), advance: (ms) => { now += ms; },
+    shifted: () => ["overview", "terminal"].map((id) => els[id].style.transform) };
 }
 
 test("left and right follow rendered session order and keep the selected view", () => {
@@ -51,6 +53,7 @@ test("left and right follow rendered session order and keep the selected view", 
   a.swipe(90);
   a.swipe(90);
   assert.deepEqual(a.navigated, [["%2", "terminal"], ["%1", "terminal"], ["%3", "terminal"]]);
+  assert.deepEqual(a.settled, []); // header swipes never move the drawer
   const summary = app({ view: "summary" });
   summary.swipe(-90);
   assert.deepEqual(summary.navigated, [["%2", "summary"]]);
@@ -161,3 +164,45 @@ test("horizontal swipes suppress accidental header clicks while taps and keyboar
   a.emit("touchend");
   assert.equal(a.emit("click").prevented, false); // a new tap need not wait for the timeout
 });
+
+test("the view follows the finger: 1:1 to the threshold, a third past it or without a session that way, capped", () => {
+  const a = app();
+  a.emit("touchstart");
+  a.emit("touchmove", 160);
+  assert.deepEqual(a.shifted(), ["translateX(-40px)", "translateX(-40px)"]);
+  a.emit("touchmove", 110);
+  assert.deepEqual(a.shifted(), ["translateX(-70px)", "translateX(-70px)"]);
+  a.emit("touchmove", -300);
+  assert.deepEqual(a.shifted(), ["translateX(-120px)", "translateX(-120px)"]);
+  a.emit("touchmove", 290); // back the other way: a session lies there too
+  assert.deepEqual(a.shifted(), ["translateX(70px)", "translateX(70px)"]);
+  const last = app({ active: "%2" });
+  last.emit("touchstart");
+  last.emit("touchmove", 110);
+  assert.deepEqual(last.shifted(), ["translateX(-30px)", "translateX(-30px)"]);
+});
+
+test("past the threshold the view slides out and the next pane's in; short of it, it springs back", () => {
+  const a = app();
+  a.emit("touchstart");
+  a.emit("touchmove", 110);
+  a.emit("touchend", 110);
+  assert.deepEqual(a.navigated, [["%2", "terminal"]]);
+  assert.deepEqual(a.shifted(), ["", ""]);
+  const [out] = a.animations;
+  assert.equal(a.animations.length, 2);
+  assert.deepEqual([...out.frames].map((f) => [f.transform, f.opacity]), [["translateX(-70px)", 1], ["translateX(-390px)", 0], ["translateX(390px)", 0], ["none", 1]]);
+  assert.equal(out.options.duration, 200);
+  const b = app();
+  b.emit("touchstart");
+  b.emit("touchmove", 160);
+  b.emit("touchend", 160);
+  assert.deepEqual(b.navigated, []);
+  assert.deepEqual(b.shifted(), ["", ""]);
+  assert.deepEqual(structuredClone(b.animations[0].frames), [{ transform: "translateX(-40px)" }, { transform: "none" }]);
+  const quiet = app({ still: { matches: true } });
+  quiet.swipe(-90);
+  assert.deepEqual(quiet.navigated, [["%2", "terminal"]]);
+  assert.ok(quiet.animations.every((x) => x.options.duration === 0));
+});
+
