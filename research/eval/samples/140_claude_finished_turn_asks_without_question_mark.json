@@ -1,0 +1,17 @@
+{
+  "description": "Synthetic: a finished auto-mode turn hands the user a step in plain words, with no question mark and no `! command`: the signing step needs their hardware key, and the agent asks to be told \"signed\" when it is. The final message waits on the user: Needs you, with the reply it invites as the offer.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ cut the 2.6 release\n\n● The changelog and version bump are merged (#214) and the release branch is\n  pushed. Signing the tag needs your hardware key, which this session can't\n  reach, so that step is yours. Say \"signed\" when it is and I'll publish the\n  release notes and open the announcement PR.\n\n✻ Worked for 18s · done 10:12 AM\n\n──────────────────────────────────────────────────────────────────── demo ─\n❯\n──────────────────────────────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | dev@example.com\n  session: +40/-6 lines · 12% ctx · 48m · $2.10\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Release 2.6 is ready; waiting for the user to sign the tag",
+    "offers": [
+      "signed"
+    ]
+  }
+}

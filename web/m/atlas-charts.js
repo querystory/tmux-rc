@@ -72,6 +72,12 @@ export function atlasCharts() {
 // Which states the fleet charts stack. One object for every chart, so hiding Idle in the
 // split hides it on the dashboard too.
 export const shownStates = { Idle: false };
+// True while a node's inputs are what it was last drawn from; else remembers them for next time.
+export const unchanged = (root, signature) => {
+  if (root._signature?.length === signature.length && signature.every((value, i) => value === root._signature[i])) return true;
+  root._signature = signature;
+  return false;
+};
 const ORDER = [1, 4, 0, 5, 2, 3]; // Running at the bottom, idle at the top.
 
 // ECharts puts the tooltip on <body>, and a touch has no mouseleave to close it: a tap outside
@@ -101,7 +107,12 @@ export function fleetChart(withAxis) {
     if (!latest) return;
     let echarts;
     try { echarts = await load('echarts', '/m/vendor/echarts.min.js'); } catch { el.textContent = 'Chart unavailable. Reload to retry.'; return; }
+    // The screen first: a redraw is a long task, and the chart it replaces stands meanwhile. A
+    // frame's callbacks run before it paints, so the work waits for the task after the frame.
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve)));
     if (!el.clientWidth) return;
+    const size = `${el.clientWidth}x${el.clientHeight}`, resized = !!chart && size !== el._size; // a new chart is born at its size
+    el._size = size;
     if (!chart) {
       el.replaceChildren();
       // Listening from the first chart, not on import (the node tests have no window); a repeat is a no-op.
@@ -121,6 +132,10 @@ export function fleetChart(withAxis) {
     const color = name => css.getPropertyValue(name).trim();
     const muted = color('--muted'), line = color('--line'), fg = color('--fg'), purple = color('--purple');
     const dark = !document.documentElement.classList.contains('light');
+    // Drawn from the same rows and settings as last time (a surface hidden and shown again, a poll
+    // that changed no history), the chart stands; a new size alone is a resize. ECharts redraws
+    // everything on either call, so each one skipped is a whole render saved on every chart.
+    if (unchanged(el, [rows, states, step, unit, goal, max, average, latest.zoomKey, axis, dark, ...Object.values(shownStates)])) { if (resized) chart.resize(); return; }
     const single = rows.length === 1, last = rows[rows.length - 1], avg = latestAverage(rows);
     const label = t => rows.length && new Date(rows[0].t).toDateString() !== new Date(last.t).toDateString()
       ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
@@ -180,7 +195,7 @@ export function fleetChart(withAxis) {
           label: { show: axis, position: 'insideEndTop', formatter: `goal ${goal}`, color: fg,
             textBorderColor: color('--surface'), textBorderWidth: 3 } } : undefined }],
     }, true);
-    chart.resize();
+    if (resized) chart.resize();
   };
   const resize = new ResizeObserver(paint), theme = new MutationObserver(paint);
   resize.observe(el);
