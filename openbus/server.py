@@ -579,14 +579,16 @@ app.include_router(live_router)
 async def no_cache(request, call_next):
     """Cache nothing but the assets' versioned copies. StaticFiles sends an ETag but no
     Cache-Control, so phones serve stale JS/HTML heuristically and edits never appear:
-    force no-store on every response. The exception is /v/<version>/, where the URL names
-    the assets' current contents (mobile_ui; /api/version): a hit there can be kept for
+    force no-store on every response. The exception is /v/<today's version>/, where the
+    URL names the assets' contents (mobile_ui; /api/version): a hit there can be kept for
     good, and a deploy is a fresh set of URLs, so a cold PWA start over LTE stops
-    re-downloading app code and chart libraries that did not change."""
+    re-downloading app code and chart libraries that did not change. The mount answers
+    any token with today's files, so a page from before a deploy fetching under its old
+    token gets those bytes as before, uncached: an immutable URL never lies."""
     resp = await call_next(request)
     # Match paths as StaticFiles resolves them, so /docs//mocks/ can't dodge a policy.
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
-    if path.startswith("/v/") and resp.status_code < 400:
+    if path.startswith(f"/v/{_web_version()}/") and resp.status_code < 400:
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     else:
         resp.headers["Cache-Control"] = "no-store, must-revalidate"

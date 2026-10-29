@@ -33,7 +33,7 @@ def test_versioned_assets_cache_forever_and_entry_points_do_not():
     version = client.get("/api/version").json()["version"]
     hit = client.get(f"/v/{version}/m/app.js")
     assert hit.headers["cache-control"] == "public, max-age=31536000, immutable"
-    for path in ("/m/", "/m/app.js", "/api/version", f"/v/{version}/missing.js"):
+    for path in ("/m/", "/m/app.js", "/api/version", f"/v/{version}/missing.js", "/v/stale/m/app.js"):
         assert client.get(path).headers["cache-control"] == "no-store, must-revalidate"
 
 
