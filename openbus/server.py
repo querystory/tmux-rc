@@ -588,7 +588,9 @@ async def no_cache(request, call_next):
     resp = await call_next(request)
     # Match paths as StaticFiles resolves them, so /docs//mocks/ can't dodge a policy.
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
-    if path.startswith(f"/v/{_web_version()}/") and resp.status_code < 400:
+    # The version (a scan of web/) is computed only for a hit under /v/, never for the API.
+    versioned = path.startswith("/v/") and resp.status_code < 400
+    if versioned and path.startswith(f"/v/{_web_version()}/"):
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     else:
         resp.headers["Cache-Control"] = "no-store, must-revalidate"
