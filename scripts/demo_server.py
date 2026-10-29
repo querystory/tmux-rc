@@ -192,7 +192,8 @@ def install() -> None:
             return JSONResponse({"pane_id": SIGN_IN["pane_id"], "pid": "1", "dir": "~/.claude-demo",
                                  "codex": False, "device": False, "session": SIGN_IN["session"],
                                  "url": "", "code": "", "others": []})
-        if request.method in ("GET", "HEAD"):
+        # Scratch's Archive and Delete really run: its dir is the demo's own temp copy.
+        if request.method in ("GET", "HEAD") or request.url.path == "/api/scratch":
             return await call_next(request)
         if request.url.path == "/api/accounts" and request.method == "POST":  # the add flow
             return JSONResponse({"dir": (await request.json())["dir"], "existed": False})

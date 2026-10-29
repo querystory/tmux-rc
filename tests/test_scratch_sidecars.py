@@ -165,8 +165,8 @@ def test_no_bundled_shell_means_no_shot(tmp_path, monkeypatch):
 
 def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
     done = []
-    monkeypatch.setattr(S, "shoot", lambda url, out, root, at: done.append(("shot", url)))
-    monkeypatch.setattr(S, "describe", lambda meta, page, title, root: done.append(("said", title)))
+    monkeypatch.setattr(S, "shoot", lambda url, out, root, at, inode=0: done.append(("shot", url)))
+    monkeypatch.setattr(S, "describe", lambda meta, page, title, *_: done.append(("said", title)))
     monkeypatch.setattr(S, "_tried", set())
     monkeypatch.setattr(S, "_done", set())
     monkeypatch.setattr(S, "browser", lambda: "/bundled/shell")
@@ -217,3 +217,40 @@ def test_a_description_missed_while_the_model_is_out_is_asked_again(tmp_path, mo
         while (worker := S._worker) is not None:
             worker.join()
     assert calls == ["shot", "said", "said"]  # the failed shot is not redone with it
+
+
+def test_a_folder_archived_before_its_shot_is_shot_once_restored(tmp_path, monkeypatch):
+    shots = []
+    monkeypatch.setattr(S, "_tried", set())
+    monkeypatch.setattr(S, "_done", set())
+    monkeypatch.setattr(S, "describe", lambda *_: "Said.")
+    _page(tmp_path)
+    listed = scratch.items(tmp_path)
+    S.forget(scratch.act(tmp_path, "archive", ["p"]))  # listed, not yet shot (as the server does)
+    monkeypatch.setattr(S, "shoot", lambda url, out, root, at, inode=0: shots.append(out.exists()))
+    S.queue(tmp_path, WEB_DIR, listed)
+    while (worker := S._worker) is not None:
+        worker.join()
+    S.forget(scratch.act(tmp_path, "unarchive", ["p"]))  # the same inode and times: same version
+    S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path))
+    while (worker := S._worker) is not None:
+        worker.join()
+    assert len(shots) == 2  # asked again, not taken as done
+    # a job already running when its folder moves (and comes back) counts for nothing
+    monkeypatch.setattr(S, "_done", set())
+    monkeypatch.setattr(S, "shoot", lambda *_: S.forget(["p"]) or shots.append("moved"))
+    (tmp_path / "p" / "index.html").write_text("<title>T2</title>")
+    S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path))
+    while (worker := S._worker) is not None:
+        worker.join()
+    assert not S._done and not S._tried
+
+
+def test_a_description_never_lands_in_a_folder_that_took_its_name(tmp_path):
+    _page(tmp_path)
+    old = scratch.items(tmp_path)[0]
+    (tmp_path / "p").rename(tmp_path / "gone")  # its name taken by another folder meanwhile
+    _page(tmp_path)
+    meta = tmp_path / "p" / "meta.json"
+    assert not scratch.annotate(meta, tmp_path, "description", "Stale.", old["inode"])
+    assert not meta.exists()
