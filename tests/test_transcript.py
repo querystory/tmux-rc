@@ -119,3 +119,34 @@ def test_codex_reply_from_the_thread_named_in_the_status_bar(homes, monkeypatch)
     assert transcript.turn(_pane("7"), status) not in (turn, None)
     assert transcript.last_reply(_pane("7"), status) is None
     assert transcript.last_reply(_pane("7"), "› Ready\n  gpt-6-sol · ~/src/app") is None
+
+
+def test_codex_turn_open_from_its_rollout(homes, monkeypatch):
+    monkeypatch.setattr(transcript, "_programs", lambda pid: {"codex"})
+    path = homes / f"codex/sessions/2026/10/09/rollout-2026-10-09T09-00-00-{SID}.jsonl"
+    status = f"› Ask Codex to do anything\n  {SID} · gpt-6-sol medium · ~/src/app · Ready"
+    def event(kind):
+        return json.dumps({"type": "event_msg", "payload": {"type": kind}}) + "\n"
+    _write(path, [])
+    assert transcript.codex_turn_live(_pane("7"), status) is None  # no turn yet
+    with path.open("a") as f:
+        f.write(event("task_started") + event("item_completed") + '{"cut":')
+    assert transcript.codex_turn_live(_pane("7"), status) is True
+    # Read on from where it stopped: the cut line, finished, counts once it is whole.
+    with path.open("a") as f:
+        f.write("1}\n" + event("task_complete"))
+    assert transcript.codex_turn_live(_pane("7"), status) is False
+    with path.open("a") as f:
+        f.write(event("task_started") + event("turn_aborted"))
+    assert transcript.codex_turn_live(_pane("7"), status) is False
+    assert transcript.codex_turn_live(_pane("7"), "› Ask Codex to do anything") is None
+    # Fit to a phone, the bar is cut to its thread and a clipped model, dimmed.
+    with path.open("a") as f:
+        f.write(event("task_started"))
+    narrow = f"⟪/dim⟫› Ask Codex to do anything\n\n  ⟪/dim⟫{SID} · GPT-6.1-…"
+    assert transcript.codex_turn_live(_pane("7"), narrow) is True
+    # Copied over by a shorter session whose turn is closed: read afresh, not from the
+    # old offset.
+    path.unlink()
+    path.write_text(event("task_started") + event("task_complete"))
+    assert transcript.codex_turn_live(_pane("7"), status) is False

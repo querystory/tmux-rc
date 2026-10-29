@@ -325,7 +325,8 @@ class Watcher:
         ] = {}  # pane_id -> monotonic count of events ever appended (refetch signal)
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
-        self._parsed_reply: dict[str, str | None] = {}  # pane_id -> agent reply at last parse
+        # pane_id -> (agent reply, Codex turn open) at last parse
+        self._parsed_reply: dict[str, tuple] = {}
         self._parsed_turn: dict[str, str | None] = {}  # pane_id -> transcript turn at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
         self._collection_failed = False
@@ -1432,13 +1433,14 @@ class Watcher:
             self._seen_fp[pane.id] = fp
         if moved:
             self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN
-        # The agent's transcript can land after its screen settles; a reply the last
-        # parse didn't have re-reads the card even though the screen is unchanged.
-        reply = transcript.last_reply(pane, text)
-        said = transcript.turn(pane, text)  # before the parse: what it reads, not after
+        # The agent's transcript can land after its screen settles; a reply or turn end
+        # the last parse didn't have re-reads the card even though the screen is unchanged.
+        told = transcript.last_reply(pane, text), transcript.codex_turn_live(pane, text)
+        said = transcript.turn(pane, text)
         changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
-                                # A restored card has no parsed reply: the first seen stands in.
-                                or reply != self._parsed_reply.setdefault(pane.id, reply))
+                                # A restored card has no parsed reply: the first seen stands
+                                # in. Its turn state is unknown, so a known one re-reads it once.
+                                or told != self._parsed_reply.setdefault(pane.id, (told[0], None)))
         previous = self._state.get(pane.id)
         # Seed from tmux on restart; only observed content changes advance this clock.
         last_activity = (previous or {}).get("last_activity_at")
@@ -1530,13 +1532,16 @@ class Watcher:
             if self.use_llm
             else None
         )
-        self._parsed_reply[pane.id], self._parsed_turn[pane.id] = reply, said
+        self._parsed_reply[pane.id] = told
+        reply, turn_live = told
+        self._parsed_turn[pane.id] = said
         state = classify(
             pane,
             text,
             llm_fn=llm_fn,
             replies_fn=llm_fn and partial(llm_fn, kind="replies"),
             reply=reply,
+            turn_live=turn_live,
             prior=prior,
             recent_events=recent_texts,
             # What we last knew, so a failed parse holds that instead of guessing.
@@ -1699,6 +1704,12 @@ class Watcher:
             # multi-question dialog's next tab), so its buttons would answer the new ask.
             if retired and prompt_gone(text, self._question_prompt(state) or ""):
                 state.update(question=None, activity="unknown", waiting_on=None)
+            # Codex's rollout is a read even when the screen was not: an open turn is
+            # running on the kept card too, unless it still holds a question (one just
+            # retired above no longer counts).
+            if (turn_live and state.get("tool") == "codex" and not state.get("question")
+                    and state.get("activity") in ("idle", "unknown", None)):
+                state["activity"] = "running"
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 

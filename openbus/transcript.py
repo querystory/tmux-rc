@@ -96,9 +96,12 @@ def _codex_rollout(home: Path, thread: str, _today: tuple) -> Path | None:
 def _codex_file(pane: Pane, text: str) -> Path | None:
     """Codex's app-server, not the pane's process, holds the rollout, so the thread id
     comes from the status bar (when configured to show it), as live._codex_pane does.
-    A shell can print a captured footer, so Codex must also be running in the pane."""
-    ids = {s.strip() for line in _session_chrome(text) if _codex_model_segments(line)
-           for s in line.split("·") if _UUID_RE.fullmatch(s.strip())}
+    A shell can print a captured footer, so Codex must also be running in the pane. At
+    phone width the bar is cut short ("<thread> · gpt-6-…") and no longer reads as chrome,
+    but with Codex running there its bottom row still names the thread."""
+    rows = ([line for line in _session_chrome(text) if _codex_model_segments(line)]
+            or tmux.strip_dim(text).rstrip().splitlines()[-1:])
+    ids = {s.strip() for line in rows for s in line.split("·") if _UUID_RE.fullmatch(s.strip())}
     if len(ids) != 1 or not (pane.pid and "codex" in _programs(pane.pid)):
         return None
     home = _home(pane, "codex")
@@ -144,6 +147,42 @@ def _turn(path: Path, _stat: tuple) -> str | None:
             and not (isinstance(p := e.get("payload"), dict) and p.get("type") == "token_count")]
     last = json.dumps(said[-1], sort_keys=True).encode() if said else None
     return last and f"{path.name}:{hashlib.sha256(last).hexdigest()}"
+
+
+# rollout -> (file identity, bytes read, turn open)
+_rollout_reads: dict[Path, tuple[int, int, bool | None]] = {}
+
+
+def codex_turn_live(pane: Pane, text: str) -> bool | None:
+    """Whether Codex's rollout has a turn open: its last task_started has no task_complete
+    or turn_aborted after it. Codex hides its "Working" row while a message prints
+    mid-turn, so the screen alone can show a live turn as over. Read incrementally, since
+    one long turn writes megabytes, far past `_TAIL`."""
+    path = _codex_file(pane, text)
+    if not path:
+        return None
+    try:
+        with path.open("rb") as f:
+            ino, size = (st := os.fstat(f.fileno())).st_ino, st.st_size
+            seen, pos, live = _rollout_reads.get(path, (ino, 0, None))
+            if seen != ino or size < pos:  # replaced (a session copied over it): start over
+                pos, live = 0, None
+            f.seek(pos)
+            for line in f:  # one record at a time: a rollout can reach hundreds of MB
+                if not line.endswith(b"\n"):
+                    break  # still being written: read it whole next time
+                pos += len(line)
+                try:
+                    event = json.loads(line).get("payload")
+                except (ValueError, AttributeError):
+                    continue
+                kind = event.get("type") if isinstance(event, dict) else None
+                live = {"task_started": True, "task_complete": False,
+                        "turn_aborted": False}.get(kind, live)
+    except OSError:
+        return None
+    _rollout_reads[path] = (ino, pos, live)
+    return live
 
 
 @lru_cache(maxsize=256)
