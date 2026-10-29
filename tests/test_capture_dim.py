@@ -137,6 +137,9 @@ def test_picker_highlighted_row_number_is_not_placeholder():
     raw = ("\x1b[38;5;153m❯\x1b[39m \x1b[38;5;246m1.\x1b[39m \x1b[38;5;153mApple\x1b[39m\n"
            "  \x1b[38;5;246m2.\x1b[39m Pear")
     assert _capture(raw) == "❯ 1. Apple\n  ⟪dim⟫2.⟪/dim⟫ Pear"
+    # A suggestion quoting a ⟪ marker of its own is still the whole dim run.
+    raw = "❯ \x1b[2mexplain the ⟪dim⟫ markers\x1b[0m"
+    assert _capture(raw) == "❯ ⟪placeholder⟫explain the ⟪dim⟫ markers⟪/placeholder⟫"
 
 
 def test_real_typed_draft_after_prompt_is_not_placeholder():
