@@ -7,6 +7,7 @@ import sys
 
 PROBE = """
 import io
+import os
 import sys
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
@@ -24,7 +25,7 @@ for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/link.
     print(c.get(path).status_code)
 wip = c.get("/scratch/wip/")  # a 202 passes `curl -f`: it says so, and its title is not the page's
 print(int(wip.headers.get("x-scratch-pending") == "1" and "Retry-After" in wip.headers
-          and "<title>In progress · A new page</title>" in wip.text))
+          and "<title>In progress · Being made</title>" in wip.text))
 # Scratch's own tab icon, on every page the daemon renders there (the placeholder's spins)
 print(int(all('<link rel="icon" href="/scratch.svg">' in c.get(p).text
               for p in ("/scratch/", "/scratch/notes.md", "/scratch/wip/"))
@@ -88,6 +89,21 @@ if server._scratch_dir:
     before = width("stale"), width(mine)
     (server.Path(server._scratch_dir) / "wip" / "index.html").write_text("landed")
     print(*before, width(mine))
+    # An updating folder's Markdown page wears the bar and asks the same way: unchanged, then
+    # its files change (a revision lands), then the mark goes (the update is done).
+    rev = server.Path(server._scratch_dir) / "rev"
+    scanned.clear()
+    page = c.get("/scratch/rev/").text  # asked every few seconds: no accounts scanned
+    print(int("<title>Updating · Rev</title>" in page and "Updating: the intro · reloads" in page
+              and scanned == []))
+    width = lambda q: Image.open(io.BytesIO(c.get(f"/scratch/rev?seen={q}").content)).width
+    mine = server.re.search(r'const SEEN = "([^"]+)"', page)[1]
+    before = width(mine)
+    os.utime(rev / "index.md", (2e9, 2e9))
+    landed, mine = width(mine), server.re.search(r'const SEEN = "([^"]+)"',
+                                                 c.get("/scratch/rev/").text)[1]
+    (rev / "meta.json").write_text('{"title": "Rev"}')
+    print(before, landed, width(mine), int("Updating" not in c.get("/scratch/rev/").text))
 """
 
 
@@ -112,7 +128,10 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     (scratch / ".git" / "config").write_text("[core]")
     (scratch / ".git" / "index.html").write_text("hidden")
     (scratch / "wip").mkdir()
-    (scratch / "wip" / "meta.json").write_text('{"title": "A new page"}')
+    (scratch / "wip" / "meta.json").write_text('{"title": "Being made"}')
+    (scratch / "rev").mkdir()
+    (scratch / "rev" / "index.md").write_text("# Rev")
+    (scratch / "rev" / "meta.json").write_text('{"title": "Rev", "updating": "the intro"}')
     (tmp_path / "secret.txt").write_text("outside")
     (scratch / "link.txt").symlink_to(tmp_path / "secret.txt")
     # file, traversal and a symlink out both refused, directory index, bare prefix
@@ -126,7 +145,8 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
         200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 2]
+        1, 1, 1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 2,
+        1, 1, 2, 2, 1]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

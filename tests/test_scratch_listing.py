@@ -281,6 +281,39 @@ def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeyp
     assert scratch.placeholder(tmp_path, "wip", who) is None
 
 
+def test_an_updating_page_keeps_its_thumbnail_and_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    now = scratch.time.time()
+    for name, pane in (("rev", "%1"), ("gone", "%9"), ("idle", "%3"), ("done", "%1")):
+        meta = {"title": name, "pane": pane, "created": "2020-01-01T00:00:00"}
+        _folder(tmp_path, name, now, {**meta, "updating": "the intro"} if name != "done" else meta)
+        (tmp_path / name / "thumb.webp").write_bytes(b"")
+    os.utime(tmp_path / "idle" / "meta.json", (now - scratch.STALL - 1,) * 2)  # marked long ago
+    # a pane opened since the page was published, but before its update began
+    monkeypatch.setattr(scratch, "made_in", lambda _pane, at: at > now - scratch.STALL)
+    states = [{"pane_id": "%1", "activity": "running"},
+              {"pane_id": "%3", "activity": "idle", "state_since": now - scratch.STALL - 1}]
+    items, _ = _resolved(tmp_path, states)
+    assert not any(i["pending"] for i in items.values())  # published: never "In progress"
+    assert {n: (i["updating"], i["state"]) for n, i in items.items() if i["updating"]} == {
+        "rev": ("the intro", "working"), "gone": ("the intro", "stopped"),
+        "idle": ("the intro", "stopped")}
+    assert not items["done"]["updating"]
+    assert items["done"]["pane"] == "%1"  # an update just finished: its reviser still named
+    card = scratch._card(items["rev"])
+    assert 'thumb.webp" alt="" loading="lazy"><span class="badge working">Updating</span>' in card
+    assert 'aria-label="rev: Updating">rev</a>' in card
+    assert '<span class="badge stopped">Update stopped</span>' in scratch._card(items["gone"])
+    assert "badge" not in scratch._card(items["done"]) and "aria-label" not in scratch._card(
+        items["done"])
+    label, bar = scratch.bar(tmp_path, "rev", states)
+    assert label == "Updating" and "Updating: the intro · reloads when done" in bar
+    assert "setTimeout(ask, 5000)" in bar and 'id="offline"' in bar
+    assert scratch.bar(tmp_path, "gone", states)[0] == "Update stopped"
+    assert scratch.bar(tmp_path, "done", states) is None
+    assert scratch.bar(tmp_path, "no", states) is None
+
+
 def test_one_find_lists_scratch_and_none_means_an_empty_gallery(tmp_path, monkeypatch):
     _folder(tmp_path, "a", 1000)
     _folder(tmp_path, "b", 1000).joinpath(".git").mkdir()
@@ -306,8 +339,10 @@ def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
     assert scratch.annotate(meta, tmp_path, "description", "d")
     assert json.loads(meta.read_text()) == {"description": "d", "generated": ["description"]}
     meta.write_text(json.dumps({"title": "", "generated": ["title", {}, ["x"]]}))  # malformed
+    os.utime(meta, (2000, 2000))  # when the agent named its pane, which a generated field keeps
     assert scratch.annotate(meta, tmp_path, "title", "t")
     assert json.loads(meta.read_text())["generated"] == ["title"]
+    assert meta.stat().st_mtime == 2000
     # An agent's meta.json landing after the check is kept: the create is exclusive.
     meta.write_text('{"title": "the agent\'s"}')
     monkeypatch.setattr(scratch.os.path, "lexists", lambda _p: False)
