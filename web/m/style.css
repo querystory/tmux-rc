@@ -29,7 +29,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 button, a, input, textarea, select { touch-action: manipulation; }
 button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; min-height: 44px; }
 button:disabled { opacity: .45; cursor: default; }
-button:not(:disabled):hover { background: var(--raised); --card: var(--raised); }
+@media (hover: hover) { button:not(:disabled):hover { background: var(--raised); --card: var(--raised); } } /* a finger is not a hover: iOS sets :hover at touchstart and keeps it through the scroll */
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 a { color: var(--accent); }
 svg { flex-shrink: 0; vertical-align: middle; }
@@ -195,8 +195,11 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #metadata { font-size: 12px; color: var(--muted); }
 #question:not(.answered) { background: var(--amber-bg); }
 #question h2 { font-size: 17px; white-space: pre-wrap; }
-#options { display: grid; gap: 8px; margin-top: 14px; }
-:is(#options, .offer-choices) button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
+/* Answers are pills, as the list row draws them (.sb-replies): a reply reads as a button, not a field. */
+#options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+#options button { min-height: 40px; max-width: 100%; padding: 8px 16px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); font-weight: 600; overflow-wrap: anywhere; }
+#prompt:empty { display: none; } /* a finished turn's offers alone: pills, no empty heading */
+.offer-choices button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
 :is(#options, .offer-choices) button:hover:not(:disabled) { border-color: var(--amber); }
 #offers:not(:empty) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 14px; } /* minmax: a long offer clips, not widens the card */
 #offers:not(:empty) + #options:empty, .offer-choices .picked svg, .offer-text.fits svg { display: none; } /* no gap for no answers; the spinner stands in for the icon */
@@ -305,7 +308,11 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #reply:empty::before, #viewer-reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
 #reply:focus-visible, #secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
+.attach-chip.file { width: auto; max-width: 12em; height: auto; padding: 2px 8px; font-size: 13px; line-height: 20px; background: var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; width: min(760px, 100%); max-width: 100%; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); max-height: 88dvh; }
+/* With the keyboard up iOS shrinks only the visual viewport (app.js fitViewport measures it), so a
+   sheet sits on that viewport's bottom, above the keyboard, not the layout viewport's behind it. */
+html.editing dialog:not(.beside) { bottom: calc(100% - var(--app-top, 0px) - var(--app-height, 100%)); max-height: calc(var(--app-height, 100dvh) - 16px); }
 dialog::backdrop { background: #0008; opacity: var(--drag, 1); } /* fades as the sheet is dragged away (drag-dismiss.js) */
 /* A phone's ☰ drawer (Gmail's): a sheet from the left, the logo atop the rows; the current
    one is a tinted pill. */
@@ -901,7 +908,10 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
    boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
    the visible glyphs come out even and the X's ink lines up with the right gutter. */
 #close-pane { margin: 0 -12px; }
-#kill-pane, #move-pane, #expunge-pane { width: 100%; white-space: nowrap; }
+#rename-pane, #kill-pane, #move-pane, #expunge-pane { width: 100%; white-space: nowrap; }
+#rename-error { color: var(--red); margin-top: 12px; font-size: 13px; }
+#rename-error:empty { display: none; }
+#rename-save { width: 100%; min-height: 48px; margin-top: 16px; border-radius: 6px; }
 /* Expunge sits last, under a rule, and is the menu's one red item: killing a window ends a
    process, expunging also deletes the session's files for good. */
 #pane-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
@@ -1483,36 +1493,74 @@ html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-heigh
 /* The Fleet graph (graph.js): its card spans the dashboard; its view fills the page, the canvas
    taking what the lenses and counts leave. */
 #graph-card { grid-column: 1 / -1; }
-.fg-mini { position: relative; height: 280px; margin: 4px -8px -8px; }
+.fg-mini { position: relative; height: 280px; margin: 4px -8px -8px; border-radius: 12px; overflow: hidden; }
 @media (max-width: 699px) { .fg-mini { height: 230px; } }
 .fg-mini canvas, .fg-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #dash-page:has(> .fg-view) { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
 .fg-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 @media (max-width: 699px) { .fg-view { min-height: 360px; } }
-.fg-lenses { display: flex; align-items: center; gap: 6px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; }
-.fg-lenses > span { flex: none; font-size: 12px; color: var(--muted); margin-right: 2px; }
-.fg-lenses button { flex: none; min-height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font-size: 13px; }
-.fg-lenses button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); border-color: transparent; font-weight: 600; }
-.fg-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0; font-size: 13px; color: var(--muted); }
-.fg-stats b { color: var(--fg); font-variant-numeric: tabular-nums; }
+/* The HUD over the canvas: the lens chips and jump-to callouts on top, the counts down the left
+   (a row at the bottom on a phone), the key along the foot. Its empty middle passes touches
+   through to the canvas, and its words don't select: a double tap on Jump to toggles it, not
+   highlights it. */
+.fg-box { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; touch-action: none; color: var(--fg); }
+.fg-hud { position: absolute; inset: 0; display: grid; grid-template: "lens lens call" auto "stats . ." minmax(0, 1fr) "key key key" auto / auto 1fr auto; gap: 10px 14px; padding: 10px 58px 10px 12px; pointer-events: none; user-select: none; -webkit-user-select: none; }
+/* Monospace for what a machine says (counts, costs, times, paths, the small caps labels), the
+   app's sans for what people read (titles, the agent's words, its choices, the sentences). */
+:is(.fg-lenses > span, .fg-stats, .fg-call summary, .fg-call button span, .fg-call em, .fg-key, .fg-pop .fg-m) { font-family: var(--mono); }
+.fg-hud > * { pointer-events: auto; min-width: 0; }
+/* One fade behind the foot of the HUD, edge to edge, so labels zoomed under it fade, not fight. */
+.fg-hud::before { content: ''; grid-area: key; grid-column: 1 / -1; margin: -14px -58px -10px -12px; background: linear-gradient(transparent, var(--surface) 14px); }
+.fg-lenses { grid-area: lens; align-self: start; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.fg-lenses > span { flex: none; font-size: 10.5px; color: var(--muted); margin-right: 6px; text-transform: uppercase; letter-spacing: .14em; }
+.fg-lenses button { flex: none; min-height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+.fg-lenses button[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in oklab, var(--chart-s1) 45%, transparent); background: color-mix(in oklab, var(--chart-s1) 12%, var(--surface)); font-weight: 600; }
+.fg-stats { grid-area: stats; min-height: 0; display: flex; flex-flow: column wrap; align-content: flex-start; gap: 14px 22px; } /* a short canvas wraps the counts into a second column, rather than pushing the key off it */
+.fg-stats b { display: block; font-size: 28px; line-height: 1; font-weight: 300; font-variant-numeric: tabular-nums; }
+.fg-stats small { font-size: 14px; color: var(--muted); }
+.fg-stats span { display: block; margin-top: 4px; font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .14em; }
+.fg-stats .go b { color: var(--accent); } .fg-stats .need b { color: var(--amber); } /* text: the state colours' readable shades */
+.fg-call { grid-area: call; align-self: start; font-size: 9.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+.fg-call summary { cursor: pointer; text-align: right; padding: 2px 6px 6px; border-radius: 6px; background: color-mix(in oklab, var(--surface) 85%, transparent); }
+.fg-call > div { display: flex; flex-direction: column; gap: 6px; }
+.fg-call button { display: grid; grid-template-columns: 1fr auto; gap: 1px 10px; min-height: 0; text-align: left; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--fg); letter-spacing: inherit; }
+.fg-call button span { grid-column: 1 / -1; font-size: 9px; color: var(--muted); }
+.fg-call button b { font-weight: 500; text-transform: none; letter-spacing: .02em; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fg-call em { font-style: normal; color: var(--accent); font-variant-numeric: tabular-nums; }
+.fg-call .need :is(em, span) { color: var(--amber); }
+.fg-legend { grid-area: key; align-self: end; font-size: 11px; color: var(--muted); }
+.fg-legend p { margin: 0 0 4px; line-height: 1.35; }
 .fg-st { display: inline-flex; align-items: center; gap: 6px; }
 :is(.fg-st, .fg-key) i, .fg-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
-.fg-box { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; touch-action: none; }
-/* Full screen (graph.js): the view over everything, edge to edge inside the safe area, its lens
-   chips floating at the bottom and its counts left to the canvas. */
-.fg-view.full { position: fixed; inset: 0; z-index: 40; min-height: 0; background: var(--surface); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.fg-view.full .fg-stats { display: none; }
-.fg-view.full .fg-box { border: 0; border-radius: 0; }
-.fg-view.full .fg-lenses { position: absolute; z-index: 2; left: calc(10px + env(safe-area-inset-left)); right: calc(10px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); margin: 0; }
-.fg-view.full .fg-lenses > span { display: none; }
-.fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
-.fg-tools button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
-.fg-legend { position: absolute; left: 12px; top: 10px; max-width: min(520px, calc(100% - 70px)); font-size: 12px; color: var(--muted); pointer-events: none; background: color-mix(in oklab, var(--surface) 85%, transparent); border-radius: 8px; padding: 2px 4px; }
-.fg-legend p { margin: 0 0 4px; line-height: 1.35; }
-.fg-key { display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: 11px; }
-.fg-key span { display: inline-flex; align-items: center; gap: 5px; }
+.fg-key { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .12em; }
+.fg-key span { white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; }
 .fg-key .fg-warn-key { border: 2px dashed var(--amber); box-sizing: border-box; }
-@media (max-width: 699px) { .fg-legend { display: none; } } /* the counts above key the colours */
+.fg-key .fg-acct-key { border: 1px dashed var(--muted); box-sizing: border-box; }
+/* A phone, upright or on its side (graph.js phone()): one row of counts at the bottom, the key
+   under it, the chips scrolling on top. */
+@media (max-width: 699px), (max-height: 500px) {
+  .fg-hud { grid-template: "lens" auto "call" auto "." 1fr "stats" auto "key" auto / 1fr; gap: 6px; padding: 8px 52px 8px 10px; }
+  .fg-lenses > span, .fg-legend p, .fg-stats .opt { display: none; }
+  .fg-call summary { text-align: left; padding: 0 0 4px; }
+  .fg-call > div { flex-direction: row; }
+  .fg-call button { flex: 1; padding: 5px 7px; }
+  .fg-stats { flex-flow: row nowrap; justify-content: space-between; gap: 6px; margin-right: -42px; }
+  .fg-stats b { font-size: 20px; } .fg-stats small { font-size: 11px; } .fg-stats span { font-size: 8.5px; letter-spacing: .08em; }
+  .fg-hud::before { grid-row: stats / key; margin: -14px -52px -8px -10px; } /* the fade backs the counts too */
+  .fg-legend { margin-right: -42px; } .fg-key { font-size: 8.5px; gap: 3px 10px; }
+}
+/* Full screen (graph.js): the view over everything, edge to edge inside the safe area. A phone
+   opens the view this way. */
+.fg-view.full { position: fixed; inset: 0; z-index: 40; min-height: 0; background: var(--surface); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.fg-view.full .fg-box { border: 0; border-radius: 0; }
+/* The dark canvas: the observatory's navy under the graph whatever the app's theme, with the
+   app's dark state colours, so amber still means needs you. */
+.fg-dark :is(.fg-view, .fg-mini) { color-scheme: dark; --surface: #070c18; --raised: #141c30; --line: #1f2a44; --fg: #dfe5f0; --muted: #7d89a6; --amber: #f1c56a; --accent: #83ddb3; --accent-bg: #193c2c; --bg: #03060d;
+  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5;
+  --acct-0: #5eead4; --acct-1: #c4b5fd; --acct-2: #a8b3c4; --acct-3: #fcd34d; --acct-4: #7dd3fc; --acct-5: #fda4af; }
+.fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
+.fg-tools button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--fg); }
+.fg-tools [aria-pressed="true"] { color: var(--accent); }
 .fg-pop { position: absolute; z-index: 3; width: 280px; padding: 12px 14px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 32px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; box-sizing: border-box; max-height: calc(100% - 16px); overflow: auto; }
 .fg-pop.sheet { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 75%; }
 .fg-pop-head { display: flex; align-items: center; gap: 8px; }
@@ -1522,6 +1570,10 @@ html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-heigh
 .fg-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 12px; }
 .fg-pop dt { color: var(--muted); }
 .fg-pop dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.fg-pop dd.fg-m { font-size: .92em; } /* monospace runs large beside the sans */
+.fg-q { margin: 0 0 10px; padding: 8px 10px; border-left: 2px solid var(--chart-s0); background: color-mix(in oklab, var(--chart-s0) 10%, transparent); }
+.fg-q div { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.fg-q span { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; }
 .fg-pop .fg-btn { width: 100%; min-height: 36px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
 .fg-logo { width: 22px; height: 22px; border-radius: 50%; flex: none; }
 .fg-nodes { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* the canvas's nodes, for the keyboard and screen readers */
