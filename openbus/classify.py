@@ -1439,7 +1439,10 @@ def classify(
     final = not spent and tool in _TURN_ERROR_RE and _final_message(view, tool)
     if (offers := screen_offers(result.pop("offers", None), text)) and not spent:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
-    waiting = result.get("activity") == "waiting" and result.get("waiting_on") != "external"
+    # The model's own read of this screen (not an activity carried over a failed parse) that
+    # the turn waits on the user, where no question of its own survived grounding.
+    waiting = ("parse_ok" not in result and not result.get("question")
+               and result.get("activity") == "waiting" and result.get("waiting_on") != "external")
     if final and (ask := _final_ask(visible, tool, final, offers, waiting)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.

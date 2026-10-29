@@ -1363,6 +1363,15 @@ def test_a_turn_read_as_waiting_asks_with_its_closing_paragraph():
     assert result["question"] == {"prompt": closing, "answer_style": "text",
                                   "options": ["Push it", "Hold off"]}
     assert "question" not in classify(_pane("claude"), screen, _llm({"activity": "idle"}))
+    # A question the model quoted stands over the closing report; a failed parse carrying
+    # the last card's "waiting" forward reads nothing off the screen, and is still retried.
+    asked = "Tell me which region to deploy to."
+    two = _auto_screen(f"{asked}\n\n  The build is ready and all checks passed.")
+    model = {"activity": "waiting", "waiting_on": "user",
+             "question": {"prompt": asked, "answer_style": "text", "options": ["eu", "us"]}}
+    assert classify(_pane("claude"), two, _llm(model))["question"]["prompt"] == asked
+    failed = classify(_pane("claude"), screen, lambda _s, _t: None, prev_activity="waiting")
+    assert "question" not in failed and failed["parse_ok"] is False
 
 
 def test_status_entries_drop_what_has_its_own_chip():
