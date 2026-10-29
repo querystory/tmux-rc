@@ -107,6 +107,7 @@ export function fleetChart(withAxis) {
     if (!latest) return;
     let echarts;
     try { echarts = await load('echarts', '/m/vendor/echarts.min.js'); } catch { el.textContent = 'Chart unavailable. Reload to retry.'; return; }
+    await new Promise(requestAnimationFrame); // the screen first: a redraw is a long task, and the chart it replaces stands meanwhile
     if (!el.clientWidth) return;
     const size = `${el.clientWidth}x${el.clientHeight}`, resized = !!chart && size !== el._size; // a new chart is born at its size
     el._size = size;

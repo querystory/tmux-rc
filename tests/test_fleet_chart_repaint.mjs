@@ -11,6 +11,7 @@ globalThis.window = globalThis;
 globalThis.document = { createElement: node, documentElement: { classList: { contains: () => theme.light } } };
 globalThis.ResizeObserver = globalThis.MutationObserver = class { observe() {} disconnect() {} };
 globalThis.addEventListener = () => {};
+globalThis.requestAnimationFrame = (frame) => setTimeout(frame);
 globalThis.getComputedStyle = () => ({ getPropertyValue: () => "#000" });
 globalThis.echarts = { init: () => ({ setOption() { calls.setOption++; }, resize() { calls.resize++; }, on() {}, dispatchAction() {}, dispose() {}, getDom() {} }) };
 const { fleetChart } = await import("../web/m/atlas-charts.js");
@@ -18,7 +19,7 @@ const { fleetChart } = await import("../web/m/atlas-charts.js");
 const states = ["Idle", "Running", "Needs you", "Done", "Compacting", "External"];
 const rows = () => [{ t: 0, n: [1, 2, 0, 0, 0, 0], ma: null }, { t: 60000, n: [0, 3, 0, 0, 0, 0], ma: 2.5 }];
 const data = (r, extra) => ({ rows: r, states, step: 60000, unit: "Panes", goal: 3, average: "1d", zoomKey: "k", ...extra });
-const painted = () => new Promise((resolve) => setTimeout(resolve)); // paint awaits the library
+const painted = () => new Promise((resolve) => setTimeout(resolve, 5)); // paint awaits the library and a frame
 
 test("the same rows again draw nothing; a new size alone resizes; new rows or a theme draw again", async () => {
   const chart = fleetChart(true), r = rows();

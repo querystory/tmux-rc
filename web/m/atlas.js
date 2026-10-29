@@ -677,8 +677,9 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   cards.forEach((chart, key) => { if (!keys.includes(key)) { chart.dispose(); cards.delete(key); } });
   // Slices depend on history and settings, not on pane state, so live updates reuse them.
   const slices = root._slices ||= {};
-  // A fixed week whatever the chart's range, from the heatmap's 15-minute history.
-  if (!unchanged(slices, [heat, history, historyData, settings, String(scope.tools), scope.session, ...keys])) slices.series = keys.map(key => [key, rows(scoped({ ...scope, session: key }, recent), '7d', step)]);
+  // A fixed week whatever the chart's range, from the heatmap's 15-minute history: keyed on what
+  // it draws from, so the chart's own refetch (every 30 s) leaves every session's chart standing.
+  if (!unchanged(slices, [src, step, historyData?.first, settings, String(scope.tools), scope.session, ...keys])) slices.series = keys.map(key => [key, rows(scoped({ ...scope, session: key }, recent), '7d', step)]);
   const { series } = slices;
   const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
   // Folded, not spread: a long history across many sessions would pass Math.max too many arguments.
