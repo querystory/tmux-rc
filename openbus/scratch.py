@@ -245,6 +245,14 @@ def made_in(pane: dict, created: float) -> bool:
     return len(stat) < 20 or tmux.started_at(stat[19]) <= created + 60
 
 
+def where(pane: dict) -> str:
+    """Where a pane is, "session:name", named as the phone's own heading names it
+    (pane-model.js paneName): the agent's title for its work, else tmux's label for the
+    window. The window name alone is tmux's default ("Codex") for most agent panes."""
+    name = pane.get("title") or pane.get("label") or pane.get("window_name") or pane.get("pane_id")
+    return f"{pane.get('session')}:{name}"
+
+
 def _author(i: dict, tool: str | None, acct: dict) -> None:
     """The agent, its account and that account's chip colour, and `who` reading them as
     "claude · Work"; the account left out when it only repeats the agent ("Codex")."""
@@ -286,7 +294,7 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             pane_of=lambda _entry: None) -> None:
-    """Who made each item: `who` (agent and account), `where` (session:window, or the
+    """Who made each item: `who` (agent and account), `where` (session:pane name, or the
     agent session's title), `pane` when that pane is still open, and `state` (progress),
     which only a pending one shows."""
     panes = _progress(listed, states)
@@ -310,7 +318,7 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             i["pane"], i["state"] = at, progress(panes.get(at), at or i["pane"], i["created"])
         if (pane := panes.get(i["pane"])) is not None:
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
-            i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
+            i["where"] = where(pane)
             continue
         source = s.get("source") or ""
         acct = next((a for a in profiles if source.startswith(a.get("dir", "") + "/")), {})

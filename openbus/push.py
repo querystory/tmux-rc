@@ -575,7 +575,7 @@ class PushManager:
         with self._lock:
             asking = any(n["pane_id"] == item["pane"] for n in self._nonces.values())
         body = item["description"] or (pane and f"{pane.get('tool')} finished it in "
-                                       f"{pane.get('session')}:{pane.get('window_name')}")
+                                       f"{scratch.where(pane)}")
         sent = self.sender.send({
             "title": _push_text(f"Ready: {item['title']}", 100),
             "body": _push_text(body or "Its page is ready.", PUSH_BODY_MAX),

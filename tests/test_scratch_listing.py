@@ -111,8 +111,9 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
 
 def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, monkeypatch):
     # Codex's shared app-server daemon writes the first Codex pane into every session's
-    # meta.json: the transcript's writer wins, where it runs or by its title once it has
-    # gone; with no writer found, the named pane stands.
+    # meta.json: the transcript's writer wins, where it runs (named as the phone names that
+    # pane: its title, not tmux's "Codex") or by its title once it has gone; with no writer
+    # found, the named pane stands.
     found = {"moved": {"session_id": "t2"}, "gone": {"session_id": "t3"}}
     monkeypatch.setattr(agent_history, "writers",
                         lambda _p, due: {n: found[n] for n in due if n in found})
@@ -123,10 +124,10 @@ def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, mon
         _folder(tmp_path, name, 1000, {"pane": "%6"})
     _folder(tmp_path, "gone", time.time() - 60, {"pane": "%6"})  # made just now
     states = [{"pane_id": "%6", "tool": "codex", "session": "s", "window_name": "first"},
-              {"pane_id": "%44", "tool": "codex", "session": "s", "window_name": "other",
-               "activity": "running"}]
+              {"pane_id": "%44", "tool": "codex", "session": "s", "window_name": "Codex",
+               "title": "Crawlspace export", "activity": "running"}]
     items, _ = _resolved(tmp_path, states, pane_of=lambda e: e.get("running") and "%44")
-    assert (items["moved"]["pane"], items["moved"]["where"]) == ("%44", "s:other")
+    assert (items["moved"]["pane"], items["moved"]["where"]) == ("%44", "s:Crawlspace export")
     assert (items["gone"]["pane"], items["gone"]["where"]) == (None, "Billing")
     assert (items["unfound"]["pane"], items["unfound"]["where"]) == ("%6", "s:first")
     assert all(items[n]["who"] == "codex" for n in items)
