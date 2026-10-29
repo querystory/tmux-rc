@@ -62,6 +62,18 @@ def test_composer_identity_failure_returns_conflict(client, monkeypatch):
     assert events == []
 
 
+def test_composer_bound_to_the_confirmed_incarnation(client, monkeypatch):
+    """A scratch page's confirmed send names the pane it was confirmed for: a pane
+    recycled since then (another process at that id) gets nothing."""
+    monkeypatch.setattr(tmux, "pane_pid", lambda p: "1234")
+    events = []
+    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args))
+    response = client.post("/api/panes/%1/compose", files=[
+        ("text", (None, "merge #1")), ("birth", (None, "999"))])
+    assert response.status_code == 409
+    assert events == []
+
+
 def test_plain_send_identity_failure_is_not_reported_as_success(client, monkeypatch):
     def changed(*a, **kw):
         raise tmux.PaneChangedError("Pane changed")
