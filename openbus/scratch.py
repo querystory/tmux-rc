@@ -281,8 +281,14 @@ def opened(root: Path, visits: list[tuple[str, float]], n: int,
     found = list(islice(((item, at) for name, at in visits
                          if (item := read(root, root / name))), n))
     _progress([i for i, _ in found], states)
-    return [{"title": i["title"], "href": i["href"], "at": at,
-             "pending": i["pending"] and i["state"] != "stopped"} for i, at in found]
+    return [_link(i, at) for i, at in found]
+
+
+def _link(i: dict, at: float) -> dict:
+    """A page as the app links it: its title and link, `at`, and whether it is still being
+    made (not stopped)."""
+    return {"title": i["title"], "href": i["href"], "at": at,
+            "pending": i["pending"] and i["state"] != "stopped"}
 
 
 def _writers(todo: list[dict]) -> None:
@@ -413,6 +419,8 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         s = running.get(i["session_id"]) or {} if i["pane"] not in panes else {}
         i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
         if (pane := panes.get(i["pane"])) is not None:
+            if s:  # its session, found in a new pane: its page comes along as that pane does
+                i["state"] = progress(pane, i["pane"], i["created"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
             continue
@@ -421,6 +429,15 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         i["pane"] = None
         _author(i, s.get("harness"), acct)
         i["where"] = s.get("title") or ""
+
+
+def made_by(root: Path, pane: str, *who) -> list[dict]:
+    """The pages this pane's session made, newest first, linked from its overview for as
+    long as they exist: matched as the gallery's cards are (resolve, `who` as for it), so
+    one made before a restore still finds the session in its new pane."""
+    listed = items(root)
+    resolve(listed, *who)
+    return [_link(i, i["updated"]) for i in listed if i["pane"] == pane]
 
 
 def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
@@ -479,7 +496,7 @@ def _card(i: dict) -> str:
              else f'<span class="{i["state"] if i["pending"] else ""}">{wait}</span>'
              if wait else "No preview")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
-    return (f'<article data-q="{escape(words)}" data-name="{e["name"]}">'
+    return (f'<article data-q="{escape(words)}" data-name="{e["name"]}" data-pane="{e.get("pane", "")}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}"'
             + (f' aria-label="{e["title"]}: {wait}"' if i["pending"] else "")  # the thumb's

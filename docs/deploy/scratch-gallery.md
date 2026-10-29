@@ -17,6 +17,15 @@ and in a phone's ☰ menu. There a card opens full screen over the app. Back, Es
 swipe from the left edge returns to the gallery, and "Open in browser" opens the page in
 a tab of its own. Settings links to the gallery's own page under More.
 
+A pane's overview lists only the few links that matter: its pages still In progress, its
+newest page, and the PR it was last seen working on (the watcher's own order; there is no
+signal for "named in the latest turn", so none is invented). Below them, "Scratch pages"
+opens the gallery at `/scratch/?pane=<id>`, filtered to that pane with its three newest
+cards raised and a "From this pane" chip to drop the filter, and "More pull requests"
+unfolds the rest in place. A pane's pages go to the gallery rather than a longer list
+because the gallery already has thumbnails, search and the viewer; PRs stay in place
+because the gallery cannot list them and a pane rarely has more than a few.
+
 An open gallery keeps itself current: every five seconds while it is on screen, it asks
 whether anything changed and reloads if so. That covers a new folder, a page or a
 thumbnail landing, and a folder archived. It holds off while a filter is typed or cards
