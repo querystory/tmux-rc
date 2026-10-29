@@ -135,7 +135,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       const noChat = !!why(true);
       if (noChat !== $("chat").hidden) { $("chat").hidden = noChat; onChat(); }
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
-      $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
+      $("scratch-tab").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
   }
