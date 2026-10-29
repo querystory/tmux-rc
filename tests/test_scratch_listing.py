@@ -110,20 +110,26 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
 
 def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, monkeypatch):
     # Codex's shared app-server daemon writes the first Codex pane into every session's
-    # meta.json: the transcript's writer, where it runs, wins; with no writer found, the
-    # named pane stands.
+    # meta.json: the transcript's writer wins, where it runs or by its title once it has
+    # gone; with no writer found, the named pane stands.
+    found = {"moved": {"session_id": "t2"}, "gone": {"session_id": "t3"}}
     monkeypatch.setattr(agent_history, "writers",
-                        lambda _p, due: {"moved": {"session_id": "t2"}} if "moved" in due else {})
-    running = {"t2": {"session_id": "t2", "harness": "codex", "running": {"thread": "t2"}}}
+                        lambda _p, due: {n: found[n] for n in due if n in found})
+    running = {"t2": {"session_id": "t2", "harness": "codex", "running": {"thread": "t2"}},
+               "t3": {"session_id": "t3", "harness": "codex", "title": "Billing"}}
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
-    _folder(tmp_path, "moved", 1000, {"pane": "%6"})
-    _folder(tmp_path, "unfound", 1000, {"pane": "%6"})  # nothing in the transcripts yet
-    states = [{"pane_id": p, "tool": "codex", "session": "s", "window_name": w}
-              for p, w in (("%6", "first"), ("%44", "other"))]
-    items, _ = _resolved(tmp_path, states, pane_of=lambda _e: "%44")
+    for name in ("moved", "gone", "unfound"):  # unfound: nothing in the transcripts yet
+        _folder(tmp_path, name, 1000, {"pane": "%6"})
+    states = [{"pane_id": "%6", "tool": "codex", "session": "s", "window_name": "first"},
+              {"pane_id": "%44", "tool": "codex", "session": "s", "window_name": "other",
+               "activity": "running"}]
+    items, _ = _resolved(tmp_path, states, pane_of=lambda e: e.get("running") and "%44")
     assert (items["moved"]["pane"], items["moved"]["where"]) == ("%44", "s:other")
+    assert (items["gone"]["pane"], items["gone"]["where"]) == (None, "Billing")
     assert (items["unfound"]["pane"], items["unfound"]["where"]) == ("%6", "s:first")
-    assert items["moved"]["who"] == items["unfound"]["who"] == "codex"
+    assert all(items[n]["who"] == "codex" for n in items)
+    # progress follows the writer's pane too: %6 has sat idle since long before STALL
+    assert [items[n]["state"] for n in ("moved", "unfound")] == ["working", "stopped"]
 
 
 def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):

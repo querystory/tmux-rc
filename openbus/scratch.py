@@ -304,7 +304,9 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         running = {**agent_history.indexed(missing), **running}  # the index still says who
     for i in listed:
         s = running.get(i["session_id"]) or {} if i["pane"] not in sure else {}
-        i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
+        at = open_in.get(s.get("session_id")) if s else i["pane"]  # the writer's, if open
+        if at != i["pane"]:  # a pending card follows its writer, not the pane named
+            i["pane"], i["state"] = at, progress(panes.get(at), at, i["created"])
         if (pane := panes.get(i["pane"])) is not None:
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
