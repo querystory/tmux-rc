@@ -111,7 +111,7 @@ def test_the_settle_is_inside_the_send_lock(monkeypatch):
 def test_composer_sends_one_complete_draft():
     mobile = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
     assert 'form.append("text",' in mobile
-    assert 'form.append("image",' in mobile
+    assert 'form.append("file",' in mobile
     assert 'paneUrl(id, "compose")' in mobile
 
 

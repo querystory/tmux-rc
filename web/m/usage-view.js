@@ -331,15 +331,15 @@ async function paint() {
         zoomTo(z.startValue, z.endValue - z.startValue);
         if (zoom.startValue !== z.startValue || zoom.endValue !== z.endValue) paint(); else spanText(); // corrected: held back from all-forecast, or to an hour
       });
-      (c.sized = new ResizeObserver(() => c.chart.resize())).observe(c.chartEl);
+      // ECharts redraws on every resize: only a real new size, not the 0 of a page left and the same size back.
+      (c.sized = new ResizeObserver(([{ contentRect: r }]) => { const size = r.width && `${r.width}x${r.height}`; if (size && size !== c.size) { c.size = size; c.chart.resize(); } })).observe(c.chartEl);
       c.chart.on('updateAxisPointer', e => strip(c, e));
     }
     c.el.classList.toggle('slid', c === on[on.length - 1]); // the slider's chart: a phone gives it the room
     c.tipEl.style.top = `${c.chartEl.offsetTop}px`;
     // How it moves, as the layout has it: a phone's drag scrolls the page, so it zooms by the range and the slider.
     c.chartEl.title = `${narrow ? 'Pick a range above, or drag the slider under the last chart' : 'Scroll to zoom, drag to pan'}; touch or hover for the exact %. Keyboard: + or − to zoom, arrows to pan.`;
-    c.chart.setOption(option(c, view.extent, view.now, c === on[on.length - 1], css), true);
-    c.chart.resize();
+    c.chart.setOption(option(c, view.extent, view.now, c === on[on.length - 1], css), true); // the observer above resizes it
   }
   echarts.connect('usage');
   spanText();
