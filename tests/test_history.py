@@ -442,18 +442,20 @@ def test_old_history_does_not_invent_worker_counts(tmp_path):
     assert h.query(now=720)["samples"][-1]["background"] == [0] * 7
 
 
-def test_log_constraint_upgrade_keeps_old_observations(tmp_path):
+@pytest.mark.parametrize("legacy", ["BETWEEN 0 AND 3", "BETWEEN 0 AND 5"])
+def test_log_constraint_upgrade_keeps_old_observations(tmp_path, legacy):
     import sqlite3
 
     path = tmp_path / "h.db"
     with sqlite3.connect(path) as db:
         db.execute("CREATE TABLE log_observations (t REAL, uid TEXT, tool TEXT, "
-                   "state INTEGER CHECK(state BETWEEN 0 AND 3), "
+                   f"state INTEGER CHECK(state {legacy}), "
                    "valid_until REAL, PRIMARY KEY(t,uid))")
         db.execute("INSERT INTO log_observations VALUES (600, 'old', 'claude', 1, 900)")
     h = History(path)
-    h.import_logs([(660, "new", "codex", 4, 900), (660, "waiting", "claude", 5, 900)])
-    assert h.query(now=660)["samples"][-1]["n"] == [0, 1, 0, 0, 1, 1, 0]
+    h.import_logs([(660, "new", "codex", 4, 900), (660, "waiting", "claude", 5, 900),
+                   (660, "quota", "claude", 6, 900)])
+    assert h.query(now=660)["samples"][-1]["n"] == [0, 1, 0, 0, 1, 1, 1]
 
 
 def test_lead_extends_the_start_at_the_windows_bucket_size(tmp_path):

@@ -1445,9 +1445,13 @@ def classify(
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
+    # A pane the model read as stopped at its quota waits on nothing from the turn before:
+    # its closing question or handed-over command (still on screen above the notice) is not
+    # what blocks it, so neither is restored as an ask.
+    over = spent or result.get("activity") == "quota_blocked"
     # Claude's final message is read on the ask view: a long one begins above the viewport.
-    final = not spent and tool in _TURN_ERROR_RE and _final_message(view, tool)
-    if (offers := screen_offers(result.pop("offers", None), text)) and not spent:
+    final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
+    if (offers := screen_offers(result.pop("offers", None), text)) and not over:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     # The model's own read of this screen (not an activity carried over a failed parse) that
     # the turn waits on the user, where no question of its own survived grounding.

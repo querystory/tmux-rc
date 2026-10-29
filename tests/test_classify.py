@@ -32,6 +32,17 @@ def test_reset_time_rides_only_on_a_quota_blocked_pane():
     assert (r["subagents"][0]["state"], r["agents"]) == ("quota_blocked", 0)  # it shares the limit
 
 
+def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
+    # The limit hit after a closing question: the notice sits under the empty input box, so
+    # the finished turn still reads as asking. The model's quota read stands, reset time kept.
+    notice = "\n  Usage limit reached · continuing automatically at 2:10pm"
+    screen = _auto_screen("Want me to merge it?") + notice
+    r = classify(_pane("claude"), screen, _llm({"tool": "claude", "activity": "quota_blocked",
+                                                "resets": "2:10pm", "offers": ["merge it"]}))
+    assert (r["activity"], r.get("resets"), r.get("question"), r.get("offers")) == (
+        "quota_blocked", "2:10pm", None, None)
+
+
 def test_a_handed_over_command_keeps_its_bash_prefix():
     screen = "● Run it yourself:\n\n  ! gh pr merge 7 --squash\n\n❯ "
     offered = classify_mod.screen_offers(["gh pr merge 7 --squash", "ship it"], screen)

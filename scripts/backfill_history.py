@@ -65,7 +65,8 @@ def reconstruct(trace: Path, journal: Path, server_uid: str, since: float,
                 report["invalid_trace"] += 1
                 continue
             if t < since or not isinstance(data, dict): continue
-            if data.get("activity") not in {"running", "waiting", "idle", "compacting", "unknown"}:
+            if data.get("activity") not in {"running", "waiting", "idle", "compacting",
+                                            "quota_blocked", "unknown"}:
                 continue
             outputs.append((t, data))
     outputs.sort(key=lambda row: row[0])
