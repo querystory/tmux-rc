@@ -90,7 +90,7 @@ through the composer's own path, bound to the pane's process as it was when aske
 that has since become a shell, or a recycled id, gets nothing), and the user stays on the
 page. The `token` is the one the app posts the page (`{token}`, by message) once its first
 load completes; only that document can ask. One the frame navigated to, or a reload, can't be
-told from the page the sheet names, so it gets no token and the user reopens it. Send ignores taps for half
+told from the page the sheet names, so its load voids the token and the user reopens the page. Send ignores taps for half
 a second, so one already in flight can't land on it, and there is no "don't ask again":
 a silent send is exactly what an injected page would want. A standalone tab can't ask at
 all: the app hears only the frame it opened, so a page in a tab, even one that opens the app

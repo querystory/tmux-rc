@@ -859,7 +859,11 @@ function viewScratch(href, title) {
   text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title, onload() { if (!this.token) this.contentWindow.postMessage({ token: this.token = randomHex() }, "*"); } }));
+  // The first document loaded gets the frame's token; any later load (a navigation, a reload) voids it.
+  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title, onload() {
+    this.token = this.token === undefined ? randomHex() : null;
+    if (this.token) this.contentWindow.postMessage({ token: this.token }, "*");
+  } }));
   viewer.showModal(); viewer.focus();
 }
 $("close-viewer").onclick = () => viewer.close();
