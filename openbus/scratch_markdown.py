@@ -152,7 +152,8 @@ class Files(StaticFiles):
 
     async def get_response(self, path, scope):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
-        if seen and "/" not in path.removeprefix(ARCHIVE + "/"):  # a placeholder or bar asking: wide says reload
+        # A placeholder or bar asking: wide says reload.
+        if seen and "/" not in path.removeprefix(ARCHIVE + "/"):
             wait = await anyio.to_thread.run_sync(
                 lambda: self.pending(path) or "".join(self.updating(path) or ()))
             same = wait and f'const SEEN = "{seen[0]}";' in wait
