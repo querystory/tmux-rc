@@ -37,6 +37,10 @@ test("the same rows again draw nothing; a new size alone resizes; new rows or a 
   chart.compact = true; // the dashboard's pinned strip: axes go, so it is another drawing
   chart.update(data(rows())); await painted();
   assert.deepEqual(calls, { setOption: 4, resize: 1 });
+  const same = rows();
+  chart.update(data(same, { zoomKey: "k2" })); await painted(); // a new key resets the zoom: ECharts must hear it
+  chart.update(data(same, { zoomKey: "k3" })); await painted(); // even with the rows it drew
+  assert.deepEqual(calls, { setOption: 6, resize: 1 });
 });
 
 test("a hidden chart draws nothing and takes no size", async () => {

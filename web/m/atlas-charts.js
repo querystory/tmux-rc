@@ -132,7 +132,7 @@ export function fleetChart(withAxis) {
     // Drawn from the same rows and settings as last time (a surface hidden and shown again, a poll
     // that changed no history), the chart stands; a new size alone is a resize. ECharts redraws
     // everything on either call, so each one skipped is a whole render saved on every chart.
-    if (unchanged(el, [rows, states, step, unit, goal, max, average, axis, dark, ...Object.values(shownStates)])) { if (resized) chart.resize(); return; }
+    if (unchanged(el, [rows, states, step, unit, goal, max, average, latest.zoomKey, axis, dark, ...Object.values(shownStates)])) { if (resized) chart.resize(); return; }
     const single = rows.length === 1, last = rows[rows.length - 1], avg = latestAverage(rows);
     const label = t => rows.length && new Date(rows[0].t).toDateString() !== new Date(last.t).toDateString()
       ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
