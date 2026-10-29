@@ -123,6 +123,8 @@ def test_the_renderer_is_served_scratch_and_nothing_else(tmp_path):
         (root / "md" / "index.md").write_text("# Index")
         with urlopen(f"{base}/md/index.html?raw") as raw:  # the daemon's alias for its index.md
             assert raw.read() == b"# Index"
+        with urlopen(f"{base}/md") as page:  # slashless: redirected, so relative links resolve in md/
+            assert page.url == f"{base}/md/" and b"<h1" in page.read()
         (root / "notes.md").write_text("# Notes")
         with urlopen(f"{base}/notes.md?raw") as raw:  # the file itself, as the daemon serves it
             assert raw.read() == b"# Notes" and raw.headers["Content-Type"].startswith("text/plain")
