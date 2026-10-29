@@ -369,9 +369,7 @@ function route() {
   if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
   // Not into Restore: its first button is the Restore itself, which an Enter would press.
   if (page && !wasPage) { $("landing").scrollTop = 0; if (page !== "restore") $("dash-page").querySelector(".landing-head h2")?.focus({ preventScroll: true }); }
-  if (dashboardVisible() && !wasDashboardVisible) {
-    refreshHistory(true);
-  }
+  if (dashboardVisible() && !wasDashboardVisible) refreshHistory(); // every poll keeps it fresh; forced, the refetch rebuilt every chart on each visit
   if (active && changed) {
     const id = active;
     // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
