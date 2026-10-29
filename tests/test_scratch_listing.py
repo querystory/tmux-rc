@@ -108,6 +108,24 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
     assert calls == [{"gone": 1000, "nobody": 2000}]  # found is stored, a miss waits to retry
 
 
+def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, monkeypatch):
+    # Codex's shared app-server daemon writes the first Codex pane into every session's
+    # meta.json: the transcript's writer, where it runs, wins; with no writer found, the
+    # named pane stands.
+    monkeypatch.setattr(agent_history, "writers",
+                        lambda _p, due: {"moved": {"session_id": "t2"}} if "moved" in due else {})
+    running = {"t2": {"session_id": "t2", "harness": "codex", "running": {"thread": "t2"}}}
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
+    _folder(tmp_path, "moved", 1000, {"pane": "%6"})
+    _folder(tmp_path, "unfound", 1000, {"pane": "%6"})  # nothing in the transcripts yet
+    states = [{"pane_id": p, "tool": "codex", "session": "s", "window_name": w}
+              for p, w in (("%6", "first"), ("%44", "other"))]
+    items, _ = _resolved(tmp_path, states, pane_of=lambda _e: "%44")
+    assert (items["moved"]["pane"], items["moved"]["where"]) == ("%44", "s:other")
+    assert (items["unfound"]["pane"], items["unfound"]["where"]) == ("%6", "s:first")
+    assert items["moved"]["who"] == items["unfound"]["who"] == "codex"
+
+
 def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_history, "writers", lambda *_: {})
     _folder(tmp_path, "old", 1000, {"pane": "%7"})  # this test's process began long after

@@ -290,8 +290,12 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     agent session's title), `pane` when that pane is still open, and `state` (progress),
     which only a pending one shows."""
     panes = _progress(listed, states)
+    # Codex runs every session's tool calls through one app-server daemon, forked by the
+    # first Codex pane with its TMUX_PANE, so a meta.json Codex wrote names that pane
+    # whichever session wrote it: the transcript says which, the named pane failing that.
+    sure = {p for p, s in panes.items() if s.get("tool") != "codex"}
     account = {p: a for a in profiles for p in a.get("panes", [])}
-    todo = [i for i in listed if i["pane"] not in panes]
+    todo = [i for i in listed if i["pane"] not in sure]
     _writers(todo)
     ids = sorted({i["session_id"] for i in todo if i["session_id"]})
     running = agent_history.get_many(ids) or {} if ids else {}
@@ -299,7 +303,7 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     if missing := [sid for sid in ids if sid not in running]:  # no binary, or a subagent
         running = {**agent_history.indexed(missing), **running}  # the index still says who
     for i in listed:
-        s = running.get(i["session_id"]) or {} if i["pane"] not in panes else {}
+        s = running.get(i["session_id"]) or {} if i["pane"] not in sure else {}
         i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
         if (pane := panes.get(i["pane"])) is not None:
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
