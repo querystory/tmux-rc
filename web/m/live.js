@@ -22,7 +22,7 @@ const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the
 const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
-export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "", panes = () => [], logos = {} }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, onChat = () => {}, account = () => "", panes = () => [], logos = {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -133,7 +133,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       // Each button only with something to start: the mic needs a voice row (a keyless one
       // still says what to set), Chat a usable chat model.
       $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
-      $("chat").hidden = !(data.live_enabled && chatModels().length) && !run;
+      const noChat = !(data.live_enabled && chatModels().length) && !run;
+      if (noChat !== $("chat").hidden) { $("chat").hidden = noChat; onChat(); } // the app offers Chat elsewhere too
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
       $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
@@ -484,7 +485,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
         current.held = message.status === "reconnecting"; current.dirty = false; // see viewing()
-        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); if (current.text) restore(current); resync(current); }
+        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); if (current.text) restore(current); resync(current);
+          for (const frame of current.pending.splice(0)) sendText(frame); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
@@ -530,7 +532,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], pending: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
@@ -584,12 +586,19 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   $("live-mode").onclick = () => { if (!run) mode = "voice"; paint(); show(); if (run) resumeAudio(run, true); };
   // Chat: straight into a text session on the last chat model used (else the first), no
   // picker and no mic. A conversation already running (either mode) is just brought back.
-  $("chat").onclick = () => {
-    if (docked()) return hide(); // a docked panel toggles: nothing covers the button
+  function openChat() {
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
     show(); // first, so a new chat's handshake says it opened in view
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
-  };
+  }
+  $("chat").onclick = () => docked() ? hide() : openChat(); // a docked panel toggles: nothing covers the button
+  // A question from elsewhere in the app: into the open conversation, else a new chat's
+  // first turn once it is listening.
+  function ask(text) {
+    openChat();
+    const frame = { action: "text", text, images: [] };
+    if (run && sendText(frame) === false) run.pending.push(frame); // in order: none is dropped
+  }
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;
     $("voice-model").value = $("voice-switch").value; stop(); start();
@@ -651,5 +660,5 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   });
   window.addEventListener("focus", pullTaps);
   paint(); capabilities(); pullTaps();
-  return { isActive: () => !!run, refresh: capabilities };
+  return { isActive: () => !!run, refresh: capabilities, ask };
 }
