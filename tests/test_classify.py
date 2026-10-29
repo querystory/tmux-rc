@@ -1349,6 +1349,22 @@ def test_wrapped_handoff_is_read_whole_with_its_lead_in():
         "Run this yourself: ! printf '%s' 'a  b'")
 
 
+def test_a_turn_read_as_waiting_asks_with_its_closing_paragraph():
+    # The model reads the finished turn as waiting on the user but quotes no ask, and its
+    # offer is the greyed suggestion in the empty box (nobody's words): the closing paragraph
+    # is the ask, with reply buttons, and the suggestion is no offer. Read idle, nothing asks.
+    closing = "The commit is still local, waiting for your go-ahead to push."
+    screen = _auto_screen(f"The old user is deleted.\n\n  {closing}").replace(
+        "\n❯\n", "\n❯ ⟪placeholder⟫push it⟪/placeholder⟫\n")
+    replies = lambda _s, _q: {"options": ["Push it", "Hold off"]}  # noqa: E731
+    model = {"activity": "waiting", "waiting_on": "user", "offers": ["push it"]}
+    result = classify(_pane("claude"), screen, _llm(model), replies_fn=replies)
+    assert "offers" not in result and result["waiting_on"] == "user"
+    assert result["question"] == {"prompt": closing, "answer_style": "text",
+                                  "options": ["Push it", "Hold off"]}
+    assert "question" not in classify(_pane("claude"), screen, _llm({"activity": "idle"}))
+
+
 def test_status_entries_drop_what_has_its_own_chip():
     parsed = {"model": "Opus 5.5", "context_pct": 16, "cost": "$4.96",
               "status_entries": ["16% ctx", "4h49m", "$4.96", "Opus 5.5", "2%/61% 5h/7d"]}

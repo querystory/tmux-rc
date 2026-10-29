@@ -984,10 +984,13 @@ def screen_offers(offers: object, text: str) -> list[str]:
     return [o for o in kept if f"! {o}" not in kept][:3]  # the command, not its plain copy too
 
 
-def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
+def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting: bool = False,
+               ) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run on a row of its own, or anything the message offers."""
+    `! command` handed over to run on a row of its own, or anything the message offers, or
+    (`waiting`: the model read the turn as waiting on the user without quoting its ask) the
+    closing paragraph, so the wait has something to answer."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
@@ -1003,9 +1006,9 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
     offered = "|".join(rf"(?<!\w){re.escape(' '.join(o.split()))}(?!\w)" for o in offers)
     paragraph = paragraphs[-1]
     if not (offered and re.search(rf"(?:{offered})\Z", paragraph)):
-        paragraph = _final_paragraph(message)
-        if paragraph.rstrip("*_\"'`)").endswith("?"):
-            return {"prompt": paragraph, "answer_style": "text"}
+        closing = _final_paragraph(message)
+        if closing.rstrip("*_\"'`)").endswith("?"):
+            return {"prompt": closing, "answer_style": "text"}
         # An offer elsewhere (a command, a reply asked for): the paragraph holding it.
         paragraph = next((p for p in reversed(paragraphs)
                           if offered and re.search(offered, p)), None)
@@ -1015,8 +1018,8 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
             # spacing kept ('a  b' is the command's).
             handoff = next((i for i in reversed(range(len(blocks)))
                             if _BASH_ROW_RE.search(blocks[i])), None)
-            if handoff is None:
-                return None
+            if handoff is None:  # the closing paragraph the model read as waiting on the user
+                return {"prompt": closing, "answer_style": "text"} if waiting else None
             paragraph = " ".join(row.strip() for block in blocks[max(handoff - 1, 0):handoff + 1]
                                  for row in block.splitlines() if row.strip())
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
@@ -1436,7 +1439,8 @@ def classify(
     final = not spent and tool in _TURN_ERROR_RE and _final_message(view, tool)
     if (offers := screen_offers(result.pop("offers", None), text)) and not spent:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
-    if final and (ask := _final_ask(visible, tool, final, offers)):
+    waiting = result.get("activity") == "waiting" and result.get("waiting_on") != "external"
+    if final and (ask := _final_ask(visible, tool, final, offers, waiting)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         own = _same_question(result.get("question"), ask)
