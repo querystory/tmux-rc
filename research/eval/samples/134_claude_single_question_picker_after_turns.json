@@ -8,7 +8,8 @@
     "waiting_on": "user",
     "question": {
       "present": true,
-      "answer_style": "menu"
+      "answer_style": "menu",
+      "options": ["Close it (Recommended)", "Rewrite as rationale doc", "Type something.", "Chat about this"]
     },
     "headline": "Asking whether to close the outdated tide alerts design doc"
   }
