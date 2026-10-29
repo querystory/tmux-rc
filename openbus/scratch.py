@@ -68,15 +68,17 @@ def inside(path: Path, root: Path) -> bool:
         return False
 
 
-def _meta(folder: Path) -> dict:
-    """meta.json's string fields; anything malformed counts as absent."""
+def _meta(folder: Path) -> dict | None:
+    """meta.json's string fields: {} for none, None for one malformed (perhaps half-written)."""
     path = folder / "meta.json"
     try:
         meta = json.loads(path.read_text()) if inside(path, folder) else {}
+    except FileNotFoundError:
+        return {}
     except (OSError, ValueError):
-        return {}
+        return None
     if not isinstance(meta, dict):
-        return {}
+        return None
     return {k: v.strip() for k, v in meta.items() if isinstance(v, str) and v.strip()}
 
 
@@ -125,6 +127,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
     sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
     files = [(at, f) for at, f in files if f not in sidecars]
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
+    read, meta = meta is not None, meta or {}
     if not (files or meta):
         return None
     files = files or [((folder / "meta.json").stat().st_mtime, None)]
@@ -157,8 +160,10 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
             "named": named, "since": named if updating else created,
             "stamped": _when(meta.get("created")),  # the agent's own word, never a guess
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
-            "page": page, "pending": pending, "thumb": inside(thumb, folder)
-            and thumb.is_file() and thumb.stat().st_mtime}
+            "page": page, "pending": pending,
+            "revising": bool(meta.get("updating")),  # its mark, pending a moment or not
+            "read": read,  # meta.json read whole, or none: one half-written says nothing yet
+            "thumb": inside(thumb, folder) and thumb.is_file() and thumb.stat().st_mtime}
 
 
 def read(root: Path, folder: Path, files: list | None = None) -> dict | None:

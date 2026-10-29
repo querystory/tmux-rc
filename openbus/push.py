@@ -494,9 +494,9 @@ class PushManager:
         self._task: asyncio.Task | None = None
         self.scratch = scratch  # the scratch dir whose pending pages notify as they land
         self.shoot = shoot  # what queues a landed page's thumbnail (scratch_sidecars.queue)
-        self._mtimes: dict[str, tuple] | None = None  # None: not scanned since startup
-        self._waiting: set[tuple[str, int]] = set()  # pending folders, (name, inode)
-        self._done: set[tuple[str, int]] = set()  # folders whose "Ready" went out
+        self._mtimes: dict[str, tuple] | None = None
+        self._waiting: dict[tuple[str, int], str] = {}
+        self._done: set[tuple[str, int]] = set()
         self._ready: dict[tuple, float] = {}  # (pane, birth) -> when its "Ready" went out
 
     def start(self) -> None:
@@ -585,7 +585,7 @@ class PushManager:
         never seen pending, but was promised all the same (a meta.json tmux-rc generated, or
         one half-written, says no such thing). A page published in one go was never promised
         and does not notify; nor does any folder already there at startup that was not
-        pending."""
+        pending. One whose meta.json said `updating` and no longer does sends "Updated"."""
         now = self.clock()
         if not self.scratch:
             return
@@ -593,37 +593,49 @@ class PushManager:
             e.name: (e.stat(follow_symlinks=False).st_mtime_ns, _mtime(Path(e.path, "meta.json")))
             for e in os.scandir(self.scratch)}
         # Removed: forgotten.
-        self._waiting, self._done = ({k for k in keys if k[0] in self._mtimes}
-                                     for keys in (self._waiting, self._done))
-        for name in [n for n, at in self._mtimes.items() if (seen or {}).get(n) != at]:
+        self._waiting = {k: v for k, v in self._waiting.items() if k[0] in self._mtimes}
+        self._done = {k for k in self._done if k[0] in self._mtimes}
+        # And an updating one each time: a fresh asset reads as pending for a minute, a change
+        # in time alone that no mtime shows.
+        waiting = {name for (name, _), verb in self._waiting.items() if verb == "Updated"}
+        for name in [n for n, at in self._mtimes.items()
+                     if (seen or {}).get(n) != at or n in waiting]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
+            if item:  # a folder replaced under its name: the old one's wait is over
+                self._waiting = {k: v for k, v in self._waiting.items()
+                                 if k[0] != name or k == key}
             if seen is None and item and not item["pending"]:
                 self._done.add(key)  # there at startup: old news, however it changes later
             fresh = (item and key not in self._done and item["stamped"]
                      and time.time() - item["stamped"] < LANDED_FRESH_SECONDS)
-            if item and item["pending"]:
-                self._waiting.add(key)
-            elif (key in self._waiting or fresh) and item["href"].endswith("/"):  # its index
-                if self._ready_push(item, now) or not self.store.subscriptions():
+            verb = self._waiting.get(key) or (fresh and "Ready")
+            if item and (item["pending"] or item["revising"]):
+                # a revision that drops its index for a moment is still an update
+                self._waiting[key] = "Updated" if item["revising"] else self._waiting.get(
+                    key, "Ready")
+            elif verb and item["read"] and (verb == "Updated" or item["href"].endswith("/")):
+                if self._ready_push(item, now, verb) or not self.store.subscriptions():
                     self.shoot(item)  # the gallery's spinner polls for it
-                    self._waiting.discard(key)
+                    self._waiting.pop(key, None)
                     self._done.add(key)  # a later rewrite of its meta.json is not news
                 else:  # a full queue: the next scan tries again, however old it is by then
-                    self._waiting.add(key)
+                    self._waiting[key] = verb
                     self._mtimes.pop(name)
 
-    def _ready_push(self, item: dict, now: float) -> bool:
+    def _ready_push(self, item: dict, now: float, verb: str = "Ready") -> bool:
         """Tell every device a pending page has landed, under a tag of its own: a page is news
         of its own, so it never silently replaces a Needs-you. A plain Needs-you right after
-        it is skipped (evaluate), so one finish still buzzes once."""
-        pane = next((s for s in self.watcher.states if s.get("pane_id") == item["pane"]
-                     and scratch.made_in(s, item["created"])), None)
+        it is skipped (evaluate), so one finish still buzzes once. An "Updated" page names no
+        pane: its reviser need not be the pane that made it."""
+        pane = verb == "Ready" and next((s for s in self.watcher.states
+                                         if s.get("pane_id") == item["pane"]
+                                         and scratch.made_in(s, item["created"])), None)
         body = item["description"] or (pane and f"{pane.get('tool')} finished it in "
                                        f"{pane.get('session')}:{pane.get('window_name')}")
         sent = self.sender.send({
-            "title": _push_text(f"Ready: {item['title']}", 100),
-            "body": _push_text(body or "Its page is ready.", PUSH_BODY_MAX),
+            "title": _push_text(f"{verb}: {item['title']}", 100),
+            "body": _push_text(body or f"Its page is {verb.lower()}.", PUSH_BODY_MAX),
             "tag": f"scratch:{item['name']}",
             "url": "/m#" + urlencode({"view": "scratch", "open": f"/scratch/{item['href']}"}),
             "actions": []})
