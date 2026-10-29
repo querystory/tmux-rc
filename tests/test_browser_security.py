@@ -1,6 +1,9 @@
 """In-memory admission checks: no network, browser, provider or real terminal."""
 
 import asyncio
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -77,3 +80,18 @@ def test_server_installs_browser_policy():
     from openbus import server
 
     assert any(m.cls is BrowserOriginMiddleware for m in server.app.user_middleware)
+
+
+def test_demo_browser_origin_uses_its_selected_port():
+    probe = """
+import runpy, sys, uvicorn
+from openbus.browser_security import BrowserOriginMiddleware
+sys.argv = ['demo_server', '19234']
+def run(app, **kw):
+    print(('http', '127.0.0.1', kw['port']) in BrowserOriginMiddleware(app).origins)
+uvicorn.run = run
+runpy.run_module('scripts.demo_server', run_name='__main__')
+"""
+    result = subprocess.run([sys.executable, "-c", probe], env=os.environ,
+                            capture_output=True, text=True, check=True, timeout=30)
+    assert result.stdout.strip() == "True"
