@@ -1011,12 +1011,14 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
                           if offered and re.search(offered, p)), None)
         if paragraph is None:
             # A `! command` row hands over its whole paragraph (a narrow pane wraps the
-            # command over several rows) with the one leading into it.
+            # command over several rows) with the one leading into it, each row's own
+            # spacing kept ('a  b' is the command's).
             handoff = next((i for i in reversed(range(len(blocks)))
                             if _BASH_ROW_RE.search(blocks[i])), None)
             if handoff is None:
                 return None
-            paragraph = " ".join(paragraphs[max(handoff - 1, 0):handoff + 1])
+            paragraph = " ".join(row.strip() for block in blocks[max(handoff - 1, 0):handoff + 1]
+                                 for row in block.splitlines() if row.strip())
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 

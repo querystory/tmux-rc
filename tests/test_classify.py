@@ -1344,6 +1344,9 @@ def test_wrapped_handoff_is_read_whole_with_its_lead_in():
     assert "offers" not in result and result["waiting_on"] == "user"
     assert result["question"] == {"prompt": f"{lead} {command}", "answer_style": "text",
                                   "options": []}
+    spaced = _auto_screen("Run this yourself:\n\n  ! printf '%s' 'a  b'")  # its own spacing
+    assert classify(_pane("claude"), spaced, _llm({}))["question"]["prompt"] == (
+        "Run this yourself: ! printf '%s' 'a  b'")
 
 
 def test_status_entries_drop_what_has_its_own_chip():
