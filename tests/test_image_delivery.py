@@ -23,6 +23,17 @@ def test_locked_session_types_the_path(monkeypatch):
     assert sent == [(" /tmp/x.png ", True)]  # spaced token, literal text, no Ctrl-V
 
 
+def test_a_file_is_never_offered_to_the_clipboard(monkeypatch):
+    """Compose hands a non-image over without its bytes: nothing to offer the clipboard (or
+    Pillow), so it is typed as its path."""
+    sent = []
+    monkeypatch.setattr(server.tmux, "session_locked", lambda: False)
+    monkeypatch.setattr(server.tmux, "set_clipboard_image", lambda png: ["wl-copy"])
+    monkeypatch.setattr(server.tmux, "send_keys", lambda pane, keys, **kw: sent.append(keys))
+    assert server._deliver_image("%1", b"", "/tmp/file-x.pdf", "1234") == "path"
+    assert sent == [" /tmp/file-x.pdf "]
+
+
 def test_unlocked_session_pastes_inline(monkeypatch):
     sent = []
     monkeypatch.setattr(server.tmux, "session_locked", lambda: False)

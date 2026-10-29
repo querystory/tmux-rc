@@ -59,7 +59,7 @@ const PATHS = {
 function colors(box) {
   const cs = getComputedStyle(box), v = n => cs.getPropertyValue(n).trim();
   return { s: [0, 1, 2, 3, 4, 5].map(i => v(`--chart-s${i}`)), acct: [0, 1, 2, 3, 4, 5].map(i => v(`--acct-${i}`)), fg: v('--fg'), muted: v('--muted'), line: v('--line'),
-    surface: v('--surface'), amber: v('--amber'), accent: v('--accent'), font: v('--mono'), dark: v('color-scheme') !== 'light' }; // amber, accent: state colours safe for text
+    surface: v('--surface'), amber: v('--amber'), accent: v('--accent'), font: cs.fontFamily, mono: v('--mono'), dark: v('color-scheme') !== 'light' }; // amber, accent: state colours safe for text
 }
 // Idle reads as a quiet grey ring, not the chart's near-invisible idle fill.
 const ring = (C, s) => s === 2 || s === 3 ? C.muted : C.s[s];
@@ -208,9 +208,9 @@ export function fleetGraph(box, mini, ctx) {
     dc.drawImage(ground(dpr), 0, 0);
     dc.setTransform(dpr * k, 0, 0, dpr * k, dpr * view.x, dpr * view.y);
     const lit = near(hover || sel), dim = (...ids) => lit && !ids.every(i => lit.has(i)) ? 0.12 : 1;
-    const font = (size, weight, track) => { dc.font = `${weight} ${size / k}px ${C.font}`; if (spacing) dc.letterSpacing = `${track / k}px`; };
-    const label = (text, x, y, align, color, size, weight = 400, base = 'middle', track = 0) => {
-      font(size, weight, track); dc.textAlign = align; dc.textBaseline = base;
+    const font = (size, weight, track, mono) => { dc.font = `${weight} ${size / k}px ${mono ? C.mono : C.font}`; if (spacing) dc.letterSpacing = `${track / k}px`; };
+    const label = (text, x, y, align, color, size, weight = 400, base = 'middle', track = 0, mono = false) => { // mono: a machine's words, as in the HUD
+      font(size, weight, track, mono); dc.textAlign = align; dc.textBaseline = base;
       dc.lineJoin = 'round'; dc.lineWidth = 4 / k; dc.strokeStyle = C.surface; dc.strokeText(text, x, y); dc.fillStyle = color; dc.fillText(text, x, y);
     };
     // Words are blocks of lines ([text, colour, size, weight, track]) anchored at a node, queued
@@ -233,7 +233,7 @@ export function fleetGraph(box, mini, ctx) {
  sy = y * k + view.y, R = sy < R0.tools + 20 ? W - R0.right : W - 6; // beside the controls, stop short of them
       let bw = 0, bh = 0;
       for (const l of lines) {
-        font(l[2], l[3], l[4] || 0);
+        font(l[2], l[3], l[4] || 0, l[5]);
         let w = dc.measureText(l[0]).width * k;
         if (w > R - 6) { l[0] = cut(l[0], Math.floor(l[0].length * (R - 6) / w)); w = R - 6; }
         bw = Math.max(bw, w); bh += l[2] + 3;
@@ -245,7 +245,7 @@ export function fleetGraph(box, mini, ctx) {
       L += dx;
       if (!claim([L, T, L + bw, T + bh], force)) return;
       let ly = (T - view.y) / k;
-      for (const [t, c, z, w, tr] of lines) { label(t, x + dx / k, ly, align, c, z, w, 'top', tr); ly += (z + 3) / k; }
+      for (const [t, c, z, w, tr, m] of lines) { label(t, x + dx / k, ly, align, c, z, w, 'top', tr, m); ly += (z + 3) / k; }
       return true;
     };
     const zs = Math.min(2, Math.max(0.55, k)) / k; // a particle grows a little with zoom, and never vanishes
@@ -309,8 +309,8 @@ export function fleetGraph(box, mini, ctx) {
         g.addColorStop(0, C.dark ? '#eafff3' : C.s[1]); g.addColorStop(0.55, C.s[1]); g.addColorStop(1, `${C.s[1]}00`);
         dc.globalAlpha = A; dc.fillStyle = g; disc(n.x, n.y, R * 0.75); dc.fill();
         dc.globalAlpha = A * 0.9; dc.lineWidth = 1.4 / k; disc(n.x, n.y, R); dc.stroke();
-        if (!mini && k > 0.5) tag(2, A, [[lens === 'session' ? `TMUX · ${new Set(panes.map(p => p.session)).size} SESSIONS` : `${n.children.length} × ${LENSES.find(l => l[0] === lens)[1].toUpperCase()}`, C.fg, 12, 600, 2.4],
-          [`${panes.length} panes · ${panes.filter(p => busy(paneState(p))).length} running`, C.muted, 10, 400, 1]], n.x, n.y + R * 1.5 + 9 / k, 'center', 'top'); // small: the HUD says it too
+        if (!mini && k > 0.5) tag(2, A, [[lens === 'session' ? `TMUX · ${new Set(panes.map(p => p.session)).size} SESSIONS` : `${n.children.length} × ${LENSES.find(l => l[0] === lens)[1].toUpperCase()}`, C.fg, 12, 600, 2.4, true],
+          [`${panes.length} panes · ${panes.filter(p => busy(paneState(p))).length} running`, C.muted, 10, 400, 1, true]], n.x, n.y + R * 1.5 + 9 / k, 'center', 'top'); // small: the HUD says it too
       } else if (n.kind === 'group') { // a hub ring, the share of its panes at work as an arc on it; folded, it grows and counts
         const fold = collapsed.has(n.id), r = (fold ? 1.35 : 1) * Math.max(n.r, (n.depth === 1 ? 9 : 6) / k), { busy: bn, need: nd } = n, tot = n.panes.length, col = nd ? C.s[0] : bn ? C.s[1] : C.muted;
         if (bn || nd) { dc.globalCompositeOperation = add; stamp(sprite(col, false), n.x, n.y, r * 6, A * (C.dark ? 0.5 : 0.3)); dc.globalCompositeOperation = 'source-over'; }
@@ -319,15 +319,15 @@ export function fleetGraph(box, mini, ctx) {
         dc.globalAlpha = A * (bn || nd ? 0.9 : 0.6); dc.strokeStyle = col; dc.lineWidth = 1.2 / k; dc.stroke();
         let a0 = -Math.PI / 2; dc.lineWidth = 2.6 / k; dc.globalAlpha = A;
         for (const [cnt, cc] of [[nd, C.s[0]], [bn, C.s[1]]]) if (cnt) { const a1 = a0 + cnt / tot * Math.PI * 2; dc.strokeStyle = cc; dc.beginPath(); dc.arc(n.x, n.y, r + 3 / k, a0, a1); dc.stroke(); a0 = a1; }
-        if (fold) label(String(tot), n.x, n.y, 'center', C.fg, 11, 700);
+        if (fold) label(String(tot), n.x, n.y, 'center', C.fg, 11, 700, 'middle', 0, true);
         else { dc.fillStyle = col; disc(n.x, n.y, r * 0.34); dc.fill(); }
         dc.globalAlpha = A;
         if (n.depth === 1) { // its name, and what it adds up to
           const cost = n.panes.reduce((t, p) => t + costOf(p), 0);
           tag(2, A, [[String(n.label).toUpperCase(), C.fg, mini ? 9.5 : 11, 600, 2]], n.x, n.y + r + 8 / k, 'center', 'top');
-          const sums = [nd && `${nd} need you`, bn && `${bn} running`, n.subs && `${n.subs} sub-agent${n.subs > 1 ? 's' : ''}`, cost && `$${cost.toFixed(2)}`].filter(Boolean), line = t => [[t, nd ? C.amber : C.muted, 9.5, 400]];
+          const sums = [nd && `${nd} need you`, bn && `${bn} running`, n.subs && `${n.subs} sub-agent${n.subs > 1 ? 's' : ''}`, cost && `$${cost.toFixed(2)}`].filter(Boolean), line = t => [[t, nd ? C.amber : C.muted, 9.5, 400, 0, true]];
           if (!mini) { tag(nd ? 2.5 : 3, A, line(sums.join(' · ') || `${tot} idle`), n.x, n.y + r + 25 / k, 'center', 'top'); if (sums.length > 1) tags.at(-1).push(line(sums[0])); }
-        } else if (!mini) tag(n.warn ? 1 : 3, A, [[n.label + (n.warn ? ' · 2 agents busy' : ''), n.warn ? C.amber : C.muted, 10, 400, 0.5]], n.x, n.y + r + (n.warn ? 9 : 6) / k, 'center', 'top');
+        } else if (!mini) tag(n.warn ? 1 : 3, A, [[n.label + (n.warn ? ' · 2 agents busy' : ''), n.warn ? C.amber : C.muted, 10, 400, 0.5, true]], n.x, n.y + r + (n.warn ? 9 : 6) / k, 'center', 'top');
       } else if (n.kind === 'pane') {
         const r = rad(n), col = ring(C, s), on = busy(s) || s === 0, p = n.p;
         if (on) { dc.globalCompositeOperation = add; stamp(sprite(col, false), n.x, n.y, r * 5, A * (C.dark ? 0.75 : 0.45)); dc.globalCompositeOperation = 'source-over'; }
@@ -384,7 +384,7 @@ export function fleetGraph(box, mini, ctx) {
     if (subs) {
       const bx = n.x + r * 0.78, by = n.y - r * 0.78;
       dc.globalAlpha = A; dc.fillStyle = C.s[1]; disc(bx, by, 6.5 / k); dc.fill(); dc.strokeStyle = C.surface; dc.lineWidth = 1.5 / k; dc.stroke();
-      dc.font = `700 ${8.5 / k}px ${C.font}`; dc.textAlign = 'center'; dc.textBaseline = 'middle'; dc.fillStyle = C.dark ? C.surface : C.fg; dc.fillText(String(subs), bx, by + 0.5 / k);
+      dc.font = `700 ${8.5 / k}px ${C.mono}`; dc.textAlign = 'center'; dc.textBaseline = 'middle'; dc.fillStyle = C.dark ? C.surface : C.fg; dc.fillText(String(subs), bx, by + 0.5 / k);
     }
     return acc;
   }
@@ -395,10 +395,10 @@ export function fleetGraph(box, mini, ctx) {
     const p = n.p, k = view.k, close = n === hover || n === sel;
     if (!(close || s === 0 || k > 1.3 || (k > 0.3 && on))) return;
     const lines = [[paneName(p), on ? C.fg : C.muted, 10.5, on ? 600 : 400]];
-    if (s === 0 || s === 5) lines.push([`waiting ${since(p) || 'now'}`, s === 0 ? C.amber : C.muted, 9.5, 600]);
+    if (s === 0 || s === 5) lines.push([`waiting ${since(p) || 'now'}`, s === 0 ? C.amber : C.muted, 9.5, 600, 0, true]);
     const head = (k > 1.25 || close) && (s === 0 ? p.question?.prompt : paneHeadline(p));
     if (head) lines.push([cut(head, k > 2 ? 54 : 34), C.muted, 9.5, 400]);
-    if (k > 2) lines.push([[p.model, p.context_pct != null && `ctx ${p.context_pct}%`, p.working?.tokens, s === 2 && `idle ${since(p)}`, p.cost, acc?.name].filter(Boolean).join(' · '), C.muted, 9, 400]);
+    if (k > 2) lines.push([[p.model, p.context_pct != null && `ctx ${p.context_pct}%`, p.working?.tokens, s === 2 && `idle ${since(p)}`, p.cost, acc?.name].filter(Boolean).join(' · '), C.muted, 9, 400, 0, true]);
     const sat = n.subs.reduce((m, x) => Math.max(m, n.r + 3 * rad(x) + 26), 0); // past its satellites, which sit the same way out
     outward(n, Math.max(r + (acc ? 10 : 7) / k, sat), close ? 0 : s === 0 ? 1 : on ? 4 : 5, A, lines);
   }
@@ -570,7 +570,7 @@ export function fleetGraph(box, mini, ctx) {
   }
   const head = (lead, title) => `<div class="fg-pop-head">${lead}<b>${esc(title)}</b><button class="fg-x" aria-label="Close">${ctx.icon('x', 16)}</button></div>`;
   const stLine = (s, extra) => `<span class="fg-st"><i style="background:${ring(C, s)}"></i>${STATES[s]}${extra ? ` · ${esc(extra)}` : ''}</span>`;
-  const dl = rows => `<dl>${rows.filter(([, v]) => v).map(([t, v]) => `<dt>${t}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
+  const dl = rows => `<dl>${rows.filter(([, v]) => v).map(([t, v, m]) => `<dt>${t}</dt><dd${m ? ' class="fg-m"' : ''}>${esc(v)}</dd>`).join('')}</dl>`;
   // "3 running, 1 waiting": the satellites name them; the ones counted but not listed are busy.
   const agentTally = (p, subs) => { const t = {}, list = subsList(p); [...list, ...Array(subs - list.length).fill(null)].forEach(a => { const k = STATES[subState(a)].toLowerCase(); t[k] = (t[k] || 0) + 1; });
     return Object.entries(t).map(([k, n]) => `${n} ${k}`).join(', '); };
@@ -582,14 +582,14 @@ export function fleetGraph(box, mini, ctx) {
     if (n.kind === 'sub') {
       const a = n.a || {}, st = subState(n.a);
       return popover(`${head(`<i class="fg-dot" style="background:${ring(C, st)}"></i>`, a.label || 'Sub-agent')}${stLine(st, 'sub-agent')}
-        ${dl([['Pane', paneName(n.parent.p)], ['Tokens', a.tokens], ['Time', a.elapsed]])}${openBtn}`, at, n);
+        ${dl([['Pane', paneName(n.parent.p)], ['Tokens', a.tokens, 1], ['Time', a.elapsed, 1]])}${openBtn}`, at, n);
     }
     const p = n.p, s = paneState(p), w = p.worktree, subs = subCount(p), src = ctx.logos[p.tool], q = s === 0 && p.question?.prompt && p.question;
     popover(`${head(src ? `<img class="fg-logo" src="${esc(src)}" alt="">` : '', paneName(p))}${stLine(s, p.session)}
       ${q ? `<div class="fg-q">${esc(q.prompt)}${Array.isArray(q.options) && q.options.length ? `<div>${q.options.map(o => `<span>${esc(o)}</span>`).join('')}</div>` : ''}</div>` : ''}
-      ${dl([['Model', p.model], ['Context', p.context_pct != null && `${p.context_pct}% used`], ['Cost', p.cost], ['Account', ctx.owner(p.pane_id)?.name], ['Tokens', p.working?.tokens], ['Agents', subs && agentTally(p, subs)],
-        ['Now', paneHeadline(p)], ['Time', (busy(s) && p.working?.elapsed) || (since(p) && `${s === 2 ? 'idle' : 'for'} ${since(p)}`)],
-        ['Where', `${home(p.cwd || '')}${w?.branch ? ` @ ${w.branch}` : ''}`]])}${openBtn}`, at, n);
+      ${dl([['Model', p.model], ['Context', p.context_pct != null && `${p.context_pct}% used`, 1], ['Cost', p.cost, 1], ['Account', ctx.owner(p.pane_id)?.name], ['Tokens', p.working?.tokens, 1], ['Agents', subs && agentTally(p, subs)],
+        ['Now', paneHeadline(p)], ['Time', (busy(s) && p.working?.elapsed) || (since(p) && `${s === 2 ? 'idle' : 'for'} ${since(p)}`), 1],
+        ['Where', `${home(p.cwd || '')}${w?.branch ? ` @ ${w.branch}` : ''}`, 1]])}${openBtn}`, at, n);
   }
   return api;
 }
