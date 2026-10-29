@@ -2085,7 +2085,7 @@ def _stage_file(data: bytes, mime: str, filename: str | None = None) -> str:
     that is a plain word (so `../../x.sh` stages as `file-….sh`), else its mime's."""
     suffix = Path(filename or "").suffix
     ext = _EXT.get(mime) or (
-        suffix.lower() if re.fullmatch(r"\.[A-Za-z0-9]{1,8}", suffix) else None
+        suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,8}", suffix) else None
     ) or mimetypes.guess_extension(mime) or ""
     # Prune stale stagings (the pane reads the file right after the paste; a day of
     # slack covers "answer later" without growing /tmp forever).
@@ -2149,9 +2149,12 @@ async def _compose(pane_id: str, request: Request):
             elif kind == "file" and not isinstance(value, str):
                 mime = value.content_type or "application/octet-stream"
                 data = await value.read(UPLOAD_MAX_BYTES + 1)
-                if not data or len(data) > UPLOAD_MAX_BYTES:
-                    raise HTTPException(413, "file empty or too large")
-                segments.append((data, _stage_file(data, mime, value.filename)))
+                if len(data) > UPLOAD_MAX_BYTES:
+                    raise HTTPException(413, "file too large")
+                # Only an image's bytes stay in memory, for the clipboard; anything else
+                # is delivered by its path, so the draft holds no copy of it.
+                path = _stage_file(data, mime, value.filename)
+                segments.append((data if mime in _EXT else b"", path))
             elif kind == "secret" and isinstance(value, str) and secret is None:
                 if len(value.encode()) > 4095:  # the tty's line, less its newline
                     raise HTTPException(413, "password too long")
@@ -2212,9 +2215,9 @@ def _deliver_image_locked(pane_id: str, data: bytes, path: str, identity: str) -
     reads) and the Ctrl-V would silently paste nothing — exactly the remote/phone
     case — so deliver by typed path instead; inline embeds are a desk luxury."""
     tools: list[str] = []
-    # Only a known image is offered to the clipboard: anything else (a PDF, a HEIC) is
+    # Only a known image's bytes arrive here (compose keeps no others): anything else is
     # the agent's to open by path, and never goes through Pillow.
-    if path.endswith(tuple(_EXT.values())) and not tmux.session_locked():
+    if data and not tmux.session_locked():
         try:
             png = data if data[:8] == b"\x89PNG\r\n\x1a\n" else _to_png(data)
             tools = tmux.set_clipboard_image(png)

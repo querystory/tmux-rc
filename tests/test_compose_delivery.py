@@ -43,7 +43,7 @@ def test_compose_text_is_a_bracketed_paste(client, monkeypatch):
 
 
 @pytest.mark.parametrize(("filename", "mime", "ext"), [
-    ("../../x.sh", "application/pdf", ".sh"),  # the client's extension, never its path
+    ("../../x.C", "application/pdf", ".C"),  # the client's extension (case kept), never its path
     ("report", "application/pdf", ".pdf"),  # no extension: the mime's
     ("a.b/c..", "application/octet-stream", ".bin"),  # no plain word: the mime's again
 ])
@@ -52,7 +52,8 @@ def test_any_file_stages_under_a_generated_name(client, monkeypatch, tmp_path, f
     under a name of our own (mode 0600), typed between the text segments around it."""
     events = []
     monkeypatch.setattr(tmux, "_run", typed(events.append))
-    monkeypatch.setattr(tmux, "session_locked", lambda: True)
+    monkeypatch.setattr(server, "_deliver_image", lambda pane, data, path, pid:
+                        events.append((data, path)))
     response = client.post("/api/panes/%1/compose", files=[
         ("text", (None, "read this")), ("file", (filename, b"%PDF-1.4 x", mime)),
     ])
@@ -60,7 +61,7 @@ def test_any_file_stages_under_a_generated_name(client, monkeypatch, tmp_path, f
     staged, = tmp_path.iterdir()
     assert staged.name.startswith("file-") and staged.suffix == ext
     assert staged.stat().st_mode & 0o777 == 0o600 and staged.read_bytes() == b"%PDF-1.4 x"
-    assert events == ["read this", f" {staged} ", "Enter"]
+    assert events == ["read this", (b"", str(staged)), "Enter"]  # no copy of the bytes rides along
 
 
 def test_composer_identity_failure_returns_conflict(client, monkeypatch):
