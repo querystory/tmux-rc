@@ -2,9 +2,11 @@
 what a description may overwrite, and that a shot never runs in the user's browser
 profile."""
 
+import io
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
@@ -117,8 +119,18 @@ def test_the_renderer_is_served_scratch_and_nothing_else(tmp_path):
         with urlopen(f"{base}/index.html") as page:
             assert page.read() == b"<p>page</p>"
             assert page.headers["Content-Security-Policy"] == scratch.SANDBOX
+        (root / "md").mkdir()
+        (root / "md" / "index.md").write_text("# Index")
+        with urlopen(f"{base}/md/index.html?raw") as raw:  # the daemon's alias for its index.md
+            assert raw.read() == b"# Index"
+        (root / "notes.md").write_text("# Notes")
+        with urlopen(f"{base}/notes.md?raw") as raw:  # the file itself, as the daemon serves it
+            assert raw.read() == b"# Notes" and raw.headers["Content-Type"].startswith("text/plain")
         host = base.removesuffix("/scratch")
+        (root / ".private").mkdir()
+        (root / ".private" / "note.html").write_text("hidden")
         for url in (host + "/index.html", host + "/api/digest", base + "/link.txt",
+                    base + "/.private/note.html", base + "/%2eprivate/note.html",
                     base + "/../secret.txt", base + "/%2e%2e/secret.txt", base + "/leak/",
                     base + "/leak2/"):
             with pytest.raises(HTTPError):
@@ -154,6 +166,26 @@ def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypa
     with Image.open(out) as im:
         assert (im.format, im.size) == ("WEBP", S.THUMB)
     assert out.stat().st_mtime == 1234  # the version it shows, not when it was saved
+
+
+def test_a_browser_that_hangs_or_cannot_start_draws_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(S, "browser", lambda: "/no/such/shell")
+    monkeypatch.setattr(S, "urlopen", lambda url, timeout: open(os.devnull))  # noqa: SIM115
+    fail = lambda error: lambda *a, **k: (_ for _ in ()).throw(error)  # noqa: E731
+    for error in (OSError("cannot start"), S.subprocess.TimeoutExpired("shell", 20)):
+        monkeypatch.setattr(S.subprocess, "run", fail(error))
+        assert S.render("http://127.0.0.1:1/scratch/p/") is None
+    monkeypatch.setattr(S.subprocess, "Popen", fail(OSError("cannot start")))
+    assert S.whole("http://127.0.0.1:1/scratch/p/", (390, 844), 2, dark=False) is None
+    shell = tmp_path / "shell"  # starts, then dies at once (a missing library, say)
+    shell.write_text("#!/bin/sh\nexit 1\n")
+    shell.chmod(0o755)
+    monkeypatch.undo()  # the real Popen, with only the shell and the preflight stubbed
+    monkeypatch.setattr(S, "browser", lambda: str(shell))
+    monkeypatch.setattr(S, "urlopen", lambda url, timeout: open(os.devnull))  # noqa: SIM115
+    started = time.monotonic()
+    assert S.whole("http://127.0.0.1:1/scratch/p/", (390, 844), 2, dark=False) is None
+    assert time.monotonic() - started < 5  # not the whole 20s
 
 
 def test_no_bundled_shell_means_no_shot(tmp_path, monkeypatch):
@@ -254,3 +286,25 @@ def test_a_description_never_lands_in_a_folder_that_took_its_name(tmp_path):
     meta = tmp_path / "p" / "meta.json"
     assert not scratch.annotate(meta, tmp_path, "description", "Stale.", old["inode"])
     assert not meta.exists()
+
+
+def test_a_capture_draws_the_viewed_page_and_nothing_outside_its_folder(tmp_path, monkeypatch):
+    _page(tmp_path, "p")
+    urls = []
+    monkeypatch.setattr(S, "whole", lambda url, size, scale, **k: urls.append(url) or scale)
+    for view in ("", "b.html?x=1", "../q/", "a/%2e%2e/../q/", "//../q/", "..\\q/", "/\\../q/",
+                 "x://..%2f..%2fq/", "%2e%2e%5cq/", "a%2fb/../../q/", ".private/n.html",
+                 "%2eprivate/n.html", "a/.hidden"):
+        S.capture(tmp_path, WEB_DIR, "p", view, (390, 844), 2, dark=False)
+    assert [u.split("/scratch/")[1] for u in urls] == ["p/", "p/b.html?x=1"]
+    assert not S.capture(tmp_path, WEB_DIR, "../p", "", (390, 844), 2, dark=False)
+    assert S.capture(tmp_path, WEB_DIR, "p", "", (390, 844), 2, dark=False) == 2  # sharp on a phone
+
+
+@pytest.mark.skipif(not S.browser(), reason="no bundled headless shell here")
+def test_a_whole_page_is_drawn_at_its_width_and_ratio_and_cut_when_tall(tmp_path):
+    _page(tmp_path, "tall", page="".join(f"<p>row {i}</p>" for i in range(400)))
+    png, drawn, height = S.capture(tmp_path, WEB_DIR, "tall", "", (390, 700), 2, dark=True)
+    assert drawn == S.MAX_HEIGHT < height
+    with Image.open(io.BytesIO(png)) as im:
+        assert im.size[1] == S.MAX_PIXELS and im.size[0] == round(780 * S.MAX_PIXELS / 12000)

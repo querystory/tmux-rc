@@ -18,7 +18,10 @@ swipe from the left edge returns to the gallery, and "Open in browser" opens the
 a tab of its own. While the pane its `meta.json` names is still open, a box at the
 bottom messages that agent ("Message qs:0 (Triage recent bugs)"), the way the pane's own
 composer does, opening with `Re scratch <folder>: ` so the agent knows which page it is
-about. The box is the app's, not the page's: a page cannot send to a pane.
+about. A screenshot of the whole page goes with it, drawn by the daemon at the phone's width,
+pixel ratio and theme (the app cannot read the sandboxed page), cut at 6000 px with a note
+saying so; tap "Screenshot attached ✕" to leave it off.
+The box is the app's, not the page's: a page cannot send to a pane.
 Settings links to the gallery's own page under More.
 
 A pane's overview lists only the few links that matter: its pages still In progress, its

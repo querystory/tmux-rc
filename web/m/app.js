@@ -942,14 +942,23 @@ addEventListener("focus", loadPins); loadPins(); // another device's pin shows o
 // A Composer per pane, sent through compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
   viewerTo = null; paintViewerForm(); text($("viewer-status"), "");
-  const folder = new URL(href).pathname.split("/")[2];
-  const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder) } : {};
+  const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
+  const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
   // Another page opened meanwhile, this one navigated, or it names no pane or no sendable folder.
   if (!viewer.open || $("viewer-out").href !== href || viewer.querySelector("iframe")?.loads > 1 || !to.pane || !to.about) return;
   const key = viewerKey({ pane_id: to.pane, birth: to.birth });
   if (!viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
-  viewerTo = to; text($("viewer-prefix"), to.about); paintViewerForm(); // the line the server opens a send with
+  viewerTo = to; text($("viewer-prefix"), to.about); shotChip(true); paintViewerForm(); // the line the server opens a send with
 }
+// The page as the user sees it goes with each send unless they take it off: the server draws it
+// (the sandboxed frame can't be read from here) at the frame's size (as last seen without the
+// keyboard, which shrinks it) for its width, whole, at the screen's pixel ratio, and the
+// theme the frame is shown in (its color-scheme, which a page's prefers-color-scheme follows),
+// and attaches it as a pasted image.
+const shotChip = (on) => { $("viewer-shot").setAttribute("aria-pressed", on); text($("viewer-shot"), on ? "Screenshot attached ✕" : "Attach screenshot"); };
+$("viewer-shot").onclick = () => shotChip($("viewer-shot").getAttribute("aria-pressed") !== "true");
+let viewerSize = "";
+const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewerSize || `${innerWidth}x${innerHeight}`}@${Math.min(3, Math.round(devicePixelRatio) || 1)}${getComputedStyle(viewer).colorScheme.includes("dark") ? " dark" : ""}`;
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
@@ -958,20 +967,22 @@ function paintViewerForm() {
   const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
   form.hidden = !p; // no pane named, or it has closed
   if (!p) return;
-  const { editor } = viewerDrafts.get(viewerKey(p));
+  const { editor } = viewerDrafts.get(viewerKey(p)), frame = $("scratch-viewer").querySelector("iframe");
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }
   const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
   editor.dataset.placeholder = "Message…"; editor.setAttribute("aria-label", to); // the link above names it
   text($("viewer-to"), to); $("viewer-to").href = "#" + formatHash({ pane: p.pane_id }); // the pane it goes to, a tap away
   editor.contentEditable = String(!p.secret); // a password goes in the pane's own field, never here
   $("viewer-send").setAttribute("aria-disabled", String(!!viewerWhy(p)));
+  // Last, so the size is the frame's beside the finished box (read now, it lays out).
+  if (frame?.clientHeight && !document.documentElement.classList.contains("editing")) viewerSize = `${frame.clientWidth}x${frame.clientHeight}`;
 }
 $("viewer-to").onclick = (event) => { event.preventDefault(); navigate(viewerTo.pane); }; // leaving Scratch closes the viewer (route)
 $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
   const p = viewerPane(), why = p ? viewerWhy(p) : "This pane has closed.";
   if (why) return text($("viewer-status"), why);
-  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth, viewerTo.folder);
+  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth, { scratch: viewerTo.folder, ...viewerShot() && { shot: viewerShot(), view: viewerTo.view } });
   // Only on the visit it was sent from, and "Sent" not over a next draft typed meanwhile.
   if (viewer.open && $("viewer-out").href === href) text($("viewer-status"), !sent ? KEPT : value.segments().length ? "" : "Sent");
 };
@@ -1933,14 +1944,15 @@ const KEPT = "Delivery could not be confirmed. Draft kept; check the terminal be
 // draft back in front of whatever was typed since (a password only into an empty field).
 // A reply to a pane that needs you holds its card as a tapped answer does.
 // `birth`: the pane's incarnation the user confirmed; the server types nothing into another.
-// `page`: the scratch folder it is about, which the server names at the message's start.
-async function compose(id, value, birth, page) {
+// `fields`: from the scratch viewer, `scratch` (the folder, which the server names at the
+// message's start) and `shot` and `view` (the size, theme and page to attach a screenshot of).
+async function compose(id, value, birth, fields = {}) {
   const pane = panes.find((p) => p.pane_id === id);
   const settle = pane && needsYou(pane) && !isAnswered(pane) ? hold(id, { key: questionKey(pane.question), since: pane.state_since }) : () => {};
   const secret = value === $("secret"), sent = secret ? value.value : value.segments();
   const form = new FormData();
   if (birth) form.append("birth", birth);
-  if (page) form.append("scratch", page);
+  for (const [name, field] of Object.entries(fields)) form.append(name, field);
   if (secret) form.append("secret", sent);
   else for (const segment of sent) {
     if (segment.file) form.append("image", segment.file);
