@@ -442,6 +442,14 @@ def made_in(pane: dict, created: float) -> bool:
     return len(stat) < 20 or tmux.started_at(stat[19]) <= created + 60
 
 
+def where(pane: dict) -> str:
+    """Where a pane is, "session:name", named as the phone's own heading names it
+    (pane-model.js paneName): the agent's title for its work, else tmux's label for the
+    window. The window name alone is tmux's default ("Codex") for most agent panes."""
+    name = pane.get("title") or pane.get("label") or pane.get("window_name") or pane.get("pane_id")
+    return f"{pane.get('session')}:{name}"
+
+
 def _author(i: dict, tool: str | None, acct: dict) -> None:
     """The agent, its account and that account's chip colour, and `who` reading them as
     "claude · Work"; the account left out when it only repeats the agent ("Codex")."""
@@ -484,7 +492,7 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             pane_of=lambda _entry: None) -> None:
-    """Who made each item: `who` (agent and account), `where` (session:window, or the
+    """Who made each item: `who` (agent and account), `where` (session:pane name, or the
     agent session's title), `pane` when that pane is still open, and `state` (progress),
     which only a pending one shows."""
     panes = _progress(listed, states)
@@ -502,15 +510,16 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         running = {**agent_history.indexed(missing), **running}  # the index still says who
     for i in listed:
         s = running.get(i["session_id"]) or {} if i["pane"] not in sure else {}
-        at = open_in.get(s.get("session_id")) if s else i["pane"]  # the writer's, if open
-        if at != i["pane"]:  # a pending card follows its writer, not the pane named; a
+        at = open_in.get(s.get("session_id"), i["pane"])  # the writer's, if open; the pane
+        if at != i["pane"]:  # named stands when only the index knows the writer (no binary,
+            # a subagent), since it cannot say where. A pending card follows its writer, and a
             # writer found but gone from every pane has stopped, however recent the folder
             i["pane"], i["state"] = at, progress(panes.get(at), at or i["pane"], i["created"])
         if (pane := panes.get(i["pane"])) is not None:
             if s:  # its session, found in a new pane: its page comes along as that pane does
                 i["state"] = progress(pane, i["pane"], i["created"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
-            i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
+            i["where"] = where(pane)
             continue
         source = s.get("source") or ""
         acct = next((a for a in profiles if source.startswith(a.get("dir", "") + "/")), {})

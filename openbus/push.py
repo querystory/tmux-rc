@@ -632,7 +632,7 @@ class PushManager:
                                          if s.get("pane_id") == item["pane"]
                                          and scratch.made_in(s, item["created"])), None)
         body = item["description"] or (pane and f"{pane.get('tool')} finished it in "
-                                       f"{pane.get('session')}:{pane.get('window_name')}")
+                                       f"{scratch.where(pane)}")
         sent = self.sender.send({
             "title": _push_text(f"{verb}: {item['title']}", 100),
             "body": _push_text(body or f"Its page is {verb.lower()}.", PUSH_BODY_MAX),
