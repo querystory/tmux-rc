@@ -52,6 +52,7 @@ def test_mobile_assets_and_manifest():
     manifest = client.get("/m/manifest.json").json()
     assert manifest["start_url"] == "/m"
     assert manifest["scope"] == "/m"
+    assert manifest["share_target"]["action"] == "/m"  # in scope, read by app.js's boot
     assert 'id="push"' in client.get("/m").text
     assert 'addEventListener("fetch"' not in client.get("/sw.js").text
 

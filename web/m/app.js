@@ -289,9 +289,10 @@ const restore = setupRestore({ mount: $("restore"), request, slow: NO_TIMEOUT, l
   open: () => openPage("restore"),
   opened: () => { if (!active && !page && !dashboard) navigate(null, "restore", { mode: "replace" }); },
   closed: () => { if (page === "restore") closePage(); } });
+let shared = null;
 // Over a scratch page in the viewer (a modal, so the app's own bar is hidden), the viewer's bar.
 function notice(message = "", ms = 0, action = null) {
-  clearTimeout(noticeTimer); for (const id of ["notice", "viewer-notice"]) show(id, false);
+  shared = null; clearTimeout(noticeTimer); for (const id of ["notice", "viewer-notice"]) show(id, false);
   const box = $($("scratch-viewer").open ? "viewer-notice" : "notice");
   text(box, message); box.hidden = !message;
   if (action) box.append(" ", Object.assign(document.createElement("button"), { type: "button", textContent: action[0], onclick: () => { notice(); action[1](); } }));
@@ -372,6 +373,9 @@ function offerDraft(id, value, replace = false) {
 }
 
 function route() {
+  // A shared link (boot, below) rides on the pane picked as a draft link's would: never sent.
+  const to = parseHash(location.hash); // formatHash drops any other draft: the shared link is the one
+  if (shared && to.pane) { history.replaceState(history.state, "", `#${formatHash(to)}&draft=${encodeURIComponent(shared)}`); shared = null; }
   const wasDashboardVisible = dashboardVisible(), wasPage = page;
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
@@ -450,7 +454,7 @@ function updateRow(button, pane) {
   markLine(button.querySelector(".row-status"), paneActivity(pane), pane);
   const sessionChip = button.querySelector(".session-chip");
   const session = sessionOf(pane);
-  sessionChip.hidden = sort !== "updated" || !session; // a session label already says it
+  sessionChip.hidden = sort !== "updated" && !shared || !session; // a session label already says it
   text(sessionChip, session);
   sessionChip.title = session ? `Session: ${session}` : "";
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
@@ -527,8 +531,10 @@ function renderList() {
 }
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
+// Picking a pane for a shared link (boot) is the exception: Needs you first, as the sidebar has
+// it, then the newest, whatever the saved sort.
 function renderPhoneList(subset, query) {
-  const rows = sort === "updated" ? subset.sort(newestFirst) : oneSession() ? subset
+  const rows = sort === "updated" || shared ? subset.sort((a, b) => (shared ? needsYou(b) - needsYou(a) : 0) || newestFirst(a, b)) : oneSession() ? subset
     // Sessions as the watcher lists them: tmux's own order.
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   // A card for answers to tap: a question's, or a finished turn's offers.
@@ -2889,7 +2895,14 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) away
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
+// A link shared to the app, by Android's share sheet (the manifest's share_target) or an iOS
+// Shortcut opening /m?url=…: the list is the picker, and route() hands it to the pane picked.
+// A draft link holds 500 characters (url-state.js linkDraft): a longer one is refused, not cut.
+const sharing = new URLSearchParams(location.search), link = sharing.get("url") || sharing.get("text") || sharing.get("title");
+if (link) history.replaceState(null, "", location.pathname + location.hash);
 fitViewport(); route(); startState();
+if (link?.length > 500) notice("That link is too long for a draft (over 500 characters). Copy and paste it instead.");
+else if (link) { notice(`Pick a pane for ${link.length > 80 ? `${link.slice(0, 80)}…` : link}`, 0, ["Cancel", renderList]); shared = link; }
 setupPush($("push"), notice, licon("bell"));
 // A chat Open button offered within the launch grace may name a window too new for
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
@@ -2899,7 +2912,7 @@ const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, o
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {
-  return [...drafts.values(), ...renderSidebar.drafts.values(), ...viewerDrafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+  return !!shared || [...drafts.values(), ...renderSidebar.drafts.values(), ...viewerDrafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
 }
 function observeVersion(version) {
   if (typeof version !== "string" || !version) return;
