@@ -47,19 +47,37 @@ summary { cursor: pointer; }
 .bug { --c: #f50057; }
 :is(.example, .important) { --c: #7c4dff; }
 :is(.quote, .cite) { --c: #9e9e9e; }
-</style></head><body>
+</style>
+<script>
+// In <head>, so no raw HTML in the body (an unclosed <title> swallows the rest) can stop it.
+// Sandboxed like every /scratch/ page, so no localStorage: the app's theme when it frames the
+// page and says so, else the system's, light unless it asks for dark.
+const root = document.documentElement;
+root.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);
+addEventListener("message", (e) => {
+  if (e.source !== parent || typeof e.data?.light !== "boolean" || e.data.light === root.classList.contains("light")) return;
+  root.classList.toggle("light", e.data.light);
+  window.drawMermaid?.(); // its diagrams are drawn in one theme
+});
+</script></head><body>
 <nav><button type="button" data-copy="markdown">Copy Markdown</button><button type="button" data-copy="formatted">Copy formatted</button><a href="?raw">Source</a></nav>
 <article><!--body--></article>
 <textarea hidden><!--source--></textarea>
 <!--mermaid-->
 <script>
-// Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
-const light = matchMedia("(prefers-color-scheme: light)").matches;
-document.documentElement.classList.toggle("light", light);
-if (window.mermaid?.initialize) { // a "Mermaid" heading alone is window.mermaid too
-  mermaid.initialize({ startOnLoad: false, theme: light ? "default" : "dark" });
-  mermaid.run();
+// Drawn from their sources each time, so a theme the app sends later redraws them in it,
+// one draw after another: a reset under a draw still running would feed it its own SVG.
+const diagrams = [...document.querySelectorAll("pre.mermaid")].map((pre) => [pre, pre.textContent]);
+let drawing = Promise.resolve();
+function drawMermaid() {
+  if (!window.mermaid?.initialize) return; // a "Mermaid" heading alone is window.mermaid too
+  drawing = drawing.then(() => {
+    mermaid.initialize({ startOnLoad: false, theme: root.classList.contains("light") ? "default" : "dark" });
+    for (const [pre, source] of diagrams) { pre.removeAttribute("data-processed"); pre.textContent = source; }
+    return mermaid.run();
+  }).catch(() => {}); // a diagram that fails to parse shows its own error; the next draw still runs
 }
+drawMermaid();
 const article = document.querySelector("article");
 const copy = async (data) => {
   try {
