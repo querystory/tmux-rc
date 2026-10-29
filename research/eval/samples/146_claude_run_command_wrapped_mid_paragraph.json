@@ -1,0 +1,17 @@
+{
+  "description": "Synthetic: a finished auto-mode turn says \"If you want them added on GitHub, run:\" and hands over a `! gh pr edit` command the narrow screen wraps onto five rows, with a caveat sentence on the very next row and a closing paragraph after. The whole command, rows joined and `!` kept, is the offer.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ ping the reviewers for the new PRs\n\n● Auto-merge is on for #812 and #813. Each needs\n  one approval; CI is green on both.\n\n  I pinged Rina and Omar in the #release thread.\n\n  The auto-mode classifier blocked adding them as\n  GitHub reviewers, so #812 and #813 still have\n  no requested reviewer. If you want them added\n  on GitHub, run:\n  ! gh pr edit 812 -R acme/infra --add-reviewer\n  rina-k,omar-d; gh pr edit 813 -R acme/infra\n  --add-reviewer rina-k,omar-d; gh pr edit 77 -R\n  acme/app --add-reviewer omar-d\n  I'm assuming rina-k is Rina's GitHub login; I\n  haven't confirmed that.\n\n  The hourly loop is still running and will pick\n  up merges.\n\n✻ Cooked for 1m 12s · done 9:40 AM\n──────────────────────── demo ─\n❯ ⟪placeholder⟫Cut the release⟪/placeholder⟫\n──────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | dev@example.com\n  ⏵⏵ auto mode on · 1 shell · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Reviewers pinged on Slack; adding them on GitHub is left to the user",
+    "offers": [
+      "! gh pr edit 812 -R acme/infra --add-reviewer rina-k,omar-d; gh pr edit 813 -R acme/infra --add-reviewer rina-k,omar-d; gh pr edit 77 -R acme/app --add-reviewer omar-d"
+    ]
+  }
+}

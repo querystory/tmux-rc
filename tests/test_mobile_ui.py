@@ -292,10 +292,14 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     app, side = (root / "app.js").read_text(), (root / "sidebar.js").read_text()
     assert ("answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, "
             "compose") in app
-    assert 'reconcile($("options"), answerOptions(question)' in app
+    # One answerOptions(question, pane) feeds both: a question's answers, then the finished turn's
+    # reply offers as pills; the mono Send it row is only for "! command" offers.
+    assert "options = answerOptions(question, pane);" in app
+    assert 'reconcile($("options"), options,' in app
+    assert "ctx.answers(needsYou(p) ? p.question : null, p)" in side
     assert 'compose(active, $("secret").hidden ? draft() : $("secret"))' in app
     assert "await ctx.compose(id, value)" in side
-    assert "ctx.answer(node._p.pane_id, o.option, o.index, !!o.part)" in side
+    assert "ctx.answer(node._p.pane_id, o.option, o.index, !!o.part || !!o.offer)" in side
     # An offer is sent by the same path, from the card and the list, never via the composer.
     assert "send.onclick = () => answer(active, node._offer, -1, true);" in app
     assert "takeOffer" not in app + side
