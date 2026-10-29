@@ -2189,7 +2189,7 @@ async def _compose(pane_id: str, request: Request):
             (min(int(shot[1]), 2000), min(int(shot[2]), 2000)), int(shot[3]), dark=bool(shot[4]))
         png, height, full = drawn or (None, 0, 0)
         cut = [f" (screenshot cut at {height} of {full} px) "] if full > height else []
-        segments[:0] = [line, *([(png, _stage_image(png, "image/png")), *cut] if png else [])]
+        segments[:0] = [line, *([(png, _stage_file(png, "image/png")), *cut] if png else [])]
     if secret:
         await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
     else:
