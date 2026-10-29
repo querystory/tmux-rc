@@ -997,7 +997,8 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         return None
     # An offered command ending the message hands it over, its own "?" or wrapped rows and
     # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
-    paragraphs = [" ".join(p.split()) for p in re.split(r"\n\s*\n", message.strip())]
+    blocks = re.split(r"\n\s*\n", message.strip())
+    paragraphs = [" ".join(p.split()) for p in blocks]
     # An offer as a whole word or command: "push" is not offered by "unpushed".
     offered = "|".join(rf"(?<!\w){re.escape(' '.join(o.split()))}(?!\w)" for o in offers)
     paragraph = paragraphs[-1]
@@ -1009,11 +1010,13 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         paragraph = next((p for p in reversed(paragraphs)
                           if offered and re.search(offered, p)), None)
         if paragraph is None:
-            handoff = next((i for i in reversed(range(len(lines)))
-                            if lines[i].startswith("! ")), None)
+            # A `! command` row hands over its whole paragraph (a narrow pane wraps the
+            # command over several rows) with the one leading into it.
+            handoff = next((i for i in reversed(range(len(blocks)))
+                            if _BASH_ROW_RE.search(blocks[i])), None)
             if handoff is None:
                 return None
-            paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
+            paragraph = " ".join(paragraphs[max(handoff - 1, 0):handoff + 1])
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 

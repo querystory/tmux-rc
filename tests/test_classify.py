@@ -1,6 +1,8 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
+import textwrap
+
 import pytest
 
 from openbus import classify as classify_mod
@@ -1325,6 +1327,23 @@ def test_handoff_in_a_barred_transcript_is_the_agents_words_with_no_buttons():
     q = classify(_pane("claude"), asking, _llm({}), replies_fn=replies)["question"]
     assert q["prompt"].endswith("Shall I watch CI?")
     assert q["options"] == ["Yes, proceed", "No, cancel"]
+
+
+def test_wrapped_handoff_is_read_whole_with_its_lead_in():
+    # A narrow pane wraps a handed-over `! command` over several rows. Offered, it is one
+    # Send it; not offered, the handoff is still the whole command with the paragraph that
+    # leads into it, never its first row glued to the row above.
+    command = ("! u=dana; for k in $(acme iam list-keys --user $u --output text); do acme iam "
+               "delete-key --user $u --key-id $k; done; acme iam delete-user --user $u")
+    lead = "Run it with the ! prefix, since the classifier blocks me from deleting it:"
+    rows = textwrap.wrap(command, 46, break_long_words=False, break_on_hyphens=False)
+    screen = _auto_screen(f"{lead}\n\n  " + "\n  ".join(rows) + "\n\n  Tell me when it's done.")
+    result = classify(_pane("claude"), screen, _llm({"offers": [command]}))
+    assert result["offers"] == [command] and result["question"]["prompt"] == command
+    result = classify(_pane("claude"), screen, _llm({}))
+    assert "offers" not in result and result["waiting_on"] == "user"
+    assert result["question"] == {"prompt": f"{lead} {command}", "answer_style": "text",
+                                  "options": []}
 
 
 def test_status_entries_drop_what_has_its_own_chip():
