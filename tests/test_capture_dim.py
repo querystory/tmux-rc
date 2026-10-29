@@ -129,6 +129,16 @@ def test_placeholder_inside_dim_box_border_marked():
                              "⟪/placeholder⟫⟪dim⟫  \n────⟪/dim⟫\n  status")
 
 
+def test_picker_highlighted_row_number_is_not_placeholder():
+    # Claude Code's AskUserQuestion draws only the highlighted row's "1." gray, then its
+    # label in color: an option's number, not a suggestion. Marked as one, _visible
+    # dropped "1." and the menu lost its buttons and its first option; marked dim, the
+    # parser read the row as having no digit and the menu as a cursor list.
+    raw = ("\x1b[38;5;153m❯\x1b[39m \x1b[38;5;246m1.\x1b[39m \x1b[38;5;153mApple\x1b[39m\n"
+           "  \x1b[38;5;246m2.\x1b[39m Pear")
+    assert _capture(raw) == "❯ 1. Apple\n  ⟪dim⟫2.⟪/dim⟫ Pear"
+
+
 def test_real_typed_draft_after_prompt_is_not_placeholder():
     # Text the user actually typed renders near-white (231), not faint — it is NOT a
     # placeholder and stays unmarked, so the model can see the real pending draft.
