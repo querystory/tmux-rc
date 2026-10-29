@@ -1,0 +1,19 @@
+{
+  "description": "Synthetic: a finished auto-mode turn in a 50-column pane hands the user a long `! command` that the terminal wraps over seven rows, then reports, then asks for a go-ahead to push. The whole command, its wrapped rows joined, is one offer, the reply it waits for is another, and the question is the handoff, not a row fragment.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ Do everything to clean things up\n\n  Ran 3 shell commands\n\n● Most of the cleanup is done. The one thing left\n  for you is deleting the old dana IAM user. Run\n  it with the ! prefix, since the classifier\n  blocks me from deleting it:\n\n  ! u=dana; for k in $(acme iam list-keys --user\n  $u --query 'Keys[].Id' --output text); do acme\n  iam delete-key --user $u --key-id $k; done; acme\n  iam detach-policy --user $u --policy-arn\n  arn:acme:iam::acme:policy/FullModelAccess; acme\n  iam delete-user --user $u\n\n  Here is what I checked in the console, which is\n  now logged in as root:\n\n  - Old dana user: it has one inactive key, last\n    used in April, no console password, and only\n    FullModelAccess. Nothing in Terraform\n    references it, so deleting it won't cause\n    drift. The four per-person model-* users all\n    exist.\n  - Function AccessDenied: the audit log shows one\n    event in the last 30 days, a harmless\n    ListLayers call from the resource browser. I\n    couldn't reproduce the denials, so they were\n    probably older or from another region.\n  - Not checked: older activity by other\n    identities, since I only looked at root.\n\n  I'm leaving you logged in as root so that\n  command works. Tell me when it's done and I'll\n  log out. The secrets commit 7f3e2a1 is still\n  local, awaiting your go-ahead to push.\n\n✻ Brewed for 2m 36s · done 5:43 PM\n          ✔ Update installed · Restart to update\n──────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────\n  ~/src/acme | Sonnet 5.5 | dana@example.com …\n  session: +0/-0 lines · 8% ctx · 137h35m · $10…\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "model": "Sonnet 5.5",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Cleanup done; the user must delete the old IAM user and approve the push",
+    "offers": [
+      "! u=dana; for k in $(acme iam list-keys --user $u --query 'Keys[].Id' --output text); do acme iam delete-key --user $u --key-id $k; done; acme iam detach-policy --user $u --policy-arn arn:acme:iam::acme:policy/FullModelAccess; acme iam delete-user --user $u",
+      "push"
+    ]
+  }
+}

@@ -340,6 +340,7 @@ function route() {
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
   dropGesture();
+  if (drawer.open) settle(false); // a move the drawer did not make (the browser's own Back) must not carry it over the next screen
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, page } = state);
@@ -368,9 +369,7 @@ function route() {
   if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
   // Not into Restore: its first button is the Restore itself, which an Enter would press.
   if (page && !wasPage) { $("landing").scrollTop = 0; if (page !== "restore") $("dash-page").querySelector(".landing-head h2")?.focus({ preventScroll: true }); }
-  if (dashboardVisible() && !wasDashboardVisible) {
-    refreshHistory(true);
-  }
+  if (dashboardVisible() && !wasDashboardVisible) refreshHistory(); // every poll keeps it fresh; forced, the refetch rebuilt every chart on each visit
   if (active && changed) {
     const id = active;
     // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
@@ -415,7 +414,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText, linkPair,
+  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: (p) => offersOf(p).filter(isCommand), copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
@@ -972,9 +971,9 @@ function render() {
     pane?.agents ? `${pane.agents} agents` : ""].filter(Boolean);
   reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
   // The card holds a question's answers and a finished turn's offers alike.
-  const asking = !!pane?.question && needsYou(pane), offers = offersOf(pane);
-  show("question", asking || offers.length > 0);
-  const question = asking ? pane.question : null;
+  const asking = !!pane?.question && needsYou(pane), offers = offersOf(pane).filter(isCommand);
+  const question = asking ? pane.question : null, options = answerOptions(question, pane);
+  show("question", asking || offers.length > 0 || options.length > 0);
   text($("prompt"), question?.ask || question?.prompt || "");
   text($("question-items"), questionItems(question));
   // The widget's own rows, once and folded away: the restatement above is what to read.
@@ -987,15 +986,15 @@ function render() {
   $("question").classList.toggle("answered", !!answered);
   show("answer-status", !!answered);
   text($("answer-status"), answered?.note || "");
-  reconcile($("options"), answerOptions(question), (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
+  reconcile($("options"), options, (o) => `${active}:${question?.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
-    button.onclick = () => answer(active, button._option.option, button._option.index);
+    button.onclick = () => answer(active, button._option.option, button._option.index, !!button._option.offer);
     return button;
   }, (button, option) => {
     button._option = option; text(button, option.option); button.disabled = sending || !!answered;
     button.classList.toggle("picked", picked(pane, option));
   });
-  // An offer: its exact text once, folded to a row (a tap unfolds it), then Send it and Copy.
+  // A command offer: its exact text once, folded to a row (a tap unfolds it), then Send it and Copy.
   reconcile($("offers"), offers, (o) => `${active}:${o}`, () => {
     const node = document.createElement("div"); node.className = "offer";
     node.innerHTML = `<button type="button" class="offer-text" aria-expanded="false"><code></code>${licon("chevronDown", 16)}</button>
@@ -1631,9 +1630,15 @@ async function sendKeys(body, id = active) {
 // A question's tappable answers, for the pane's question card and the sidebar's Needs you
 // cards alike. The row the parser marks as the agent's own free-text field is left to the
 // composer (push.renderable_options reads the same mark).
-function answerOptions(question) {
-  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option, index }) => typeof option === "string" && option.trim() && index !== question.free_text);
+// A question's answers as pills, then the finished turn's reply offers ("push", "delete it")
+// not already among them: a reply is a pill (a tap sends it), while a `! command` offer is
+// the mono Send it row (isCommand). Either way an offer is shown once.
+function answerOptions(question, pane) {
+  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option, index }) => typeof option === "string" && option.trim() && index !== question.free_text);
+  const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  return [...options, ...offersOf(pane).filter((o) => !isCommand(o) && !options.some((x) => same(x.option, o))).map((option) => ({ option, index: -1, offer: true }))];
 }
+const isCommand = (offer) => offer.startsWith("! ");
 // What makes a question the same ask: its prompt, context, items and subject, and its options unless
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
 const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.subject, q?.answer_style === "cursor" ? null : q?.options]);
@@ -1650,7 +1655,7 @@ function isAnswered(pane) {
 // Whether option `o` is the tapped one: its row by text, since a walk renumbers the list,
 // and by index too where two rows share the text.
 function picked(pane, o) {
-  const pending = isAnswered(pane), named = answerOptions(pane.question).filter((x) => x.option === o.option);
+  const pending = isAnswered(pane), named = answerOptions(pane.question, pane).filter((x) => x.option === o.option);
   return pending?.option === o.option && (pending.index === o.index || named.length === 1);
 }
 function asks(pane) { return needsYou(pane) && !isAnswered(pane); }
@@ -1734,7 +1739,7 @@ async function compose(id, value) {
   const form = new FormData();
   if (secret) form.append("secret", sent);
   else for (const segment of sent) {
-    if (segment.file) form.append("image", segment.file);
+    if (segment.file) form.append("file", segment.file);
     else form.append("text", segment.text);
   }
   if (secret) value.value = "";
@@ -1776,9 +1781,9 @@ $("secret").oninput = updateComposer;
 // attach button and presses Enter gets their draft SENT (preventDefault eats the button
 // activation) instead of the key row or the file picker.
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
-bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
+bindAttach($("attach"), $("attach-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
+for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
 for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
@@ -1895,7 +1900,7 @@ addEventListener("touchmove", (e) => {
   if (!drag) return;
   const t = e.touches[0], dx = t.clientX - drag.x, dy = Math.abs(t.clientY - drag.y);
   if (!drag.live) {
-    if (dy > Math.abs(dx)) { if (dy > 10) drag = null; return; } // vertical: a scroll, not a drag
+    if (dy > Math.abs(dx)) { if (dy > 10) drag = edge = null; return; } // vertical: a scroll, not a drag, and not a Back either
     if (Math.abs(dx) < 10 || !drag.open && dx < 0) return;
     // From where it is, which may be partway through settling, read before .settling is dropped.
     const x = drawer.open && new DOMMatrix(getComputedStyle(drawer).transform).m41;
@@ -1911,20 +1916,71 @@ $("back").onclick = $("close-pane").onclick = () => navigate();
 // A phone's Back is also a swipe in from the left edge: it presses the Back of the pane, the
 // view or Scratch's viewer (whose left edge is kept for it; on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
-// Installed only: in a browser tab that edge is the browser's own Back, and both at once slide
-// two things in (☰ still opens the drawer there, and an open one still drags).
-let edge = null;
+// One owner per swipe: the edge is the browser's wherever it has a page to go back to (a tab,
+// or an installed app that says so), and there neither Back nor the drawer answers it, so the
+// two can never slide in together (☰ still opens the drawer, and an open one still drags);
+// ours only where the browser has nothing behind, and then the list's edge opens the drawer
+// and nothing else, decided once the drag commits.
+let edge = null, headingSwipe = null, headingClickUntil = 0;
+// The view under the bar rides with the finger: 1:1 up to the threshold, a third of the way past it
+// (and from the start where no session lies that way), capped. Let go past it, the view slides out and
+// the next pane's slides in from the other side; short of it, or moved under, it springs back. The
+// overview and terminal move together, so the gesture reads the same in either view. Reduced motion just switches.
+const swept = [$("overview"), $("terminal")], shift = (x) => `translateX(${x}px)`;
+const swipeTarget = (swipe, dx) => { const index = swipe.ids.indexOf(active), id = index >= 0 && swipe.ids[index + (dx < 0 ? 1 : -1)]; return id && panes.some((p) => p.pane_id === id) && !ending.has(id) ? id : null; };
+let gliding = [], opening; // the last glide and the open it leads to, for the finger that takes the view back mid-way
+const glide = (frames, ms = 180) => { gliding = swept.map((v) => { v.style.transform = ""; return v.animate(frames, { duration: still.matches ? 0 : ms }); }); };
+const settleSwipe = () => { if (headingSwipe?.live) glide([{ transform: shift(headingSwipe.at), easing: "ease-out" }, { transform: "none" }]); headingSwipe = null; };
 addEventListener("touchstart", (e) => {
+  settleSwipe(); // a second finger cancels session navigation
+  headingClickUntil = 0; // a fresh touch is intentional, even just after a swipe
   if (drag?.live) return; // a second finger: the drag stays the first one's
   const t = e.touches[0], scrolled = (n) => n instanceof Element && (n.scrollLeft > 0 || scrolled(n.parentNode));
-  edge = standalone() && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+  // The bar and the title below it are both header space. Keep the screen edges for
+  // browser/PWA Back, and leave open menus and sheets to their own gestures.
+  if (!WIDE.matches && active && e.touches.length === 1 && t.clientX >= 20 && t.clientX < innerWidth - 20 && e.target.closest("#heading, .pane-heading-text") && !document.querySelector("dialog[open], #pane-menu[open]")) {
+    headingSwipe = { x: t.clientX, y: t.clientY, at: 0, href: location.href, live: false,
+      ids: [...$("pane-list").children].filter((n) => n._p && !ending.has(n._p.pane_id)).map((n) => n._p.pane_id) };
+  }
+  edge = standalone() && !globalThis.navigation?.canGoBack && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
   drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
 // A gesture the page moved under (a touchcancel, or a route() mid-swipe) springs back to where it began.
-const dropGesture = () => { edge = null; if (drag?.live) settle(drag.open); drag = null; };
+const dropGesture = () => { settleSwipe(); edge = null; if (drag?.live) settle(drag.open); drag = null; };
 addEventListener("touchcancel", dropGesture);
+addEventListener("touchmove", (e) => {
+  if (!headingSwipe) return;
+  const t = e.touches[0], dx = t.clientX - headingSwipe.x, ax = Math.abs(dx), dy = Math.abs(t.clientY - headingSwipe.y);
+  if (!headingSwipe.live) {
+    if (Math.max(ax, dy) < 10) return;
+    if (ax <= dy * 2) { headingSwipe = null; return; } // vertical or diagonal: leave it to scrolling
+    headingSwipe.live = true;
+    for (const a of gliding) a.cancel(); clearTimeout(opening); // a glide still running would hold the view against the finger, and its open would take it away
+  }
+  e.preventDefault(); // a horizontal header swipe must not pan the page or tap a control
+  headingClickUntil = performance.now() + 500;
+  const free = swipeTarget(headingSwipe, dx) ? 60 : 0;
+  headingSwipe.at = Math.sign(dx) * Math.min(120, Math.min(ax, free) + Math.max(0, ax - free) / 3);
+  for (const v of swept) v.style.transform = shift(headingSwipe.at);
+}, { passive: false });
+addEventListener("click", (e) => {
+  if (e.detail && performance.now() < headingClickUntil && e.target.closest("#heading, .pane-heading-text")) { e.preventDefault(); e.stopImmediatePropagation(); }
+}, { capture: true });
 addEventListener("touchend", (e) => {
-  const t = e.changedTouches[0], dx = edge && t.clientX - edge.x;
+  const swipe = headingSwipe, t = e.changedTouches[0], sdx = swipe ? t.clientX - swipe.x : 0;
+  const past = swipe && !WIDE.matches && !e.touches.length && location.href === swipe.href && Math.abs(sdx) > 60 && Math.abs(t.clientY - swipe.y) < Math.abs(sdx) / 2;
+  if (past) headingClickUntil = performance.now() + 500;
+  const id = past && swipeTarget(swipe, sdx);
+  if (id) {
+    headingSwipe = null;
+    // Out the way the finger went, in from the other side: the two meet unseen at opacity 0, where the
+    // next pane is opened (the timer and the keyframes agree at 80ms, each segment eased on its own) if
+    // nothing moved meanwhile: a Back landing first, or the pane going, must not be covered by it.
+    const out = Math.sign(sdx) * innerWidth;
+    glide([{ transform: shift(swipe.at), opacity: 1, easing: "ease-in" }, { transform: shift(out), opacity: 0, offset: .4 }, { transform: shift(-out), opacity: 0, offset: .4, easing: "ease-out" }, { transform: "none", opacity: 1 }], 200);
+    opening = setTimeout(() => { const to = location.href === swipe.href && !WIDE.matches && swipeTarget(swipe, sdx); if (to) navigate(to, view); }, still.matches ? 0 : 80);
+  } else settleSwipe();
+  const dx = edge && t.clientX - edge.x;
   if (drag?.live && e.timeStamp - drag.t > 100) drag.v = 0; // held before letting go: no flick
   if (drag?.live) settle(drag.v > .5 || drag.v > -.5 && drag.pos > -drawer.offsetWidth * (drag.open ? 1 : 2) / 3);
   else if (dx > 60 && Math.abs(t.clientY - edge.y) < dx / 2 && location.href === edge.href) (viewer.open ? $("close-viewer") : active ? $("back") : page && $("dash-page").querySelector('[data-key="page-back"]'))?.click();
@@ -2398,10 +2454,10 @@ function placeChrome() {
 // Plan usage follows none of them: it charts its own pick of accounts (usage-view.js), so its
 // head holds that pick's button instead, the one funnel there, and wide it sits by the range.
 function placePill() {
-  const card = !WIDE.matches && CARDS[page] && $("dash-page").querySelector(":scope > .landing-head"), dash = !WIDE.matches && dashboard;
-  const own = page === "usage" && (usageView._filter ||= usageView.querySelector(".uv-filter")), to = own && (card || usageView.firstChild), head = !own && card;
+  const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head"), dash = phone && dashboard;
+  const own = page === "usage" && (usageView._filter ||= usageView.querySelector(".uv-filter")), to = own && (bar || usageView.firstChild), head = !own && CARDS[page] && bar;
   if (own && own.parentElement !== to) to.append(own); // held by the view: another view drops the head it sat in
-  const picker = renderSidebar.picker, at = head ? picker : dash ? document.querySelector(".app-header") : $("find");
+  const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
   if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
@@ -2430,6 +2486,41 @@ const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button")
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
+// Rename: the pane's own name (kept in tmux; it beats the title its agent sets, and empty
+// gives that back) and its tmux session's, both of which go stale as the work moves on.
+// No "name" in its fields' ids or labels: iOS takes such a field for a person's and offers a contact.
+html($("rename-pane"), `${licon("pencil", 18)}<span>Rename…</span>`);
+$("close-rename").onclick = () => $("rename-dialog").close();
+let renaming; // the pane the sheet opened for: a newer one under its %N is refused (birth)
+$("rename-pane").onclick = () => {
+  closePaneMenu();
+  // A save still pending owns the sheet: it reopens as it was left, and that save's answer closes it.
+  if ($("rename-save").disabled) return $("rename-dialog").showModal();
+  renaming = panes.find((p) => p.pane_id === active);
+  if (!renaming) return;
+  // defaultValue is what "unchanged" means: a session's own odd name is never sent back as is.
+  $("pane-label").value = $("pane-label").defaultValue = renaming.name || "";
+  $("pane-label").placeholder = renaming.name ? "" : paneName(renaming);
+  $("session-label").value = $("session-label").defaultValue = renaming.session || "";
+  text($("rename-error"), "");
+  $("rename-dialog").showModal();
+  $("pane-label").select();
+};
+// What the daemon takes for a session name (server.py RenameBody, which refuses anything else with a 422).
+const SESSION_HINT = "A session name is letters, digits, spaces, _ and -, starting with a letter or digit.";
+$("rename-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const body = { birth: renaming.birth ?? "", was: renaming.session || "" };
+  for (const [key, id] of [["name", "pane-label"], ["session", "session-label"]]) if ($(id).value !== $(id).defaultValue) body[key] = $(id).value;
+  if (!("name" in body || "session" in body)) return $("rename-dialog").close();
+  $("rename-save").disabled = true;
+  try {
+    await post(paneUrl(renaming.pane_id, "rename"), body);
+    $("rename-dialog").close(); // the daemon wakes its watcher: the next poll shows the new name
+  } catch (error) {
+    text($("rename-error"), error.status === 422 && "session" in body ? SESSION_HINT : `Could not rename: ${error.detail || error.message}`);
+  } finally { $("rename-save").disabled = false; }
+};
 // `birth` is the incarnation the menu or sheet was drawn for: a newer pane under its %N is refused.
 async function killWindow(pane, birth) {
   if (!pane || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;

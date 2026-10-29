@@ -1,0 +1,19 @@
+{
+  "description": "Synthetic: a finished auto-mode turn asks for two replies, \"push\" mid-message above a long draft and \"send it\" at its end. The whole message decides: both replies are offers and the pane needs the user. The draft is paste-worthy, so a copyable is expected too.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ write up the outage for the team\n\n● The storage outage is over: uploads have worked\n  since 14:10 UTC. Two things to decide, then a\n  draft for #team.\n  - PRs: #61 (alerting) and #62 (retry limits) are\n    still unpushed. Say \"push\" and I'll push them\n    and request reviews.\n  - Status page: I haven't checked it, so the draft\n    says it is still open.\n  Draft for #team (not posted):\n  ---\n  Uploads are back\n  Uploads failed for about two hours this morning\n  because the bucket's quota was hit. We raised\n  the quota and added an alert at 80%.\n  What you need to do\n  1. Retry any upload that failed before 14:10.\n  2. Tell me if anything still fails.\n  What changed\n  - Quota alert at 80% (#61).\n  - Upload retries capped at five (#62).\n  ---\n  Say \"send it\" when the draft is right.\n\n✻ Cogitated for 38s · done 3:02 PM\n          ✔ Update installed · Restart to update\n──────────────────────── demo ─\n❯ ⟪placeholder⟫run the tests⟪/placeholder⟫\n──────────────────────────────────────────────────\n  ~/src/acme | Sonnet 5.5 | dev@example.com\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Outage write-up drafted; waiting for the go to push the PRs and post it",
+    "offers": [
+      "push",
+      "send it"
+    ],
+    "copyables": true
+  }
+}
