@@ -369,9 +369,7 @@ function route() {
   if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
   // Not into Restore: its first button is the Restore itself, which an Enter would press.
   if (page && !wasPage) { $("landing").scrollTop = 0; if (page !== "restore") $("dash-page").querySelector(".landing-head h2")?.focus({ preventScroll: true }); }
-  if (dashboardVisible() && !wasDashboardVisible) {
-    refreshHistory(true);
-  }
+  if (dashboardVisible() && !wasDashboardVisible) refreshHistory(); // every poll keeps it fresh; forced, the refetch rebuilt every chart on each visit
   if (active && changed) {
     const id = active;
     // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
@@ -1742,7 +1740,7 @@ async function compose(id, value) {
   const form = new FormData();
   if (secret) form.append("secret", sent);
   else for (const segment of sent) {
-    if (segment.file) form.append("image", segment.file);
+    if (segment.file) form.append("file", segment.file);
     else form.append("text", segment.text);
   }
   if (secret) value.value = "";
@@ -1784,7 +1782,7 @@ $("secret").oninput = updateComposer;
 // attach button and presses Enter gets their draft SENT (preventDefault eats the button
 // activation) instead of the key row or the file picker.
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
-bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
+bindAttach($("attach"), $("attach-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
