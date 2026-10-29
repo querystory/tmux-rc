@@ -984,10 +984,13 @@ def screen_offers(offers: object, text: str) -> list[str]:
     return [o for o in kept if f"! {o}" not in kept][:3]  # the command, not its plain copy too
 
 
-def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict | None:
+def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting: bool = False,
+               ) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run on a row of its own, or anything the message offers."""
+    `! command` handed over to run on a row of its own, or anything the message offers, or
+    (`waiting`: the model read the turn as waiting on the user without quoting its ask) the
+    closing paragraph, so the wait has something to answer."""
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
@@ -997,23 +1000,28 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str]) -> dict
         return None
     # An offered command ending the message hands it over, its own "?" or wrapped rows and
     # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
-    paragraphs = [" ".join(p.split()) for p in re.split(r"\n\s*\n", message.strip())]
+    blocks = re.split(r"\n\s*\n", message.strip())
+    paragraphs = [" ".join(p.split()) for p in blocks]
     # An offer as a whole word or command: "push" is not offered by "unpushed".
     offered = "|".join(rf"(?<!\w){re.escape(' '.join(o.split()))}(?!\w)" for o in offers)
     paragraph = paragraphs[-1]
     if not (offered and re.search(rf"(?:{offered})\Z", paragraph)):
-        paragraph = _final_paragraph(message)
-        if paragraph.rstrip("*_\"'`)").endswith("?"):
-            return {"prompt": paragraph, "answer_style": "text"}
+        closing = _final_paragraph(message)
+        if closing.rstrip("*_\"'`)").endswith("?"):
+            return {"prompt": closing, "answer_style": "text"}
         # An offer elsewhere (a command, a reply asked for): the paragraph holding it.
         paragraph = next((p for p in reversed(paragraphs)
                           if offered and re.search(offered, p)), None)
         if paragraph is None:
-            handoff = next((i for i in reversed(range(len(lines)))
-                            if lines[i].startswith("! ")), None)
-            if handoff is None:
-                return None
-            paragraph = " ".join(lines[max(handoff - 1, 0):handoff + 1])
+            # A `! command` row hands over its whole paragraph (a narrow pane wraps the
+            # command over several rows) with the one leading into it, each row's own
+            # spacing kept ('a  b' is the command's).
+            handoff = next((i for i in reversed(range(len(blocks)))
+                            if _BASH_ROW_RE.search(blocks[i])), None)
+            if handoff is None:  # the closing paragraph the model read as waiting on the user
+                return {"prompt": closing, "answer_style": "text"} if waiting else None
+            paragraph = " ".join(row.strip() for block in blocks[max(handoff - 1, 0):handoff + 1]
+                                 for row in block.splitlines() if row.strip())
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 
@@ -1431,7 +1439,11 @@ def classify(
     final = not spent and tool in _TURN_ERROR_RE and _final_message(view, tool)
     if (offers := screen_offers(result.pop("offers", None), text)) and not spent:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
-    if final and (ask := _final_ask(visible, tool, final, offers)):
+    # The model's own read of this screen (not an activity carried over a failed parse) that
+    # the turn waits on the user, where no question of its own survived grounding.
+    waiting = ("parse_ok" not in result and not result.get("question")
+               and result.get("activity") == "waiting" and result.get("waiting_on") != "external")
+    if final and (ask := _final_ask(visible, tool, final, offers, waiting)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         own = _same_question(result.get("question"), ask)

@@ -1,6 +1,8 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
+import textwrap
+
 import pytest
 
 from openbus import classify as classify_mod
@@ -1325,6 +1327,51 @@ def test_handoff_in_a_barred_transcript_is_the_agents_words_with_no_buttons():
     q = classify(_pane("claude"), asking, _llm({}), replies_fn=replies)["question"]
     assert q["prompt"].endswith("Shall I watch CI?")
     assert q["options"] == ["Yes, proceed", "No, cancel"]
+
+
+def test_wrapped_handoff_is_read_whole_with_its_lead_in():
+    # A narrow pane wraps a handed-over `! command` over several rows. Offered, it is one
+    # Send it; not offered, the handoff is still the whole command with the paragraph that
+    # leads into it, never its first row glued to the row above.
+    command = ("! u=dana; for k in $(acme iam list-keys --user $u --output text); do acme iam "
+               "delete-key --user $u --key-id $k; done; acme iam delete-user --user $u")
+    lead = "Run it with the ! prefix, since the classifier blocks me from deleting it:"
+    rows = textwrap.wrap(command, 46, break_long_words=False, break_on_hyphens=False)
+    screen = _auto_screen(f"{lead}\n\n  " + "\n  ".join(rows) + "\n\n  Tell me when it's done.")
+    result = classify(_pane("claude"), screen, _llm({"offers": [command]}))
+    assert result["offers"] == [command] and result["question"]["prompt"] == command
+    result = classify(_pane("claude"), screen, _llm({}))
+    assert "offers" not in result and result["waiting_on"] == "user"
+    assert result["question"] == {"prompt": f"{lead} {command}", "answer_style": "text",
+                                  "options": []}
+    spaced = _auto_screen("Run this yourself:\n\n  ! printf '%s' 'a  b'")  # its own spacing
+    assert classify(_pane("claude"), spaced, _llm({}))["question"]["prompt"] == (
+        "Run this yourself: ! printf '%s' 'a  b'")
+
+
+def test_a_turn_read_as_waiting_asks_with_its_closing_paragraph():
+    # The model reads the finished turn as waiting on the user but quotes no ask, and its
+    # offer is the greyed suggestion in the empty box (nobody's words): the closing paragraph
+    # is the ask, with reply buttons, and the suggestion is no offer. Read idle, nothing asks.
+    closing = "The commit is still local, waiting for your go-ahead to push."
+    screen = _auto_screen(f"The old user is deleted.\n\n  {closing}").replace(
+        "\n❯\n", "\n❯ ⟪placeholder⟫push it⟪/placeholder⟫\n")
+    replies = lambda _s, _q: {"options": ["Push it", "Hold off"]}  # noqa: E731
+    model = {"activity": "waiting", "waiting_on": "user", "offers": ["push it"]}
+    result = classify(_pane("claude"), screen, _llm(model), replies_fn=replies)
+    assert "offers" not in result and result["waiting_on"] == "user"
+    assert result["question"] == {"prompt": closing, "answer_style": "text",
+                                  "options": ["Push it", "Hold off"]}
+    assert "question" not in classify(_pane("claude"), screen, _llm({"activity": "idle"}))
+    # A question the model quoted stands over the closing report; a failed parse carrying
+    # the last card's "waiting" forward reads nothing off the screen, and is still retried.
+    asked = "Tell me which region to deploy to."
+    two = _auto_screen(f"{asked}\n\n  The build is ready and all checks passed.")
+    model = {"activity": "waiting", "waiting_on": "user",
+             "question": {"prompt": asked, "answer_style": "text", "options": ["eu", "us"]}}
+    assert classify(_pane("claude"), two, _llm(model))["question"]["prompt"] == asked
+    failed = classify(_pane("claude"), screen, lambda _s, _t: None, prev_activity="waiting")
+    assert "question" not in failed and failed["parse_ok"] is False
 
 
 def test_status_entries_drop_what_has_its_own_chip():
