@@ -1,0 +1,13 @@
+{
+  "description": "Synthetic: an auto-mode turn that ended asking whether to merge, then the plan's usage limit hit on the next request, with the limit notice in the footer and a frozen sub-agent row. The question is old: the agent is halted until the reset, so the pane is quota_blocked, not Needs you, and no agent counts as running.",
+  "current_command": "node",
+  "capture": "● Five of the six planned PRs (#56–#60) are green and ready to merge; #61 still needs the tide\n  legend. Want me to merge the five now and keep going on #61?\n\n✻ Worked for 12m · done 1:02 PM · 2 shells still running\n\n● Usage limit reached again · continuing automatically at 5:10pm · esc to cancel\n  ⎿  You've hit your session limit · resets 5:10pm (Europe/Oslo)\n\n✻ Cooked for 1s · done 3:18 PM · 2 shells still running\n────────────────────────────────────────────────────────────────────── harbor-maps ──\n❯ \n────────────────────────────────────────────────────────────────────────────────\n  ⚠ Usage limit reached · limit resets 5:10pm · clau.de/wrap-up\n    Continuing automatically at 5:10pm · esc to cancel\n  ~/src/harbor-maps on feat/tide-layer | Opus 5.5 | session: +2103/-263 lines · 37% ctx · 53h41m\n  ⏵⏵ auto mode on · PR #61 · 2 shells · ← for agents\n\n  ● main\n  ○ general-purpose  In… 1m 23s · ↓ 67.0k tokens",
+  "expected": {
+    "tool": "claude",
+    "activity": "quota_blocked",
+    "resets": "5:10pm",
+    "agents": 0,
+    "question": null,
+    "headline": "Usage limit reached; continues automatically at 5:10pm"
+  }
+}

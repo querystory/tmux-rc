@@ -72,7 +72,7 @@ export function atlasCharts() {
 // Which states the fleet charts stack. One object for every chart, so hiding Idle in the
 // split hides it on the dashboard too.
 export const shownStates = { Idle: false };
-const ORDER = [1, 4, 0, 5, 2, 3]; // Running at the bottom, idle at the top.
+const ORDER = [1, 4, 0, 5, 6, 2, 3]; // Running at the bottom, idle at the top.
 
 // ECharts puts the tooltip on <body>, and a touch has no mouseleave to close it: a tap outside
 // its chart or any scroll does, and so does the chart leaving the screen (see paint).
@@ -125,7 +125,7 @@ export function fleetChart(withAxis) {
     const label = t => rows.length && new Date(rows[0].t).toDateString() !== new Date(last.t).toDateString()
       ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
     el.setAttribute('aria-label', rows.length
-      ? `${unit} by state, ${label(rows[0].t)} to ${label(last.t)}. Latest: ${last.n ? states.map((s, i) => `${last.n[i]} ${s}`).join(', ') : 'no observation'}.${avg == null ? '' : ` ${average} average of Running: ${avg.toFixed(1)}.`}${goal ? ` Goal: ${goal}.` : ''}`
+      ? `${unit} by state, ${label(rows[0].t)} to ${label(last.t)}. Latest: ${last.n ? states.map((s, i) => `${last.n[i] ?? 0} ${s}`).join(', ') : 'no observation'}.${avg == null ? '' : ` ${average} average of Running: ${avg.toFixed(1)}.`}${goal ? ` Goal: ${goal}.` : ''}`
       : 'No observations yet.');
     chart.setOption({
       animation: false, textStyle: { color: muted, fontFamily: 'sans-serif' },

@@ -702,7 +702,8 @@ def _ground_visible_fields(
         result.pop("links", None)
         if retry and isinstance(retry.get("links"), list) and retry["links"]:
             result["links"] = retry["links"]
-        state_fields = ("activity", "waiting_on", "headline", "question", "rewind", "offers")
+        state_fields = ("activity", "waiting_on", "resets", "headline", "question", "rewind",
+                        "offers")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
         for key in state_fields:
@@ -931,12 +932,13 @@ def _parses(command: str) -> bool:
         return False
 
 
-def _quoted(text, visible: str) -> bool:
-    """Whether the model's quote of the screen is on it: its exact text, the terminal's
-    wraps allowed for (a wrap may fall at a space or inside a word) and the bars framing a
-    transcript row ignored."""
+def _quoted(text, visible: str, *, rows: bool = False) -> int:
+    """How often the model's quote of the screen is on it (0: it is not): its exact text,
+    the terminal's wraps allowed for (a wrap may fall at a space or inside a word) and the
+    bars framing a transcript row ignored. `rows`: the quote fills its rows, start to end,
+    and a blank row (or the screen's end) follows, so no wrapped remainder was left out."""
     if not isinstance(text, str) or not text.strip():
-        return False
+        return 0
     # One row break at most between two characters, never a blank row: a word may wrap
     # between any two of its letters, a single space is a space or a wrap, and a run of
     # spaces shows as is (a wrap there would hide its width).
@@ -945,7 +947,9 @@ def _quoted(text, visible: str) -> bool:
         (f"(?: |{wrap})" if part == " " else re.escape(part)) if part.isspace()
         else f"(?:{wrap})?".join(map(re.escape, part))
         for part in re.split(r"( +)", text.strip()))
-    return bool(re.search(exact, _FRAME_BARS_RE.sub("", visible)))
+    if rows:
+        exact = rf"^[ \t]*{exact}[ \t]*(?:\n[ \t]*$|\Z)"
+    return len(re.findall(exact, _FRAME_BARS_RE.sub("", visible), re.MULTILINE))
 
 
 def _invited(reply: str, view: str) -> bool:
@@ -977,19 +981,25 @@ def screen_offers(offers: object, text: str) -> list[str]:
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
-    a row break the model copied from a wrap is a space. A reply ("delete it" for "I'd
-    delete this job, unless you want to keep it") is the user's words, so it is on the
-    screen word by word rather than whole; a command is quoted whole."""
+    a row break the model copied from a wrap is a space. A command the screen hands over
+    as `! command`, alone on its rows and nowhere else on screen, keeps that `! ` even where
+    the model's copy dropped it: it is what makes Send it run the command rather than say
+    it to the agent. Any other sighting (an older turn, a reply to type) leaves it as is. A
+    reply ("delete it" for "I'd delete this job, unless you want to keep it") is the user's
+    words, so it is on the screen word by word rather than whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
+    whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", visible, rows=True)
+             and _quoted(o, visible) == 1 else o
+             for o in (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
+                       for o in listed if isinstance(o, str)))
     # A reply is the user's own words for the final message's ask ("merge PR #5144" for
     # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
     # `! command` the agent wrote without its "!" is on the screen as the command alone.
     shown = lambda o: _quoted(o, visible) or (  # noqa: E731
         o.startswith("! ") and _quoted(o[2:], visible)) or (
         not o.startswith("!") and _invited(o, visible))
-    kept = [o for o in dict.fromkeys(re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
-                                     for o in listed if isinstance(o, str))
+    kept = [o for o in dict.fromkeys(whole)
             if shown(o) and not (o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:])))]
     return [o for o in kept if f"! {o}" not in kept][:3]  # the command, not its plain copy too
 
@@ -1578,10 +1588,19 @@ def classify(
             result["waiting_on"] = "user"
     else:
         result.pop("waiting_on", None)
-    # Count only workers observed running; waiting/idle/unknown are not active work.
-    # Compacting has its own history state but still counts as busy in the dock.
+    # Likewise the reset time, which only a quota-blocked pane shows.
+    if result.get("activity") != "quota_blocked" or not isinstance(result.get("resets"), str):
+        result.pop("resets", None)
     if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
         _read_workflow_rows(result, visible)
+    # The model's quota read covers the workers too: they share the parent's limit, so a
+    # row still read as busy (a meter that only looks live, a workflow bar) is blocked too.
+    if result.get("activity") == "quota_blocked" and isinstance(result.get("subagents"), list):
+        for a in result["subagents"]:
+            if isinstance(a, dict) and a.get("state") in ("running", "compacting"):
+                a["state"] = "quota_blocked"
+    # Count only workers observed running; waiting/idle/unknown are not active work.
+    # Compacting has its own history state but still counts as busy in the dock.
     subs = result.get("subagents")
     result["agents"] = (
         sum(1 for a in subs if isinstance(a, dict) and a.get("state") in ("running", "compacting"))

@@ -41,7 +41,7 @@ const subsOf = p => Math.min(MAX_SUBS, subCount(p));
 const ACTIVE = { running: 1, compacting: 1, waiting: 1 };
 // A pane whose sub-agents are at work is not idle, whatever its own prompt shows: it is waiting on them.
 const paneState = p => { const s = stateOf(p); return (s === 2 || s === 3) && agent(p) && (subsList(p).some(a => ACTIVE[a.state]) || Number(p.agents) > 0) ? 5 : s; };
-const subState = a => a ? { running: 1, compacting: 4, waiting: 5 }[a.state] ?? 3 : 1; // one counted, not listed, is a busy one
+const subState = a => a ? { running: 1, compacting: 4, waiting: 5, quota_blocked: 6 }[a.state] ?? 3 : 1; // one counted, not listed, is a busy one
 // A path segment is its label, or [identity, label] where two hubs could share a label: two
 // clones on the same branch, two accounts given one name.
 // Where a pane sits: its repository (the daemon's worktree scan, /api/state's `worktree`) and
@@ -58,7 +58,7 @@ const PATHS = {
 // The app's tokens as the graph sees them: the dark canvas redefines them under it.
 function colors(box) {
   const cs = getComputedStyle(box), v = n => cs.getPropertyValue(n).trim();
-  return { s: [0, 1, 2, 3, 4, 5].map(i => v(`--chart-s${i}`)), acct: [0, 1, 2, 3, 4, 5].map(i => v(`--acct-${i}`)), fg: v('--fg'), muted: v('--muted'), line: v('--line'),
+  return { s: STATES.map((_, i) => v(`--chart-s${i}`)), acct: [0, 1, 2, 3, 4, 5].map(i => v(`--acct-${i}`)), fg: v('--fg'), muted: v('--muted'), line: v('--line'),
     surface: v('--surface'), amber: v('--amber'), accent: v('--accent'), font: cs.fontFamily, mono: v('--mono'), dark: v('color-scheme') !== 'light' }; // amber, accent: state colours safe for text
 }
 // Idle reads as a quiet grey ring, not the chart's near-invisible idle fill.
@@ -647,7 +647,7 @@ export function renderGraphView(root, panes, ctx) {
       stats.innerHTML = [['', new Set(list.map(p => p.session)).size, 'Sessions'], ['go', `${c[1] + c[4] + c[5]}<small>/${list.length}</small>`, 'Running'], [c[0] ? 'need' : '', c[0], 'Needs you'],
         ['opt', subs, 'Sub-agents'], ['', toks >= 1000 ? `${(toks / 1000).toFixed(toks >= 1e4 ? 0 : 1)}k` : toks, 'Tokens in flight'], ['', `$${spend.toFixed(spend >= 100 ? 0 : 2)}`, 'Cost'], ['opt', oldest ? since(oldest) || '–' : '–', 'Oldest pane']]
         .map(([cls, v, l]) => `<div class="${cls}"><b>${v}</b><span>${l}</span></div>`).join('');
-      legend.innerHTML = `<p>${LEGEND[lens]} Size and arc: context used.</p><div class="fg-key">${[1, 0, 2, 4, 5].map(i => `<span><i style="background:${i === 2 ? 'var(--muted)' : `var(--chart-s${i})`}"></i>${STATES[i]}</span>`).join('')}${
+      legend.innerHTML = `<p>${LEGEND[lens]} Size and arc: context used.</p><div class="fg-key">${[1, 0, 6, 2, 4, 5].map(i => `<span><i style="background:${i === 2 ? 'var(--muted)' : `var(--chart-s${i})`}"></i>${STATES[i]}</span>`).join('')}${
         ctx.several() ? '<span><i class="fg-acct-key"></i>account</span>' : ''}${lens === 'worktree' ? '<span><i class="fg-warn-key"></i>two agents, one checkout</span>' : ''}</div>`;
       // The callouts' buttons are kept and their words updated in place, so a poll mid-tap or under focus loses neither.
       const items = [need && ['need', 'Longest waiting', need, since(need) || 'now'], dear && ['', 'Most expensive', dear, dear.cost]].filter(Boolean), slots = call.lastChild;

@@ -23,6 +23,30 @@ def test_opaque_session_identifiers_are_not_titles():
         assert result["session"] == name
 
 
+def test_reset_time_rides_only_on_a_quota_blocked_pane():
+    blocked = {"tool": "claude", "activity": "quota_blocked", "resets": "2:10pm"}
+    assert classify(_pane("node"), "text", _llm(blocked))["resets"] == "2:10pm"
+    assert "resets" not in classify(_pane("node"), "text", _llm({**blocked, "activity": "idle"}))
+    worker = {"label": "Resize photos", "state": "running"}
+    r = classify(_pane("node"), "text", _llm({**blocked, "subagents": [worker]}))
+    assert (r["subagents"][0]["state"], r["agents"]) == ("quota_blocked", 0)  # it shares the limit
+
+
+def test_a_handed_over_command_keeps_its_bash_prefix():
+    screen = "● Run it yourself:\n\n  ! gh pr merge 7 --squash\n\n❯ "
+    offered = classify_mod.screen_offers(["gh pr merge 7 --squash", "ship it"], screen)
+    assert offered == ["! gh pr merge 7 --squash"]  # "ship it" is not on the screen
+    # Only a whole handed-over row: not part of one, prose punctuation, or shell negation.
+    for row, offer in (("! make deploy --dry-run", "make deploy"),
+                       ("Shipped! make tea", "make tea"),
+                       ("! make deploy\n    --dry-run", "make deploy"),  # its wrapped rest
+                       ("if ! grep -q x f; then echo y; fi", "grep -q x f")):
+        assert classify_mod.screen_offers([offer], f"● Then:\n\n  {row}\n\n❯ ") == [offer]
+    # An older turn's handoff does not turn this turn's reply into a command.
+    two_turns = "● Run it:\n\n  ! make tea\n\n❯ ok\n\n● Now reply with: make tea\n\n❯ "
+    assert classify_mod.screen_offers(["make tea"], two_turns) == ["make tea"]
+
+
 def _pane(cmd="bash", title="t"):
     return Pane("work", "0", "bash", "0", "%0", cmd, title, "/home/x/proj")
 
@@ -613,6 +637,9 @@ def test_workflow_row_is_read_from_the_agent_list():
     head, sep, block = screen.partition(" ●  main\n")  # the whole list quoted above the box
     assert "subagents" not in classify(_pane(), sep + block + "\n" + head, _llm({"tool": "claude"}))
     assert "subagents" not in classify(_pane(), screen, _llm({"tool": "shell"}))
+    # Under a quota-blocked parent the bar is frozen too: no worker of it counts as busy.
+    r = classify(_pane(), screen, _llm({"tool": "claude", "activity": "quota_blocked"}))
+    assert r["agents"] == 0 and {a["state"] for a in r["subagents"]} == {"quota_blocked"}
 
 
 def test_agents_count_defaults_zero_without_subagents():

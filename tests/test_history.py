@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 
-from openbus.history import BACKFILL_TTL, History, _extend, agent_counts, state_index
+from openbus.history import BACKFILL_TTL, History, _extend, agent_counts, state_index, sum_counts
 from scripts.backfill_history import reconstruct
 
 
@@ -23,8 +23,8 @@ def test_history_survives_restart_and_records_empty_inventory(tmp_path):
     h.record([pane(activity="idle")], "server", 620)
     h.record([], "server", 660)
     data = History(path).query("all", now=660)
-    assert data["samples"][0]["n"] == [0, 0, 1, 0, 0, 0]
-    assert data["samples"][-1]["n"] == [0, 0, 0, 0, 0, 0]
+    assert data["samples"][0]["n"] == [0, 0, 1, 0, 0, 0, 0]
+    assert data["samples"][-1]["n"] == [0, 0, 0, 0, 0, 0, 0]
     assert all(s["source"] == "daemon" for s in data["samples"])
 
 
@@ -33,7 +33,7 @@ def test_heartbeat_and_outage(tmp_path):
     h.record([pane()], "s", 600)
     h.record([pane()], "s", 660)
     data = h.query("all", now=1000)
-    assert data["samples"][2]["n"] == [0, 1, 0, 0, 0, 0]
+    assert data["samples"][2]["n"] == [0, 1, 0, 0, 0, 0, 0]
     assert data["samples"][-1]["n"] is None
     assert data["samples"][-1]["source"] == "gap"
 
@@ -44,12 +44,12 @@ def test_backfill_is_idempotent_expires_and_never_masks_live_outage(tmp_path):
     assert h.import_logs(rows) == 2
     assert h.import_logs(rows) == 0
     sample = h.query("all", now=700)["samples"][-1]
-    assert sample["n"] == [1, 1, 0, 0, 0, 0]
+    assert sample["n"] == [1, 1, 0, 0, 0, 0, 0]
     assert sample["source"] == "logs"
     assert sample["groups"][0]["session"] is None
     assert h.query("all", now=700 + BACKFILL_TTL)["samples"][-1]["n"] is None
     h.record([], "s", 720)
-    assert h.query("all", now=730)["samples"][-1]["n"] == [0, 0, 0, 0, 0, 0]
+    assert h.query("all", now=730)["samples"][-1]["n"] == [0, 0, 0, 0, 0, 0, 0]
     assert h.query("all", now=1000)["samples"][-1]["source"] == "gap"
 
 
@@ -61,30 +61,35 @@ def test_identity_and_dimensions_are_structural_only(tmp_path):
     assert "SECRET" not in payload
     assert json.loads(payload)["panes"][0]["uid"] == "boot:pid:%1:unknown"
     assert h.query(now=600)["samples"][-1]["groups"] == [
-        {"session": "new", "tool": "codex", "n": [0, 1, 0, 0, 0, 0],
-         "foreground": [0, 1, 0, 0, 0, 0], "background": [0, 0, 0, 0, 0, 0]},
+        {"session": "new", "tool": "codex", "n": [0, 1, 0, 0, 0, 0, 0],
+         "foreground": [0, 1, 0, 0, 0, 0, 0], "background": [0, 0, 0, 0, 0, 0, 0]},
     ]
 
 
 @pytest.mark.parametrize(("activity", "waiting_on", "expected"), [
     ("running", None, 1), ("waiting", "user", 0), ("waiting", "external", 5),
-    ("compacting", None, 4), ("idle", None, 2), ("nonsense", None, 3),
+    ("compacting", None, 4), ("idle", None, 2), ("nonsense", None, 3), ("quota_blocked", None, 6),
 ])
 def test_state_semantics(activity, waiting_on, expected):
     assert state_index({"activity": activity, "waiting_on": waiting_on}) == expected
 
 
+def test_rows_from_before_a_state_count_zero_for_it():
+    old, new = {"foreground": [0, 1, 0, 0, 0, 0]}, {"foreground": [0, 0, 0, 0, 0, 0, 1]}
+    assert sum_counts([old, new], "foreground") == [0, 1, 0, 0, 0, 0, 1]
+
+
 def test_chrome_agent_count_tops_up_a_short_roster():
     pane = {"tool": "omp", "activity": "running", "agents": 2,
             "subagents": [{"label": "a", "state": "running"}, {"label": "b", "state": "done"}]}
-    assert agent_counts(pane)["background"] == [0, 2, 0, 0, 0, 0]
+    assert agent_counts(pane)["background"] == [0, 2, 0, 0, 0, 0, 0]
 
 
 @pytest.mark.parametrize("tool", ["opencode", "omp"])
 def test_newer_agents_count_as_foreground(tool):
     assert agent_counts({"tool": tool, "activity": "idle"}) == {
-        "foreground": [0, 0, 1, 0, 0, 0],
-        "background": [0, 0, 0, 0, 0, 0],
+        "foreground": [0, 0, 1, 0, 0, 0, 0],
+        "background": [0, 0, 0, 0, 0, 0, 0],
     }
 
 
@@ -166,9 +171,9 @@ def test_watcher_publishes_full_inventory_to_history(tmp_path, monkeypatch):
     history = History(tmp_path / "h.db")
     watcher = Watcher(None, history=history)
     watcher._publish_states([pane()])
-    assert history.query()["samples"][-1]["n"] == [0, 1, 0, 0, 0, 0]
+    assert history.query()["samples"][-1]["n"] == [0, 1, 0, 0, 0, 0, 0]
     watcher._publish_states([])
-    assert history.query()["samples"][-1]["n"] == [0, 0, 0, 0, 0, 0]
+    assert history.query()["samples"][-1]["n"] == [0, 0, 0, 0, 0, 0, 0]
 
 
 def test_history_unavailable_is_explicit(monkeypatch):
@@ -218,7 +223,7 @@ def test_confirmed_absent_server_records_empty_inventory(tmp_path, monkeypatch):
     monkeypatch.setattr(tmux, "_run", absent)
     monkeypatch.setattr(tmux, "server_uid", lambda **_kwargs: "server")
     Watcher(None, history=history)._tick()
-    assert history.query()["samples"][-1]["n"] == [0, 0, 0, 0, 0, 0]
+    assert history.query()["samples"][-1]["n"] == [0, 0, 0, 0, 0, 0, 0]
 
 
 def test_foreign_history_database_does_not_prevent_startup(monkeypatch):
@@ -260,9 +265,9 @@ def test_log_state_never_crosses_verified_lifetime_end(tmp_path):
     h.import_logs([(600, "s:%1:100", "claude", 1, 660),
                    (720, "s:%1:101", "codex", 0, 900)])
     samples = h.query("all", now=800)["samples"]
-    assert samples[0]["n"] == [0, 1, 0, 0, 0, 0]
+    assert samples[0]["n"] == [0, 1, 0, 0, 0, 0, 0]
     assert samples[1]["n"] is None
-    assert samples[-1]["n"] == [1, 0, 0, 0, 0, 0]
+    assert samples[-1]["n"] == [1, 0, 0, 0, 0, 0, 0]
 
 
 def test_legacy_imports_retained_but_not_used_without_lifetime_proof(tmp_path):
@@ -318,7 +323,7 @@ def test_heartbeats_coalesce_without_losing_outages_or_state_changes(tmp_path):
         assert db.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 4
     samples = h.query("1h", now=88000)["samples"]
     assert any(s["source"] == "gap" for s in samples)
-    assert samples[-1]["n"] == [0, 1, 0, 0, 0, 0]
+    assert samples[-1]["n"] == [0, 1, 0, 0, 0, 0, 0]
 
 
 def test_legacy_snapshot_migration_preserves_history_and_gaps(tmp_path):
@@ -338,16 +343,16 @@ def test_legacy_snapshot_migration_preserves_history_and_gaps(tmp_path):
             ]
             assert db.execute("SELECT count(*) FROM inventory_payloads").fetchone()[0] == 2
         samples = h.query("all", now=1060)["samples"]
-        assert samples[0]["n"] == [0, 1, 0, 0, 0, 0]
+        assert samples[0]["n"] == [0, 1, 0, 0, 0, 0, 0]
         assert any(s["source"] == "gap" for s in samples)
-        assert samples[-1]["n"] == [0, 0, 0, 0, 0, 0]
+        assert samples[-1]["n"] == [0, 0, 0, 0, 0, 0, 0]
         assert samples[-1]["foreground"] is None
         assert samples[-1]["background"] is None
     # A newly measured empty fleet must not extend the legacy empty interval.
     h.record([], "s", 1120)
     samples = History(path).query("all", now=1120)["samples"]
     assert samples[-2]["background"] is None
-    assert samples[-1]["foreground"] == samples[-1]["background"] == [0] * 6
+    assert samples[-1]["foreground"] == samples[-1]["background"] == [0] * 7
 
 
 def test_verified_reimport_restores_legacy_row_without_overwriting_verified_data(tmp_path):
@@ -357,9 +362,9 @@ def test_verified_reimport_restores_legacy_row_without_overwriting_verified_data
     rows = [(600, "s:%1:10", "claude", 1, 900)]
     assert h.import_logs(rows) == 1
     assert h.import_logs(rows) == 0
-    assert h.query("all", now=600)["samples"][-1]["n"] == [0, 1, 0, 0, 0, 0]
+    assert h.query("all", now=600)["samples"][-1]["n"] == [0, 1, 0, 0, 0, 0, 0]
     assert h.import_logs([(600, "s:%1:10", "codex", 0, 999)]) == 0
-    assert h.query("all", now=600)["samples"][-1]["n"] == [0, 1, 0, 0, 0, 0]
+    assert h.query("all", now=600)["samples"][-1]["n"] == [0, 1, 0, 0, 0, 0, 0]
 
 
 def test_progressive_ui_inventory_is_not_persisted(tmp_path, monkeypatch):
@@ -374,7 +379,7 @@ def test_progressive_ui_inventory_is_not_persisted(tmp_path, monkeypatch):
     with history.connect() as db:
         assert db.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 0
     watcher._publish_states([pane()])
-    assert history.query()["samples"][-1]["n"] == [0, 1, 0, 0, 0, 0]
+    assert history.query()["samples"][-1]["n"] == [0, 1, 0, 0, 0, 0, 0]
 
 
 def test_historical_unknown_session_is_not_a_real_session_name(tmp_path):
@@ -411,14 +416,14 @@ def test_worker_states_exclude_shells_finished_workers_and_waiting_parents(tmp_p
               pane("%2", tool="shell", subagents=subs),
               pane("%3", activity="compacting")], "s", 600)
     sample = History(h.path).query(now=600)["samples"][-1]
-    assert sample["n"] == [0, 1, 0, 0, 1, 1]
-    assert sample["foreground"] == [0, 0, 0, 0, 1, 1]
-    assert sample["background"] == [0, 1, 1, 0, 1, 1]
+    assert sample["n"] == [0, 1, 0, 0, 1, 1, 0]
+    assert sample["foreground"] == [0, 0, 0, 0, 1, 1, 0]
+    assert sample["background"] == [0, 1, 1, 0, 1, 1, 0]
     shell = next(g for g in sample["groups"] if g["tool"] == "shell")
-    assert shell["foreground"] == shell["background"] == [0] * 6
+    assert shell["foreground"] == shell["background"] == [0] * 7
     h.record([pane(subagents=[{"state": "running"}])], "s", 660)
     h.record([pane(subagents=[{"state": "waiting"}])], "s", 661)
-    assert h.query(now=661)["samples"][-1]["background"] == [0, 0, 0, 0, 0, 1]
+    assert h.query(now=661)["samples"][-1]["background"] == [0, 0, 0, 0, 0, 1, 0]
     assert h.query(now=1000)["samples"][-1]["background"] is None
 
 
@@ -434,7 +439,7 @@ def test_old_history_does_not_invent_worker_counts(tmp_path):
     assert sample["background"] is None
     assert sample["groups"][0]["foreground"] is None
     h.record([], "s", 720)
-    assert h.query(now=720)["samples"][-1]["background"] == [0] * 6
+    assert h.query(now=720)["samples"][-1]["background"] == [0] * 7
 
 
 def test_log_constraint_upgrade_keeps_old_observations(tmp_path):
@@ -448,7 +453,7 @@ def test_log_constraint_upgrade_keeps_old_observations(tmp_path):
         db.execute("INSERT INTO log_observations VALUES (600, 'old', 'claude', 1, 900)")
     h = History(path)
     h.import_logs([(660, "new", "codex", 4, 900), (660, "waiting", "claude", 5, 900)])
-    assert h.query(now=660)["samples"][-1]["n"] == [0, 1, 0, 0, 1, 1]
+    assert h.query(now=660)["samples"][-1]["n"] == [0, 1, 0, 0, 1, 1, 0]
 
 
 def test_lead_extends_the_start_at_the_windows_bucket_size(tmp_path):
