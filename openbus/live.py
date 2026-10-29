@@ -238,8 +238,8 @@ def _labels(watcher) -> dict[str, str]:
 def _pane_name(d: dict, digest: list[dict] = ()) -> str:
     """A pane's user-facing identity as the phone's list row shows it: its name (paneName's
     rungs: the agent's own title, else the window label), its tool and its session chip,
-    `qs-app · codex in qs-app`. The prompt lists it and the model names it so, and the card
-    and Open button read the same as the reply above them. The window number (the row's
+    `example-app · codex in example-app`. The prompt lists it and the model names it so, and
+    the card and Open button read the same as the reply above them. The window number (the row's
     small print, "Window 7") is added only when another pane in `digest` reads the same, so
     two "tests" panes stay tellable apart. Splits of one window share even that, as their
     rows do; the card's Open button shows which, and the audit has the pane address. Newlines
@@ -272,9 +272,9 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     """The live panes a spoken window name may mean, best first, and whether the first
     clearly wins. A pane scores the query words that its title, window label, tool, session
     or cwd's basename (its repo, usually) holds as whole words; two adjacent words also match run
-    together, so "qs linux" finds "qslinux". A "window N" in the name keeps only panes with
+    together, so "acme linux" finds "acmelinux". A "window N" in the name keeps only panes with
     that number and counts as a word they all hold. It wins alone on top with most of the
-    words: a stray extra word ("slack inbox merge") still finds "slack inbox", one shared
+    words: a stray extra word ("team inbox merge") still finds "team inbox", one shared
     word decides nothing."""
     number = re.search(r"\bwindow\s+(\d+)", name, re.IGNORECASE)
     if number:
