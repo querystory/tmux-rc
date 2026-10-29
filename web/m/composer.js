@@ -188,3 +188,18 @@ export function bindAttach(button, input, target) {
   button.onclick = () => { picking = target(); input.click(); };
   input.onchange = () => { if (picking && picking === target()) picking.attachMany([...input.files]); input.value = ""; };
 }
+
+// Why a Send can't go now, or "" when it can: one answer for both the greyed look and what
+// a tap on it says. A greyed Send with no reason left the user relaunching the app to learn
+// it was waiting on a send that would never finish.
+export function sendBlock({ sending, available = true, online = true, secret = false, empty }) {
+  if (sending) return "Still sending the last message…";
+  if (!available) return online ? "This pane is not available right now." : "Reconnecting to tmux-rc…";
+  return empty ? (secret ? "Type the password first." : "Nothing to send yet.") : "";
+}
+// Grey `button` for `why` ("" clears it). Not `disabled`, which swallows the tap that should
+// explain it: app.js answers a tap on a greyed button with its reason.
+export function block(button, why) {
+  button.setAttribute("aria-disabled", String(!!why));
+  button.dataset.why = why;
+}
