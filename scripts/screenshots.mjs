@@ -97,7 +97,7 @@ const TWO_ACCOUNTS = [
   ["accounts-wide-dashboard", WIDE, "light", "#view=dashboard", two()],
   ["accounts-hd-dashboard", HD, "dark", "#view=dashboard", two()],
   ["accounts-wide-pane", WIDE, "light", "#pane=%2513", two()],
-  ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await page.click("#new-window"); await page.click('#launch-choices [data-provider="claude"]'); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
+  ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await accountStep(page); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
   ["accounts-wide-usage-tall", WIDE, "dark", "#pane=%2513", two(async (page) => { // the sidebar strip dragged to two rows
     const handle = page.locator("#usage-handle");
     if (!await handle.count()) return; // a base without the seam (boundingBox would wait for it)
@@ -117,13 +117,13 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-pane-menu", PHONE, "dark", "#pane=%2513", moveMenu()],
   ["accounts-mobile-move", PHONE, "light", "#pane=%2513", moveMenu("#move-pane"), "#move-dialog"],
   ["accounts-mobile-moved", PHONE, "light", "#pane=%2513", moveMenu("#move-pane", "Exit the old pane"), "#move-dialog"],
-  ["accounts-mobile-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); })],
+  ["accounts-mobile-new-window", PHONE, "light", "", two(accountStep)],
   ["accounts-mobile-consent", PHONE, "light", "", two(chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge"))],
   ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); })],
   ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
   // Adding "Demo", step by step, each cropped to its sheet (docs/design/agent-accounts.md).
   // Last, and in this order: opening the sign-in window changes the demo server's state.
-  ["accounts-add-1-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.click('#launch-choices [data-provider="claude"]'); await page.waitForSelector(".acct-pick"); }), "#launch-dialog"],
+  ["accounts-add-1-new-window", PHONE, "light", "", two(accountStep), "#launch-dialog"],
   ["accounts-add-2-name", PHONE, "light", "", two(addFlow("name")), "#acct-dialog"],
   ["accounts-add-3-share", PHONE, "light", "", two(addFlow("share")), "#acct-dialog"],
   ["accounts-add-4-sign-in", PHONE, "light", "", two(addFlow("login")), "#acct-dialog"],
@@ -132,6 +132,15 @@ const TWO_ACCOUNTS = [
   ["accounts-add-6-done", PHONE, "light", "", two(addFlow("done")), "#acct-dialog"],
   ["accounts-add-7-list", PHONE, "light", "", two((page) => page.fill("#search", "sign in"))],
 ];
+// New session's account step: a step after picking Claude here; a base shows the grid at once,
+// and its Claude row would start a window instead.
+async function accountStep(page) {
+  await page.click("#new-window");
+  const claude = page.locator('#launch-choices [data-provider="claude"]');
+  await claude.waitFor(); // the agents and the picker render together
+  if (!await page.locator(".acct-pick").count()) await claude.click();
+  await page.waitForSelector(".acct-pick");
+}
 // A phone opens Settings from the ☰ drawer, its own button being a wide screen's.
 async function phoneSettings(page) {
   await page.click("#menu-open"); await page.click('#drawer-nav [data-via="settings-open"]');
