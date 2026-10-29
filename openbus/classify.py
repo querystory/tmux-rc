@@ -1447,8 +1447,12 @@ def classify(
     tool = result.get("tool")
     # A pane the model read as stopped at its quota waits on nothing from the turn before:
     # its closing question or handed-over command (still on screen above the notice) is not
-    # what blocks it, so neither is restored as an ask.
-    over = spent or result.get("activity") == "quota_blocked"
+    # what blocks it, so none is kept or restored as an ask.
+    blocked = result.get("activity") == "quota_blocked"
+    if blocked:
+        result.pop("question", None)
+        result.pop("rewind", None)
+    over = spent or blocked
     # Claude's final message is read on the ask view: a long one begins above the viewport.
     final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
     if (offers := screen_offers(result.pop("offers", None), text)) and not over:

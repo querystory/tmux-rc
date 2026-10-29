@@ -37,10 +37,12 @@ def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
     # the finished turn still reads as asking. The model's quota read stands, reset time kept.
     notice = "\n  Usage limit reached · continuing automatically at 2:10pm"
     screen = _auto_screen("Want me to merge it?") + notice
-    r = classify(_pane("claude"), screen, _llm({"tool": "claude", "activity": "quota_blocked",
-                                                "resets": "2:10pm", "offers": ["merge it"]}))
-    assert (r["activity"], r.get("resets"), r.get("question"), r.get("offers")) == (
-        "quota_blocked", "2:10pm", None, None)
+    read = {"tool": "claude", "activity": "quota_blocked", "resets": "2:10pm",
+            "offers": ["merge it"]}
+    for extra in ({}, {"question": {"prompt": "Want me to merge it?", "answer_style": "text"}}):
+        r = classify(_pane("claude"), screen, _llm({**read, **extra}))
+        assert (r["activity"], r.get("resets"), r.get("question"), r.get("offers")) == (
+            "quota_blocked", "2:10pm", None, None)
 
 
 def test_a_handed_over_command_keeps_its_bash_prefix():
