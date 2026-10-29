@@ -374,3 +374,13 @@ def test_a_pane_keeps_its_sessions_pages_after_a_restore(tmp_path, monkeypatch):
     states[0]["activity"] = "running"
     made = scratch.made_by(tmp_path, "%9", states, [], lambda e: e["running"]["tmux_pane"])
     assert [(m["href"], m["pending"]) for m in made] == [("status/", False), ("older/", True)]
+
+
+def test_the_maker_is_its_meta_pane_only_while_that_pane_is_open(tmp_path):
+    _folder(tmp_path, "mine", 1000, {"pane": "%7"})
+    _folder(tmp_path, "none", 1000)
+    live = [{"pane_id": "%7"}]
+    assert scratch.maker(tmp_path, "mine", live) == {"pane_id": "%7"}
+    assert scratch.maker(tmp_path, "mine", []) is None  # closed
+    assert scratch.maker(tmp_path, "mine", [{"pane_id": "%7", "birth": str(os.getpid())}]) is None
+    assert [scratch.maker(tmp_path, n, live) for n in ("none", "gone", "..")] == [None] * 3
