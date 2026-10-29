@@ -47,7 +47,7 @@ export function parseHash(hash, tab = "summary") {
 // A link's draft is only ever put in the composer, never sent: the user's Send confirms it. Still,
 // a link is anyone's, so it is cut to 500 characters and control and format characters (a hidden
 // newline, a bidi override) become spaces. Null when nothing is left.
-export const linkDraft = (s) => [...String(s ?? "").replace(/[\p{Cc}\p{Cf}]/gu, " ")].slice(0, 500).join("").trim() || null;
+export const linkDraft = (s) => String(s ?? "").replace(/[\p{Cc}\p{Cf}]/gu, " ").match(/^.{0,500}/su)[0].trim() || null;
 
 // Defaults are omitted so the bare list is the bare URL.
 export function formatHash({ pane = null, view = "summary", dashboard = false, page = null, filter = [], acct = [], agent = [], q = "" }) {

@@ -840,9 +840,10 @@ addEventListener("message", (e) => {
   // The page the viewer shows (a pinned one included) may ask to send a line, and only ask (askSend),
   // echoing the token the app posted it on the frame's first load (viewScratch): the sheet names the
   // page the viewer opened, and one the frame navigated to since (or a reload of it) can't be told
-  // apart, so neither holds the token, not even while it loads. Reopening the page asks again.
+  // apart, so neither holds the token, not even while it loads. Reopening the page asks again. The
+  // token goes to "*" (an opaque origin can't be named), so the ask must come from one: "null".
   const framed = viewer.querySelector("iframe");
-  if (intent) return e.source === framed?.contentWindow && !$("send-dialog").open && (framed.token && token === framed.token ? askSend(sendIntent(e.data, panes)) : notice("Only the page the viewer opened can ask: reopen it to send."));
+  if (intent) return e.source === framed?.contentWindow && e.origin === "null" && !$("send-dialog").open && (framed.token && token === framed.token ? askSend(sendIntent(e.data, panes)) : notice("Only the page the viewer opened can ask: reopen it to send."));
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
