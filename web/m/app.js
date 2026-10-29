@@ -1957,7 +1957,7 @@ async function compose(id, value, birth, fields = {}) {
   for (const [name, field] of Object.entries(fields)) form.append(name, field);
   if (secret) form.append("secret", sent);
   else for (const segment of sent) {
-    if (segment.file) form.append("image", segment.file);
+    if (segment.file) form.append("file", segment.file);
     else form.append("text", segment.text);
   }
   if (secret) value.value = "";
@@ -2002,7 +2002,7 @@ $("secret").oninput = updateComposer;
 // attach button and presses Enter gets their draft SENT (preventDefault eats the button
 // activation) instead of the key row or the file picker.
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
-bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
+bindAttach($("attach"), $("attach-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", "viewer-send": "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle, Usage and Scratch either end. The gauge is Dashboard's

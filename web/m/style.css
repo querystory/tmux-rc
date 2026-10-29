@@ -314,6 +314,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #reply:empty::before, #viewer-reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
 #reply:focus-visible, #secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
+.attach-chip.file { width: auto; max-width: 12em; height: auto; padding: 2px 8px; font-size: 13px; line-height: 20px; background: var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; width: min(760px, 100%); max-width: 100%; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); max-height: 88dvh; }
 /* With the keyboard up iOS shrinks only the visual viewport (app.js fitViewport measures it), so a
    sheet sits on that viewport's bottom, above the keyboard, not the layout viewport's behind it. */

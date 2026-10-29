@@ -27,6 +27,7 @@ The public documentation website does not proxy your daemon's API.
 | `POST /api/panes/{id}/send` | Send text or keys, including structured prompt answers, into a real tmux pane |
 | `POST /api/panes/{id}/select` | Focus the pane in the host's tmux session; accepts no answer payload |
 | `POST /api/panes/{id}/image` | Send an image to a pane |
+| `POST /api/panes/{id}/compose` | Send a draft of text and files (any type, 50MB each) to a pane; a file goes in as a path the agent opens |
 | `GET /api/history` | Historical fleet activity |
 | `GET /api/usage` | Agent subscription usage |
 
