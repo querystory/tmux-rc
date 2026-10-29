@@ -410,6 +410,10 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs, rule):
         "tool": "claude", "activity": "waiting", "tasks": tasks,
     }))
     assert result["tasks"] == tasks[:1]
+    narrow = screen.replace("Esc to cancel", "Esc\nto cancel")  # wrapped in a narrow pane
+    assert classify(_pane("claude"), narrow, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks,
+    }))["tasks"] == tasks[:1]
     assert "tasks" not in classify(_pane("claude"), screen, _llm({
         "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
     }))

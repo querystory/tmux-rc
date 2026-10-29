@@ -66,8 +66,10 @@ _CHECKLIST_LINE_RE = re.compile(
 _PICKER_TABS_RE = re.compile(
     r"(?m)^[ \t]*[─━▔]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*?)(?:[ \t]*→)?[ \t]*$")
 # Its footer is the evidence a picker is open at all: a plan's checklist under a rule
-# has none, and keeps every row.
-_PICKER_FOOTER_RE = re.compile(r"(?m)^[ \t]*Enter to select\b.*\bEsc to cancel[ \t]*$")
+# has none, and keeps every row. A narrow pane wraps the footer onto a second row.
+_PICKER_FOOTER_RE = re.compile(
+    r"(?m)^[ \t]*Enter to select\b[^\n]*(?:\n[ \t]*[^\n]*)?"
+    r"\bEsc[ \t]*\n?[ \t]*to[ \t]*\n?[ \t]*cancel[ \t]*$")
 _PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔\n]*[^☐☒✔\s])")
 # A label's own checkbox row elsewhere: behind any gutter (⎿ ☐, ├─ [X], •), and before a
 # barred transcript's right border. A real task there keeps a tab's label.
