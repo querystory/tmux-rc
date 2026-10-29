@@ -96,6 +96,7 @@ from . import (  # noqa: E402
 from .browser_security import BrowserOriginMiddleware  # noqa: E402
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .history import History, default_path, pane_key  # noqa: E402
+from .host_security import TrustedHostMiddleware  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
@@ -629,6 +630,10 @@ async def no_cache(request, call_next):
     if cl and request.url.path.endswith("/live"):
         logger.debug("%s -> %s bytes", request.url.path, cl)
     return resp
+
+
+# Later registrations run first: refuse malformed authorities before no_cache parses URLs.
+app.add_middleware(TrustedHostMiddleware)
 
 
 def _web_version() -> str:
