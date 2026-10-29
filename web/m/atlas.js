@@ -1,4 +1,4 @@
-import { atlasCharts, fleetChart, latestAverage, shownStates } from './atlas-charts.js';
+import { atlasCharts, fleetChart, latestAverage, shownStates, unchanged } from './atlas-charts.js';
 import { needsYou, isRunning, markWorking, modelProvider, paneName, AGENT_TOOLS } from './pane-model.js';
 
 export const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting', 'Quota blocked'];
@@ -480,12 +480,6 @@ function rebuild(root, nodes, focus) {
   nodes.forEach((node, i) => { if (root.children[i] !== node) root.insertBefore(node, root.children[i] || null); });
   if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
 }
-const unchanged = (root, signature) => {
-  if (root._signature?.length === signature.length && signature.every((value, i) => value === root._signature[i])) return true;
-  root._signature = signature;
-  return false;
-};
-
 // The split under an open pane on a wide screen: a strip, and, once its seam is pulled
 // up, the chart with its legend. The seam itself belongs to the layout (app.js).
 // Reset zoom, shown only while the chart is zoomed; it hands focus back to the chart.
@@ -607,7 +601,10 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   nodes.push(controls);
 
   // The big chart: the fleet over time, against the goal.
-  const samples = scoped(scope), data = rows(samples);
+  // The rows kept while their inputs hold, so a live poll hands the chart the rows it drew (atlas-charts.js).
+  const trend = root._trend ||= {};
+  if (!unchanged(trend, [history, historyData, settings, String(scope.tools), scope.session])) trend.rows = rows(scoped(scope));
+  const { rows: data } = trend;
   // One header row: title and current numbers on the left, every control on the right; the
   // notes hide behind an info toggle so the plot starts right under the controls.
   // Activity closes the page. Until its slot scrolls into view it waits as a strip pinned to
