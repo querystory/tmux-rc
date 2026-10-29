@@ -82,14 +82,15 @@ would load a second app in the frame, so a page there posts
 `{pane, draft}` to its parent instead, as the placeholder's pane link does.
 
 Inside the app (the viewer, or a pinned page), a page may instead *ask* to send:
-`{intent: "send", pane, text}`. The app checks it (one line, at most 500 characters, no
+`{intent: "send", pane, text, token}`. The app checks it (one line, at most 500 characters, no
 control or format characters, a pane in the feed that runs an agent, never a plain shell,
 where the line would run as a command) and opens its own sheet, outside the frame: the line,
 the pane, the page that asked, and Send, Edit in composer, Cancel. Only that tap sends,
 through the composer's own path, bound to the pane's process as it was when asked (a pane
 that has since become a shell, or a recycled id, gets nothing), and the user stays on the
-page. Only the page's first load may ask: one the frame navigated to, or a reload, can't be
-told from the page the sheet names, so the user reopens it. Send ignores taps for half
+page. The `token` is the one the app posts the page (`{token}`, by message) once its first
+load completes; only that document can ask. One the frame navigated to, or a reload, can't be
+told from the page the sheet names, so it gets no token and the user reopens it. Send ignores taps for half
 a second, so one already in flight can't land on it, and there is no "don't ask again":
 a silent send is exactly what an injected page would want. A standalone tab can't ask at
 all: the app hears only the frame it opened, so a page in a tab, even one that opens the app

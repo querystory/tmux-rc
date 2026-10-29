@@ -189,10 +189,8 @@ let earlier = { top: 0, end: 0, screen: "" }, latestGeometry = [0, ""], shownTop
 let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 // CSPRNG-random or omitted, never guessed. getRandomValues, unlike randomUUID, needs no
 // secure context, and a reconnecting chat finds its parked cards by this id.
-const liveSession = (() => {
-  try { return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""); }
-  catch { return ""; }
-})();
+const randomHex = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+const liveSession = (() => { try { return randomHex(); } catch { return ""; } })();
 
 function draft(id = active) {
   if (!drafts.has(id)) drafts.set(id, new Composer(() => { text($("draft-status"), "Draft"); updateComposer(); }, notice));
@@ -838,12 +836,13 @@ scratchFrame.addEventListener("load", tellScratch);
 // being made links the pane making it) may open a pane, with a draft for its composer, and nothing else: its origin is opaque,
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  const { pane, view, open, title, draft: offered, intent } = e.data || {}, href = scratchUrl(open, location.href);
-  // The page the viewer shows (a pinned one included) may ask to send a line, and only ask (askSend).
-  // Only on the frame's first load: the sheet names the page the viewer opened, and one the
-  // frame navigated to since (or a reload of it) can't be told apart. Reopening it asks again.
+  const { pane, view, open, title, draft: offered, intent, token } = e.data || {}, href = scratchUrl(open, location.href);
+  // The page the viewer shows (a pinned one included) may ask to send a line, and only ask (askSend),
+  // echoing the token the app posted it on the frame's first load (viewScratch): the sheet names the
+  // page the viewer opened, and one the frame navigated to since (or a reload of it) can't be told
+  // apart, so neither holds the token, not even while it loads. Reopening the page asks again.
   const framed = viewer.querySelector("iframe");
-  if (intent) return e.source === framed?.contentWindow && !$("send-dialog").open && (framed.loads === 1 ? askSend(sendIntent(e.data, panes)) : notice("This page changed since it was opened: reopen it to send."));
+  if (intent) return e.source === framed?.contentWindow && !$("send-dialog").open && (framed.token && token === framed.token ? askSend(sendIntent(e.data, panes)) : notice("Only the page the viewer opened can ask: reopen it to send."));
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
@@ -859,7 +858,7 @@ function viewScratch(href, title) {
   text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title, onload() { this.loads = (this.loads || 0) + 1; } }));
+  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title, onload() { if (!this.token) this.contentWindow.postMessage({ token: this.token = randomHex() }, "*"); } }));
   viewer.showModal(); viewer.focus();
 }
 $("close-viewer").onclick = () => viewer.close();
