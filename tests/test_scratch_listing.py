@@ -135,6 +135,13 @@ def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, mon
     # writer that has left every pane has stopped, however new the folder
     assert [items[n]["state"] for n in ("moved", "gone", "unfound")] == [
         "working", "stopped", "stopped"]
+    # Without the binary the index still names the writer, but not where it is: the pane
+    # named stands, state and all, rather than passing for a writer that has gone
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: None)
+    monkeypatch.setattr(agent_history, "indexed", lambda ids: {k: running[k] for k in ids})
+    items, _ = _resolved(tmp_path, states, pane_of=lambda e: e.get("running") and "%44")
+    assert all(items[n]["pane"] == "%6" and items[n]["where"] == "s:first" for n in items)
+    assert [items[n]["state"] for n in ("moved", "gone")] == ["stopped", "quiet"]
 
 
 def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):

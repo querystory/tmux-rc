@@ -312,8 +312,9 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         running = {**agent_history.indexed(missing), **running}  # the index still says who
     for i in listed:
         s = running.get(i["session_id"]) or {} if i["pane"] not in sure else {}
-        at = open_in.get(s.get("session_id")) if s else i["pane"]  # the writer's, if open
-        if at != i["pane"]:  # a pending card follows its writer, not the pane named; a
+        at = open_in.get(s.get("session_id"), i["pane"])  # the writer's, if open; the pane
+        if at != i["pane"]:  # named stands when only the index knows the writer (no binary,
+            # a subagent), since it cannot say where. A pending card follows its writer, and a
             # writer found but gone from every pane has stopped, however recent the folder
             i["pane"], i["state"] = at, progress(panes.get(at), at or i["pane"], i["created"])
         if (pane := panes.get(i["pane"])) is not None:
