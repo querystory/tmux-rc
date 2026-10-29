@@ -16,6 +16,7 @@ import io
 import itertools
 import logging
 import math
+import mimetypes
 import os
 import posixpath
 import re
@@ -167,11 +168,10 @@ logger = logging.getLogger(__name__)
 _repo_web = _REPO_ROOT / "web"
 _FROM_CHECKOUT = _repo_web.is_dir()
 WEB_DIR = _repo_web if _FROM_CHECKOUT else _PKG_DIR / "web"
-# Uploaded images land here so the agent can read them by path. Kept out of the repo.
+# Uploaded files land here so the agent can read them by path. Kept out of the repo.
 IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
-IMG_MAX_BYTES = (
-    20 * 2**20
-)  # generous for phone photos; blocks memory-ballooning uploads
+# Generous for phone photos and documents; blocks memory-ballooning uploads.
+UPLOAD_MAX_BYTES = 50 * 2**20
 # A client-error report is a handful of short structural fields plus one capped message;
 # anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
 # telemetry too — this bounds the READ so a huge body can't balloon memory).
@@ -184,6 +184,7 @@ PICKER_SETTLE_S, PICKER_SETTLE_POLLS = 0.05, 30
 # so a reload loop can't flood it; one line is enough to see what broke.
 BOOT_WARN_INTERVAL_S = 10.0
 _boot_warn_after = [0.0]
+# The images the clipboard route embeds inline; any other upload is delivered by path.
 _EXT = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -2037,12 +2038,12 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
         )
         raise HTTPException(415, f"unsupported image type: {mime}")
     # Cap the read: an unbounded read() of a huge upload would balloon daemon memory.
-    data = await file.read(IMG_MAX_BYTES + 1)
-    if len(data) > IMG_MAX_BYTES:
+    data = await file.read(UPLOAD_MAX_BYTES + 1)
+    if len(data) > UPLOAD_MAX_BYTES:
         _audit(
             request, "paste_image", pane_id, detail=mime, outcome="rejected: too large"
         )
-        raise HTTPException(413, f"image too large (max {IMG_MAX_BYTES // 2**20}MB)")
+        raise HTTPException(413, f"image too large (max {UPLOAD_MAX_BYTES // 2**20}MB)")
     if not data:
         _audit(request, "paste_image", pane_id, detail=mime, outcome="rejected: empty")
         raise HTTPException(400, "empty upload")
@@ -2067,7 +2068,7 @@ async def attach_image(
     delivery path for the pane composer's endpoint and Live Chat's send_image_to_pane.
     With a caption (even ""), the image, the caption and the submitting Enter go in as one
     composer draft under a single pane lock, so no other sender can land between them."""
-    path = _stage_image(data, mime)
+    path = _stage_file(data, mime)
     # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
     if caption is None:
         return path, await asyncio.to_thread(
@@ -2077,9 +2078,17 @@ async def attach_image(
         _input_attempt, pane_id, _deliver_composer, pane_id, expected_pid, segments)
 
 
-def _stage_image(data: bytes, mime: str) -> str:
-    # Stage to disk, prune stale stagings (the pane reads the file right after the
-    # paste; a day of slack covers "answer later" without growing /tmp forever).
+def _stage_file(data: bytes, mime: str, filename: str | None = None) -> str:
+    """Stage an upload to disk under a generated name (0600) and return its path, the
+    form the agent in the pane opens it by. Only the extension comes from the client:
+    a known image's from its mime, otherwise the final component of its filename, when
+    that is a plain word (so `../../x.sh` stages as `file-….sh`), else its mime's."""
+    suffix = Path(filename or "").suffix
+    ext = _EXT.get(mime) or (
+        suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,8}", suffix) else None
+    ) or mimetypes.guess_extension(mime) or ""
+    # Prune stale stagings (the pane reads the file right after the paste; a day of
+    # slack covers "answer later" without growing /tmp forever).
     IMG_DIR.mkdir(parents=True, exist_ok=True)
     # /tmp is shared and sticky: someone could pre-create this path — as a symlink
     # (collecting our chmod + stagings at a target of their choosing) or as their own
@@ -2101,7 +2110,8 @@ def _stage_image(data: bytes, mime: str) -> str:
                 old.unlink(missing_ok=True)
         except OSError:
             continue
-    fd, path = tempfile.mkstemp(prefix="img-", suffix=_EXT[mime], dir=IMG_DIR)
+    prefix = "img-" if mime in _EXT else "file-"
+    fd, path = tempfile.mkstemp(prefix=prefix, suffix=ext, dir=IMG_DIR)
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
 
@@ -2128,7 +2138,7 @@ async def _compose(pane_id: str, request: Request):
     segments, secret = [], None
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
-    async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
+    async with request.form(max_files=16, max_fields=128, max_part_size=UPLOAD_MAX_BYTES) as form:
         text_bytes = 0
         for kind, value in form.multi_items():
             if kind == "text" and isinstance(value, str):
@@ -2136,14 +2146,15 @@ async def _compose(pane_id: str, request: Request):
                 if text_bytes > 256 * 1024:
                     raise HTTPException(413, "composer text too large")
                 segments.append(value)
-            elif kind == "image" and not isinstance(value, str):
-                mime = value.content_type or "image/png"
-                if mime not in _EXT:
-                    raise HTTPException(415, "unsupported image type")
-                data = await value.read(IMG_MAX_BYTES + 1)
-                if not data or len(data) > IMG_MAX_BYTES:
-                    raise HTTPException(413, "image empty or too large")
-                segments.append((data, _stage_image(data, mime)))
+            elif kind == "file" and not isinstance(value, str):
+                mime = value.content_type or "application/octet-stream"
+                data = await value.read(UPLOAD_MAX_BYTES + 1)
+                if len(data) > UPLOAD_MAX_BYTES:
+                    raise HTTPException(413, "file too large")
+                # Only an image's bytes stay in memory, for the clipboard; anything else
+                # is delivered by its path, so the draft holds no copy of it.
+                path = _stage_file(data, mime, value.filename)
+                segments.append((data if mime in _EXT else b"", path))
             elif kind == "secret" and isinstance(value, str) and secret is None:
                 if len(value.encode()) > 4095:  # the tty's line, less its newline
                     raise HTTPException(413, "password too long")
@@ -2168,7 +2179,7 @@ async def _compose(pane_id: str, request: Request):
 
 
 def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> str | None:
-    """Type a whole draft under one lock; returns the last image's delivery mode, if any."""
+    """Type a whole draft under one lock; returns the last file's delivery mode, if any."""
     mode = None
     with tmux.send_transaction(pane_id) as identity:
         # Include time spent uploading and waiting for the lock in the identity guard.
@@ -2204,7 +2215,9 @@ def _deliver_image_locked(pane_id: str, data: bytes, path: str, identity: str) -
     reads) and the Ctrl-V would silently paste nothing — exactly the remote/phone
     case — so deliver by typed path instead; inline embeds are a desk luxury."""
     tools: list[str] = []
-    if not tmux.session_locked():
+    # Only a known image's bytes arrive here (compose keeps no others): anything else is
+    # the agent's to open by path, and never goes through Pillow.
+    if data and not tmux.session_locked():
         try:
             png = data if data[:8] == b"\x89PNG\r\n\x1a\n" else _to_png(data)
             tools = tmux.set_clipboard_image(png)
