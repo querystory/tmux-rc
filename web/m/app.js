@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/compose
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import "/long-press.js"; // globalThis.longPress: a classic script, so the scratch gallery shares it
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
@@ -169,7 +169,7 @@ const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "ot
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
-let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
+let sending = false, prefix = "C-b", host = "", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
 // Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
@@ -935,6 +935,7 @@ function render() {
   // has nothing to go back TO — the sidebar it would return you to is already there.
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
+  document.title = tabTitle({ pane: active, page, dashboard: dashboardVisible(), filter }, panes, panes.filter(asks).length, host);
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
   // its heading takes them, by the overflow menu. Moved only when they are elsewhere: a move
@@ -1621,7 +1622,7 @@ async function pollState(signal) {
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
-      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
+      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       refreshHistory(); refreshCached();
