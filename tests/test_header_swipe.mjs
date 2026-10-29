@@ -10,7 +10,7 @@ const from = (start, end) => source.slice(source.indexOf(start), source.indexOf(
 const block = from("let drag = null", "\nfor (const ") + from("let edge = null", "// Typing only rewrites");
 
 function app(overrides = {}) {
-  const handlers = new Map(), navigated = [], clicks = [], animations = [], settled = [], els = {};
+  const handlers = new Map(), navigated = [], clicks = [], animations = [], cancelled = [], settled = [], els = {};
   let now = 1000;
   class Element {
     constructor(header = true) { this.header = header; this.scrollLeft = 0; this.parentNode = null; }
@@ -28,7 +28,7 @@ function app(overrides = {}) {
     performance: { now: () => now }, viewer: { open: false },
     document: { activeElement: null, querySelector: (sel) => drawer.open && sel.includes("dialog[open]") ? drawer : null }, standalone: () => false, history: { length: 1 },
     setTimeout: (fn) => { fn(); return 0; }, clearTimeout() {}, getComputedStyle: () => ({ transform: "none" }), DOMMatrix: class { m41 = 0; },
-    $: (id) => id === "pane-list" ? list : els[id] ??= { style: {}, click: () => { clicks.push(id); if (id === "menu-open") drawer.open = true; }, animate: (frames, options) => animations.push({ id, frames, options }) },
+    $: (id) => id === "pane-list" ? list : els[id] ??= { style: {}, click: () => { clicks.push(id); if (id === "menu-open") drawer.open = true; }, animate: (frames, options) => { animations.push({ id, frames, options }); return { cancel: () => cancelled.push(id) }; } },
     navigate: (id, view) => { navigated.push([id, view]); sandbox.active = id; sandbox.dropGesture(); },
     addEventListener: (name, handler) => handlers.set(name, [...handlers.get(name) || [], handler]),
     ...overrides,
@@ -45,7 +45,7 @@ function app(overrides = {}) {
     return event;
   };
   const swipe = (dx, dy = 0, x = 200) => { emit("touchstart", x); emit("touchmove", x + dx, 50 + dy); return emit("touchend", x + dx, 50 + dy); };
-  return { sandbox, navigated, clicks, animations, settled, drawer, emit, swipe, list, elsewhere: new Element(false), advance: (ms) => { now += ms; },
+  return { sandbox, navigated, clicks, animations, cancelled, settled, drawer, emit, swipe, list, elsewhere: new Element(false), advance: (ms) => { now += ms; },
     shifted: () => ["overview", "terminal"].map((id) => els[id].style.transform) };
 }
 
@@ -193,19 +193,47 @@ test("past the threshold the view slides out and the next pane's in; short of it
   assert.deepEqual(a.shifted(), ["", ""]);
   const [out] = a.animations;
   assert.equal(a.animations.length, 2);
-  assert.deepEqual([...out.frames].map((f) => [f.transform, f.opacity]), [["translateX(-70px)", 1], ["translateX(-390px)", 0], ["translateX(390px)", 0], ["none", 1]]);
-  assert.equal(out.options.duration, 200);
+  assert.deepEqual([...out.frames].map((f) => [f.transform, f.opacity, f.offset, f.easing]), [["translateX(-70px)", 1, undefined, "ease-in"], ["translateX(-390px)", 0, .4, undefined], ["translateX(390px)", 0, .4, "ease-out"], ["none", 1, undefined, undefined]]);
+  assert.deepEqual(structuredClone(out.options), { duration: 200 }); // linear overall: the hand-off at .4 is the 80ms the timer waits
   const b = app();
   b.emit("touchstart");
   b.emit("touchmove", 160);
   b.emit("touchend", 160);
   assert.deepEqual(b.navigated, []);
   assert.deepEqual(b.shifted(), ["", ""]);
-  assert.deepEqual(structuredClone(b.animations[0].frames), [{ transform: "translateX(-40px)" }, { transform: "none" }]);
+  assert.deepEqual(structuredClone(b.animations[0].frames), [{ transform: "translateX(-40px)", easing: "ease-out" }, { transform: "none" }]);
   const quiet = app({ still: { matches: true } });
   quiet.swipe(-90);
   assert.deepEqual(quiet.navigated, [["%2", "terminal"]]);
   assert.ok(quiet.animations.every((x) => x.options.duration === 0));
+});
+
+test("the finger takes the view back from a glide still running, and the hand-over yields to a move that lands first", () => {
+  const a = app();
+  a.emit("touchstart");
+  a.emit("touchmove", 160);
+  a.emit("touchend", 160);
+  assert.deepEqual(a.cancelled, []);
+  a.emit("touchstart");
+  a.emit("touchmove", 150);
+  assert.deepEqual(a.cancelled, ["overview", "terminal"]);
+  assert.deepEqual(a.shifted(), ["translateX(-50px)", "translateX(-50px)"]);
+  for (const [moved, navigated] of [[() => {}, [["%2", "terminal"]]], [(b) => { b.sandbox.location.href += "&q=moon"; }, []], [(b) => b.sandbox.ending.set("%2", {}), []], [(b) => { b.sandbox.WIDE.matches = true; }, []]]) {
+    const timers = new Map(), b = app({ setTimeout: (fn) => timers.set(timers.size + 1, fn) && timers.size, clearTimeout: (id) => timers.delete(id) });
+    b.swipe(-90);
+    assert.deepEqual(b.navigated, []);
+    moved(b);
+    for (const fn of timers.values()) fn();
+    assert.deepEqual(b.navigated, navigated);
+  }
+  const timers = new Map(), c = app({ setTimeout: (fn) => timers.set(timers.size + 1, fn) && timers.size, clearTimeout: (id) => timers.delete(id) });
+  c.swipe(-90);
+  c.emit("touchstart");
+  c.emit("touchmove", 290); // a drag the other way within the hand-over: the open it cancelled must not follow
+  assert.deepEqual([...timers.values()], []);
+  c.emit("touchend", 290);
+  for (const fn of timers.values()) fn();
+  assert.deepEqual(c.navigated, [["%3", "terminal"]]);
 });
 
 test("an installed app's left-edge swipe on the list opens the drawer and nothing else", () => {

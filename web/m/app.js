@@ -369,9 +369,7 @@ function route() {
   if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
   // Not into Restore: its first button is the Restore itself, which an Enter would press.
   if (page && !wasPage) { $("landing").scrollTop = 0; if (page !== "restore") $("dash-page").querySelector(".landing-head h2")?.focus({ preventScroll: true }); }
-  if (dashboardVisible() && !wasDashboardVisible) {
-    refreshHistory(true);
-  }
+  if (dashboardVisible() && !wasDashboardVisible) refreshHistory(); // every poll keeps it fresh; forced, the refetch rebuilt every chart on each visit
   if (active && changed) {
     const id = active;
     // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
@@ -416,7 +414,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
-  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: offersOf, copy: copyText, linkPair,
+  active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: (p) => offersOf(p).filter(isCommand), copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
 function emptyMessage(query) {
@@ -974,9 +972,9 @@ function render() {
     pane?.agents ? `${pane.agents} agents` : ""].filter(Boolean);
   reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
   // The card holds a question's answers and a finished turn's offers alike.
-  const asking = !!pane?.question && needsYou(pane), offers = offersOf(pane);
-  show("question", asking || offers.length > 0);
-  const question = asking ? pane.question : null;
+  const asking = !!pane?.question && needsYou(pane), offers = offersOf(pane).filter(isCommand);
+  const question = asking ? pane.question : null, options = answerOptions(question, pane);
+  show("question", asking || offers.length > 0 || options.length > 0);
   text($("prompt"), question?.ask || question?.prompt || "");
   text($("question-items"), questionItems(question));
   // The widget's own rows, once and folded away: the restatement above is what to read.
@@ -989,15 +987,15 @@ function render() {
   $("question").classList.toggle("answered", !!answered);
   show("answer-status", !!answered);
   text($("answer-status"), answered?.note || "");
-  reconcile($("options"), answerOptions(question), (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
+  reconcile($("options"), options, (o) => `${active}:${question?.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
-    button.onclick = () => answer(active, button._option.option, button._option.index);
+    button.onclick = () => answer(active, button._option.option, button._option.index, !!button._option.offer);
     return button;
   }, (button, option) => {
     button._option = option; text(button, option.option); button.disabled = sending || !!answered;
     button.classList.toggle("picked", picked(pane, option));
   });
-  // An offer: its exact text once, folded to a row (a tap unfolds it), then Send it and Copy.
+  // A command offer: its exact text once, folded to a row (a tap unfolds it), then Send it and Copy.
   reconcile($("offers"), offers, (o) => `${active}:${o}`, () => {
     const node = document.createElement("div"); node.className = "offer";
     node.innerHTML = `<button type="button" class="offer-text" aria-expanded="false"><code></code>${licon("chevronDown", 16)}</button>
@@ -1633,9 +1631,15 @@ async function sendKeys(body, id = active) {
 // A question's tappable answers, for the pane's question card and the sidebar's Needs you
 // cards alike. The row the parser marks as the agent's own free-text field is left to the
 // composer (push.renderable_options reads the same mark).
-function answerOptions(question) {
-  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option, index }) => typeof option === "string" && option.trim() && index !== question.free_text);
+// A question's answers as pills, then the finished turn's reply offers ("push", "delete it")
+// not already among them: a reply is a pill (a tap sends it), while a `! command` offer is
+// the mono Send it row (isCommand). Either way an offer is shown once.
+function answerOptions(question, pane) {
+  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option, index }) => typeof option === "string" && option.trim() && index !== question.free_text);
+  const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  return [...options, ...offersOf(pane).filter((o) => !isCommand(o) && !options.some((x) => same(x.option, o))).map((option) => ({ option, index: -1, offer: true }))];
 }
+const isCommand = (offer) => offer.startsWith("! ");
 // What makes a question the same ask: its prompt, context, items and subject, and its options unless
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
 const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.subject, q?.answer_style === "cursor" ? null : q?.options]);
@@ -1652,7 +1656,7 @@ function isAnswered(pane) {
 // Whether option `o` is the tapped one: its row by text, since a walk renumbers the list,
 // and by index too where two rows share the text.
 function picked(pane, o) {
-  const pending = isAnswered(pane), named = answerOptions(pane.question).filter((x) => x.option === o.option);
+  const pending = isAnswered(pane), named = answerOptions(pane.question, pane).filter((x) => x.option === o.option);
   return pending?.option === o.option && (pending.index === o.index || named.length === 1);
 }
 function asks(pane) { return needsYou(pane) && !isAnswered(pane); }
@@ -1736,7 +1740,7 @@ async function compose(id, value) {
   const form = new FormData();
   if (secret) form.append("secret", sent);
   else for (const segment of sent) {
-    if (segment.file) form.append("image", segment.file);
+    if (segment.file) form.append("file", segment.file);
     else form.append("text", segment.text);
   }
   if (secret) value.value = "";
@@ -1778,7 +1782,7 @@ $("secret").oninput = updateComposer;
 // attach button and presses Enter gets their draft SENT (preventDefault eats the button
 // activation) instead of the key row or the file picker.
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
-bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
+bindAttach($("attach"), $("attach-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
 // The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
@@ -1926,8 +1930,9 @@ let edge = null, headingSwipe = null, headingClickUntil = 0;
 // overview and terminal move together, so the gesture reads the same in either view. Reduced motion just switches.
 const swept = [$("overview"), $("terminal")], shift = (x) => `translateX(${x}px)`;
 const swipeTarget = (swipe, dx) => { const index = swipe.ids.indexOf(active), id = index >= 0 && swipe.ids[index + (dx < 0 ? 1 : -1)]; return id && panes.some((p) => p.pane_id === id) && !ending.has(id) ? id : null; };
-const glide = (frames, ms = 180) => { for (const v of swept) { v.style.transform = ""; v.animate(frames, { duration: still.matches ? 0 : ms, easing: "ease-out" }); } };
-const settleSwipe = () => { if (headingSwipe?.live) glide([{ transform: shift(headingSwipe.at) }, { transform: "none" }]); headingSwipe = null; };
+let gliding = [], opening; // the last glide and the open it leads to, for the finger that takes the view back mid-way
+const glide = (frames, ms = 180) => { gliding = swept.map((v) => { v.style.transform = ""; return v.animate(frames, { duration: still.matches ? 0 : ms }); }); };
+const settleSwipe = () => { if (headingSwipe?.live) glide([{ transform: shift(headingSwipe.at), easing: "ease-out" }, { transform: "none" }]); headingSwipe = null; };
 addEventListener("touchstart", (e) => {
   settleSwipe(); // a second finger cancels session navigation
   headingClickUntil = 0; // a fresh touch is intentional, even just after a swipe
@@ -1952,6 +1957,7 @@ addEventListener("touchmove", (e) => {
     if (Math.max(ax, dy) < 10) return;
     if (ax <= dy * 2) { headingSwipe = null; return; } // vertical or diagonal: leave it to scrolling
     headingSwipe.live = true;
+    for (const a of gliding) a.cancel(); clearTimeout(opening); // a glide still running would hold the view against the finger, and its open would take it away
   }
   e.preventDefault(); // a horizontal header swipe must not pan the page or tap a control
   headingClickUntil = performance.now() + 500;
@@ -1969,9 +1975,12 @@ addEventListener("touchend", (e) => {
   const id = past && swipeTarget(swipe, sdx);
   if (id) {
     headingSwipe = null;
-    const out = Math.sign(sdx) * innerWidth; // out the way the finger went, in from the other side; the two meet unseen at opacity 0
-    glide([{ transform: shift(swipe.at), opacity: 1, easing: "ease-in" }, { transform: shift(out), opacity: 0, offset: .4 }, { transform: shift(-out), opacity: 0, offset: .4 }, { transform: "none", opacity: 1 }], 200);
-    setTimeout(() => navigate(id, view), still.matches ? 0 : 80);
+    // Out the way the finger went, in from the other side: the two meet unseen at opacity 0, where the
+    // next pane is opened (the timer and the keyframes agree at 80ms, each segment eased on its own) if
+    // nothing moved meanwhile: a Back landing first, or the pane going, must not be covered by it.
+    const out = Math.sign(sdx) * innerWidth;
+    glide([{ transform: shift(swipe.at), opacity: 1, easing: "ease-in" }, { transform: shift(out), opacity: 0, offset: .4 }, { transform: shift(-out), opacity: 0, offset: .4, easing: "ease-out" }, { transform: "none", opacity: 1 }], 200);
+    opening = setTimeout(() => { const to = location.href === swipe.href && !WIDE.matches && swipeTarget(swipe, sdx); if (to) navigate(to, view); }, still.matches ? 0 : 80);
   } else settleSwipe();
   const dx = edge && t.clientX - edge.x;
   if (drag?.live && e.timeStamp - drag.t > 100) drag.v = 0; // held before letting go: no flick

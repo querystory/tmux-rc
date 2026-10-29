@@ -10,6 +10,9 @@
     "headline": "Status report; user must restart the daemon",
     "offers": [
       "! systemctl --user restart tmux-rc"
-    ]
+    ],
+    "question": {
+      "answer_style": "text"
+    }
   }
 }
