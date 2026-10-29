@@ -64,7 +64,10 @@ _CHECKLIST_LINE_RE = re.compile(
 # picker chrome, so a task that is only a tab's label (no checkbox row of its own
 # elsewhere on screen) is the model misreading it.
 _PICKER_TABS_RE = re.compile(
-    r"(?m)^[ \t]*[─━]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*?)(?:[ \t]*→)?[ \t]*$")
+    r"(?m)^[ \t]*[─━▔]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*?)(?:[ \t]*→)?[ \t]*$")
+# Its footer is the evidence a picker is open at all: a plan's checklist under a rule
+# has none, and keeps every row.
+_PICKER_FOOTER_RE = re.compile(r"(?m)^[ \t]*Enter to select\b.*\bEsc to cancel[ \t]*$")
 _PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔\n]*[^☐☒✔\s])")
 # A label's own checkbox row elsewhere: behind any gutter (⎿ ☐, ├─ [X], •), and before a
 # barred transcript's right border. A real task there keeps a tab's label.
@@ -1384,11 +1387,13 @@ def classify(
             and _checklist_text(task["text"]) in visible_tasks
         ] if isinstance(tasks, list) else []
         result["tasks"] = validated
-    if result.get("tool") == "claude" and isinstance(result.get("tasks"), list):
+    if (result.get("tool") == "claude" and isinstance(result.get("tasks"), list)
+            and _PICKER_FOOTER_RE.search(visible)):
         rest = _PICKER_TABS_RE.sub("", visible)
         tabs = {_checklist_text(tab) for row in _PICKER_TABS_RE.findall(visible)
                 for tab in _PICKER_TAB_RE.findall(row)
-                if not re.search(_OWN_ROW.format(re.escape(tab)), rest)}
+                if not re.search(_OWN_ROW.format(r"[ \t]+".join(map(re.escape, tab.split()))),
+                                 rest)}
         result["tasks"] = [task for task in result["tasks"] if not isinstance(task, dict)
                            or _checklist_text(str(task.get("text"))) not in tabs]
     if result.get("tasks") == []:

@@ -396,10 +396,12 @@ def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
     ]
 
 
-@pytest.mark.parametrize("tabs", [" ☐ Fruit ", "←  ☒ Beds  ☐ Fruit  ✔ Submit  →", " ☐ API → UI"])
-def test_claude_picker_header_tabs_are_not_tasks(tabs):
+@pytest.mark.parametrize("rule", ["─", "▔"])
+@pytest.mark.parametrize("tabs", [" ☐ Fruit ", "←  ☒ Beds  ☐ Fruit  ✔ Submit  →", " ☐ API → UI",
+                                  " ☐ API  →  UI"])
+def test_claude_picker_header_tabs_are_not_tasks(tabs, rule):
     screen = (
-        "  ⎿  ☐ Plant the seedlings\n" + "─" * 40 + f"\n{tabs}\n\nWhich fruit should we plant?"
+        "  ⎿  ☐ Plant the seedlings\n" + rule * 40 + f"\n{tabs}\n\nWhich fruit should we plant?"
         "\n\n❯ 1. Apple\n  2. Pear\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
     )
     label = "API → UI" if "API" in tabs else "Fruit"
@@ -424,6 +426,11 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs):
     plan = "─" * 40 + f"\n☐ {label}\nOpenCode 1.18.32"  # another agent's plan under a rule
     assert classify(_pane(cmd="opencode"), plan, _llm({
         "tool": "opencode", "activity": "running", "tasks": tasks[1:],
+    }))["tasks"] == tasks[1:]
+    # Claude's own plan under a rule, no picker footer: a checklist, every row kept.
+    plan = rule * 40 + f"\n☐ {label}\n☐ Water the beds"
+    assert classify(_pane("claude"), plan, _llm({
+        "tool": "claude", "activity": "running", "tasks": tasks[1:],
     }))["tasks"] == tasks[1:]
 
 
