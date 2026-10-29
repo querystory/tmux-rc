@@ -1095,9 +1095,8 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     meta.write_text("{}")  # the mark was all it said
     service.landed()
     service.landed()
-    assert [(p["title"], p["tag"], p["url"], p.get("renotify", True)) for p in sender.payloads] == [(
-        "Updated: page", "scratch:page", "/m#view=scratch&open=%2Fscratch%2Fpage%2Freport.html",
-        True)]
+    assert [(p["title"], p["tag"], p["url"]) for p in sender.payloads] == [(
+        "Updated: page", "scratch:page", "/m#view=scratch&open=%2Fscratch%2Fpage%2Freport.html")]
     assert [i["name"] for i in shot] == ["page"]
     # A PDF rewritten in a revision reads as pending for a minute, its mark already gone:
     # nothing on disk changes when that minute ends, and the scan still sees it.

@@ -138,8 +138,9 @@ class _Static(SimpleHTTPRequestHandler):
         path or the index a folder would serve that leads out of scratch is not found."""
         if path.startswith(scratch_markdown.MERMAID):
             return str(self.web / scratch_markdown.MERMAID.removeprefix("/"))
-        if not path.startswith("/scratch/") or any(  # nor anything hidden, as the daemon
-                part.startswith(".") for part in Path(unquote(urlsplit(path).path)).parts):
+        parts = Path(unquote(urlsplit(path).path).removeprefix("/scratch/")).parts
+        archived = parts[:1] == (scratch_markdown.ARCHIVE,)  # nor anything hidden, as the daemon
+        if not path.startswith("/scratch/") or any(p.startswith(".") for p in parts[archived:]):
             return "/nonexistent"
         full = Path(super().translate_path(path.removeprefix("/scratch")))
         served = [full, full / "index.html", full / "index.htm"] if full.is_dir() else [full]

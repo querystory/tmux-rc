@@ -272,11 +272,13 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
 def tag(listed: list[dict]) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
     changed (its page too, say renamed to its index), its thumbnail, title or description
-    landed, or (by the minute) a page in progress may have stopped. In no particular order,
+    landed, an update began or ended, or (by the minute) a page in progress or an update
+    may have stopped. In no particular order,
     as the gallery sorts after listing."""
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
-                              i["title"], i["description"]) for i in listed),
-                     any(i["pending"] for i in listed) and int(time.time() // 60))))
+                              i["title"], i["description"], i["updating"]) for i in listed),
+                     any(i["pending"] or i["updating"] for i in listed)
+                     and int(time.time() // 60))))
 
 
 def folder_name(name: object) -> bool:
@@ -588,7 +590,8 @@ def _card(i: dict) -> str:
              if wait else "No preview") + (  # a revision keeps its badge above the preview
         f'<span class="badge {i["state"]}">{label}</span>' if i.get("updating") else "")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
-    return (f'<article data-q="{escape(words)}" data-name="{e["name"]}" data-pane="{e.get("pane", "")}">'
+    return (f'<article data-q="{escape(words)}" data-name="{e["name"]}"'
+            f' data-pane="{e.get("pane", "")}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}"'
             + (f' aria-label="{e["title"]}: {label}"' if label else "")  # the thumb's

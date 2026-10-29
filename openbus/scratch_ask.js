@@ -13,5 +13,5 @@ const ask = () => { const img = new Image(); let late; // an ask unanswered in 1
     setTimeout(ask, ok ? {every} : Math.min({every} * 2 ** fails, 30000)); };
   late = setTimeout(() => { end(false); img.src = ""; }, 10000);
   img.onload = () => end(true); img.onerror = () => end(false);
-  img.src = location.pathname.split("/").slice(0, 3).join("/") + "/?seen=" + SEEN + "&t=" + Date.now(); }; // its folder's
+  img.src = location.pathname.split("/").slice(0, location.pathname.includes("/.archive/") ? 4 : 3).join("/") + "/?seen=" + SEEN + "&t=" + Date.now(); }; // its folder's
 setTimeout(ask, {every});
