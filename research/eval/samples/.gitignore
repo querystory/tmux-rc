@@ -3,9 +3,8 @@
 # curated by hand and repo-safe. Raw scratch captures (.txt) and rendered PNGs from
 # `python -m research.probe --save` are working files, not corpus; keep them local.
 #
-# Real tmux-rc captures ARE fine to turn into committed *.json samples verbatim (the
-# repo dogfoods itself — cwd like ~/src/qs/termiphone, tmux-rc code/output, PR numbers
-# are expected here). Only scrub a capture that would drag in ANOTHER codebase's
-# proprietary content or an actual secret/token/credential before committing it.
+# A committed sample is invented from scratch, never a real capture renamed or redacted
+# (AGENTS.md: "This repository is public"): rebuild only the structure that triggers
+# the case, around an unrelated topic, with neutral paths like ~/src/example-app.
 *.txt
 *.png

@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a finished auto-mode turn whose final message AND its stamp sit above the parser's visible-screen boundary, with only blank rows, the input box and the footer below it (a tall window the agent printed little into). The asks to approve two PRs still stand: waiting on the user, the question kept. Which replies the model offers varies (\"merge PR #61\" or \"approve PR #61\"), so the offers are not pinned here; the screen gate's unit test pins the \"merge PR #N\" shape.",
+  "current_command": "claude",
+  "capture": "❯ get the two PRs merged\n\n● Both PRs are green. Still waiting on you:\n  - Approvals to merge PR #61 and PR #62: #61 caps upload retries at five, #62 adds\n    the quota alert. Each needs one approval and merges itself once it has it.\n  - The flaky e2e test is still to fix; I'll take it once these land.\n\n✻ Worked for 14s · done 3:12 PM\n\u001e[visible screen]\u001f\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n────────────────────────────────────────────────── demo ─\n❯\n──────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | dev@example.com\n  session: +10/-2 lines · 12% ctx · 50m · $1.40\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Both PRs are green; waiting for the user to approve and merge them"
+  }
+}

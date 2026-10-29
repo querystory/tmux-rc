@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: Claude Code's AskUserQuestion picker in a narrow pane. Its question ends mid-row of a wrapped │-barred paragraph, so no cursor walk can ground it as a row; every option, the ❯ highlighted one included, is drawn behind the digit that commits it in one key. The card must be the menu (a digit answers any row), not a cursor list the phone cannot walk. The ⟪dim⟫ markers sit where the capture puts them.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ check the tide table import\n\n● The importer reads both tables and they disagree on two harbors.\n\n⟪dim⟫──────────────────────────────────────────────⟪/dim⟫\n⟪dim⟫│ ⟪/dim⟫The old tide table and the new one disagree  \n⟪dim⟫│ ⟪/dim⟫on two harbors. The new one matches the       \n⟪dim⟫│ ⟪/dim⟫gauge readings. I recommend keeping the new   \n⟪dim⟫│ ⟪/dim⟫one. What should I do?                        \n\n❯ 1. Keep the new table (Recommended)          \n     ⟪dim⟫Drop the old table and its nightly job.     \n  2.⟪/dim⟫ Keep both                                  \n     ⟪dim⟫Leave the old table for a week.             \n  3.⟪/dim⟫ Keep the old table                         \n     ⟪dim⟫Revert the importer to the old source.      \n  4. Type something.                           \n──────────────────────────────────────────────\n⟪/dim⟫  5. Chat about this\n\n⟪dim⟫Enter to select · ↑/↓ to navigate · Esc to cancel⟪/dim⟫\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "menu"
+    },
+    "headline": "Asking whether to keep the new tide table"
+  }
+}
