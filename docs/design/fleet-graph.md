@@ -35,7 +35,9 @@ opened inline with full screen one tap away. That in-between state earned nothin
 inline, the graph sat in a strip under the title bar too small to pan, and the first thing
 everyone did was tap full screen. So a phone opens it full screen again, the toggle's place
 taken by a close that does what the title bar's Back did (back to the card, or the
-Dashboard), and Esc does the same; a wider screen keeps the toggle. The Fullscreen API was passed over because an iPhone grants it to
+Dashboard), and Esc does the same; a wider screen keeps the toggle. Full screen also covers
+the bar that holds the account filter on a phone, so there the filter button and its chips
+head the view in a strip of their own: a scoped graph says so, and widens without leaving. The Fullscreen API was passed over because an iPhone grants it to
 video only, so it would add a code path that does nothing on the device that wanted this.
 
 ## The look

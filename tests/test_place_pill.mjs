@@ -24,15 +24,23 @@ class Node {
 function place(page) {
   const root = new Node("root"), nodes = {};
   for (const id of ["dash-page", "find", "new-window", "heat-card", "picker", "pill"]) root.append(nodes[id] = new Node(id));
-  const bar = new Node("landing-head");
+  const bar = new Node("landing-head"), scope = new Node("fg-scope");
   nodes["dash-page"].append(bar);
   nodes["dash-page"].querySelector = () => bar;
-  const sandbox = { page, dashboard: true, WIDE: { matches: false }, CARDS: { heat: "heat-card", usage: "usage-panel", loops: "loops-card" },
-    $: (id) => nodes[id], renderSidebar: { picker: nodes.picker }, accounts: { pill: nodes.pill }, document: { querySelector: () => null } };
+  const sandbox = { page, dashboard: true, WIDE: { matches: false }, CARDS: { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" },
+    $: (id) => nodes[id], renderSidebar: { picker: nodes.picker }, accounts: { pill: nodes.pill }, document: { querySelector: () => null },
+    graphView: { querySelector: () => scope } };
   vm.createContext(sandbox);
   vm.runInContext(`${block}; placePill();`, sandbox);
-  return { bar, ...nodes };
+  return { bar, scope, ...nodes };
 }
+
+test("the graph's page seats the picker and the pill in the view's own strip, which its full screen shows", () => {
+  const { bar, scope, picker, pill } = place("graph");
+  assert.equal(picker.parentElement, scope);
+  assert.equal(pill.previousElementSibling, picker);
+  assert.equal(bar.kids.length, 0);
+});
 
 test("a card's page puts the picker and the pill in its head bar", () => {
   for (const page of ["heat", "usage", "loops"]) {
